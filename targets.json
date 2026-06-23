@@ -1,0 +1,4 @@
+[
+  { "name": "Anthropic", "ats": "ashby", "token": "anthropic" },
+  { "name": "Modal", "ats": "greenhouse", "token": "modallabs" }
+]

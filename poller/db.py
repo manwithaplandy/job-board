@@ -90,3 +90,35 @@ def close_jobs(conn, company_id: int, external_ids: set[str]) -> int:
             (company_id, list(external_ids)),
         )
         return cur.rowcount
+
+
+def start_run(conn) -> int:
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO poll_runs (started_at) VALUES (now()) RETURNING id")
+        return cur.fetchone()["id"]
+
+
+def finish_run(
+    conn,
+    run_id: int,
+    *,
+    companies_ok: int,
+    companies_failed: int,
+    new_jobs: int,
+    closed_jobs: int,
+    notes: str | None,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE poll_runs SET
+                finished_at      = now(),
+                companies_ok     = %s,
+                companies_failed = %s,
+                new_jobs         = %s,
+                closed_jobs      = %s,
+                notes            = %s
+            WHERE id = %s
+            """,
+            (companies_ok, companies_failed, new_jobs, closed_jobs, notes, run_id),
+        )

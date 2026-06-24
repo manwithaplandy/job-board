@@ -4,8 +4,7 @@ Polls the public APIs of applicant-tracking systems (Greenhouse, Lever, Ashby)
 for a curated list of companies, detects newly opened and closed roles, and
 stores them in Postgres for a read-only dashboard.
 
-See [`job-tracker-prd.md`](job-tracker-prd.md) for the full product spec and
-[`docs/superpowers/plans/`](docs/superpowers/plans/) for the implementation plans.
+See [`job-tracker-prd.md`](job-tracker-prd.md) for the full product spec.
 
 ## Components
 

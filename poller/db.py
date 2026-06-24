@@ -63,3 +63,30 @@ def upsert_job(conn, company_id: int, ats: str, token: str, p: Posting) -> bool:
             ),
         )
         return cur.fetchone()["inserted"]
+
+
+def compute_newly_closed(
+    open_external_ids: set[str], seen_external_ids: set[str]
+) -> set[str]:
+    return open_external_ids - seen_external_ids
+
+
+def get_open_external_ids(conn, company_id: int) -> set[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT external_id FROM jobs WHERE company_id = %s AND closed_at IS NULL",
+            (company_id,),
+        )
+        return {r["external_id"] for r in cur.fetchall()}
+
+
+def close_jobs(conn, company_id: int, external_ids: set[str]) -> int:
+    if not external_ids:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET closed_at = now() "
+            "WHERE company_id = %s AND closed_at IS NULL AND external_id = ANY(%s)",
+            (company_id, list(external_ids)),
+        )
+        return cur.rowcount

@@ -23,24 +23,28 @@ def run(dsn: str | None = None) -> None:
             company_id = company_ids[(ats, token)]
             try:
                 postings = ADAPTERS[ats](token)
-            except Exception as exc:  # per-company isolation (FR-4)
+                seen: set[str] = set()
+                for p in postings:
+                    if not p.url or not p.title:
+                        log.warning(
+                            "skipping malformed posting (missing url/title) for %s: %r",
+                            t["name"], p.external_id,
+                        )
+                        continue
+                    if db.upsert_job(conn, company_id, ats, token, p):
+                        new_jobs += 1
+                    seen.add(p.external_id)
+                open_ids = db.get_open_external_ids(conn, company_id)
+                closed_jobs += db.close_jobs(
+                    conn, company_id, db.compute_newly_closed(open_ids, seen)
+                )
+                conn.commit()
+                ok += 1
+            except Exception as exc:  # per-company isolation (FR-4) incl. DB errors
+                conn.rollback()
                 failed += 1
                 failures.append(f"{t['name']}: {type(exc).__name__}: {exc}")
-                log.exception("fetch failed for %s (%s:%s)", t["name"], ats, token)
-                continue
-
-            seen: set[str] = set()
-            for p in postings:
-                if db.upsert_job(conn, company_id, ats, token, p):
-                    new_jobs += 1
-                seen.add(p.external_id)
-
-            open_ids = db.get_open_external_ids(conn, company_id)
-            closed_jobs += db.close_jobs(
-                conn, company_id, db.compute_newly_closed(open_ids, seen)
-            )
-            ok += 1
-            conn.commit()
+                log.exception("poll failed for %s (%s:%s)", t["name"], ats, token)
 
         db.finish_run(
             conn, run_id,

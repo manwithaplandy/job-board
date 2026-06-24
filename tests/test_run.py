@@ -87,3 +87,38 @@ def test_disappeared_role_closes_then_reopens(conn, monkeypatch):
     with conn.cursor() as cur:
         cur.execute("SELECT closed_at FROM jobs WHERE id = 'ashby:acme:7'")
         assert cur.fetchone()["closed_at"] is None
+
+
+@requires_db
+def test_db_error_isolated_and_run_completes(conn, monkeypatch):
+    # C1 regression: a real DB error for one company must not abort the run,
+    # must roll back cleanly, count that company failed, and still record the run.
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(
+        run_module, "load_targets",
+        lambda: [
+            {"name": "Bad", "ats": "lever", "token": "bad"},
+            {"name": "Good", "ats": "greenhouse", "token": "good"},
+        ],
+    )
+    # external_id=None violates NOT NULL -> real DB error inside upsert_job
+    monkeypatch.setitem(
+        ADAPTERS, "lever",
+        lambda token: [Posting(external_id=None, title="Eng", url="u")],
+    )
+    monkeypatch.setitem(
+        ADAPTERS, "greenhouse",
+        lambda token: [Posting(external_id="1", title="Engineer", url="u")],
+    )
+
+    run_module.run()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM jobs")
+        assert cur.fetchone()["n"] == 1  # Good company's job survived the rollback
+        cur.execute("SELECT * FROM poll_runs ORDER BY id DESC LIMIT 1")
+        last = cur.fetchone()
+    assert last["companies_ok"] == 1
+    assert last["companies_failed"] == 1
+    assert last["finished_at"] is not None  # run completed, did not abort
+    assert "Bad" in (last["notes"] or "")

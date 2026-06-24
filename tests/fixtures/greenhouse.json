@@ -1,0 +1,21 @@
+{
+  "jobs": [
+    {
+      "id": 4012345,
+      "title": "Senior Software Engineer",
+      "updated_at": "2026-06-20T12:00:00-04:00",
+      "location": { "name": "Remote - US" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/4012345",
+      "departments": [{ "id": 1, "name": "Engineering" }]
+    },
+    {
+      "id": 4012346,
+      "title": "Product Manager",
+      "updated_at": "2026-06-19T09:00:00-04:00",
+      "location": { "name": "New York, NY" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/4012346",
+      "departments": []
+    }
+  ],
+  "meta": { "total": 2 }
+}

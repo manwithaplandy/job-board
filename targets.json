@@ -1,4 +1,5 @@
 [
-  { "name": "Anthropic", "ats": "ashby", "token": "anthropic" },
-  { "name": "Modal", "ats": "greenhouse", "token": "modallabs" }
+  { "name": "Linear", "ats": "ashby", "token": "linear" },
+  { "name": "Mistral AI", "ats": "lever", "token": "mistral" },
+  { "name": "Vercel", "ats": "greenhouse", "token": "vercel" }
 ]

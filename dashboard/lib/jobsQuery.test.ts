@@ -44,6 +44,19 @@ describe("buildJobsQuery", () => {
     expect(q.values).toEqual(["%engineer%", "%manager%"]);
   });
 
+  test("combined filters keep placeholder numbers in lockstep with values order", () => {
+    const q = buildJobsQuery({
+      ...base,
+      companies: [1, 2],
+      include: ["engineer"],
+      exclude: ["manager"],
+    });
+    expect(q.text).toContain("j.company_id = ANY($1)");
+    expect(q.text).toContain("j.title ILIKE $2");
+    expect(q.text).toContain("j.title NOT ILIKE $3");
+    expect(q.values).toEqual([[1, 2], "%engineer%", "%manager%"]);
+  });
+
   test("remoteOnly adds remote IS TRUE", () => {
     expect(buildJobsQuery({ ...base, remoteOnly: true }).text).toContain(
       "j.remote IS TRUE",

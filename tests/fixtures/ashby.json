@@ -1,0 +1,22 @@
+{
+  "apiVersion": "1",
+  "jobs": [
+    {
+      "id": "11111111-2222-3333-4444-555555555555",
+      "title": "Research Engineer",
+      "location": "San Francisco, CA",
+      "department": "Research",
+      "isRemote": true,
+      "jobUrl": "https://jobs.ashbyhq.com/acme/11111111",
+      "applyUrl": "https://jobs.ashbyhq.com/acme/11111111/application"
+    },
+    {
+      "id": "66666666-7777-8888-9999-000000000000",
+      "title": "Recruiter",
+      "location": "London, UK",
+      "department": "People",
+      "isRemote": false,
+      "jobUrl": "https://jobs.ashbyhq.com/acme/66666666"
+    }
+  ]
+}

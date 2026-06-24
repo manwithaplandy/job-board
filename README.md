@@ -43,3 +43,14 @@ TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" .venv
 - `targets.json` — the tracked companies (`{ name, ats, token }`); `ats` is one
   of `greenhouse` / `lever` / `ashby`.
 - `DATABASE_URL` — Postgres connection string (Railway service variable; never committed).
+
+## Deployment
+
+- **Poller** → Railway cron service (`0 */2 * * *` UTC), root `/`, start `python -m poller`.
+  Railway **watch patterns** are scoped to backend paths (`poller/**`, `requirements.txt`,
+  `pyproject.toml`, `railway.json`, `targets.json`, `schema.sql`), so frontend/docs-only
+  commits do not rebuild the poller.
+- **Database** → Supabase (Postgres). Apply `schema.sql` as a migration.
+- **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
+
+Pushes to `main` auto-deploy the affected component.

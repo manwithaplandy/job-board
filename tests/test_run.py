@@ -1,7 +1,6 @@
 import os
 
 import poller.run as run_module
-from poller import db
 from poller.adapters import ADAPTERS
 from poller.models import Posting
 from tests.conftest import requires_db

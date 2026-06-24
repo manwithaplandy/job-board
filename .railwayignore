@@ -1,0 +1,11 @@
+.venv/
+.git/
+.superpowers/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.env
+.env.*
+docs/
+node_modules/

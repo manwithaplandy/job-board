@@ -1,0 +1,16 @@
+[
+  {
+    "id": "abc-123-def",
+    "text": "Staff Backend Engineer",
+    "hostedUrl": "https://jobs.lever.co/acme/abc-123-def",
+    "workplaceType": "remote",
+    "categories": { "location": "San Francisco", "team": "Platform", "department": "Engineering" }
+  },
+  {
+    "id": "ghi-456-jkl",
+    "text": "Office Manager",
+    "hostedUrl": "https://jobs.lever.co/acme/ghi-456-jkl",
+    "workplaceType": "on-site",
+    "categories": { "location": "Austin, TX", "team": "Operations" }
+  }
+]

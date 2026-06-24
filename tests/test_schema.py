@@ -1,3 +1,5 @@
+import psycopg
+import pytest
 from tests.conftest import requires_db
 
 
@@ -14,9 +16,7 @@ def test_tables_exist(conn):
 
 @requires_db
 def test_ats_check_constraint(conn):
-    import psycopg
-
-    with conn.cursor() as cur, __import__("pytest").raises(psycopg.errors.CheckViolation):
+    with conn.cursor() as cur, pytest.raises(psycopg.errors.CheckViolation):
         cur.execute(
             "INSERT INTO companies (name, ats, token) VALUES ('X', 'workday', 't')"
         )

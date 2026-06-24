@@ -3,11 +3,8 @@ from pathlib import Path
 
 import pytest
 
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except ImportError:  # pragma: no cover
-    psycopg = None
+import psycopg
+from psycopg.rows import dict_row
 
 SCHEMA_SQL = (Path(__file__).resolve().parent.parent / "schema.sql").read_text()
 TEST_DSN = os.environ.get("TEST_DATABASE_URL")

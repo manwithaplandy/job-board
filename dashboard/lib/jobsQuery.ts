@@ -19,6 +19,8 @@ export function buildJobsQuery(f: Filters, userId: string): SqlQuery {
   else if (f.verdict === "pending") where.push("r.job_id IS NULL");
   // "all" adds no verdict clause
 
+  where.push("r.error IS NULL");
+
   if (f.companies.length) {
     where.push(`j.company_id = ANY(${ph()})`);
     values.push(f.companies);
@@ -32,17 +34,19 @@ export function buildJobsQuery(f: Filters, userId: string): SqlQuery {
     values.push(`%${kw}%`);
   }
   if (f.remoteOnly) where.push("j.remote IS TRUE");
-  if (f.experience) {
-    where.push(`r.experience_match = ${ph()}`);
-    values.push(f.experience);
-  }
-  if (f.industry) {
-    where.push(`r.industry = ${ph()}`);
-    values.push(f.industry);
-  }
-  if (f.subcategory) {
-    where.push(`r.industry_subcategory = ${ph()}`);
-    values.push(f.subcategory);
+  if (f.verdict === "approve" || f.verdict === "deny" || f.verdict === "all") {
+    if (f.experience) {
+      where.push(`r.experience_match = ${ph()}`);
+      values.push(f.experience);
+    }
+    if (f.industry) {
+      where.push(`r.industry = ${ph()}`);
+      values.push(f.industry);
+    }
+    if (f.subcategory) {
+      where.push(`r.industry_subcategory = ${ph()}`);
+      values.push(f.subcategory);
+    }
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

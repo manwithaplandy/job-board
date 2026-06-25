@@ -1,5 +1,5 @@
 import { parseFilters } from "@/lib/filters";
-import { getCompanies, getJobs, getLatestPollRun, getLatestReviewRun } from "@/lib/queries";
+import { getCompanies, getJobs, getLatestPollRun, getLatestReviewRun, getReviewStats } from "@/lib/queries";
 import {
   DEFAULT_INCLUDE_KEYWORDS,
   NEW_WINDOW_HOURS,
@@ -22,11 +22,12 @@ export default async function Page({
   const params = await searchParams;
   const filters = parseFilters(params, { include: DEFAULT_INCLUDE_KEYWORDS });
 
-  const [jobs, companies, lastRun, lastReview] = await Promise.all([
+  const [jobs, companies, lastRun, lastReview, reviewStats] = await Promise.all([
     getJobs(filters, userId),
     getCompanies(),
     getLatestPollRun(),
     getLatestReviewRun(),
+    getReviewStats(userId),
   ]);
 
   const now = new Date();
@@ -34,7 +35,7 @@ export default async function Page({
 
   return (
     <main>
-      <Header lastRun={lastRun} health={health} lastReview={lastReview} />
+      <Header lastRun={lastRun} health={health} lastReview={lastReview} reviewStats={reviewStats} />
       <FilterBar companies={companies} filters={filters} />
       <JobsTable jobs={jobs} nowIso={now.toISOString()} windowHours={NEW_WINDOW_HOURS} />
     </main>

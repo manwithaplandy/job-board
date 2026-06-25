@@ -1,7 +1,7 @@
 import { sql } from "@/lib/db";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { CompanyRow, JobRow, PollRunRow, ReviewRunRow, ProfileRow } from "@/lib/types";
+import type { CompanyRow, JobRow, PollRunRow, ReviewRunRow, ProfileRow, ReviewStats } from "@/lib/types";
 import { profileVersion } from "@/lib/profileVersion";
 
 export async function getJobs(f: Filters, userId: string): Promise<JobRow[]> {
@@ -12,9 +12,21 @@ export async function getJobs(f: Filters, userId: string): Promise<JobRow[]> {
 
 export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {
   const rows = await sql`
-    SELECT * FROM review_runs ORDER BY started_at DESC LIMIT 1
+    SELECT * FROM review_runs WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1
   `;
   return (rows[0] as unknown as ReviewRunRow) ?? null;
+}
+
+export async function getReviewStats(userId: string): Promise<ReviewStats> {
+  const rows = await sql`
+    SELECT
+      (count(*) FILTER (WHERE r.job_id IS NULL))::int      AS unreviewed,
+      (count(*) FILTER (WHERE r.error IS NOT NULL))::int    AS errors
+    FROM jobs j
+    LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
+    WHERE j.closed_at IS NULL
+  `;
+  return (rows[0] as unknown as ReviewStats) ?? { unreviewed: 0, errors: 0 };
 }
 
 export async function getCompanies(): Promise<CompanyRow[]> {

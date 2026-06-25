@@ -10,4 +10,7 @@ describe("queries module exports", () => {
     expect(typeof queries.getJobs).toBe("function");
     expect(typeof queries.getLatestReviewRun).toBe("function");
   });
+  test("exposes getReviewStats", () => {
+    expect(typeof queries.getReviewStats).toBe("function");
+  });
 });

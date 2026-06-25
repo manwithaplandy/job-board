@@ -4,6 +4,22 @@ import {
   VERDICT_OPTIONS, EXPERIENCE_OPTIONS, INDUSTRY_OPTIONS, SUBCATEGORY_OPTIONS,
 } from "@/lib/config";
 
+function SelectFilter({ label, name, value, options, includeAny }: {
+  label: string; name: string; value: string;
+  options: readonly string[]; includeAny?: boolean;
+}) {
+  return (
+    <label className="flex flex-col text-xs text-gray-600">
+      {label}
+      <select name={name} defaultValue={value}
+        className="mt-1 rounded border px-2 py-1 text-sm">
+        {includeAny && <option value="">any</option>}
+        {options.map((v) => <option key={v} value={v}>{v}</option>)}
+      </select>
+    </label>
+  );
+}
+
 export function FilterBar({
   companies,
   filters,
@@ -67,40 +83,17 @@ export function FilterBar({
         Remote only
       </label>
 
-      <label className="flex flex-col text-xs text-gray-600">
-        Verdict
-        <select name="verdict" defaultValue={filters.verdict}
-          className="mt-1 rounded border px-2 py-1 text-sm">
-          {VERDICT_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-      </label>
+      <SelectFilter label="Verdict" name="verdict" value={filters.verdict}
+        options={VERDICT_OPTIONS} />
 
-      <label className="flex flex-col text-xs text-gray-600">
-        Experience
-        <select name="experience" defaultValue={filters.experience}
-          className="mt-1 rounded border px-2 py-1 text-sm">
-          <option value="">any</option>
-          {EXPERIENCE_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-      </label>
+      <SelectFilter label="Experience" name="experience" value={filters.experience}
+        options={EXPERIENCE_OPTIONS} includeAny />
 
-      <label className="flex flex-col text-xs text-gray-600">
-        Industry
-        <select name="industry" defaultValue={filters.industry}
-          className="mt-1 rounded border px-2 py-1 text-sm">
-          <option value="">any</option>
-          {INDUSTRY_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-      </label>
+      <SelectFilter label="Industry" name="industry" value={filters.industry}
+        options={INDUSTRY_OPTIONS} includeAny />
 
-      <label className="flex flex-col text-xs text-gray-600">
-        Subcategory
-        <select name="subcategory" defaultValue={filters.subcategory}
-          className="mt-1 rounded border px-2 py-1 text-sm">
-          <option value="">any</option>
-          {SUBCATEGORY_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-      </label>
+      <SelectFilter label="Subcategory" name="subcategory" value={filters.subcategory}
+        options={SUBCATEGORY_OPTIONS} includeAny />
 
       <button
         type="submit"

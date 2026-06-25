@@ -63,4 +63,23 @@ describe("buildJobsQuery", () => {
     expect(q.text).toContain("j.title NOT ILIKE $3");
     expect(q.values).toEqual([UID, "%engineer%", "%manager%"]);
   });
+
+  test("errored rows excluded by default (r.error IS NULL always present)", () => {
+    expect(buildJobsQuery(base, UID).text).toContain("r.error IS NULL");
+  });
+
+  test("verdict=all still contains r.error IS NULL", () => {
+    expect(buildJobsQuery({ ...base, verdict: "all" }, UID).text).toContain("r.error IS NULL");
+  });
+
+  test("verdict=pending + experience skips dimension filter but retains pending clause", () => {
+    const q = buildJobsQuery({ ...base, verdict: "pending", experience: "reach" }, UID);
+    expect(q.text).not.toContain("r.experience_match =");
+    expect(q.text).toContain("r.job_id IS NULL");
+  });
+
+  test("verdict=approve + experience applies dimension filter", () => {
+    const q = buildJobsQuery({ ...base, verdict: "approve", experience: "reach" }, UID);
+    expect(q.text).toContain("r.experience_match = $2");
+  });
 });

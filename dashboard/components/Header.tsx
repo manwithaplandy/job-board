@@ -1,5 +1,5 @@
 import type { Health } from "@/lib/status";
-import type { PollRunRow, ReviewRunRow } from "@/lib/types";
+import type { PollRunRow, ReviewRunRow, ReviewStats } from "@/lib/types";
 
 const DOT: Record<Health, string> = {
   ok: "bg-green-500",
@@ -17,10 +17,12 @@ export function Header({
   lastRun,
   health,
   lastReview,
+  reviewStats,
 }: {
   lastRun: PollRunRow | null;
   health: Health;
   lastReview: ReviewRunRow | null;
+  reviewStats: ReviewStats | null;
 }) {
   const finished = lastRun?.finished_at
     ? new Date(lastRun.finished_at).toLocaleString()
@@ -36,6 +38,14 @@ export function Header({
           <span className="text-gray-500">
             Reviews: {lastReview.approved ?? 0}✓ / {lastReview.denied ?? 0}✗
             {(lastReview.errors ?? 0) > 0 ? ` / ${lastReview.errors}⚠` : ""}
+          </span>
+        )}
+        {reviewStats && (
+          <span className="text-gray-500">
+            {reviewStats.unreviewed} unreviewed
+            {reviewStats.errors > 0 ? (
+              <span className="text-amber-600"> · {reviewStats.errors} errored</span>
+            ) : null}
           </span>
         )}
         <a href="/profile" className="text-blue-700 hover:underline">Profile</a>

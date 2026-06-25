@@ -54,3 +54,8 @@ export interface ProfileRow {
   profile_version: string;
   updated_at: string;
 }
+
+export interface ReviewStats {
+  unreviewed: number;
+  errors: number;
+}

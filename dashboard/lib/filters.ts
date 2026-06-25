@@ -1,5 +1,7 @@
+import { VERDICT_OPTIONS } from "@/lib/config";
+
 export type Status = "open" | "closed" | "all";
-export type Verdict = "approve" | "deny" | "gate_rejected" | "pending" | "all";
+export type Verdict = (typeof VERDICT_OPTIONS)[number];
 
 export interface Filters {
   companies: number[];
@@ -17,8 +19,6 @@ const FILTER_KEYS = [
   "company", "include", "exclude", "remote", "status",
   "verdict", "experience", "industry", "subcategory",
 ] as const;
-
-const VERDICTS: Verdict[] = ["approve", "deny", "gate_rejected", "pending", "all"];
 
 function first(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
@@ -39,7 +39,7 @@ export function parseFilters(
     status === "closed" || status === "all" ? status : "open";
   const verdictRaw = first(params.verdict);
   const verdict: Verdict =
-    verdictRaw && VERDICTS.includes(verdictRaw as Verdict)
+    verdictRaw && (VERDICT_OPTIONS as readonly string[]).includes(verdictRaw)
       ? (verdictRaw as Verdict)
       : "approve";
 

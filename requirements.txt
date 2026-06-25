@@ -3,3 +3,4 @@
 # with [project.dependencies] in pyproject.toml (used for local dev/tests).
 httpx>=0.27
 psycopg[binary]>=3.2
+anthropic>=0.100.0

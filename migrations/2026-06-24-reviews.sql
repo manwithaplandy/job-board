@@ -31,7 +31,6 @@ CREATE TABLE IF NOT EXISTS job_reviews (
 );
 CREATE INDEX IF NOT EXISTS idx_job_reviews_user_verdict ON job_reviews (user_id, verdict);
 CREATE INDEX IF NOT EXISTS idx_job_reviews_user_profile_version ON job_reviews (user_id, profile_version);
-CREATE INDEX IF NOT EXISTS idx_review_runs_started_at ON review_runs (started_at DESC);
 
 CREATE TABLE IF NOT EXISTS review_runs (
   id            SERIAL PRIMARY KEY,
@@ -44,3 +43,4 @@ CREATE TABLE IF NOT EXISTS review_runs (
   errors        INT,
   notes         TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_review_runs_started_at ON review_runs (started_at DESC);

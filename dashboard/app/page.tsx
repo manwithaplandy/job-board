@@ -1,16 +1,16 @@
 import { parseFilters } from "@/lib/filters";
-import { getCompanies, getJobs, getLatestPollRun } from "@/lib/queries";
+import { getCompanies, getJobs, getLatestPollRun, getLatestReviewRun } from "@/lib/queries";
 import {
   DEFAULT_INCLUDE_KEYWORDS,
   NEW_WINDOW_HOURS,
   STALE_HEALTH_HOURS,
 } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
+import { requireUserId } from "@/lib/auth";
 import { Header } from "@/components/Header";
 import { FilterBar } from "@/components/FilterBar";
 import { JobsTable } from "@/components/JobsTable";
 
-// Always render fresh data (read-only DB query per request).
 export const dynamic = "force-dynamic";
 
 export default async function Page({
@@ -18,13 +18,15 @@ export default async function Page({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const userId = await requireUserId();
   const params = await searchParams;
   const filters = parseFilters(params, { include: DEFAULT_INCLUDE_KEYWORDS });
 
-  const [jobs, companies, lastRun] = await Promise.all([
-    getJobs(filters),
+  const [jobs, companies, lastRun, lastReview] = await Promise.all([
+    getJobs(filters, userId),
     getCompanies(),
     getLatestPollRun(),
+    getLatestReviewRun(),
   ]);
 
   const now = new Date();
@@ -32,7 +34,7 @@ export default async function Page({
 
   return (
     <main>
-      <Header lastRun={lastRun} health={health} />
+      <Header lastRun={lastRun} health={health} lastReview={lastReview} />
       <FilterBar companies={companies} filters={filters} />
       <JobsTable jobs={jobs} nowIso={now.toISOString()} windowHours={NEW_WINDOW_HOURS} />
     </main>

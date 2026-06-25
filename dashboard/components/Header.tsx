@@ -1,5 +1,5 @@
 import type { Health } from "@/lib/status";
-import type { PollRunRow } from "@/lib/types";
+import type { PollRunRow, ReviewRunRow } from "@/lib/types";
 
 const DOT: Record<Health, string> = {
   ok: "bg-green-500",
@@ -16,9 +16,11 @@ const LABEL: Record<Health, string> = {
 export function Header({
   lastRun,
   health,
+  lastReview,
 }: {
   lastRun: PollRunRow | null;
   health: Health;
+  lastReview: ReviewRunRow | null;
 }) {
   const finished = lastRun?.finished_at
     ? new Date(lastRun.finished_at).toLocaleString()
@@ -26,13 +28,20 @@ export function Header({
   return (
     <header className="flex items-center justify-between border-b bg-white px-6 py-4">
       <h1 className="text-lg font-semibold">Remote Job Tracker</h1>
-      <div className="flex items-center gap-2 text-sm text-gray-600">
+      <div className="flex items-center gap-4 text-sm text-gray-600">
         <span>Last poll: {finished}</span>
-        <span
-          className={`inline-block h-3 w-3 rounded-full ${DOT[health]}`}
-          title={LABEL[health]}
-          aria-label={LABEL[health]}
-        />
+        <span className={`inline-block h-3 w-3 rounded-full ${DOT[health]}`}
+          title={LABEL[health]} aria-label={LABEL[health]} />
+        {lastReview && (
+          <span className="text-gray-500">
+            Reviews: {lastReview.approved ?? 0}✓ / {lastReview.denied ?? 0}✗
+            {(lastReview.errors ?? 0) > 0 ? ` / ${lastReview.errors}⚠` : ""}
+          </span>
+        )}
+        <a href="/profile" className="text-blue-700 hover:underline">Profile</a>
+        <form action="/auth/signout" method="post">
+          <button type="submit" className="text-blue-700 hover:underline">Sign out</button>
+        </form>
       </div>
     </header>
   );

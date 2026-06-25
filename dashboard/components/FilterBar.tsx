@@ -1,5 +1,8 @@
 import type { CompanyRow } from "@/lib/types";
 import type { Filters } from "@/lib/filters";
+import {
+  VERDICT_OPTIONS, EXPERIENCE_OPTIONS, INDUSTRY_OPTIONS, SUBCATEGORY_OPTIONS,
+} from "@/lib/config";
 
 export function FilterBar({
   companies,
@@ -62,6 +65,41 @@ export function FilterBar({
       <label className="flex items-center gap-1 text-sm text-gray-700">
         <input type="checkbox" name="remote" value="1" defaultChecked={filters.remoteOnly} />
         Remote only
+      </label>
+
+      <label className="flex flex-col text-xs text-gray-600">
+        Verdict
+        <select name="verdict" defaultValue={filters.verdict}
+          className="mt-1 rounded border px-2 py-1 text-sm">
+          {VERDICT_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </label>
+
+      <label className="flex flex-col text-xs text-gray-600">
+        Experience
+        <select name="experience" defaultValue={filters.experience}
+          className="mt-1 rounded border px-2 py-1 text-sm">
+          <option value="">any</option>
+          {EXPERIENCE_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </label>
+
+      <label className="flex flex-col text-xs text-gray-600">
+        Industry
+        <select name="industry" defaultValue={filters.industry}
+          className="mt-1 rounded border px-2 py-1 text-sm">
+          <option value="">any</option>
+          {INDUSTRY_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </label>
+
+      <label className="flex flex-col text-xs text-gray-600">
+        Subcategory
+        <select name="subcategory" defaultValue={filters.subcategory}
+          className="mt-1 rounded border px-2 py-1 text-sm">
+          <option value="">any</option>
+          {SUBCATEGORY_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
       </label>
 
       <button

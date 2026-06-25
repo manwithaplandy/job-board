@@ -4,10 +4,18 @@ export interface JobRow {
   url: string;
   location: string | null;
   remote: boolean | null;
-  first_seen_at: string; // ISO timestamp
+  first_seen_at: string;
   closed_at: string | null;
   company_name: string;
   ats: string;
+  verdict: string | null;
+  experience_match: string | null;
+  industry: string | null;
+  industry_subcategory: string | null;
+  confidence: string | null;
+  reasoning: string | null;
+  stage1_decision: string | null;
+  stage1_reason: string | null;
 }
 
 export interface CompanyRow {
@@ -23,6 +31,18 @@ export interface PollRunRow {
   companies_failed: number | null;
   new_jobs: number | null;
   closed_jobs: number | null;
+  notes: string | null;
+}
+
+export interface ReviewRunRow {
+  id: number;
+  started_at: string;
+  finished_at: string | null;
+  reviewed: number | null;
+  gate_rejected: number | null;
+  approved: number | null;
+  denied: number | null;
+  errors: number | null;
   notes: string | null;
 }
 

@@ -1,13 +1,20 @@
 import { sql } from "@/lib/db";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { CompanyRow, JobRow, PollRunRow, ProfileRow } from "@/lib/types";
+import type { CompanyRow, JobRow, PollRunRow, ReviewRunRow, ProfileRow } from "@/lib/types";
 import { profileVersion } from "@/lib/profileVersion";
 
-export async function getJobs(f: Filters): Promise<JobRow[]> {
-  const { text, values } = buildJobsQuery(f);
+export async function getJobs(f: Filters, userId: string): Promise<JobRow[]> {
+  const { text, values } = buildJobsQuery(f, userId);
   const rows = await sql.unsafe(text, values as never[]);
   return rows as unknown as JobRow[];
+}
+
+export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {
+  const rows = await sql`
+    SELECT * FROM review_runs ORDER BY started_at DESC LIMIT 1
+  `;
+  return (rows[0] as unknown as ReviewRunRow) ?? null;
 }
 
 export async function getCompanies(): Promise<CompanyRow[]> {

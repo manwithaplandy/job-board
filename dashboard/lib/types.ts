@@ -25,3 +25,12 @@ export interface PollRunRow {
   closed_jobs: number | null;
   notes: string | null;
 }
+
+export interface ProfileRow {
+  user_id: string;
+  resume_text: string | null;
+  resume_file_path: string | null;
+  instructions: string | null;
+  profile_version: string;
+  updated_at: string;
+}

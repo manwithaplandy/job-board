@@ -1,7 +1,8 @@
 import { sql } from "@/lib/db";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { CompanyRow, JobRow, PollRunRow } from "@/lib/types";
+import type { CompanyRow, JobRow, PollRunRow, ProfileRow } from "@/lib/types";
+import { profileVersion } from "@/lib/profileVersion";
 
 export async function getJobs(f: Filters): Promise<JobRow[]> {
   const { text, values } = buildJobsQuery(f);
@@ -21,4 +22,29 @@ export async function getLatestPollRun(): Promise<PollRunRow | null> {
     SELECT * FROM poll_runs ORDER BY started_at DESC LIMIT 1
   `;
   return (rows[0] as unknown as PollRunRow) ?? null;
+}
+
+export async function getProfile(userId: string): Promise<ProfileRow | null> {
+  // ::uuid — postgres.js binds the JS string as text; the uuid column needs the cast.
+  const rows = await sql`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`;
+  return (rows[0] as unknown as ProfileRow) ?? null;
+}
+
+export async function upsertProfile(
+  userId: string,
+  data: { resumeText: string | null; instructions: string | null; resumeFilePath: string | null },
+): Promise<void> {
+  const version = profileVersion(data.resumeText, data.instructions);
+  await sql`
+    INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
+                          profile_version, updated_at)
+    VALUES (${userId}::uuid, ${data.resumeText}, ${data.instructions},
+            ${data.resumeFilePath}, ${version}, now())
+    ON CONFLICT (user_id) DO UPDATE SET
+      resume_text      = EXCLUDED.resume_text,
+      instructions     = EXCLUDED.instructions,
+      resume_file_path = EXCLUDED.resume_file_path,
+      profile_version  = EXCLUDED.profile_version,
+      updated_at       = now()
+  `;
 }

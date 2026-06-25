@@ -2419,7 +2419,14 @@ git commit -m "feat(dashboard): jobs query joins reviews + verdict/experience/in
 **Files:**
 - Modify: `dashboard/lib/queries.ts` (`getJobs(f, userId)`, `getLatestReviewRun()`)
 - Modify: `dashboard/lib/types.ts` (`JobRow` review fields, `ReviewRunRow`)
+- Modify: `dashboard/vitest.config.ts` (provide a dummy `DATABASE_URL` for tests — see Step 1b)
 - Test: `dashboard/lib/smoke.test.ts` (extend the existing smoke test to cover the new exports compile/shape)
+
+> **PLAN FIX (verified 2026-06-24):** vitest does **not** load `.env.local`, so
+> `process.env.DATABASE_URL` is unset under vitest. The smoke test imports
+> `@/lib/queries`, which imports `@/lib/db`, which throws `"DATABASE_URL is not
+> set"` at module load — the test cannot even import. postgres.js connects
+> lazily, so a dummy value is enough. Set it in `vitest.config.ts` (Step 1b).
 
 **Interfaces:**
 - Consumes: `buildJobsQuery(f, userId)` (Task 13).
@@ -2443,10 +2450,24 @@ describe("queries module exports", () => {
 
 (If `smoke.test.ts` already imports `@/lib/queries`, add only the new `expect` lines rather than duplicating the import.)
 
+- [ ] **Step 1b: Give vitest a dummy `DATABASE_URL`** (required — see PLAN FIX note above)
+
+In `dashboard/vitest.config.ts`, add an `env` entry to the `test` block so importing `@/lib/db` (transitively, via `@/lib/queries`) does not throw. postgres.js connects lazily, so no real DB is contacted:
+
+```ts
+  test: {
+    environment: "node",
+    include: ["lib/**/*.test.ts"],
+    env: { DATABASE_URL: "postgresql://test:test@localhost:5432/test" },
+  },
+```
+
 - [ ] **Step 2: Run to verify failure**
 
 Run: `npm test -- smoke`
-Expected: FAIL (`getLatestReviewRun` not exported).
+Expected: FAIL (`getLatestReviewRun` not exported). It must fail on the missing
+export / assertion — NOT on `"DATABASE_URL is not set"`. If you see the latter,
+Step 1b was not applied.
 
 - [ ] **Step 3: Extend `lib/types.ts`**
 
@@ -2515,7 +2536,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add dashboard/lib/queries.ts dashboard/lib/types.ts dashboard/lib/smoke.test.ts
+git add dashboard/lib/queries.ts dashboard/lib/types.ts dashboard/lib/smoke.test.ts dashboard/vitest.config.ts
 git commit -m "feat(dashboard): getJobs(userId) + getLatestReviewRun + review row types"
 ```
 

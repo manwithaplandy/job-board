@@ -33,7 +33,8 @@ class StubClient:
 
 def _cand(title, ats="lever", raw=None):
     return {"id": f"lever:acme:{title}", "title": title, "location": "Remote",
-            "ats": ats, "company_name": "Acme", "raw": raw or {"descriptionPlain": "jd"}}
+            "ats": ats, "company_name": "Acme",
+            "raw": raw if raw is not None else {"descriptionPlain": "jd"}}
 
 
 def test_gate_reject_skips_stage2():

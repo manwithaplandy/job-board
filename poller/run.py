@@ -57,5 +57,13 @@ def run(dsn: str | None = None) -> None:
             "run complete: ok=%s failed=%s new=%s closed=%s",
             ok, failed, new_jobs, closed_jobs,
         )
+
+        # Review phase (spec §6): event-driven, folded into the poll. Isolated so a
+        # reviewer/Anthropic failure never aborts the poll or its accounting.
+        try:
+            from reviewer.run import review_all
+            review_all(conn)
+        except Exception:
+            log.exception("review phase failed; poll results unaffected")
     finally:
         conn.close()  # FR-6: release all DB connections before exit

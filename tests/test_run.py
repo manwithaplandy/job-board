@@ -122,3 +122,47 @@ def test_db_error_isolated_and_run_completes(conn, monkeypatch):
     assert last["companies_failed"] == 1
     assert last["finished_at"] is not None  # run completed, did not abort
     assert "Bad" in (last["notes"] or "")
+
+
+@requires_db
+def test_run_invokes_review_phase_isolated(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Good", "ats": "greenhouse", "token": "good"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="1", title="Engineer", url="u")])
+
+    calls = {"n": 0}
+
+    def fake_review_all(conn):
+        calls["n"] += 1
+
+    import reviewer.run as reviewer_run
+    monkeypatch.setattr(reviewer_run, "review_all", fake_review_all)
+
+    run_module.run()  # must not raise
+    assert calls["n"] == 1
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM jobs")
+        assert cur.fetchone()["n"] == 1
+
+
+@requires_db
+def test_run_survives_review_phase_error(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Good", "ats": "greenhouse", "token": "good"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="1", title="Engineer", url="u")])
+
+    import reviewer.run as reviewer_run
+
+    def boom(conn):
+        raise RuntimeError("anthropic down")
+
+    monkeypatch.setattr(reviewer_run, "review_all", boom)
+
+    run_module.run()  # review error must not abort the poll
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM poll_runs ORDER BY id DESC LIMIT 1")
+        assert cur.fetchone()["finished_at"] is not None

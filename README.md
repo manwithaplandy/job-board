@@ -37,6 +37,39 @@ DATABASE_URL="postgresql://…" .venv/bin/python -m poller
 TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" .venv/bin/pytest
 ```
 
+### Review phase
+
+At the end of each poll run the poller automatically calls the reviewer, which
+scores every unreviewed job against the active user profile and writes results
+to the `reviews` table.  It can also be run standalone:
+
+```bash
+DATABASE_URL="postgresql://…" ANTHROPIC_API_KEY="sk-…" .venv/bin/python -m reviewer
+```
+
+**Required env var:**
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key. The review phase is silently skipped when this is absent. |
+
+**Optional env vars (all have defaults):**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REVIEW_MODEL_STAGE1` | `claude-haiku-4-5` | Model used for the gate (title-only) pass. |
+| `REVIEW_MODEL_STAGE2` | `claude-haiku-4-5` | Model used for the full JD pass. |
+| `REVIEW_CONCURRENCY` | `5` | Max concurrent Anthropic requests per run. |
+| `REVIEW_MAX_JOBS_PER_RUN` | `200` | Cap on jobs reviewed in a single run. |
+
+**No-op conditions:** the review phase exits immediately (no API calls, no DB
+writes) when `ANTHROPIC_API_KEY` is unset or when no active user profile exists
+in the database.
+
+**Railway note:** set the env vars above on the poller service, and extend the
+watch patterns in the Railway dashboard to include `reviewer/**` so that
+reviewer-only commits also redeploy the poller service.
+
 ## Configuration
 
 - `targets.json` — the tracked companies (`{ name, ats, token }`); `ats` is one

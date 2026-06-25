@@ -4,13 +4,17 @@ import { parseFilters } from "@/lib/filters";
 const D = { include: ["engineer"] };
 
 describe("parseFilters", () => {
-  test("empty params → defaults: open status, default include keywords", () => {
+  test("empty params → defaults incl. verdict=approve", () => {
     expect(parseFilters({}, D)).toEqual({
       companies: [],
       include: ["engineer"],
       exclude: [],
       remoteOnly: false,
       status: "open",
+      verdict: "approve",
+      experience: "",
+      industry: "",
+      subcategory: "",
     });
   });
 
@@ -18,21 +22,19 @@ describe("parseFilters", () => {
     expect(parseFilters({ status: "all" }, D).include).toEqual([]);
   });
 
-  test("parses csv company ids, include/exclude, remote, status", () => {
+  test("parses review dimensions", () => {
     const f = parseFilters(
-      { company: "1,2", include: "staff,backend", exclude: "manager", remote: "1", status: "closed" },
+      { verdict: "deny", experience: "reach", industry: "software_internet",
+        subcategory: "cybersecurity" },
       D,
     );
-    expect(f.companies).toEqual([1, 2]);
-    expect(f.include).toEqual(["staff", "backend"]);
-    expect(f.exclude).toEqual(["manager"]);
-    expect(f.remoteOnly).toBe(true);
-    expect(f.status).toBe("closed");
+    expect(f.verdict).toBe("deny");
+    expect(f.experience).toBe("reach");
+    expect(f.industry).toBe("software_internet");
+    expect(f.subcategory).toBe("cybersecurity");
   });
 
-  test("invalid status falls back to open; non-numeric company ids dropped", () => {
-    const f = parseFilters({ status: "bogus", company: "1,x" }, D);
-    expect(f.status).toBe("open");
-    expect(f.companies).toEqual([1]);
+  test("invalid verdict falls back to approve", () => {
+    expect(parseFilters({ verdict: "bogus" }, D).verdict).toBe("approve");
   });
 });

@@ -1,4 +1,5 @@
 export type Status = "open" | "closed" | "all";
+export type Verdict = "approve" | "deny" | "gate_rejected" | "pending" | "all";
 
 export interface Filters {
   companies: number[];
@@ -6,9 +7,18 @@ export interface Filters {
   exclude: string[];
   remoteOnly: boolean;
   status: Status;
+  verdict: Verdict;
+  experience: string;
+  industry: string;
+  subcategory: string;
 }
 
-const FILTER_KEYS = ["company", "include", "exclude", "remote", "status"] as const;
+const FILTER_KEYS = [
+  "company", "include", "exclude", "remote", "status",
+  "verdict", "experience", "industry", "subcategory",
+] as const;
+
+const VERDICTS: Verdict[] = ["approve", "deny", "gate_rejected", "pending", "all"];
 
 function first(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
@@ -27,14 +37,21 @@ export function parseFilters(
   const status = first(params.status);
   const validStatus: Status =
     status === "closed" || status === "all" ? status : "open";
+  const verdictRaw = first(params.verdict);
+  const verdict: Verdict =
+    verdictRaw && VERDICTS.includes(verdictRaw as Verdict)
+      ? (verdictRaw as Verdict)
+      : "approve";
 
   return {
-    companies: csv(first(params.company))
-      .map(Number)
-      .filter((n) => Number.isInteger(n)),
+    companies: csv(first(params.company)).map(Number).filter((n) => Number.isInteger(n)),
     include: hasAnyFilter ? csv(first(params.include)) : defaults.include,
     exclude: csv(first(params.exclude)),
     remoteOnly: first(params.remote) === "1",
     status: validStatus,
+    verdict,
+    experience: first(params.experience) ?? "",
+    industry: first(params.industry) ?? "",
+    subcategory: first(params.subcategory) ?? "",
   };
 }

@@ -67,12 +67,14 @@ def test_closed_jobs_excluded_and_limit_and_count(conn):
     with conn.cursor() as cur:
         cur.execute("UPDATE jobs SET closed_at = now() WHERE id = %s", (j2,))
     conn.commit()
-    assert [c["id"] for c in rdb.select_candidates(conn, USER, "v1", limit=10)] == [j1]
-    assert rdb.count_stale(conn, USER, "v1") == 1
-    # limit caps the rows returned
+    rows = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert [r["id"] for r in rows] == [j1]
+    assert rows[0]["total_stale"] == 1
+    # limit caps the rows returned but total_stale reflects all stale
     _seed_job(conn, "3")
-    assert len(rdb.select_candidates(conn, USER, "v1", limit=1)) == 1
-    assert rdb.count_stale(conn, USER, "v1") == 2
+    rows = rdb.select_candidates(conn, USER, "v1", limit=1)
+    assert len(rows) == 1
+    assert rows[0]["total_stale"] == 2
 
 
 @requires_db

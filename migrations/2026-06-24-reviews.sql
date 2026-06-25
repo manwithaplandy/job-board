@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS job_reviews (
   user_id              UUID NOT NULL REFERENCES auth.users(id),
   job_id               TEXT NOT NULL REFERENCES jobs(id),
   profile_version      TEXT NOT NULL,
-  stage1_decision      TEXT NOT NULL CHECK (stage1_decision IN ('pass','reject')),
+  stage1_decision      TEXT CHECK (stage1_decision IN ('pass','reject')),
   stage1_reason        TEXT,
   verdict              TEXT CHECK (verdict IN ('approve','deny')),
   experience_match     TEXT CHECK (experience_match IN
@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS job_reviews (
   PRIMARY KEY (user_id, job_id)
 );
 CREATE INDEX IF NOT EXISTS idx_job_reviews_user_verdict ON job_reviews (user_id, verdict);
+CREATE INDEX IF NOT EXISTS idx_job_reviews_user_profile_version ON job_reviews (user_id, profile_version);
+CREATE INDEX IF NOT EXISTS idx_review_runs_started_at ON review_runs (started_at DESC);
 
 CREATE TABLE IF NOT EXISTS review_runs (
   id            SERIAL PRIMARY KEY,

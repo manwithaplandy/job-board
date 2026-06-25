@@ -64,3 +64,24 @@ def test_stage1_decision_check_constraint(conn):
                 "(user_id, job_id, profile_version, stage1_decision) "
                 "VALUES (gen_random_uuid(), 'lever:x:1', 'v', 'maybe')"
             )
+
+
+@requires_db
+def test_error_row_allows_null_stage1_decision(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token) VALUES ('Y','lever','y') RETURNING id"
+        )
+        cid = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO jobs (id, company_id, external_id, title, url) "
+            "VALUES ('lever:y:1', %s, '1', 'Eng', 'u')",
+            (cid,),
+        )
+        cur.execute(
+            "INSERT INTO job_reviews "
+            "(user_id, job_id, profile_version, stage1_decision, error) "
+            "VALUES (gen_random_uuid(), 'lever:y:1', 'v', NULL, 'StageError')"
+        )
+        cur.execute("SELECT count(*) AS n FROM job_reviews WHERE error = 'StageError'")
+        assert cur.fetchone()["n"] == 1

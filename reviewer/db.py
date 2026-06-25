@@ -25,7 +25,7 @@ def select_candidates(conn, user_id: str, profile_version: str, limit: int) -> l
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT j.id, j.title, j.location, j.raw, c.ats, c.name AS company_name
+            SELECT j.id, j.title, j.location, j.raw, c.ats, c.name AS company_name, COUNT(*) OVER() AS total_stale
             FROM jobs j
             JOIN companies c ON c.id = j.company_id
             LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
@@ -38,20 +38,6 @@ def select_candidates(conn, user_id: str, profile_version: str, limit: int) -> l
         )
         return cur.fetchall()
 
-
-def count_stale(conn, user_id: str, profile_version: str) -> int:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT count(*) AS n
-            FROM jobs j
-            LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
-            WHERE j.closed_at IS NULL
-              AND (r.job_id IS NULL OR r.profile_version <> %(pv)s)
-            """,
-            {"uid": _uuid(user_id), "pv": profile_version},
-        )
-        return cur.fetchone()["n"]
 
 
 def upsert_review(conn, row: dict) -> None:

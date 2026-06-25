@@ -112,6 +112,58 @@ USER = "22222222-2222-2222-2222-222222222222"
 
 
 @requires_db
+def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    cid = poller_db.sync_companies(
+        conn, [{"name": "Acme", "ats": "lever", "token": "acme"}]
+    )[("lever", "acme")]
+    poller_db.upsert_job(conn, cid, "lever", "acme",
+                         Posting(external_id="boom", title="BOOM1", url="u",
+                                 raw={"descriptionPlain": "jd"}))
+    poller_db.upsert_job(conn, cid, "lever", "acme",
+                         Posting(external_id="good", title="SRE", url="u2",
+                                 raw={"descriptionPlain": "jd"}))
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'v1')",
+            (USER,),
+        )
+    conn.commit()
+
+    import reviewer.run as run_module
+    monkeypatch.setattr(run_module, "ReviewClient", lambda: StubClient())
+    run_module.review_all(conn)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT job_id, stage1_decision, error FROM job_reviews WHERE user_id = %s",
+            (USER,)
+        )
+        rows = {r["job_id"]: r for r in cur.fetchall()}
+        cur.execute("SELECT * FROM review_runs ORDER BY id DESC LIMIT 1")
+        rr = cur.fetchone()
+
+    # errored job has null stage1_decision and error set
+    boom_row = rows.get("lever:acme:boom")
+    assert boom_row is not None, "errored job should have a job_reviews row"
+    assert boom_row["stage1_decision"] is None
+    assert boom_row["error"] is not None
+
+    # good job was approved
+    good_row = rows.get("lever:acme:good")
+    assert good_row is not None
+    assert good_row["error"] is None
+
+    # run finished, error-exclusive counting
+    assert rr["finished_at"] is not None
+    assert rr["errors"] == 1
+    assert rr["approved"] == 1
+    assert rr["reviewed"] == 1  # errored job not counted in reviewed
+
+
+@requires_db
 def test_review_all_writes_verdicts_and_run(conn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")

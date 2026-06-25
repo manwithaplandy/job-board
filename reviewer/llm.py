@@ -66,7 +66,10 @@ class ReviewClient:
             }],
             output_format=Stage1Result,
         )
-        return resp.parsed_output
+        out = resp.parsed_output
+        if out is None:
+            raise ValueError("Anthropic returned no parsed output")
+        return out
 
     async def stage2(self, *, profile_block: str, title: str, company: str,
                      location: str | None, jd: str) -> Stage2Result:
@@ -83,4 +86,7 @@ class ReviewClient:
             }],
             output_format=Stage2Result,
         )
-        return resp.parsed_output
+        out = resp.parsed_output
+        if out is None:
+            raise ValueError("Anthropic returned no parsed output")
+        return out

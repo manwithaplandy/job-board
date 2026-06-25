@@ -1,6 +1,8 @@
 import asyncio
 import types
 
+import pytest
+
 from reviewer.llm import ReviewClient, build_profile_block
 from reviewer.schemas import Stage1Result, Stage2Result
 
@@ -71,3 +73,14 @@ def test_models_default_from_env(monkeypatch):
     rc = ReviewClient(client=_FakeClient())
     assert rc.model_stage1 == "env-s1"
     assert rc.model_stage2 == "claude-haiku-4-5"
+
+
+def test_stage_raises_when_parsed_output_none():
+    class _NoneClient:
+        class messages:
+            @staticmethod
+            async def parse(**kwargs):
+                return types.SimpleNamespace(parsed_output=None)
+    rc = ReviewClient(client=_NoneClient(), model_stage1="m1", model_stage2="m2")
+    with pytest.raises(ValueError, match="no parsed output"):
+        asyncio.run(rc.stage1(profile_block="P", title="T", company="C", location=None))

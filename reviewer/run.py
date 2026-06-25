@@ -28,22 +28,12 @@ class ReviewResult:
     description: str | None = None  # written to jobs.description (not job_reviews)
 
     def as_row(self, *, user_id: str, profile_version: str) -> dict:
-        return {
-            "user_id": user_id,
-            "job_id": self.job_id,
-            "profile_version": profile_version,
-            "stage1_decision": self.stage1_decision,
-            "stage1_reason": self.stage1_reason,
-            "verdict": self.verdict,
-            "experience_match": self.experience_match,
-            "industry": self.industry,
-            "industry_subcategory": self.industry_subcategory,
-            "confidence": self.confidence,
-            "reasoning": self.reasoning,
-            "model_stage1": self.model_stage1,
-            "model_stage2": self.model_stage2,
-            "error": self.error,
-        }
+        from reviewer.db import _REVIEW_COLUMNS
+        row = {c: getattr(self, c) for c in _REVIEW_COLUMNS
+               if c not in ("user_id", "profile_version")}
+        row["user_id"] = user_id
+        row["profile_version"] = profile_version
+        return row
 
 
 async def review_one(candidate: dict, profile_block: str, client) -> ReviewResult:
@@ -96,37 +86,44 @@ def _review_user(conn, profile: dict) -> None:
     run_id = db.start_review_run(conn)
     conn.commit()
 
-    total = db.count_stale(conn, user_id, pv)
-    candidates = db.select_candidates(conn, user_id, pv, config.MAX_JOBS_PER_RUN)
-    overflow = total - len(candidates)
-    notes = f"overflow: {overflow} job(s) deferred to next run" if overflow > 0 else None
-    if overflow > 0:
-        log.info("review overflow: %s job(s) over cap %s, deferred",
-                 overflow, config.MAX_JOBS_PER_RUN)
-
-    profile_block = build_profile_block(profile["resume_text"], profile["instructions"])
-    client = ReviewClient()
-    results = asyncio.run(review_batch(candidates, profile_block, client, config.CONCURRENCY))
-
     counts = {"reviewed": 0, "gate_rejected": 0, "approved": 0, "denied": 0, "errors": 0}
-    for r in results:
-        db.upsert_review(conn, r.as_row(user_id=user_id, profile_version=pv))
-        if r.description:
-            db.set_job_description(conn, r.job_id, r.description)
-        if r.error:
-            counts["errors"] += 1
-        if r.stage1_decision is not None:
-            counts["reviewed"] += 1
-        if r.stage1_decision == "reject":
-            counts["gate_rejected"] += 1
-        if r.verdict == "approve":
-            counts["approved"] += 1
-        elif r.verdict == "deny":
-            counts["denied"] += 1
-    conn.commit()
+    notes = None
+    try:
+        candidates = db.select_candidates(conn, user_id, pv, config.MAX_JOBS_PER_RUN)
+        total = candidates[0]["total_stale"] if candidates else 0
+        overflow = total - len(candidates)
+        if overflow > 0:
+            notes = f"overflow: {overflow} job(s) deferred to next run"
+            log.info("review overflow: %s job(s) over cap %s, deferred",
+                     overflow, config.MAX_JOBS_PER_RUN)
 
-    db.finish_review_run(conn, run_id, notes=notes, **counts)
-    conn.commit()
+        profile_block = build_profile_block(profile["resume_text"], profile["instructions"])
+        client = ReviewClient()
+        results = asyncio.run(review_batch(candidates, profile_block, client, config.CONCURRENCY))
+
+        for r in results:
+            db.upsert_review(conn, r.as_row(user_id=user_id, profile_version=pv))
+            if r.description:
+                db.set_job_description(conn, r.job_id, r.description)
+            if r.error:
+                counts["errors"] += 1
+                continue
+            if r.stage1_decision is not None:
+                counts["reviewed"] += 1
+            if r.stage1_decision == "reject":
+                counts["gate_rejected"] += 1
+            if r.verdict == "approve":
+                counts["approved"] += 1
+            elif r.verdict == "deny":
+                counts["denied"] += 1
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        notes = (f"{notes}; " if notes else "") + "review phase errored; see logs"
+        log.exception("review failed for %s", user_id)
+    finally:
+        db.finish_review_run(conn, run_id, notes=notes, **counts)
+        conn.commit()
     log.info("review complete for %s: %s", user_id, counts)
 
 

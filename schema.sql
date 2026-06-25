@@ -52,7 +52,7 @@ CREATE TABLE job_reviews (
   user_id              UUID NOT NULL,
   job_id               TEXT NOT NULL REFERENCES jobs(id),
   profile_version      TEXT NOT NULL,
-  stage1_decision      TEXT NOT NULL CHECK (stage1_decision IN ('pass','reject')),
+  stage1_decision      TEXT CHECK (stage1_decision IN ('pass','reject')),
   stage1_reason        TEXT,
   verdict              TEXT CHECK (verdict IN ('approve','deny')),
   experience_match     TEXT CHECK (experience_match IN
@@ -68,6 +68,7 @@ CREATE TABLE job_reviews (
   PRIMARY KEY (user_id, job_id)
 );
 CREATE INDEX idx_job_reviews_user_verdict ON job_reviews (user_id, verdict);
+CREATE INDEX idx_job_reviews_user_profile_version ON job_reviews (user_id, profile_version);
 
 -- accounting, mirrors poll_runs
 CREATE TABLE review_runs (
@@ -81,3 +82,4 @@ CREATE TABLE review_runs (
   errors        INT,
   notes         TEXT
 );
+CREATE INDEX idx_review_runs_started_at ON review_runs (started_at DESC);

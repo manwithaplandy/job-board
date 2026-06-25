@@ -4,6 +4,8 @@ export const STALE_HEALTH_HOURS = 12;
 // FR-10: the operator's default filter, applied on first load only.
 export const DEFAULT_INCLUDE_KEYWORDS: string[] = ["engineer"];
 
+// These option lists mirror reviewer/schemas.py (Appendix A), which is the source of truth.
+// There is no automated cross-language guard — keep these in sync manually when updating the taxonomy.
 export const VERDICT_OPTIONS = ["approve", "deny", "gate_rejected", "pending", "all"] as const;
 export const EXPERIENCE_OPTIONS = ["step_down", "match", "reach", "far_reach"] as const;
 export const INDUSTRY_OPTIONS = [

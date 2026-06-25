@@ -1,13 +1,17 @@
 import pytest
 from pydantic import ValidationError
 
+from typing import get_args
+
 from reviewer.schemas import (
     INDUSTRIES,
     SUBCATEGORIES,
     TAXONOMY,
     TAXONOMY_TEXT,
+    Industry,
     Stage1Result,
     Stage2Result,
+    Subcategory,
 )
 
 
@@ -43,3 +47,5 @@ def test_taxonomy_is_consistent():
     flat = [s for subs in TAXONOMY.values() for s in subs]
     assert sorted(flat) == sorted(SUBCATEGORIES)
     assert "health_tech_digital_health" in TAXONOMY_TEXT
+    assert set(get_args(Industry)) == set(INDUSTRIES)
+    assert set(get_args(Subcategory)) == set(SUBCATEGORIES)

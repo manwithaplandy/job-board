@@ -38,22 +38,8 @@ TAXONOMY_TEXT: str = "\n".join(
     f"- {ind}: {', '.join(subs)}" for ind, subs in TAXONOMY.items()
 )
 
-Industry = Literal[
-    "software_internet", "fintech_finance", "healthcare_life_sciences",
-    "commerce_consumer", "industrial_hardware", "public_education", "services_other",
-]
-Subcategory = Literal[
-    "devtools_platforms", "cloud_infrastructure", "cybersecurity", "data_ml_ai",
-    "devops_observability_sre", "saas_productivity", "consumer_social_media",
-    "ecommerce_marketplace_tech", "gaming", "fintech_payments_crypto",
-    "banking_trading_inhouse", "insurance_insurtech", "health_tech_digital_health",
-    "provider_hospital_inhouse", "biotech_pharma_software", "medical_devices",
-    "retail_ecommerce_inhouse", "logistics_supply_chain", "travel_hospitality",
-    "manufacturing_industrial_software", "iot_embedded_robotics",
-    "automotive_aerospace_defense", "energy_climate_cleantech", "government_govtech",
-    "education_edtech", "nonprofit_ngo", "consulting_agency_staffing",
-    "telecom_networking", "other_unclear",
-]
+Industry = Literal[tuple(INDUSTRIES)]
+Subcategory = Literal[tuple(SUBCATEGORIES)]
 
 
 class Stage1Result(BaseModel):

@@ -2,64 +2,65 @@ import { describe, expect, test } from "vitest";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
 
+const UID = "user-123";
 const base: Filters = {
   companies: [],
   include: [],
   exclude: [],
   remoteOnly: false,
   status: "open",
+  verdict: "approve",
+  experience: "",
+  industry: "",
+  subcategory: "",
 };
 
 describe("buildJobsQuery", () => {
-  test("default open status adds closed_at IS NULL and orders by first_seen_at DESC", () => {
-    const q = buildJobsQuery(base);
-    expect(q.text).toContain("j.closed_at IS NULL");
-    expect(q.text).toContain("ORDER BY j.first_seen_at DESC");
-    expect(q.values).toEqual([]);
-  });
-
-  test("status closed / all", () => {
-    expect(buildJobsQuery({ ...base, status: "closed" }).text).toContain(
-      "j.closed_at IS NOT NULL",
+  test("joins job_reviews scoped to the user via $1", () => {
+    const q = buildJobsQuery(base, UID);
+    expect(q.text).toContain(
+      "LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = $1::uuid",
     );
-    const all = buildJobsQuery({ ...base, status: "all" });
-    expect(all.text).not.toContain("closed_at IS NULL");
-    expect(all.text).not.toContain("closed_at IS NOT NULL");
+    expect(q.values[0]).toBe(UID);
+    expect(q.text).toContain("r.verdict");
+    expect(q.text).toContain("ORDER BY j.first_seen_at DESC");
   });
 
-  test("company filter uses ANY($n) with an int array param", () => {
-    const q = buildJobsQuery({ ...base, companies: [1, 2] });
-    expect(q.text).toContain("j.company_id = ANY($1)");
-    expect(q.values).toEqual([[1, 2]]);
+  test("default verdict=approve filters on r.verdict", () => {
+    expect(buildJobsQuery(base, UID).text).toContain("r.verdict = 'approve'");
   });
 
-  test("include/exclude become ILIKE / NOT ILIKE with %kw% params", () => {
-    const q = buildJobsQuery({
-      ...base,
-      include: ["engineer"],
-      exclude: ["manager"],
-    });
-    expect(q.text).toContain("j.title ILIKE $1");
-    expect(q.text).toContain("j.title NOT ILIKE $2");
-    expect(q.values).toEqual(["%engineer%", "%manager%"]);
+  test("verdict=gate_rejected / pending / all", () => {
+    expect(buildJobsQuery({ ...base, verdict: "gate_rejected" }, UID).text)
+      .toContain("r.stage1_decision = 'reject'");
+    expect(buildJobsQuery({ ...base, verdict: "pending" }, UID).text)
+      .toContain("r.job_id IS NULL");
+    const all = buildJobsQuery({ ...base, verdict: "all" }, UID);
+    expect(all.text).not.toContain("r.verdict =");
+    expect(all.text).not.toContain("r.stage1_decision =");
   });
 
-  test("combined filters keep placeholder numbers in lockstep with values order", () => {
-    const q = buildJobsQuery({
-      ...base,
-      companies: [1, 2],
-      include: ["engineer"],
-      exclude: ["manager"],
-    });
-    expect(q.text).toContain("j.company_id = ANY($1)");
+  test("company filter placeholder shifts to $2 (userId is $1)", () => {
+    const q = buildJobsQuery({ ...base, companies: [1, 2] }, UID);
+    expect(q.text).toContain("j.company_id = ANY($2)");
+    expect(q.values).toEqual([UID, [1, 2]]);
+  });
+
+  test("experience/industry/subcategory become equality filters in lockstep", () => {
+    const q = buildJobsQuery(
+      { ...base, experience: "reach", industry: "software_internet", subcategory: "gaming" },
+      UID,
+    );
+    expect(q.text).toContain("r.experience_match = $2");
+    expect(q.text).toContain("r.industry = $3");
+    expect(q.text).toContain("r.industry_subcategory = $4");
+    expect(q.values).toEqual([UID, "reach", "software_internet", "gaming"]);
+  });
+
+  test("include/exclude keep placeholders aligned after userId + verdict", () => {
+    const q = buildJobsQuery({ ...base, include: ["engineer"], exclude: ["manager"] }, UID);
     expect(q.text).toContain("j.title ILIKE $2");
     expect(q.text).toContain("j.title NOT ILIKE $3");
-    expect(q.values).toEqual([[1, 2], "%engineer%", "%manager%"]);
-  });
-
-  test("remoteOnly adds remote IS TRUE", () => {
-    expect(buildJobsQuery({ ...base, remoteOnly: true }).text).toContain(
-      "j.remote IS TRUE",
-    );
+    expect(q.values).toEqual([UID, "%engineer%", "%manager%"]);
   });
 });

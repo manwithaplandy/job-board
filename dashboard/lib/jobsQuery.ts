@@ -34,18 +34,18 @@ export function buildJobsQuery(f: Filters, userId: string): SqlQuery {
     values.push(`%${kw}%`);
   }
   if (f.remoteOnly) where.push("j.remote IS TRUE");
+  // Stage-2 dimension filters only apply to verdicts that carry review columns.
   if (f.verdict === "approve" || f.verdict === "deny" || f.verdict === "all") {
-    if (f.experience) {
-      where.push(`r.experience_match = ${ph()}`);
-      values.push(f.experience);
-    }
-    if (f.industry) {
-      where.push(`r.industry = ${ph()}`);
-      values.push(f.industry);
-    }
-    if (f.subcategory) {
-      where.push(`r.industry_subcategory = ${ph()}`);
-      values.push(f.subcategory);
+    const dimensions: [string, string][] = [
+      [f.experience, "r.experience_match"],
+      [f.industry, "r.industry"],
+      [f.subcategory, "r.industry_subcategory"],
+    ];
+    for (const [value, col] of dimensions) {
+      if (value) {
+        where.push(`${col} = ${ph()}`);
+        values.push(value);
+      }
     }
   }
 

@@ -28,9 +28,8 @@ class ReviewResult:
     description: str | None = None  # written to jobs.description (not job_reviews)
 
     def as_row(self, *, user_id: str, profile_version: str) -> dict:
-        from reviewer.db import _REVIEW_COLUMNS
-        row = {c: getattr(self, c) for c in _REVIEW_COLUMNS
-               if c not in ("user_id", "profile_version")}
+        # user_id/profile_version come from the caller; the rest are own fields.
+        row = {c: getattr(self, c, None) for c in db._REVIEW_COLUMNS}
         row["user_id"] = user_id
         row["profile_version"] = profile_version
         return row

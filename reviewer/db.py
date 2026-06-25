@@ -6,6 +6,15 @@ _REVIEW_COLUMNS = (
     "confidence", "reasoning", "model_stage1", "model_stage2", "error",
 )
 
+# Built once from the fixed column tuple (the row values are bound per call).
+_UPSERT_REVIEW_SQL = (
+    f"INSERT INTO job_reviews ({', '.join(_REVIEW_COLUMNS)}, reviewed_at)\n"
+    f"VALUES ({', '.join(f'%({c})s' for c in _REVIEW_COLUMNS)}, now())\n"
+    "ON CONFLICT (user_id, job_id) DO UPDATE SET\n"
+    f"    {', '.join(f'{c} = EXCLUDED.{c}' for c in _REVIEW_COLUMNS if c not in ('user_id', 'job_id'))}"
+    ", reviewed_at = now()"
+)
+
 
 def _uuid(v) -> uuid.UUID:
     # Bind user_id as a real uuid so comparisons are `uuid = uuid`, not `uuid = text`
@@ -42,21 +51,8 @@ def select_candidates(conn, user_id: str, profile_version: str, limit: int) -> l
 
 def upsert_review(conn, row: dict) -> None:
     row = {**row, "user_id": _uuid(row["user_id"])}
-    cols = ", ".join(_REVIEW_COLUMNS)
-    placeholders = ", ".join(f"%({c})s" for c in _REVIEW_COLUMNS)
-    updates = ", ".join(
-        f"{c} = EXCLUDED.{c}" for c in _REVIEW_COLUMNS if c not in ("user_id", "job_id")
-    )
     with conn.cursor() as cur:
-        cur.execute(
-            f"""
-            INSERT INTO job_reviews ({cols}, reviewed_at)
-            VALUES ({placeholders}, now())
-            ON CONFLICT (user_id, job_id) DO UPDATE SET
-                {updates}, reviewed_at = now()
-            """,
-            row,
-        )
+        cur.execute(_UPSERT_REVIEW_SQL, row)
 
 
 def set_job_description(conn, job_id: str, description: str) -> None:

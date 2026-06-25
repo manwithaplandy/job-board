@@ -24,5 +24,5 @@ def parse_greenhouse(data: dict) -> list[Posting]:
 
 
 def fetch_greenhouse(token: str) -> list[Posting]:
-    url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
+    url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
     return parse_greenhouse(get_json(url))

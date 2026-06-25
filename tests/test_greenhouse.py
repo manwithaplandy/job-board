@@ -26,3 +26,18 @@ def test_missing_department_is_none():
     pm = parse_greenhouse(FIXTURE)[1]
     assert pm.department is None
     assert pm.remote is None
+
+
+def test_fetch_url_requests_content(monkeypatch):
+    import poller.adapters.greenhouse as gh
+    captured = {}
+
+    def fake_get_json(url):
+        captured["url"] = url
+        return {"jobs": []}
+
+    monkeypatch.setattr(gh, "get_json", fake_get_json)
+    gh.fetch_greenhouse("acme")
+    assert captured["url"] == (
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true"
+    )

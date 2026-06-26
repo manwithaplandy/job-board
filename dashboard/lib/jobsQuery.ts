@@ -5,21 +5,28 @@ export interface SqlQuery {
   values: unknown[];
 }
 
-export function buildJobsQuery(f: Filters, userId: string): SqlQuery {
-  const values: unknown[] = [userId]; // userId is always $1 (used by the join)
+export function buildJobsQuery(f: Filters, userId: string | null): SqlQuery {
+  const values: unknown[] = [];
   const ph = () => `$${values.length + 1}`;
   const where: string[] = [];
+  const hasReviews = userId !== null;
 
+  // The review join binds the owner's user_id as $1, so seed it before any other value.
+  if (hasReviews) values.push(userId);
+
+  // --- review-scoped filters (only when an owner's reviews are joined) ---
+  if (hasReviews) {
+    if (f.verdict === "approve") where.push("r.verdict = 'approve'");
+    else if (f.verdict === "deny") where.push("r.verdict = 'deny'");
+    else if (f.verdict === "gate_rejected") where.push("r.stage1_decision = 'reject'");
+    else if (f.verdict === "pending") where.push("r.job_id IS NULL");
+    // "all" adds no verdict clause
+    where.push("r.error IS NULL");
+  }
+
+  // --- plain job filters (apply with or without an owner) ---
   if (f.status === "open") where.push("j.closed_at IS NULL");
   else if (f.status === "closed") where.push("j.closed_at IS NOT NULL");
-
-  if (f.verdict === "approve") where.push("r.verdict = 'approve'");
-  else if (f.verdict === "deny") where.push("r.verdict = 'deny'");
-  else if (f.verdict === "gate_rejected") where.push("r.stage1_decision = 'reject'");
-  else if (f.verdict === "pending") where.push("r.job_id IS NULL");
-  // "all" adds no verdict clause
-
-  where.push("r.error IS NULL");
 
   if (f.companies.length) {
     where.push(`j.company_id = ANY(${ph()})`);
@@ -34,8 +41,13 @@ export function buildJobsQuery(f: Filters, userId: string): SqlQuery {
     values.push(`%${kw}%`);
   }
   if (f.remoteOnly) where.push("j.remote IS TRUE");
-  // Stage-2 dimension filters only apply to verdicts that carry review columns.
-  if (f.verdict === "approve" || f.verdict === "deny" || f.verdict === "all") {
+  if (f.location) {
+    where.push(`j.location ILIKE ${ph()}`);
+    values.push(`%${f.location}%`);
+  }
+
+  // --- review dimension filters (only on verdicts that carry review columns) ---
+  if (hasReviews && (f.verdict === "approve" || f.verdict === "deny" || f.verdict === "all")) {
     const dimensions: [string, string][] = [
       [f.experience, "r.experience_match"],
       [f.industry, "r.industry"],
@@ -49,15 +61,26 @@ export function buildJobsQuery(f: Filters, userId: string): SqlQuery {
     }
   }
 
+  const selectCols = [
+    "j.id", "j.title", "j.url", "j.location", "j.remote",
+    "j.first_seen_at", "j.closed_at", "c.name AS company_name", "c.ats",
+  ];
+  if (hasReviews) {
+    selectCols.push(
+      "r.verdict", "r.experience_match", "r.industry", "r.industry_subcategory",
+      "r.confidence", "r.reasoning", "r.stage1_decision", "r.stage1_reason",
+    );
+  }
+  const reviewJoin = hasReviews
+    ? "LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = $1::uuid"
+    : "";
+
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const text = [
-    "SELECT j.id, j.title, j.url, j.location, j.remote,",
-    "       j.first_seen_at, j.closed_at, c.name AS company_name, c.ats,",
-    "       r.verdict, r.experience_match, r.industry, r.industry_subcategory,",
-    "       r.confidence, r.reasoning, r.stage1_decision, r.stage1_reason",
+    `SELECT ${selectCols.join(", ")}`,
     "FROM jobs j",
     "JOIN companies c ON c.id = j.company_id",
-    "LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = $1::uuid",
+    reviewJoin,
     whereSql,
     "ORDER BY j.first_seen_at DESC",
     "LIMIT 500",

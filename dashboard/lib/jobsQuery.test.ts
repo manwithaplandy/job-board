@@ -13,6 +13,7 @@ const base: Filters = {
   experience: "",
   industry: "",
   subcategory: "",
+  location: "",
 };
 
 describe("buildJobsQuery", () => {
@@ -81,5 +82,32 @@ describe("buildJobsQuery", () => {
   test("verdict=approve + experience applies dimension filter", () => {
     const q = buildJobsQuery({ ...base, verdict: "approve", experience: "reach" }, UID);
     expect(q.text).toContain("r.experience_match = $2");
+  });
+
+  test("null owner: no review join, columns, error clause, or user binding", () => {
+    const q = buildJobsQuery(base, null);
+    expect(q.text).not.toContain("job_reviews");
+    expect(q.text).not.toContain("r.verdict");
+    expect(q.text).not.toContain("r.error IS NULL");
+    expect(q.text).toContain("j.closed_at IS NULL"); // plain status filter still applies
+    expect(q.values).toEqual([]);
+  });
+
+  test("null owner: plain filters bind from $1", () => {
+    const q = buildJobsQuery({ ...base, companies: [1, 2] }, null);
+    expect(q.text).toContain("j.company_id = ANY($1)");
+    expect(q.values).toEqual([[1, 2]]);
+  });
+
+  test("location filter adds an ILIKE clause in the owner branch", () => {
+    const q = buildJobsQuery({ ...base, location: "remote" }, UID);
+    expect(q.text).toContain("j.location ILIKE $2");
+    expect(q.values).toEqual([UID, "%remote%"]);
+  });
+
+  test("location filter applies without an owner, binding from $1", () => {
+    const q = buildJobsQuery({ ...base, location: "berlin" }, null);
+    expect(q.text).toContain("j.location ILIKE $1");
+    expect(q.values).toEqual(["%berlin%"]);
   });
 });

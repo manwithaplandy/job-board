@@ -25,7 +25,8 @@ def _uuid(v) -> uuid.UUID:
 def load_profiles(conn) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT user_id, resume_text, instructions, profile_version FROM profiles"
+            "SELECT user_id, resume_text, instructions, profile_version, "
+            "model_stage1, model_stage2 FROM profiles"
         )
         return cur.fetchall()
 

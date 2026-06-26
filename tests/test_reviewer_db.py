@@ -33,7 +33,7 @@ def test_load_profiles(conn):
     profiles = rdb.load_profiles(conn)
     assert profiles == [
         {"user_id": uuid.UUID(USER), "resume_text": "r", "instructions": "i",
-         "profile_version": "v1"}
+         "profile_version": "v1", "model_stage1": None, "model_stage2": None}
     ]
 
 

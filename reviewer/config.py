@@ -13,4 +13,4 @@ MAX_JOBS_PER_RUN = _int_env("REVIEW_MAX_JOBS_PER_RUN", 200)
 
 
 def has_api_key() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return bool(os.environ.get("OPENROUTER_API_KEY"))

@@ -97,7 +97,10 @@ def _review_user(conn, profile: dict) -> None:
                      overflow, config.MAX_JOBS_PER_RUN)
 
         profile_block = build_profile_block(profile["resume_text"], profile["instructions"])
-        client = ReviewClient()
+        client = ReviewClient(
+            model_stage1=profile.get("model_stage1"),
+            model_stage2=profile.get("model_stage2"),
+        )
         results = asyncio.run(review_batch(candidates, profile_block, client, config.CONCURRENCY))
 
         for r in results:
@@ -128,7 +131,7 @@ def _review_user(conn, profile: dict) -> None:
 
 def review_all(conn) -> None:
     if not config.has_api_key():
-        log.info("ANTHROPIC_API_KEY not set; skipping review phase")
+        log.info("OPENROUTER_API_KEY not set; skipping review phase")
         return
     profiles = db.load_profiles(conn)
     if not profiles:

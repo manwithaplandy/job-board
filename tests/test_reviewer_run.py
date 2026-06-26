@@ -114,7 +114,7 @@ USER = "22222222-2222-2222-2222-222222222222"
 @requires_db
 def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     cid = poller_db.sync_companies(
         conn, [{"name": "Acme", "ats": "lever", "token": "acme"}]
     )[("lever", "acme")]
@@ -133,7 +133,7 @@ def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
     conn.commit()
 
     import reviewer.run as run_module
-    monkeypatch.setattr(run_module, "ReviewClient", lambda: StubClient())
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
     run_module.review_all(conn)
 
     with conn.cursor() as cur:
@@ -166,7 +166,7 @@ def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
 @requires_db
 def test_review_all_writes_verdicts_and_run(conn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     cid = poller_db.sync_companies(
         conn, [{"name": "Acme", "ats": "lever", "token": "acme"}]
     )[("lever", "acme")]
@@ -182,7 +182,7 @@ def test_review_all_writes_verdicts_and_run(conn, monkeypatch):
     conn.commit()
 
     import reviewer.run as run_module
-    monkeypatch.setattr(run_module, "ReviewClient", lambda: StubClient())
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
     run_module.review_all(conn)
 
     with conn.cursor() as cur:

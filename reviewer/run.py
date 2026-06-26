@@ -1,8 +1,8 @@
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from reviewer import config, db
+from reviewer import config, db, scoring
 from reviewer.jd import extract_description
 from reviewer.llm import ReviewClient, build_profile_block
 
@@ -25,6 +25,23 @@ class ReviewResult:
     model_stage1: str | None = None
     model_stage2: str | None = None
     error: str | None = None
+    role_category: str | None = None
+    seniority: str | None = None
+    work_arrangement: str | None = None
+    about: str | None = None
+    pay_min: int | None = None
+    pay_max: int | None = None
+    pay_currency: str | None = None
+    pay_period: str | None = None
+    headcount: str | None = None
+    skills_score: int | None = None
+    experience_score: int | None = None
+    comp_score: int | None = None
+    fit_score: int | None = None
+    red_flags: list = field(default_factory=list)
+    skill_gaps: list = field(default_factory=list)
+    benefits: list = field(default_factory=list)
+    requirements: list = field(default_factory=list)
     description: str | None = None  # written to jobs.description (not job_reviews)
 
     def as_row(self, *, user_id: str, profile_version: str) -> dict:
@@ -62,6 +79,25 @@ async def review_one(candidate: dict, profile_block: str, client) -> ReviewResul
         res.industry_subcategory = s2.industry_subcategory
         res.confidence = s2.confidence
         res.reasoning = s2.reasoning
+        res.role_category = s2.role_category
+        res.seniority = s2.seniority
+        res.work_arrangement = s2.work_arrangement
+        res.about = s2.about
+        res.pay_min, res.pay_max = s2.pay_min, s2.pay_max
+        res.pay_currency, res.pay_period = s2.pay_currency, s2.pay_period
+        res.headcount = s2.headcount
+        res.skills_score = s2.skills_score
+        res.experience_score = s2.experience_score
+        res.comp_score = s2.comp_score
+        res.red_flags = list(s2.red_flags)
+        res.skill_gaps = list(s2.skill_gaps)
+        res.benefits = list(s2.benefits)
+        res.requirements = [r.model_dump() for r in s2.requirements]
+        res.fit_score = scoring.compute_fit(
+            skills_score=s2.skills_score, experience_score=s2.experience_score,
+            comp_score=s2.comp_score, experience_match=s2.experience_match,
+            confidence=s2.confidence, red_flags=s2.red_flags, verdict=s2.verdict,
+        )
     except Exception as exc:  # per-job isolation (spec §3)
         res.error = f"{type(exc).__name__}: {exc}"
         log.warning("review failed for %s: %s", candidate["id"], res.error)

@@ -2,7 +2,7 @@ import os
 
 from reviewer.schemas import TAXONOMY_TEXT, Stage1Result, Stage2Result
 
-DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
+DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 _STAGE1_INSTRUCTIONS = (

@@ -82,7 +82,7 @@ def test_models_default_from_env(monkeypatch):
     monkeypatch.delenv("REVIEW_MODEL_STAGE2", raising=False)
     rc = ReviewClient(client=_FakeClient())
     assert rc.model_stage1 == "env-s1"
-    assert rc.model_stage2 == "anthropic/claude-haiku-4.5"
+    assert rc.model_stage2 == "deepseek/deepseek-v4-flash"
 
 
 def test_stage_raises_when_parsed_output_none():

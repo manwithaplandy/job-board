@@ -7,7 +7,7 @@ export interface ORModel {
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
 // Mirrors reviewer/llm.py DEFAULT_MODEL. Shown as the placeholder when unset.
-export const DEFAULT_MODEL_ID = "anthropic/claude-haiku-4.5";
+export const DEFAULT_MODEL_ID = "deepseek/deepseek-v4-flash";
 
 // Curated default suggestions shown before the user types. Refreshed and catalog-verified
 // 2026-06-25: mix of small bang-for-buck models + cheapest frontier reasoning models, all

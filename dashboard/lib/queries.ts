@@ -51,18 +51,29 @@ export async function getProfile(userId: string): Promise<ProfileRow | null> {
 
 export async function upsertProfile(
   userId: string,
-  data: { resumeText: string | null; instructions: string | null; resumeFilePath: string | null },
+  data: {
+    resumeText: string | null;
+    instructions: string | null;
+    resumeFilePath: string | null;
+    modelStage1: string | null;
+    modelStage2: string | null;
+  },
 ): Promise<void> {
+  // profile_version intentionally excludes the model choice — changing a model
+  // must NOT invalidate existing verdicts (spec §4).
   const version = profileVersion(data.resumeText, data.instructions);
   await sql`
     INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
-                          profile_version, updated_at)
+                          model_stage1, model_stage2, profile_version, updated_at)
     VALUES (${userId}::uuid, ${data.resumeText}, ${data.instructions},
-            ${data.resumeFilePath}, ${version}, now())
+            ${data.resumeFilePath}, ${data.modelStage1}, ${data.modelStage2},
+            ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       resume_text      = EXCLUDED.resume_text,
       instructions     = EXCLUDED.instructions,
       resume_file_path = EXCLUDED.resume_file_path,
+      model_stage1     = EXCLUDED.model_stage1,
+      model_stage2     = EXCLUDED.model_stage2,
       profile_version  = EXCLUDED.profile_version,
       updated_at       = now()
   `;

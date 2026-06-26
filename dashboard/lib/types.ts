@@ -51,6 +51,8 @@ export interface ProfileRow {
   resume_text: string | null;
   resume_file_path: string | null;
   instructions: string | null;
+  model_stage1: string | null;
+  model_stage2: string | null;
   profile_version: string;
   updated_at: string;
 }

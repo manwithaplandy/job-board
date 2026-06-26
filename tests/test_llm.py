@@ -31,14 +31,14 @@ class _FakeClient:
     """Mimics AsyncOpenAI's beta.chat.completions.parse surface."""
 
     def __init__(self):
-        self.completions = _FakeCompletions()
+        self._fake_completions = _FakeCompletions()
         self.beta = types.SimpleNamespace(
-            chat=types.SimpleNamespace(completions=self.completions)
+            chat=types.SimpleNamespace(completions=self._fake_completions)
         )
 
     @property
     def calls(self):
-        return self.completions.calls
+        return self._fake_completions.calls
 
 
 def test_build_profile_block_includes_resume_and_instructions():

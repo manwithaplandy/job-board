@@ -3,7 +3,7 @@ import os
 from reviewer.schemas import TAXONOMY_TEXT, Stage1Result, Stage2Result
 
 DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 _STAGE1_INSTRUCTIONS = (
     "You are a relevance gatekeeper. You see only a job's title, company, and "
@@ -49,7 +49,7 @@ class ReviewClient:
         if client is None:
             from openai import AsyncOpenAI  # lazy: avoid import + key read at module load
             client = AsyncOpenAI(
-                base_url=OPENROUTER_BASE_URL,
+                base_url=_OPENROUTER_BASE_URL,
                 api_key=os.environ["OPENROUTER_API_KEY"],
                 default_headers={"X-Title": "job-board"},
             )

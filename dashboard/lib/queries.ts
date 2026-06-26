@@ -4,8 +4,12 @@ import type { Filters } from "@/lib/filters";
 import type { CompanyRow, JobRow, PollRunRow, ReviewRunRow, ProfileRow, ReviewStats } from "@/lib/types";
 import { profileVersion } from "@/lib/profileVersion";
 
-export async function getJobs(f: Filters, userId: string | null): Promise<JobRow[]> {
-  const { text, values } = buildJobsQuery(f, userId);
+export async function getJobs(
+  f: Filters,
+  userId: string | null,
+  ownerLocations: string[] = [],
+): Promise<JobRow[]> {
+  const { text, values } = buildJobsQuery(f, userId, ownerLocations);
   const rows = await sql.unsafe(text, values as never[]);
   return rows as unknown as JobRow[];
 }
@@ -14,6 +18,15 @@ export async function getBoardOwnerId(): Promise<string | null> {
   // Single-tenant: the one operator whose verdicts the public board shows.
   const rows = await sql`SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1`;
   return (rows[0]?.user_id as string | undefined) ?? null;
+}
+
+export async function getBoardOwnerLocations(): Promise<string[]> {
+  // Single-tenant: the board owner's location include-list (same profile that
+  // getBoardOwnerId resolves). Empty array = no location pre-filter on the board.
+  const rows = await sql`
+    SELECT preferred_locations FROM profiles ORDER BY updated_at DESC LIMIT 1
+  `;
+  return (rows[0]?.preferred_locations as string[] | undefined) ?? [];
 }
 
 export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {

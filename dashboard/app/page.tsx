@@ -1,6 +1,6 @@
 import { parseFilters } from "@/lib/filters";
 import {
-  getBoardOwnerId, getCompanies, getJobs, getLatestPollRun,
+  getBoardOwnerId, getBoardOwnerLocations, getCompanies, getJobs, getLatestPollRun,
   getLatestReviewRun, getReviewStats,
 } from "@/lib/queries";
 import {
@@ -21,12 +21,14 @@ export default async function Page({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [viewerId, ownerId] = await Promise.all([getUserId(), getBoardOwnerId()]);
+  const [viewerId, ownerId, ownerLocations] = await Promise.all([
+    getUserId(), getBoardOwnerId(), getBoardOwnerLocations(),
+  ]);
   const params = await searchParams;
   const filters = parseFilters(params, { include: DEFAULT_INCLUDE_KEYWORDS });
 
   const [jobs, companies, lastRun] = await Promise.all([
-    getJobs(filters, ownerId),
+    getJobs(filters, ownerId, ownerLocations),
     getCompanies(),
     getLatestPollRun(),
   ]);

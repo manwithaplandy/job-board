@@ -36,19 +36,19 @@ export function LocationPicker({
     setSelected((prev) => prev.filter((l) => l !== loc));
 
   return (
-    <div className="flex flex-col text-sm text-gray-700">
-      <label htmlFor={inputId}>
+    <div className="flex flex-col">
+      <label htmlFor={inputId} className="text-[13px] font-semibold text-[#5b6472]">
         Locations to include (blank = all; remote always included)
       </label>
       <input type="hidden" name={name} value={JSON.stringify(selected)} />
       {selected.length > 0 && (
-        <ul className="mt-1 flex flex-wrap gap-1">
+        <ul className="mt-2 flex flex-wrap gap-1.5">
           {selected.map((loc) => (
             <li key={loc}
-              className="flex items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-xs">
+              className="flex items-center gap-1.5 rounded-[8px] bg-[#eef3fc] px-2.5 py-1 text-[12px] font-semibold text-[#3b6fd4]">
               <span>{loc}</span>
               <button type="button" aria-label={`Remove ${loc}`}
-                className="text-gray-500 hover:text-gray-900"
+                className="text-[#6f97dd] hover:text-[#3b6fd4]"
                 onClick={() => remove(loc)}>
                 ×
               </button>
@@ -59,7 +59,7 @@ export function LocationPicker({
       <input
         id={inputId}
         type="text"
-        className="mt-1 rounded border px-2 py-1 text-sm"
+        className="mt-2 rounded-[10px] border border-[#e3e7ee] px-3 py-[11px] text-[13px] text-[#1f2430] outline-none placeholder:text-[#9aa3b0] focus:border-[#3b6fd4]"
         placeholder="Type to filter locations…"
         value={query}
         aria-expanded={open}
@@ -69,14 +69,14 @@ export function LocationPicker({
       />
       {open && results.length > 0 && (
         <ul role="listbox"
-          className="mt-1 max-h-56 overflow-auto rounded border bg-white text-sm shadow">
+          className="mt-2 max-h-56 overflow-auto rounded-[10px] border border-[#e3e7ee] bg-white text-[13px] shadow-[0_8px_24px_rgba(15,22,35,.1)]">
           {results.map((o) => (
             <li key={o.location} role="option" aria-selected={false}>
               <button type="button"
-                className="flex w-full justify-between px-2 py-1 text-left hover:bg-gray-100"
+                className="flex w-full justify-between px-3 py-2 text-left hover:bg-[#eef3fc]"
                 onClick={() => add(o.location)}>
-                <span>{o.location}</span>
-                <span className="text-gray-400">{o.count}</span>
+                <span className="text-[#1f2430]">{o.location}</span>
+                <span className="text-[#9aa3b0]">{o.count}</span>
               </button>
             </li>
           ))}

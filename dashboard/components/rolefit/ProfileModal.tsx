@@ -5,12 +5,20 @@ import { useState, useTransition } from "react";
 export interface ProfileModalProps {
   open: boolean;
   isAuthed: boolean;
-  profileName?: string;
+  hasProfile?: boolean;
+  resumeText?: string;
   onClose: () => void;
   saveResume: (fd: FormData) => Promise<void>;
 }
 
-export function ProfileModal({ open, isAuthed, onClose, saveResume }: ProfileModalProps) {
+export function ProfileModal({
+  open,
+  isAuthed,
+  hasProfile = false,
+  resumeText = "",
+  onClose,
+  saveResume,
+}: ProfileModalProps) {
   const [profileTab, setProfileTab] = useState<"paste" | "upload">("paste");
   const [uploadName, setUploadName] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -68,7 +76,7 @@ export function ProfileModal({ open, isAuthed, onClose, saveResume }: ProfileMod
         >
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: "16px", color: "#161d29" }}>
-              Your profile
+              {hasProfile ? "Edit profile" : "Set up profile"}
             </div>
             <div
               style={{
@@ -191,6 +199,7 @@ export function ProfileModal({ open, isAuthed, onClose, saveResume }: ProfileMod
                 <>
                   <textarea
                     name="resume_text"
+                    defaultValue={resumeText}
                     placeholder="Paste your résumé or a few lines about your experience, skills, and roles…"
                     style={{
                       width: "100%",

@@ -4,6 +4,7 @@ export interface HeaderProps {
   search: string;
   onSearch: (value: string) => void;
   isAuthed: boolean;
+  hasProfile: boolean;
   operator?: OperatorSignals;
   onOpenProfile: () => void;
 }
@@ -14,11 +15,11 @@ const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
   stale: "#9aa3b0",
 };
 
-export function Header({ search, onSearch, isAuthed, operator, onOpenProfile }: HeaderProps) {
-  // Button styling: green if authed+profile (Task 14 adds profile check),
-  // blue "Set up profile" if authed, blue "Sign in" if anon.
-  const profileBtnLabel = isAuthed ? "Set up profile" : "Sign in";
-  const profileBtnIcon = isAuthed ? "+" : "→";
+export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpenProfile }: HeaderProps) {
+  // "Sign in" when anonymous; "Edit profile" when authed with a saved profile;
+  // "Set up profile" when authed but no profile yet.
+  const profileBtnLabel = !isAuthed ? "Sign in" : hasProfile ? "Edit profile" : "Set up profile";
+  const profileBtnIcon = !isAuthed ? "→" : hasProfile ? "✎" : "+";
   const profileBtnColor = "#ffffff";
   const profileBtnBg = "#3b6fd4";
   const profileBtnBorder = "#3b6fd4";

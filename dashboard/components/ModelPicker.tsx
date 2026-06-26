@@ -20,13 +20,13 @@ export function ModelPicker({
   const inputId = `model-picker-${name}`;
 
   return (
-    <div className="flex flex-col text-sm text-gray-700">
-      <label htmlFor={inputId}>{label}</label>
+    <div className="flex flex-col">
+      <label htmlFor={inputId} className="text-[13px] font-semibold text-[#5b6472]">{label}</label>
       <input type="hidden" name={name} value={selected} />
       <input
         id={inputId}
         type="text"
-        className="mt-1 rounded border px-2 py-1 text-sm"
+        className="mt-2 rounded-[10px] border border-[#e3e7ee] px-3 py-[11px] text-[13px] text-[#1f2430] outline-none placeholder:text-[#9aa3b0] focus:border-[#3b6fd4]"
         placeholder={selected || placeholder}
         value={query}
         aria-expanded={open}
@@ -35,23 +35,23 @@ export function ModelPicker({
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {selected && (
-        <span className="mt-1 text-xs text-gray-500">
+        <span className="mt-2 text-[11.5px] text-[#8a93a3]">
           selected: {selected}{" "}
-          <button type="button" className="underline"
+          <button type="button" className="font-semibold text-[#3b6fd4] underline"
             onClick={() => setSelected("")}>
             clear (use default)
           </button>
         </span>
       )}
       {open && results.length > 0 && (
-        <ul role="listbox" className="mt-1 max-h-56 overflow-auto rounded border bg-white text-sm shadow">
+        <ul role="listbox" className="mt-2 max-h-56 overflow-auto rounded-[10px] border border-[#e3e7ee] bg-white text-[13px] shadow-[0_8px_24px_rgba(15,22,35,.1)]">
           {results.map((m) => (
             <li key={m.id} role="option" aria-selected={m.id === selected}>
               <button type="button"
-                className="block w-full px-2 py-1 text-left hover:bg-gray-100"
+                className="block w-full px-3 py-2 text-left hover:bg-[#eef3fc]"
                 onClick={() => { setSelected(m.id); setQuery(""); setOpen(false); }}>
-                <span>{m.name}</span>{" "}
-                <span className="text-gray-400">{m.id}</span>
+                <span className="text-[#1f2430]">{m.name}</span>{" "}
+                <span className="text-[#9aa3b0]">{m.id}</span>
               </button>
             </li>
           ))}

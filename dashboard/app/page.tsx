@@ -1,6 +1,6 @@
 import { parseFilters } from "@/lib/filters";
 import {
-  getBoardOwnerId, getBoardOwnerLocations, getJobs, getLatestPollRun, getReviewStats,
+  getBoardOwnerId, getBoardOwnerLocations, getJobs, getLatestPollRun, getProfile, getReviewStats,
 } from "@/lib/queries";
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
@@ -24,16 +24,22 @@ export default async function Page({
   const jobs = await getJobs(filters, ownerId, ownerLocations);
 
   // Operator-only telemetry — not fetched or exposed to anonymous visitors.
+  // Profile drives the header button label + modal prefill; anon path keeps the defaults.
   let operator: OperatorSignals | undefined;
+  let hasProfile = false;
+  let resumeText = "";
   if (viewerId) {
-    const [pollRun, reviewStats] = await Promise.all([
+    const [pollRun, reviewStats, profile] = await Promise.all([
       getLatestPollRun(),
       getReviewStats(viewerId),
+      getProfile(viewerId),
     ]);
     operator = {
       health: computeHealth(pollRun, new Date(), STALE_HEALTH_HOURS),
       unreviewed: reviewStats.unreviewed,
     };
+    hasProfile = profile != null; // a saved profile row exists
+    resumeText = profile?.resume_text ?? "";
   }
 
   return (
@@ -44,6 +50,8 @@ export default async function Page({
       isAuthed={!!viewerId}
       saveResume={saveProfileResume}
       operator={operator}
+      hasProfile={hasProfile}
+      resumeText={resumeText}
     />
   );
 }

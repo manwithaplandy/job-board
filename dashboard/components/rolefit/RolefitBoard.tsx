@@ -19,6 +19,8 @@ export interface RolefitBoardProps {
   isAuthed: boolean;
   saveResume: (fd: FormData) => Promise<void>;
   operator?: OperatorSignals;
+  hasProfile: boolean;
+  resumeText: string;
 }
 
 export function RolefitBoard({
@@ -28,6 +30,8 @@ export function RolefitBoard({
   isAuthed,
   saveResume,
   operator,
+  hasProfile,
+  resumeText,
 }: RolefitBoardProps) {
   // Filter state
   const [search, setSearch] = useState("");
@@ -181,6 +185,7 @@ export function RolefitBoard({
         search={search}
         onSearch={setSearch}
         isAuthed={isAuthed}
+        hasProfile={hasProfile}
         operator={operator}
         onOpenProfile={() => {
           if (isAuthed) {
@@ -270,6 +275,8 @@ export function RolefitBoard({
       <ProfileModal
         open={profileOpen}
         isAuthed={isAuthed}
+        hasProfile={hasProfile}
+        resumeText={resumeText}
         onClose={() => setProfileOpen(false)}
         saveResume={saveResume}
       />

@@ -74,6 +74,7 @@ export async function upsertProfile(
     resumeFilePath: string | null;
     modelStage1: string | null;
     modelStage2: string | null;
+    modelResume: string | null;
   },
 ): Promise<void> {
   // profile_version intentionally excludes the model choice — changing a model
@@ -81,16 +82,17 @@ export async function upsertProfile(
   const version = profileVersion(data.resumeText, data.instructions);
   await sql`
     INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
-                          model_stage1, model_stage2, profile_version, updated_at)
+                          model_stage1, model_stage2, model_resume, profile_version, updated_at)
     VALUES (${userId}::uuid, ${data.resumeText}, ${data.instructions},
             ${data.resumeFilePath}, ${data.modelStage1}, ${data.modelStage2},
-            ${version}, now())
+            ${data.modelResume}, ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       resume_text      = EXCLUDED.resume_text,
       instructions     = EXCLUDED.instructions,
       resume_file_path = EXCLUDED.resume_file_path,
       model_stage1     = EXCLUDED.model_stage1,
       model_stage2     = EXCLUDED.model_stage2,
+      model_resume     = EXCLUDED.model_resume,
       profile_version  = EXCLUDED.profile_version,
       updated_at       = now()
   `;

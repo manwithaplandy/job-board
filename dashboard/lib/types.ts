@@ -20,6 +20,23 @@ export interface JobRow {
   reasoning: string | null;
   stage1_decision: string | null;
   stage1_reason: string | null;
+  role_category: string | null;
+  seniority: string | null;
+  work_arrangement: string | null;
+  about: string | null;
+  pay_min: number | null;
+  pay_max: number | null;
+  pay_currency: string | null;
+  pay_period: string | null;
+  headcount: string | null;
+  skills_score: number | null;
+  experience_score: number | null;
+  comp_score: number | null;
+  fit_score: number | null;
+  red_flags: string[] | null;
+  skill_gaps: string[] | null;
+  benefits: string[] | null;
+  requirements: { text: string; met: boolean }[] | null;
 }
 
 export interface CompanyRow {
@@ -57,6 +74,7 @@ export interface ProfileRow {
   instructions: string | null;
   model_stage1: string | null;
   model_stage2: string | null;
+  model_resume: string | null;
   profile_version: string;
   updated_at: string;
 }

@@ -110,4 +110,18 @@ describe("buildJobsQuery", () => {
     expect(q.text).toContain("j.location ILIKE $1");
     expect(q.values).toEqual(["%berlin%"]);
   });
+
+  test("selects rolefit review columns when an owner is present", () => {
+    const t = buildJobsQuery(base, UID).text;
+    for (const col of ["r.role_category", "r.fit_score", "r.pay_min",
+      "r.skills_score", "r.red_flags", "r.requirements", "r.work_arrangement"]) {
+      expect(t).toContain(col);
+    }
+  });
+
+  test("rolefit columns absent without an owner", () => {
+    const t = buildJobsQuery(base, null).text;
+    expect(t).not.toContain("r.fit_score");
+    expect(t).not.toContain("r.requirements");
+  });
 });

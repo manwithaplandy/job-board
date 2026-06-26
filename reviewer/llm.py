@@ -86,7 +86,7 @@ class ReviewClient:
     async def stage2(self, *, profile_block: str, title: str, company: str,
                      location: str | None, jd: str) -> Stage2Result:
         return await self._parse(
-            model=self.model_stage2, max_tokens=1024,
+            model=self.model_stage2, max_tokens=4096,
             system=_system(profile_block, _STAGE2_INSTRUCTIONS),
             user=(
                 f"Title: {title}\nCompany: {company}\nLocation: {location or 'n/a'}\n\n"

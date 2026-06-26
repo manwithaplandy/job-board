@@ -1,5 +1,6 @@
 import type { Health } from "@/lib/status";
 import type { PollRunRow, ReviewRunRow, ReviewStats } from "@/lib/types";
+import { RefreshButton } from "@/components/RefreshButton";
 
 const DOT: Record<Health, string> = {
   ok: "bg-green-500",
@@ -50,6 +51,7 @@ export function Header({
             ) : null}
           </span>
         )}
+        <RefreshButton />
         {isAuthed ? (
           <>
             <a href="/profile" className="text-blue-700 hover:underline">Profile</a>

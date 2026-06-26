@@ -1,8 +1,10 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile } from "@/lib/queries";
 import { extractPdfText } from "@/lib/pdf";
+import { internalPathFromReferer } from "@/lib/paths";
 import {
   getStructuredModels, CURATED_MODELS, DEFAULT_MODEL_ID, validateModelId,
 } from "@/lib/openrouter";
@@ -16,6 +18,11 @@ async function saveProfile(formData: FormData) {
   const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
   let resumeText = (String(formData.get("resume_text") ?? "")).trim() || null;
   let resumeFilePath: string | null = null;
+
+  // Return the user to where they came from (carried through the form). Re-check it here since the
+  // hidden field is client-controlled: only same-origin paths are allowed, never an external URL.
+  const next = String(formData.get("next") ?? "/");
+  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
 
   const catalogIds = (await getStructuredModels()).map((m) => m.id);
   // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
@@ -42,17 +49,23 @@ async function saveProfile(formData: FormData) {
     resumeText, instructions, resumeFilePath,
     modelStage1: s1.value, modelStage2: s2.value,
   });
-  redirect("/");
+  redirect(safeNext);
 }
 
 export default async function ProfilePage() {
   const userId = await requireUserId();
-  const profile = await getProfile(userId);
-  const models = await getStructuredModels();
+  const [profile, models, headerList] = await Promise.all([
+    getProfile(userId), getStructuredModels(), headers(),
+  ]);
+  const back = internalPathFromReferer(headerList.get("referer"), headerList.get("host") ?? "");
   return (
     <main className="mx-auto mt-12 max-w-2xl px-6">
-      <h1 className="text-lg font-semibold">Profile</h1>
+      <div className="flex items-center gap-3">
+        <a href={back} className="text-sm text-blue-700 hover:underline">← Back</a>
+        <h1 className="text-lg font-semibold">Profile</h1>
+      </div>
       <form action={saveProfile} className="mt-4 flex flex-col gap-4">
+        <input type="hidden" name="next" value={back} />
         <label className="flex flex-col text-sm text-gray-700">
           Resume PDF (optional — overrides pasted text when it extracts cleanly)
           <input name="resume_pdf" type="file" accept="application/pdf" className="mt-1 text-sm" />

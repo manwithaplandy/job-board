@@ -11,6 +11,7 @@ import {
 import { ModelPicker } from "@/components/ModelPicker";
 import { LocationPicker } from "@/components/LocationPicker";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
+import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +31,10 @@ async function saveProfile(formData: FormData) {
   // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
   const s1 = validateModelId(String(formData.get("model_stage1") ?? ""), catalogIds);
   const s2 = validateModelId(String(formData.get("model_stage2") ?? ""), catalogIds);
+  const r = validateModelId(String(formData.get("model_resume") ?? ""), catalogIds);
   if (!s1.ok) throw new Error(s1.reason);
   if (!s2.ok) throw new Error(s2.reason);
+  if (!r.ok) throw new Error(r.reason);
 
   const preferredLocations = parsePreferredLocations(
     String(formData.get("preferred_locations") ?? ""),
@@ -54,7 +57,7 @@ async function saveProfile(formData: FormData) {
   await upsertProfile(userId, {
     resumeText, instructions, resumeFilePath,
     modelStage1: s1.value, modelStage2: s2.value,
-    preferredLocations,
+    preferredLocations, modelResume: r.value,
   });
   redirect(safeNext);
 }
@@ -104,6 +107,10 @@ export default async function ProfilePage() {
             label="Stage 2 — full job-description review"
             name="model_stage2" models={models} curated={CURATED_MODELS}
             defaultValue={profile?.model_stage2 ?? null} placeholder={DEFAULT_MODEL_ID} />
+          <ModelPicker
+            label="Résumé generation model"
+            name="model_resume" models={models} curated={CURATED_MODELS}
+            defaultValue={profile?.model_resume ?? null} placeholder={DEFAULT_RESUME_MODEL} />
         </fieldset>
 
         <button type="submit"

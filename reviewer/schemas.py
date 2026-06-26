@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Appendix A — two-level, tech/SWE/DevOps-focused taxonomy.
 TAXONOMY: dict[str, list[str]] = {
@@ -41,6 +41,26 @@ TAXONOMY_TEXT: str = "\n".join(
 Industry = Literal[tuple(INDUSTRIES)]
 Subcategory = Literal[tuple(SUBCATEGORIES)]
 
+ROLE_CATEGORIES: list[str] = [
+    "Frontend", "Backend", "Full-stack", "Platform", "Infra/DevOps",
+    "Data/ML", "Mobile", "Security", "Product eng", "QA/Test",
+    "Eng management", "Other",
+]
+SENIORITY: list[str] = [
+    "junior", "mid", "senior", "staff", "principal", "lead", "manager", "unknown",
+]
+WORK_ARRANGEMENT: list[str] = ["remote", "hybrid", "onsite", "unknown"]
+
+RoleCategory = Literal[tuple(ROLE_CATEGORIES)]
+Seniority = Literal[tuple(SENIORITY)]
+WorkArrangement = Literal[tuple(WORK_ARRANGEMENT)]
+PayPeriod = Literal["year", "hour", "month"]
+
+
+class Requirement(BaseModel):
+    text: str
+    met: bool
+
 
 class Stage1Result(BaseModel):
     decision: Literal["pass", "reject"]
@@ -54,3 +74,20 @@ class Stage2Result(BaseModel):
     industry_subcategory: Subcategory
     confidence: Literal["low", "medium", "high"]
     reasoning: str
+    # --- Rolefit extraction (optional; defaults tolerate model omissions) ---
+    role_category: RoleCategory = "Other"
+    seniority: Seniority = "unknown"
+    work_arrangement: WorkArrangement = "unknown"
+    about: str | None = None
+    pay_min: int | None = None
+    pay_max: int | None = None
+    pay_currency: str | None = None
+    pay_period: PayPeriod | None = None
+    headcount: str | None = None
+    skills_score: int = 0
+    experience_score: int = 0
+    comp_score: int = 0
+    red_flags: list[str] = Field(default_factory=list)
+    skill_gaps: list[str] = Field(default_factory=list)
+    benefits: list[str] = Field(default_factory=list)
+    requirements: list[Requirement] = Field(default_factory=list)

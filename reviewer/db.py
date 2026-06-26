@@ -1,10 +1,17 @@
 import uuid
 
+from psycopg.types.json import Json
+
 _REVIEW_COLUMNS = (
     "user_id", "job_id", "profile_version", "stage1_decision", "stage1_reason",
     "verdict", "experience_match", "industry", "industry_subcategory",
     "confidence", "reasoning", "model_stage1", "model_stage2", "error",
+    "role_category", "seniority", "work_arrangement", "about",
+    "pay_min", "pay_max", "pay_currency", "pay_period", "headcount",
+    "skills_score", "experience_score", "comp_score", "fit_score",
+    "red_flags", "skill_gaps", "benefits", "requirements",
 )
+_JSONB_COLUMNS = ("red_flags", "skill_gaps", "benefits", "requirements")
 
 # Built once from the fixed column tuple (the row values are bound per call).
 _UPSERT_REVIEW_SQL = (
@@ -47,7 +54,7 @@ def select_candidates(
             JOIN companies c ON c.id = j.company_id
             LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
             WHERE j.closed_at IS NULL
-              AND (r.job_id IS NULL OR r.profile_version <> %(pv)s)
+              AND (r.job_id IS NULL OR r.profile_version <> %(pv)s OR (r.fit_score IS NULL AND r.verdict IS NOT NULL))
               AND (NOT %(has_prefs)s OR j.remote IS TRUE OR j.location = ANY(%(prefs)s::text[]))
             ORDER BY j.first_seen_at DESC
             LIMIT %(lim)s
@@ -60,9 +67,13 @@ def select_candidates(
 
 
 def upsert_review(conn, row: dict) -> None:
-    row = {**row, "user_id": _uuid(row["user_id"])}
+    # Normalize to the full column set so callers may omit new keys; wrap JSONB.
+    full = {c: row.get(c) for c in _REVIEW_COLUMNS}
+    full["user_id"] = _uuid(full["user_id"])
+    for c in _JSONB_COLUMNS:
+        full[c] = Json(full[c] if full[c] is not None else [])
     with conn.cursor() as cur:
-        cur.execute(_UPSERT_REVIEW_SQL, row)
+        cur.execute(_UPSERT_REVIEW_SQL, full)
 
 
 def set_job_description(conn, job_id: str, description: str) -> None:

@@ -83,6 +83,10 @@ export function buildJobsQuery(
     selectCols.push(
       "r.verdict", "r.experience_match", "r.industry", "r.industry_subcategory",
       "r.confidence", "r.reasoning", "r.stage1_decision", "r.stage1_reason",
+      "r.role_category", "r.seniority", "r.work_arrangement", "r.about",
+      "r.pay_min", "r.pay_max", "r.pay_currency", "r.pay_period", "r.headcount",
+      "r.skills_score", "r.experience_score", "r.comp_score", "r.fit_score",
+      "r.red_flags", "r.skill_gaps", "r.benefits", "r.requirements",
     );
   }
   const reviewJoin = hasReviews

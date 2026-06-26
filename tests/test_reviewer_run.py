@@ -28,6 +28,8 @@ class StubClient:
             verdict="approve", experience_match="match",
             industry="software_internet", industry_subcategory="devtools_platforms",
             confidence="high", reasoning="fit",
+            role_category="Backend", skills_score=80, experience_score=70, comp_score=60,
+            red_flags=["on-call"], requirements=[{"text": "Go", "met": False}],
         )
 
 
@@ -93,11 +95,17 @@ def test_as_row_maps_all_columns():
     row = res.as_row(user_id="u", profile_version="v1")
     assert row["user_id"] == "u" and row["profile_version"] == "v1"
     assert row["job_id"] == "lever:acme:SRE"
-    assert set(row) == {
-        "user_id", "job_id", "profile_version", "stage1_decision", "stage1_reason",
-        "verdict", "experience_match", "industry", "industry_subcategory",
-        "confidence", "reasoning", "model_stage1", "model_stage2", "error",
-    }
+    from reviewer.db import _REVIEW_COLUMNS
+    assert set(row) == set(_REVIEW_COLUMNS)
+
+
+def test_fit_score_computed_and_requirements_serialized():
+    client = StubClient()
+    res = asyncio.run(review_one(_cand("SRE"), "P", client))
+    # base = 0.45*80+0.30*70+0.25*60 = 72; +4(match)+3(high) -3(1 flag) = 76
+    assert res.fit_score == 76
+    assert res.role_category == "Backend"
+    assert res.requirements == [{"text": "Go", "met": False}]  # list[dict], JSONB-ready
 
 
 import os

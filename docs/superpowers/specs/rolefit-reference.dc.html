@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:'Hanken Grotesk',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+input,button,textarea{font-family:inherit}
+@keyframes rf-spin{to{transform:rotate(360deg)}}
+.rf-scroll::-webkit-scrollbar{width:11px}
+.rf-scroll::-webkit-scrollbar-thumb{background:#d3d9e2;border-radius:7px;border:3px solid transparent;background-clip:padding-box}
+.rf-scroll::-webkit-scrollbar-thumb:hover{background:#bcc4d1;background-clip:padding-box}
+.rf-scroll::-webkit-scrollbar-track{background:transparent}
+</style>
+</helmet>
+
+<div style="height:100vh;display:flex;flex-direction:column;background:#f4f6fa;color:#1f2430;overflow:hidden">
+
+  <!-- ============ HEADER ============ -->
+  <div style="flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:13px 22px;background:#fff;border-bottom:1px solid #e7eaf0;z-index:20">
+    <div style="display:flex;align-items:center;gap:11px;flex:0 0 auto">
+      <div style="width:31px;height:31px;border-radius:9px;background:#3b6fd4;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(59,111,212,.32)">
+        <div style="width:11px;height:11px;background:#fff;border-radius:3px;transform:rotate(45deg)"></div>
+      </div>
+      <div style="font-weight:800;font-size:18.5px;letter-spacing:-.4px;color:#1b2330">Rolefit</div>
+      <div style="font-size:10px;font-weight:800;color:#3b6fd4;background:#eef3fc;border:1px solid #d8e2f6;border-radius:20px;padding:3px 8px;letter-spacing:.5px">AI-REVIEWED</div>
+    </div>
+    <div style="flex:1;max-width:460px;margin:0 auto;display:flex;align-items:center;gap:10px;height:39px;background:#f3f5f9;border:1px solid #e7eaf0;border-radius:11px;padding:0 14px">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style="flex:0 0 auto"><circle cx="6.4" cy="6.4" r="4.6" stroke="#9aa3b0" stroke-width="1.7"/><line x1="9.9" y1="9.9" x2="13.4" y2="13.4" stroke="#9aa3b0" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input value="{{ search }}" onInput="{{ onSearch }}" placeholder="Search roles, companies, skills…" style="flex:1;border:none;background:transparent;outline:none;font-size:13.5px;color:#1f2430;min-width:0"/>
+    </div>
+    <button onClick="{{ onOpenProfile }}" style="flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:13px;color:{{ profileBtnColor }};background:{{ profileBtnBg }};border:1px solid {{ profileBtnBorder }};border-radius:11px;padding:9px 14px;cursor:pointer">
+      <span style="font-size:13px">{{ profileBtnIcon }}</span><span>{{ profileBtnLabel }}</span>
+    </button>
+  </div>
+
+  <!-- ============ FILTER BAR ============ -->
+  <div style="flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:10px 22px;background:#fff;border-bottom:1px solid #e7eaf0;flex-wrap:wrap;z-index:15;position:relative">
+
+    <div data-menuroot style="position:relative">
+      <button onClick="{{ onToggleCategory }}" style="display:inline-flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px;color:#39424f;background:{{ catBtnBg }};border:1px solid {{ catBtnBorder }};border-radius:9px;padding:7px 11px;cursor:pointer">Category{{ catBadge }}<span style="color:#9aa3b0;font-size:9px">▼</span></button>
+      <sc-if value="{{ menuCategory }}">
+        <div style="position:absolute;top:calc(100% + 7px);left:0;z-index:50;background:#fff;border:1px solid #e3e7ee;border-radius:13px;box-shadow:0 16px 40px rgba(20,28,45,.17);padding:7px;width:248px;max-height:320px;overflow:auto">
+          <sc-for list="{{ catItems }}" as="c" hint-placeholder-count="6">
+            <div onClick="{{ c.onToggle }}" style="display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;cursor:pointer" style-hover="background:#f4f6fa">
+              <span style="width:17px;height:17px;border-radius:5px;border:1.5px solid {{ c.boxBorder }};background:{{ c.boxBg }};color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:0 0 auto">{{ c.check }}</span>
+              <span style="flex:1;font-size:13px;font-weight:500;color:#2b333f">{{ c.label }}</span>
+              <span style="font-size:11.5px;color:#9aa3b0;font-weight:700">{{ c.count }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+
+    <div data-menuroot style="position:relative">
+      <button onClick="{{ onTogglePay }}" style="display:inline-flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px;color:#39424f;background:{{ payBtnBg }};border:1px solid {{ payBtnBorder }};border-radius:9px;padding:7px 11px;cursor:pointer">Pay{{ payBadge }}<span style="color:#9aa3b0;font-size:9px">▼</span></button>
+      <sc-if value="{{ menuPay }}">
+        <div style="position:absolute;top:calc(100% + 7px);left:0;z-index:50;background:#fff;border:1px solid #e3e7ee;border-radius:13px;box-shadow:0 16px 40px rgba(20,28,45,.17);padding:7px;width:190px">
+          <sc-for list="{{ payItems }}" as="p" hint-placeholder-count="5">
+            <div onClick="{{ p.onClick }}" style="display:flex;align-items:center;gap:9px;padding:8px;border-radius:8px;cursor:pointer;background:{{ p.bg }}" style-hover="background:#f4f6fa">
+              <span style="flex:1;font-size:13px;font-weight:{{ p.weight }};color:#2b333f">{{ p.label }}</span>
+              <span style="color:#3b6fd4;font-weight:800;font-size:12px">{{ p.check }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+
+    <div data-menuroot style="position:relative">
+      <button onClick="{{ onToggleMatch }}" style="display:inline-flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px;color:#39424f;background:{{ matchBtnBg }};border:1px solid {{ matchBtnBorder }};border-radius:9px;padding:7px 11px;cursor:pointer">Match{{ matchBadge }}<span style="color:#9aa3b0;font-size:9px">▼</span></button>
+      <sc-if value="{{ menuMatch }}">
+        <div style="position:absolute;top:calc(100% + 7px);left:0;z-index:50;background:#fff;border:1px solid #e3e7ee;border-radius:13px;box-shadow:0 16px 40px rgba(20,28,45,.17);padding:7px;width:190px">
+          <sc-for list="{{ matchItems }}" as="m" hint-placeholder-count="4">
+            <div onClick="{{ m.onClick }}" style="display:flex;align-items:center;gap:9px;padding:8px;border-radius:8px;cursor:pointer;background:{{ m.bg }}" style-hover="background:#f4f6fa">
+              <span style="flex:1;font-size:13px;font-weight:{{ m.weight }};color:#2b333f">{{ m.label }}</span>
+              <span style="color:#3b6fd4;font-weight:800;font-size:12px">{{ m.check }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+
+    <div data-menuroot style="position:relative">
+      <button onClick="{{ onToggleLocation }}" style="display:inline-flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px;color:#39424f;background:{{ locBtnBg }};border:1px solid {{ locBtnBorder }};border-radius:9px;padding:7px 11px;cursor:pointer">Location{{ locBadge }}<span style="color:#9aa3b0;font-size:9px">▼</span></button>
+      <sc-if value="{{ menuLocation }}">
+        <div style="position:absolute;top:calc(100% + 7px);left:0;z-index:50;background:#fff;border:1px solid #e3e7ee;border-radius:13px;box-shadow:0 16px 40px rgba(20,28,45,.17);padding:7px;width:230px;max-height:320px;overflow:auto">
+          <sc-for list="{{ locItems }}" as="l" hint-placeholder-count="6">
+            <div onClick="{{ l.onToggle }}" style="display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;cursor:pointer" style-hover="background:#f4f6fa">
+              <span style="width:17px;height:17px;border-radius:5px;border:1.5px solid {{ l.boxBorder }};background:{{ l.boxBg }};color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:0 0 auto">{{ l.check }}</span>
+              <span style="flex:1;font-size:13px;font-weight:500;color:#2b333f">{{ l.label }}</span>
+              <span style="font-size:11.5px;color:#9aa3b0;font-weight:700">{{ l.count }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="display:inline-flex;align-items:center;gap:8px;margin-left:4px">
+      <span style="font-size:11.5px;color:#8a93a3;font-weight:700;letter-spacing:.2px">REMOTE</span>
+      <div style="display:inline-flex;background:#eef1f5;border-radius:9px;padding:2px">
+        <sc-for list="{{ remoteOptions }}" as="o" hint-placeholder-count="4">
+          <button onClick="{{ o.onClick }}" style="border:none;cursor:pointer;font-weight:700;font-size:12px;padding:5px 11px;border-radius:7px;background:{{ o.bg }};color:{{ o.color }};box-shadow:{{ o.shadow }}">{{ o.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="flex:1"></div>
+    <div style="font-size:12.5px;color:#8a93a3;font-weight:700;white-space:nowrap">{{ resultCount }}</div>
+    <div data-menuroot style="position:relative">
+      <button onClick="{{ onToggleSort }}" style="display:inline-flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px;color:#39424f;background:#fff;border:1px solid #dfe3ea;border-radius:9px;padding:7px 11px;cursor:pointer">Sort: {{ sortLabel }}<span style="color:#9aa3b0;font-size:9px">▼</span></button>
+      <sc-if value="{{ menuSort }}">
+        <div style="position:absolute;top:calc(100% + 7px);right:0;z-index:50;background:#fff;border:1px solid #e3e7ee;border-radius:13px;box-shadow:0 16px 40px rgba(20,28,45,.17);padding:7px;width:188px">
+          <sc-for list="{{ sortItems }}" as="s" hint-placeholder-count="4">
+            <div onClick="{{ s.onClick }}" style="display:flex;align-items:center;gap:9px;padding:8px;border-radius:8px;cursor:pointer;background:{{ s.bg }}" style-hover="background:#f4f6fa">
+              <span style="flex:1;font-size:13px;font-weight:{{ s.weight }};color:#2b333f">{{ s.label }}</span>
+              <span style="color:#3b6fd4;font-weight:800;font-size:12px">{{ s.check }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <!-- ============ SPLIT ============ -->
+  <div style="flex:1;display:flex;min-height:0">
+
+    <!-- LIST -->
+    <div class="rf-scroll" style="flex:0 0 426px;overflow-y:auto;background:#f4f6fa;border-right:1px solid #e7eaf0;padding:13px 2px 24px">
+      <sc-if value="{{ hasResults }}">
+        <sc-for list="{{ visibleJobs }}" as="job" hint-placeholder-count="8">
+          <div onClick="{{ job.onSelect }}" style="position:relative;display:flex;gap:12px;margin:0 13px 9px;padding:{{ job.pad }};border-radius:14px;cursor:pointer;background:{{ job.cardBg }};border:{{ job.cardBorderCss }};box-shadow:{{ job.cardShadow }}">
+            <div style="position:absolute;left:0;top:9px;bottom:9px;width:4px;border-radius:4px;background:{{ job.strong }}"></div>
+            <div style="flex:0 0 40px;height:40px;border-radius:10px;background:{{ job.logoBg }};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;letter-spacing:.3px;margin-left:6px">{{ job.initials }}</div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:9px">
+                <div style="font-weight:700;font-size:14.5px;color:#1b2330;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">{{ job.title }}</div>
+                <div style="flex:0 0 auto;font-weight:800;font-size:11.5px;padding:3px 9px;border-radius:20px;background:{{ job.strong }};color:{{ job.textOn }};font-variant-numeric:tabular-nums">{{ job.fitLabel }}</div>
+              </div>
+              <div style="font-size:12.5px;color:#5b6472;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500">{{ job.companyLine }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+                <span style="font-size:11px;font-weight:600;color:#566;background:#fff;border:1px solid #e7eaf0;border-radius:7px;padding:2px 8px">{{ job.payLabel }}</span>
+                <span style="font-size:11px;font-weight:600;color:#566;background:#fff;border:1px solid #e7eaf0;border-radius:7px;padding:2px 8px">{{ job.remoteLabel }}</span>
+                <span style="font-size:11px;font-weight:600;color:#566;background:#fff;border:1px solid #e7eaf0;border-radius:7px;padding:2px 8px">{{ job.categoryLabel }}</span>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </sc-if>
+      <sc-if value="{{ noResults }}">
+        <div style="padding:60px 30px;text-align:center;color:#8a93a3">
+          <div style="font-size:14px;font-weight:700;color:#5b6472">No roles match your filters</div>
+          <button onClick="{{ onClearFilters }}" style="margin-top:14px;font-weight:700;font-size:13px;color:#3b6fd4;background:#eef3fc;border:1px solid #d8e2f6;border-radius:9px;padding:8px 14px;cursor:pointer">Clear filters</button>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- DETAIL -->
+    <div ref="{{ detailRef }}" class="rf-scroll" style="flex:1;overflow-y:auto;background:#fff;min-width:0">
+      <sc-if value="{{ sel }}">
+        <div style="max-width:880px;margin:0 auto;padding:30px 36px 70px">
+
+          <!-- header -->
+          <div style="display:flex;gap:18px;align-items:flex-start">
+            <div style="flex:0 0 54px;height:54px;border-radius:13px;background:{{ sel.logoBg }};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;letter-spacing:.4px">{{ sel.initials }}</div>
+            <div style="flex:1;min-width:0">
+              <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-.4px;color:#161d29;line-height:1.15">{{ sel.title }}</h1>
+              <div style="font-size:14px;color:#5b6472;margin-top:5px;font-weight:600">{{ sel.metaLine }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:13px">
+                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#414b59;background:#f2f4f8;border:1px solid #e7eaf0;border-radius:7px;padding:4px 10px">{{ sel.categoryLabel }}</span>
+                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#414b59;background:#f2f4f8;border:1px solid #e7eaf0;border-radius:7px;padding:4px 10px">{{ sel.seniority }}</span>
+                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#414b59;background:#f2f4f8;border:1px solid #e7eaf0;border-radius:7px;padding:4px 10px">{{ sel.headcountLabel }}</span>
+                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#414b59;background:#f2f4f8;border:1px solid #e7eaf0;border-radius:7px;padding:4px 10px">{{ sel.payLabel }}</span>
+                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#8a93a3;border-radius:7px;padding:4px 2px">{{ sel.postedText }}</span>
+              </div>
+            </div>
+            <div style="flex:0 0 auto;position:relative;width:88px;height:88px">
+              <svg width="88" height="88" viewBox="0 0 88 88">
+                <circle cx="44" cy="44" r="34" fill="none" stroke="#eef1f5" stroke-width="9"/>
+                <circle cx="44" cy="44" r="34" fill="none" stroke="{{ sel.strong }}" stroke-width="9" stroke-linecap="round" stroke-dasharray="{{ sel.ringDash }}" stroke-dashoffset="{{ sel.ringOffset }}" transform="rotate(-90 44 44)"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                <div style="font-size:23px;font-weight:800;color:#161d29;line-height:1;font-variant-numeric:tabular-nums">{{ sel.fitLabel }}</div>
+                <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;color:#8a93a3;margin-top:3px">FIT</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- résumé generator -->
+          <div style="margin-top:24px;border:1px solid #e3e7ee;border-radius:16px;overflow:hidden">
+            <sc-if value="{{ sel.genIdle }}">
+              <div style="display:flex;align-items:center;gap:16px;padding:17px 19px;background:#f7f9fc">
+                <div style="flex:1">
+                  <div style="font-weight:800;font-size:15px;color:#1b2330">Tailored résumé</div>
+                  <div style="font-size:12.5px;color:#6b7480;margin-top:3px;font-weight:500">Generate a résumé focused on this exact role, ready to download.</div>
+                  <sc-if value="{{ sel.usingSample }}">
+                    <div style="font-size:12px;color:#9a7b3e;margin-top:7px;font-weight:600">Using a sample profile — <span onClick="{{ sel.onOpenProfile }}" style="color:#3b6fd4;cursor:pointer;text-decoration:underline">add yours</span> for a sharper result.</div>
+                  </sc-if>
+                </div>
+                <button onClick="{{ sel.onGenerate }}" style="flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:14px;color:#fff;background:#3b6fd4;border:none;border-radius:11px;padding:12px 20px;cursor:pointer;box-shadow:0 4px 12px rgba(59,111,212,.28)"><span style="font-size:15px">✦</span>Generate résumé</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sel.genBusy }}">
+              <div style="display:flex;align-items:center;gap:15px;padding:21px 19px;background:#f7f9fc">
+                <div style="width:30px;height:30px;border-radius:50%;border:3px solid #e0e8f5;border-top-color:#3b6fd4;animation:rf-spin .8s linear infinite;flex:0 0 auto"></div>
+                <div>
+                  <div style="font-weight:800;font-size:14.5px;color:#1b2330">{{ sel.genBusyText }}</div>
+                  <div style="font-size:12.5px;color:#6b7480;margin-top:3px;font-weight:500">Matching your background against this role's requirements.</div>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sel.genDone }}">
+              <div style="padding:17px 19px;background:#f6faf7">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <span style="width:20px;height:20px;border-radius:6px;background:#dcefe2;color:#2f7d54;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800">✓</span>
+                  <div style="font-weight:800;font-size:14.5px;color:#1b2330">{{ sel.genDoneTitle }}</div>
+                </div>
+                <div style="margin-top:12px;background:#fff;border:1px solid #e3e7ee;border-radius:12px;padding:15px 16px">
+                  <div style="font-weight:800;font-size:15px;color:#161d29">{{ sel.genName }}</div>
+                  <div style="font-size:12.5px;color:#5b6472;line-height:1.5;margin-top:6px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">{{ sel.genSummary }}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:11px">
+                    <sc-for list="{{ sel.genSkills }}" as="sk" hint-placeholder-count="6">
+                      <span style="font-size:11px;font-weight:700;color:#3b6fd4;background:#eef3fc;border:1px solid #d8e2f6;border-radius:6px;padding:3px 8px">{{ sk }}</span>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:13px">
+                  <button onClick="{{ sel.onDownload }}" style="display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;color:#fff;background:#3b6fd4;border:none;border-radius:10px;padding:10px 17px;cursor:pointer;box-shadow:0 3px 10px rgba(59,111,212,.26)"><span>⤓</span>Download PDF</button>
+                  <button onClick="{{ sel.onCopy }}" style="display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:13.5px;color:#5b6472;background:#fff;border:1px solid #dfe3ea;border-radius:10px;padding:10px 15px;cursor:pointer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="5.2" y="5.2" width="8.6" height="8.6" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 11V3.6C3 2.7 3.7 2 4.6 2H11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>{{ sel.copyLabel }}</button>
+                  <button onClick="{{ sel.onRegenerate }}" style="display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:13.5px;color:#5b6472;background:#fff;border:1px solid #dfe3ea;border-radius:10px;padding:10px 15px;cursor:pointer"><span>↻</span>Regenerate</button>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+
+          <!-- AI review -->
+          <div style="margin-top:18px;border:1px solid #e3e7ee;border-radius:16px;padding:19px 20px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:10px;font-weight:800;color:#fff;background:#3b6fd4;border-radius:6px;padding:3px 8px;letter-spacing:.5px">AI</span>
+              <div style="font-weight:800;font-size:15px;color:#1b2330">Review</div>
+              <div style="flex:1"></div>
+              <div style="font-size:11.5px;color:#8a93a3;font-weight:600">Auto-categorized · <span style="color:#5b6472;font-weight:700">{{ sel.categoryLabel }}</span></div>
+            </div>
+
+            <div style="margin-top:15px">
+              <sc-for list="{{ sel.subScores }}" as="r" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:13px;margin-top:9px">
+                  <div style="width:128px;font-size:12.5px;font-weight:600;color:#5b6472">{{ r.label }}</div>
+                  <div style="flex:1;height:8px;background:#eef1f5;border-radius:5px;overflow:hidden"><div style="height:100%;width:{{ r.w }};background:{{ r.color }};border-radius:5px"></div></div>
+                  <div style="width:38px;text-align:right;font-size:12px;font-weight:800;color:#3b6fd4;font-variant-numeric:tabular-nums">{{ r.w }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <p style="font-size:14px;line-height:1.62;color:#2f3845;margin:17px 0 0;font-weight:500">{{ sel.fitSummary }}</p>
+
+            <div style="display:flex;gap:24px;margin-top:18px;flex-wrap:wrap">
+              <div style="flex:1;min-width:230px">
+                <div style="font-size:12px;font-weight:800;color:#b25a36;letter-spacing:.3px;text-transform:uppercase">Red flags</div>
+                <sc-for list="{{ sel.redFlags }}" as="flag" hint-placeholder-count="2">
+                  <div style="display:flex;gap:9px;align-items:flex-start;margin-top:8px">
+                    <span style="color:#c2683f;font-size:11px;line-height:1.5;flex:0 0 auto">▲</span>
+                    <span style="font-size:13px;color:#414b59;line-height:1.5;font-weight:500">{{ flag }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="flex:1;min-width:230px">
+                <div style="font-size:12px;font-weight:800;color:#9a6a1e;letter-spacing:.3px;text-transform:uppercase">Skill gaps</div>
+                <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:10px">
+                  <sc-for list="{{ sel.skillGaps }}" as="gap" hint-placeholder-count="2">
+                    <span style="font-size:12px;font-weight:700;color:#9a6a1e;background:#f8efdd;border:1px solid #ecdcb8;border-radius:7px;padding:3px 10px">{{ gap }}</span>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- requirements -->
+          <div style="margin-top:24px">
+            <div style="font-size:13px;font-weight:800;color:#1b2330;letter-spacing:-.2px">What they're looking for</div>
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:9px">
+              <sc-for list="{{ sel.requirements }}" as="req" hint-placeholder-count="4">
+                <div style="display:flex;gap:11px;align-items:center">
+                  <span style="flex:0 0 auto;width:21px;height:21px;border-radius:6px;background:{{ req.markBg }};color:{{ req.markColor }};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800">{{ req.mark }}</span>
+                  <span style="font-size:13.5px;color:#2f3845;font-weight:500">{{ req.text }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- benefits -->
+          <div style="margin-top:24px">
+            <div style="font-size:13px;font-weight:800;color:#1b2330;letter-spacing:-.2px">Benefits</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+              <sc-for list="{{ sel.benefits }}" as="b" hint-placeholder-count="4">
+                <span style="font-size:12px;font-weight:700;color:#3f6b50;background:#eaf4ee;border:1px solid #d3e7da;border-radius:8px;padding:5px 11px">{{ b }}</span>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- about -->
+          <div style="margin-top:24px;border-top:1px solid #eef1f5;padding-top:20px">
+            <div style="font-size:13px;font-weight:800;color:#1b2330;letter-spacing:-.2px">{{ sel.aboutTitle }}</div>
+            <p style="font-size:13.5px;line-height:1.6;color:#5b6472;margin:10px 0 0;font-weight:500">{{ sel.about }}</p>
+          </div>
+
+        </div>
+      </sc-if>
+      <sc-if value="{{ noResults }}">
+        <div style="height:100%;display:flex;align-items:center;justify-content:center;color:#8a93a3;font-size:14px;font-weight:600">Select filters to see roles</div>
+      </sc-if>
+    </div>
+  </div>
+
+  <!-- ============ PROFILE MODAL ============ -->
+  <sc-if value="{{ profileOpen }}">
+    <div onClick="{{ onCloseProfile }}" style="position:fixed;inset:0;background:rgba(17,23,33,.46);display:flex;align-items:center;justify-content:center;z-index:100;padding:24px">
+      <div onClick="{{ onCardClick }}" style="width:480px;max-width:100%;background:#fff;border-radius:18px;box-shadow:0 30px 70px rgba(15,22,35,.4);overflow:hidden">
+        <div style="display:flex;align-items:center;padding:18px 20px;border-bottom:1px solid #eef1f5">
+          <div style="flex:1">
+            <div style="font-weight:800;font-size:16px;color:#161d29">Your profile</div>
+            <div style="font-size:12.5px;color:#8a93a3;margin-top:2px;font-weight:500">Used to tailor résumés. Stored locally on your device.</div>
+          </div>
+          <button onClick="{{ onCloseProfile }}" style="width:30px;height:30px;border-radius:8px;border:1px solid #e7eaf0;background:#fff;color:#8a93a3;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+        </div>
+        <div style="padding:18px 20px">
+          <div style="display:inline-flex;background:#eef1f5;border-radius:10px;padding:3px;width:100%">
+            <button onClick="{{ onSetTabPaste }}" style="flex:1;border:none;cursor:pointer;font-weight:700;font-size:13px;padding:8px;border-radius:8px;background:{{ pasteTabBg }};color:{{ pasteTabColor }};box-shadow:{{ pasteTabShadow }}">Paste text</button>
+            <button onClick="{{ onSetTabUpload }}" style="flex:1;border:none;cursor:pointer;font-weight:700;font-size:13px;padding:8px;border-radius:8px;background:{{ uploadTabBg }};color:{{ uploadTabColor }};box-shadow:{{ uploadTabShadow }}">Upload PDF</button>
+          </div>
+
+          <sc-if value="{{ tabPaste }}">
+            <textarea value="{{ profileDraft }}" onInput="{{ onDraft }}" placeholder="Paste your résumé or a few lines about your experience, skills, and roles…" style="width:100%;height:184px;margin-top:14px;border:1px solid #e3e7ee;border-radius:12px;padding:13px;font-size:13px;line-height:1.5;color:#1f2430;resize:vertical;outline:none"></textarea>
+            <div style="font-size:11.5px;color:#9aa3b0;margin-top:8px;font-weight:500">Tip: start with your name on the first line. We'll detect skills automatically.</div>
+          </sc-if>
+
+          <sc-if value="{{ tabUpload }}">
+            <label for="rf-file" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;height:184px;margin-top:14px;border:1.5px dashed #cdd5e0;border-radius:12px;cursor:pointer;background:#f7f9fc">
+              <div style="width:42px;height:42px;border-radius:11px;background:#eef3fc;color:#3b6fd4;display:flex;align-items:center;justify-content:center;font-size:20px">⤒</div>
+              <div style="font-size:13.5px;font-weight:700;color:#3b6fd4">Choose a PDF</div>
+              <div style="font-size:12px;color:#8a93a3;font-weight:500">PDF, DOC or TXT — up to 5MB</div>
+              <sc-if value="{{ uploadName }}"><div style="font-size:12.5px;font-weight:700;color:#2f7d54;margin-top:2px">✓ {{ uploadName }}</div></sc-if>
+            </label>
+            <input id="rf-file" type="file" accept=".pdf,.txt,.doc,.docx" onChange="{{ onUpload }}" style="display:none"/>
+          </sc-if>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;padding:0 20px 20px">
+          <button onClick="{{ onCloseProfile }}" style="font-weight:700;font-size:13.5px;color:#5b6472;background:#fff;border:1px solid #dfe3ea;border-radius:10px;padding:10px 16px;cursor:pointer">Cancel</button>
+          <button onClick="{{ onSaveProfile }}" style="font-weight:700;font-size:13.5px;color:#fff;background:#3b6fd4;border:none;border-radius:10px;padding:10px 20px;cursor:pointer;box-shadow:0 3px 10px rgba(59,111,212,.26)">Save profile</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;tintMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;subtle&quot;,&quot;vivid&quot;,&quot;off&quot;],&quot;default&quot;:&quot;subtle&quot;,&quot;tsType&quot;:&quot;'subtle'|'vivid'|'off'&quot;},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;comfortable&quot;,&quot;compact&quot;],&quot;default&quot;:&quot;comfortable&quot;,&quot;tsType&quot;:&quot;'comfortable'|'compact'&quot;},&quot;defaultSort&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;match&quot;,&quot;pay&quot;,&quot;newest&quot;],&quot;default&quot;:&quot;match&quot;,&quot;tsType&quot;:&quot;'match'|'pay'|'newest'&quot;}}">
+class Component extends DCLogic {
+  detailRef = React.createRef();
+  state = {
+    jobs: this.getBaseJobs(),
+    selectedId: null,
+    search: '',
+    cats: [],
+    locs: [],
+    remote: 'all',
+    minFit: 0,
+    payMin: 0,
+    sort: null,
+    openMenu: null,
+    profile: this.loadProfile(),
+    profileOpen: false,
+    profileTab: 'paste',
+    profileDraft: '',
+    uploadName: '',
+    gen: {},
+    genData: {},
+    copiedId: null,
+  };
+
+  componentDidMount() {
+    this._onDoc = (e) => {
+      if (!e.target.closest('[data-menuroot]')) {
+        this.setState((st) => (st.openMenu ? { openMenu: null } : null));
+      }
+    };
+    document.addEventListener('click', this._onDoc);
+  }
+  componentWillUnmount() {
+    document.removeEventListener('click', this._onDoc);
+  }
+
+  /* ---------- helpers ---------- */
+  lerp(a, b, t) { return a + (b - a) * t; }
+
+  fitColor(fit) {
+    // remap the realistic 48–96 fit range across the full red→yellow→green scale
+    const f = Math.max(0, Math.min(1, (fit - 48) / 48));
+    const red = [0.635, 0.205, 27], yel = [0.85, 0.15, 92], grn = [0.66, 0.16, 150];
+    let a, b, t;
+    if (f < 0.5) { a = red; b = yel; t = f / 0.5; } else { a = yel; b = grn; t = (f - 0.5) / 0.5; }
+    const L = this.lerp(a[0], b[0], t), C = this.lerp(a[1], b[1], t), H = this.lerp(a[2], b[2], t);
+    return {
+      strong: `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(1)})`,
+      textOn: L > 0.72 ? '#2a2410' : '#ffffff',
+      tint: `oklch(0.975 ${Math.min(C, 0.026).toFixed(3)} ${H.toFixed(1)})`,
+      tintVivid: `oklch(0.95 ${Math.min(C, 0.058).toFixed(3)} ${H.toFixed(1)})`,
+      tintBorder: `oklch(0.905 ${Math.min(C, 0.05).toFixed(3)} ${H.toFixed(1)})`,
+    };
+  }
+
+  initialsOf(name) {
+    const w = name.trim().split(/\s+/);
+    if (w.length >= 2) return (w[0][0] + w[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  }
+  fmtPay(j) { return `$${j.payMin}\u2013${j.payMax}k`; }
+  fmtPosted(d) { return d <= 0 ? 'today' : d === 1 ? '1 day ago' : `${d} days ago`; }
+
+  baseProfile() {
+    return {
+      name: 'Alex Morgan', headline: 'Senior Software Engineer', years: 8,
+      location: 'San Francisco, CA', email: 'alex.morgan@example.com',
+      skills: ['TypeScript', 'React', 'Next.js', 'Node.js', 'GraphQL', 'JavaScript', 'Tailwind', 'REST', 'PostgreSQL', 'AWS', 'Jest', 'Cypress', 'CI/CD', 'Design Systems'],
+      experience: [
+        { role: 'Senior Software Engineer', company: 'Brightwave', dates: '2021\u2013Present', bullets: ['Led the front-end for a B2B analytics suite used by 40k+ users, cutting page-load time 45%.', 'Built and owned a shared React/TypeScript design system adopted by 6 product teams.', 'Partnered with design and PM to ship 0\u21921 features on a weekly cadence.'] },
+        { role: 'Software Engineer', company: 'Pixel & Co', dates: '2018\u20132021', bullets: ['Shipped customer-facing features in React + Node across web and API layers.', 'Introduced end-to-end testing with Cypress, reducing regressions ~30%.'] },
+        { role: 'Junior Developer', company: 'Statix', dates: '2016\u20132018', bullets: ['Built responsive marketing sites and internal tools in JavaScript.'] },
+      ],
+      education: 'B.S. Computer Science \u2014 University of California, Davis',
+    };
+  }
+
+  /* ---------- profile ---------- */
+  loadProfile() {
+    try { const r = localStorage.getItem('rolefit.profile'); return r ? JSON.parse(r) : null; } catch (e) { return null; }
+  }
+  vocab() {
+    return ['TypeScript', 'JavaScript', 'React', 'Next.js', 'Vue', 'Node.js', 'Go', 'Python', 'Java', 'Rust', 'GraphQL', 'REST', 'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'Terraform', 'CI/CD', 'Jest', 'Cypress', 'Playwright', 'Tailwind', 'CSS', 'HTML', 'Swift', 'Kotlin', 'iOS', 'Android', 'Kafka', 'Spark', 'Airflow', 'PyTorch', 'TensorFlow', 'LLM', 'Figma', 'Design Systems', 'Webpack', 'Vite', 'Microservices', 'gRPC', 'SQL'];
+  }
+  extractSkills(t) { const low = t.toLowerCase(); return this.vocab().filter((v) => low.includes(v.toLowerCase())); }
+  nameFromText(t) { const f = (t.split(/\n/).map((x) => x.trim()).find(Boolean)) || 'Your Name'; return f.slice(0, 42); }
+  nameFromFile(f) { return (f.replace(/\.[^.]+$/, '').replace(/[._-]+/g, ' ').replace(/\b(resume|cv)\b/ig, '').trim().replace(/\s+/g, ' ')) || 'Your Name'; }
+
+  openProfile = () => this.setState((st) => ({ profileOpen: true, profileTab: st.profile && st.profile.source === 'pdf' ? 'upload' : 'paste', profileDraft: (st.profile && st.profile.rawText) || '', uploadName: (st.profile && st.profile.fileName) || '' }));
+  closeProfile = () => this.setState({ profileOpen: false });
+  onCardClick = (e) => e.stopPropagation();
+  onDraft = (e) => { const v = e.target.value; this.setState({ profileDraft: v }); };
+  onUpload = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const name = f.name;
+    if (/\.txt$/i.test(name)) { const rd = new FileReader(); rd.onload = () => this.setState({ profileDraft: String(rd.result || ''), uploadName: name }); rd.readAsText(f); }
+    else { this.setState({ uploadName: name }); }
+  };
+  saveProfile = () => {
+    const s = this.state; let prof;
+    if (s.profileTab === 'upload' && s.uploadName) {
+      prof = { source: 'pdf', fileName: s.uploadName, name: this.nameFromFile(s.uploadName), skills: this.extractSkills(s.profileDraft || ''), rawText: s.profileDraft || '' };
+    } else {
+      const txt = (s.profileDraft || '').trim();
+      if (!txt) { this.setState({ profileOpen: false }); return; }
+      prof = { source: 'paste', rawText: txt, name: this.nameFromText(txt), skills: this.extractSkills(txt) };
+    }
+    try { localStorage.setItem('rolefit.profile', JSON.stringify(prof)); } catch (e) {}
+    this.setState({ profile: prof, profileOpen: false });
+  };
+
+  /* ---------- résumé generation ---------- */
+  buildResume(j) {
+    const prof = this.state.profile; const base = this.baseProfile();
+    const name = (prof && prof.name) || base.name;
+    const pool = (prof && prof.skills && prof.skills.length) ? prof.skills : base.skills;
+    const matched = j.tags.filter((t) => pool.some((p) => { const a = p.toLowerCase(), b = t.toLowerCase(); return a === b || a.includes(b) || b.includes(a); }));
+    const emph = [...new Set([...matched, ...pool])].slice(0, 9);
+    const lead = (matched.length ? matched : j.tags).slice(0, 3).join(', ');
+    const summary = `${base.headline} with ${base.years}+ years building ${j.category.toLowerCase()} products, applying to ${j.company} for the ${j.title} role. Proven strengths in ${lead}, with a track record of shipping reliable, user-facing software end to end.`;
+    return { name, headline: base.headline, summary, skills: emph, matched, full: this.composeResumeText(name, base, j, summary, emph) };
+  }
+  composeResumeText(name, base, j, summary, skills) {
+    let t = `${name}\n${base.headline} \u00b7 ${base.location} \u00b7 ${base.email}\n\n`;
+    t += `TAILORED FOR: ${j.title} \u2014 ${j.company}\n\n`;
+    t += `SUMMARY\n${summary}\n\nCORE SKILLS\n${skills.join(', ')}\n\nEXPERIENCE\n`;
+    base.experience.forEach((e) => { t += `${e.role}, ${e.company} (${e.dates})\n`; e.bullets.forEach((b) => { t += `  - ${b}\n`; }); t += '\n'; });
+    t += `EDUCATION\n${base.education}\n`;
+    return t;
+  }
+  generate(j) {
+    this.setState((st) => ({ gen: { ...st.gen, [j.id]: 'generating' } }));
+    setTimeout(() => {
+      const data = this.buildResume(j);
+      this.setState((st) => ({ gen: { ...st.gen, [j.id]: 'done' }, genData: { ...st.genData, [j.id]: data } }));
+    }, 1150);
+  }
+  legacyCopy(text) { try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); ta.remove(); } catch (e) {} }
+  copyText = (j) => {
+    const r = this.state.genData[j.id] || this.buildResume(j);
+    const text = r.full;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(() => this.legacyCopy(text));
+      else this.legacyCopy(text);
+    } catch (e) { this.legacyCopy(text); }
+    this.setState({ copiedId: j.id });
+    clearTimeout(this._copyT);
+    this._copyT = setTimeout(() => this.setState((st) => (st.copiedId === j.id ? { copiedId: null } : null)), 1600);
+  };
+  download(j) {
+    const r = this.state.genData[j.id] || this.buildResume(j);
+    const base = this.baseProfile();
+    const fname = `Resume - ${j.company} - ${j.title}.pdf`.replace(/[\\/:*?"<>|]/g, ' ');
+    try {
+      const JS = window.jspdf && window.jspdf.jsPDF;
+      if (!JS) throw new Error('nojspdf');
+      const doc = new JS({ unit: 'pt', format: 'letter' });
+      const W = doc.internal.pageSize.getWidth(), M = 56; let y = 66;
+      const wrap = (txt, w) => doc.splitTextToSize(txt, w);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(21); doc.setTextColor(22, 29, 41); doc.text(r.name, M, y);
+      y += 17; doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(95, 100, 114);
+      doc.text(`${r.headline}  \u00b7  ${base.location}  \u00b7  ${base.email}`, M, y);
+      y += 24;
+      doc.setFillColor(238, 243, 252); doc.roundedRect(M, y - 13, W - 2 * M, 25, 5, 5, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(47, 92, 191);
+      doc.text(`TAILORED FOR  \u2014  ${j.title} at ${j.company}`, M + 11, y + 3);
+      y += 38;
+      const section = (title) => { doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(27, 35, 48); doc.text(title.toUpperCase(), M, y); y += 7; doc.setDrawColor(222, 227, 234); doc.line(M, y, W - M, y); y += 17; doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(47, 56, 69); };
+      section('Summary'); wrap(r.summary, W - 2 * M).forEach((l) => { doc.text(l, M, y); y += 15; }); y += 9;
+      section('Core skills'); wrap(r.skills.join('   \u00b7   '), W - 2 * M).forEach((l) => { doc.text(l, M, y); y += 15; }); y += 9;
+      section('Experience');
+      base.experience.forEach((exp) => {
+        if (y > 700) { doc.addPage(); y = 66; }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10.8); doc.setTextColor(27, 35, 48); doc.text(`${exp.role}, ${exp.company}`, M, y);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(130, 136, 148); doc.text(exp.dates, W - M, y, { align: 'right' });
+        y += 15; doc.setFontSize(10.5); doc.setTextColor(47, 56, 69);
+        exp.bullets.forEach((b) => { wrap('\u2022  ' + b, W - 2 * M - 8).forEach((l, i) => { doc.text(l, M + (i ? 12 : 6), y); y += 14; }); });
+        y += 9;
+      });
+      if (y > 710) { doc.addPage(); y = 66; }
+      section('Education'); doc.text(base.education, M, y);
+      doc.save(fname);
+    } catch (err) {
+      const blob = new Blob([r.full], { type: 'text/plain' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname.replace(/\.pdf$/, '.txt'); document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+    }
+  }
+
+  /* ---------- filter / sort handlers ---------- */
+  onSearch = (e) => { const v = e.target.value; this.setState({ search: v }); };
+  toggleMenu = (n) => () => this.setState((st) => ({ openMenu: st.openMenu === n ? null : n }));
+  toggleCat = (c) => () => this.setState((st) => ({ cats: st.cats.includes(c) ? st.cats.filter((x) => x !== c) : [...st.cats, c] }));
+  toggleLoc = (l) => () => this.setState((st) => ({ locs: st.locs.includes(l) ? st.locs.filter((x) => x !== l) : [...st.locs, l] }));
+  setRemote = (r) => () => this.setState({ remote: r });
+  setMinFit = (v) => () => this.setState({ minFit: v, openMenu: null });
+  setPayMin = (v) => () => this.setState({ payMin: v, openMenu: null });
+  setSort = (v) => () => this.setState({ sort: v, openMenu: null });
+  clearFilters = () => this.setState({ cats: [], locs: [], remote: 'all', minFit: 0, payMin: 0, search: '' });
+  selectJob = (id) => { this.setState({ selectedId: id }); const el = this.detailRef.current; if (el) el.scrollTop = 0; };
+
+  /* ---------- render ---------- */
+  renderVals() {
+    const s = this.state;
+    const sortKey = s.sort || (this.props.defaultSort ?? 'match');
+    const tintMode = this.props.tintMode ?? 'subtle';
+    const density = this.props.density ?? 'comfortable';
+    const q = s.search.trim().toLowerCase();
+
+    let list = s.jobs.filter((j) => {
+      if (q && !(`${j.title} ${j.company} ${j.category} ${j.tags.join(' ')}`.toLowerCase().includes(q))) return false;
+      if (s.cats.length && !s.cats.includes(j.category)) return false;
+      if (s.locs.length && !s.locs.includes(j.location)) return false;
+      if (s.remote !== 'all' && j.remote !== s.remote) return false;
+      if (s.minFit && j.fit < s.minFit) return false;
+      if (s.payMin && j.payMax < s.payMin) return false;
+      return true;
+    });
+    const sorters = {
+      match: (a, b) => b.fit - a.fit,
+      pay: (a, b) => b.payMax - a.payMax,
+      newest: (a, b) => a.posted - b.posted,
+      az: (a, b) => a.company.localeCompare(b.company),
+    };
+    list = [...list].sort(sorters[sortKey] || sorters.match);
+
+    const selId = (list.find((j) => j.id === s.selectedId) || list[0] || {}).id ?? null;
+
+    const visibleJobs = list.map((j) => {
+      const c = this.fitColor(j.fit);
+      const isSel = j.id === selId;
+      const tint = tintMode === 'off' ? '#ffffff' : (tintMode === 'vivid' ? c.tintVivid : c.tint);
+      return {
+        id: j.id, title: j.title, company: j.company, location: j.location,
+        initials: this.initialsOf(j.company), logoBg: j.logoBg,
+        payLabel: this.fmtPay(j), remoteLabel: j.remote, categoryLabel: j.category,
+        companyLine: j.company + ' \u00b7 ' + j.location,
+        fitLabel: String(j.fit), strong: c.strong, textOn: c.textOn,
+        pad: density === 'compact' ? '10px 12px 10px 8px' : '13px 14px 14px 8px',
+        cardBg: isSel ? '#ffffff' : tint,
+        cardBorderCss: isSel ? '2px solid #3b6fd4' : `2px solid ${tintMode === 'off' ? '#e7eaf0' : c.tintBorder}`,
+        cardShadow: isSel ? '0 8px 22px rgba(59,111,212,.17)' : '0 1px 2px rgba(20,28,40,.045)',
+        onSelect: () => this.selectJob(j.id),
+      };
+    });
+
+    const sj = s.jobs.find((j) => j.id === selId) || null;
+    let sel = null;
+    if (sj) {
+      const c = this.fitColor(sj.fit);
+      const CIRC = 2 * Math.PI * 34;
+      const gid = s.gen[sj.id]; const gd = s.genData[sj.id]; const prof = s.profile;
+      sel = {
+        id: sj.id, title: sj.title, company: sj.company, location: sj.location,
+        initials: this.initialsOf(sj.company), logoBg: sj.logoBg,
+        remoteLabel: sj.remote, categoryLabel: sj.category, seniority: sj.seniority,
+        headcount: sj.headcount, postedLabel: this.fmtPosted(sj.posted), payLabel: this.fmtPay(sj),
+        metaLine: sj.company + ' \u00b7 ' + sj.location + ' \u00b7 ' + sj.remote,
+        headcountLabel: sj.headcount + ' people',
+        postedText: 'Posted ' + this.fmtPosted(sj.posted),
+        aboutTitle: 'About ' + sj.company,
+        genBusyText: 'Tailoring your r\u00e9sum\u00e9 to ' + sj.company + '\u2026',
+        genDoneTitle: 'R\u00e9sum\u00e9 ready \u2014 tailored to ' + sj.company,
+        strong: c.strong, fitLabel: String(sj.fit),
+        ringDash: CIRC.toFixed(1), ringOffset: (CIRC * (1 - sj.fit / 100)).toFixed(1),
+        fitSummary: sj.fitSummary, about: sj.about, benefits: sj.benefits,
+        subScores: [
+          { label: 'Skills match', w: sj.sub.skills + '%', color: '#3b6fd4' },
+          { label: 'Experience level', w: sj.sub.exp + '%', color: '#3b6fd4' },
+          { label: 'Comp & seniority', w: sj.sub.comp + '%', color: '#3b6fd4' },
+        ],
+        redFlags: sj.redFlags, skillGaps: sj.skillGaps,
+        requirements: sj.requirements.map((r) => ({ text: r[0], mark: r[1] ? '\u2713' : '\u25b3', markColor: r[1] ? '#2f7d54' : '#b07a2e', markBg: r[1] ? '#e3f1e9' : '#f6edda' })),
+        genIdle: !gid, genBusy: gid === 'generating', genDone: gid === 'done',
+        genName: gd && gd.name, genSummary: gd && gd.summary, genSkills: (gd && gd.skills) || [],
+        usingSample: !(prof && prof.source),
+        onGenerate: () => this.generate(sj),
+        onRegenerate: () => this.generate(sj),
+        onDownload: () => this.download(sj),
+        onCopy: () => this.copyText(sj),
+        copyLabel: s.copiedId === sj.id ? 'Copied!' : 'Copy text',
+        onOpenProfile: this.openProfile,
+      };
+    }
+
+    // filter option lists
+    const catCounts = {}, locCounts = {};
+    s.jobs.forEach((j) => { catCounts[j.category] = (catCounts[j.category] || 0) + 1; locCounts[j.location] = (locCounts[j.location] || 0) + 1; });
+    const box = (on) => ({ boxBg: on ? '#3b6fd4' : '#ffffff', boxBorder: on ? '#3b6fd4' : '#cdd5e0', check: on ? '\u2713' : '' });
+    const catItems = Object.keys(catCounts).sort().map((c) => ({ label: c, count: catCounts[c], onToggle: this.toggleCat(c), ...box(s.cats.includes(c)) }));
+    const locItems = Object.keys(locCounts).sort().map((l) => ({ label: l, count: locCounts[l], onToggle: this.toggleLoc(l), ...box(s.locs.includes(l)) }));
+
+    const radio = (on) => ({ bg: on ? '#eef3fc' : 'transparent', weight: on ? 700 : 500, check: on ? '\u2713' : '' });
+    const payDefs = [[0, 'Any pay'], [120, '$120k+'], [150, '$150k+'], [180, '$180k+'], [220, '$220k+']];
+    const payItems = payDefs.map(([v, label]) => ({ label, onClick: this.setPayMin(v), ...radio(s.payMin === v) }));
+    const matchDefs = [[0, 'Any match'], [60, '60%+'], [75, '75%+'], [90, '90%+']];
+    const matchItems = matchDefs.map(([v, label]) => ({ label, onClick: this.setMinFit(v), ...radio(s.minFit === v) }));
+    const sortDefs = [['match', 'Best match'], ['pay', 'Highest pay'], ['newest', 'Newest'], ['az', 'Company A\u2013Z']];
+    const sortItems = sortDefs.map(([v, label]) => ({ label, onClick: this.setSort(v), ...radio(sortKey === v) }));
+
+    const remoteDefs = [['all', 'All'], ['Remote', 'Remote'], ['Hybrid', 'Hybrid'], ['Onsite', 'Onsite']];
+    const remoteOptions = remoteDefs.map(([v, label]) => {
+      const on = s.remote === v;
+      return { label, onClick: this.setRemote(v), bg: on ? '#ffffff' : 'transparent', color: on ? '#1b2330' : '#6b7480', shadow: on ? '0 1px 3px rgba(20,28,40,.12)' : 'none' };
+    });
+
+    const activeBtn = (on) => ({ bg: on ? '#eef3fc' : '#ffffff', border: on ? '#bcd0f2' : '#dfe3ea' });
+    const cb = activeBtn(s.cats.length > 0), lb = activeBtn(s.locs.length > 0), pb = activeBtn(s.payMin > 0), mb = activeBtn(s.minFit > 0);
+    const payLabelSel = (payDefs.find((d) => d[0] === s.payMin) || [])[1];
+    const matchLabelSel = (matchDefs.find((d) => d[0] === s.minFit) || [])[1];
+
+    const hasProfile = !!(s.profile && s.profile.source);
+
+    const tabActive = (on) => ({ bg: on ? '#ffffff' : 'transparent', color: on ? '#1b2330' : '#6b7480', shadow: on ? '0 1px 3px rgba(20,28,40,.12)' : 'none' });
+    const tp = tabActive(s.profileTab === 'paste'), tu = tabActive(s.profileTab === 'upload');
+
+    return {
+      search: s.search, onSearch: this.onSearch,
+      onOpenProfile: this.openProfile,
+      profileBtnLabel: hasProfile ? s.profile.name : 'Set up profile',
+      profileBtnIcon: hasProfile ? '\u2713' : '\u002b',
+      profileBtnColor: hasProfile ? '#2f7d54' : '#ffffff',
+      profileBtnBg: hasProfile ? '#eaf5ee' : '#3b6fd4',
+      profileBtnBorder: hasProfile ? '#cfe8d8' : '#3b6fd4',
+
+      onToggleCategory: this.toggleMenu('category'), menuCategory: s.openMenu === 'category', catItems,
+      catBadge: s.cats.length ? ` \u00b7 ${s.cats.length}` : '', catBtnBg: cb.bg, catBtnBorder: cb.border,
+      onTogglePay: this.toggleMenu('pay'), menuPay: s.openMenu === 'pay', payItems,
+      payBadge: payLabelSel ? ` \u00b7 ${payLabelSel}` : '', payBtnBg: pb.bg, payBtnBorder: pb.border,
+      onToggleMatch: this.toggleMenu('match'), menuMatch: s.openMenu === 'match', matchItems,
+      matchBadge: matchLabelSel ? ` \u00b7 ${matchLabelSel}` : '', matchBtnBg: mb.bg, matchBtnBorder: mb.border,
+      onToggleLocation: this.toggleMenu('location'), menuLocation: s.openMenu === 'location', locItems,
+      locBadge: s.locs.length ? ` \u00b7 ${s.locs.length}` : '', locBtnBg: lb.bg, locBtnBorder: lb.border,
+      remoteOptions,
+      onToggleSort: this.toggleMenu('sort'), menuSort: s.openMenu === 'sort', sortItems,
+      sortLabel: (sortDefs.find((d) => d[0] === sortKey) || [])[1],
+      resultCount: `${list.length} of ${s.jobs.length} roles`,
+
+      visibleJobs, hasResults: list.length > 0, noResults: list.length === 0, onClearFilters: this.clearFilters,
+      sel, detailRef: this.detailRef,
+
+      profileOpen: s.profileOpen, tabPaste: s.profileTab === 'paste', tabUpload: s.profileTab === 'upload',
+      profileDraft: s.profileDraft, uploadName: s.uploadName,
+      onDraft: this.onDraft, onUpload: this.onUpload, onSaveProfile: this.saveProfile, onCloseProfile: this.closeProfile, onCardClick: this.onCardClick,
+      onSetTabPaste: () => this.setState({ profileTab: 'paste' }), onSetTabUpload: () => this.setState({ profileTab: 'upload' }),
+      pasteTabBg: tp.bg, pasteTabColor: tp.color, pasteTabShadow: tp.shadow,
+      uploadTabBg: tu.bg, uploadTabColor: tu.color, uploadTabShadow: tu.shadow,
+    };
+  }
+
+  getBaseJobs() {
+    const L = ['#3f6695', '#4f8a7e', '#8a6da3', '#a9663f', '#4a7a52', '#b08a3e', '#6f88a8', '#9a5b6e', '#586b8c', '#5f8f6a', '#9c6a4a', '#5e7e9e', '#8a7d52', '#7a6aa0', '#4f8a86', '#a05f5f'];
+    const mk = (o, i) => ({ ...o, id: 'j' + (i + 1), logoBg: L[i] });
+    return [
+      { title: 'Senior Frontend Engineer', company: 'Cobalt', category: 'Frontend', location: 'San Francisco, CA', remote: 'Hybrid', payMin: 170, payMax: 210, posted: 2, headcount: '120', seniority: 'Senior', tags: ['React', 'TypeScript', 'Next.js', 'GraphQL', 'CSS'], benefits: ['Equity', '401(k) match', 'Health · dental · vision', 'Learning stipend', 'Hybrid (2 days)'], fit: 94, sub: { skills: 96, exp: 93, comp: 90 }, fitSummary: 'A near-perfect overlap with your front-end background — React and TypeScript at scale, design-system ownership, and a product-minded team. Your Next.js and GraphQL experience map directly onto their stack.', redFlags: ['Fast-paced; the team ships to production daily.'], skillGaps: ['WebGL'], requirements: [['5+ years building production React', true], ['Strong TypeScript', true], ['Design-system experience', true], ['WebGL / canvas a plus', false]], about: 'Cobalt builds analytics tooling for product teams. Series B, ~120 people, based in San Francisco with a hybrid schedule.' },
+      { title: 'Staff Software Engineer', company: 'Meridian', category: 'Platform', location: 'Remote (US)', remote: 'Remote', payMin: 210, payMax: 260, posted: 4, headcount: '1,400', seniority: 'Staff', tags: ['Go', 'Kubernetes', 'gRPC', 'PostgreSQL', 'AWS'], benefits: ['Equity', '401(k) match', 'Full health', 'Unlimited PTO', 'Remote stipend', 'Parental leave'], fit: 91, sub: { skills: 90, exp: 94, comp: 92 }, fitSummary: 'A strong fit for a staff-level platform role. Your systems thinking and cross-team leadership match what they need, and both comp and scope are a clear step up from your current level.', redFlags: ['Large org — decisions can move slowly.'], skillGaps: ['Kubernetes depth', 'Go in production'], requirements: [['8+ years software engineering', true], ['Distributed systems', true], ['Go (or similar)', false], ['Technical leadership / mentoring', true]], about: 'Meridian runs payments infrastructure for online marketplaces. On a public-company track with roughly 1,400 employees.' },
+      { title: 'Full-Stack Engineer', company: 'Quill', category: 'Full-stack', location: 'New York, NY', remote: 'Hybrid', payMin: 150, payMax: 190, posted: 1, headcount: '45', seniority: 'Mid', tags: ['TypeScript', 'React', 'Node.js', 'PostgreSQL', 'AWS'], benefits: ['Early equity', 'Health · dental', 'Unlimited PTO', 'Home-office budget'], fit: 88, sub: { skills: 90, exp: 86, comp: 84 }, fitSummary: 'A great match for a full-stack generalist. React, Node and Postgres are squarely your stack, and a 45-person team rewards the kind of range you bring.', redFlags: ['Early-stage: wide scope with less structure.'], skillGaps: ['AWS infra ownership'], requirements: [['Full-stack TS/Node + React', true], ['Own features end-to-end', true], ['Some infra / devops', false], ['Startup experience a plus', true]], about: 'Quill is building collaborative documents for legal teams. Seed-plus stage, 45 people in New York.' },
+      { title: 'Backend Engineer (Go)', company: 'Tidepool', category: 'Backend', location: 'Austin, TX', remote: 'Remote', payMin: 160, payMax: 200, posted: 6, headcount: '200', seniority: 'Senior', tags: ['Go', 'PostgreSQL', 'Kafka', 'gRPC', 'AWS'], benefits: ['Equity', '401(k) match', 'Health · dental · vision', '4-day-week pilot'], fit: 85, sub: { skills: 82, exp: 88, comp: 86 }, fitSummary: 'A solid backend fit. Your API and database work transfers well; the main stretch is Go and event streaming, both of which you can ramp into quickly given your fundamentals.', redFlags: ['On-call rotation.'], skillGaps: ['Go', 'Kafka'], requirements: [['Backend services at scale', true], ['SQL / data modeling', true], ['Go', false], ['Event-driven (Kafka)', false]], about: 'Tidepool powers logistics for mid-market retailers. Series B, 200 people, remote-friendly out of Austin.' },
+      { title: 'Product Engineer', company: 'Halcyon', category: 'Product eng', location: 'San Francisco, CA', remote: 'Onsite', payMin: 165, payMax: 205, posted: 3, headcount: '18', seniority: 'Senior', tags: ['TypeScript', 'React', 'Node.js', 'Figma', 'Design Systems'], benefits: ['Meaningful equity', 'Health', 'Catered lunch', 'Onsite SF'], fit: 82, sub: { skills: 88, exp: 80, comp: 76 }, fitSummary: 'Your product sensibility and design-systems work shine here. Comp is fair for a seed company; the trade-offs are being onsite five days and early-stage risk.', redFlags: ['Onsite 5 days a week.', 'Seed-stage risk.'], skillGaps: ['0\u21921 ownership'], requirements: [['Product-minded front-end', true], ['Design collaboration / Figma', true], ['Ship 0\u21921 features', false], ['Comfortable onsite in SF', true]], about: 'Halcyon is reimagining calendaring, founded by ex-FAANG engineers. Seed stage, 18 people in San Francisco.' },
+      { title: 'Frontend Engineer', company: 'Sundial', category: 'Frontend', location: 'Remote (US)', remote: 'Remote', payMin: 140, payMax: 175, posted: 8, headcount: '70', seniority: 'Mid', tags: ['JavaScript', 'React', 'CSS', 'Vite', 'REST'], benefits: ['Equity', 'Health · dental', 'Unlimited PTO', 'Remote-first'], fit: 79, sub: { skills: 84, exp: 78, comp: 72 }, fitSummary: 'A comfortable match for your React skills, fully remote. Pay sits a little below your range and the codebase is JavaScript-first, so you would have less TypeScript than you are used to.', redFlags: ['JavaScript-first; limited TypeScript.', 'Pay below your target.'], skillGaps: ['Vite tooling'], requirements: [['Production React', true], ['CSS / responsive UI', true], ['TypeScript', true], ['Comfortable in a JS codebase', true]], about: 'Sundial makes scheduling software for healthcare practices. Series A, 70 people, remote-first.' },
+      { title: 'Platform Engineer', company: 'Forge', category: 'Platform', location: 'Seattle, WA', remote: 'Hybrid', payMin: 175, payMax: 220, posted: 5, headcount: '900', seniority: 'Senior', tags: ['Go', 'Terraform', 'Kubernetes', 'AWS', 'CI/CD'], benefits: ['Equity', '401(k) match', 'Full health', 'Sabbatical', 'Hybrid'], fit: 76, sub: { skills: 72, exp: 80, comp: 78 }, fitSummary: 'Good comp and scope, but this role leans infrastructure and platform — further from your product front-end strengths. Expect a meaningful ramp on Terraform and Go.', redFlags: ['Heavy infrastructure focus.'], skillGaps: ['Terraform', 'Kubernetes', 'Go'], requirements: [['Cloud infra (AWS)', true], ['IaC (Terraform)', false], ['Go', false], ['CI/CD pipelines', true]], about: 'Forge builds internal developer platforms for enterprises. Roughly 900 people, hybrid in Seattle.' },
+      { title: 'ML Engineer', company: 'Beacon AI', category: 'ML / AI', location: 'San Francisco, CA', remote: 'Hybrid', payMin: 200, payMax: 250, posted: 2, headcount: '60', seniority: 'Senior', tags: ['Python', 'PyTorch', 'LLM', 'AWS', 'Microservices'], benefits: ['Strong equity', 'Health', 'Compute budget', 'Learning stipend'], fit: 72, sub: { skills: 64, exp: 76, comp: 80 }, fitSummary: 'Comp and trajectory are excellent, but this is a machine-learning role — your Python is solid yet production model and LLM experience is the gap. A stretch, not a reach.', redFlags: ['ML-heavy; production model experience expected.'], skillGaps: ['PyTorch', 'LLM fine-tuning'], requirements: [['Strong Python', true], ['ML / deep learning', false], ['LLMs in production', false], ['Backend / services', true]], about: 'Beacon AI builds copilots for finance teams. Series A, 60 people, hybrid in San Francisco.' },
+      { title: 'iOS Engineer', company: 'Glasswing', category: 'Mobile', location: 'Remote (US)', remote: 'Remote', payMin: 155, payMax: 195, posted: 10, headcount: '160', seniority: 'Senior', tags: ['Swift', 'iOS', 'REST', 'GraphQL', 'CI/CD'], benefits: ['Equity', '401(k)', 'Health · dental · vision', 'Remote'], fit: 70, sub: { skills: 60, exp: 78, comp: 74 }, fitSummary: 'Remote and well paid, but native iOS sits outside your web background. Your API knowledge and product instincts carry over; Swift and the iOS frameworks are a real ramp.', redFlags: ['Native iOS — quite different from web.'], skillGaps: ['Swift', 'iOS frameworks'], requirements: [['Mobile engineering', false], ['Swift / iOS', false], ['Consuming REST/GraphQL APIs', true], ['Product polish', true]], about: 'Glasswing makes a personal-finance app for consumers. Series B, 160 people, fully remote.' },
+      { title: 'DevOps / SRE', company: 'Parallax', category: 'DevOps / SRE', location: 'Denver, CO', remote: 'Remote', payMin: 160, payMax: 205, posted: 7, headcount: '240', seniority: 'Senior', tags: ['Kubernetes', 'Terraform', 'AWS', 'CI/CD', 'Go'], benefits: ['Equity', '401(k) match', 'Health', 'Remote', 'On-call pay'], fit: 66, sub: { skills: 58, exp: 72, comp: 70 }, fitSummary: 'Remote with good comp, but SRE is a notable pivot from your front-end track. Your fundamentals are strong; expect a heavy operations ramp and an on-call rotation.', redFlags: ['On-call rotation.', 'Reliability / ops focus.'], skillGaps: ['Kubernetes', 'Terraform'], requirements: [['Cloud / Linux fundamentals', true], ['Kubernetes', false], ['Infrastructure as code', false], ['Incident response', false]], about: 'Parallax builds observability tooling for engineering teams. Series B, 240 people, remote.' },
+      { title: 'Data Engineer', company: 'Verdant', category: 'Data', location: 'Boston, MA', remote: 'Hybrid', payMin: 150, payMax: 185, posted: 12, headcount: '1,100', seniority: 'Mid', tags: ['Python', 'Spark', 'Airflow', 'PostgreSQL', 'AWS'], benefits: ['Equity', '401(k) match', 'Full health', 'Tuition reimbursement'], fit: 63, sub: { skills: 56, exp: 68, comp: 66 }, fitSummary: 'Stable and reputable, but data engineering is adjacent to your experience. Python helps, while building pipelines with Spark and Airflow would be new ground for you.', redFlags: ['Pipelines / ETL focus.'], skillGaps: ['Spark', 'Airflow'], requirements: [['Python', true], ['SQL / warehousing', true], ['Spark / batch processing', false], ['Workflow orchestration', false]], about: 'Verdant is a climate-data platform serving enterprises. Roughly 1,100 people, hybrid in Boston.' },
+      { title: 'Security Engineer', company: 'Cardinal', category: 'Security', location: 'Remote (US)', remote: 'Remote', payMin: 180, payMax: 225, posted: 9, headcount: '6,000', seniority: 'Senior', tags: ['Python', 'AWS', 'Microservices', 'CI/CD', 'REST'], benefits: ['Equity', '401(k) match', 'Full health', 'Remote', 'Wellness budget'], fit: 59, sub: { skills: 50, exp: 64, comp: 64 }, fitSummary: 'Great comp and fully remote, but application security is a specialized pivot. Your engineering base is relevant; the security depth they want is the gap.', redFlags: ['Specialized security domain.', 'Large-enterprise pace.'], skillGaps: ['AppSec', 'Threat modeling'], requirements: [['Software engineering background', true], ['Security fundamentals', false], ['Threat modeling', false], ['Cloud security (AWS)', false]], about: 'Cardinal provides identity infrastructure to enterprises. Public company, around 6,000 people.' },
+      { title: 'Engineering Manager', company: 'Lumen Labs', category: 'Eng management', location: 'New York, NY', remote: 'Onsite', payMin: 220, payMax: 270, posted: 5, headcount: '180', seniority: 'Manager', tags: ['Leadership', 'React', 'Node.js', 'Hiring', 'Roadmapping'], benefits: ['Equity', '401(k) match', 'Full health', 'Onsite NYC'], fit: 55, sub: { skills: 48, exp: 60, comp: 58 }, fitSummary: 'Top of your comp range and a familiar stack underneath, but this is a people-management role — a genuine change from IC work, and it is onsite five days.', redFlags: ['First-time management leap.', 'Onsite 5 days.'], skillGaps: ['People management', 'Hiring at scale'], requirements: [['Senior engineering background', true], ['Managed engineers', false], ['Hiring & performance', false], ['Stakeholder / roadmap', false]], about: 'Lumen Labs builds creative tools for studios. Series C, 180 people, onsite in New York.' },
+      { title: 'LLM / AI Engineer', company: 'Aperture', category: 'ML / AI', location: 'San Francisco, CA', remote: 'Onsite', payMin: 210, payMax: 280, posted: 1, headcount: '12', seniority: 'Senior', tags: ['Python', 'LLM', 'PyTorch', 'Microservices', 'AWS'], benefits: ['Significant equity', 'Health', 'Onsite SF', 'Compute budget'], fit: 51, sub: { skills: 42, exp: 56, comp: 58 }, fitSummary: 'The highest comp ceiling on the board, but a deep LLM role at a tiny seed startup, onsite — far from your front-end strengths and the riskiest listing here.', redFlags: ['Seed-stage risk.', 'Onsite.', 'Research-heavy.'], skillGaps: ['LLM systems', 'PyTorch', 'Applied ML'], requirements: [['Software engineering', true], ['Applied ML / LLMs', false], ['Python ML stack', false], ['High ambiguity tolerance', false]], about: 'Aperture builds autonomous research agents. Seed stage, 12 people, onsite in San Francisco.' },
+      { title: 'QA Automation Engineer', company: 'Driftwood', category: 'QA', location: 'Remote (US)', remote: 'Remote', payMin: 120, payMax: 150, posted: 14, headcount: '55', seniority: 'Mid', tags: ['Cypress', 'Playwright', 'JavaScript', 'CI/CD', 'REST'], benefits: ['Equity', 'Health · dental', 'Unlimited PTO', 'Remote'], fit: 47, sub: { skills: 52, exp: 46, comp: 40 }, fitSummary: 'Your testing tools line up well, but this is a QA-focused role at lower comp — a step sideways and down from a senior product-engineer track.', redFlags: ['Pay well below your range.', 'QA-only scope.'], skillGaps: ['Test-framework architecture'], requirements: [['JS test automation', true], ['Cypress / Playwright', true], ['CI integration', true], ['QA strategy ownership', false]], about: 'Driftwood makes e-commerce tooling for small brands. Series A, 55 people, remote.' },
+      { title: 'Solutions Engineer', company: 'Northwind', category: 'Solutions eng', location: 'Chicago, IL', remote: 'Hybrid', payMin: 130, payMax: 165, posted: 16, headcount: '2,200', seniority: 'Mid', tags: ['JavaScript', 'REST', 'SQL', 'Demos', 'Customer-facing'], benefits: ['Equity', '401(k) match', 'Full health', 'Hybrid'], fit: 44, sub: { skills: 46, exp: 44, comp: 40 }, fitSummary: 'Customer-facing and partly technical, but a Solutions Engineer role is a career pivot away from building product — and the comp is below your target.', redFlags: ['Customer-facing / pre-sales.', 'Pay below range.', 'Some travel.'], skillGaps: ['Pre-sales', 'Solution demos'], requirements: [['Technical background', true], ['Customer communication', false], ['Demo / POC building', false], ['Comfortable with travel', false]], about: 'Northwind sells data-integration software to enterprises. Public, 2,200 people, hybrid in Chicago.' },
+    ].map(mk);
+  }
+}
+</script>
+</body>
+</html>

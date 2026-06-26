@@ -1,18 +1,13 @@
 import { parseFilters } from "@/lib/filters";
 import {
-  getBoardOwnerId, getBoardOwnerLocations, getCompanies, getJobs, getLatestPollRun,
-  getLatestReviewRun, getReviewStats,
+  getBoardOwnerId, getBoardOwnerLocations, getJobs, getLatestPollRun, getReviewStats,
 } from "@/lib/queries";
-import {
-  DEFAULT_INCLUDE_KEYWORDS,
-  NEW_WINDOW_HOURS,
-  STALE_HEALTH_HOURS,
-} from "@/lib/config";
+import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
 import { getUserId } from "@/lib/auth";
-import { Header } from "@/components/Header";
-import { FilterBar } from "@/components/FilterBar";
-import { JobsTable } from "@/components/JobsTable";
+import { saveProfileResume } from "@/app/actions/profile";
+import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
+import type { OperatorSignals } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -24,29 +19,31 @@ export default async function Page({
   const [viewerId, ownerId, ownerLocations] = await Promise.all([
     getUserId(), getBoardOwnerId(), getBoardOwnerLocations(),
   ]);
-  const params = await searchParams;
-  const filters = parseFilters(params, { include: DEFAULT_INCLUDE_KEYWORDS });
+  await searchParams; // filters now client-side; keep the param contract
+  const filters = parseFilters({}, { include: DEFAULT_INCLUDE_KEYWORDS });
+  const jobs = await getJobs(filters, ownerId, ownerLocations);
 
-  const [jobs, companies, lastRun] = await Promise.all([
-    getJobs(filters, ownerId, ownerLocations),
-    getCompanies(),
-    getLatestPollRun(),
-  ]);
-  // Operator-only run telemetry; hidden from anonymous visitors.
-  const [lastReview, reviewStats] = viewerId
-    ? await Promise.all([getLatestReviewRun(), getReviewStats(viewerId)])
-    : [null, null];
-
-  const now = new Date();
-  const health = computeHealth(lastRun, now, STALE_HEALTH_HOURS);
+  // Operator-only telemetry — not fetched or exposed to anonymous visitors.
+  let operator: OperatorSignals | undefined;
+  if (viewerId) {
+    const [pollRun, reviewStats] = await Promise.all([
+      getLatestPollRun(),
+      getReviewStats(viewerId),
+    ]);
+    operator = {
+      health: computeHealth(pollRun, new Date(), STALE_HEALTH_HOURS),
+      unreviewed: reviewStats.unreviewed,
+    };
+  }
 
   return (
-    <main>
-      <Header lastRun={lastRun} health={health} lastReview={lastReview}
-        reviewStats={reviewStats} isAuthed={!!viewerId} />
-      <FilterBar companies={companies} filters={filters} showReviewFilters={!!ownerId} />
-      <JobsTable jobs={jobs} nowIso={now.toISOString()} windowHours={NEW_WINDOW_HOURS}
-        showMatch={!!ownerId} />
-    </main>
+    <RolefitBoard
+      jobs={jobs}
+      nowIso={new Date().toISOString()}
+      isOperator={!!ownerId}
+      isAuthed={!!viewerId}
+      saveResume={saveProfileResume}
+      operator={operator}
+    />
   );
 }

@@ -17,13 +17,25 @@ _STAGE2_INSTRUCTIONS = (
     "Evaluate this single job posting against the candidate's resume and "
     "instructions. Decide:\n"
     "- verdict: 'approve' if genuinely relevant and worth applying, else 'deny'.\n"
-    "- experience_match: 'step_down' (below their level), 'match' (right level), "
-    "'reach' (a plausible stretch), 'far_reach' (clearly beyond current experience).\n"
+    "- experience_match: 'step_down', 'match', 'reach', or 'far_reach'.\n"
     "- industry and industry_subcategory: choose exactly one consistent pair from "
     "this taxonomy:\n"
     f"{TAXONOMY_TEXT}\n"
     "- confidence: low, medium, or high.\n"
-    "- reasoning: 1-3 sentences.\n"
+    "- reasoning: a 2-4 sentence fit summary written to the candidate.\n"
+    "- role_category: one of Frontend, Backend, Full-stack, Platform, Infra/DevOps, "
+    "Data/ML, Mobile, Security, Product eng, QA/Test, Eng management, Other.\n"
+    "- seniority: junior|mid|senior|staff|principal|lead|manager|unknown.\n"
+    "- work_arrangement: remote|hybrid|onsite|unknown.\n"
+    "- skills_score, experience_score, comp_score: integers 0-100 (how well the "
+    "candidate's skills, experience level, and the comp/seniority fit).\n"
+    "- requirements: the role's key requirements, each {text, met} where met is "
+    "whether the candidate meets it.\n"
+    "- red_flags, skill_gaps, benefits: short string lists ([] if none).\n"
+    "HARD FACTS — set to null unless explicitly stated in the description: "
+    "pay_min, pay_max, pay_currency, pay_period (year|hour|month), headcount.\n"
+    "SOFT FIELDS — you may infer from the description and company name: "
+    "about (1-2 sentences), role_category, seniority, work_arrangement.\n"
     "Honor the candidate's focus/avoid instructions."
 )
 
@@ -86,7 +98,7 @@ class ReviewClient:
     async def stage2(self, *, profile_block: str, title: str, company: str,
                      location: str | None, jd: str) -> Stage2Result:
         return await self._parse(
-            model=self.model_stage2, max_tokens=4096,
+            model=self.model_stage2, max_tokens=6000,
             system=_system(profile_block, _STAGE2_INSTRUCTIONS),
             user=(
                 f"Title: {title}\nCompany: {company}\nLocation: {location or 'n/a'}\n\n"

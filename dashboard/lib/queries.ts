@@ -82,6 +82,17 @@ export async function getProfile(userId: string): Promise<ProfileRow | null> {
   return (rows[0] as unknown as ProfileRow) ?? null;
 }
 
+export async function getJobForResume(
+  jobId: string,
+): Promise<{ title: string; company_name: string; description: string | null } | null> {
+  const rows = await sql`
+    SELECT j.title, c.name AS company_name, j.description
+    FROM jobs j JOIN companies c ON c.id = j.company_id
+    WHERE j.id = ${jobId}
+  `;
+  return (rows[0] as unknown as { title: string; company_name: string; description: string | null }) ?? null;
+}
+
 export async function upsertProfile(
   userId: string,
   data: {
@@ -91,6 +102,7 @@ export async function upsertProfile(
     modelStage1: string | null;
     modelStage2: string | null;
     preferredLocations: string[];
+    modelResume: string | null;
   },
 ): Promise<void> {
   // profile_version intentionally excludes the model choice AND preferred
@@ -98,11 +110,11 @@ export async function upsertProfile(
   const version = profileVersion(data.resumeText, data.instructions);
   await sql`
     INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
-                          model_stage1, model_stage2, preferred_locations,
+                          model_stage1, model_stage2, preferred_locations, model_resume,
                           profile_version, updated_at)
     VALUES (${userId}::uuid, ${data.resumeText}, ${data.instructions},
             ${data.resumeFilePath}, ${data.modelStage1}, ${data.modelStage2},
-            ${data.preferredLocations}, ${version}, now())
+            ${data.preferredLocations}, ${data.modelResume}, ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       resume_text         = EXCLUDED.resume_text,
       instructions        = EXCLUDED.instructions,
@@ -110,6 +122,7 @@ export async function upsertProfile(
       model_stage1        = EXCLUDED.model_stage1,
       model_stage2        = EXCLUDED.model_stage2,
       preferred_locations = EXCLUDED.preferred_locations,
+      model_resume        = EXCLUDED.model_resume,
       profile_version     = EXCLUDED.profile_version,
       updated_at          = now()
   `;

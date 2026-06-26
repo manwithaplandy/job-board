@@ -11,7 +11,10 @@ export function buildJobsQuery(f: Filters, userId: string | null): SqlQuery {
   const where: string[] = [];
   const hasReviews = userId !== null;
 
-  // The review join binds the owner's user_id as $1, so seed it before any other value.
+  // The review join binds the owner's user_id. Capture its placeholder before
+  // seeding the value (so it resolves to $1, with values still empty), so the
+  // join string isn't coupled to a hardcoded "$1" if the seeding order changes.
+  const ownerPh = hasReviews ? ph() : null;
   if (hasReviews) values.push(userId);
 
   // --- review-scoped filters (only when an owner's reviews are joined) ---
@@ -72,7 +75,7 @@ export function buildJobsQuery(f: Filters, userId: string | null): SqlQuery {
     );
   }
   const reviewJoin = hasReviews
-    ? "LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = $1::uuid"
+    ? `LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${ownerPh}::uuid`
     : "";
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

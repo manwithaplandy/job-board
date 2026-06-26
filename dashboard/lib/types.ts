@@ -8,6 +8,10 @@ export interface JobRow {
   closed_at: string | null;
   company_name: string;
   ats: string;
+  // Review fields below are populated only when the board has an owner whose
+  // job_reviews are joined (buildJobsQuery). With no owner the query omits these
+  // columns and they are undefined at runtime — read them only behind the
+  // showMatch / verdict guards (see JobsTable, FilterBar review filters).
   verdict: string | null;
   experience_match: string | null;
   industry: string | null;

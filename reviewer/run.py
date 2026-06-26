@@ -88,7 +88,10 @@ def _review_user(conn, profile: dict) -> None:
     counts = {"reviewed": 0, "gate_rejected": 0, "approved": 0, "denied": 0, "errors": 0}
     notes = None
     try:
-        candidates = db.select_candidates(conn, user_id, pv, config.MAX_JOBS_PER_RUN)
+        candidates = db.select_candidates(
+            conn, user_id, pv, config.MAX_JOBS_PER_RUN,
+            preferred_locations=profile.get("preferred_locations"),
+        )
         total = candidates[0]["total_stale"] if candidates else 0
         overflow = total - len(candidates)
         if overflow > 0:

@@ -26,12 +26,19 @@ def load_profiles(conn) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT user_id, resume_text, instructions, profile_version, "
-            "model_stage1, model_stage2 FROM profiles"
+            "model_stage1, model_stage2, preferred_locations FROM profiles"
         )
         return cur.fetchall()
 
 
-def select_candidates(conn, user_id: str, profile_version: str, limit: int) -> list[dict]:
+def select_candidates(
+    conn, user_id: str, profile_version: str, limit: int,
+    preferred_locations: list[str] | None = None,
+) -> list[dict]:
+    # Empty/None preference list = no location pre-filter (the `NOT has_prefs`
+    # guard makes the whole OR true). When set, keep remote jobs always and
+    # otherwise require an exact location match; blank locations are dropped.
+    prefs = preferred_locations or []
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -41,10 +48,12 @@ def select_candidates(conn, user_id: str, profile_version: str, limit: int) -> l
             LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
             WHERE j.closed_at IS NULL
               AND (r.job_id IS NULL OR r.profile_version <> %(pv)s)
+              AND (NOT %(has_prefs)s OR j.remote IS TRUE OR j.location = ANY(%(prefs)s::text[]))
             ORDER BY j.first_seen_at DESC
             LIMIT %(lim)s
             """,
-            {"uid": _uuid(user_id), "pv": profile_version, "lim": limit},
+            {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,
+             "has_prefs": bool(prefs), "prefs": prefs},
         )
         return cur.fetchall()
 

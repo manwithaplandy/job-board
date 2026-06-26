@@ -33,7 +33,8 @@ def test_load_profiles(conn):
     profiles = rdb.load_profiles(conn)
     assert profiles == [
         {"user_id": uuid.UUID(USER), "resume_text": "r", "instructions": "i",
-         "profile_version": "v1", "model_stage1": None, "model_stage2": None}
+         "profile_version": "v1", "model_stage1": None, "model_stage2": None,
+         "preferred_locations": []}
     ]
 
 
@@ -58,6 +59,38 @@ def test_candidates_missing_then_excluded_when_fresh(conn):
     assert rdb.select_candidates(conn, USER, "v1", limit=10) == []
     # stale profile_version -> re-selected
     assert [c["id"] for c in rdb.select_candidates(conn, USER, "v2", limit=10)] == [job_id]
+
+
+def _seed_loc(conn, ext, location, remote):
+    job_id = _seed_job(conn, ext)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET location = %s, remote = %s WHERE id = %s",
+            (location, remote, job_id),
+        )
+    conn.commit()
+    return job_id
+
+
+@requires_db
+def test_candidates_filtered_by_preferred_locations(conn):
+    berlin = _seed_loc(conn, "1", "Berlin, Germany", False)
+    ny = _seed_loc(conn, "2", "New York, NY", False)
+    blank = _seed_loc(conn, "3", None, False)
+    remote = _seed_loc(conn, "4", "Anywhere", True)
+
+    # no preference -> every open job is a candidate
+    assert {c["id"] for c in rdb.select_candidates(conn, USER, "v1", limit=10)} == {
+        berlin, ny, blank, remote}
+
+    # include-list -> exact match + remote pass; non-match and blank dropped
+    got = {c["id"] for c in rdb.select_candidates(
+        conn, USER, "v1", limit=10, preferred_locations=["Berlin, Germany"])}
+    assert got == {berlin, remote}
+
+    # empty list behaves like no preference
+    assert {c["id"] for c in rdb.select_candidates(
+        conn, USER, "v1", limit=10, preferred_locations=[])} == {berlin, ny, blank, remote}
 
 
 @requires_db

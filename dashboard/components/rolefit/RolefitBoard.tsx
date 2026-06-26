@@ -9,6 +9,7 @@ import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
 import { JobDetail } from "./JobDetail";
+import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
 
 export interface RolefitBoardProps {
@@ -24,7 +25,7 @@ export function RolefitBoard({
   nowIso,
   isOperator: _isOperator,
   isAuthed,
-  saveResume: _saveResume,
+  saveResume,
 }: RolefitBoardProps) {
   // Filter state
   const [search, setSearch] = useState("");
@@ -178,7 +179,13 @@ export function RolefitBoard({
         search={search}
         onSearch={setSearch}
         isAuthed={isAuthed}
-        onOpenProfile={() => setProfileOpen(true)}
+        onOpenProfile={() => {
+          if (isAuthed) {
+            setProfileOpen(true);
+          } else {
+            window.location.href = "/login";
+          }
+        }}
       />
       <FilterBar
         jobs={jobs}
@@ -257,8 +264,12 @@ export function RolefitBoard({
         </div>
       </div>
 
-      {/* Profile modal — Task 14; profileOpen state threaded for wiring */}
-      {profileOpen && null}
+      <ProfileModal
+        open={profileOpen}
+        isAuthed={isAuthed}
+        onClose={() => setProfileOpen(false)}
+        saveResume={saveResume}
+      />
     </div>
   );
 }

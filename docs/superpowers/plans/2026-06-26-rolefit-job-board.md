@@ -1478,7 +1478,10 @@ const hanken = Hanken_Grotesk({ subsets: ["latin"], weight: ["400", "500", "600"
 
 - [ ] **Step 4:** Delete the four old component files. (The page still imports them — it will be rewritten in Task 13/15; until then the build may break. That's expected mid-phase; do not commit a broken build — sequence Task 12 in the same working session, or temporarily stub `page.tsx` to `export default function Page(){return null}` and note it.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Visual validation (Claude for Chrome)** — REQUIRED gate before commit (foundations smoke).
+  Dispatch the validation subagent (execution plan → "Visual validation protocol"). Ensure `cd dashboard && npm run dev` is up (http://localhost:3000); the subagent loads the core Chrome tools in ONE ToolSearch, opens a NEW tab, navigates to `/`, and confirms: the app boots with no console errors, Hanken Grotesk is applied to `<body>`, and the page background matches the design base (`#f4f6fa`). (The board itself arrives in Task 12; if `page.tsx` is stubbed this is a boot/font/globals smoke only.) Report pass/fail; fix and re-validate before committing.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add dashboard/app/layout.tsx dashboard/app/globals.css dashboard/package.json dashboard/package-lock.json
@@ -1561,7 +1564,10 @@ Then `npm run dev` and verify in the browser:
   - Search filters; "Clear filters" resets.
   - Cards are color-coded by fit; selecting highlights a card.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Visual validation (Claude for Chrome)** — REQUIRED gate before commit.
+  Dispatch the validation subagent (execution plan → "Visual validation protocol"). With `npm run dev` up, the subagent loads the core Chrome tools in ONE ToolSearch, opens a NEW tab on `/`, and screenshots: the board at rest; each dropdown open (Category, Location, Pay, Match, Sort); the Remote segmented toggle states; a selected card; and the no-results state (search a nonsense string). Compare against `docs/superpowers/specs/rolefit-reference.dc.html` (HEADER + FILTER BAR + LIST markers; read inline styles for exact colors/spacing/radii) and the spec. Verify: split-pane layout, header (logo/"Rolefit"/"AI-REVIEWED" badge/search/profile button), filter bar (all dropdowns + counts + remote toggle + result count + sort), color-coded list (**fit color ramp oklch red→yellow→green matches each score**), selection highlight, Hanken Grotesk typography. Report pass/fail + concrete discrepancies; the implementer fixes and re-validates until it matches. Only then commit.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add dashboard/components/rolefit dashboard/app/page.tsx
@@ -1648,7 +1654,10 @@ Run: `cd dashboard && npm run build`, then `npm run dev`:
   - As the operator with a saved profile: "Generate résumé" → spinner → preview; **Download PDF** produces a tailored PDF; Copy/Regenerate work.
   - Signed out: résumé panel shows the sign-in prompt.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Visual validation (Claude for Chrome)** — REQUIRED gate before commit.
+  Dispatch the validation subagent (execution plan → "Visual validation protocol"). With `npm run dev` up, the subagent loads the core Chrome tools in ONE ToolSearch, opens a NEW tab on `/`, selects a **high-fit** role and a **low-fit** role, and screenshots the detail pane for each plus: the AI-review sub-score bars, red flags / skill gaps / requirements (✓/△) / benefits / about sections, and the résumé panel states (idle / busy / done — and the anon sign-in prompt if signed out). Compare against `docs/superpowers/specs/rolefit-reference.dc.html` (DETAIL marker; read inline styles). Verify: detail layout vs design, **fit ring color matches the score** (oklch ramp), every review panel present, sub-score bar widths track the scores, résumé idle/busy/done/anon states, the "not yet reviewed" branch for null-fit jobs, and **honest-null hiding** (empty sections/chips absent — no empty headers). Report pass/fail + discrepancies; fix and re-validate until it matches. Only then commit. (If no logged-in session is available, validate the anonymous + structural views and flag the operator-only résumé-generate path for manual confirmation.)
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add dashboard/components/rolefit
@@ -1685,7 +1694,10 @@ Run: `cd dashboard && npm run build`, then `npm run dev`:
   - Authed: profile button opens the modal; paste text + Save persists (re-open shows it); upload a PDF + Save extracts text; "Advanced settings" opens `/profile`.
   - Signed out: button routes to `/login`.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Visual validation (Claude for Chrome)** — REQUIRED gate before commit.
+  Dispatch the validation subagent (execution plan → "Visual validation protocol"). With `npm run dev` up, the subagent loads the core Chrome tools in ONE ToolSearch, opens a NEW tab on `/`, clicks the header profile button, and screenshots: the modal open, both Paste/Upload tabs, and (signed out) the sign-in prompt variant. Compare against `docs/superpowers/specs/rolefit-reference.dc.html` (PROFILE MODAL marker; read inline styles). Verify: overlay + centered card, click-outside-closes affordance, Paste/Upload tab switch, textarea + file drop label, Save button, footer subtitle ("Saved to your account."), and the anon → "Sign in" body. Report pass/fail + discrepancies; fix and re-validate until it matches. Only then commit. (If no logged-in session is available, validate the anon prompt + structural layout and flag the authed save path for manual confirmation.)
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add dashboard/components/rolefit
@@ -1731,7 +1743,10 @@ Expected: all green; build succeeds.
   - Operator: header shows health + unreviewed; profile modal saves; résumé generates + downloads.
   - Anonymous (sign out): board + review visible; résumé + profile prompt sign-in; no operator signals.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Visual validation (Claude for Chrome)** — REQUIRED final gate before commit (end-to-end).
+  Dispatch the validation subagent (execution plan → "Visual validation protocol"). With `npm run dev` up, the subagent loads the core Chrome tools in ONE ToolSearch, opens a NEW tab on `/`, and validates the full operator vs anonymous experience: operator view shows header health dot + "{n} unreviewed"; board lists real reviewed roles sorted by fit; filter/sort/search/select all work; detail shows the full review with honest-null sections hidden and the fit ring color matching the score; profile modal + résumé generate→download path (operator) work. Then validate the anonymous view (signed out): board + reviews visible read-only, résumé/profile prompt sign-in, no operator signals. Compare against `docs/superpowers/specs/rolefit-reference.dc.html` and the spec. Report pass/fail + discrepancies; fix and re-validate until it matches. Only then commit. (If no logged-in session is available, validate the anonymous + structural views fully and flag the operator-only signals/résumé/save paths for manual confirmation.)
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add dashboard

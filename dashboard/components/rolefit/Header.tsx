@@ -1,11 +1,20 @@
+import type { OperatorSignals } from "@/lib/types";
+
 export interface HeaderProps {
   search: string;
   onSearch: (value: string) => void;
   isAuthed: boolean;
+  operator?: OperatorSignals;
   onOpenProfile: () => void;
 }
 
-export function Header({ search, onSearch, isAuthed, onOpenProfile }: HeaderProps) {
+const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
+  ok: "#22c55e",
+  warn: "#f59e0b",
+  stale: "#9aa3b0",
+};
+
+export function Header({ search, onSearch, isAuthed, operator, onOpenProfile }: HeaderProps) {
   // Button styling: green if authed+profile (Task 14 adds profile check),
   // blue "Set up profile" if authed, blue "Sign in" if anon.
   const profileBtnLabel = isAuthed ? "Set up profile" : "Sign in";
@@ -122,27 +131,59 @@ export function Header({ search, onSearch, isAuthed, onOpenProfile }: HeaderProp
         />
       </div>
 
-      {/* Profile button */}
-      <button
-        onClick={onOpenProfile}
-        style={{
-          flex: "0 0 auto",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "8px",
-          fontWeight: 700,
-          fontSize: "13px",
-          color: profileBtnColor,
-          background: profileBtnBg,
-          border: `1px solid ${profileBtnBorder}`,
-          borderRadius: "11px",
-          padding: "9px 14px",
-          cursor: "pointer",
-        }}
-      >
-        <span style={{ fontSize: "13px" }}>{profileBtnIcon}</span>
-        <span>{profileBtnLabel}</span>
-      </button>
+      {/* Right cluster: operator signals (authed only) + profile button */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: "0 0 auto" }}>
+        {operator && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "7px",
+              fontSize: "12px",
+              color: "#6b7585",
+              fontWeight: 500,
+            }}
+          >
+            {/* Run-health dot */}
+            <span
+              style={{
+                display: "inline-block",
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                background: HEALTH_DOT[operator.health],
+                flexShrink: 0,
+              }}
+              title={`Poll health: ${operator.health}`}
+            />
+            {/* Unreviewed count */}
+            {operator.unreviewed > 0 && (
+              <span>{operator.unreviewed} unreviewed</span>
+            )}
+          </div>
+        )}
+
+        {/* Profile button */}
+        <button
+          onClick={onOpenProfile}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            fontWeight: 700,
+            fontSize: "13px",
+            color: profileBtnColor,
+            background: profileBtnBg,
+            border: `1px solid ${profileBtnBorder}`,
+            borderRadius: "11px",
+            padding: "9px 14px",
+            cursor: "pointer",
+          }}
+        >
+          <span style={{ fontSize: "13px" }}>{profileBtnIcon}</span>
+          <span>{profileBtnLabel}</span>
+        </button>
+      </div>
     </div>
   );
 }

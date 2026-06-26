@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import type { JobRow } from "@/lib/types";
+import type { JobRow, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, sortJobs } from "@/lib/rolefit/filter";
@@ -18,6 +18,7 @@ export interface RolefitBoardProps {
   isOperator: boolean;
   isAuthed: boolean;
   saveResume: (fd: FormData) => Promise<void>;
+  operator?: OperatorSignals;
 }
 
 export function RolefitBoard({
@@ -26,6 +27,7 @@ export function RolefitBoard({
   isOperator: _isOperator,
   isAuthed,
   saveResume,
+  operator,
 }: RolefitBoardProps) {
   // Filter state
   const [search, setSearch] = useState("");
@@ -179,6 +181,7 @@ export function RolefitBoard({
         search={search}
         onSearch={setSearch}
         isAuthed={isAuthed}
+        operator={operator}
         onOpenProfile={() => {
           if (isAuthed) {
             setProfileOpen(true);

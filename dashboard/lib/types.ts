@@ -83,3 +83,9 @@ export interface ReviewStats {
   unreviewed: number;
   errors: number;
 }
+
+/** Compact telemetry surfaced in the header only when the viewer is authenticated. */
+export interface OperatorSignals {
+  health: "ok" | "warn" | "stale";
+  unreviewed: number;
+}

@@ -1,9 +1,11 @@
 import { parseFilters } from "@/lib/filters";
-import { getBoardOwnerId, getJobs } from "@/lib/queries";
-import { DEFAULT_INCLUDE_KEYWORDS } from "@/lib/config";
+import { getBoardOwnerId, getJobs, getLatestPollRun, getLatestReviewRun, getReviewStats } from "@/lib/queries";
+import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
+import { computeHealth } from "@/lib/status";
 import { getUserId } from "@/lib/auth";
 import { saveProfileResume } from "@/app/actions/profile";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
+import type { OperatorSignals } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,21 @@ export default async function Page({
   await searchParams; // filters now client-side; keep the param contract
   const filters = parseFilters({}, { include: DEFAULT_INCLUDE_KEYWORDS });
   const jobs = await getJobs(filters, ownerId);
+
+  // Operator-only telemetry — not fetched or exposed to anonymous visitors.
+  let operator: OperatorSignals | undefined;
+  if (viewerId) {
+    const [pollRun, , reviewStats] = await Promise.all([
+      getLatestPollRun(),
+      getLatestReviewRun(),
+      getReviewStats(viewerId),
+    ]);
+    operator = {
+      health: computeHealth(pollRun, new Date(), STALE_HEALTH_HOURS),
+      unreviewed: reviewStats.unreviewed,
+    };
+  }
+
   return (
     <RolefitBoard
       jobs={jobs}
@@ -23,6 +40,7 @@ export default async function Page({
       isOperator={!!ownerId}
       isAuthed={!!viewerId}
       saveResume={saveProfileResume}
+      operator={operator}
     />
   );
 }

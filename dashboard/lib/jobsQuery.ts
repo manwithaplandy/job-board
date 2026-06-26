@@ -5,7 +5,11 @@ export interface SqlQuery {
   values: unknown[];
 }
 
-export function buildJobsQuery(f: Filters, userId: string | null): SqlQuery {
+export function buildJobsQuery(
+  f: Filters,
+  userId: string | null,
+  ownerLocations: string[] = [],
+): SqlQuery {
   const values: unknown[] = [];
   const ph = () => `$${values.length + 1}`;
   const where: string[] = [];
@@ -47,6 +51,13 @@ export function buildJobsQuery(f: Filters, userId: string | null): SqlQuery {
   if (f.location) {
     where.push(`j.location ILIKE ${ph()}`);
     values.push(`%${f.location}%`);
+  }
+  // Board owner's location include-list (set on the profile). Mirrors the
+  // reviewer pre-filter: keep remote jobs always, else require an exact match.
+  // Empty list => no clause (everything shows). Applies with or without an owner.
+  if (ownerLocations.length) {
+    where.push(`(j.remote IS TRUE OR j.location = ANY(${ph()}))`);
+    values.push(ownerLocations);
   }
 
   // --- review dimension filters (only on verdicts that carry review columns) ---

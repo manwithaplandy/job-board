@@ -110,4 +110,21 @@ describe("buildJobsQuery", () => {
     expect(q.text).toContain("j.location ILIKE $1");
     expect(q.values).toEqual(["%berlin%"]);
   });
+
+  test("owner preferred locations add a remote-or-exact-match clause at $2", () => {
+    const q = buildJobsQuery(base, UID, ["Berlin, Germany", "Remote"]);
+    expect(q.text).toContain("(j.remote IS TRUE OR j.location = ANY($2))");
+    expect(q.values).toEqual([UID, ["Berlin, Germany", "Remote"]]);
+  });
+
+  test("empty owner preferred locations add no baseline clause", () => {
+    const q = buildJobsQuery(base, UID, []);
+    expect(q.text).not.toContain("j.location = ANY(");
+  });
+
+  test("owner preferred locations apply without an owner, binding from $1", () => {
+    const q = buildJobsQuery(base, null, ["Berlin, Germany"]);
+    expect(q.text).toContain("(j.remote IS TRUE OR j.location = ANY($1))");
+    expect(q.values).toEqual([["Berlin, Germany"]]);
+  });
 });

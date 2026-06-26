@@ -2,7 +2,8 @@ import os
 
 from reviewer.schemas import TAXONOMY_TEXT, Stage1Result, Stage2Result
 
-DEFAULT_MODEL = "claude-haiku-4-5"
+DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 _STAGE1_INSTRUCTIONS = (
     "You are a relevance gatekeeper. You see only a job's title, company, and "
@@ -37,56 +38,59 @@ def build_profile_block(resume_text: str | None, instructions: str | None) -> st
     )
 
 
-def _system(profile_block: str, instructions: str) -> list[dict]:
-    return [
-        {"type": "text", "text": profile_block, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": instructions},
-    ]
+def _system(profile_block: str, instructions: str) -> str:
+    # OpenAI-style single system message (was Anthropic's two-block system list).
+    return f"{profile_block}\n\n{instructions}"
 
 
 class ReviewClient:
     def __init__(self, client=None, model_stage1: str | None = None,
                  model_stage2: str | None = None):
         if client is None:
-            from anthropic import AsyncAnthropic  # lazy: avoid import at module load
-            client = AsyncAnthropic()
+            from openai import AsyncOpenAI  # lazy: avoid import + key read at module load
+            client = AsyncOpenAI(
+                base_url=OPENROUTER_BASE_URL,
+                api_key=os.environ["OPENROUTER_API_KEY"],
+                default_headers={"X-Title": "job-board"},
+            )
         self._client = client
         self.model_stage1 = model_stage1 or os.environ.get("REVIEW_MODEL_STAGE1", DEFAULT_MODEL)
         self.model_stage2 = model_stage2 or os.environ.get("REVIEW_MODEL_STAGE2", DEFAULT_MODEL)
 
+    async def _parse(self, *, model: str, max_tokens: int, system: str, user: str, schema):
+        resp = await self._client.beta.chat.completions.parse(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format=schema,
+        )
+        msg = resp.choices[0].message
+        if getattr(msg, "refusal", None):
+            raise ValueError(f"model refused: {msg.refusal}")
+        if msg.parsed is None:
+            raise ValueError("OpenRouter returned no parsed output")
+        return msg.parsed
+
     async def stage1(self, *, profile_block: str, title: str, company: str,
                      location: str | None) -> Stage1Result:
-        resp = await self._client.messages.parse(
-            model=self.model_stage1,
-            max_tokens=512,
+        return await self._parse(
+            model=self.model_stage1, max_tokens=512,
             system=_system(profile_block, _STAGE1_INSTRUCTIONS),
-            messages=[{
-                "role": "user",
-                "content": f"Title: {title}\nCompany: {company}\nLocation: {location or 'n/a'}",
-            }],
-            output_format=Stage1Result,
+            user=f"Title: {title}\nCompany: {company}\nLocation: {location or 'n/a'}",
+            schema=Stage1Result,
         )
-        out = resp.parsed_output
-        if out is None:
-            raise ValueError("Anthropic returned no parsed output")
-        return out
 
     async def stage2(self, *, profile_block: str, title: str, company: str,
                      location: str | None, jd: str) -> Stage2Result:
-        resp = await self._client.messages.parse(
-            model=self.model_stage2,
-            max_tokens=1024,
+        return await self._parse(
+            model=self.model_stage2, max_tokens=1024,
             system=_system(profile_block, _STAGE2_INSTRUCTIONS),
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Title: {title}\nCompany: {company}\nLocation: {location or 'n/a'}\n\n"
-                    f"JOB DESCRIPTION:\n{jd}"
-                ),
-            }],
-            output_format=Stage2Result,
+            user=(
+                f"Title: {title}\nCompany: {company}\nLocation: {location or 'n/a'}\n\n"
+                f"JOB DESCRIPTION:\n{jd}"
+            ),
+            schema=Stage2Result,
         )
-        out = resp.parsed_output
-        if out is None:
-            raise ValueError("Anthropic returned no parsed output")
-        return out

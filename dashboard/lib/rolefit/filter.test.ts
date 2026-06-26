@@ -33,6 +33,7 @@ describe("applyFilters", () => {
     const jobs = [
       job({ id: "a", pay_max: 200000, pay_period: "year" }),
       job({ id: "b", pay_min: null, pay_max: null, pay_period: null }),
+      job({ id: "c", pay_max: 300000, pay_period: "hour" }),
     ];
     expect(applyFilters(jobs, { ...ST, payMin: 180 }).map((j) => j.id)).toEqual(["a"]);
   });
@@ -40,12 +41,37 @@ describe("applyFilters", () => {
     const jobs = [job({ id: "a", work_arrangement: "hybrid" }), job({ id: "b", work_arrangement: "remote" })];
     expect(applyFilters(jobs, { ...ST, remote: "hybrid" }).map((j) => j.id)).toEqual(["a"]);
   });
+  test("remote null-fallback", () => {
+    const jobs = [
+      job({ id: "match", work_arrangement: null, remote: true }),
+      job({ id: "nomatch", work_arrangement: null, remote: false }),
+    ];
+    expect(applyFilters(jobs, { ...ST, remote: "remote" }).map((j) => j.id)).toEqual(["match"]);
+  });
 });
 
 describe("sortJobs", () => {
   test("match sorts by fit desc, nulls last", () => {
     const jobs = [job({ id: "a", fit_score: 50 }), job({ id: "b", fit_score: null }), job({ id: "c", fit_score: 90 })];
     expect(sortJobs(jobs, "match").map((j) => j.id)).toEqual(["c", "a", "b"]);
+  });
+  test("pay sort, nulls last", () => {
+    const jobs = [job({ id: "high", pay_max: 200000 }), job({ id: "null", pay_max: null }), job({ id: "low", pay_max: 150000 })];
+    expect(sortJobs(jobs, "pay").map((j) => j.id)).toEqual(["high", "low", "null"]);
+  });
+  test("newest sort", () => {
+    const jobs = [
+      job({ id: "old", first_seen_at: "2026-06-18T00:00:00Z" }),
+      job({ id: "new", first_seen_at: "2026-06-25T00:00:00Z" }),
+      job({ id: "mid", first_seen_at: "2026-06-21T00:00:00Z" }),
+    ];
+    expect(sortJobs(jobs, "newest").map((j) => j.id)).toEqual(["new", "mid", "old"]);
+  });
+  test("does not mutate input", () => {
+    const jobs = [job({ id: "a", fit_score: 50 }), job({ id: "b", fit_score: 90 })];
+    const ids = jobs.map((j) => j.id);
+    sortJobs(jobs, "match");
+    expect(jobs.map((j) => j.id)).toEqual(ids);
   });
   test("az sorts by company", () => {
     const jobs = [job({ id: "a", company_name: "Zeta" }), job({ id: "b", company_name: "Acme" })];

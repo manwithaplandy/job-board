@@ -57,6 +57,7 @@ export interface ProfileRow {
   instructions: string | null;
   model_stage1: string | null;
   model_stage2: string | null;
+  preferred_locations: string[];
   profile_version: string;
   updated_at: string;
 }

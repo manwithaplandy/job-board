@@ -96,3 +96,14 @@ def test_profiles_has_model_columns(conn):
         )
         cols = {r["column_name"] for r in cur.fetchall()}
     assert {"model_stage1", "model_stage2"} <= cols
+
+
+@requires_db
+def test_profiles_has_preferred_locations_column(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'profiles'"
+        )
+        cols = {r["column_name"] for r in cur.fetchall()}
+    assert "preferred_locations" in cols

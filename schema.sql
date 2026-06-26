@@ -45,6 +45,7 @@ CREATE TABLE profiles (
   instructions     TEXT,
   model_stage1     TEXT,                     -- OpenRouter model id; NULL = default
   model_stage2     TEXT,                     -- OpenRouter model id; NULL = default
+  preferred_locations TEXT[] NOT NULL DEFAULT '{}',  -- location include-list; empty = no pre-filter
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );

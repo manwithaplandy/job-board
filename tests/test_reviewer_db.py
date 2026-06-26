@@ -135,6 +135,21 @@ def test_candidate_reselected_when_fit_score_null(conn):
 
 
 @requires_db
+def test_gate_rejected_not_reselected(conn):
+    """Gate-rejected rows (no verdict, fit_score NULL) must NOT cause perpetual re-review."""
+    job_id = _seed_job(conn)
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v1",
+        "stage1_decision": "reject", "stage1_reason": "off-target",
+        # verdict intentionally absent (None) — fit_score stays NULL via default
+    })
+    conn.commit()
+    # Must NOT be re-selected: no verdict means this is a gate-rejected/errored row,
+    # not a pre-migration backfill target.
+    assert rdb.select_candidates(conn, USER, "v1", limit=10) == []
+
+
+@requires_db
 def test_upsert_persists_new_columns_and_jsonb(conn):
     job_id = _seed_job(conn)
     rdb.upsert_review(conn, {

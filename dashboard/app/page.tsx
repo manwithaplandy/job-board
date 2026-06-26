@@ -1,5 +1,5 @@
 import { parseFilters } from "@/lib/filters";
-import { getBoardOwnerId, getJobs, getLatestPollRun, getLatestReviewRun, getReviewStats } from "@/lib/queries";
+import { getBoardOwnerId, getJobs, getLatestPollRun, getReviewStats } from "@/lib/queries";
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
 import { getUserId } from "@/lib/auth";
@@ -22,9 +22,8 @@ export default async function Page({
   // Operator-only telemetry — not fetched or exposed to anonymous visitors.
   let operator: OperatorSignals | undefined;
   if (viewerId) {
-    const [pollRun, , reviewStats] = await Promise.all([
+    const [pollRun, reviewStats] = await Promise.all([
       getLatestPollRun(),
-      getLatestReviewRun(),
       getReviewStats(viewerId),
     ]);
     operator = {

@@ -43,7 +43,7 @@ export function JobDetail({
   copiedId,
   onOpenProfile,
 }: JobDetailProps) {
-  const hasReview = job.fit_score !== null;
+  const hasReview = job.fit_score != null;
   const fit = job.fit_score ?? 0;
   const c = fitColor(fit);
   const CIRC = 2 * Math.PI * 34;

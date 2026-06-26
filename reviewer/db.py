@@ -47,7 +47,7 @@ def select_candidates(conn, user_id: str, profile_version: str, limit: int) -> l
             JOIN companies c ON c.id = j.company_id
             LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
             WHERE j.closed_at IS NULL
-              AND (r.job_id IS NULL OR r.profile_version <> %(pv)s OR r.fit_score IS NULL)
+              AND (r.job_id IS NULL OR r.profile_version <> %(pv)s OR (r.fit_score IS NULL AND r.verdict IS NOT NULL))
             ORDER BY j.first_seen_at DESC
             LIMIT %(lim)s
             """,

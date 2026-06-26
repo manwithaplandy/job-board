@@ -55,6 +55,17 @@ export async function getProfile(userId: string): Promise<ProfileRow | null> {
   return (rows[0] as unknown as ProfileRow) ?? null;
 }
 
+export async function getJobForResume(
+  jobId: string,
+): Promise<{ title: string; company_name: string; description: string | null } | null> {
+  const rows = await sql`
+    SELECT j.title, c.name AS company_name, j.description
+    FROM jobs j JOIN companies c ON c.id = j.company_id
+    WHERE j.id = ${jobId}
+  `;
+  return (rows[0] as unknown as { title: string; company_name: string; description: string | null }) ?? null;
+}
+
 export async function upsertProfile(
   userId: string,
   data: {

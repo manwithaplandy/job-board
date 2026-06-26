@@ -18,6 +18,7 @@ async function saveProfile(formData: FormData) {
   let resumeFilePath: string | null = null;
 
   const catalogIds = (await getStructuredModels()).map((m) => m.id);
+  // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
   const s1 = validateModelId(String(formData.get("model_stage1") ?? ""), catalogIds);
   const s2 = validateModelId(String(formData.get("model_stage2") ?? ""), catalogIds);
   if (!s1.ok) throw new Error(s1.reason);

@@ -52,6 +52,11 @@ describe("filterModels", () => {
     expect(out.map((m) => m.id)).toEqual(["openai/gpt-4o-mini", "anthropic/claude-haiku-4.5"]);
   });
 
+  test("whitespace-only query returns curated models in curated order", () => {
+    const out = filterModels(models, ["openai/gpt-4o-mini", "anthropic/claude-haiku-4.5"], "   ");
+    expect(out.map((m) => m.id)).toEqual(["openai/gpt-4o-mini", "anthropic/claude-haiku-4.5"]);
+  });
+
   test("curated id missing from catalog falls back to id-as-name", () => {
     const out = filterModels(models, ["zzz/unknown"], "");
     expect(out[0]).toEqual({ id: "zzz/unknown", name: "zzz/unknown", pricing: { prompt: "", completion: "" } });

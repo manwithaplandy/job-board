@@ -4,35 +4,36 @@ export interface ORModel {
   pricing: { prompt: string; completion: string };
 }
 
-export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
 // Mirrors reviewer/llm.py DEFAULT_MODEL. Shown as the placeholder when unset.
 export const DEFAULT_MODEL_ID = "anthropic/claude-haiku-4.5";
 
-// Curated default suggestions shown before the user types. All verified present and
-// structured-output-capable on OpenRouter at design time (2026-06-25). The search box
-// filters the FULL live catalog, so staleness here is low-impact — edit freely.
+// Curated default suggestions shown before the user types. Refreshed and catalog-verified
+// 2026-06-25: mix of small bang-for-buck models + cheapest frontier reasoning models, all
+// confirmed present and structured-output-capable on OpenRouter at that date. The search
+// box filters the FULL live catalog, so staleness here is low-impact — edit freely.
 export const CURATED_MODELS: string[] = [
   "anthropic/claude-haiku-4.5",
-  "anthropic/claude-sonnet-4.5",
-  "anthropic/claude-opus-4.5",
-  "openai/gpt-4.1",
-  "openai/gpt-4.1-mini",
+  "google/gemini-2.5-flash-lite",
+  "google/gemini-2.5-flash",
+  "openai/gpt-4.1-nano",
   "openai/gpt-4o-mini",
   "openai/gpt-5-mini",
-  "openai/o4-mini",
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-pro",
-  "google/gemini-2.5-flash-lite",
-  "deepseek/deepseek-chat",
-  "deepseek/deepseek-r1",
-  "meta-llama/llama-3.3-70b-instruct",
+  "openai/gpt-4.1-mini",
+  "meta-llama/llama-4-scout",
   "meta-llama/llama-4-maverick",
+  "meta-llama/llama-3.3-70b-instruct",
   "mistralai/mistral-small-3.2-24b-instruct",
-  "mistralai/mistral-large",
-  "x-ai/grok-4.3",
-  "qwen/qwen3.7-max",
-  "z-ai/glm-4.6",
+  "deepseek/deepseek-v4-flash",
+  "deepseek/deepseek-v3.2",
+  "qwen/qwen3-8b",
+  "qwen/qwen3-32b",
+  "qwen/qwen3-30b-a3b-thinking-2507",
+  "qwen/qwen3-235b-a22b-thinking-2507",
+  "deepseek/deepseek-r1-0528",
+  "moonshotai/kimi-k2-thinking",
+  "google/gemini-2.5-pro",
 ];
 
 interface RawModel {

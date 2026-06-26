@@ -17,16 +17,19 @@ export function ModelPicker({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const results = filterModels(models, curated, query).slice(0, 50);
+  const inputId = `model-picker-${name}`;
 
   return (
     <div className="flex flex-col text-sm text-gray-700">
-      <span>{label}</span>
+      <label htmlFor={inputId}>{label}</label>
       <input type="hidden" name={name} value={selected} />
       <input
+        id={inputId}
         type="text"
         className="mt-1 rounded border px-2 py-1 text-sm"
         placeholder={selected || placeholder}
         value={query}
+        aria-expanded={open}
         onFocus={() => setOpen(true)}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
@@ -41,9 +44,9 @@ export function ModelPicker({
         </span>
       )}
       {open && results.length > 0 && (
-        <ul className="mt-1 max-h-56 overflow-auto rounded border bg-white text-sm shadow">
+        <ul role="listbox" className="mt-1 max-h-56 overflow-auto rounded border bg-white text-sm shadow">
           {results.map((m) => (
-            <li key={m.id}>
+            <li key={m.id} role="option" aria-selected={m.id === selected}>
               <button type="button"
                 className="block w-full px-2 py-1 text-left hover:bg-gray-100"
                 onClick={() => { setSelected(m.id); setQuery(""); setOpen(false); }}>

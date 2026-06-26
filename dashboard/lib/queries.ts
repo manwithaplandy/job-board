@@ -55,6 +55,20 @@ export async function getCompanies(): Promise<CompanyRow[]> {
   return rows as unknown as CompanyRow[];
 }
 
+export async function getDistinctLocations(): Promise<{ location: string; count: number }[]> {
+  // Distinct non-empty locations from open jobs, most common first — the option
+  // set for the profile LocationPicker. Capped so the payload stays bounded.
+  const rows = await sql`
+    SELECT location, count(*)::int AS count
+    FROM jobs
+    WHERE closed_at IS NULL AND location IS NOT NULL AND location <> ''
+    GROUP BY location
+    ORDER BY count DESC, location ASC
+    LIMIT 500
+  `;
+  return rows as unknown as { location: string; count: number }[];
+}
+
 export async function getLatestPollRun(): Promise<PollRunRow | null> {
   const rows = await sql`
     SELECT * FROM poll_runs ORDER BY started_at DESC LIMIT 1
@@ -76,24 +90,27 @@ export async function upsertProfile(
     resumeFilePath: string | null;
     modelStage1: string | null;
     modelStage2: string | null;
+    preferredLocations: string[];
   },
 ): Promise<void> {
-  // profile_version intentionally excludes the model choice — changing a model
-  // must NOT invalidate existing verdicts (spec §4).
+  // profile_version intentionally excludes the model choice AND preferred
+  // locations — neither must invalidate existing verdicts (spec §4).
   const version = profileVersion(data.resumeText, data.instructions);
   await sql`
     INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
-                          model_stage1, model_stage2, profile_version, updated_at)
+                          model_stage1, model_stage2, preferred_locations,
+                          profile_version, updated_at)
     VALUES (${userId}::uuid, ${data.resumeText}, ${data.instructions},
             ${data.resumeFilePath}, ${data.modelStage1}, ${data.modelStage2},
-            ${version}, now())
+            ${data.preferredLocations}, ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
-      resume_text      = EXCLUDED.resume_text,
-      instructions     = EXCLUDED.instructions,
-      resume_file_path = EXCLUDED.resume_file_path,
-      model_stage1     = EXCLUDED.model_stage1,
-      model_stage2     = EXCLUDED.model_stage2,
-      profile_version  = EXCLUDED.profile_version,
-      updated_at       = now()
+      resume_text         = EXCLUDED.resume_text,
+      instructions        = EXCLUDED.instructions,
+      resume_file_path    = EXCLUDED.resume_file_path,
+      model_stage1        = EXCLUDED.model_stage1,
+      model_stage2        = EXCLUDED.model_stage2,
+      preferred_locations = EXCLUDED.preferred_locations,
+      profile_version     = EXCLUDED.profile_version,
+      updated_at          = now()
   `;
 }

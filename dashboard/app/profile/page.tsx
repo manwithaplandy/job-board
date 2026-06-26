@@ -2,13 +2,15 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { getProfile, upsertProfile } from "@/lib/queries";
+import { getProfile, upsertProfile, getDistinctLocations } from "@/lib/queries";
 import { extractPdfText } from "@/lib/pdf";
 import { internalPathFromReferer } from "@/lib/paths";
 import {
   getStructuredModels, CURATED_MODELS, DEFAULT_MODEL_ID, validateModelId,
 } from "@/lib/openrouter";
 import { ModelPicker } from "@/components/ModelPicker";
+import { LocationPicker } from "@/components/LocationPicker";
+import { parsePreferredLocations } from "@/lib/preferredLocations";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,10 @@ async function saveProfile(formData: FormData) {
   if (!s1.ok) throw new Error(s1.reason);
   if (!s2.ok) throw new Error(s2.reason);
 
+  const preferredLocations = parsePreferredLocations(
+    String(formData.get("preferred_locations") ?? ""),
+  );
+
   const file = formData.get("resume_pdf");
   if (file instanceof File && file.size > 0) {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -48,14 +54,15 @@ async function saveProfile(formData: FormData) {
   await upsertProfile(userId, {
     resumeText, instructions, resumeFilePath,
     modelStage1: s1.value, modelStage2: s2.value,
+    preferredLocations,
   });
   redirect(safeNext);
 }
 
 export default async function ProfilePage() {
   const userId = await requireUserId();
-  const [profile, models, headerList] = await Promise.all([
-    getProfile(userId), getStructuredModels(), headers(),
+  const [profile, models, locations, headerList] = await Promise.all([
+    getProfile(userId), getStructuredModels(), getDistinctLocations(), headers(),
   ]);
   const back = internalPathFromReferer(headerList.get("referer"), headerList.get("host") ?? "");
   return (
@@ -81,6 +88,9 @@ export default async function ProfilePage() {
             className="mt-1 rounded border px-2 py-1 text-sm"
             placeholder="e.g. focus on backend/infra; avoid pure-frontend roles" />
         </label>
+
+        <LocationPicker name="preferred_locations" options={locations}
+          defaultValue={profile?.preferred_locations ?? []} />
 
         <fieldset className="flex flex-col gap-3 rounded border p-3">
           <legend className="px-1 text-xs text-gray-500">

@@ -41,6 +41,10 @@ export function buildJobsQuery(f: Filters, userId: string | null): SqlQuery {
     values.push(`%${kw}%`);
   }
   if (f.remoteOnly) where.push("j.remote IS TRUE");
+  if (f.location) {
+    where.push(`j.location ILIKE ${ph()}`);
+    values.push(`%${f.location}%`);
+  }
 
   // --- review dimension filters (only on verdicts that carry review columns) ---
   if (hasReviews && (f.verdict === "approve" || f.verdict === "deny" || f.verdict === "all")) {

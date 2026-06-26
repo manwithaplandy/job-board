@@ -13,6 +13,7 @@ const base: Filters = {
   experience: "",
   industry: "",
   subcategory: "",
+  location: "",
 };
 
 describe("buildJobsQuery", () => {
@@ -96,5 +97,17 @@ describe("buildJobsQuery", () => {
     const q = buildJobsQuery({ ...base, companies: [1, 2] }, null);
     expect(q.text).toContain("j.company_id = ANY($1)");
     expect(q.values).toEqual([[1, 2]]);
+  });
+
+  test("location filter adds an ILIKE clause in the owner branch", () => {
+    const q = buildJobsQuery({ ...base, location: "remote" }, UID);
+    expect(q.text).toContain("j.location ILIKE $2");
+    expect(q.values).toEqual([UID, "%remote%"]);
+  });
+
+  test("location filter applies without an owner, binding from $1", () => {
+    const q = buildJobsQuery({ ...base, location: "berlin" }, null);
+    expect(q.text).toContain("j.location ILIKE $1");
+    expect(q.values).toEqual(["%berlin%"]);
   });
 });

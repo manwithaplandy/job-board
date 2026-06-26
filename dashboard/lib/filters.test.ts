@@ -15,7 +15,14 @@ describe("parseFilters", () => {
       experience: "",
       industry: "",
       subcategory: "",
+      location: "",
     });
+  });
+
+  test("parses location and suppresses default include", () => {
+    const f = parseFilters({ location: "remote" }, D);
+    expect(f.location).toBe("remote");
+    expect(f.include).toEqual([]);
   });
 
   test("any filter param present suppresses default include", () => {

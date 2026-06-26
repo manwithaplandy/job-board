@@ -13,11 +13,12 @@ export interface Filters {
   experience: string;
   industry: string;
   subcategory: string;
+  location: string;
 }
 
 const FILTER_KEYS = [
   "company", "include", "exclude", "remote", "status",
-  "verdict", "experience", "industry", "subcategory",
+  "verdict", "experience", "industry", "subcategory", "location",
 ] as const;
 
 function first(v: string | string[] | undefined): string | undefined {
@@ -53,5 +54,6 @@ export function parseFilters(
     experience: first(params.experience) ?? "",
     industry: first(params.industry) ?? "",
     subcategory: first(params.subcategory) ?? "",
+    location: first(params.location) ?? "",
   };
 }

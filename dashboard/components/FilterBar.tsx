@@ -68,6 +68,16 @@ export function FilterBar({
       </label>
 
       <label className="flex flex-col text-xs text-gray-600">
+        Location
+        <input
+          name="location"
+          defaultValue={filters.location}
+          className="mt-1 rounded border px-2 py-1 text-sm"
+          placeholder="remote, berlin"
+        />
+      </label>
+
+      <label className="flex flex-col text-xs text-gray-600">
         Status
         <select
           name="status"

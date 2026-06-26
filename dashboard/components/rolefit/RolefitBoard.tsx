@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { JobRow } from "@/lib/types";
+import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, sortJobs } from "@/lib/rolefit/filter";
 import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
+import { JobDetail } from "./JobDetail";
+import { composeResumeText, legacyCopy } from "./ResumePanel";
 
 export interface RolefitBoardProps {
   jobs: JobRow[];
@@ -18,7 +21,7 @@ export interface RolefitBoardProps {
 
 export function RolefitBoard({
   jobs,
-  nowIso: _nowIso,
+  nowIso,
   isOperator: _isOperator,
   isAuthed,
   saveResume: _saveResume,
@@ -36,6 +39,16 @@ export function RolefitBoard({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  // Résumé generation state (keyed by job id)
+  const [gen, setGen] = useState<Record<string, string>>({});
+  const [genData, setGenData] = useState<Record<string, TailoredResume>>({});
+  const [genError, setGenError] = useState<Record<string, string>>({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Refs
+  const detailRef = useRef<HTMLDivElement>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Outside-click closes open dropdown — port of reference componentDidMount doc listener
   useEffect(() => {
@@ -56,6 +69,12 @@ export function RolefitBoard({
   const visible = useMemo(
     () => sortJobs(applyFilters(jobs, filterState), filterState.sort),
     [jobs, filterState],
+  );
+
+  // Resolve selected job
+  const selectedJob = useMemo(
+    () => jobs.find((j) => j.id === selectedId) ?? null,
+    [jobs, selectedId],
   );
 
   // Handlers
@@ -93,6 +112,52 @@ export function RolefitBoard({
     setOpenMenu(null);
   };
 
+  const handleSelect = (id: string) => {
+    setSelectedId(id);
+    if (detailRef.current) detailRef.current.scrollTop = 0;
+  };
+
+  // Résumé generation
+  const handleGenerate = useCallback(async (job: JobRow) => {
+    setGen((g) => ({ ...g, [job.id]: "busy" }));
+    try {
+      const res = await fetch("/api/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? "failed");
+      }
+      const data = (await res.json()) as TailoredResume;
+      setGenData((d) => ({ ...d, [job.id]: data }));
+      setGen((g) => ({ ...g, [job.id]: "done" }));
+    } catch (e) {
+      setGen((g) => ({ ...g, [job.id]: "error" }));
+      setGenError((m) => ({ ...m, [job.id]: (e as Error).message }));
+    }
+  }, []);
+
+  // Copy résumé text to clipboard
+  const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
+    const text = composeResumeText(job, data);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+      } else {
+        legacyCopy(text);
+      }
+    } catch {
+      legacyCopy(text);
+    }
+    setCopiedId(job.id);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => {
+      setCopiedId((prev) => (prev === job.id ? null : prev));
+    }, 1600);
+  }, []);
+
   return (
     <div
       style={{
@@ -129,7 +194,7 @@ export function RolefitBoard({
         onSetSort={handleSetSort}
       />
 
-      {/* Split pane — left: job list; right: detail (Task 13) */}
+      {/* Split pane — left: job list; right: detail */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         {/* List pane */}
         <div
@@ -145,29 +210,45 @@ export function RolefitBoard({
           <JobList
             jobs={visible}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={handleSelect}
             onClearFilters={clearFilters}
           />
         </div>
 
-        {/* Detail pane — placeholder until Task 13 */}
+        {/* Detail pane */}
         <div
+          ref={detailRef}
           className="rf-scroll"
           style={{ flex: 1, overflowY: "auto", background: "#fff", minWidth: 0 }}
         >
-          <div
-            style={{
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#8a93a3",
-              fontSize: "14px",
-              fontWeight: 600,
-            }}
-          >
-            Select a role
-          </div>
+          {selectedJob ? (
+            <JobDetail
+              job={selectedJob}
+              nowIso={nowIso}
+              isAuthed={isAuthed}
+              gen={gen}
+              genData={genData}
+              genError={genError}
+              onGenerate={handleGenerate}
+              onCopy={handleCopy}
+              copiedId={copiedId}
+              onOpenProfile={() => setProfileOpen(true)}
+            />
+          ) : (
+            <div
+              style={{
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#8a93a3",
+                fontSize: "14px",
+                fontWeight: 600,
+              }}
+            >
+              Select a role
+            </div>
+          )}
         </div>
       </div>
 

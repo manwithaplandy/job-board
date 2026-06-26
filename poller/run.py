@@ -59,7 +59,7 @@ def run(dsn: str | None = None) -> None:
         )
 
         # Review phase (spec §6): event-driven, folded into the poll. Isolated so a
-        # reviewer/Anthropic failure never aborts the poll or its accounting.
+        # reviewer/OpenRouter failure never aborts the poll or its accounting.
         try:
             from reviewer.run import review_all
             review_all(conn)

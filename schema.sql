@@ -104,3 +104,23 @@ CREATE TABLE review_runs (
   notes         TEXT
 );
 CREATE INDEX idx_review_runs_started_at ON review_runs (started_at DESC);
+
+-- Row-level security. The app and reviewer connect via a privileged DIRECT connection
+-- (DATABASE_URL) that bypasses RLS; nothing is served through the anon/PostgREST API.
+-- Each table gets RLS enabled plus one explicit permissive deny-all policy so the
+-- "no API access; served server-side" intent is declarative and Supabase's
+-- rls_enabled_no_policy advisor (lint 0008) stays clear. Portable to plain Postgres:
+-- no Supabase-specific roles or auth.* functions, and test queries run as a superuser
+-- that bypasses RLS. Mirrors migrations/2026-06-26-rls-deny-all-policies.sql.
+ALTER TABLE companies    ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON companies   FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE jobs         ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON jobs        FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE poll_runs    ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON poll_runs   FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE profiles     ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON profiles    FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE job_reviews  ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON job_reviews FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE review_runs  ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON review_runs FOR ALL USING (false) WITH CHECK (false);

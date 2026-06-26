@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile } from "@/lib/queries";
@@ -40,6 +41,7 @@ async function saveProfile(formData: FormData) {
     resumeText, instructions, resumeFilePath,
     modelStage1: s1.value, modelStage2: s2.value,
   });
+  redirect("/");
 }
 
 export default async function ProfilePage() {

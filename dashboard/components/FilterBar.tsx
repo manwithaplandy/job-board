@@ -23,9 +23,11 @@ function SelectFilter({ label, name, value, options, includeAny }: {
 export function FilterBar({
   companies,
   filters,
+  showReviewFilters,
 }: {
   companies: CompanyRow[];
   filters: Filters;
+  showReviewFilters: boolean;
 }) {
   return (
     <form method="GET" className="flex flex-wrap items-end gap-3 border-b bg-white px-6 py-4">
@@ -66,6 +68,16 @@ export function FilterBar({
       </label>
 
       <label className="flex flex-col text-xs text-gray-600">
+        Location
+        <input
+          name="location"
+          defaultValue={filters.location}
+          className="mt-1 rounded border px-2 py-1 text-sm"
+          placeholder="remote, berlin"
+        />
+      </label>
+
+      <label className="flex flex-col text-xs text-gray-600">
         Status
         <select
           name="status"
@@ -83,17 +95,21 @@ export function FilterBar({
         Remote only
       </label>
 
-      <SelectFilter label="Verdict" name="verdict" value={filters.verdict}
-        options={VERDICT_OPTIONS} />
+      {showReviewFilters && (
+        <>
+          <SelectFilter label="Verdict" name="verdict" value={filters.verdict}
+            options={VERDICT_OPTIONS} />
 
-      <SelectFilter label="Experience" name="experience" value={filters.experience}
-        options={EXPERIENCE_OPTIONS} includeAny />
+          <SelectFilter label="Experience" name="experience" value={filters.experience}
+            options={EXPERIENCE_OPTIONS} includeAny />
 
-      <SelectFilter label="Industry" name="industry" value={filters.industry}
-        options={INDUSTRY_OPTIONS} includeAny />
+          <SelectFilter label="Industry" name="industry" value={filters.industry}
+            options={INDUSTRY_OPTIONS} includeAny />
 
-      <SelectFilter label="Subcategory" name="subcategory" value={filters.subcategory}
-        options={SUBCATEGORY_OPTIONS} includeAny />
+          <SelectFilter label="Subcategory" name="subcategory" value={filters.subcategory}
+            options={SUBCATEGORY_OPTIONS} includeAny />
+        </>
+      )}
 
       <button
         type="submit"

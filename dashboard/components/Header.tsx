@@ -18,11 +18,13 @@ export function Header({
   health,
   lastReview,
   reviewStats,
+  isAuthed,
 }: {
   lastRun: PollRunRow | null;
   health: Health;
   lastReview: ReviewRunRow | null;
   reviewStats: ReviewStats | null;
+  isAuthed: boolean;
 }) {
   const finished = lastRun?.finished_at
     ? new Date(lastRun.finished_at).toLocaleString()
@@ -48,10 +50,16 @@ export function Header({
             ) : null}
           </span>
         )}
-        <a href="/profile" className="text-blue-700 hover:underline">Profile</a>
-        <form action="/auth/signout" method="post">
-          <button type="submit" className="text-blue-700 hover:underline">Sign out</button>
-        </form>
+        {isAuthed ? (
+          <>
+            <a href="/profile" className="text-blue-700 hover:underline">Profile</a>
+            <form action="/auth/signout" method="post">
+              <button type="submit" className="text-blue-700 hover:underline">Sign out</button>
+            </form>
+          </>
+        ) : (
+          <a href="/login" className="text-blue-700 hover:underline">Sign in</a>
+        )}
       </div>
     </header>
   );

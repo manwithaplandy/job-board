@@ -43,6 +43,8 @@ CREATE TABLE profiles (
   resume_text      TEXT,
   resume_file_path TEXT,
   instructions     TEXT,
+  model_stage1     TEXT,                     -- OpenRouter model id; NULL = default
+  model_stage2     TEXT,                     -- OpenRouter model id; NULL = default
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );

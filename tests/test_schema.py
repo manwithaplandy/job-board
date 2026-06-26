@@ -85,3 +85,14 @@ def test_error_row_allows_null_stage1_decision(conn):
         )
         cur.execute("SELECT count(*) AS n FROM job_reviews WHERE error = 'StageError'")
         assert cur.fetchone()["n"] == 1
+
+
+@requires_db
+def test_profiles_has_model_columns(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'profiles'"
+        )
+        cols = {r["column_name"] for r in cur.fetchall()}
+    assert {"model_stage1", "model_stage2"} <= cols

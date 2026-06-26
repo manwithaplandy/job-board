@@ -5,10 +5,12 @@ export function JobsTable({
   jobs,
   nowIso,
   windowHours,
+  showMatch,
 }: {
   jobs: JobRow[];
   nowIso: string;
   windowHours: number;
+  showMatch: boolean;
 }) {
   const now = new Date(nowIso);
   if (jobs.length === 0) {
@@ -21,7 +23,7 @@ export function JobsTable({
           <th className="px-6 py-2">Company</th>
           <th className="px-6 py-2">Title</th>
           <th className="px-6 py-2">Location</th>
-          <th className="px-6 py-2">Match</th>
+          {showMatch && <th className="px-6 py-2">Match</th>}
           <th className="px-6 py-2">First seen</th>
         </tr>
       </thead>
@@ -50,30 +52,32 @@ export function JobsTable({
               )}
             </td>
             <td className="px-6 py-2 text-gray-600">{j.location ?? "—"}</td>
-            <td className="px-6 py-2 text-gray-600">
-              {j.verdict ? (
-                <span className="flex flex-col gap-0.5">
-                  <span className="font-medium">
-                    {j.verdict}
-                    {j.experience_match ? ` · ${j.experience_match}` : ""}
+            {showMatch && (
+              <td className="px-6 py-2 text-gray-600">
+                {j.verdict ? (
+                  <span className="flex flex-col gap-0.5">
+                    <span className="font-medium">
+                      {j.verdict}
+                      {j.experience_match ? ` · ${j.experience_match}` : ""}
+                    </span>
+                    {j.industry && (
+                      <span className="text-xs text-gray-500">
+                        {j.industry}{j.industry_subcategory ? ` / ${j.industry_subcategory}` : ""}
+                      </span>
+                    )}
+                    {j.reasoning && (
+                      <span className="text-xs text-gray-400" title={j.reasoning}>
+                        {j.reasoning.length > 80 ? `${j.reasoning.slice(0, 80)}…` : j.reasoning}
+                      </span>
+                    )}
                   </span>
-                  {j.industry && (
-                    <span className="text-xs text-gray-500">
-                      {j.industry}{j.industry_subcategory ? ` / ${j.industry_subcategory}` : ""}
-                    </span>
-                  )}
-                  {j.reasoning && (
-                    <span className="text-xs text-gray-400" title={j.reasoning}>
-                      {j.reasoning.length > 80 ? `${j.reasoning.slice(0, 80)}…` : j.reasoning}
-                    </span>
-                  )}
-                </span>
-              ) : j.stage1_decision === "reject" ? (
-                <span className="text-xs text-gray-400" title={j.stage1_reason ?? ""}>gate-rejected</span>
-              ) : (
-                <span className="text-xs text-gray-400">pending</span>
-              )}
-            </td>
+                ) : j.stage1_decision === "reject" ? (
+                  <span className="text-xs text-gray-400" title={j.stage1_reason ?? ""}>gate-rejected</span>
+                ) : (
+                  <span className="text-xs text-gray-400">pending</span>
+                )}
+              </td>
+            )}
             <td className="px-6 py-2 text-gray-600">
               {new Date(j.first_seen_at).toLocaleDateString()}
             </td>

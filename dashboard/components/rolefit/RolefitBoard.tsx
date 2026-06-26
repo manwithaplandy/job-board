@@ -50,6 +50,11 @@ export function RolefitBoard({
   const detailRef = useRef<HTMLDivElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Cleanup copy timer on unmount
+  useEffect(() => () => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+  }, []);
+
   // Outside-click closes open dropdown — port of reference componentDidMount doc listener
   useEffect(() => {
     const handler = (e: MouseEvent) => {

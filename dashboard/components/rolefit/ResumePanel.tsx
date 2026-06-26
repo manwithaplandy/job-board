@@ -71,92 +71,15 @@ export function ResumePanel({
   const handleDownload = async () => {
     if (!data) return;
     const fname = `Resume - ${job.company_name} - ${job.title}.pdf`.replace(/[\\/:*?"<>|]/g, " ");
+
+    // Import jsPDF; fall back to .txt if import fails
+    let JsPDF: any;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const jsPDFMod = (await import("jspdf")) as any;
-      const JsPDF = jsPDFMod.jsPDF ?? jsPDFMod.default;
-      const doc = new JsPDF({ unit: "pt", format: "letter" });
-      const W: number = doc.internal.pageSize.getWidth();
-      const M = 56;
-      let y = 66;
-
-      const wrap = (txt: string, w: number): string[] => doc.splitTextToSize(txt, w);
-
-      // Name
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(21);
-      doc.setTextColor(22, 29, 41);
-      doc.text(data.name, M, y);
-      y += 17;
-
-      // Headline
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10.5);
-      doc.setTextColor(95, 100, 114);
-      doc.text(data.headline, M, y);
-      y += 24;
-
-      // "TAILORED FOR" box
-      doc.setFillColor(238, 243, 252);
-      doc.roundedRect(M, y - 13, W - 2 * M, 25, 5, 5, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(47, 92, 191);
-      doc.text(`TAILORED FOR  —  ${job.title} at ${job.company_name}`, M + 11, y + 3);
-      y += 38;
-
-      const section = (title: string) => {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11.5);
-        doc.setTextColor(27, 35, 48);
-        doc.text(title.toUpperCase(), M, y);
-        y += 7;
-        doc.setDrawColor(222, 227, 234);
-        doc.line(M, y, W - M, y);
-        y += 17;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10.5);
-        doc.setTextColor(47, 56, 69);
-      };
-
-      section("Summary");
-      wrap(data.summary, W - 2 * M).forEach((l: string) => { doc.text(l, M, y); y += 15; });
-      y += 9;
-
-      section("Core skills");
-      wrap(data.skills.join("   ·   "), W - 2 * M).forEach((l: string) => { doc.text(l, M, y); y += 15; });
-      y += 9;
-
-      section("Experience");
-      data.experience.forEach((exp) => {
-        if (y > 700) { doc.addPage(); y = 66; }
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10.8);
-        doc.setTextColor(27, 35, 48);
-        doc.text(`${exp.role}, ${exp.company}`, M, y);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9.5);
-        doc.setTextColor(130, 136, 148);
-        doc.text(exp.dates, W - M, y, { align: "right" });
-        y += 15;
-        doc.setFontSize(10.5);
-        doc.setTextColor(47, 56, 69);
-        exp.bullets.forEach((b) => {
-          wrap("•  " + b, W - 2 * M - 8).forEach((l: string, i: number) => {
-            doc.text(l, M + (i ? 12 : 6), y);
-            y += 14;
-          });
-        });
-        y += 9;
-      });
-
-      if (y > 710) { doc.addPage(); y = 66; }
-      section("Education");
-      doc.text(data.education, M, y);
-
-      doc.save(fname);
-    } catch {
-      // Fall back to plain-text download
+      JsPDF = jsPDFMod.jsPDF ?? jsPDFMod.default;
+    } catch (e) {
+      console.error("Failed to import jsPDF; falling back to .txt download", e);
       const text = composeResumeText(job, data);
       const blob = new Blob([text], { type: "text/plain" });
       const a = document.createElement("a");
@@ -166,7 +89,90 @@ export function ResumePanel({
       a.click();
       a.remove();
       URL.revokeObjectURL(a.href);
+      return;
     }
+
+    // PDF generation — errors bubble up
+    const doc = new JsPDF({ unit: "pt", format: "letter" });
+    const W: number = doc.internal.pageSize.getWidth();
+    const M = 56;
+    let y = 66;
+
+    const wrap = (txt: string, w: number): string[] => doc.splitTextToSize(txt, w);
+
+    // Name
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(21);
+    doc.setTextColor(22, 29, 41);
+    doc.text(data.name, M, y);
+    y += 17;
+
+    // Headline
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(95, 100, 114);
+    doc.text(data.headline, M, y);
+    y += 24;
+
+    // "TAILORED FOR" box
+    doc.setFillColor(238, 243, 252);
+    doc.roundedRect(M, y - 13, W - 2 * M, 25, 5, 5, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(47, 92, 191);
+    doc.text(`TAILORED FOR  —  ${job.title} at ${job.company_name}`, M + 11, y + 3);
+    y += 38;
+
+    const section = (title: string) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11.5);
+      doc.setTextColor(27, 35, 48);
+      doc.text(title.toUpperCase(), M, y);
+      y += 7;
+      doc.setDrawColor(222, 227, 234);
+      doc.line(M, y, W - M, y);
+      y += 17;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10.5);
+      doc.setTextColor(47, 56, 69);
+    };
+
+    section("Summary");
+    wrap(data.summary, W - 2 * M).forEach((l: string) => { doc.text(l, M, y); y += 15; });
+    y += 9;
+
+    section("Core skills");
+    wrap(data.skills.join("   ·   "), W - 2 * M).forEach((l: string) => { doc.text(l, M, y); y += 15; });
+    y += 9;
+
+    section("Experience");
+    data.experience.forEach((exp) => {
+      if (y > 700) { doc.addPage(); y = 66; }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10.8);
+      doc.setTextColor(27, 35, 48);
+      doc.text(`${exp.role}, ${exp.company}`, M, y);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      doc.setTextColor(130, 136, 148);
+      doc.text(exp.dates, W - M, y, { align: "right" });
+      y += 15;
+      doc.setFontSize(10.5);
+      doc.setTextColor(47, 56, 69);
+      exp.bullets.forEach((b) => {
+        wrap("•  " + b, W - 2 * M - 8).forEach((l: string, i: number) => {
+          doc.text(l, M + (i ? 12 : 6), y);
+          y += 14;
+        });
+      });
+      y += 9;
+    });
+
+    if (y > 710) { doc.addPage(); y = 66; }
+    section("Education");
+    doc.text(data.education, M, y);
+
+    doc.save(fname);
   };
 
   return (
@@ -375,9 +381,9 @@ export function ResumePanel({
               {data.summary}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "11px" }}>
-              {data.skills.map((sk, i) => (
+              {data.skills.map((sk) => (
                 <span
-                  key={i}
+                  key={sk}
                   style={{
                     fontSize: "11px",
                     fontWeight: 700,

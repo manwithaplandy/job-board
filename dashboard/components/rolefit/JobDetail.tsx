@@ -431,9 +431,9 @@ export function JobDetail({
                     >
                       Red flags
                     </div>
-                    {redFlags.map((flag, i) => (
+                    {redFlags.map((flag) => (
                       <div
-                        key={i}
+                        key={flag}
                         style={{
                           display: "flex",
                           gap: "9px",
@@ -474,9 +474,9 @@ export function JobDetail({
                       Skill gaps
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", marginTop: "10px" }}>
-                      {skillGaps.map((gap, i) => (
+                      {skillGaps.map((gap) => (
                         <span
-                          key={i}
+                          key={gap}
                           style={{
                             fontSize: "12px",
                             fontWeight: 700,
@@ -513,8 +513,8 @@ export function JobDetail({
               <div
                 style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "9px" }}
               >
-                {reqs.map((req, i) => (
-                  <div key={i} style={{ display: "flex", gap: "11px", alignItems: "center" }}>
+                {reqs.map((req) => (
+                  <div key={req.text} style={{ display: "flex", gap: "11px", alignItems: "center" }}>
                     <span
                       style={{
                         flex: "0 0 auto",
@@ -557,9 +557,9 @@ export function JobDetail({
                 Benefits
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" }}>
-                {benefits.map((b, i) => (
+                {benefits.map((b) => (
                   <span
-                    key={i}
+                    key={b}
                     style={{
                       fontSize: "12px",
                       fontWeight: 700,

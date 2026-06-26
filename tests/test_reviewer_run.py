@@ -97,6 +97,10 @@ def test_as_row_maps_all_columns():
         "user_id", "job_id", "profile_version", "stage1_decision", "stage1_reason",
         "verdict", "experience_match", "industry", "industry_subcategory",
         "confidence", "reasoning", "model_stage1", "model_stage2", "error",
+        "role_category", "seniority", "work_arrangement", "about",
+        "pay_min", "pay_max", "pay_currency", "pay_period", "headcount",
+        "skills_score", "experience_score", "comp_score", "fit_score",
+        "red_flags", "skill_gaps", "benefits", "requirements",
     }
 
 

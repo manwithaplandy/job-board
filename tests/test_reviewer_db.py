@@ -52,6 +52,7 @@ def test_candidates_missing_then_excluded_when_fresh(conn):
         "experience_match": "match", "industry": "software_internet",
         "industry_subcategory": "devtools_platforms", "confidence": "high",
         "reasoning": "ok", "model_stage1": "m1", "model_stage2": "m2", "error": None,
+        "fit_score": 80,
     })
     conn.commit()
     # fresh verdict -> excluded
@@ -116,3 +117,57 @@ def test_review_run_lifecycle(conn):
         cur.execute("SELECT * FROM review_runs WHERE id = %s", (rid,))
         row = cur.fetchone()
     assert row["reviewed"] == 5 and row["approved"] == 2 and row["finished_at"] is not None
+
+
+@requires_db
+def test_candidate_reselected_when_fit_score_null(conn):
+    job_id = _seed_job(conn)
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v1",
+        "stage1_decision": "pass", "verdict": "approve",
+        "experience_match": "match", "industry": "software_internet",
+        "industry_subcategory": "devtools_platforms", "confidence": "high",
+        "reasoning": "ok", "fit_score": None,  # pre-migration row
+    })
+    conn.commit()
+    # null fit_score forces re-review even when profile_version matches
+    assert [c["id"] for c in rdb.select_candidates(conn, USER, "v1", limit=10)] == [job_id]
+
+
+@requires_db
+def test_upsert_persists_new_columns_and_jsonb(conn):
+    job_id = _seed_job(conn)
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v1",
+        "stage1_decision": "pass", "verdict": "approve",
+        "experience_match": "match", "industry": "software_internet",
+        "industry_subcategory": "devtools_platforms", "confidence": "high",
+        "reasoning": "ok", "role_category": "Frontend", "seniority": "senior",
+        "work_arrangement": "hybrid", "pay_min": 170000, "pay_max": 210000,
+        "pay_currency": "USD", "pay_period": "year", "headcount": "120",
+        "skills_score": 96, "experience_score": 93, "comp_score": 90, "fit_score": 94,
+        "red_flags": ["Ships daily."], "skill_gaps": ["WebGL"],
+        "benefits": ["Equity"], "requirements": [{"text": "5+ yrs React", "met": True}],
+    })
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM job_reviews WHERE job_id = %s", (job_id,))
+        row = cur.fetchone()
+    assert row["role_category"] == "Frontend" and row["fit_score"] == 94
+    assert row["pay_min"] == 170000 and row["headcount"] == "120"
+    assert row["red_flags"] == ["Ships daily."]            # jsonb -> python list
+    assert row["requirements"] == [{"text": "5+ yrs React", "met": True}]
+
+
+@requires_db
+def test_upsert_tolerates_missing_jsonb_keys(conn):
+    job_id = _seed_job(conn)
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v1",
+        "stage1_decision": "reject", "stage1_reason": "off-target",
+    })
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT red_flags, requirements FROM job_reviews WHERE job_id = %s", (job_id,))
+        row = cur.fetchone()
+    assert row["red_flags"] == [] and row["requirements"] == []

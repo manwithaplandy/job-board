@@ -45,6 +45,7 @@ CREATE TABLE profiles (
   instructions     TEXT,
   model_stage1     TEXT,                     -- OpenRouter model id; NULL = default
   model_stage2     TEXT,                     -- OpenRouter model id; NULL = default
+  model_resume     TEXT,                     -- OpenRouter model id; NULL = default
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -63,6 +64,23 @@ CREATE TABLE job_reviews (
   industry_subcategory TEXT,
   confidence           TEXT CHECK (confidence IN ('low','medium','high')),
   reasoning            TEXT,
+  role_category        TEXT,
+  seniority            TEXT,
+  work_arrangement     TEXT CHECK (work_arrangement IN ('remote','hybrid','onsite','unknown')),
+  about                TEXT,
+  pay_min              INT,
+  pay_max              INT,
+  pay_currency         TEXT,
+  pay_period           TEXT CHECK (pay_period IN ('year','hour','month')),
+  headcount            TEXT,
+  skills_score         INT,
+  experience_score     INT,
+  comp_score           INT,
+  fit_score            INT,
+  red_flags            JSONB NOT NULL DEFAULT '[]'::jsonb,
+  skill_gaps           JSONB NOT NULL DEFAULT '[]'::jsonb,
+  benefits             JSONB NOT NULL DEFAULT '[]'::jsonb,
+  requirements         JSONB NOT NULL DEFAULT '[]'::jsonb,
   model_stage1         TEXT,
   model_stage2         TEXT,
   error                TEXT,

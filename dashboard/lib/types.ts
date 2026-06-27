@@ -76,6 +76,9 @@ export interface ProfileRow {
   model_stage2: string | null;
   preferred_locations: string[];
   model_resume: string | null;
+  company_instructions: string | null;
+  company_profile_version: string | null;
+  model_company: string | null;
   profile_version: string;
   updated_at: string;
 }
@@ -89,4 +92,29 @@ export interface ReviewStats {
 export interface OperatorSignals {
   health: "ok" | "warn" | "stale";
   unreviewed: number;
+}
+
+export interface CompanyReviewRow {
+  id: number;
+  name: string;
+  ats: string;
+  token: string;
+  discovery_source: string;
+  active: boolean;
+  verdict: string | null;
+  override_verdict: string | null;
+  human_override: boolean;
+  effective_verdict: string;
+  confidence: string | null;
+  reasoning: string | null;
+  industry: string | null;
+  industry_subcategory: string | null;
+  tech_tags: string[] | null;
+  red_flags: string[] | null;
+}
+
+export interface DiscoveryStateRow {
+  halted_no_credits: boolean;
+  resume_requested_at: string | null;
+  backlog: number;
 }

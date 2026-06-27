@@ -57,7 +57,7 @@ def select_for_review(conn, user_id: str, company_profile_version: str,
             SELECT c.id, c.name, c.ats, c.token
             FROM companies c
             LEFT JOIN company_reviews r ON r.company_id = c.id AND r.user_id = %(uid)s
-            WHERE c.discovery_source <> 'seed'
+            WHERE c.discovery_source NOT IN ('seed', 'manual')
               AND (r.company_id IS NULL
                    OR (r.human_override = FALSE AND r.company_profile_version <> %(pv)s))
             ORDER BY c.first_seen_at DESC
@@ -90,6 +90,7 @@ def reconcile_active(conn, user_id: str) -> None:
                       'exclude') = 'include') AS is_active
               FROM companies c2
               LEFT JOIN company_reviews r ON r.company_id = c2.id AND r.user_id = %(uid)s
+              WHERE c2.discovery_source <> 'manual'
             ) sub
             WHERE c.id = sub.id AND c.active IS DISTINCT FROM sub.is_active
             """,
@@ -104,7 +105,7 @@ def count_backlog(conn, user_id: str, company_profile_version: str) -> int:
             SELECT count(*)::int AS n
             FROM companies c
             LEFT JOIN company_reviews r ON r.company_id = c.id AND r.user_id = %(uid)s
-            WHERE c.discovery_source <> 'seed'
+            WHERE c.discovery_source NOT IN ('seed', 'manual')
               AND (r.company_id IS NULL
                    OR (r.human_override = FALSE AND r.company_profile_version <> %(pv)s))
             """,

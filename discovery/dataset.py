@@ -40,7 +40,7 @@ def load_candidates(dataset_dir: Path) -> list[Candidate]:
         if not path.exists():
             continue
         try:
-            rows = json.loads(path.read_text())
+            rows = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
         if not isinstance(rows, list):

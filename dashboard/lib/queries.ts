@@ -194,7 +194,7 @@ export async function getDiscoveryState(userId: string): Promise<DiscoveryStateR
        FROM companies c
        LEFT JOIN company_reviews r ON r.company_id = c.id AND r.user_id = ${userId}::uuid
        JOIN profiles p ON p.user_id = ${userId}::uuid
-       WHERE c.discovery_source <> 'seed'
+       WHERE c.discovery_source NOT IN ('seed', 'manual')
          AND (r.company_id IS NULL
               OR (r.human_override = FALSE
                   AND r.company_profile_version IS DISTINCT FROM p.company_profile_version))

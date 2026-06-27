@@ -119,6 +119,45 @@ def test_reconcile_active_from_effective_verdict(conn):
 
 
 @requires_db
+def test_manual_companies_excluded_from_discovery(conn):
+    """Manual companies must never be reviewed, counted in backlog, or reconciled."""
+    # Insert: one manual-inactive, one manual-active, one dataset (unreviewed)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, active, discovery_source) "
+            "VALUES ('ManFalse','greenhouse','man_false', FALSE, 'manual')"
+        )
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, active, discovery_source) "
+            "VALUES ('ManTrue','greenhouse','man_true', TRUE, 'manual')"
+        )
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, active, discovery_source) "
+            "VALUES ('Dat','greenhouse','dat', FALSE, 'dataset')"
+        )
+    conn.commit()
+
+    # select_for_review must NOT return manual companies; must return dataset one
+    picked_tokens = {r["token"] for r in db.select_for_review(conn, USER, "v1", 100)}
+    assert "man_false" not in picked_tokens, "manual company should not be selected for review"
+    assert "man_true" not in picked_tokens, "manual company should not be selected for review"
+    assert "dat" in picked_tokens, "unreviewed dataset company must be selected for review"
+
+    # count_backlog must not count manual companies
+    backlog = db.count_backlog(conn, USER, "v1")
+    assert backlog == 1, f"backlog should be 1 (only dataset), got {backlog}"
+
+    # reconcile_active must leave manual companies untouched (no review = would default exclude)
+    db.reconcile_active(conn, USER)
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT token, active FROM companies WHERE discovery_source='manual'")
+        manual_rows = {r["token"]: r["active"] for r in cur.fetchall()}
+    assert manual_rows["man_false"] is False, "manual inactive should remain FALSE after reconcile"
+    assert manual_rows["man_true"] is True, "manual active should remain TRUE after reconcile"
+
+
+@requires_db
 def test_run_and_state_helpers(conn):
     rid = db.start_discovery_run(conn)
     db.set_halted(conn, True)

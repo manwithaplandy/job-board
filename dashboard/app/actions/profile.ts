@@ -35,5 +35,7 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
     modelStage2: existing?.model_stage2 ?? null,
     preferredLocations: existing?.preferred_locations ?? [],
     modelResume: existing?.model_resume ?? null,
+    companyInstructions: existing?.company_instructions ?? null,
+    modelCompany: existing?.model_company ?? null,
   });
 }

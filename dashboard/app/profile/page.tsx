@@ -51,6 +51,7 @@ async function saveProfile(formData: FormData) {
     resumeText, instructions, resumeFilePath,
     modelStage1: s1.value, modelStage2: s2.value,
     preferredLocations, modelResume: r.value,
+    companyInstructions: null, modelCompany: null,
   });
   redirect("/");
 }

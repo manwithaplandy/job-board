@@ -82,6 +82,11 @@ reviewer-only commits also redeploy the poller service.
   Railway **watch patterns** are scoped to backend paths (`poller/**`, `requirements.txt`,
   `pyproject.toml`, `railway.json`, `targets.json`, `schema.sql`), so frontend/docs-only
   commits do not rebuild the poller.
+- **Discovery** → Railway cron service (slow, e.g. weekly), root `/`, start `python -m discovery`.
+  Reuses the poller's `DATABASE_URL` + `OPENROUTER_API_KEY`; reviews dataset companies against the
+  operator's company preferences and reconciles `companies.active`. The dataset snapshot is vendored
+  under `discovery/data/`. Watch patterns: `discovery/**`, `requirements.txt`, `pyproject.toml`,
+  `railway.json`, `schema.sql`. Raise `DISCOVERY_BATCH_CAP` (default 500/run) for the one-time bulk pass.
 - **Database** → Supabase (Postgres). Apply `schema.sql` as a migration.
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
 

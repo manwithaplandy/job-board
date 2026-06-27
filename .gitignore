@@ -7,5 +7,3 @@ __pycache__/
 
 # harness-managed git worktrees
 .claude/worktrees/
-
-discovery/data/*_companies.json

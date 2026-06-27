@@ -1,0 +1,24 @@
+import os
+from pathlib import Path
+
+_DEFAULT_DATASET_DIR = Path(__file__).resolve().parent / "data"
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return int(raw)
+
+
+CONCURRENCY = _int_env("DISCOVERY_CONCURRENCY", 5)
+BATCH_CAP = _int_env("DISCOVERY_BATCH_CAP", 500)
+
+
+def dataset_dir() -> Path:
+    override = os.environ.get("DISCOVERY_DATASET_DIR")
+    return Path(override) if override else _DEFAULT_DATASET_DIR
+
+
+def has_api_key() -> bool:
+    return bool(os.environ.get("OPENROUTER_API_KEY"))

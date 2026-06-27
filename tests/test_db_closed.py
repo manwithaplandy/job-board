@@ -11,9 +11,10 @@ def test_compute_newly_closed_is_pure_set_diff():
 
 @requires_db
 def test_close_jobs_sets_closed_at(conn):
-    cid = db.sync_companies(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])[
-        ("lever", "acme")
-    ]
+    db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
     for ext in ("1", "2"):
         db.upsert_job(conn, cid, "lever", "acme", Posting(external_id=ext, title="T", url="u"))
 

@@ -123,9 +123,10 @@ USER = "22222222-2222-2222-2222-222222222222"
 def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    cid = poller_db.sync_companies(
-        conn, [{"name": "Acme", "ats": "lever", "token": "acme"}]
-    )[("lever", "acme")]
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
     poller_db.upsert_job(conn, cid, "lever", "acme",
                          Posting(external_id="boom", title="BOOM1", url="u",
                                  raw={"descriptionPlain": "jd"}))
@@ -175,9 +176,10 @@ def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
 def test_review_all_writes_verdicts_and_run(conn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    cid = poller_db.sync_companies(
-        conn, [{"name": "Acme", "ats": "lever", "token": "acme"}]
-    )[("lever", "acme")]
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
     poller_db.upsert_job(conn, cid, "lever", "acme",
                          Posting(external_id="1", title="SRE", url="u",
                                  raw={"descriptionPlain": "jd"}))

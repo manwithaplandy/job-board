@@ -9,9 +9,10 @@ USER = "11111111-1111-1111-1111-111111111111"
 
 
 def _seed_job(conn, external_id="1", title="Engineer"):
-    cid = poller_db.sync_companies(
-        conn, [{"name": "Acme", "ats": "lever", "token": "acme"}]
-    )[("lever", "acme")]
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
     poller_db.upsert_job(
         conn, cid, "lever", "acme",
         Posting(external_id=external_id, title=title, url="https://x",

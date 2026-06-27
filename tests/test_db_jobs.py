@@ -4,9 +4,10 @@ from tests.conftest import requires_db
 
 
 def _seed_company(conn):
-    return db.sync_companies(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])[
-        ("lever", "acme")
-    ]
+    db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        return cur.fetchone()["id"]
 
 
 @requires_db

@@ -12,15 +12,15 @@ def run(dsn: str | None = None) -> None:
     conn = db.connect(dsn)
     try:
         run_id = db.start_run(conn)
-        company_ids = db.sync_companies(conn, targets)
+        db.sync_seed(conn, targets)
         conn.commit()
+        companies = db.active_companies(conn)
 
         ok = failed = new_jobs = closed_jobs = 0
         failures: list[str] = []
 
-        for t in targets:
-            ats, token = t["ats"], t["token"]
-            company_id = company_ids[(ats, token)]
+        for co in companies:
+            ats, token, company_id = co["ats"], co["token"], co["id"]
             try:
                 postings = ADAPTERS[ats](token)
                 seen: set[str] = set()
@@ -28,7 +28,7 @@ def run(dsn: str | None = None) -> None:
                     if not p.url or not p.title:
                         log.warning(
                             "skipping malformed posting (missing url/title) for %s: %r",
-                            t["name"], p.external_id,
+                            co["name"], p.external_id,
                         )
                         continue
                     if db.upsert_job(conn, company_id, ats, token, p):
@@ -40,11 +40,11 @@ def run(dsn: str | None = None) -> None:
                 )
                 conn.commit()
                 ok += 1
-            except Exception as exc:  # per-company isolation (FR-4) incl. DB errors
+            except Exception as exc:  # per-company isolation (incl. dead boards)
                 conn.rollback()
                 failed += 1
-                failures.append(f"{t['name']}: {type(exc).__name__}: {exc}")
-                log.exception("poll failed for %s (%s:%s)", t["name"], ats, token)
+                failures.append(f"{co['name']}: {type(exc).__name__}: {exc}")
+                log.exception("poll failed for %s (%s:%s)", co["name"], ats, token)
 
         db.finish_run(
             conn, run_id,
@@ -53,17 +53,13 @@ def run(dsn: str | None = None) -> None:
             notes="; ".join(failures) or None,
         )
         conn.commit()
-        log.info(
-            "run complete: ok=%s failed=%s new=%s closed=%s",
-            ok, failed, new_jobs, closed_jobs,
-        )
+        log.info("run complete: ok=%s failed=%s new=%s closed=%s",
+                 ok, failed, new_jobs, closed_jobs)
 
-        # Review phase (spec §6): event-driven, folded into the poll. Isolated so a
-        # reviewer/OpenRouter failure never aborts the poll or its accounting.
         try:
             from reviewer.run import review_all
             review_all(conn)
         except Exception:
             log.exception("review phase failed; poll results unaffected")
     finally:
-        conn.close()  # FR-6: release all DB connections before exit
+        conn.close()

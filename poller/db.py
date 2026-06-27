@@ -12,30 +12,29 @@ def connect(dsn: str | None = None) -> psycopg.Connection:
     return psycopg.connect(dsn, row_factory=dict_row)
 
 
-def sync_companies(conn, targets: list[dict]) -> dict[tuple[str, str], int]:
-    ids: dict[tuple[str, str], int] = {}
+def sync_seed(conn, targets: list[dict]) -> None:
+    """Upsert targets.json as the always-included seed. Owns ONLY seed rows —
+    discovery owns `active` for everything else, so this never deactivates."""
     with conn.cursor() as cur:
         for t in targets:
             cur.execute(
                 """
-                INSERT INTO companies (name, ats, token, active)
-                VALUES (%(name)s, %(ats)s, %(token)s, TRUE)
+                INSERT INTO companies (name, ats, token, active, discovery_source)
+                VALUES (%(name)s, %(ats)s, %(token)s, TRUE, 'seed')
                 ON CONFLICT (ats, token)
-                DO UPDATE SET name = EXCLUDED.name, active = TRUE
-                RETURNING id, ats, token
+                DO UPDATE SET name = EXCLUDED.name, active = TRUE,
+                             discovery_source = 'seed'
                 """,
                 t,
             )
-            row = cur.fetchone()
-            ids[(row["ats"], row["token"])] = row["id"]
 
-        keys = [f'{t["ats"]}:{t["token"]}' for t in targets]
+
+def active_companies(conn) -> list[dict]:
+    with conn.cursor() as cur:
         cur.execute(
-            "UPDATE companies SET active = FALSE "
-            "WHERE active = TRUE AND (ats || ':' || token) <> ALL(%s)",
-            (keys,),
+            "SELECT id, name, ats, token FROM companies WHERE active ORDER BY id"
         )
-    return ids
+        return cur.fetchall()
 
 
 def upsert_job(conn, company_id: int, ats: str, token: str, p: Posting) -> bool:

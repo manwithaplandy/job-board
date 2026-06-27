@@ -1,6 +1,7 @@
 import { describe, expect, it, test, vi } from "vitest";
 import {
-  getStructuredModels, filterModels, validateModelId, CURATED_MODELS, type ORModel,
+  getStructuredModels, filterModels, validateModelId, getOpenRouterCredits,
+  CURATED_MODELS, type ORModel,
 } from "@/lib/openrouter";
 
 function fakeFetch(payload: unknown, ok = true): typeof fetch {
@@ -93,8 +94,6 @@ test("CURATED_MODELS is a non-empty list of ids", () => {
   expect(CURATED_MODELS.length).toBeGreaterThan(0);
   expect(CURATED_MODELS).toContain("anthropic/claude-haiku-4.5");
 });
-
-import { getOpenRouterCredits } from "@/lib/openrouter";
 
 describe("getOpenRouterCredits", () => {
   it("returns remaining = total - usage", async () => {

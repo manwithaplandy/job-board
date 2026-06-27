@@ -155,6 +155,10 @@ def test_manual_companies_excluded_from_discovery(conn):
         manual_rows = {r["token"]: r["active"] for r in cur.fetchall()}
     assert manual_rows["man_false"] is False, "manual inactive should remain FALSE after reconcile"
     assert manual_rows["man_true"] is True, "manual active should remain TRUE after reconcile"
+    # an unreviewed non-seed (dataset) company has no review -> COALESCE 'exclude' -> inactive
+    with conn.cursor() as cur:
+        cur.execute("SELECT active FROM companies WHERE token='dat'")
+        assert cur.fetchone()["active"] is False, "unreviewed dataset company must be inactive after reconcile"
 
 
 @requires_db

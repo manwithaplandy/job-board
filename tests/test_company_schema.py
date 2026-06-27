@@ -1,4 +1,6 @@
 # tests/test_company_schema.py
+import pytest
+
 from tests.conftest import requires_db
 
 
@@ -27,9 +29,8 @@ def test_company_discovery_schema(conn):
 
 
 @requires_db
-def test_company_reviews_rls_enabled(conn):
+@pytest.mark.parametrize("table", ["company_reviews", "discovery_runs", "discovery_state"])
+def test_new_tables_rls_enabled(conn, table):
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT relrowsecurity FROM pg_class WHERE relname = 'company_reviews'"
-        )
+        cur.execute("SELECT relrowsecurity FROM pg_class WHERE relname = %s", (table,))
         assert cur.fetchone()["relrowsecurity"] is True

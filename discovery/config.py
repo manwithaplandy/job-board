@@ -8,7 +8,12 @@ def _int_env(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if raw is None or raw.strip() == "":
         return default
-    return int(raw)
+    try:
+        return int(raw)
+    except ValueError:
+        # A malformed override (e.g. DISCOVERY_BATCH_CAP=abc) falls back to the
+        # default rather than crashing discovery at import time.
+        return default
 
 
 CONCURRENCY = _int_env("DISCOVERY_CONCURRENCY", 5)

@@ -8,6 +8,9 @@ from discovery.profile import compute_company_profile_version
 
 log = logging.getLogger("discovery")
 
+# AI verdict string -> discovery_runs counts column.
+_VERDICT_COUNT_KEY = {"include": "included", "exclude": "excluded", "unknown": "unknown"}
+
 
 async def review_batch(candidates: list[dict], company_block: str, client,
                        concurrency: int):
@@ -65,9 +68,7 @@ def _review_user(conn, profile: dict) -> None:
                     tech_tags=list(res.tech_tags), red_flags=list(res.red_flags),
                 )
                 counts["reviewed"] += 1
-                # verdicts are "include"/"exclude"/"unknown"; counts keys are "included"/"excluded"/"unknown"
-                _key = res.verdict + "d" if res.verdict in ("include", "exclude") else res.verdict
-                counts[_key] = counts.get(_key, 0) + 1
+                counts[_VERDICT_COUNT_KEY[res.verdict]] += 1
             else:
                 counts["errors"] += 1
             db.upsert_company_review(conn, row)
@@ -89,7 +90,7 @@ def _review_user(conn, profile: dict) -> None:
         db.finish_discovery_run(conn, run_id, status=status, ingested=0, backlog=backlog,
                                 notes=notes, **counts)
         conn.commit()
-    log.info("discovery complete for %s: %s status=%s", user_id, counts, status)
+    log.info("discovery finished for %s: %s status=%s", user_id, counts, status)
 
 
 def run(conn=None) -> None:

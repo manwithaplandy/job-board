@@ -85,6 +85,32 @@ export function filterModels(
     m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
 }
 
+const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
+
+// Remaining OpenRouter credits (total - usage), or null when unknown (no key,
+// transient error). Used by the out-of-credits banner's Refresh to self-clear.
+export async function getOpenRouterCredits(
+  fetchImpl: typeof fetch = fetch,
+  apiKey: string | undefined = process.env.OPENROUTER_API_KEY,
+): Promise<number | null> {
+  if (!apiKey) return null;
+  try {
+    const res = await fetchImpl(OPENROUTER_CREDITS_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    } as RequestInit);
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: { total_credits?: number; total_usage?: number } };
+    const d = json?.data;
+    if (!d || typeof d.total_credits !== "number" || typeof d.total_usage !== "number") {
+      return null;
+    }
+    return d.total_credits - d.total_usage;
+  } catch {
+    return null;
+  }
+}
+
 export type ModelValidation =
   | { ok: true; value: string | null }
   | { ok: false; reason: string };

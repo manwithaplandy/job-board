@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, it, test, vi } from "vitest";
 import {
   getStructuredModels, filterModels, validateModelId, CURATED_MODELS, type ORModel,
 } from "@/lib/openrouter";
@@ -92,4 +92,19 @@ describe("validateModelId", () => {
 test("CURATED_MODELS is a non-empty list of ids", () => {
   expect(CURATED_MODELS.length).toBeGreaterThan(0);
   expect(CURATED_MODELS).toContain("anthropic/claude-haiku-4.5");
+});
+
+import { getOpenRouterCredits } from "@/lib/openrouter";
+
+describe("getOpenRouterCredits", () => {
+  it("returns remaining = total - usage", async () => {
+    const f = fakeFetch({ data: { total_credits: 10, total_usage: 3 } });
+    expect(await getOpenRouterCredits(f, "key")).toBe(7);
+  });
+  it("returns null without an api key", async () => {
+    expect(await getOpenRouterCredits(fakeFetch({}), "")).toBeNull();
+  });
+  it("returns null on a failed response", async () => {
+    expect(await getOpenRouterCredits(fakeFetch({}, false), "key")).toBeNull();
+  });
 });

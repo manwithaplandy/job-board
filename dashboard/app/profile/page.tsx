@@ -25,9 +25,13 @@ async function saveProfile(formData: FormData) {
   const s1 = validateModelId(String(formData.get("model_stage1") ?? ""), catalogIds);
   const s2 = validateModelId(String(formData.get("model_stage2") ?? ""), catalogIds);
   const r = validateModelId(String(formData.get("model_resume") ?? ""), catalogIds);
+  const companyInstructions =
+    (String(formData.get("company_instructions") ?? "")).trim() || null;
+  const mc = validateModelId(String(formData.get("model_company") ?? ""), catalogIds);
   if (!s1.ok) throw new Error(s1.reason);
   if (!s2.ok) throw new Error(s2.reason);
   if (!r.ok) throw new Error(r.reason);
+  if (!mc.ok) throw new Error(mc.reason);
 
   const preferredLocations = parsePreferredLocations(
     String(formData.get("preferred_locations") ?? ""),
@@ -51,7 +55,7 @@ async function saveProfile(formData: FormData) {
     resumeText, instructions, resumeFilePath,
     modelStage1: s1.value, modelStage2: s2.value,
     preferredLocations, modelResume: r.value,
-    companyInstructions: null, modelCompany: null,
+    companyInstructions, modelCompany: mc.value,
   });
   redirect("/");
 }
@@ -196,6 +200,20 @@ export default async function ProfilePage() {
             />
           </label>
 
+          <label style={fieldStyle}>
+            <span style={labelTextStyle}>Company preferences (include / exclude)</span>
+            <span style={hintStyle}>
+              Which companies to surface or skip — used by company discovery.
+            </span>
+            <textarea
+              name="company_instructions"
+              rows={4}
+              defaultValue={profile?.company_instructions ?? ""}
+              placeholder="e.g. prefer devtools & AI infra; exclude defense; avoid legacy Java/C/C++ shops"
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
+          </label>
+
           <LocationPicker name="preferred_locations" options={locations}
             defaultValue={profile?.preferred_locations ?? []} />
 
@@ -215,6 +233,10 @@ export default async function ProfilePage() {
               label="Résumé generation model"
               name="model_resume" models={models} curated={CURATED_MODELS}
               defaultValue={profile?.model_resume ?? null} placeholder={DEFAULT_RESUME_MODEL} />
+            <ModelPicker
+              label="Company review model"
+              name="model_company" models={models} curated={CURATED_MODELS}
+              defaultValue={profile?.model_company ?? null} placeholder={DEFAULT_MODEL_ID} />
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>

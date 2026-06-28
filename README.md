@@ -96,6 +96,12 @@ reviewer-only commits also redeploy the poller service.
   WAL so the DB can never reach the hard limit (which forces Postgres read-only and, if WAL then fills
   the disk, a crash-recovery loop). Lower the ceiling for a smaller plan; never set it at/above the
   actual volume size.
+- **Job-data retention** → the poller distils each role's JD into `jobs.description`
+  at poll time (no raw payload is stored) and prunes at the end of every run:
+  denied roles lose their `description` (the review record is kept), and closed or
+  deactivated-company roles are deleted after `CLOSED_JOB_RETENTION_DAYS` (default 30)
+  unless approved. Tuning: `PRUNE_BATCH_SIZE` (2000), `PRUNE_MAX_ROWS_PER_RUN` (20000).
+  One-time migration of pre-existing rows: `python -m poller.backfill_descriptions`.
 - **Database** → Supabase (Postgres). Apply `schema.sql` as a migration.
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
 

@@ -1,6 +1,10 @@
+import { after } from "next/server";
+import { propagateAttributes } from "@langfuse/tracing";
 import { getUserId } from "@/lib/auth";
 import { getProfile, getJobForResume } from "@/lib/queries";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
+import { tracingEnabled } from "@/lib/observability";
+import { langfuseSpanProcessor } from "@/instrumentation";
 
 export const dynamic = "force-dynamic";
 
@@ -21,14 +25,24 @@ export async function POST(req: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "résumé generation not configured" }, { status: 500 });
 
-  try {
+  const run = async () => {
     const resume = await generateResume({
-      resumeText: profile.resume_text,
+      resumeText: profile.resume_text!,
       job: { title: job.title, company: job.company_name, description: job.description },
       model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
       apiKey,
     });
     return Response.json(resume);
+  };
+
+  try {
+    if (tracingEnabled()) {
+      const res = await propagateAttributes({ userId, sessionId: jobId }, run);
+      const processor = langfuseSpanProcessor;
+      if (processor) after(async () => { await processor.forceFlush(); });
+      return res;
+    }
+    return await run();
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 502 });
   }

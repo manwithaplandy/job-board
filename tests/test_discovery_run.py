@@ -56,6 +56,51 @@ def test_batch_isolates_errors():
     assert by_id[2][1] is not None and "model down" in by_id[2][1]
 
 
+def test_review_company_one_traces_when_sampled(monkeypatch):
+    from observability import tracing
+    import contextlib
+    from discovery.run import review_company_one
+
+    seen = {"trace": None, "spans": 0}
+
+    class _Span:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): pass
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            seen["spans"] += 1
+            return _Span()
+        def update_current_trace(self, **kw):
+            seen["trace"] = kw
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    monkeypatch.setattr(tracing, "should_sample", lambda: True)
+    monkeypatch.setattr(tracing, "identity", lambda **kw: contextlib.nullcontext())
+
+    c = {"id": 1, "name": "Linear", "ats": "greenhouse", "token": "linear"}
+    res = asyncio.run(review_company_one(c, "P", StubClient(), user_id="u1", run_id=7))
+    assert res.verdict == "include"
+    assert seen["spans"] == 1
+    assert seen["trace"]["metadata"]["verdict"] == "include"
+
+
+def test_review_company_one_skips_span_when_not_sampled(monkeypatch):
+    from observability import tracing
+    from discovery.run import review_company_one
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            raise AssertionError("should not create a span when not sampled")
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    monkeypatch.setattr(tracing, "should_sample", lambda: False)
+    c = {"id": 1, "name": "Linear", "ats": "greenhouse", "token": "linear"}
+    res = asyncio.run(review_company_one(c, "P", StubClient(), user_id="u1", run_id=7))
+    assert res.verdict == "include"  # review still runs
+
+
 @requires_db
 def test_run_writes_reviews_and_reconciles(conn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])

@@ -5,6 +5,7 @@ import logging
 from discovery import config, dataset, db
 from discovery.llm import CompanyReviewClient, OutOfCreditsError, build_company_block
 from discovery.profile import compute_company_profile_version
+from observability import tracing
 
 log = logging.getLogger("discovery")
 
@@ -12,8 +13,33 @@ log = logging.getLogger("discovery")
 _VERDICT_COUNT_KEY = {"include": "included", "exclude": "excluded", "unknown": "unknown"}
 
 
+async def review_company_one(c: dict, company_block: str, client,
+                             *, user_id: str | None = None, run_id=None):
+    """One traced company review. Returns the parsed result; raises on failure
+    (OutOfCreditsError included) so review_batch's per-company handling is intact."""
+    lf = tracing.get_langfuse()
+    if lf is None or not tracing.should_sample():
+        return await client.review(company_block=company_block, name=c["name"],
+                                   ats=c["ats"], token=c["token"])
+    with tracing.identity(user_id=user_id, session_id=run_id, tags=["discovery"]):
+        with lf.start_as_current_observation(
+            as_type="span", name="company-review",
+            input={"company_id": c["id"], "name": c["name"], "ats": c["ats"]},
+        ) as span:
+            res = await client.review(company_block=company_block, name=c["name"],
+                                      ats=c["ats"], token=c["token"])
+            lf.update_current_trace(
+                user_id=user_id,
+                session_id=str(run_id) if run_id is not None else None,
+                metadata={"company_id": c["id"], "verdict": res.verdict,
+                          "confidence": res.confidence, "industry": res.industry},
+            )
+            span.update(output={"verdict": res.verdict, "industry": res.industry})
+            return res
+
+
 async def review_batch(candidates: list[dict], company_block: str, client,
-                       concurrency: int):
+                       concurrency: int, *, user_id: str | None = None, run_id=None):
     sem = asyncio.Semaphore(concurrency)
     halt = asyncio.Event()
 
@@ -24,10 +50,8 @@ async def review_batch(candidates: list[dict], company_block: str, client,
             if halt.is_set():
                 return None
             try:
-                res = await client.review(
-                    company_block=company_block, name=c["name"],
-                    ats=c["ats"], token=c["token"],
-                )
+                res = await review_company_one(c, company_block, client,
+                                               user_id=user_id, run_id=run_id)
                 return (c["id"], res, None)
             except OutOfCreditsError:
                 halt.set()  # stop launching new work; in-flight calls finish
@@ -54,7 +78,8 @@ def _review_user(conn, profile: dict) -> None:
         company_block = build_company_block(profile.get("company_instructions"))
         client = CompanyReviewClient(model=profile.get("model_company"))
         results, halted = asyncio.run(
-            review_batch(candidates, company_block, client, config.CONCURRENCY))
+            review_batch(candidates, company_block, client, config.CONCURRENCY,
+                         user_id=user_id, run_id=run_id))
 
         for cid, res, err in results:
             row = {
@@ -118,5 +143,6 @@ def run(conn=None) -> None:
         for profile in profiles:
             _review_user(conn, profile)
     finally:
+        tracing.flush()
         if own:
             conn.close()

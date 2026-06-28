@@ -252,3 +252,76 @@ def test_upsert_tolerates_missing_jsonb_keys(conn):
         cur.execute("SELECT red_flags, requirements FROM job_reviews WHERE job_id = %s", (job_id,))
         row = cur.fetchone()
     assert row["red_flags"] == [] and row["requirements"] == []
+
+
+@requires_db
+def test_recent_stage2_reviews(conn):
+    """recent_stage2_reviews returns only passed+verdicted rows with joined fields."""
+    job_id = _seed_job(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'my resume', 'my instructions', 'v1')",
+            (USER,),
+        )
+    # A full stage-2 review that should appear.
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v1",
+        "stage1_decision": "pass", "stage1_reason": None, "verdict": "approve",
+        "experience_match": "match", "industry": "software_internet",
+        "industry_subcategory": "devtools_platforms", "confidence": "high",
+        "reasoning": "ok", "model_stage1": "m1", "model_stage2": "m2", "error": None,
+        "fit_score": 80,
+    })
+    conn.commit()
+    rows = rdb.recent_stage2_reviews(conn, limit=10)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["title"] == "Engineer"
+    assert row["company_name"] == "Acme"
+    assert row["ats"] == "lever"
+    assert row["verdict"] == "approve"
+    assert row["resume_text"] == "my resume"
+    assert row["instructions"] == "my instructions"
+    assert row["description"] == "jd"
+
+
+@requires_db
+def test_recent_stage2_reviews_excludes_gate_rejected(conn):
+    """Gate-rejected rows (no verdict) must not appear in recent_stage2_reviews."""
+    job_id = _seed_job(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'v1')",
+            (USER,),
+        )
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v1",
+        "stage1_decision": "reject", "stage1_reason": "off-target",
+    })
+    conn.commit()
+    assert rdb.recent_stage2_reviews(conn, limit=10) == []
+
+
+@requires_db
+def test_recent_stage2_reviews_respects_limit(conn):
+    """Limit parameter caps the number of rows returned."""
+    job_ids = [_seed_job(conn, str(i)) for i in range(3)]
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'v1')",
+            (USER,),
+        )
+    for jid in job_ids:
+        rdb.upsert_review(conn, {
+            "user_id": USER, "job_id": jid, "profile_version": "v1",
+            "stage1_decision": "pass", "verdict": "approve",
+            "experience_match": "match", "industry": "software_internet",
+            "industry_subcategory": "devtools_platforms", "confidence": "high",
+            "reasoning": "ok",
+        })
+    conn.commit()
+    assert len(rdb.recent_stage2_reviews(conn, limit=2)) == 2
+    assert len(rdb.recent_stage2_reviews(conn, limit=10)) == 3

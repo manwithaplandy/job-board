@@ -1,4 +1,4 @@
-from reviewer.jd import extract_description, html_to_text
+from poller.jd import extract_description, html_to_text
 
 
 def test_html_to_text_unescapes_strips_and_collapses():

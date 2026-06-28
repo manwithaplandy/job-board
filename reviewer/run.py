@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass, field
 
 from reviewer import config, db, scoring
-from reviewer.jd import extract_description
+from poller.jd import extract_description
 from reviewer.llm import ReviewClient, build_profile_block
 
 log = logging.getLogger("reviewer")

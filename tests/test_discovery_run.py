@@ -61,19 +61,17 @@ def test_review_company_one_traces_when_sampled(monkeypatch):
     import contextlib
     from discovery.run import review_company_one
 
-    seen = {"trace": None, "spans": 0}
+    seen = {"span_update": None, "spans": 0}
 
     class _Span:
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def update(self, **kw): pass
+        def update(self, **kw): seen["span_update"] = kw
 
     class _LF:
         def start_as_current_observation(self, **kw):
             seen["spans"] += 1
             return _Span()
-        def update_current_trace(self, **kw):
-            seen["trace"] = kw
 
     monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
     monkeypatch.setattr(tracing, "identity", lambda **kw: contextlib.nullcontext())
@@ -82,7 +80,7 @@ def test_review_company_one_traces_when_sampled(monkeypatch):
     res = asyncio.run(review_company_one(c, "P", StubClient(), user_id="u1", run_id=7))
     assert res.verdict == "include"
     assert seen["spans"] == 1
-    assert seen["trace"]["metadata"]["verdict"] == "include"
+    assert seen["span_update"]["metadata"]["verdict"] == "include"
 
 
 @requires_db

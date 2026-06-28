@@ -28,13 +28,9 @@ async def review_company_one(c: dict, company_block: str, client,
         ) as span:
             res = await client.review(company_block=company_block, name=c["name"],
                                       ats=c["ats"], token=c["token"])
-            lf.update_current_trace(
-                user_id=user_id,
-                session_id=str(run_id) if run_id is not None else None,
-                metadata={"company_id": c["id"], "verdict": res.verdict,
-                          "confidence": res.confidence, "industry": res.industry},
-            )
-            span.update(output={"verdict": res.verdict, "industry": res.industry})
+            span.update(output={"verdict": res.verdict, "industry": res.industry},
+                        metadata={"company_id": c["id"], "verdict": res.verdict,
+                                  "confidence": res.confidence, "industry": res.industry})
             return res
 
 

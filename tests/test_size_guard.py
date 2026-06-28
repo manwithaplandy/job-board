@@ -64,13 +64,20 @@ def test_over_size_ceiling_false(monkeypatch):
 # --- run() halts when over ceiling -----------------------------------------
 
 class _GuardConn:
-    """A connection that must never be touched once the guard trips."""
+    """A connection whose cursor must never be touched once the guard trips.
+
+    rollback() is allowed because _run_prune calls it when prune itself raises
+    (e.g. when prune_jobs is not monkeypatched and cursor() fires).
+    """
 
     def __init__(self):
         self.closed = False
 
     def close(self):
         self.closed = True
+
+    def rollback(self):
+        pass  # prune failure path: safe no-op
 
     def cursor(self):  # pragma: no cover - asserts the guard short-circuited
         raise AssertionError("DB touched despite being over the size ceiling")
@@ -88,6 +95,35 @@ def test_poller_run_skips_when_over_ceiling(monkeypatch):
     poller_run.run()
 
     assert started["called"] is False   # never started a poll run
+    assert conn.closed is True          # connection still cleaned up
+
+
+def test_poller_run_prunes_when_over_ceiling(monkeypatch):
+    """prune_jobs must still run when the size guard short-circuits the poll.
+
+    Prune is the only mechanism that can shrink the DB; skipping it on the
+    over-ceiling path would stall recovery.
+    """
+    conn = _GuardConn()
+    monkeypatch.setattr(poller_run, "load_targets", lambda: [])
+    monkeypatch.setattr(poller_run.db, "connect", lambda dsn=None: conn)
+    monkeypatch.setattr(poller_run.db, "over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
+    started = {"called": False}
+    monkeypatch.setattr(poller_run.db, "start_run",
+                        lambda c: started.__setitem__("called", True) or 1)
+
+    prune_calls = {"n": 0}
+
+    def fake_prune(c):
+        prune_calls["n"] += 1
+
+    import poller.prune as prune_module
+    monkeypatch.setattr(prune_module, "prune_jobs", fake_prune)
+
+    poller_run.run()
+
+    assert prune_calls["n"] == 1       # prune still ran despite ceiling breach
+    assert started["called"] is False   # poll was still skipped
     assert conn.closed is True          # connection still cleaned up
 
 

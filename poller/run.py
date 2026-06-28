@@ -7,6 +7,15 @@ from poller.targets import load_targets
 log = logging.getLogger("poller")
 
 
+def _run_prune(conn) -> None:
+    try:
+        from poller.prune import prune_jobs
+        prune_jobs(conn)
+    except Exception:
+        conn.rollback()
+        log.exception("prune phase failed; poll results unaffected")
+
+
 def run(dsn: str | None = None) -> None:
     targets = load_targets()
     conn = db.connect(dsn)
@@ -17,6 +26,10 @@ def run(dsn: str | None = None) -> None:
                 "DB at %.0f MB >= ceiling %.0f MB; skipping poll to stay under the "
                 "disk limit (no jobs written this run)", size_mb, ceiling_mb,
             )
+            # Still prune when the ceiling is breached: prune is delete/strip-only
+            # and is the only automated mechanism that can shrink the DB back under
+            # the ceiling.  Skipping it here would stall recovery.
+            _run_prune(conn)
             return
         run_id = db.start_run(conn)
         db.sync_seed(conn, targets)
@@ -69,11 +82,6 @@ def run(dsn: str | None = None) -> None:
         except Exception:
             log.exception("review phase failed; poll results unaffected")
 
-        try:
-            from poller.prune import prune_jobs
-            prune_jobs(conn)
-        except Exception:
-            conn.rollback()
-            log.exception("prune phase failed; poll results unaffected")
+        _run_prune(conn)
     finally:
         conn.close()

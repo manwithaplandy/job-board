@@ -105,7 +105,7 @@ async def _review_one_inner(candidate: dict, profile_block: str, client) -> Revi
 async def review_one(candidate: dict, profile_block: str, client,
                      *, user_id: str | None = None, run_id=None) -> ReviewResult:
     lf = tracing.get_langfuse()
-    if lf is None or not tracing.should_sample():
+    if lf is None:
         return await _review_one_inner(candidate, profile_block, client)
     with tracing.identity(user_id=user_id, session_id=run_id, tags=["reviewer"]):
         with lf.start_as_current_observation(
@@ -200,6 +200,8 @@ def review_all(conn) -> None:
     if not profiles:
         log.info("no profiles; skipping review phase")
         return
+    if tracing.tracing_enabled():
+        log.info("langfuse tracing on; sample_rate=%s", tracing.sample_rate())
     try:
         for profile in profiles:
             _review_user(conn, profile)

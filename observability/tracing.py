@@ -1,5 +1,4 @@
 import os
-import random
 from contextlib import nullcontext
 
 _CLIENT = None
@@ -33,10 +32,6 @@ def sample_rate() -> float:
         return max(0.0, min(1.0, float(raw)))
     except ValueError:
         return 1.0
-
-
-def should_sample() -> bool:
-    return random.random() < sample_rate()
 
 
 def identity(*, user_id=None, session_id=None, tags=None):

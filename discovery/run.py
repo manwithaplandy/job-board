@@ -18,7 +18,7 @@ async def review_company_one(c: dict, company_block: str, client,
     """One traced company review. Returns the parsed result; raises on failure
     (OutOfCreditsError included) so review_batch's per-company handling is intact."""
     lf = tracing.get_langfuse()
-    if lf is None or not tracing.should_sample():
+    if lf is None:
         return await client.review(company_block=company_block, name=c["name"],
                                    ats=c["ats"], token=c["token"])
     with tracing.identity(user_id=user_id, session_id=run_id, tags=["discovery"]):
@@ -133,6 +133,8 @@ def run(conn=None) -> None:
                 "activate more companies near the disk limit", size_mb, ceiling_mb,
             )
             return
+        if tracing.tracing_enabled():
+            log.info("langfuse tracing on; sample_rate=%s", tracing.sample_rate())
         ingested = db.upsert_candidates(conn, dataset.load_candidates(config.dataset_dir()))
         conn.commit()
         log.info("ingested %s new candidate companies", ingested)

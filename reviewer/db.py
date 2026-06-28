@@ -82,6 +82,32 @@ def upsert_review(conn, row: dict) -> None:
         cur.execute(_UPSERT_REVIEW_SQL, full)
 
 
+def recent_stage2_reviews(conn, limit: int) -> list[dict]:
+    """Return up to `limit` recent stage-2 reviews joined with job and profile data.
+
+    Only rows that completed stage 2 (verdict IS NOT NULL, stage1_decision = 'pass')
+    are included.  Results are ordered newest-first so the freshest golden examples
+    are used when seeding a dataset.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT j.title, c.name AS company_name, j.location, c.ats, j.description,
+                   p.resume_text, p.instructions, r.verdict
+            FROM job_reviews r
+            JOIN jobs j ON j.id = r.job_id
+            JOIN companies c ON c.id = j.company_id
+            JOIN profiles p ON p.user_id = r.user_id
+            WHERE r.verdict IS NOT NULL
+              AND r.stage1_decision = 'pass'
+            ORDER BY r.reviewed_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        return cur.fetchall()
+
+
 def start_review_run(conn) -> int:
     with conn.cursor() as cur:
         cur.execute("INSERT INTO review_runs (started_at) VALUES (now()) RETURNING id")

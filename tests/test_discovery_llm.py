@@ -108,3 +108,30 @@ def test_review_none_parsed_raises_valueerror():
     client = CompanyReviewClient(client=_Client(None), model="m")
     with pytest.raises(ValueError):
         asyncio.run(client.review(company_block="P", name="X", ats="lever", token="x"))
+
+
+def test_review_creates_generation_when_tracing_enabled(monkeypatch):
+    from observability import tracing
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            events["create"] = kw
+            return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    parsed = CompanyReviewResult(verdict="include", confidence="high", reasoning="x")
+    client = CompanyReviewClient(client=_Client(parsed), model="m")
+    out = asyncio.run(
+        client.review(company_block="P", name="Linear", ats="ashby", token="linear"))
+    assert out.verdict == "include"
+    assert events["create"]["as_type"] == "generation"
+    assert events["create"]["name"] == "company-screen"
+    assert events["create"]["model"] == "m"
+    assert "output" in events["update"]

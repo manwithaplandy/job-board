@@ -1,6 +1,7 @@
 import os
 
 from discovery.schemas import CompanyReviewResult
+from observability import tracing
 from reviewer.schemas import TAXONOMY_TEXT
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
@@ -57,14 +58,13 @@ class CompanyReviewClient:
         self._client = client
         self.model = model or os.environ.get("DISCOVERY_MODEL", DEFAULT_MODEL)
 
-    async def review(self, *, company_block: str, name: str, ats: str,
-                     token: str) -> CompanyReviewResult:
+    async def _call(self, *, system: str, user: str):
         try:
             resp = await self._client.beta.chat.completions.parse(
                 model=self.model, max_tokens=700,
                 messages=[
-                    {"role": "system", "content": f"{company_block}\n\n{_INSTRUCTIONS}"},
-                    {"role": "user", "content": f"Company: {name}\nATS: {ats}\nSlug: {token}"},
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
                 ],
                 response_format=CompanyReviewResult,
             )
@@ -77,4 +77,27 @@ class CompanyReviewClient:
             raise ValueError(f"model refused: {msg.refusal}")
         if msg.parsed is None:
             raise ValueError("OpenRouter returned no parsed output")
-        return msg.parsed
+        return msg.parsed, getattr(resp, "usage", None)
+
+    async def review(self, *, company_block: str, name: str, ats: str,
+                     token: str) -> CompanyReviewResult:
+        system = f"{company_block}\n\n{_INSTRUCTIONS}"
+        user = f"Company: {name}\nATS: {ats}\nSlug: {token}"
+        lf = tracing.get_langfuse()
+        if lf is None:
+            parsed, _ = await self._call(system=system, user=user)
+            return parsed
+        with lf.start_as_current_observation(
+            as_type="generation", name="company-screen", model=self.model,
+            input=[{"role": "system", "content": system},
+                   {"role": "user", "content": user}],
+        ) as gen:
+            parsed, usage = await self._call(system=system, user=user)
+            gen.update(
+                output=parsed.model_dump(),
+                usage_details={
+                    "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                    "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                } if usage is not None else None,
+            )
+            return parsed

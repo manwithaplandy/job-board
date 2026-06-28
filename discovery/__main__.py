@@ -9,7 +9,11 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    run()
+    try:
+        run()
+    finally:
+        from observability import tracing
+        tracing.flush()
 
 
 if __name__ == "__main__":

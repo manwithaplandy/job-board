@@ -9,6 +9,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@langfuse/otel": "^5.9.0",
+    "@langfuse/tracing": "^5.9.0",
+    "@opentelemetry/sdk-node": "^0.219.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "jspdf": "^4.2.1",

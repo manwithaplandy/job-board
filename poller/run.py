@@ -11,6 +11,13 @@ def run(dsn: str | None = None) -> None:
     targets = load_targets()
     conn = db.connect(dsn)
     try:
+        over, size_mb, ceiling_mb = db.over_size_ceiling(conn)
+        if over:
+            log.error(
+                "DB at %.0f MB >= ceiling %.0f MB; skipping poll to stay under the "
+                "disk limit (no jobs written this run)", size_mb, ceiling_mb,
+            )
+            return
         run_id = db.start_run(conn)
         db.sync_seed(conn, targets)
         conn.commit()

@@ -12,6 +12,37 @@ def connect(dsn: str | None = None) -> psycopg.Connection:
     return psycopg.connect(dsn, row_factory=dict_row)
 
 
+# The Supabase Pro volume is 8 GB; a full poll can add ~1.8 GB and WAL can spike,
+# so we halt well below the hard limit. Overriding via DB_SIZE_CEILING_MB.
+DB_SIZE_CEILING_MB_DEFAULT = 6000.0
+
+
+def db_size_ceiling_mb() -> float:
+    raw = os.environ.get("DB_SIZE_CEILING_MB")
+    if raw is None or raw.strip() == "":
+        return DB_SIZE_CEILING_MB_DEFAULT
+    try:
+        return float(raw)
+    except ValueError:
+        # A malformed override falls back to the default rather than disabling
+        # the guard (which is what an exception here would effectively do).
+        return DB_SIZE_CEILING_MB_DEFAULT
+
+
+def database_size_mb(conn) -> float:
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_database_size(current_database()) AS bytes")
+        return cur.fetchone()["bytes"] / (1024.0 * 1024.0)
+
+
+def over_size_ceiling(conn) -> tuple[bool, float, float]:
+    """Disk safety valve. Returns (is_over, size_mb, ceiling_mb). Callers halt
+    when is_over so the DB never marches into the hard volume limit again."""
+    ceiling = db_size_ceiling_mb()
+    size = database_size_mb(conn)
+    return size >= ceiling, size, ceiling
+
+
 def sync_seed(conn, targets: list[dict]) -> None:
     """Upsert targets.json as the always-included seed. Owns ONLY seed rows —
     discovery owns `active` for everything else, so this never deactivates."""

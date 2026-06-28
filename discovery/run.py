@@ -101,6 +101,13 @@ def run(conn=None) -> None:
         if not config.has_api_key():
             log.info("OPENROUTER_API_KEY not set; skipping discovery")
             return
+        over, size_mb, ceiling_mb = poller_db.over_size_ceiling(conn)
+        if over:
+            log.error(
+                "DB at %.0f MB >= ceiling %.0f MB; skipping discovery so it does not "
+                "activate more companies near the disk limit", size_mb, ceiling_mb,
+            )
+            return
         ingested = db.upsert_candidates(conn, dataset.load_candidates(config.dataset_dir()))
         conn.commit()
         log.info("ingested %s new candidate companies", ingested)

@@ -86,7 +86,16 @@ reviewer-only commits also redeploy the poller service.
   Reuses the poller's `DATABASE_URL` + `OPENROUTER_API_KEY`; reviews dataset companies against the
   operator's company preferences and reconciles `companies.active`. The dataset snapshot is vendored
   under `discovery/data/`. Watch patterns: `discovery/**`, `requirements.txt`, `pyproject.toml`,
-  `railway.json`, `schema.sql`. Raise `DISCOVERY_BATCH_CAP` (default 500/run) for the one-time bulk pass.
+  `railway.json`, `schema.sql`. `DISCOVERY_BATCH_CAP` (default 500/run) bounds how many *new*
+  candidates a single run reviews — keep it small so one run cannot activate thousands of companies
+  at once (each active company is then polled and accrues `jobs` rows). Discovery is incremental: a
+  company is re-reviewed only when its `company_profile_version` changes.
+- **Disk safety valve** → both the poller and discovery call `db.over_size_ceiling()` at startup and
+  **halt the run with no writes** once `pg_database_size` reaches `DB_SIZE_CEILING_MB` (default
+  **6000** = 6 GB). The Supabase Pro volume is 8 GB; the ~2 GB headroom absorbs one poll's growth plus
+  WAL so the DB can never reach the hard limit (which forces Postgres read-only and, if WAL then fills
+  the disk, a crash-recovery loop). Lower the ceiling for a smaller plan; never set it at/above the
+  actual volume size.
 - **Database** → Supabase (Postgres). Apply `schema.sql` as a migration.
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 
+from observability import tracing
 from reviewer import config, db, scoring
 from reviewer.llm import ReviewClient, build_profile_block
 
@@ -50,7 +51,7 @@ class ReviewResult:
         return row
 
 
-async def review_one(candidate: dict, profile_block: str, client) -> ReviewResult:
+async def _review_one_inner(candidate: dict, profile_block: str, client) -> ReviewResult:
     res = ReviewResult(job_id=candidate["id"])
     try:
         s1 = await client.stage1(
@@ -101,13 +102,38 @@ async def review_one(candidate: dict, profile_block: str, client) -> ReviewResul
     return res
 
 
+async def review_one(candidate: dict, profile_block: str, client,
+                     *, user_id: str | None = None, run_id=None) -> ReviewResult:
+    lf = tracing.get_langfuse()
+    if lf is None or not tracing.should_sample():
+        return await _review_one_inner(candidate, profile_block, client)
+    with tracing.identity(user_id=user_id, session_id=run_id, tags=["reviewer"]):
+        with lf.start_as_current_observation(
+            as_type="span", name="job-review",
+            input={"job_id": candidate["id"], "title": candidate.get("title")},
+        ) as span:
+            res = await _review_one_inner(candidate, profile_block, client)
+            metadata = {
+                "job_id": res.job_id, "stage1_decision": res.stage1_decision,
+                "verdict": res.verdict, "fit_score": res.fit_score,
+                "error": res.error,
+            }
+            lf.update_current_trace(user_id=user_id,
+                                    session_id=str(run_id) if run_id is not None else None,
+                                    metadata=metadata)
+            span.update(output={"verdict": res.verdict, "fit_score": res.fit_score})
+            return res
+
+
 async def review_batch(candidates: list[dict], profile_block: str, client,
-                       concurrency: int) -> list[ReviewResult]:
+                       concurrency: int, *, user_id: str | None = None,
+                       run_id=None) -> list[ReviewResult]:
     sem = asyncio.Semaphore(concurrency)
 
     async def _guarded(c: dict) -> ReviewResult:
         async with sem:
-            return await review_one(c, profile_block, client)
+            return await review_one(c, profile_block, client,
+                                    user_id=user_id, run_id=run_id)
 
     return await asyncio.gather(*[_guarded(c) for c in candidates])
 
@@ -137,7 +163,10 @@ def _review_user(conn, profile: dict) -> None:
             model_stage1=profile.get("model_stage1"),
             model_stage2=profile.get("model_stage2"),
         )
-        results = asyncio.run(review_batch(candidates, profile_block, client, config.CONCURRENCY))
+        results = asyncio.run(review_batch(
+            candidates, profile_block, client, config.CONCURRENCY,
+            user_id=user_id, run_id=run_id,
+        ))
 
         for r in results:
             db.upsert_review(conn, r.as_row(user_id=user_id, profile_version=pv))
@@ -171,5 +200,8 @@ def review_all(conn) -> None:
     if not profiles:
         log.info("no profiles; skipping review phase")
         return
-    for profile in profiles:
-        _review_user(conn, profile)
+    try:
+        for profile in profiles:
+            _review_user(conn, profile)
+    finally:
+        tracing.flush()

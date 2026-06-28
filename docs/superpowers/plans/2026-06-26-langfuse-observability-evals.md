@@ -18,6 +18,20 @@ This plan was originally written against HEAD `f5624d3`. It has since been fast-
 - **`tests/test_reviewer_run.py`** swapped its DB seed helper (`poller_db.sync_companies` → `poller_db.sync_seed`). Task 4's *new* tests use the `StubClient`/`_cand` seam (not the DB seeders), so they are unaffected — just match the current file when appending.
 - **Unit budget.** Discovery adds ≤ `500 companies/week × 3 units ≈ 6.5k units/mo` at full sampling (it shares `LANGFUSE_SAMPLE_RATE`, and the weekly + 500/run cap bound it). Combined with the reviewer (~30k/mo steady-state) and the dashboard (per-request, low volume), the project still projects under the 50k/mo Hobby cap.
 
+## Sampling correction — use native head-based sampling (2026-06-28, post-Task-4b; supersedes the custom `should_sample()` design)
+
+**Discovery during implementation:** the installed SDK is **langfuse 4.12.0** (the `langfuse>=3` floor resolves to v4; treat all "v3" mentions below as "v4 — compatible APIs"). langfuse reads **`LANGFUSE_SAMPLE_RATE` natively** at `get_client()` → `Langfuse()` init and applies **head-based, per-trace sampling** (whole traces — root span + all nested observations — are kept or dropped together by trace-id; dropped traces are never exported, so they cost **0 units**).
+
+The original plan re-used that exact env-var name for a **custom** `tracing.should_sample()` that only skipped the per-job/per-company *span*. That is wrong: (a) it double-samples with the SDK's native sampling, and (b) when a job is not sampled the inner LLM-call layer (`_parse` / discovery `review()`) still creates a generation, which — with no enclosing span — becomes its own root trace and **still consumes units**. The bug only manifests at `LANGFUSE_SAMPLE_RATE < 1.0` (i.e. exactly the backfill case the var exists for), which is why mocked unit tests didn't catch it.
+
+**Resolution (user-approved): rely on langfuse's native sampling; remove the custom gate.**
+- `observability/tracing.py`: **remove `should_sample()`**. Keep `tracing_enabled()`, `get_langfuse()`, `identity()`, `flush()`, and `sample_rate()` (the latter now used only to **log the effective rate at cron start** — honors the "no silent truncation" constraint).
+- `reviewer/run.py` `review_one(...)`: change the guard from `if lf is None or not tracing.should_sample():` to **`if lf is None:`** — always create the `job-review` span when tracing is on; native sampling drops the whole trace when it rolls out. Add a one-line `log.info("langfuse tracing on; sample_rate=%s", tracing.sample_rate())` at the start of `review_all()` when enabled.
+- `discovery/run.py` `review_company_one(...)`: same guard change (`if lf is None:`); add the same startup log in `run()`.
+- Tests: drop the `monkeypatch.setattr(tracing, "should_sample", …)` lines and **remove the `*_skips_span_when_not_sampled` tests** in `tests/test_reviewer_run.py` and `tests/test_discovery_run.py` (sampling is now SDK-internal and not unit-testable via our seam). The `*_traces_when_enabled` tests remain (with the should_sample monkeypatch line removed).
+
+Wherever the sections below say "skip span creation when not sampled" or call `tracing.should_sample()`, they are superseded by this correction.
+
 ## Global Constraints
 
 - **Free tier is the constraint.** Langfuse Hobby = **50k units/mo**, 30-day retention, 2 users. `units = traces + observations + scores`; units created by Langfuse features (LLM-as-judge) **also count**.

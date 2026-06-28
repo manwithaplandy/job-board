@@ -166,3 +166,45 @@ def test_run_survives_review_phase_error(conn, monkeypatch):
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM poll_runs ORDER BY id DESC LIMIT 1")
         assert cur.fetchone()["finished_at"] is not None
+
+
+@requires_db
+def test_run_invokes_prune(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Good", "ats": "greenhouse", "token": "good"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="1", title="Engineer", url="u")])
+
+    calls = {"n": 0}
+
+    def fake_prune(conn):
+        calls["n"] += 1
+        return {}
+
+    import poller.prune as prune_module
+    monkeypatch.setattr(prune_module, "prune_jobs", fake_prune)
+
+    run_module.run()
+    assert calls["n"] == 1
+
+
+@requires_db
+def test_run_survives_prune_error(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Good", "ats": "greenhouse", "token": "good"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="1", title="Engineer", url="u")])
+
+    import poller.prune as prune_module
+
+    def boom(conn):
+        raise RuntimeError("prune exploded")
+
+    monkeypatch.setattr(prune_module, "prune_jobs", boom)
+
+    run_module.run()  # prune error must not abort the poll
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM poll_runs ORDER BY id DESC LIMIT 1")
+        assert cur.fetchone()["finished_at"] is not None

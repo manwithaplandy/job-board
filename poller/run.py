@@ -68,5 +68,12 @@ def run(dsn: str | None = None) -> None:
             review_all(conn)
         except Exception:
             log.exception("review phase failed; poll results unaffected")
+
+        try:
+            from poller.prune import prune_jobs
+            prune_jobs(conn)
+        except Exception:
+            conn.rollback()
+            log.exception("prune phase failed; poll results unaffected")
     finally:
         conn.close()

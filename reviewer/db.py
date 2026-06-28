@@ -49,7 +49,7 @@ def select_candidates(
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT j.id, j.title, j.location, j.raw, c.ats, c.name AS company_name, COUNT(*) OVER() AS total_stale
+            SELECT j.id, j.title, j.location, j.description, c.ats, c.name AS company_name, COUNT(*) OVER() AS total_stale
             FROM jobs j
             JOIN companies c ON c.id = j.company_id
             LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
@@ -74,11 +74,6 @@ def upsert_review(conn, row: dict) -> None:
         full[c] = Json(full[c] if full[c] is not None else [])
     with conn.cursor() as cur:
         cur.execute(_UPSERT_REVIEW_SQL, full)
-
-
-def set_job_description(conn, job_id: str, description: str) -> None:
-    with conn.cursor() as cur:
-        cur.execute("UPDATE jobs SET description = %s WHERE id = %s", (description, job_id))
 
 
 def start_review_run(conn) -> int:

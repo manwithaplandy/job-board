@@ -46,7 +46,7 @@ def test_candidates_missing_then_excluded_when_fresh(conn):
     assert [c["id"] for c in cands] == [job_id]
     assert cands[0]["ats"] == "lever"
     assert cands[0]["company_name"] == "Acme"
-    assert cands[0]["raw"]["descriptionPlain"] == "jd"
+    assert cands[0]["description"] == "jd"
 
     rdb.upsert_review(conn, {
         "user_id": USER, "job_id": job_id, "profile_version": "v1",
@@ -129,16 +129,6 @@ def test_upsert_review_replaces_in_place(conn):
         cur.execute("SELECT count(*) AS n, max(verdict) AS v FROM job_reviews")
         row = cur.fetchone()
     assert row["n"] == 1 and row["v"] == "deny"
-
-
-@requires_db
-def test_set_job_description(conn):
-    job_id = _seed_job(conn)
-    rdb.set_job_description(conn, job_id, "full text")
-    conn.commit()
-    with conn.cursor() as cur:
-        cur.execute("SELECT description FROM jobs WHERE id = %s", (job_id,))
-        assert cur.fetchone()["description"] == "full text"
 
 
 @requires_db

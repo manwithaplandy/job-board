@@ -33,10 +33,9 @@ class StubClient:
         )
 
 
-def _cand(title, ats="lever", raw=None):
+def _cand(title, ats="lever", description="jd"):
     return {"id": f"lever:acme:{title}", "title": title, "location": "Remote",
-            "ats": ats, "company_name": "Acme",
-            "raw": raw if raw is not None else {"descriptionPlain": "jd"}}
+            "ats": ats, "company_name": "Acme", "description": description}
 
 
 def test_gate_reject_skips_stage2():
@@ -47,19 +46,17 @@ def test_gate_reject_skips_stage2():
     assert client.stage2_calls == []  # stage 2 never ran
 
 
-def test_pass_runs_stage2_with_extracted_jd():
+def test_pass_runs_stage2_with_stored_jd():
     client = StubClient()
     res = asyncio.run(review_one(_cand("SRE"), "P", client))
     assert res.stage1_decision == "pass" and res.verdict == "approve"
-    assert res.description == "jd"
     assert client.stage2_calls == ["jd"]
 
 
 def test_pass_with_missing_jd_uses_placeholder():
     client = StubClient()
-    res = asyncio.run(review_one(_cand("SRE", raw={}), "P", client))
+    res = asyncio.run(review_one(_cand("SRE", description=None), "P", client))
     assert res.verdict == "approve"
-    assert res.description is None
     assert client.stage2_calls and "no description" in client.stage2_calls[0].lower()
 
 

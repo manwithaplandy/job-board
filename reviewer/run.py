@@ -3,7 +3,6 @@ import logging
 from dataclasses import dataclass, field
 
 from reviewer import config, db, scoring
-from poller.jd import extract_description
 from reviewer.llm import ReviewClient, build_profile_block
 
 log = logging.getLogger("reviewer")
@@ -42,7 +41,6 @@ class ReviewResult:
     skill_gaps: list = field(default_factory=list)
     benefits: list = field(default_factory=list)
     requirements: list = field(default_factory=list)
-    description: str | None = None  # written to jobs.description (not job_reviews)
 
     def as_row(self, *, user_id: str, profile_version: str) -> dict:
         # user_id/profile_version come from the caller; the rest are own fields.
@@ -65,12 +63,11 @@ async def review_one(candidate: dict, profile_block: str, client) -> ReviewResul
         if s1.decision == "reject":
             return res
 
-        jd = extract_description(candidate["ats"], candidate.get("raw") or {})
-        res.description = jd
+        jd = candidate.get("description") or _NO_JD
         s2 = await client.stage2(
             profile_block=profile_block, title=candidate["title"],
             company=candidate["company_name"], location=candidate.get("location"),
-            jd=jd or _NO_JD,
+            jd=jd,
         )
         res.model_stage2 = client.model_stage2
         res.verdict = s2.verdict
@@ -144,8 +141,6 @@ def _review_user(conn, profile: dict) -> None:
 
         for r in results:
             db.upsert_review(conn, r.as_row(user_id=user_id, profile_version=pv))
-            if r.description:
-                db.set_job_description(conn, r.job_id, r.description)
             if r.error:
                 counts["errors"] += 1
                 continue

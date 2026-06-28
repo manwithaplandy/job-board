@@ -1,5 +1,6 @@
 import os
 
+from observability import tracing
 from reviewer.schemas import TAXONOMY_TEXT, Stage1Result, Stage2Result
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
@@ -69,7 +70,7 @@ class ReviewClient:
         self.model_stage1 = model_stage1 or os.environ.get("REVIEW_MODEL_STAGE1", DEFAULT_MODEL)
         self.model_stage2 = model_stage2 or os.environ.get("REVIEW_MODEL_STAGE2", DEFAULT_MODEL)
 
-    async def _parse(self, *, model: str, max_tokens: int, system: str, user: str, schema):
+    async def _call(self, *, model: str, max_tokens: int, system: str, user: str, schema):
         resp = await self._client.beta.chat.completions.parse(
             model=model,
             max_tokens=max_tokens,
@@ -84,7 +85,34 @@ class ReviewClient:
             raise ValueError(f"model refused: {msg.refusal}")
         if msg.parsed is None:
             raise ValueError("OpenRouter returned no parsed output")
-        return msg.parsed
+        return msg.parsed, getattr(resp, "usage", None)
+
+    async def _parse(self, *, model: str, max_tokens: int, system: str, user: str,
+                     schema, stage: int):
+        lf = tracing.get_langfuse()
+        if lf is None:
+            parsed, _ = await self._call(
+                model=model, max_tokens=max_tokens, system=system, user=user, schema=schema
+            )
+            return parsed
+        with lf.start_as_current_observation(
+            as_type="generation",
+            name=f"stage{stage}",
+            model=model,
+            input=[{"role": "system", "content": system},
+                   {"role": "user", "content": user}],
+        ) as gen:
+            parsed, usage = await self._call(
+                model=model, max_tokens=max_tokens, system=system, user=user, schema=schema
+            )
+            gen.update(
+                output=parsed.model_dump(),
+                usage_details={
+                    "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                    "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                } if usage is not None else None,
+            )
+            return parsed
 
     async def stage1(self, *, profile_block: str, title: str, company: str,
                      location: str | None) -> Stage1Result:
@@ -93,6 +121,7 @@ class ReviewClient:
             system=_system(profile_block, _STAGE1_INSTRUCTIONS),
             user=f"Title: {title}\nCompany: {company}\nLocation: {location or 'n/a'}",
             schema=Stage1Result,
+            stage=1,
         )
 
     async def stage2(self, *, profile_block: str, title: str, company: str,
@@ -105,4 +134,5 @@ class ReviewClient:
                 f"JOB DESCRIPTION:\n{jd}"
             ),
             schema=Stage2Result,
+            stage=2,
         )

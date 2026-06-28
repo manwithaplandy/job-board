@@ -113,3 +113,31 @@ def test_stage_raises_on_refusal():
     rc = ReviewClient(client=client, model_stage1="m1", model_stage2="m2")
     with pytest.raises(ValueError, match="refused"):
         asyncio.run(rc.stage1(profile_block="P", title="T", company="C", location=None))
+
+
+def test_stage1_creates_generation_when_tracing_enabled(monkeypatch):
+    from observability import tracing
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            events["create"] = kw
+            return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    fake = _FakeClient()
+    rc = ReviewClient(client=fake, model_stage1="m1", model_stage2="m2")
+    out = asyncio.run(
+        rc.stage1(profile_block="P", title="SRE", company="Acme", location="Remote")
+    )
+    assert out.decision == "pass"
+    assert events["create"]["as_type"] == "generation"
+    assert events["create"]["model"] == "m1"
+    assert events["create"]["name"] == "stage1"
+    assert "output" in events["update"]

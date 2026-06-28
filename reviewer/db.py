@@ -55,6 +55,12 @@ def select_candidates(
             LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
             WHERE j.closed_at IS NULL
               AND (r.job_id IS NULL OR r.profile_version <> %(pv)s OR (r.fit_score IS NULL AND r.verdict IS NOT NULL))
+              -- Denied roles are never re-reviewed: their JD is pruned to NULL by
+              -- Rule A in prune.py, so a re-review after a profile change would be
+              -- JD-blind.  A deny is final regardless of future profile versions.
+              -- IS DISTINCT FROM treats NULL (never-reviewed) as NOT 'deny', so
+              -- unreviewed jobs still pass through correctly.
+              AND (r.verdict IS DISTINCT FROM 'deny')
               AND (NOT %(has_prefs)s OR j.remote IS TRUE OR j.location = ANY(%(prefs)s::text[]))
             ORDER BY j.first_seen_at DESC
             LIMIT %(lim)s

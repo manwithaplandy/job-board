@@ -174,6 +174,48 @@ def test_gate_rejected_not_reselected(conn):
 
 
 @requires_db
+def test_denied_never_reselected_even_on_profile_change(conn):
+    """Denied roles are never re-selected, even when profile_version changes.
+
+    Their JD has already been pruned to NULL by Rule A (prune.py), so a
+    re-review would be JD-blind anyway.  An approved role at the same old
+    profile_version must still be re-selected (profile change triggers re-review
+    only for non-denied outcomes).
+    """
+    # Job 1: denied at v1 — must be excluded at v1 AND at v2 (changed profile)
+    denied_id = _seed_job(conn, "deny-1", "Denied Engineer")
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": denied_id, "profile_version": "v1",
+        "stage1_decision": "pass", "verdict": "deny",
+        "experience_match": "far_reach", "industry": "software_internet",
+        "industry_subcategory": "devtools_platforms", "confidence": "high",
+        "reasoning": "not a fit", "model_stage1": "m1", "model_stage2": "m2",
+        "fit_score": 20,
+    })
+    # Job 2: approved at v1 — must be re-selected at v2 (profile changed)
+    approved_id = _seed_job(conn, "approve-1", "Approved Engineer")
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": approved_id, "profile_version": "v1",
+        "stage1_decision": "pass", "verdict": "approve",
+        "experience_match": "match", "industry": "software_internet",
+        "industry_subcategory": "devtools_platforms", "confidence": "high",
+        "reasoning": "great fit", "model_stage1": "m1", "model_stage2": "m2",
+        "fit_score": 90,
+    })
+    conn.commit()
+
+    ids_v1 = {c["id"] for c in rdb.select_candidates(conn, USER, "v1", limit=10)}
+    ids_v2 = {c["id"] for c in rdb.select_candidates(conn, USER, "v2", limit=10)}
+
+    # Denied job excluded at same version
+    assert denied_id not in ids_v1, "denied job must be excluded at v1"
+    # Denied job excluded even after profile change (the core regression fix)
+    assert denied_id not in ids_v2, "denied job must NOT be re-selected after profile change"
+    # Approved job re-selected when profile_version changes
+    assert approved_id in ids_v2, "approved job must be re-selected when profile_version changes"
+
+
+@requires_db
 def test_upsert_persists_new_columns_and_jsonb(conn):
     job_id = _seed_job(conn)
     rdb.upsert_review(conn, {

@@ -107,3 +107,36 @@ def test_profiles_has_preferred_locations_column(conn):
         )
         cols = {r["column_name"] for r in cur.fetchall()}
     assert "preferred_locations" in cols
+
+
+@requires_db
+def test_deleting_job_cascades_to_review(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token) VALUES ('Z','lever','z') RETURNING id"
+        )
+        cid = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO jobs (id, company_id, external_id, title, url) "
+            "VALUES ('lever:z:1', %s, '1', 'Eng', 'u')",
+            (cid,),
+        )
+        cur.execute(
+            "INSERT INTO job_reviews (user_id, job_id, profile_version, verdict) "
+            "VALUES (gen_random_uuid(), 'lever:z:1', 'v', 'deny')"
+        )
+        cur.execute("DELETE FROM jobs WHERE id = 'lever:z:1'")
+        cur.execute("SELECT count(*) AS n FROM job_reviews WHERE job_id = 'lever:z:1'")
+        assert cur.fetchone()["n"] == 0
+
+
+@requires_db
+def test_jobs_has_no_raw_column(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'jobs'"
+        )
+        cols = {r["column_name"] for r in cur.fetchall()}
+    assert "raw" not in cols
+    assert "description" in cols

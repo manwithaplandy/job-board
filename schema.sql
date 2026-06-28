@@ -22,8 +22,7 @@ CREATE TABLE jobs (
   first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   closed_at     TIMESTAMPTZ,                  -- set when role drops out of feed
-  raw           JSONB,
-  description   TEXT                          -- cached full JD text (from raw)
+  description   TEXT                          -- cached full JD plaintext (from the ATS payload)
 );
 CREATE INDEX idx_jobs_first_seen ON jobs (first_seen_at DESC);
 CREATE INDEX idx_jobs_open ON jobs (closed_at) WHERE closed_at IS NULL;
@@ -60,7 +59,7 @@ CREATE TABLE profiles (
 -- one current verdict per (user, job); re-review upserts in place
 CREATE TABLE job_reviews (
   user_id              UUID NOT NULL,
-  job_id               TEXT NOT NULL REFERENCES jobs(id),
+  job_id               TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
   profile_version      TEXT NOT NULL,
   stage1_decision      TEXT CHECK (stage1_decision IN ('pass','reject')),
   stage1_reason        TEXT,

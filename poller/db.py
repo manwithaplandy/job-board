@@ -2,8 +2,8 @@ import os
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.types.json import Json
 
+from poller.jd import extract_description
 from poller.models import Posting
 
 
@@ -12,8 +12,9 @@ def connect(dsn: str | None = None) -> psycopg.Connection:
     return psycopg.connect(dsn, row_factory=dict_row)
 
 
-# The Supabase Pro volume is 8 GB; a full poll can add ~1.8 GB and WAL can spike,
-# so we halt well below the hard limit. Overriding via DB_SIZE_CEILING_MB.
+# The Supabase Pro volume is 8 GB. A poll now stores only the distilled JD text
+# (jobs.description), so per-poll growth is modest, but we still halt well below
+# the hard limit as a backstop. Override via DB_SIZE_CEILING_MB.
 DB_SIZE_CEILING_MB_DEFAULT = 6000.0
 
 
@@ -70,11 +71,12 @@ def active_companies(conn) -> list[dict]:
 
 def upsert_job(conn, company_id: int, ats: str, token: str, p: Posting) -> bool:
     job_id = f"{ats}:{token}:{p.external_id}"
+    description = extract_description(ats, p.raw or {})
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO jobs (id, company_id, external_id, title, url,
-                              location, department, remote, raw)
+                              location, department, remote, description)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
                 last_seen_at = now(),
@@ -83,13 +85,12 @@ def upsert_job(conn, company_id: int, ats: str, token: str, p: Posting) -> bool:
                 url          = EXCLUDED.url,
                 location     = EXCLUDED.location,
                 department   = EXCLUDED.department,
-                remote       = EXCLUDED.remote,
-                raw          = EXCLUDED.raw
+                remote       = EXCLUDED.remote
             RETURNING (xmax = 0) AS inserted
             """,
             (
                 job_id, company_id, p.external_id, p.title, p.url,
-                p.location, p.department, p.remote, Json(p.raw),
+                p.location, p.department, p.remote, description,
             ),
         )
         return cur.fetchone()["inserted"]

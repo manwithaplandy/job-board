@@ -42,3 +42,36 @@ def test_resighting_clears_closed_at(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT closed_at FROM jobs WHERE id = 'lever:acme:1'")
         assert cur.fetchone()["closed_at"] is None
+
+
+@requires_db
+def test_upsert_stores_extracted_description(conn):
+    cid = _seed_company(conn)
+    p = Posting(external_id="1", title="Eng", url="https://x",
+                raw={"descriptionPlain": "Hello JD"})
+    db.upsert_job(conn, cid, "lever", "acme", p)
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT description FROM jobs WHERE id='lever:acme:1'")
+        assert cur.fetchone()["description"] == "Hello JD"
+
+
+@requires_db
+def test_resight_does_not_overwrite_description(conn):
+    cid = _seed_company(conn)
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="1", title="Eng", url="https://x",
+                          raw={"descriptionPlain": "Original"}))
+    conn.commit()
+    # Simulate the JD being pruned to NULL after a deny.
+    with conn.cursor() as cur:
+        cur.execute("UPDATE jobs SET description=NULL WHERE id='lever:acme:1'")
+    conn.commit()
+    # Re-poll with a different JD must NOT restore description (insert-only).
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="1", title="Eng", url="https://x",
+                          raw={"descriptionPlain": "Rewritten"}))
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT description FROM jobs WHERE id='lever:acme:1'")
+        assert cur.fetchone()["description"] is None

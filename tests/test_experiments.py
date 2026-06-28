@@ -78,9 +78,6 @@ def test_run_experiment_iterates_items(monkeypatch):
         def start_as_current_observation(self, **kw):
             return _Span()
 
-        def update_current_trace(self, **kw):
-            pass
-
     monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
     # review_one also calls tracing.identity(); nullcontext keeps it side-effect-free
     monkeypatch.setattr(tracing, "identity", lambda **kw: contextlib.nullcontext())

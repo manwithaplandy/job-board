@@ -61,7 +61,7 @@ export async function generateResume(args: {
     });
     return parsed;
   } catch (e) {
-    gen?.update({ level: "ERROR", statusMessage: (e as Error).message });
+    gen?.update({ level: "ERROR", statusMessage: e instanceof Error ? e.message : String(e) });
     throw e;
   } finally {
     gen?.end();

@@ -118,10 +118,8 @@ async def review_one(candidate: dict, profile_block: str, client,
                 "verdict": res.verdict, "fit_score": res.fit_score,
                 "error": res.error,
             }
-            lf.update_current_trace(user_id=user_id,
-                                    session_id=str(run_id) if run_id is not None else None,
-                                    metadata=metadata)
-            span.update(output={"verdict": res.verdict, "fit_score": res.fit_score})
+            span.update(output={"verdict": res.verdict, "fit_score": res.fit_score},
+                        metadata=metadata)
             return res
 
 

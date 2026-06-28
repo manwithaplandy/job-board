@@ -1,5 +1,3 @@
-import importlib
-
 from observability import tracing
 
 

@@ -105,6 +105,49 @@ def test_fit_score_computed_and_requirements_serialized():
     assert res.requirements == [{"text": "Go", "met": False}]  # list[dict], JSONB-ready
 
 
+def test_review_one_traces_when_enabled_and_sampled(monkeypatch):
+    from observability import tracing
+    seen = {"trace": None, "spans": 0}
+
+    class _Span:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): pass
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            seen["spans"] += 1
+            return _Span()
+        def update_current_trace(self, **kw):
+            seen["trace"] = kw
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    monkeypatch.setattr(tracing, "should_sample", lambda: True)
+    monkeypatch.setattr(tracing, "identity", lambda **kw: __import__("contextlib").nullcontext())
+
+    client = StubClient()
+    res = asyncio.run(review_one(_cand("SRE"), "P", client, user_id="u1", run_id=7))
+    assert res.verdict == "approve"
+    assert seen["spans"] == 1
+    assert seen["trace"]["metadata"]["verdict"] == "approve"
+
+
+def test_review_one_skips_span_when_not_sampled(monkeypatch):
+    from observability import tracing
+    calls = {"n": 0}
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            calls["n"] += 1
+            raise AssertionError("should not create a span when not sampled")
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    monkeypatch.setattr(tracing, "should_sample", lambda: False)
+    res = asyncio.run(review_one(_cand("SRE"), "P", StubClient(), user_id="u1", run_id=7))
+    assert res.verdict == "approve"  # review still runs
+    assert calls["n"] == 0
+
+
 import os
 import uuid
 

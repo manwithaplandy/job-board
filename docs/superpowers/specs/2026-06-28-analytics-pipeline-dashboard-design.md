@@ -28,14 +28,17 @@ all three pipelines, both as a current snapshot and as trends over time.
 ## Goals
 
 - A new **operator-only** analytics page that aggregates all three pipelines into
-  one comprehensive view: a **funnel** (current-state counts and drop-off), a
-  **health** strip (latest run per pipeline), and **trend charts** over time.
+  one comprehensive view, in four sections: a **funnel** (current-state counts and
+  drop-off), a **health** strip (latest run per pipeline), **pipeline trends** over
+  time (volumes, plus derived rates/latency/cadence/backlog), and **breakdowns**
+  (distribution of jobs/reviews/companies across their key dimensions).
 - Live under an `/analytics` **namespace** so future analytics pages
   (`/analytics/...`) have an obvious home. This first page is the pipeline
   dashboard; it renders at `/analytics`.
 - Cover the metrics the operator named — **total, filtered, successful, errors** —
-  for each pipeline, sourced from columns that **already exist** (no schema
-  migration).
+  for each pipeline, **plus derived rates** (approval, inclusion, failure) and
+  **entity breakdowns** (by industry, role, seniority, location, ATS, etc.), all
+  sourced from columns that **already exist** (no schema migration).
 - Trends are **interactive**: a day/week granularity toggle and a 30/90-day window
   toggle, rendered with a charting library (Recharts).
 - Match the existing Rolefit visual style (same cards, palette, type as
@@ -70,13 +73,22 @@ The page is a server component that fetches everything in one round-trip via a n
 `lib/metrics.ts` query module (same shape as `lib/queries.ts`: tagged-template SQL
 through the shared `sql` client, typed row returns). It fetches:
 
-1. a **snapshot** object (current-state funnel counts), and
-2. a **90-day daily run series** (the widest window the UI offers).
+1. a **snapshot** object — current-state funnel counts, latest-run rows, and the
+   Tier-2 distribution group-bys (each bounded by top-N / fixed buckets), and
+2. a **90-day daily-aggregated run series** per pipeline (the widest window the UI
+   offers). Each daily row carries the summed counts **plus** `run_count`,
+   `total_duration_seconds`, `last_backlog`, and `halt_count` — every field chosen
+   so the client can **re-aggregate to weekly** by re-summing (avg latency =
+   `total_duration_seconds / run_count` at any granularity; weekly backlog = the
+   last day's `last_backlog`). This keeps the payload compact (≤ 90 days × 3
+   pipelines) while still supporting both granularities and all Tier-1 derivations.
 
 It passes both to a single client component (`PipelineDashboard`) that owns the
-granularity/window toggles and buckets/filters the 90-day daily series in-memory
-(daily→weekly is a client-side group; 90→30 days is a client-side slice). No
-re-fetch on toggle, no extra endpoint.
+granularity/window toggles and re-buckets/filters the daily series in-memory
+(daily→weekly re-sums adjacent days; 90→30 days is a slice; rates, net-growth, and
+avg-latency are client-side arithmetic over the (re-)bucketed rows). No re-fetch on
+toggle, no extra endpoint. The distribution group-bys are snapshot-only (current
+state), not windowed by the trend toggle.
 
 **Alternatives rejected:**
 
@@ -160,15 +172,18 @@ that run's counts:
 recent **finished** run (`finished_at IS NOT NULL`), matching how
 `getLatestPollRun`/`getLatestReviewRun` already behave.
 
-### Section 3 — Trend charts (Recharts)
+### Section 3 — Pipeline trends (Recharts)
 
-Controls: **granularity** (Day | Week) and **window** (30d | 90d). The server
-sends a 90-day **daily** series per pipeline; the client buckets to weekly and/or
-slices to 30 days. Daily buckets use `date_trunc('day', started_at)` and SUM the
-per-run counts; missing days are zero-filled client-side so lines don't lie about
-gaps.
+Controls: **granularity** (Day | Week) and **window** (30d | 90d), applied to every
+chart in this section. The server pre-aggregates to **daily** rows per pipeline
+(`date_trunc('day', started_at)`, SUM of counts + `run_count` +
+`total_duration_seconds` + `last_backlog` + `halt_count`); the client re-buckets
+those to weekly (re-summing adjacent days) and/or slices to 30 days. Missing days
+are zero-filled client-side so lines don't lie about gaps. Derived series (rates,
+net growth, cadence, avg latency) are computed client-side from the (re-)bucketed
+rows; divide-by-zero yields null (a gap), not NaN.
 
-Four charts:
+**Volume** (raw counts — the original four):
 
 | Chart | Series | Source |
 |---|---|---|
@@ -177,24 +192,96 @@ Four charts:
 | Review outcomes | `approved`, `denied`, `gate_rejected`, `errors` | `review_runs` |
 | Discovery outcomes | `included`, `excluded`, `unknown`, `errors` | `discovery_runs` |
 
+**Rates & operations** (Tier 1 — derived, mostly client-side arithmetic over the
+same series):
+
+| Chart | Definition | Source |
+|---|---|---|
+| Approval rate | `approved / NULLIF(reviewed,0)` per period | `review_runs` |
+| Gate-rejection rate | `gate_rejected / NULLIF(reviewed,0)` | `review_runs` |
+| Discovery inclusion rate | `included / NULLIF(reviewed,0)` | `discovery_runs` |
+| Poller failure rate | `companies_failed / NULLIF(companies_ok+companies_failed,0)` | `poll_runs` |
+| Net job growth | `new_jobs − closed_jobs` per period | `poll_runs` |
+| Run latency | `finished_at − started_at`, avg per period, per pipeline | all three run tables |
+| Run cadence | run count per period, per pipeline | all three run tables |
+| Discovery backlog | `backlog` (last run in period) | `discovery_runs` |
+| Credit-halt frequency | count of `status='halted_no_credits'` per period | `discovery_runs` |
+
+The reviewer has no backlog column, so reviewer backlog is snapshot-only (in the
+funnel), not a trend here.
+
 Charts are stacked/area or grouped lines as fits each (decided at build time); axes,
 tooltips, and legends come from Recharts. Recharts renders inside the client
 component only (`"use client"`), keeping the server component dependency-free.
+
+### Section 4 — Breakdowns (Tier 2 — current-state distributions)
+
+Snapshot distributions (not windowed by the trend toggle), each a bounded query
+(fixed buckets or top-N, default N=10). Rendered as bar charts (histograms / ranked
+bars) and small category breakdowns. Grouped into three blocks:
+
+**Jobs** — from `jobs` (open = `closed_at IS NULL`):
+
+| Breakdown | Shape | Source |
+|---|---|---|
+| Open jobs by location | top-N bar | `jobs.location` |
+| Open jobs by department | top-N bar | `jobs.department` |
+| Remote vs non-remote | 2-way split | `jobs.remote` |
+| Top companies by open roles | top-N bar | `jobs` ⨝ `companies` |
+| Job lifespan (closed roles) | histogram of `closed_at − first_seen_at` | `jobs` |
+
+**Reviews** — from `job_reviews` (owner):
+
+| Breakdown | Shape | Source |
+|---|---|---|
+| Fit-score distribution | histogram, 10-pt buckets | `fit_score` |
+| Approvals by industry | top-N bar | `industry` (verdict='approve') |
+| Approvals by role category | top-N bar | `role_category` |
+| Approvals by seniority | bar | `seniority` |
+| Experience match | 4-way bar | `experience_match` |
+| Work arrangement | 4-way bar | `work_arrangement` |
+
+(The manual-reject total — `human_override` — already appears as a funnel stage in
+Section 1, so it isn't repeated here.) Pay distribution is intentionally cut from
+v1: `pay_min/max` mix `pay_currency` and `pay_period`, so a faithful chart needs
+normalization logic that isn't worth the v1 cost. Noted under deferred.
+
+**Companies** — from `companies` + `company_reviews`:
+
+| Breakdown | Shape | Source |
+|---|---|---|
+| Companies by ATS | 3-way bar | `companies.ats` |
+| Companies by discovery source | 4-way bar | `companies.discovery_source` |
+| Included companies by industry | top-N bar | `company_reviews.industry` |
+| Top tech tags | top-N bar | `company_reviews.tech_tags` (JSONB unnest) |
+| Top red flags | top-N bar | `company_reviews.red_flags` (JSONB unnest) |
+
+All top-N queries `ORDER BY count DESC LIMIT N`; JSONB-array breakdowns unnest with
+`jsonb_array_elements_text` then group. Empty results render the section's
+empty-state, not a blank chart.
 
 ## Components & files
 
 | File | Role |
 |---|---|
 | `app/analytics/page.tsx` | Server component: gate on `getUserId`, fetch snapshot + series, render. `force-dynamic`. |
-| `components/analytics/PipelineDashboard.tsx` | `"use client"` shell: owns granularity/window state; renders the three sections. |
+| `components/analytics/PipelineDashboard.tsx` | `"use client"` shell: owns granularity/window state + sticky section nav; renders the four sections. |
 | `components/analytics/FunnelSection.tsx` | The two snapshot funnels. |
 | `components/analytics/HealthCards.tsx` | The three latest-run cards + credit-halt banner. |
-| `components/analytics/TrendCharts.tsx` | The toggle controls + four Recharts charts; does in-memory bucketing/slicing. |
-| `lib/metrics.ts` | `getPipelineSnapshot()` and `getRunSeries()` queries + bucketing helpers. |
-| `lib/metrics.test.ts` | Unit tests for the pure helpers (bucketing, zero-fill, weekly grouping). |
+| `components/analytics/TrendCharts.tsx` | Toggle controls + the Volume and Rates&Ops Recharts charts; does in-memory bucketing/slicing + derived-rate math. |
+| `components/analytics/BreakdownsSection.tsx` | The Jobs / Reviews / Companies distribution bar charts (snapshot-only). |
+| `components/analytics/Chart.tsx` | Thin shared wrappers around Recharts (bar, line/area, histogram) for consistent axes/tooltip/legend styling. |
+| `lib/metrics.ts` | `getPipelineSnapshot()` (funnel + latest runs + distributions), `getRunSeries()`, and pure bucketing/rate helpers. |
+| `lib/metrics.test.ts` | Unit tests for the pure helpers (bucketing, zero-fill, weekly grouping, rate/net-growth math). |
 | `lib/status.ts` | Generalize `computeHealth` to any run (keep the existing call site working). |
 | `components/rolefit/Header.tsx` | Add operator-only "Analytics" link. |
 | `dashboard/package.json` | Add `recharts`. |
+
+Given the breadth, `getPipelineSnapshot()` fans its many group-by queries out with
+`Promise.all` (the tables are small and single-tenant); each distribution query is
+bounded by fixed buckets or `LIMIT N`. If the function grows unwieldy it may be
+split into `getFunnel()` / `getLatestRuns()` / `getDistributions()` at build time —
+an internal refactor, not a design change.
 
 Naming/style: inline-styled React matching `/companies` and the Rolefit
 components; the same palette (`#3b6fd4` accent, `#f4f6fa` page bg, card/border
@@ -208,15 +295,16 @@ app/analytics/page.tsx (server)
         │ present
         ▼
   Promise.all([
-    getPipelineSnapshot(ownerId),   // funnel counts + latest-run rows
-    getRunSeries(90),               // 90d daily per-pipeline series
+    getPipelineSnapshot(ownerId),   // funnel + latest-run rows + distributions
+    getRunSeries(90),               // 90d daily per-pipeline series (+finished_at/backlog/status)
   ])
         │
         ▼
   <PipelineDashboard snapshot=… series=… />   (client)
-        ├─ FunnelSection   (snapshot)
-        ├─ HealthCards     (snapshot latest-run rows + discovery_state)
-        └─ TrendCharts     (series → bucket(day|week) → slice(30|90) → Recharts)
+        ├─ FunnelSection      (snapshot.funnel)
+        ├─ HealthCards        (snapshot.latestRuns + discovery_state)
+        ├─ TrendCharts        (series → bucket(day|week) → slice(30|90) → rates → Recharts)
+        └─ BreakdownsSection  (snapshot.distributions → Recharts bars)
 ```
 
 ## Error / empty handling
@@ -233,8 +321,9 @@ app/analytics/page.tsx (server)
 ## Testing
 
 - **`lib/metrics.test.ts`** — pure-function coverage: daily→weekly bucketing,
-  30/90-day slicing, zero-fill of missing days, empty-series handling. These are
-  the parts with real logic and no DB.
+  30/90-day slicing, zero-fill of missing days, empty-series handling, and the
+  derived-rate / net-growth / cadence math (incl. divide-by-zero → null, not NaN).
+  These are the parts with real logic and no DB.
 - **Aggregation SQL** — validated against the existing DB-integration test harness
   (`TEST_DATABASE_URL`, local Postgres on `:55432`) if/where the plan adds query
   tests, mirroring how other `lib/*.test.ts` and poller DB tests run.
@@ -243,8 +332,14 @@ app/analytics/page.tsx (server)
 
 ## Open questions / deferred
 
-- Exact chart types (area vs grouped line) per chart — decided at build time to fit
-  the data; not load-bearing for the design.
+- Exact chart types (area vs grouped line vs bar) per chart — decided at build time
+  to fit the data; not load-bearing for the design.
 - Optional manual "Refresh" button — polish, not required for v1.
+- **Tier 3 — cumulative/stock-over-time** (total open jobs over time, total
+  companies tracked over time): deferred. These need running-sum reconstruction
+  from `first_seen_at`/`closed_at` rather than a per-run SUM, and read more like an
+  exploration page — a natural fit for a future `/analytics/<sub>` route.
+- **Pay distribution** of approved roles: deferred (post-v1) — needs
+  currency/period normalization across `pay_min/max/currency/period`.
 - Future `/analytics/<sub>` pages — out of scope; the namespace is the only thing
   reserved here.

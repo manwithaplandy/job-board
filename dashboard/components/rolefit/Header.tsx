@@ -164,6 +164,15 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           </div>
         )}
 
+        {isAuthed && (
+          <a href="/analytics" style={{
+            fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
+            textDecoration: "none", padding: "9px 6px",
+          }}>
+            Analytics
+          </a>
+        )}
+
         <a href="/companies" style={{
           fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
           textDecoration: "none", padding: "9px 6px",

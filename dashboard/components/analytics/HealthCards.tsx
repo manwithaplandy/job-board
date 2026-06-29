@@ -163,7 +163,7 @@ export function HealthCards({ health, nowIso }: { health: PipelineHealth; nowIso
           ["denied", reviewSuccess?.denied],
           ["errors", reviewSuccess?.errors],
         ]}
-        totals={`All-time: ${reviewTotals.runs} runs · ${reviewTotals.reviewed} reviewed · ${reviewTotals.approved} approved · ${reviewTotals.denied} denied`}
+        totals={`All-time: ${reviewTotals.runs} runs · ${reviewTotals.reviewed} reviewed (${reviewTotals.gate_rejected} gate-rejected · ${reviewTotals.approved} approved · ${reviewTotals.denied} denied) · ${reviewTotals.errors} errors`}
       />
       <Card
         name="Discovery"

@@ -64,6 +64,7 @@ CREATE TABLE job_reviews (
   stage1_decision      TEXT CHECK (stage1_decision IN ('pass','reject')),
   stage1_reason        TEXT,
   verdict              TEXT CHECK (verdict IN ('approve','deny')),
+  human_override       BOOLEAN NOT NULL DEFAULT FALSE,  -- TRUE = operator set this verdict by hand
   experience_match     TEXT CHECK (experience_match IN
                          ('step_down','match','reach','far_reach')),
   industry             TEXT,

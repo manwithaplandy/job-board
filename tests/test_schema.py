@@ -140,3 +140,39 @@ def test_jobs_has_no_raw_column(conn):
         cols = {r["column_name"] for r in cur.fetchall()}
     assert "raw" not in cols
     assert "description" in cols
+
+
+@requires_db
+def test_job_reviews_has_human_override_column(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name, data_type, is_nullable, column_default "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'job_reviews' "
+            "AND column_name = 'human_override'"
+        )
+        row = cur.fetchone()
+    assert row is not None, "job_reviews.human_override must exist"
+    assert row["data_type"] == "boolean"
+    assert row["is_nullable"] == "NO"
+    assert "false" in row["column_default"].lower()
+
+
+@requires_db
+def test_human_override_defaults_false(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token) VALUES ('HO','lever','ho') RETURNING id"
+        )
+        cid = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO jobs (id, company_id, external_id, title, url) "
+            "VALUES ('lever:ho:1', %s, '1', 'Eng', 'u')",
+            (cid,),
+        )
+        cur.execute(
+            "INSERT INTO job_reviews (user_id, job_id, profile_version, verdict) "
+            "VALUES (gen_random_uuid(), 'lever:ho:1', 'v', 'approve')"
+        )
+        cur.execute("SELECT human_override FROM job_reviews WHERE job_id = 'lever:ho:1'")
+        assert cur.fetchone()["human_override"] is False

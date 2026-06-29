@@ -78,7 +78,7 @@ reviewer-only commits also redeploy the poller service.
 
 ## Deployment
 
-- **Poller** → Railway cron service (`0 */2 * * *` UTC), root `/`, start `python -m poller`.
+- **Poller** → Railway cron service (`0 0 * * *` UTC, daily), root `/`, start `python -m poller`.
   Railway **watch patterns** are scoped to backend paths (`poller/**`, `requirements.txt`,
   `pyproject.toml`, `railway.json`, `targets.json`, `schema.sql`), so frontend/docs-only
   commits do not rebuild the poller.

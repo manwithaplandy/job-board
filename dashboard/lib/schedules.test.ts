@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { nextRun, SCHEDULES } from "@/lib/schedules";
 
 describe("SCHEDULES shape", () => {
-  test("poller is interval every 2h at minute 0", () => {
-    expect(SCHEDULES.poller).toEqual({ kind: "interval", everyHours: 2, atMinute: 0 });
+  test("poller is interval every 24h at minute 0", () => {
+    expect(SCHEDULES.poller).toEqual({ kind: "interval", everyHours: 24, atMinute: 0 });
   });
 
   test("reviewer is interval every 2h at minute 0", () => {
@@ -16,7 +16,7 @@ describe("SCHEDULES shape", () => {
 });
 
 describe("nextRun — interval (everyHours:2, atMinute:0)", () => {
-  const s = SCHEDULES.poller; // { kind:"interval", everyHours:2, atMinute:0 }
+  const s = SCHEDULES.reviewer; // { kind:"interval", everyHours:2, atMinute:0 }
 
   test("mid-interval: returns next even-hour boundary", () => {
     const now = new Date("2026-06-29T09:15:00Z");
@@ -30,6 +30,25 @@ describe("nextRun — interval (everyHours:2, atMinute:0)", () => {
 
   test("end-of-day rollover: wraps to next day at 00:00 UTC", () => {
     const now = new Date("2026-06-29T23:30:00Z");
+    expect(nextRun(s, now).toISOString()).toBe("2026-06-30T00:00:00.000Z");
+  });
+});
+
+describe("nextRun — interval (everyHours:24, atMinute:0)", () => {
+  const s = SCHEDULES.poller; // { kind:"interval", everyHours:24, atMinute:0 }
+
+  test("mid-day: returns next day's 00:00 UTC", () => {
+    const now = new Date("2026-06-29T09:15:00Z");
+    expect(nextRun(s, now).toISOString()).toBe("2026-06-30T00:00:00.000Z");
+  });
+
+  test("exactly on the daily boundary: returns the FOLLOWING day (strictly future)", () => {
+    const now = new Date("2026-06-29T00:00:00Z");
+    expect(nextRun(s, now).toISOString()).toBe("2026-06-30T00:00:00.000Z");
+  });
+
+  test("just before midnight: returns the upcoming 00:00 UTC", () => {
+    const now = new Date("2026-06-29T23:59:00Z");
     expect(nextRun(s, now).toISOString()).toBe("2026-06-30T00:00:00.000Z");
   });
 });

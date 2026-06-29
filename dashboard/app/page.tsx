@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { parseFilters } from "@/lib/filters";
 import {
   getBoardOwnerId, getBoardOwnerLocations, getJobs, getLatestPollRun, getProfile, getReviewStats,
@@ -8,7 +9,9 @@ import { getUserId } from "@/lib/auth";
 import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
+import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import type { OperatorSignals } from "@/lib/types";
+import type { BoardFilterState } from "@/lib/rolefit/filter";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +32,7 @@ export default async function Page({
   let operator: OperatorSignals | undefined;
   let hasProfile = false;
   let resumeText = "";
+  let initialFilters: BoardFilterState;
   if (viewerId) {
     const [pollRun, reviewStats, profile] = await Promise.all([
       getLatestPollRun(),
@@ -45,6 +49,10 @@ export default async function Page({
     };
     hasProfile = profile != null; // a saved profile row exists
     resumeText = profile?.resume_text ?? "";
+    initialFilters = parseBoardFilters(profile?.board_filters);
+  } else {
+    const store = await cookies();
+    initialFilters = parseBoardFilters(store.get("board_filters")?.value);
   }
 
   return (
@@ -53,6 +61,7 @@ export default async function Page({
       nowIso={new Date().toISOString()}
       isOperator={!!ownerId}
       isAuthed={!!viewerId}
+      initialFilters={initialFilters}
       saveResume={saveProfileResume}
       rejectJob={rejectJob}
       unrejectJob={unrejectJob}

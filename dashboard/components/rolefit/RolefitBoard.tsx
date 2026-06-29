@@ -17,6 +17,7 @@ export interface RolefitBoardProps {
   nowIso: string;
   isOperator: boolean;
   isAuthed: boolean;
+  initialFilters: BoardFilterState;
   saveResume: (fd: FormData) => Promise<void>;
   rejectJob: (jobId: string) => Promise<void>;
   unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
@@ -30,6 +31,7 @@ export function RolefitBoard({
   nowIso,
   isOperator: _isOperator,
   isAuthed,
+  initialFilters,
   saveResume,
   rejectJob,
   unrejectJob,
@@ -37,14 +39,14 @@ export function RolefitBoard({
   hasProfile,
   resumeText,
 }: RolefitBoardProps) {
-  // Filter state
-  const [search, setSearch] = useState("");
-  const [cats, setCats] = useState<string[]>([]);
-  const [locs, setLocs] = useState<string[]>([]);
-  const [remote, setRemote] = useState<BoardFilterState["remote"]>("all");
-  const [minFit, setMinFit] = useState(0);
-  const [payMin, setPayMin] = useState(0);
-  const [sort, setSort] = useState<BoardFilterState["sort"]>("match");
+  // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
+  const [search, setSearch] = useState(initialFilters.search);
+  const [cats, setCats] = useState<string[]>(initialFilters.cats);
+  const [locs, setLocs] = useState<string[]>(initialFilters.locs);
+  const [remote, setRemote] = useState<BoardFilterState["remote"]>(initialFilters.remote);
+  const [minFit, setMinFit] = useState(initialFilters.minFit);
+  const [payMin, setPayMin] = useState(initialFilters.payMin);
+  const [sort, setSort] = useState<BoardFilterState["sort"]>(initialFilters.sort);
 
   // UI state
   const [openMenu, setOpenMenu] = useState<string | null>(null);

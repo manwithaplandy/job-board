@@ -1,4 +1,9 @@
 import { sql } from "@/lib/db";
+import {
+  getCompanyVerdictCounts, getReviewStats, getDiscoveryState,
+  getLatestPollRun, getLatestReviewRun,
+} from "@/lib/queries";
+import type { PollRunRow, ReviewRunRow, DiscoveryRunRow, DiscoveryStateRow } from "@/lib/types";
 
 // ── Pure trend helpers (DB-free; unit-tested in metrics.test.ts) ──────────────
 
@@ -154,5 +159,90 @@ export async function getRunSeries(): Promise<RunSeries> {
     poll: poll as unknown as PollDay[],
     review: review as unknown as ReviewDay[],
     discovery: discovery as unknown as DiscoveryDay[],
+  };
+}
+
+// ── Funnel snapshot + latest runs ────────────────────────────────────────────
+
+export interface CompanyFunnel {
+  tracked: number; active: number; discovery_sourced: number; reviewed: number;
+  include: number; exclude: number; unknown: number; backlog: number;
+}
+export interface JobFunnel {
+  ever_seen: number; open: number; closed: number; reviewed: number;
+  gate_rejected: number; approved: number; denied: number;
+  manual_rejected: number; unreviewed: number; errors: number;
+}
+export interface FunnelCounts { companies: CompanyFunnel; jobs: JobFunnel }
+
+export async function getFunnel(userId: string): Promise<FunnelCounts> {
+  const [companyAggRows, jobAggRows, reviewAggRows, verdicts, stats, state] = await Promise.all([
+    sql`
+      SELECT count(*)::int AS tracked,
+             count(*) FILTER (WHERE c.active)::int AS active,
+             count(*) FILTER (WHERE c.discovery_source <> 'manual')::int AS discovery_sourced,
+             count(*) FILTER (WHERE c.discovery_source <> 'manual' AND cr.company_id IS NOT NULL)::int AS reviewed
+      FROM companies c
+      LEFT JOIN company_reviews cr ON cr.company_id = c.id AND cr.user_id = ${userId}::uuid
+    `,
+    sql`
+      SELECT count(*)::int AS ever_seen,
+             count(*) FILTER (WHERE closed_at IS NULL)::int AS open,
+             count(*) FILTER (WHERE closed_at IS NOT NULL)::int AS closed
+      FROM jobs
+    `,
+    sql`
+      SELECT count(*) FILTER (WHERE r.job_id IS NOT NULL)::int AS reviewed,
+             count(*) FILTER (WHERE r.stage1_decision = 'reject')::int AS gate_rejected,
+             count(*) FILTER (WHERE r.verdict = 'approve')::int AS approved,
+             count(*) FILTER (WHERE r.verdict = 'deny')::int AS denied,
+             count(*) FILTER (WHERE r.verdict = 'deny' AND r.human_override)::int AS manual_rejected
+      FROM jobs j
+      LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
+      WHERE j.closed_at IS NULL
+    `,
+    getCompanyVerdictCounts(userId),
+    getReviewStats(userId),
+    getDiscoveryState(userId),
+  ]);
+
+  const c = companyAggRows[0] as unknown as { tracked: number; active: number; discovery_sourced: number; reviewed: number };
+  const j = jobAggRows[0] as unknown as { ever_seen: number; open: number; closed: number };
+  const rv = reviewAggRows[0] as unknown as { reviewed: number; gate_rejected: number; approved: number; denied: number; manual_rejected: number };
+
+  return {
+    companies: {
+      tracked: c.tracked, active: c.active, discovery_sourced: c.discovery_sourced, reviewed: c.reviewed,
+      include: verdicts.include, exclude: verdicts.exclude, unknown: verdicts.unknown,
+      backlog: state.backlog,
+    },
+    jobs: {
+      ever_seen: j.ever_seen, open: j.open, closed: j.closed,
+      reviewed: rv.reviewed, gate_rejected: rv.gate_rejected,
+      approved: rv.approved, denied: rv.denied, manual_rejected: rv.manual_rejected,
+      unreviewed: stats.unreviewed, errors: stats.errors,
+    },
+  };
+}
+
+export interface LatestRuns {
+  poll: PollRunRow | null;
+  review: ReviewRunRow | null;
+  discovery: DiscoveryRunRow | null;
+  discoveryState: DiscoveryStateRow;
+}
+
+export async function getLatestRuns(userId: string): Promise<LatestRuns> {
+  const [poll, review, discoveryRows, discoveryState] = await Promise.all([
+    getLatestPollRun(),
+    getLatestReviewRun(),
+    sql`SELECT * FROM discovery_runs WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
+    getDiscoveryState(userId),
+  ]);
+  return {
+    poll,
+    review,
+    discovery: (discoveryRows[0] as unknown as DiscoveryRunRow) ?? null,
+    discoveryState,
   };
 }

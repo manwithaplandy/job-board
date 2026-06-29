@@ -173,6 +173,86 @@ export async function getLatestRuns(userId: string): Promise<LatestRuns> {
   };
 }
 
+// ── Per-pipeline health (latest / lastSuccess / all-time totals) ──────────────
+
+export interface PollerTotals    { runs: number; new_jobs: number; closed_jobs: number; companies_ok: number; companies_failed: number }
+export interface ReviewerTotals  { runs: number; reviewed: number; gate_rejected: number; approved: number; denied: number; errors: number }
+export interface DiscoveryTotals { runs: number; ingested: number; reviewed: number; included: number; excluded: number; errors: number }
+
+export interface PipelineHealth {
+  poller:    { latest: PollRunRow | null;      lastSuccess: PollRunRow | null;      totals: PollerTotals }
+  reviewer:  { latest: ReviewRunRow | null;    lastSuccess: ReviewRunRow | null;    totals: ReviewerTotals }
+  discovery: { latest: DiscoveryRunRow | null; lastSuccess: DiscoveryRunRow | null; totals: DiscoveryTotals; state: DiscoveryStateRow }
+}
+
+export async function getPipelineHealth(userId: string): Promise<PipelineHealth> {
+  const [
+    pollerLatestRows,
+    reviewerLatestRows,
+    discoveryLatestRows,
+    pollerLastSuccessRows,
+    reviewerLastSuccessRows,
+    discoveryLastSuccessRows,
+    pollerTotalsRows,
+    reviewerTotalsRows,
+    discoveryTotalsRows,
+  ] = await seq([
+    () => sql`SELECT * FROM poll_runs ORDER BY started_at DESC LIMIT 1`,
+    () => sql`SELECT * FROM review_runs ORDER BY started_at DESC LIMIT 1`,
+    () => sql`SELECT * FROM discovery_runs ORDER BY started_at DESC LIMIT 1`,
+    () => sql`SELECT * FROM poll_runs WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
+    () => sql`SELECT * FROM review_runs WHERE finished_at IS NOT NULL AND reviewed > 0 ORDER BY started_at DESC LIMIT 1`,
+    () => sql`SELECT * FROM discovery_runs WHERE finished_at IS NOT NULL AND (ingested > 0 OR reviewed > 0) ORDER BY started_at DESC LIMIT 1`,
+    () => sql`
+      SELECT count(*)::int                            AS runs,
+             COALESCE(sum(new_jobs), 0)::int          AS new_jobs,
+             COALESCE(sum(closed_jobs), 0)::int       AS closed_jobs,
+             COALESCE(sum(companies_ok), 0)::int      AS companies_ok,
+             COALESCE(sum(companies_failed), 0)::int  AS companies_failed
+      FROM poll_runs
+    `,
+    () => sql`
+      SELECT count(*)::int                          AS runs,
+             COALESCE(sum(reviewed), 0)::int        AS reviewed,
+             COALESCE(sum(gate_rejected), 0)::int   AS gate_rejected,
+             COALESCE(sum(approved), 0)::int        AS approved,
+             COALESCE(sum(denied), 0)::int          AS denied,
+             COALESCE(sum(errors), 0)::int          AS errors
+      FROM review_runs
+    `,
+    () => sql`
+      SELECT count(*)::int                        AS runs,
+             COALESCE(sum(ingested), 0)::int      AS ingested,
+             COALESCE(sum(reviewed), 0)::int      AS reviewed,
+             COALESCE(sum(included), 0)::int      AS included,
+             COALESCE(sum(excluded), 0)::int      AS excluded,
+             COALESCE(sum(errors), 0)::int        AS errors
+      FROM discovery_runs
+    `,
+  ]);
+
+  const state = await getDiscoveryState(userId);
+
+  return {
+    poller: {
+      latest:      (pollerLatestRows[0] as unknown as PollRunRow) ?? null,
+      lastSuccess: (pollerLastSuccessRows[0] as unknown as PollRunRow) ?? null,
+      totals:      pollerTotalsRows[0] as unknown as PollerTotals,
+    },
+    reviewer: {
+      latest:      (reviewerLatestRows[0] as unknown as ReviewRunRow) ?? null,
+      lastSuccess: (reviewerLastSuccessRows[0] as unknown as ReviewRunRow) ?? null,
+      totals:      reviewerTotalsRows[0] as unknown as ReviewerTotals,
+    },
+    discovery: {
+      latest:      (discoveryLatestRows[0] as unknown as DiscoveryRunRow) ?? null,
+      lastSuccess: (discoveryLastSuccessRows[0] as unknown as DiscoveryRunRow) ?? null,
+      totals:      discoveryTotalsRows[0] as unknown as DiscoveryTotals,
+      state,
+    },
+  };
+}
+
 // ── Breakdowns (current-state distributions) ─────────────────────────────────
 
 export interface Bar { label: string; count: number }

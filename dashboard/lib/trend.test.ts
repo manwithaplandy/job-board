@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { weekStart, fillDays, toWeekly, sliceWindow, rate, type Point } from "@/lib/metrics";
+import { weekStart, fillDays, toWeekly, sliceWindow, rate, type Point } from "@/lib/trend";
 
 describe("weekStart", () => {
   test("returns the Monday of the ISO week (UTC)", () => {

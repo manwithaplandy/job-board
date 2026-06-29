@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { RunSeries } from "@/lib/metrics";
-import { fillDays, toWeekly, sliceWindow, rate } from "@/lib/metrics";
+import { fillDays, toWeekly, sliceWindow, rate } from "@/lib/trend";
 import { LinesCard, BarsCard } from "@/components/analytics/Chart";
 
 type Gran = "day" | "week";

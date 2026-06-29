@@ -4,9 +4,8 @@ import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 
 // Build plain-text résumé from TailoredResume — mirrors composeResumeText in reference
-function composeResumeText(job: JobRow, data: TailoredResume): string {
+function composeResumeText(data: TailoredResume): string {
   let t = `${data.name}\n${data.headline}\n\n`;
-  t += `TAILORED FOR: ${job.title} — ${job.company_name}\n\n`;
   t += `SUMMARY\n${data.summary}\n\nCORE SKILLS\n${data.skills.join(", ")}\n\nEXPERIENCE\n`;
   data.experience.forEach((exp) => {
     t += `${exp.role}, ${exp.company} (${exp.dates})\n`;
@@ -80,7 +79,7 @@ export function ResumePanel({
       JsPDF = jsPDFMod.jsPDF ?? jsPDFMod.default;
     } catch (e) {
       console.error("Failed to import jsPDF; falling back to .txt download", e);
-      const text = composeResumeText(job, data);
+      const text = composeResumeText(data);
       const blob = new Blob([text], { type: "text/plain" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -92,85 +91,104 @@ export function ResumePanel({
       return;
     }
 
-    // PDF generation — errors bubble up
+    // PDF generation — errors bubble up.
     const doc = new JsPDF({ unit: "pt", format: "letter" });
     const W: number = doc.internal.pageSize.getWidth();
     const M = 56;
-    let y = 66;
+    const TOP = 66;
+    const BOTTOM = 752; // content must stay above this y to remain on one page
 
-    const wrap = (txt: string, w: number): string[] => doc.splitTextToSize(txt, w);
+    // Lay the résumé out at scale `s`. When `draw` is false it only advances `y`
+    // (a measurement pass); when true it actually paints. Font + size are set in
+    // both passes so line-wrapping during measurement matches the drawn output.
+    // Returns the y of the content bottom.
+    const layout = (s: number, draw: boolean): number => {
+      let y = TOP;
+      const body = () => { doc.setFont("helvetica", "normal"); doc.setFontSize(10.5 * s); };
+      const wrapLines = (txt: string, w: number, lh: number) => {
+        body();
+        doc.splitTextToSize(txt, w).forEach((l: string) => {
+          if (draw) doc.text(l, M, y);
+          y += lh * s;
+        });
+      };
+      const section = (title: string) => {
+        if (draw) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(11.5 * s);
+          doc.setTextColor(27, 35, 48);
+          doc.text(title.toUpperCase(), M, y);
+        }
+        y += 7 * s;
+        if (draw) {
+          doc.setDrawColor(222, 227, 234);
+          doc.line(M, y, W - M, y);
+        }
+        y += 17 * s;
+        if (draw) doc.setTextColor(47, 56, 69);
+        body();
+      };
 
-    // Name
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(21);
-    doc.setTextColor(22, 29, 41);
-    doc.text(data.name, M, y);
-    y += 17;
-
-    // Headline
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10.5);
-    doc.setTextColor(95, 100, 114);
-    doc.text(data.headline, M, y);
-    y += 24;
-
-    // "TAILORED FOR" box
-    doc.setFillColor(238, 243, 252);
-    doc.roundedRect(M, y - 13, W - 2 * M, 25, 5, 5, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(47, 92, 191);
-    doc.text(`TAILORED FOR  —  ${job.title} at ${job.company_name}`, M + 11, y + 3);
-    y += 38;
-
-    const section = (title: string) => {
+      // Name
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11.5);
-      doc.setTextColor(27, 35, 48);
-      doc.text(title.toUpperCase(), M, y);
-      y += 7;
-      doc.setDrawColor(222, 227, 234);
-      doc.line(M, y, W - M, y);
-      y += 17;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10.5);
-      doc.setTextColor(47, 56, 69);
+      doc.setFontSize(21 * s);
+      if (draw) { doc.setTextColor(22, 29, 41); doc.text(data.name, M, y); }
+      y += 17 * s;
+
+      // Headline (wraps if long)
+      body();
+      if (draw) doc.setTextColor(95, 100, 114);
+      doc.splitTextToSize(data.headline, W - 2 * M).forEach((l: string) => {
+        if (draw) doc.text(l, M, y);
+        y += 13 * s;
+      });
+      y += 17 * s;
+
+      section("Summary");
+      wrapLines(data.summary, W - 2 * M, 15);
+      y += 9 * s;
+
+      section("Core skills");
+      wrapLines(data.skills.join("   ·   "), W - 2 * M, 15);
+      y += 9 * s;
+
+      section("Experience");
+      data.experience.forEach((exp) => {
+        if (draw) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10.8 * s);
+          doc.setTextColor(27, 35, 48);
+          doc.text(`${exp.role}, ${exp.company}`, M, y);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9.5 * s);
+          doc.setTextColor(130, 136, 148);
+          doc.text(exp.dates, W - M, y, { align: "right" });
+        }
+        y += 15 * s;
+        if (draw) doc.setTextColor(47, 56, 69);
+        exp.bullets.forEach((b) => {
+          body();
+          doc.splitTextToSize("•  " + b, W - 2 * M - 8).forEach((l: string, i: number) => {
+            if (draw) doc.text(l, M + (i ? 12 : 6), y);
+            y += 14 * s;
+          });
+        });
+        y += 9 * s;
+      });
+
+      section("Education");
+      wrapLines(data.education, W - 2 * M, 15);
+
+      return y;
     };
 
-    section("Summary");
-    wrap(data.summary, W - 2 * M).forEach((l: string) => { doc.text(l, M, y); y += 15; });
-    y += 9;
-
-    section("Core skills");
-    wrap(data.skills.join("   ·   "), W - 2 * M).forEach((l: string) => { doc.text(l, M, y); y += 15; });
-    y += 9;
-
-    section("Experience");
-    data.experience.forEach((exp) => {
-      if (y > 700) { doc.addPage(); y = 66; }
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10.8);
-      doc.setTextColor(27, 35, 48);
-      doc.text(`${exp.role}, ${exp.company}`, M, y);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9.5);
-      doc.setTextColor(130, 136, 148);
-      doc.text(exp.dates, W - M, y, { align: "right" });
-      y += 15;
-      doc.setFontSize(10.5);
-      doc.setTextColor(47, 56, 69);
-      exp.bullets.forEach((b) => {
-        wrap("•  " + b, W - 2 * M - 8).forEach((l: string, i: number) => {
-          doc.text(l, M + (i ? 12 : 6), y);
-          y += 14;
-        });
-      });
-      y += 9;
-    });
-
-    if (y > 710) { doc.addPage(); y = 66; }
-    section("Education");
-    doc.text(data.education, M, y);
+    // Pick the largest scale in [0.7, 1] that keeps everything on one page,
+    // using cheap measurement passes, then draw once at that scale.
+    let scale = 0.7;
+    for (let s = 1; s >= 0.7 - 1e-9; s -= 0.02) {
+      if (layout(s, false) <= BOTTOM) { scale = s; break; }
+    }
+    layout(scale, true);
 
     doc.save(fname);
   };

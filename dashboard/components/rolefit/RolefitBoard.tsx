@@ -188,7 +188,7 @@ export function RolefitBoard({
 
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
-    const text = composeResumeText(job, data);
+    const text = composeResumeText(data);
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).catch(() => legacyCopy(text));

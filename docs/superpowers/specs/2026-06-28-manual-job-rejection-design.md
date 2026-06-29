@@ -121,11 +121,12 @@ Mirrors `dashboard/app/actions/companies.ts` (`"use server"`, `requireUserId()`,
   `INSERT … (user_id, job_id, profile_version='', verdict='deny', human_override=TRUE)
   ON CONFLICT (user_id, job_id) DO UPDATE SET verdict='deny', human_override=TRUE,
   reviewed_at=now()`; then `revalidatePath("/")`.
-- `unrejectJob(jobId: string, priorVerdict: string | null)`: the Undo path. If
-  `priorVerdict` is non-null, `UPDATE … SET verdict=priorVerdict,
-  human_override=FALSE` for the operator's row; if `priorVerdict` is null (the job
-  was unreviewed before the reject), `DELETE` the row that reject inserted. Then
-  `revalidatePath("/")`.
+- `unrejectJob(jobId: string, priorVerdict: string | null)`: the Undo path — a
+  single non-destructive `UPDATE … SET verdict=priorVerdict, human_override=FALSE`
+  for the operator's row, guarded by `AND human_override = TRUE` so it only ever
+  touches a row this feature rejected. Then `revalidatePath("/")`. (Update-only —
+  never `DELETE` — so undoing a reject of a gate-rejected row restores its
+  original `stage1_decision` instead of destroying the review row.)
 
 ### 4. Surface `human_override` (`lib/jobsQuery.ts`, `lib/types.ts`)
 
@@ -135,7 +136,8 @@ Mirrors `dashboard/app/actions/companies.ts` (`"use server"`, `requireUserId()`,
 ### 5. Detail-pane Reject control (`components/rolefit/JobDetail.tsx`)
 
 - A **Reject** button in the detail header action area, rendered only when
-  `isAuthed && job.verdict !== 'deny'`. Calls an `onReject(job)` prop.
+  `isAuthed && job.verdict === 'approve'` (you reject what the AI approved; this
+  also keeps Undo's restore target unambiguous). Calls an `onReject(job)` prop.
 - A "rejected · you" badge when `job.human_override` is true (visible when
   browsing the Denied view). Style matches the existing tag/badge language.
 

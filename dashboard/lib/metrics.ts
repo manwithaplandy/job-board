@@ -82,3 +82,77 @@ export function sliceWindow<T extends { day: string }>(rows: T[], days: number, 
 export function rate(numer: number, denom: number): number | null {
   return denom === 0 ? null : numer / denom;
 }
+
+// ── Run series: 90-day daily aggregates per pipeline ─────────────────────────
+
+export interface PollDay {
+  day: string; new_jobs: number; closed_jobs: number;
+  companies_ok: number; companies_failed: number;
+  run_count: number; total_duration_seconds: number;
+}
+export interface ReviewDay {
+  day: string; reviewed: number; gate_rejected: number;
+  approved: number; denied: number; errors: number;
+  run_count: number; total_duration_seconds: number;
+}
+export interface DiscoveryDay {
+  day: string; ingested: number; reviewed: number;
+  included: number; excluded: number; unknown: number; errors: number;
+  run_count: number; total_duration_seconds: number;
+  last_backlog: number; halt_count: number;
+}
+export interface RunSeries { poll: PollDay[]; review: ReviewDay[]; discovery: DiscoveryDay[] }
+
+export async function getRunSeries(): Promise<RunSeries> {
+  const [poll, review, discovery] = await Promise.all([
+    sql`
+      SELECT to_char(date_trunc('day', started_at), 'YYYY-MM-DD') AS day,
+             COALESCE(sum(new_jobs), 0)::int          AS new_jobs,
+             COALESCE(sum(closed_jobs), 0)::int       AS closed_jobs,
+             COALESCE(sum(companies_ok), 0)::int      AS companies_ok,
+             COALESCE(sum(companies_failed), 0)::int  AS companies_failed,
+             count(*)::int                            AS run_count,
+             COALESCE(sum(EXTRACT(EPOCH FROM (finished_at - started_at)))
+                      FILTER (WHERE finished_at IS NOT NULL), 0)::float AS total_duration_seconds
+      FROM poll_runs
+      WHERE started_at >= now() - interval '90 days'
+      GROUP BY 1 ORDER BY 1
+    `,
+    sql`
+      SELECT to_char(date_trunc('day', started_at), 'YYYY-MM-DD') AS day,
+             COALESCE(sum(reviewed), 0)::int       AS reviewed,
+             COALESCE(sum(gate_rejected), 0)::int  AS gate_rejected,
+             COALESCE(sum(approved), 0)::int       AS approved,
+             COALESCE(sum(denied), 0)::int         AS denied,
+             COALESCE(sum(errors), 0)::int         AS errors,
+             count(*)::int                         AS run_count,
+             COALESCE(sum(EXTRACT(EPOCH FROM (finished_at - started_at)))
+                      FILTER (WHERE finished_at IS NOT NULL), 0)::float AS total_duration_seconds
+      FROM review_runs
+      WHERE started_at >= now() - interval '90 days'
+      GROUP BY 1 ORDER BY 1
+    `,
+    sql`
+      SELECT to_char(date_trunc('day', started_at), 'YYYY-MM-DD') AS day,
+             COALESCE(sum(ingested), 0)::int   AS ingested,
+             COALESCE(sum(reviewed), 0)::int   AS reviewed,
+             COALESCE(sum(included), 0)::int   AS included,
+             COALESCE(sum(excluded), 0)::int   AS excluded,
+             COALESCE(sum(unknown), 0)::int    AS unknown,
+             COALESCE(sum(errors), 0)::int     AS errors,
+             count(*)::int                     AS run_count,
+             COALESCE(sum(EXTRACT(EPOCH FROM (finished_at - started_at)))
+                      FILTER (WHERE finished_at IS NOT NULL), 0)::float AS total_duration_seconds,
+             COALESCE((array_agg(backlog ORDER BY started_at DESC))[1], 0)::int AS last_backlog,
+             count(*) FILTER (WHERE status = 'halted_no_credits')::int          AS halt_count
+      FROM discovery_runs
+      WHERE started_at >= now() - interval '90 days'
+      GROUP BY 1 ORDER BY 1
+    `,
+  ]);
+  return {
+    poll: poll as unknown as PollDay[],
+    review: review as unknown as ReviewDay[],
+    discovery: discovery as unknown as DiscoveryDay[],
+  };
+}

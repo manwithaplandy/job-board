@@ -91,6 +91,26 @@ export function RolefitBoard({
     [search, cats, locs, remote, minFit, payMin, sort],
   );
 
+  // Persist filter changes (debounced) so they survive navigation/visits.
+  // Skips the initial mount so the just-loaded initialFilters aren't re-saved.
+  // Best-effort: failures are swallowed and never block filtering.
+  const firstFilterSave = useRef(true);
+  useEffect(() => {
+    if (firstFilterSave.current) {
+      firstFilterSave.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      void fetch("/api/board-filters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(filterState),
+        keepalive: true,
+      }).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [filterState]);
+
   const visible = useMemo(
     () => sortJobs(applyFilters(jobs, filterState), filterState.sort)
       .filter((j) => !rejectedIds.has(j.id)),

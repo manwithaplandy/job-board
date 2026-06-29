@@ -114,6 +114,21 @@ export interface CompanyReviewRow {
   red_flags: string[] | null;
 }
 
+export interface DiscoveryRunRow {
+  id: number;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  ingested: number | null;
+  reviewed: number | null;
+  included: number | null;
+  excluded: number | null;
+  unknown: number | null;
+  errors: number | null;
+  backlog: number | null;
+  notes: string | null;
+}
+
 export interface DiscoveryStateRow {
   halted_no_credits: boolean;
   resume_requested_at: string | null;

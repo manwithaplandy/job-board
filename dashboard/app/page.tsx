@@ -36,7 +36,11 @@ export default async function Page({
       getProfile(viewerId),
     ]);
     operator = {
-      health: computeHealth(pollRun, new Date(), STALE_HEALTH_HOURS),
+      health: computeHealth(
+        pollRun ? { finished_at: pollRun.finished_at, failures: pollRun.companies_failed } : null,
+        new Date(),
+        STALE_HEALTH_HOURS,
+      ),
       unreviewed: reviewStats.unreviewed,
     };
     hasProfile = profile != null; // a saved profile row exists

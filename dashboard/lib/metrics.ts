@@ -230,8 +230,12 @@ export async function getDistributions(userId: string): Promise<Distributions> {
     sql`SELECT ats AS label, count(*)::int AS count FROM companies GROUP BY ats ORDER BY count DESC`,
     sql`SELECT discovery_source AS label, count(*)::int AS count FROM companies
         GROUP BY discovery_source ORDER BY count DESC`,
+    // Effective verdict (honors manual override), matching getCompanyVerdictCounts
+    // so this breakdown and the funnel's "Included" count agree.
     sql`SELECT industry AS label, count(*)::int AS count FROM company_reviews
-        WHERE user_id = ${userId}::uuid AND verdict = 'include' AND industry IS NOT NULL
+        WHERE user_id = ${userId}::uuid
+          AND (CASE WHEN human_override THEN override_verdict ELSE verdict END) = 'include'
+          AND industry IS NOT NULL
         GROUP BY industry ORDER BY count DESC LIMIT ${TOP_N}`,
     sql`SELECT t AS label, count(*)::int AS count
         FROM company_reviews cr, jsonb_array_elements_text(cr.tech_tags) AS t

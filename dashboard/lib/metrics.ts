@@ -5,6 +5,19 @@ import {
 } from "@/lib/queries";
 import type { PollRunRow, ReviewRunRow, DiscoveryRunRow, DiscoveryStateRow } from "@/lib/types";
 
+// Run async thunks STRICTLY ONE AT A TIME (never concurrently). The /analytics page
+// fans out ~29 queries; issuing them concurrently hands postgres.js more queries than
+// its pool has connections, so it queues them — which wedges against Supabase's
+// transaction pooler. (Observed in prod: the serverless function froze mid-fan-out with
+// connections stuck in `ClientRead`, never reading results, until the 300s timeout.)
+// Running sequentially keeps exactly one query in flight — the safe pattern the rest of
+// the app uses. The latency cost (~a couple seconds) is hidden by the page's caching.
+async function seq<T>(thunks: ReadonlyArray<() => Promise<T>>): Promise<T[]> {
+  const out: T[] = [];
+  for (const thunk of thunks) out.push(await thunk());
+  return out;
+}
+
 // ── Run series: 90-day daily aggregates per pipeline ─────────────────────────
 
 export interface PollDay {
@@ -26,8 +39,8 @@ export interface DiscoveryDay {
 export interface RunSeries { poll: PollDay[]; review: ReviewDay[]; discovery: DiscoveryDay[] }
 
 export async function getRunSeries(): Promise<RunSeries> {
-  const [poll, review, discovery] = await Promise.all([
-    sql`
+  const [poll, review, discovery] = await seq([
+    () => sql`
       SELECT to_char(date_trunc('day', started_at), 'YYYY-MM-DD') AS day,
              COALESCE(sum(new_jobs), 0)::int          AS new_jobs,
              COALESCE(sum(closed_jobs), 0)::int       AS closed_jobs,
@@ -40,7 +53,7 @@ export async function getRunSeries(): Promise<RunSeries> {
       WHERE started_at >= now() - interval '90 days'
       GROUP BY 1 ORDER BY 1
     `,
-    sql`
+    () => sql`
       SELECT to_char(date_trunc('day', started_at), 'YYYY-MM-DD') AS day,
              COALESCE(sum(reviewed), 0)::int       AS reviewed,
              COALESCE(sum(gate_rejected), 0)::int  AS gate_rejected,
@@ -54,7 +67,7 @@ export async function getRunSeries(): Promise<RunSeries> {
       WHERE started_at >= now() - interval '90 days'
       GROUP BY 1 ORDER BY 1
     `,
-    sql`
+    () => sql`
       SELECT to_char(date_trunc('day', started_at), 'YYYY-MM-DD') AS day,
              COALESCE(sum(ingested), 0)::int   AS ingested,
              COALESCE(sum(reviewed), 0)::int   AS reviewed,
@@ -93,22 +106,21 @@ export interface JobFunnel {
 export interface FunnelCounts { companies: CompanyFunnel; jobs: JobFunnel }
 
 export async function getFunnel(userId: string): Promise<FunnelCounts> {
-  const [companyAggRows, jobAggRows, reviewAggRows, verdicts, stats, state] = await Promise.all([
-    sql`
+  const companyAggRows = await sql`
       SELECT count(*)::int AS tracked,
              count(*) FILTER (WHERE c.active)::int AS active,
              count(*) FILTER (WHERE c.discovery_source <> 'manual')::int AS discovery_sourced,
              count(*) FILTER (WHERE c.discovery_source <> 'manual' AND cr.company_id IS NOT NULL)::int AS reviewed
       FROM companies c
       LEFT JOIN company_reviews cr ON cr.company_id = c.id AND cr.user_id = ${userId}::uuid
-    `,
-    sql`
+    `;
+  const jobAggRows = await sql`
       SELECT count(*)::int AS ever_seen,
              count(*) FILTER (WHERE closed_at IS NULL)::int AS open,
              count(*) FILTER (WHERE closed_at IS NOT NULL)::int AS closed
       FROM jobs
-    `,
-    sql`
+    `;
+  const reviewAggRows = await sql`
       SELECT count(*) FILTER (WHERE r.job_id IS NOT NULL)::int AS reviewed,
              count(*) FILTER (WHERE r.stage1_decision = 'reject')::int AS gate_rejected,
              count(*) FILTER (WHERE r.verdict = 'approve')::int AS approved,
@@ -117,11 +129,10 @@ export async function getFunnel(userId: string): Promise<FunnelCounts> {
       FROM jobs j
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.closed_at IS NULL
-    `,
-    getCompanyVerdictCounts(userId),
-    getReviewStats(userId),
-    getDiscoveryState(userId),
-  ]);
+    `;
+  const verdicts = await getCompanyVerdictCounts(userId);
+  const stats = await getReviewStats(userId);
+  const state = await getDiscoveryState(userId);
 
   const c = companyAggRows[0] as unknown as { tracked: number; active: number; discovery_sourced: number; reviewed: number };
   const j = jobAggRows[0] as unknown as { ever_seen: number; open: number; closed: number };
@@ -150,12 +161,10 @@ export interface LatestRuns {
 }
 
 export async function getLatestRuns(userId: string): Promise<LatestRuns> {
-  const [poll, review, discoveryRows, discoveryState] = await Promise.all([
-    getLatestPollRun(),
-    getLatestReviewRun(),
-    sql`SELECT * FROM discovery_runs WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
-    getDiscoveryState(userId),
-  ]);
+  const poll = await getLatestPollRun();
+  const review = await getLatestReviewRun();
+  const discoveryRows = await sql`SELECT * FROM discovery_runs WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`;
+  const discoveryState = await getDiscoveryState(userId);
   return {
     poll,
     review,
@@ -186,19 +195,19 @@ export async function getDistributions(userId: string): Promise<Distributions> {
     fitScore, approvalsByIndustry, approvalsByRole, approvalsBySeniority,
     experienceMatch, workArrangement,
     companiesByAts, companiesBySource, includedByIndustry, topTechTags, topRedFlags,
-  ] = await Promise.all([
-    sql`SELECT location AS label, count(*)::int AS count FROM jobs
+  ] = await seq([
+    () => sql`SELECT location AS label, count(*)::int AS count FROM jobs
         WHERE closed_at IS NULL AND location IS NOT NULL AND location <> ''
         GROUP BY location ORDER BY count DESC LIMIT ${TOP_N}`,
-    sql`SELECT department AS label, count(*)::int AS count FROM jobs
+    () => sql`SELECT department AS label, count(*)::int AS count FROM jobs
         WHERE closed_at IS NULL AND department IS NOT NULL AND department <> ''
         GROUP BY department ORDER BY count DESC LIMIT ${TOP_N}`,
-    sql`SELECT CASE WHEN remote THEN 'Remote' ELSE 'On-site / hybrid' END AS label, count(*)::int AS count
+    () => sql`SELECT CASE WHEN remote THEN 'Remote' ELSE 'On-site / hybrid' END AS label, count(*)::int AS count
         FROM jobs WHERE closed_at IS NULL GROUP BY 1 ORDER BY count DESC`,
-    sql`SELECT c.name AS label, count(*)::int AS count
+    () => sql`SELECT c.name AS label, count(*)::int AS count
         FROM jobs j JOIN companies c ON c.id = j.company_id
         WHERE j.closed_at IS NULL GROUP BY c.name ORDER BY count DESC LIMIT ${TOP_N}`,
-    sql`SELECT CASE
+    () => sql`SELECT CASE
                WHEN d < 1 THEN '<1d' WHEN d < 3 THEN '1-3d' WHEN d < 7 THEN '3-7d'
                WHEN d < 14 THEN '1-2w' WHEN d < 30 THEN '2-4w' WHEN d < 60 THEN '1-2mo'
                ELSE '2mo+' END AS label,
@@ -207,41 +216,41 @@ export async function getDistributions(userId: string): Promise<Distributions> {
               FROM jobs WHERE closed_at IS NOT NULL) s
         GROUP BY label
         ORDER BY min(d)`,
-    sql`SELECT ((fit_score / 10) * 10)::text || '-' || ((fit_score / 10) * 10 + 9)::text AS label,
+    () => sql`SELECT ((fit_score / 10) * 10)::text || '-' || ((fit_score / 10) * 10 + 9)::text AS label,
                count(*)::int AS count
         FROM job_reviews
         WHERE user_id = ${userId}::uuid AND fit_score IS NOT NULL
         GROUP BY (fit_score / 10) ORDER BY (fit_score / 10)`,
-    sql`SELECT industry AS label, count(*)::int AS count FROM job_reviews
+    () => sql`SELECT industry AS label, count(*)::int AS count FROM job_reviews
         WHERE user_id = ${userId}::uuid AND verdict = 'approve' AND industry IS NOT NULL
         GROUP BY industry ORDER BY count DESC LIMIT ${TOP_N}`,
-    sql`SELECT role_category AS label, count(*)::int AS count FROM job_reviews
+    () => sql`SELECT role_category AS label, count(*)::int AS count FROM job_reviews
         WHERE user_id = ${userId}::uuid AND verdict = 'approve' AND role_category IS NOT NULL
         GROUP BY role_category ORDER BY count DESC LIMIT ${TOP_N}`,
-    sql`SELECT seniority AS label, count(*)::int AS count FROM job_reviews
+    () => sql`SELECT seniority AS label, count(*)::int AS count FROM job_reviews
         WHERE user_id = ${userId}::uuid AND verdict = 'approve' AND seniority IS NOT NULL
         GROUP BY seniority ORDER BY count DESC`,
-    sql`SELECT experience_match AS label, count(*)::int AS count FROM job_reviews
+    () => sql`SELECT experience_match AS label, count(*)::int AS count FROM job_reviews
         WHERE user_id = ${userId}::uuid AND experience_match IS NOT NULL
         GROUP BY experience_match ORDER BY count DESC`,
-    sql`SELECT work_arrangement AS label, count(*)::int AS count FROM job_reviews
+    () => sql`SELECT work_arrangement AS label, count(*)::int AS count FROM job_reviews
         WHERE user_id = ${userId}::uuid AND work_arrangement IS NOT NULL
         GROUP BY work_arrangement ORDER BY count DESC`,
-    sql`SELECT ats AS label, count(*)::int AS count FROM companies GROUP BY ats ORDER BY count DESC`,
-    sql`SELECT discovery_source AS label, count(*)::int AS count FROM companies
+    () => sql`SELECT ats AS label, count(*)::int AS count FROM companies GROUP BY ats ORDER BY count DESC`,
+    () => sql`SELECT discovery_source AS label, count(*)::int AS count FROM companies
         GROUP BY discovery_source ORDER BY count DESC`,
     // Effective verdict (honors manual override), matching getCompanyVerdictCounts
     // so this breakdown and the funnel's "Included" count agree.
-    sql`SELECT industry AS label, count(*)::int AS count FROM company_reviews
+    () => sql`SELECT industry AS label, count(*)::int AS count FROM company_reviews
         WHERE user_id = ${userId}::uuid
           AND (CASE WHEN human_override THEN override_verdict ELSE verdict END) = 'include'
           AND industry IS NOT NULL
         GROUP BY industry ORDER BY count DESC LIMIT ${TOP_N}`,
-    sql`SELECT t AS label, count(*)::int AS count
+    () => sql`SELECT t AS label, count(*)::int AS count
         FROM company_reviews cr, jsonb_array_elements_text(cr.tech_tags) AS t
         WHERE cr.user_id = ${userId}::uuid
         GROUP BY t ORDER BY count DESC LIMIT ${TOP_N}`,
-    sql`SELECT f AS label, count(*)::int AS count
+    () => sql`SELECT f AS label, count(*)::int AS count
         FROM company_reviews cr, jsonb_array_elements_text(cr.red_flags) AS f
         WHERE cr.user_id = ${userId}::uuid
         GROUP BY f ORDER BY count DESC LIMIT ${TOP_N}`,
@@ -266,8 +275,8 @@ export interface PipelineSnapshot {
 }
 
 export async function getPipelineSnapshot(userId: string): Promise<PipelineSnapshot> {
-  const [funnel, latest, distributions] = await Promise.all([
-    getFunnel(userId), getLatestRuns(userId), getDistributions(userId),
-  ]);
+  const funnel = await getFunnel(userId);
+  const latest = await getLatestRuns(userId);
+  const distributions = await getDistributions(userId);
   return { funnel, latest, distributions };
 }

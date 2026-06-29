@@ -28,9 +28,10 @@ const cachedRunSeries = unstable_cache(
 
 export default async function AnalyticsPage() {
   const userId = await requireUserId(); // redirects to /login when anonymous
-  const [snapshot, series] = await Promise.all([
-    cachedSnapshot(userId),
-    cachedRunSeries(),
-  ]);
+  // Sequential, not Promise.all: the metrics queries run one at a time (see lib/metrics
+  // `seq`) to avoid overwhelming the DB connection pool, so there's no benefit to racing
+  // the two cached groups — and keeping them sequential guarantees no concurrent fan-out.
+  const snapshot = await cachedSnapshot(userId);
+  const series = await cachedRunSeries();
   return <PipelineDashboard snapshot={snapshot} series={series} nowIso={new Date().toISOString()} />;
 }

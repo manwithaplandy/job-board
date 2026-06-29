@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { saveBoardFilters } from "@/lib/queries";
+import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -8,8 +11,21 @@ async function signIn(formData: FormData) {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`);
+
+  // Adopt anonymous cookie filters into the account (best-effort, UPDATE-only).
+  const store = await cookies();
+  const raw = store.get("board_filters")?.value;
+  if (raw && data.user) {
+    try {
+      await saveBoardFilters(data.user.id, parseBoardFilters(raw));
+    } catch (e) {
+      console.error("filter adoption failed", e);
+    }
+    store.delete("board_filters");
+  }
+
   redirect("/");
 }
 

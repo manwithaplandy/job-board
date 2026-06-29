@@ -241,6 +241,50 @@ def test_upsert_persists_new_columns_and_jsonb(conn):
 
 
 @requires_db
+def test_upsert_does_not_overwrite_human_override(conn):
+    """A manual reject (verdict='deny', human_override=TRUE) is sticky.
+
+    Once the operator has denied a job by hand, the AI reviewer's upsert must
+    never flip it back: the ON CONFLICT DO UPDATE is guarded by
+    `WHERE job_reviews.human_override IS NOT TRUE`, so a re-review of an
+    overridden row is a no-op and every column keeps its hand-set value.
+    """
+    job_id = _seed_job(conn)
+    # AI first approves the job at v1.
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v1",
+        "stage1_decision": "pass", "verdict": "approve",
+        "experience_match": "match", "industry": "software_internet",
+        "industry_subcategory": "devtools_platforms", "confidence": "high",
+        "reasoning": "ok", "fit_score": 80,
+    })
+    # Operator rejects it by hand.
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE job_reviews SET verdict='deny', human_override=TRUE WHERE job_id=%s",
+            (job_id,))
+    conn.commit()
+    # AI re-reviews at a new profile_version and would re-approve — the guard
+    # must block the entire upsert, leaving the overridden row untouched.
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v2",
+        "stage1_decision": "pass", "verdict": "approve",
+        "experience_match": "match", "industry": "software_internet",
+        "industry_subcategory": "devtools_platforms", "confidence": "high",
+        "reasoning": "great fit now", "fit_score": 95,
+    })
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT verdict, human_override, profile_version FROM job_reviews WHERE job_id=%s",
+            (job_id,))
+        row = cur.fetchone()
+    assert row["verdict"] == "deny", "human override must survive AI re-review"
+    assert row["human_override"] is True
+    assert row["profile_version"] == "v1", "overridden row must not be touched by the upsert"
+
+
+@requires_db
 def test_upsert_tolerates_missing_jsonb_keys(conn):
     job_id = _seed_job(conn)
     rdb.upsert_review(conn, {

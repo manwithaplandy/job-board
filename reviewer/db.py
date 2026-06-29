@@ -14,12 +14,16 @@ _REVIEW_COLUMNS = (
 _JSONB_COLUMNS = ("red_flags", "skill_gaps", "benefits", "requirements")
 
 # Built once from the fixed column tuple (the row values are bound per call).
+# The WHERE guard makes a hand-set verdict sticky: once the operator denies a
+# job by hand (verdict='deny', human_override=TRUE), the AI's upsert is a no-op
+# and can never overwrite it.
 _UPSERT_REVIEW_SQL = (
     f"INSERT INTO job_reviews ({', '.join(_REVIEW_COLUMNS)}, reviewed_at)\n"
     f"VALUES ({', '.join(f'%({c})s' for c in _REVIEW_COLUMNS)}, now())\n"
     "ON CONFLICT (user_id, job_id) DO UPDATE SET\n"
     f"    {', '.join(f'{c} = EXCLUDED.{c}' for c in _REVIEW_COLUMNS if c not in ('user_id', 'job_id'))}"
-    ", reviewed_at = now()"
+    ", reviewed_at = now()\n"
+    "    WHERE job_reviews.human_override IS NOT TRUE"
 )
 
 

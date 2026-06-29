@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from poller.adapters.ashby import parse_ashby
+from job_discovery.adapters.ashby import parse_ashby
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "ashby.json").read_text())
 

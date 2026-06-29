@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from poller.adapters.lever import parse_lever
+from job_discovery.adapters.lever import parse_lever
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "lever.json").read_text())
 

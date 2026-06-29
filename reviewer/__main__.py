@@ -1,6 +1,6 @@
 import logging
 
-from poller import db
+from job_discovery import db
 from reviewer.run import review_all
 
 

@@ -1,5 +1,5 @@
 # tests/test_poller_seed_refactor.py
-from poller import db
+from job_discovery import db
 from tests.conftest import requires_db
 
 

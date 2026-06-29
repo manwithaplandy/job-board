@@ -1,15 +1,15 @@
 import logging
 
-from poller import db
-from poller.adapters import ADAPTERS
-from poller.targets import load_targets
+from job_discovery import db
+from job_discovery.adapters import ADAPTERS
+from job_discovery.targets import load_targets
 
-log = logging.getLogger("poller")
+log = logging.getLogger("job_discovery")
 
 
 def _run_prune(conn) -> None:
     try:
-        from poller.prune import prune_jobs
+        from job_discovery.prune import prune_jobs
         prune_jobs(conn)
     except Exception:
         conn.rollback()

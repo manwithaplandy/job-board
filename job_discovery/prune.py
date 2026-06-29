@@ -1,7 +1,7 @@
 import logging
 import os
 
-log = logging.getLogger("poller.prune")
+log = logging.getLogger("job_discovery.prune")
 
 
 def _int_env(name: str, default: int) -> int:

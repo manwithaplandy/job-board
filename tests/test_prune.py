@@ -1,6 +1,6 @@
-from poller import db
-from poller.models import Posting
-from poller.prune import prune_jobs
+from job_discovery import db
+from job_discovery.models import Posting
+from job_discovery.prune import prune_jobs
 from tests.conftest import requires_db
 
 USER = "33333333-3333-3333-3333-333333333333"

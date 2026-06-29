@@ -1,7 +1,7 @@
 // dashboard/app/companies/page.tsx
 import { getBoardOwnerId, getCompanyReviews, getCompanyVerdictCounts, getDiscoveryState }
   from "@/lib/queries";
-import { setCompanyOverride, refreshDiscoveryStatus } from "@/app/actions/companies";
+import { setCompanyOverride, refreshCompanyDiscoveryStatus } from "@/app/actions/companies";
 import { CompanyList } from "@/components/companies/CompanyList";
 import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
 
@@ -57,7 +57,7 @@ export default async function CompaniesPage() {
         <CompanyList
           included={included} excluded={excluded} unknown={unknown}
           counts={counts} state={state}
-          override={setCompanyOverride} refresh={refreshDiscoveryStatus}
+          override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus}
         />
       </div>
     </main>

@@ -36,7 +36,7 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
   const companyStages: Stage[] = [
     { label: "Tracked", value: c.tracked },
     { label: "Active", value: c.active },
-    { label: "Discovery-sourced", value: c.discovery_sourced },
+    { label: "Company Discovery-sourced", value: c.discovery_sourced },
     { label: "Reviewed", value: c.reviewed },
     { label: "Included", value: c.include },
     { label: "Excluded", value: c.exclude, tone: "bad" },
@@ -59,8 +59,8 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
       display: "flex", gap: "32px", flexWrap: "wrap",
       background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px", padding: "18px 20px",
     }}>
-      <Funnel title="Companies — discovery" stages={companyStages} />
-      <Funnel title="Jobs — poller → reviewer" stages={jobStages} />
+      <Funnel title="Companies — Company Discovery" stages={companyStages} />
+      <Funnel title="Jobs — Job Discovery → reviewer" stages={jobStages} />
     </div>
   );
 }

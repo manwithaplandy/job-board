@@ -1,2 +1,2 @@
 def test_package_imports():
-    import poller  # noqa: F401
+    import job_discovery  # noqa: F401

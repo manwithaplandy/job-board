@@ -1,8 +1,8 @@
 import os
 
-import poller.run as run_module
-from poller.adapters import ADAPTERS
-from poller.models import Posting
+import job_discovery.run as run_module
+from job_discovery.adapters import ADAPTERS
+from job_discovery.models import Posting
 from tests.conftest import requires_db
 
 
@@ -182,7 +182,7 @@ def test_run_invokes_prune(conn, monkeypatch):
         calls["n"] += 1
         return {}
 
-    import poller.prune as prune_module
+    import job_discovery.prune as prune_module
     monkeypatch.setattr(prune_module, "prune_jobs", fake_prune)
 
     run_module.run()
@@ -197,7 +197,7 @@ def test_run_survives_prune_error(conn, monkeypatch):
     monkeypatch.setitem(ADAPTERS, "greenhouse",
                         lambda token: [Posting(external_id="1", title="Engineer", url="u")])
 
-    import poller.prune as prune_module
+    import job_discovery.prune as prune_module
 
     def boom(conn):
         raise RuntimeError("prune exploded")

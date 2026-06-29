@@ -2,10 +2,10 @@ import asyncio
 
 import pytest
 
-from discovery.llm import (
+from company_discovery.llm import (
     CompanyReviewClient, OutOfCreditsError, _is_out_of_credits, build_company_block,
 )
-from discovery.schemas import CompanyReviewResult
+from company_discovery.schemas import CompanyReviewResult
 
 
 class _Resp:

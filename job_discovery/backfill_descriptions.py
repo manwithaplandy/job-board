@@ -1,10 +1,10 @@
 import logging
 import os
 
-from poller import db
-from poller.jd import extract_description
+from job_discovery import db
+from job_discovery.jd import extract_description
 
-log = logging.getLogger("poller.backfill")
+log = logging.getLogger("job_discovery.backfill")
 
 
 def _batch_size() -> int:

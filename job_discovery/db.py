@@ -3,8 +3,8 @@ import os
 import psycopg
 from psycopg.rows import dict_row
 
-from poller.jd import extract_description
-from poller.models import Posting
+from job_discovery.jd import extract_description
+from job_discovery.models import Posting
 
 
 def connect(dsn: str | None = None) -> psycopg.Connection:
@@ -46,7 +46,7 @@ def over_size_ceiling(conn) -> tuple[bool, float, float]:
 
 def sync_seed(conn, targets: list[dict]) -> None:
     """Upsert targets.json as the always-included seed. Owns ONLY seed rows —
-    discovery owns `active` for everything else, so this never deactivates."""
+    company discovery owns `active` for everything else, so this never deactivates."""
     with conn.cursor() as cur:
         for t in targets:
             cur.execute(

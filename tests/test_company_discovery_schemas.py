@@ -1,7 +1,7 @@
 import hashlib
 
-from discovery.profile import compute_company_profile_version
-from discovery.schemas import CompanyReviewResult
+from company_discovery.profile import compute_company_profile_version
+from company_discovery.schemas import CompanyReviewResult
 
 
 def test_version_is_sha256_of_instructions():

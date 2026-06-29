@@ -1,6 +1,6 @@
 import os
 
-from discovery.schemas import CompanyReviewResult
+from company_discovery.schemas import CompanyReviewResult
 from observability import tracing
 from reviewer.schemas import TAXONOMY_TEXT
 

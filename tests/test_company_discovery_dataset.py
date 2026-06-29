@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from discovery.dataset import Candidate, load_candidates
+from company_discovery.dataset import Candidate, load_candidates
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "discovery"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "company_discovery"
 
 
 def test_loads_and_normalizes_rows():

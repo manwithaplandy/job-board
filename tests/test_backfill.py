@@ -1,6 +1,6 @@
 from psycopg.types.json import Json
 
-from poller.backfill_descriptions import backfill
+from job_discovery.backfill_descriptions import backfill
 from tests.conftest import requires_db
 
 

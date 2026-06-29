@@ -60,7 +60,7 @@ describe("derivePipelineStatus", () => {
     ).toBe("failed");
   });
 
-  test("3. discovery error → failed", () => {
+  test("3. company discovery error → failed", () => {
     expect(
       derivePipelineStatus({
         latest: {
@@ -75,7 +75,7 @@ describe("derivePipelineStatus", () => {
     ).toBe("failed");
   });
 
-  test("4. discovery halted_no_credits → failed", () => {
+  test("4. company discovery halted_no_credits → failed", () => {
     expect(
       derivePipelineStatus({
         latest: {
@@ -90,7 +90,7 @@ describe("derivePipelineStatus", () => {
     ).toBe("failed");
   });
 
-  test("5. poller warn — failure rate 0.667 > 0.6", () => {
+  test("5. job discovery warn — failure rate 0.667 > 0.6", () => {
     expect(
       derivePipelineStatus({
         latest: {
@@ -106,7 +106,7 @@ describe("derivePipelineStatus", () => {
     ).toBe("warn");
   });
 
-  test("6. poller ~38% failure rate → ok", () => {
+  test("6. job discovery ~38% failure rate → ok", () => {
     expect(
       derivePipelineStatus({
         latest: {
@@ -122,7 +122,7 @@ describe("derivePipelineStatus", () => {
     ).toBe("ok");
   });
 
-  test("7. poller exactly 60% failure rate → ok (boundary: strict >)", () => {
+  test("7. job discovery exactly 60% failure rate → ok (boundary: strict >)", () => {
     expect(
       derivePipelineStatus({
         latest: {
@@ -154,7 +154,7 @@ describe("derivePipelineStatus", () => {
     ).toBe("stale");
   });
 
-  test("9a. weekly discovery NOT stale with intervalHours:168 (53.5h < 336h)", () => {
+  test("9a. weekly company discovery NOT stale with intervalHours:168 (53.5h < 336h)", () => {
     expect(
       derivePipelineStatus({
         latest: {
@@ -207,11 +207,11 @@ describe("derivePipelineStatus", () => {
     ).toBe("ok");
   });
 
-  test("12. discovery per-item errors ignored → ok", () => {
-    const discoveryRun = { started_at: "2026-06-29T11:00:00Z", finished_at: "2026-06-29T11:05:00Z", status: "completed", errors: 90 };
+  test("12. company discovery per-item errors ignored → ok", () => {
+    const companyDiscoveryRun = { started_at: "2026-06-29T11:00:00Z", finished_at: "2026-06-29T11:05:00Z", status: "completed", errors: 90 };
     expect(
       derivePipelineStatus({
-        latest: discoveryRun,
+        latest: companyDiscoveryRun,
         lastSuccess: { finished_at: "2026-06-28T06:00:00Z" },
         now,
         intervalHours: 168,

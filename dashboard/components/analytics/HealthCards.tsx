@@ -72,39 +72,39 @@ function Card({
 export function HealthCards({ health, nowIso }: { health: PipelineHealth; nowIso: string }) {
   const now = new Date(nowIso);
 
-  const pollerStatus = derivePipelineStatus({
-    latest: health.poller.latest, lastSuccess: health.poller.lastSuccess,
-    now, intervalHours: intervalHoursOf(SCHEDULES.poller),
+  const jobDiscoveryStatus = derivePipelineStatus({
+    latest: health.jobDiscovery.latest, lastSuccess: health.jobDiscovery.lastSuccess,
+    now, intervalHours: intervalHoursOf(SCHEDULES.jobDiscovery),
   });
   const reviewerStatus = derivePipelineStatus({
     latest: health.reviewer.latest, lastSuccess: health.reviewer.lastSuccess,
     now, intervalHours: intervalHoursOf(SCHEDULES.reviewer),
   });
-  const discoveryStatus = derivePipelineStatus({
-    latest: health.discovery.latest, lastSuccess: health.discovery.lastSuccess,
-    now, intervalHours: intervalHoursOf(SCHEDULES.discovery),
+  const companyDiscoveryStatus = derivePipelineStatus({
+    latest: health.companyDiscovery.latest, lastSuccess: health.companyDiscovery.lastSuccess,
+    now, intervalHours: intervalHoursOf(SCHEDULES.companyDiscovery),
   });
 
-  const nextPoller = nextRun(SCHEDULES.poller, now);
+  const nextJobDiscovery = nextRun(SCHEDULES.jobDiscovery, now);
   const nextReviewer = nextRun(SCHEDULES.reviewer, now);
-  const nextDiscovery = nextRun(SCHEDULES.discovery, now);
+  const nextCompanyDiscovery = nextRun(SCHEDULES.companyDiscovery, now);
 
-  const { latest: poll, lastSuccess: pollSuccess, totals: pollTotals } = health.poller;
+  const { latest: poll, lastSuccess: pollSuccess, totals: pollTotals } = health.jobDiscovery;
   const { latest: review, lastSuccess: reviewSuccess, totals: reviewTotals } = health.reviewer;
-  const { latest: disc, lastSuccess: discSuccess, totals: discTotals, state } = health.discovery;
+  const { latest: disc, lastSuccess: discSuccess, totals: discTotals, state } = health.companyDiscovery;
 
-  // Poller banner
-  let pollerBanner: string | undefined;
-  if (pollerStatus === "running") {
-    pollerBanner = `Last run started ${rel(nowIso, poll!.started_at)}, still running`;
-  } else if (pollerStatus === "failed") {
-    pollerBanner = "Last run didn't finish";
-  } else if (pollerStatus === "warn" && poll) {
+  // Job Discovery banner
+  let jobDiscoveryBanner: string | undefined;
+  if (jobDiscoveryStatus === "running") {
+    jobDiscoveryBanner = `Last run started ${rel(nowIso, poll!.started_at)}, still running`;
+  } else if (jobDiscoveryStatus === "failed") {
+    jobDiscoveryBanner = "Last run didn't finish";
+  } else if (jobDiscoveryStatus === "warn" && poll) {
     const total = (poll.companies_ok ?? 0) + (poll.companies_failed ?? 0);
     const pct = total > 0 ? Math.round((poll.companies_failed ?? 0) / total * 100) : 0;
-    pollerBanner = `High failure rate: ${pct}% of companies failed last run`;
+    jobDiscoveryBanner = `High failure rate: ${pct}% of companies failed last run`;
   } else if (!poll) {
-    pollerBanner = "No runs yet";
+    jobDiscoveryBanner = "No runs yet";
   }
 
   // Reviewer banner
@@ -120,28 +120,28 @@ export function HealthCards({ health, nowIso }: { health: PipelineHealth; nowIso
   // dot + last-successful-run numbers already convey the state; a banner there
   // reads as a failure.
 
-  // Discovery banner (credit-halt has top priority)
-  let discoveryBanner: string | undefined;
+  // Company Discovery banner (credit-halt has top priority)
+  let companyDiscoveryBanner: string | undefined;
   if (state.halted_no_credits) {
-    discoveryBanner = "Paused — OpenRouter out of credits";
-  } else if (discoveryStatus === "running") {
-    discoveryBanner = `Last run started ${rel(nowIso, disc!.started_at)}, still running`;
-  } else if (discoveryStatus === "failed") {
-    discoveryBanner = disc?.status === "error" ? "Last run errored" : "Last run didn't finish";
+    companyDiscoveryBanner = "Paused — OpenRouter out of credits";
+  } else if (companyDiscoveryStatus === "running") {
+    companyDiscoveryBanner = `Last run started ${rel(nowIso, disc!.started_at)}, still running`;
+  } else if (companyDiscoveryStatus === "failed") {
+    companyDiscoveryBanner = disc?.status === "error" ? "Last run errored" : "Last run didn't finish";
   } else if (!disc) {
-    discoveryBanner = "No runs yet";
+    companyDiscoveryBanner = "No runs yet";
   }
-  // No-op runs (e.g. the weekly discovery cron finding 0 new candidates) show no
-  // banner — a clean run that did no work is not a failure.
+  // No-op runs (e.g. the weekly company discovery cron finding 0 new candidates)
+  // show no banner — a clean run that did no work is not a failure.
 
   return (
     <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
       <Card
-        name="Poller"
-        status={pollerStatus}
+        name="Job Discovery"
+        status={jobDiscoveryStatus}
         when={`last run · ${rel(nowIso, poll?.started_at ?? null)}`}
-        scheduleLine={`next run ${relFuture(now, nextPoller)} · ${utcTime(nextPoller)}`}
-        banner={pollerBanner}
+        scheduleLine={`next run ${relFuture(now, nextJobDiscovery)} · ${utcTime(nextJobDiscovery)}`}
+        banner={jobDiscoveryBanner}
         stats={[
           ["companies ok", pollSuccess?.companies_ok],
           ["failed", pollSuccess?.companies_failed],
@@ -166,11 +166,11 @@ export function HealthCards({ health, nowIso }: { health: PipelineHealth; nowIso
         totals={`All-time: ${reviewTotals.runs} runs · ${reviewTotals.reviewed} reviewed · ${reviewTotals.approved} approved · ${reviewTotals.denied} denied`}
       />
       <Card
-        name="Discovery"
-        status={discoveryStatus}
+        name="Company Discovery"
+        status={companyDiscoveryStatus}
         when={`last run · ${rel(nowIso, disc?.started_at ?? null)}`}
-        scheduleLine={`next ${utcWeekdayTime(nextDiscovery)}`}
-        banner={discoveryBanner}
+        scheduleLine={`next ${utcWeekdayTime(nextCompanyDiscovery)}`}
+        banner={companyDiscoveryBanner}
         stats={[
           ["ingested", discSuccess?.ingested],
           ["included", discSuccess?.included],

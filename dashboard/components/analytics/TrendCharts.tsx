@@ -49,7 +49,7 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
   }
 
   const poll = useMemo(
-    () => prep(series.poll,
+    () => prep(series.jobDiscovery,
       ["new_jobs", "closed_jobs", "companies_ok", "companies_failed", "run_count", "total_duration_seconds"]),
     [series, gran, win, nowIso],
   );
@@ -58,8 +58,8 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
       ["reviewed", "gate_rejected", "approved", "denied", "errors", "run_count", "total_duration_seconds"]),
     [series, gran, win, nowIso],
   );
-  const discovery = useMemo(
-    () => prep(series.discovery,
+  const companyDiscovery = useMemo(
+    () => prep(series.companyDiscovery,
       ["ingested", "reviewed", "included", "excluded", "unknown", "errors", "run_count", "total_duration_seconds", "halt_count"],
       ["last_backlog"]),
     [series, gran, win, nowIso],
@@ -76,7 +76,7 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
     approval_rate: rate(p.approved, p.reviewed),
     gate_rate: rate(p.gate_rejected, p.reviewed),
   }));
-  const discoveryDerived = discovery.map((p) => ({
+  const companyDiscoveryDerived = companyDiscovery.map((p) => ({
     day: p.day,
     inclusion_rate: rate(p.included, p.reviewed),
     backlog: p.last_backlog,
@@ -88,10 +88,10 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
     day: p.day,
     poll_runs: p.run_count,
     review_runs: review[i]?.run_count ?? 0,
-    discovery_runs: discovery[i]?.run_count ?? 0,
+    discovery_runs: companyDiscovery[i]?.run_count ?? 0,
     poll_latency: rate(p.total_duration_seconds, p.run_count),
     review_latency: rate(review[i]?.total_duration_seconds ?? 0, review[i]?.run_count ?? 0),
-    discovery_latency: rate(discovery[i]?.total_duration_seconds ?? 0, discovery[i]?.run_count ?? 0),
+    discovery_latency: rate(companyDiscovery[i]?.total_duration_seconds ?? 0, companyDiscovery[i]?.run_count ?? 0),
   }));
 
   return (
@@ -106,33 +106,33 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
       <div style={{ fontSize: "12px", fontWeight: 800, color: "#8a93a3", letterSpacing: ".4px", margin: "4px 0 10px" }}>VOLUME</div>
       <BarsCard title="Jobs found vs closed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
         bars={[{ key: "new_jobs", name: "New", color: COLORS.green }, { key: "closed_jobs", name: "Closed", color: COLORS.red }]} />
-      <BarsCard title="Poller — companies ok vs failed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
+      <BarsCard title="Job Discovery — companies ok vs failed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
         bars={[{ key: "companies_ok", name: "OK", color: COLORS.blue }, { key: "companies_failed", name: "Failed", color: COLORS.red }]} />
       <BarsCard title="Review outcomes" data={review as unknown as Array<Record<string, string | number | null>>} xKey="day"
         bars={[{ key: "approved", name: "Approved", color: COLORS.green }, { key: "denied", name: "Denied", color: COLORS.red },
                { key: "gate_rejected", name: "Gate-rejected", color: COLORS.amber }, { key: "errors", name: "Errors", color: COLORS.slate }]} />
-      <BarsCard title="Discovery outcomes" data={discovery as unknown as Array<Record<string, string | number | null>>} xKey="day"
+      <BarsCard title="Company Discovery outcomes" data={companyDiscovery as unknown as Array<Record<string, string | number | null>>} xKey="day"
         bars={[{ key: "included", name: "Included", color: COLORS.green }, { key: "excluded", name: "Excluded", color: COLORS.red },
                { key: "unknown", name: "Unknown", color: COLORS.slate }, { key: "errors", name: "Errors", color: COLORS.amber }]} />
 
       <div style={{ fontSize: "12px", fontWeight: 800, color: "#8a93a3", letterSpacing: ".4px", margin: "18px 0 10px" }}>RATES &amp; OPERATIONS</div>
       <LinesCard title="Review rates" data={reviewDerived} xKey="day" percent
         lines={[{ key: "approval_rate", name: "Approval", color: COLORS.green }, { key: "gate_rate", name: "Gate-reject", color: COLORS.amber }]} />
-      <LinesCard title="Discovery inclusion rate" data={discoveryDerived} xKey="day" percent
+      <LinesCard title="Company Discovery inclusion rate" data={companyDiscoveryDerived} xKey="day" percent
         lines={[{ key: "inclusion_rate", name: "Inclusion", color: COLORS.blue }]} />
-      <LinesCard title="Poller failure rate" data={pollDerived} xKey="day" percent
+      <LinesCard title="Job Discovery failure rate" data={pollDerived} xKey="day" percent
         lines={[{ key: "failure_rate", name: "Failure", color: COLORS.red }]} />
       <BarsCard title="Net job growth (new − closed)" data={pollDerived} xKey="day"
         bars={[{ key: "net_growth", name: "Net", color: COLORS.blue }]} />
-      <LinesCard title="Discovery backlog" data={discoveryDerived} xKey="day"
+      <LinesCard title="Company Discovery backlog" data={companyDiscoveryDerived} xKey="day"
         lines={[{ key: "backlog", name: "Backlog", color: COLORS.violet }]} />
       <BarsCard title="Run cadence (runs per period)" data={ops} xKey="day"
-        bars={[{ key: "poll_runs", name: "Poller", color: COLORS.blue }, { key: "review_runs", name: "Reviewer", color: COLORS.green },
-               { key: "discovery_runs", name: "Discovery", color: COLORS.violet }]} />
+        bars={[{ key: "poll_runs", name: "Job Discovery", color: COLORS.blue }, { key: "review_runs", name: "Reviewer", color: COLORS.green },
+               { key: "discovery_runs", name: "Company Discovery", color: COLORS.violet }]} />
       <LinesCard title="Avg run latency (seconds)" data={ops} xKey="day"
-        lines={[{ key: "poll_latency", name: "Poller", color: COLORS.blue }, { key: "review_latency", name: "Reviewer", color: COLORS.green },
-                { key: "discovery_latency", name: "Discovery", color: COLORS.violet }]} />
-      <BarsCard title="Credit-halt frequency" data={discoveryDerived} xKey="day"
+        lines={[{ key: "poll_latency", name: "Job Discovery", color: COLORS.blue }, { key: "review_latency", name: "Reviewer", color: COLORS.green },
+                { key: "discovery_latency", name: "Company Discovery", color: COLORS.violet }]} />
+      <BarsCard title="Credit-halt frequency" data={companyDiscoveryDerived} xKey="day"
         bars={[{ key: "halt_count", name: "Halts", color: COLORS.amber }]} />
     </div>
   );

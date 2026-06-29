@@ -2,13 +2,13 @@ export type Schedule =
   | { kind: "interval"; everyHours: number; atMinute: number } // anchored at hour 0 (UTC)
   | { kind: "weekly"; weekday: number; atHour: number; atMinute: number }; // weekday 0=Sun..6=Sat (UTC)
 
-// These mirror the Railway crons (poller & reviewer = Railway service settings,
-// `0 */2 * * *`; discovery = railway.discovery.json `0 6 * * 1`). Keep in sync
-// manually if the Railway schedules change.
+// These mirror the Railway crons (job discovery & reviewer = Railway service
+// settings, `0 */2 * * *`; company discovery = railway.discovery.json
+// `0 6 * * 1`). Keep in sync manually if the Railway schedules change.
 export const SCHEDULES = {
-  poller:    { kind: "interval", everyHours: 2, atMinute: 0 },
-  reviewer:  { kind: "interval", everyHours: 2, atMinute: 0 },
-  discovery: { kind: "weekly", weekday: 1, atHour: 6, atMinute: 0 }, // Mon 06:00 UTC
+  jobDiscovery:     { kind: "interval", everyHours: 2, atMinute: 0 },
+  reviewer:         { kind: "interval", everyHours: 2, atMinute: 0 },
+  companyDiscovery: { kind: "weekly", weekday: 1, atHour: 6, atMinute: 0 }, // Mon 06:00 UTC
 } as const;
 
 /** Returns the next fire time strictly after `now`. All time math in UTC. */

@@ -1,9 +1,9 @@
-# Discovery dataset
+# Company Discovery dataset
 
 A vendored, pinned snapshot of ATS board tokens — one JSON array of slug strings
 per supported ATS: `greenhouse_companies.json`, `lever_companies.json`,
 `ashby_companies.json`. These files are **committed** (not gitignored) so they ship
-with the Railway discovery cron build.
+with the Railway Company Discovery cron build.
 
 **Source:** https://github.com/Feashliaa/job-board-aggregator (`data/` directory),
 MIT-licensed — a Common-Crawl-harvested list of Greenhouse/Lever/Ashby company

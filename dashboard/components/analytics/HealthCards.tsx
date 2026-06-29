@@ -113,11 +113,12 @@ export function HealthCards({ health, nowIso }: { health: PipelineHealth; nowIso
     reviewerBanner = `Last run started ${rel(nowIso, review!.started_at)}, still running`;
   } else if (reviewerStatus === "failed") {
     reviewerBanner = "Last run didn't finish";
-  } else if (review && reviewSuccess && review.id !== reviewSuccess.id) {
-    reviewerBanner = "Last run did no work (showing last successful run)";
   } else if (!review) {
     reviewerBanner = "No runs yet";
   }
+  // A no-op run (finished cleanly but did no work) shows no banner — the status
+  // dot + last-successful-run numbers already convey the state; a banner there
+  // reads as a failure.
 
   // Discovery banner (credit-halt has top priority)
   let discoveryBanner: string | undefined;
@@ -127,11 +128,11 @@ export function HealthCards({ health, nowIso }: { health: PipelineHealth; nowIso
     discoveryBanner = `Last run started ${rel(nowIso, disc!.started_at)}, still running`;
   } else if (discoveryStatus === "failed") {
     discoveryBanner = disc?.status === "error" ? "Last run errored" : "Last run didn't finish";
-  } else if (disc && discSuccess && disc.id !== discSuccess.id) {
-    discoveryBanner = "Last run did no work (showing last successful run)";
   } else if (!disc) {
     discoveryBanner = "No runs yet";
   }
+  // No-op runs (e.g. the weekly discovery cron finding 0 new candidates) show no
+  // banner — a clean run that did no work is not a failure.
 
   return (
     <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>

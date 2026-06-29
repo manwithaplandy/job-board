@@ -4,6 +4,7 @@ import type { Filters } from "@/lib/filters";
 import type { CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, PollRunRow, ReviewRunRow, ProfileRow, ReviewStats } from "@/lib/types";
 import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
+import type { BoardFilterState } from "@/lib/rolefit/filter";
 
 export async function getJobs(
   f: Filters,
@@ -81,6 +82,21 @@ export async function getProfile(userId: string): Promise<ProfileRow | null> {
   // ::uuid — postgres.js binds the JS string as text; the uuid column needs the cast.
   const rows = await sql`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`;
   return (rows[0] as unknown as ProfileRow) ?? null;
+}
+
+export async function saveBoardFilters(
+  userId: string,
+  filters: BoardFilterState,
+): Promise<void> {
+  // UPDATE-only and intentionally does NOT touch updated_at: getBoardOwnerId()
+  // resolves the single-tenant board owner by most-recent updated_at, and
+  // profile_version is NOT NULL with no default — so we must not INSERT a row
+  // or bump updated_at when persisting a viewer's filters.
+  await sql`
+    UPDATE profiles
+    SET board_filters = ${JSON.stringify(filters)}::jsonb
+    WHERE user_id = ${userId}::uuid
+  `;
 }
 
 export async function getJobForResume(

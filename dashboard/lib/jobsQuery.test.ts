@@ -141,4 +141,12 @@ describe("buildJobsQuery", () => {
     expect(t).not.toContain("r.fit_score");
     expect(t).not.toContain("r.requirements");
   });
+
+  test("selects r.human_override when an owner is present", () => {
+    expect(buildJobsQuery(base, UID).text).toContain("r.human_override");
+  });
+
+  test("human_override absent without an owner", () => {
+    expect(buildJobsQuery(base, null).text).not.toContain("r.human_override");
+  });
 });

@@ -13,6 +13,7 @@ export interface JobRow {
   // columns and they are undefined at runtime — read them only behind the
   // showMatch / verdict guards (see JobsTable, FilterBar review filters).
   verdict: string | null;
+  human_override: boolean;  // TRUE when the operator manually rejected this job
   experience_match: string | null;
   industry: string | null;
   industry_subcategory: string | null;

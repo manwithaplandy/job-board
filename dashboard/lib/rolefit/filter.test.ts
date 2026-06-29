@@ -6,7 +6,7 @@ function job(p: Partial<JobRow>): JobRow {
   return {
     id: "x", title: "Engineer", url: "u", location: "Remote (US)", remote: true,
     first_seen_at: "2026-06-20T00:00:00Z", closed_at: null, company_name: "Acme", ats: "lever",
-    verdict: "approve", experience_match: "match", industry: null, industry_subcategory: null,
+    verdict: "approve", human_override: false, experience_match: "match", industry: null, industry_subcategory: null,
     confidence: "high", reasoning: null, stage1_decision: "pass", stage1_reason: null,
     role_category: "Backend", seniority: "senior", work_arrangement: "remote", about: null,
     pay_min: 150000, pay_max: 200000, pay_currency: "USD", pay_period: "year", headcount: null,

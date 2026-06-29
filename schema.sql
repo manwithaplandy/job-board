@@ -57,6 +57,7 @@ CREATE TABLE profiles (
   company_instructions    TEXT,
   company_profile_version TEXT,
   model_company           TEXT,
+  board_filters    JSONB,                     -- remembered board filter state; NULL = defaults
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );

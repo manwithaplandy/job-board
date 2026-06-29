@@ -80,6 +80,7 @@ export interface ProfileRow {
   company_instructions: string | null;
   company_profile_version: string | null;
   model_company: string | null;
+  board_filters: import("@/lib/rolefit/filter").BoardFilterState | null;
   profile_version: string;
   updated_at: string;
 }

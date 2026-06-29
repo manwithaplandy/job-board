@@ -246,3 +246,107 @@ export async function getLatestRuns(userId: string): Promise<LatestRuns> {
     discoveryState,
   };
 }
+
+// ── Breakdowns (current-state distributions) ─────────────────────────────────
+
+export interface Bar { label: string; count: number }
+const TOP_N = 10;
+
+export interface Distributions {
+  jobsByLocation: Bar[]; jobsByDepartment: Bar[]; jobsRemote: Bar[];
+  jobsByCompany: Bar[]; jobLifespan: Bar[];
+  fitScore: Bar[]; approvalsByIndustry: Bar[]; approvalsByRole: Bar[];
+  approvalsBySeniority: Bar[]; experienceMatch: Bar[]; workArrangement: Bar[];
+  companiesByAts: Bar[]; companiesBySource: Bar[]; includedByIndustry: Bar[];
+  topTechTags: Bar[]; topRedFlags: Bar[];
+}
+
+const asBars = (rows: unknown) => rows as unknown as Bar[];
+
+export async function getDistributions(userId: string): Promise<Distributions> {
+  const [
+    jobsByLocation, jobsByDepartment, jobsRemote, jobsByCompany, jobLifespan,
+    fitScore, approvalsByIndustry, approvalsByRole, approvalsBySeniority,
+    experienceMatch, workArrangement,
+    companiesByAts, companiesBySource, includedByIndustry, topTechTags, topRedFlags,
+  ] = await Promise.all([
+    sql`SELECT location AS label, count(*)::int AS count FROM jobs
+        WHERE closed_at IS NULL AND location IS NOT NULL AND location <> ''
+        GROUP BY location ORDER BY count DESC LIMIT ${TOP_N}`,
+    sql`SELECT department AS label, count(*)::int AS count FROM jobs
+        WHERE closed_at IS NULL AND department IS NOT NULL AND department <> ''
+        GROUP BY department ORDER BY count DESC LIMIT ${TOP_N}`,
+    sql`SELECT CASE WHEN remote THEN 'Remote' ELSE 'On-site / hybrid' END AS label, count(*)::int AS count
+        FROM jobs WHERE closed_at IS NULL GROUP BY 1 ORDER BY count DESC`,
+    sql`SELECT c.name AS label, count(*)::int AS count
+        FROM jobs j JOIN companies c ON c.id = j.company_id
+        WHERE j.closed_at IS NULL GROUP BY c.name ORDER BY count DESC LIMIT ${TOP_N}`,
+    sql`SELECT CASE
+               WHEN d < 1 THEN '<1d' WHEN d < 3 THEN '1-3d' WHEN d < 7 THEN '3-7d'
+               WHEN d < 14 THEN '1-2w' WHEN d < 30 THEN '2-4w' WHEN d < 60 THEN '1-2mo'
+               ELSE '2mo+' END AS label,
+               count(*)::int AS count
+        FROM (SELECT EXTRACT(EPOCH FROM (closed_at - first_seen_at)) / 86400 AS d
+              FROM jobs WHERE closed_at IS NOT NULL) s
+        GROUP BY label
+        ORDER BY min(d)`,
+    sql`SELECT ((fit_score / 10) * 10)::text || '-' || ((fit_score / 10) * 10 + 9)::text AS label,
+               count(*)::int AS count
+        FROM job_reviews
+        WHERE user_id = ${userId}::uuid AND fit_score IS NOT NULL
+        GROUP BY (fit_score / 10) ORDER BY (fit_score / 10)`,
+    sql`SELECT industry AS label, count(*)::int AS count FROM job_reviews
+        WHERE user_id = ${userId}::uuid AND verdict = 'approve' AND industry IS NOT NULL
+        GROUP BY industry ORDER BY count DESC LIMIT ${TOP_N}`,
+    sql`SELECT role_category AS label, count(*)::int AS count FROM job_reviews
+        WHERE user_id = ${userId}::uuid AND verdict = 'approve' AND role_category IS NOT NULL
+        GROUP BY role_category ORDER BY count DESC LIMIT ${TOP_N}`,
+    sql`SELECT seniority AS label, count(*)::int AS count FROM job_reviews
+        WHERE user_id = ${userId}::uuid AND verdict = 'approve' AND seniority IS NOT NULL
+        GROUP BY seniority ORDER BY count DESC`,
+    sql`SELECT experience_match AS label, count(*)::int AS count FROM job_reviews
+        WHERE user_id = ${userId}::uuid AND experience_match IS NOT NULL
+        GROUP BY experience_match ORDER BY count DESC`,
+    sql`SELECT work_arrangement AS label, count(*)::int AS count FROM job_reviews
+        WHERE user_id = ${userId}::uuid AND work_arrangement IS NOT NULL
+        GROUP BY work_arrangement ORDER BY count DESC`,
+    sql`SELECT ats AS label, count(*)::int AS count FROM companies GROUP BY ats ORDER BY count DESC`,
+    sql`SELECT discovery_source AS label, count(*)::int AS count FROM companies
+        GROUP BY discovery_source ORDER BY count DESC`,
+    sql`SELECT industry AS label, count(*)::int AS count FROM company_reviews
+        WHERE user_id = ${userId}::uuid AND verdict = 'include' AND industry IS NOT NULL
+        GROUP BY industry ORDER BY count DESC LIMIT ${TOP_N}`,
+    sql`SELECT t AS label, count(*)::int AS count
+        FROM company_reviews cr, jsonb_array_elements_text(cr.tech_tags) AS t
+        WHERE cr.user_id = ${userId}::uuid
+        GROUP BY t ORDER BY count DESC LIMIT ${TOP_N}`,
+    sql`SELECT f AS label, count(*)::int AS count
+        FROM company_reviews cr, jsonb_array_elements_text(cr.red_flags) AS f
+        WHERE cr.user_id = ${userId}::uuid
+        GROUP BY f ORDER BY count DESC LIMIT ${TOP_N}`,
+  ]);
+
+  return {
+    jobsByLocation: asBars(jobsByLocation), jobsByDepartment: asBars(jobsByDepartment),
+    jobsRemote: asBars(jobsRemote), jobsByCompany: asBars(jobsByCompany), jobLifespan: asBars(jobLifespan),
+    fitScore: asBars(fitScore), approvalsByIndustry: asBars(approvalsByIndustry),
+    approvalsByRole: asBars(approvalsByRole), approvalsBySeniority: asBars(approvalsBySeniority),
+    experienceMatch: asBars(experienceMatch), workArrangement: asBars(workArrangement),
+    companiesByAts: asBars(companiesByAts), companiesBySource: asBars(companiesBySource),
+    includedByIndustry: asBars(includedByIndustry), topTechTags: asBars(topTechTags),
+    topRedFlags: asBars(topRedFlags),
+  };
+}
+
+export interface PipelineSnapshot {
+  funnel: FunnelCounts;
+  latest: LatestRuns;
+  distributions: Distributions;
+}
+
+export async function getPipelineSnapshot(userId: string): Promise<PipelineSnapshot> {
+  const [funnel, latest, distributions] = await Promise.all([
+    getFunnel(userId), getLatestRuns(userId), getDistributions(userId),
+  ]);
+  return { funnel, latest, distributions };
+}

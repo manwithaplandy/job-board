@@ -47,7 +47,7 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
         <FunnelSection funnel={snapshot.funnel} />
 
         <SectionHeading id="health">Pipeline health</SectionHeading>
-        <HealthCards latest={snapshot.latest} nowIso={nowIso} />
+        <HealthCards health={snapshot.health} nowIso={nowIso} />
 
         <SectionHeading id="trends">Trends</SectionHeading>
         <TrendCharts series={series} nowIso={nowIso} />

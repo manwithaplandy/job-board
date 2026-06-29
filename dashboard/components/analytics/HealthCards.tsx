@@ -1,35 +1,62 @@
 "use client";
+import type { PipelineHealth } from "@/lib/metrics";
+import { derivePipelineStatus, type PipelineStatus } from "@/lib/status";
+import { SCHEDULES, nextRun, type Schedule } from "@/lib/schedules";
 
-import type { LatestRuns } from "@/lib/metrics";
-import { computeHealth, type Health } from "@/lib/status";
-import { STALE_HEALTH_HOURS } from "@/lib/config";
-
-const DOT: Record<Health, string> = { ok: "#22c55e", warn: "#f59e0b", stale: "#9aa3b0" };
+const DOT: Record<PipelineStatus, string> = {
+  ok: "#22c55e", warn: "#f59e0b", running: "#3b82f6", failed: "#ef4444", stale: "#9aa3b0",
+};
 
 function rel(nowIso: string, iso: string | null): string {
   if (!iso) return "never";
   const mins = Math.round((new Date(nowIso).getTime() - new Date(iso).getTime()) / 60000);
+  if (mins <= 0) return "just now";
   if (mins < 60) return `${mins}m ago`;
   if (mins < 1440) return `${Math.round(mins / 60)}h ago`;
   return `${Math.round(mins / 1440)}d ago`;
 }
 
-function Card(
-  { name, health, when, stats, banner }:
-  { name: string; health: Health; when: string; stats: [string, number | null | string][]; banner?: string },
-) {
+function relFuture(now: Date, future: Date): string {
+  const mins = Math.round((future.getTime() - now.getTime()) / 60000);
+  if (mins <= 0) return "now";
+  if (mins < 60) return `in ~${mins}m`;
+  if (mins < 1440) return `in ~${Math.round(mins / 60)}h`;
+  return `in ~${Math.round(mins / 1440)}d`;
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const utcTime = (d: Date) => `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const utcWeekdayTime = (d: Date) => `${WEEKDAYS[d.getUTCDay()]} ${utcTime(d)}`;
+const intervalHoursOf = (s: Schedule): number => s.kind === "interval" ? s.everyHours : 7 * 24;
+
+function Card({
+  name, status, when, scheduleLine, banner, stats, totals,
+}: {
+  name: string;
+  status: PipelineStatus;
+  when: string;
+  scheduleLine: string;
+  banner?: string;
+  stats: [string, number | null | undefined][];
+  totals: string;
+}) {
   return (
     <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px", padding: "16px 18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-        <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: DOT[health] }} title={health} />
+        <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: DOT[status] }} title={status} />
         <span style={{ fontSize: "13.5px", fontWeight: 800, color: "#161d29" }}>{name}</span>
         <span style={{ marginLeft: "auto", fontSize: "11.5px", color: "#9aa3b0" }}>{when}</span>
       </div>
+      <div style={{ fontSize: "11px", color: "#9aa3b0", marginBottom: "4px" }}>{scheduleLine}</div>
       {banner && (
         <div style={{ margin: "8px 0", padding: "7px 10px", background: "#fdf3e6", border: "1px solid #f3d9ad",
           borderRadius: "9px", color: "#8a5a12", fontSize: "11.5px", fontWeight: 600 }}>{banner}</div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 14px", marginTop: "8px" }}>
+      <div style={{ fontSize: "11px", color: "#9aa3b0", marginTop: "10px", marginBottom: "4px", fontWeight: 600 }}>
+        Last successful run
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 14px" }}>
         {stats.map(([k, v]) => (
           <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
             <span style={{ color: "#8a93a3" }}>{k}</span>
@@ -37,35 +64,121 @@ function Card(
           </div>
         ))}
       </div>
+      <div style={{ fontSize: "11px", color: "#9aa3b0", marginTop: "10px" }}>{totals}</div>
     </div>
   );
 }
 
-export function HealthCards({ latest, nowIso }: { latest: LatestRuns; nowIso: string }) {
+export function HealthCards({ health, nowIso }: { health: PipelineHealth; nowIso: string }) {
   const now = new Date(nowIso);
-  const { poll, review, discovery, discoveryState } = latest;
+
+  const pollerStatus = derivePipelineStatus({
+    latest: health.poller.latest, lastSuccess: health.poller.lastSuccess,
+    now, intervalHours: intervalHoursOf(SCHEDULES.poller),
+  });
+  const reviewerStatus = derivePipelineStatus({
+    latest: health.reviewer.latest, lastSuccess: health.reviewer.lastSuccess,
+    now, intervalHours: intervalHoursOf(SCHEDULES.reviewer),
+  });
+  const discoveryStatus = derivePipelineStatus({
+    latest: health.discovery.latest, lastSuccess: health.discovery.lastSuccess,
+    now, intervalHours: intervalHoursOf(SCHEDULES.discovery),
+  });
+
+  const nextPoller = nextRun(SCHEDULES.poller, now);
+  const nextReviewer = nextRun(SCHEDULES.reviewer, now);
+  const nextDiscovery = nextRun(SCHEDULES.discovery, now);
+
+  const { latest: poll, lastSuccess: pollSuccess, totals: pollTotals } = health.poller;
+  const { latest: review, lastSuccess: reviewSuccess, totals: reviewTotals } = health.reviewer;
+  const { latest: disc, lastSuccess: discSuccess, totals: discTotals, state } = health.discovery;
+
+  // Poller banner
+  let pollerBanner: string | undefined;
+  if (pollerStatus === "running") {
+    pollerBanner = `Last run started ${rel(nowIso, poll!.started_at)}, still running`;
+  } else if (pollerStatus === "failed") {
+    pollerBanner = "Last run didn't finish";
+  } else if (pollerStatus === "warn" && poll) {
+    const total = (poll.companies_ok ?? 0) + (poll.companies_failed ?? 0);
+    const pct = total > 0 ? Math.round((poll.companies_failed ?? 0) / total * 100) : 0;
+    pollerBanner = `High failure rate: ${pct}% of companies failed last run`;
+  } else if (!poll) {
+    pollerBanner = "No runs yet";
+  }
+
+  // Reviewer banner
+  let reviewerBanner: string | undefined;
+  if (reviewerStatus === "running") {
+    reviewerBanner = `Last run started ${rel(nowIso, review!.started_at)}, still running`;
+  } else if (reviewerStatus === "failed") {
+    reviewerBanner = "Last run didn't finish";
+  } else if (review && reviewSuccess && review.id !== reviewSuccess.id) {
+    reviewerBanner = "Last run did no work (showing last successful run)";
+  } else if (!review) {
+    reviewerBanner = "No runs yet";
+  }
+
+  // Discovery banner (credit-halt has top priority)
+  let discoveryBanner: string | undefined;
+  if (state.halted_no_credits) {
+    discoveryBanner = "Paused — OpenRouter out of credits";
+  } else if (discoveryStatus === "running") {
+    discoveryBanner = `Last run started ${rel(nowIso, disc!.started_at)}, still running`;
+  } else if (discoveryStatus === "failed") {
+    discoveryBanner = disc?.status === "error" ? "Last run errored" : "Last run didn't finish";
+  } else if (disc && discSuccess && disc.id !== discSuccess.id) {
+    discoveryBanner = "Last run did no work (showing last successful run)";
+  } else if (!disc) {
+    discoveryBanner = "No runs yet";
+  }
+
   return (
     <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
       <Card
-        name="Poller" when={rel(nowIso, poll?.finished_at ?? null)}
-        health={computeHealth(poll ? { finished_at: poll.finished_at, failures: poll.companies_failed } : null, now, STALE_HEALTH_HOURS)}
-        stats={[["companies ok", poll?.companies_ok ?? null], ["failed", poll?.companies_failed ?? null],
-                ["new jobs", poll?.new_jobs ?? null], ["closed", poll?.closed_jobs ?? null]]}
+        name="Poller"
+        status={pollerStatus}
+        when={`last run · ${rel(nowIso, poll?.started_at ?? null)}`}
+        scheduleLine={`next run ${relFuture(now, nextPoller)} · ${utcTime(nextPoller)}`}
+        banner={pollerBanner}
+        stats={[
+          ["companies ok", pollSuccess?.companies_ok],
+          ["failed", pollSuccess?.companies_failed],
+          ["new jobs", pollSuccess?.new_jobs],
+          ["closed", pollSuccess?.closed_jobs],
+        ]}
+        totals={`All-time: ${pollTotals.runs} runs · ${pollTotals.new_jobs} new · ${pollTotals.closed_jobs} closed`}
       />
       <Card
-        name="Reviewer" when={rel(nowIso, review?.finished_at ?? null)}
-        health={computeHealth(review ? { finished_at: review.finished_at, failures: review.errors } : null, now, STALE_HEALTH_HOURS)}
-        stats={[["reviewed", review?.reviewed ?? null], ["gate-rejected", review?.gate_rejected ?? null],
-                ["approved", review?.approved ?? null], ["denied", review?.denied ?? null],
-                ["errors", review?.errors ?? null]]}
+        name="Reviewer"
+        status={reviewerStatus}
+        when={`last run · ${rel(nowIso, review?.started_at ?? null)}`}
+        scheduleLine={`next cycle ~${utcTime(nextReviewer)}`}
+        banner={reviewerBanner}
+        stats={[
+          ["reviewed", reviewSuccess?.reviewed],
+          ["gate-rejected", reviewSuccess?.gate_rejected],
+          ["approved", reviewSuccess?.approved],
+          ["denied", reviewSuccess?.denied],
+          ["errors", reviewSuccess?.errors],
+        ]}
+        totals={`All-time: ${reviewTotals.runs} runs · ${reviewTotals.reviewed} reviewed · ${reviewTotals.approved} approved · ${reviewTotals.denied} denied`}
       />
       <Card
-        name="Discovery" when={rel(nowIso, discovery?.finished_at ?? null)}
-        health={computeHealth(discovery ? { finished_at: discovery.finished_at, failures: discovery.errors } : null, now, STALE_HEALTH_HOURS)}
-        banner={discoveryState.halted_no_credits ? "⚠️ Paused — OpenRouter out of credits" : undefined}
-        stats={[["ingested", discovery?.ingested ?? null], ["included", discovery?.included ?? null],
-                ["excluded", discovery?.excluded ?? null], ["unknown", discovery?.unknown ?? null],
-                ["errors", discovery?.errors ?? null], ["backlog", discovery?.backlog ?? null]]}
+        name="Discovery"
+        status={discoveryStatus}
+        when={`last run · ${rel(nowIso, disc?.started_at ?? null)}`}
+        scheduleLine={`next ${utcWeekdayTime(nextDiscovery)}`}
+        banner={discoveryBanner}
+        stats={[
+          ["ingested", discSuccess?.ingested],
+          ["included", discSuccess?.included],
+          ["excluded", discSuccess?.excluded],
+          ["unknown", discSuccess?.unknown],
+          ["errors", discSuccess?.errors],
+          ["backlog", discSuccess?.backlog],
+        ]}
+        totals={`All-time: ${discTotals.runs} runs · ${discTotals.ingested} ingested · ${discTotals.included} included · ${discTotals.excluded} excluded`}
       />
     </div>
   );

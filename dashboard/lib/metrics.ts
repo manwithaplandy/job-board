@@ -1,7 +1,6 @@
 import { sql } from "@/lib/db";
 import {
   getCompanyVerdictCounts, getReviewStats, getDiscoveryState,
-  getLatestPollRun, getLatestReviewRun,
 } from "@/lib/queries";
 import type { PollRunRow, ReviewRunRow, DiscoveryRunRow, DiscoveryStateRow } from "@/lib/types";
 
@@ -150,26 +149,6 @@ export async function getFunnel(userId: string): Promise<FunnelCounts> {
       approved: rv.approved, denied: rv.denied, manual_rejected: rv.manual_rejected,
       unreviewed: stats.unreviewed, errors: stats.errors,
     },
-  };
-}
-
-export interface LatestRuns {
-  poll: PollRunRow | null;
-  review: ReviewRunRow | null;
-  discovery: DiscoveryRunRow | null;
-  discoveryState: DiscoveryStateRow;
-}
-
-export async function getLatestRuns(userId: string): Promise<LatestRuns> {
-  const poll = await getLatestPollRun();
-  const review = await getLatestReviewRun();
-  const discoveryRows = await sql`SELECT * FROM discovery_runs WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`;
-  const discoveryState = await getDiscoveryState(userId);
-  return {
-    poll,
-    review,
-    discovery: (discoveryRows[0] as unknown as DiscoveryRunRow) ?? null,
-    discoveryState,
   };
 }
 
@@ -350,13 +329,13 @@ export async function getDistributions(userId: string): Promise<Distributions> {
 
 export interface PipelineSnapshot {
   funnel: FunnelCounts;
-  latest: LatestRuns;
+  health: PipelineHealth;
   distributions: Distributions;
 }
 
 export async function getPipelineSnapshot(userId: string): Promise<PipelineSnapshot> {
   const funnel = await getFunnel(userId);
-  const latest = await getLatestRuns(userId);
+  const health = await getPipelineHealth(userId);
   const distributions = await getDistributions(userId);
-  return { funnel, latest, distributions };
+  return { funnel, health, distributions };
 }

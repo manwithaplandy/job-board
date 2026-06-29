@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from poller.adapters.greenhouse import parse_greenhouse
+from job_discovery.adapters.greenhouse import parse_greenhouse
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "greenhouse.json").read_text())
 
@@ -29,7 +29,7 @@ def test_missing_department_is_none():
 
 
 def test_fetch_url_requests_content(monkeypatch):
-    import poller.adapters.greenhouse as gh
+    import job_discovery.adapters.greenhouse as gh
     captured = {}
 
     def fake_get_json(url):

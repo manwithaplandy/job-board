@@ -1,7 +1,7 @@
 import uuid
 
-from poller import db as poller_db
-from poller.models import Posting
+from job_discovery import db as poller_db
+from job_discovery.models import Posting
 from reviewer import db as rdb
 from tests.conftest import requires_db
 

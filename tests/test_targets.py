@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from poller.adapters import ADAPTERS
-from poller.targets import load_targets
+from job_discovery.adapters import ADAPTERS
+from job_discovery.targets import load_targets
 
 
 def test_registry_has_three_adapters():

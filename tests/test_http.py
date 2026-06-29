@@ -1,8 +1,8 @@
 import httpx
 import pytest
 
-import poller.http as http_mod
-from poller.http import get_json
+import job_discovery.http as http_mod
+from job_discovery.http import get_json
 
 
 class _Resp:

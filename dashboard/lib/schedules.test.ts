@@ -2,21 +2,21 @@ import { describe, expect, test } from "vitest";
 import { nextRun, SCHEDULES } from "@/lib/schedules";
 
 describe("SCHEDULES shape", () => {
-  test("poller is interval every 2h at minute 0", () => {
-    expect(SCHEDULES.poller).toEqual({ kind: "interval", everyHours: 2, atMinute: 0 });
+  test("jobDiscovery is interval every 2h at minute 0", () => {
+    expect(SCHEDULES.jobDiscovery).toEqual({ kind: "interval", everyHours: 2, atMinute: 0 });
   });
 
   test("reviewer is interval every 2h at minute 0", () => {
     expect(SCHEDULES.reviewer).toEqual({ kind: "interval", everyHours: 2, atMinute: 0 });
   });
 
-  test("discovery is weekly Mon 06:00 UTC", () => {
-    expect(SCHEDULES.discovery).toEqual({ kind: "weekly", weekday: 1, atHour: 6, atMinute: 0 });
+  test("companyDiscovery is weekly Mon 06:00 UTC", () => {
+    expect(SCHEDULES.companyDiscovery).toEqual({ kind: "weekly", weekday: 1, atHour: 6, atMinute: 0 });
   });
 });
 
 describe("nextRun — interval (everyHours:2, atMinute:0)", () => {
-  const s = SCHEDULES.poller; // { kind:"interval", everyHours:2, atMinute:0 }
+  const s = SCHEDULES.jobDiscovery; // { kind:"interval", everyHours:2, atMinute:0 }
 
   test("mid-interval: returns next even-hour boundary", () => {
     const now = new Date("2026-06-29T09:15:00Z");
@@ -35,7 +35,7 @@ describe("nextRun — interval (everyHours:2, atMinute:0)", () => {
 });
 
 describe("nextRun — weekly (weekday:1 Mon, atHour:6, atMinute:0)", () => {
-  const s = SCHEDULES.discovery; // { kind:"weekly", weekday:1, atHour:6, atMinute:0 }
+  const s = SCHEDULES.companyDiscovery; // { kind:"weekly", weekday:1, atHour:6, atMinute:0 }
 
   test("same day before the time: returns today's fire time", () => {
     // 2026-06-29 is Monday

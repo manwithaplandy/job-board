@@ -1,7 +1,6 @@
-# discovery/__main__.py
 import logging
 
-from discovery.run import run
+from job_discovery.run import run
 
 
 def main() -> None:
@@ -9,11 +8,7 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    try:
-        run()
-    finally:
-        from observability import tracing
-        tracing.flush()
+    run()
 
 
 if __name__ == "__main__":

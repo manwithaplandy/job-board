@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from discovery import config
+from company_discovery import config
 
 
 def test_dataset_dir_default():

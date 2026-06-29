@@ -1,9 +1,9 @@
-# discovery/db.py
+# company_discovery/db.py
 import uuid
 
 from psycopg.types.json import Json
 
-from discovery.dataset import Candidate
+from company_discovery.dataset import Candidate
 
 _REVIEW_COLUMNS = (
     "user_id", "company_id", "company_profile_version", "verdict", "confidence",

@@ -4,7 +4,7 @@ from typing import Any
 import httpx
 
 DEFAULT_TIMEOUT = 10.0
-_HEADERS = {"User-Agent": "job-board-poller/0.1"}
+_HEADERS = {"User-Agent": "job-board/0.1"}
 
 
 def get_json(

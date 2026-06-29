@@ -1,6 +1,7 @@
+# company_discovery/__main__.py
 import logging
 
-from poller.run import run
+from company_discovery.run import run
 
 
 def main() -> None:
@@ -8,7 +9,11 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    run()
+    try:
+        run()
+    finally:
+        from observability import tracing
+        tracing.flush()
 
 
 if __name__ == "__main__":

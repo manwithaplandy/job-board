@@ -1,5 +1,5 @@
-from poller import db
-from poller.models import Posting
+from job_discovery import db
+from job_discovery.models import Posting
 from tests.conftest import requires_db
 
 

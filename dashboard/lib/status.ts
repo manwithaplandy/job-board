@@ -22,16 +22,16 @@ export function isNew(firstSeenAt: string, now: Date, windowHours: number): bool
 export type PipelineStatus = "running" | "failed" | "warn" | "stale" | "ok";
 
 export const RUNNING_GRACE_HOURS = 3;
-export const POLLER_FAILURE_WARN_RATE = 0.6;
+export const JOB_DISCOVERY_FAILURE_WARN_RATE = 0.6;
 
 export function derivePipelineStatus(args: {
   latest:
     | {
         started_at: string;
         finished_at: string | null;
-        status?: string | null; // discovery only: 'running'|'completed'|'halted_no_credits'|'error'
-        companies_ok?: number | null; // poller only
-        companies_failed?: number | null; // poller only
+        status?: string | null; // company discovery only: 'running'|'completed'|'halted_no_credits'|'error'
+        companies_ok?: number | null; // job discovery only
+        companies_failed?: number | null; // job discovery only
       }
     | null;
   lastSuccess: { finished_at: string | null } | null;
@@ -47,7 +47,7 @@ export function derivePipelineStatus(args: {
     return ageHours(latest.started_at) < RUNNING_GRACE_HOURS ? "running" : "failed";
   }
 
-  // 2. discovery error states (finished but terminal failure status)
+  // 2. company discovery error states (finished but terminal failure status)
   if (
     latest !== null &&
     (latest.status === "error" || latest.status === "halted_no_credits")
@@ -64,14 +64,14 @@ export function derivePipelineStatus(args: {
     return "stale";
   }
 
-  // 4. warn — poller only, high failure rate
+  // 4. warn — job discovery only, high failure rate
   if (
     latest !== null &&
     latest.companies_ok != null &&
     latest.companies_failed != null
   ) {
     const total = latest.companies_ok + latest.companies_failed;
-    if (total > 0 && latest.companies_failed / total > POLLER_FAILURE_WARN_RATE) {
+    if (total > 0 && latest.companies_failed / total > JOB_DISCOVERY_FAILURE_WARN_RATE) {
       return "warn";
     }
   }

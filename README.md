@@ -10,13 +10,13 @@ See [`job-tracker-prd.md`](job-tracker-prd.md) for the full product spec.
 
 | Part | Location | Deploys to | Status |
 |------|----------|-----------|--------|
-| Poller (backend) | repo root (`poller/`) | Railway cron service | ✅ live |
+| Job Discovery (backend) | repo root (`job_discovery/`) | Railway cron service | ✅ live |
 | Database | `schema.sql` | Supabase (Postgres) | ✅ live |
 | Dashboard (frontend) | `dashboard/` | Vercel | planned (M3) |
 
-## Poller
+## Job Discovery
 
-A Python package run as `python -m poller`. It reads `targets.json`, fetches
+A Python package run as `python -m job_discovery`. It reads `targets.json`, fetches
 each company's open roles via the matching ATS adapter, normalizes them, and
 upserts into Postgres with new/closed detection and per-run accounting, then
 closes its connection and exits (a hard requirement for the Railway cron model).
@@ -26,7 +26,7 @@ closes its connection and exits (a hard requirement for the Railway cron model).
 ```bash
 uv venv --python 3.12 .venv
 uv pip install --python .venv -e ".[dev]"
-DATABASE_URL="postgresql://…" .venv/bin/python -m poller
+DATABASE_URL="postgresql://…" .venv/bin/python -m job_discovery
 ```
 
 ### Tests
@@ -39,7 +39,7 @@ TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" .venv
 
 ### Review phase
 
-At the end of each poll run the poller automatically calls the reviewer, which
+At the end of each poll run Job Discovery automatically calls the reviewer, which
 scores every unreviewed job against the active user profile and writes results
 to the `reviews` table.  It can also be run standalone:
 
@@ -66,9 +66,9 @@ DATABASE_URL="postgresql://…" ANTHROPIC_API_KEY="sk-…" .venv/bin/python -m r
 writes) when `ANTHROPIC_API_KEY` is unset or when no active user profile exists
 in the database.
 
-**Railway note:** set the env vars above on the poller service, and extend the
+**Railway note:** set the env vars above on the Job Discovery service, and extend the
 watch patterns in the Railway dashboard to include `reviewer/**` so that
-reviewer-only commits also redeploy the poller service.
+reviewer-only commits also redeploy the Job Discovery service.
 
 ## Configuration
 
@@ -78,31 +78,31 @@ reviewer-only commits also redeploy the poller service.
 
 ## Deployment
 
-- **Poller** → Railway cron service (`0 */2 * * *` UTC), root `/`, start `python -m poller`.
-  Railway **watch patterns** are scoped to backend paths (`poller/**`, `requirements.txt`,
+- **Job Discovery** → Railway cron service (`0 */2 * * *` UTC), root `/`, start `python -m job_discovery`.
+  Railway **watch patterns** are scoped to backend paths (`job_discovery/**`, `requirements.txt`,
   `pyproject.toml`, `railway.json`, `targets.json`, `schema.sql`), so frontend/docs-only
-  commits do not rebuild the poller.
-- **Discovery** → Railway cron service (slow, e.g. weekly), root `/`, start `python -m discovery`.
-  Reuses the poller's `DATABASE_URL` + `OPENROUTER_API_KEY`; reviews dataset companies against the
+  commits do not rebuild Job Discovery.
+- **Company Discovery** → Railway cron service (slow, e.g. weekly), root `/`, start `python -m company_discovery`.
+  Reuses Job Discovery's `DATABASE_URL` + `OPENROUTER_API_KEY`; reviews dataset companies against the
   operator's company preferences and reconciles `companies.active`. The dataset snapshot is vendored
-  under `discovery/data/`. Watch patterns: `discovery/**`, `requirements.txt`, `pyproject.toml`,
-  `railway.json`, `schema.sql`. `DISCOVERY_BATCH_CAP` (default 500/run) bounds how many *new*
+  under `company_discovery/data/`. Watch patterns: `company_discovery/**`, `requirements.txt`, `pyproject.toml`,
+  `railway.discovery.json`, `schema.sql`. `DISCOVERY_BATCH_CAP` (default 500/run) bounds how many *new*
   candidates a single run reviews — keep it small so one run cannot activate thousands of companies
-  at once (each active company is then polled and accrues `jobs` rows). Discovery is incremental: a
+  at once (each active company is then polled and accrues `jobs` rows). Company Discovery is incremental: a
   company is re-reviewed only when its `company_profile_version` changes.
-- **Disk safety valve** → both the poller and discovery call `db.over_size_ceiling()` at startup and
+- **Disk safety valve** → both Job Discovery and Company Discovery call `db.over_size_ceiling()` at startup and
   **halt the run with no writes** once `pg_database_size` reaches `DB_SIZE_CEILING_MB` (default
   **6000** = 6 GB). The Supabase Pro volume is 8 GB; the ~2 GB headroom absorbs one poll's growth plus
   WAL so the DB can never reach the hard limit (which forces Postgres read-only and, if WAL then fills
   the disk, a crash-recovery loop). Lower the ceiling for a smaller plan; never set it at/above the
   actual volume size.
-- **Job-data retention** → the poller distils each role's JD into `jobs.description`
+- **Job-data retention** → Job Discovery distils each role's JD into `jobs.description`
   at poll time (no raw payload is stored) and prunes at the end of every run:
   denied roles lose their `description` (the review record is kept; a denied role is
   never re-reviewed even after a résumé edit — its pruned JD makes re-review moot), and closed or
   deactivated-company roles are deleted after `CLOSED_JOB_RETENTION_DAYS` (default 30)
   unless approved. Tuning: `PRUNE_BATCH_SIZE` (2000), `PRUNE_MAX_ROWS_PER_RUN` (20000).
-  One-time migration of pre-existing rows: `python -m poller.backfill_descriptions`.
+  One-time migration of pre-existing rows: `python -m job_discovery.backfill_descriptions`.
 - **Database** → Supabase (Postgres). Apply `schema.sql` as a migration.
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
 

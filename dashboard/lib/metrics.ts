@@ -19,7 +19,7 @@ async function seq<T>(thunks: ReadonlyArray<() => Promise<T>>): Promise<T[]> {
 
 // ── Run series: 90-day daily aggregates per pipeline ─────────────────────────
 
-export interface PollDay {
+export interface JobDiscoveryDay {
   day: string; new_jobs: number; closed_jobs: number;
   companies_ok: number; companies_failed: number;
   run_count: number; total_duration_seconds: number;
@@ -29,16 +29,16 @@ export interface ReviewDay {
   approved: number; denied: number; errors: number;
   run_count: number; total_duration_seconds: number;
 }
-export interface DiscoveryDay {
+export interface CompanyDiscoveryDay {
   day: string; ingested: number; reviewed: number;
   included: number; excluded: number; unknown: number; errors: number;
   run_count: number; total_duration_seconds: number;
   last_backlog: number; halt_count: number;
 }
-export interface RunSeries { poll: PollDay[]; review: ReviewDay[]; discovery: DiscoveryDay[] }
+export interface RunSeries { jobDiscovery: JobDiscoveryDay[]; review: ReviewDay[]; companyDiscovery: CompanyDiscoveryDay[] }
 
 export async function getRunSeries(): Promise<RunSeries> {
-  const [poll, review, discovery] = await seq([
+  const [jobDiscovery, review, companyDiscovery] = await seq([
     () => sql`
       SELECT to_char(date_trunc('day', started_at), 'YYYY-MM-DD') AS day,
              COALESCE(sum(new_jobs), 0)::int          AS new_jobs,
@@ -85,9 +85,9 @@ export async function getRunSeries(): Promise<RunSeries> {
     `,
   ]);
   return {
-    poll: poll as unknown as PollDay[],
+    jobDiscovery: jobDiscovery as unknown as JobDiscoveryDay[],
     review: review as unknown as ReviewDay[],
-    discovery: discovery as unknown as DiscoveryDay[],
+    companyDiscovery: companyDiscovery as unknown as CompanyDiscoveryDay[],
   };
 }
 
@@ -154,27 +154,27 @@ export async function getFunnel(userId: string): Promise<FunnelCounts> {
 
 // ── Per-pipeline health (latest / lastSuccess / all-time totals) ──────────────
 
-export interface PollerTotals    { runs: number; new_jobs: number; closed_jobs: number; companies_ok: number; companies_failed: number }
-export interface ReviewerTotals  { runs: number; reviewed: number; gate_rejected: number; approved: number; denied: number; errors: number }
-export interface DiscoveryTotals { runs: number; ingested: number; reviewed: number; included: number; excluded: number; errors: number }
+export interface JobDiscoveryTotals     { runs: number; new_jobs: number; closed_jobs: number; companies_ok: number; companies_failed: number }
+export interface ReviewerTotals         { runs: number; reviewed: number; gate_rejected: number; approved: number; denied: number; errors: number }
+export interface CompanyDiscoveryTotals { runs: number; ingested: number; reviewed: number; included: number; excluded: number; errors: number }
 
 export interface PipelineHealth {
-  poller:    { latest: PollRunRow | null;      lastSuccess: PollRunRow | null;      totals: PollerTotals }
-  reviewer:  { latest: ReviewRunRow | null;    lastSuccess: ReviewRunRow | null;    totals: ReviewerTotals }
-  discovery: { latest: DiscoveryRunRow | null; lastSuccess: DiscoveryRunRow | null; totals: DiscoveryTotals; state: DiscoveryStateRow }
+  jobDiscovery:     { latest: PollRunRow | null;      lastSuccess: PollRunRow | null;      totals: JobDiscoveryTotals }
+  reviewer:         { latest: ReviewRunRow | null;    lastSuccess: ReviewRunRow | null;    totals: ReviewerTotals }
+  companyDiscovery: { latest: DiscoveryRunRow | null; lastSuccess: DiscoveryRunRow | null; totals: CompanyDiscoveryTotals; state: DiscoveryStateRow }
 }
 
 export async function getPipelineHealth(userId: string): Promise<PipelineHealth> {
   const [
-    pollerLatestRows,
+    jobDiscoveryLatestRows,
     reviewerLatestRows,
-    discoveryLatestRows,
-    pollerLastSuccessRows,
+    companyDiscoveryLatestRows,
+    jobDiscoveryLastSuccessRows,
     reviewerLastSuccessRows,
-    discoveryLastSuccessRows,
-    pollerTotalsRows,
+    companyDiscoveryLastSuccessRows,
+    jobDiscoveryTotalsRows,
     reviewerTotalsRows,
-    discoveryTotalsRows,
+    companyDiscoveryTotalsRows,
   ] = await seq([
     () => sql`SELECT * FROM poll_runs ORDER BY started_at DESC LIMIT 1`,
     () => sql`SELECT * FROM review_runs ORDER BY started_at DESC LIMIT 1`,
@@ -213,20 +213,20 @@ export async function getPipelineHealth(userId: string): Promise<PipelineHealth>
   const state = await getDiscoveryState(userId);
 
   return {
-    poller: {
-      latest:      (pollerLatestRows[0] as unknown as PollRunRow) ?? null,
-      lastSuccess: (pollerLastSuccessRows[0] as unknown as PollRunRow) ?? null,
-      totals:      pollerTotalsRows[0] as unknown as PollerTotals,
+    jobDiscovery: {
+      latest:      (jobDiscoveryLatestRows[0] as unknown as PollRunRow) ?? null,
+      lastSuccess: (jobDiscoveryLastSuccessRows[0] as unknown as PollRunRow) ?? null,
+      totals:      jobDiscoveryTotalsRows[0] as unknown as JobDiscoveryTotals,
     },
     reviewer: {
       latest:      (reviewerLatestRows[0] as unknown as ReviewRunRow) ?? null,
       lastSuccess: (reviewerLastSuccessRows[0] as unknown as ReviewRunRow) ?? null,
       totals:      reviewerTotalsRows[0] as unknown as ReviewerTotals,
     },
-    discovery: {
-      latest:      (discoveryLatestRows[0] as unknown as DiscoveryRunRow) ?? null,
-      lastSuccess: (discoveryLastSuccessRows[0] as unknown as DiscoveryRunRow) ?? null,
-      totals:      discoveryTotalsRows[0] as unknown as DiscoveryTotals,
+    companyDiscovery: {
+      latest:      (companyDiscoveryLatestRows[0] as unknown as DiscoveryRunRow) ?? null,
+      lastSuccess: (companyDiscoveryLastSuccessRows[0] as unknown as DiscoveryRunRow) ?? null,
+      totals:      companyDiscoveryTotalsRows[0] as unknown as CompanyDiscoveryTotals,
       state,
     },
   };

@@ -5,9 +5,9 @@ import uuid
 
 import pytest
 
-from discovery.llm import OutOfCreditsError
-from discovery.schemas import CompanyReviewResult
-from discovery.run import review_batch
+from company_discovery.llm import OutOfCreditsError
+from company_discovery.schemas import CompanyReviewResult
+from company_discovery.run import review_batch
 from tests.conftest import requires_db
 
 USER = "44444444-4444-4444-4444-444444444444"
@@ -59,7 +59,7 @@ def test_batch_isolates_errors():
 def test_review_company_one_traces_when_sampled(monkeypatch):
     from observability import tracing
     import contextlib
-    from discovery.run import review_company_one
+    from company_discovery.run import review_company_one
 
     seen = {"span_update": None, "spans": 0}
 
@@ -98,7 +98,7 @@ def test_run_writes_reviews_and_reconciles(conn, monkeypatch):
             "VALUES (%s, 'i', 'prefer devtools, no defense', 'cv1', 'pv1')", (USER,))
     conn.commit()
 
-    import discovery.run as run_module
+    import company_discovery.run as run_module
     monkeypatch.setattr(run_module, "CompanyReviewClient", lambda **kw: StubClient())
     monkeypatch.setattr(run_module.dataset, "load_candidates", lambda _d: [])  # skip ingest
     run_module.run(conn)

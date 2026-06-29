@@ -1,7 +1,7 @@
 // ── Pure trend helpers (DB-free; unit-tested in trend.test.ts) ───────────────
 
 // Permissive row shape for tests; the helpers below are generic and keep the
-// caller's concrete type (e.g. PollDay), so numeric fields stay typed `number`.
+// caller's concrete type (e.g. JobDiscoveryDay), so numeric fields stay typed `number`.
 export type Point = { day: string; [metric: string]: number | string };
 
 const DAY_MS = 86_400_000;

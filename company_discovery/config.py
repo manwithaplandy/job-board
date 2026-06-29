@@ -12,7 +12,7 @@ def _int_env(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         # A malformed override (e.g. DISCOVERY_BATCH_CAP=abc) falls back to the
-        # default rather than crashing discovery at import time.
+        # default rather than crashing company discovery at import time.
         return default
 
 

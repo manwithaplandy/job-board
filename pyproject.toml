@@ -1,7 +1,7 @@
 [project]
 name = "job-board-poller"
 version = "0.1.0"
-description = "Remote job tracker poller"
+description = "Remote job tracker"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
@@ -24,4 +24,4 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["poller", "poller.adapters", "reviewer", "discovery", "observability"]
+packages = ["job_discovery", "job_discovery.adapters", "reviewer", "company_discovery", "observability"]

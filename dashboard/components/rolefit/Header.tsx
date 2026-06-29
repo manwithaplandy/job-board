@@ -155,7 +155,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
                 background: HEALTH_DOT[operator.health],
                 flexShrink: 0,
               }}
-              title={`Poll health: ${operator.health}`}
+              title={`Job Discovery health: ${operator.health}`}
             />
             {/* Unreviewed count */}
             {operator.unreviewed > 0 && (

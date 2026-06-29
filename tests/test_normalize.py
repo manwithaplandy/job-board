@@ -1,5 +1,5 @@
-from poller.models import Posting
-from poller.normalize import detect_remote
+from job_discovery.models import Posting
+from job_discovery.normalize import detect_remote
 
 
 def test_posting_defaults():

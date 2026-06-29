@@ -24,8 +24,8 @@ export async function setCompanyOverride(
 }
 
 // Refresh: re-check credits; clear the halt if topped up; flag a resume so the
-// next discovery run drains the backlog.
-export async function refreshDiscoveryStatus(): Promise<void> {
+// next company discovery run drains the backlog.
+export async function refreshCompanyDiscoveryStatus(): Promise<void> {
   await requireUserId();
   const remaining = await getOpenRouterCredits();
   const hasCredits = remaining === null ? false : remaining > 0;

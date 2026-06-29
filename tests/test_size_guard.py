@@ -1,8 +1,8 @@
 # tests/test_size_guard.py
-"""Disk safety valve: discovery + poller halt before filling the 8 GB volume."""
-import poller.run as poller_run
-import discovery.run as discovery_run
-from poller import db
+"""Disk safety valve: Company Discovery + Job Discovery halt before filling the 8 GB volume."""
+import job_discovery.run as job_discovery_run
+import company_discovery.run as company_discovery_run
+from job_discovery import db
 
 
 # --- ceiling parsing -------------------------------------------------------
@@ -83,33 +83,33 @@ class _GuardConn:
         raise AssertionError("DB touched despite being over the size ceiling")
 
 
-def test_poller_run_skips_when_over_ceiling(monkeypatch):
+def test_job_discovery_run_skips_when_over_ceiling(monkeypatch):
     conn = _GuardConn()
-    monkeypatch.setattr(poller_run, "load_targets", lambda: [])
-    monkeypatch.setattr(poller_run.db, "connect", lambda dsn=None: conn)
-    monkeypatch.setattr(poller_run.db, "over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
+    monkeypatch.setattr(job_discovery_run, "load_targets", lambda: [])
+    monkeypatch.setattr(job_discovery_run.db, "connect", lambda dsn=None: conn)
+    monkeypatch.setattr(job_discovery_run.db, "over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
     started = {"called": False}
-    monkeypatch.setattr(poller_run.db, "start_run",
+    monkeypatch.setattr(job_discovery_run.db, "start_run",
                         lambda c: started.__setitem__("called", True) or 1)
 
-    poller_run.run()
+    job_discovery_run.run()
 
     assert started["called"] is False   # never started a poll run
     assert conn.closed is True          # connection still cleaned up
 
 
-def test_poller_run_prunes_when_over_ceiling(monkeypatch):
+def test_job_discovery_run_prunes_when_over_ceiling(monkeypatch):
     """prune_jobs must still run when the size guard short-circuits the poll.
 
     Prune is the only mechanism that can shrink the DB; skipping it on the
     over-ceiling path would stall recovery.
     """
     conn = _GuardConn()
-    monkeypatch.setattr(poller_run, "load_targets", lambda: [])
-    monkeypatch.setattr(poller_run.db, "connect", lambda dsn=None: conn)
-    monkeypatch.setattr(poller_run.db, "over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
+    monkeypatch.setattr(job_discovery_run, "load_targets", lambda: [])
+    monkeypatch.setattr(job_discovery_run.db, "connect", lambda dsn=None: conn)
+    monkeypatch.setattr(job_discovery_run.db, "over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
     started = {"called": False}
-    monkeypatch.setattr(poller_run.db, "start_run",
+    monkeypatch.setattr(job_discovery_run.db, "start_run",
                         lambda c: started.__setitem__("called", True) or 1)
 
     prune_calls = {"n": 0}
@@ -117,26 +117,26 @@ def test_poller_run_prunes_when_over_ceiling(monkeypatch):
     def fake_prune(c):
         prune_calls["n"] += 1
 
-    import poller.prune as prune_module
+    import job_discovery.prune as prune_module
     monkeypatch.setattr(prune_module, "prune_jobs", fake_prune)
 
-    poller_run.run()
+    job_discovery_run.run()
 
     assert prune_calls["n"] == 1       # prune still ran despite ceiling breach
     assert started["called"] is False   # poll was still skipped
     assert conn.closed is True          # connection still cleaned up
 
 
-def test_discovery_run_skips_when_over_ceiling(monkeypatch):
+def test_company_discovery_run_skips_when_over_ceiling(monkeypatch):
     conn = _GuardConn()
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("poller.db.connect", lambda: conn)
-    monkeypatch.setattr("poller.db.over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
+    monkeypatch.setattr("job_discovery.db.connect", lambda: conn)
+    monkeypatch.setattr("job_discovery.db.over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
     ingested = {"called": False}
-    monkeypatch.setattr(discovery_run.db, "upsert_candidates",
+    monkeypatch.setattr(company_discovery_run.db, "upsert_candidates",
                         lambda *a, **k: ingested.__setitem__("called", True) or 0)
 
-    discovery_run.run()
+    company_discovery_run.run()
 
     assert ingested["called"] is False  # never ingested / reviewed / activated
     assert conn.closed is True

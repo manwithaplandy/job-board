@@ -30,7 +30,7 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
           Pipeline analytics
         </h1>
         <div style={{ fontSize: "13px", color: "#8a93a3", marginBottom: "18px" }}>
-          Discovery, poller, and reviewer pipelines — totals, throughput, and trends.
+          Company Discovery, Job Discovery, and reviewer pipelines — totals, throughput, and trends.
         </div>
 
         <div style={{ position: "sticky", top: 0, zIndex: 10, display: "flex", gap: "8px",

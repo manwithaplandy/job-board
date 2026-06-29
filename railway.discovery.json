@@ -2,7 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "watchPatterns": [
-      "discovery/**",
+      "company_discovery/**",
       "requirements.txt",
       "pyproject.toml",
       "railway.discovery.json",
@@ -10,7 +10,7 @@
     ]
   },
   "deploy": {
-    "startCommand": "python -m discovery",
+    "startCommand": "python -m company_discovery",
     "cronSchedule": "0 6 * * 1",
     "restartPolicyType": "NEVER"
   }

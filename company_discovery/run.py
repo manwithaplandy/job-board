@@ -1,13 +1,13 @@
-# discovery/run.py
+# company_discovery/run.py
 import asyncio
 import logging
 
-from discovery import config, dataset, db
-from discovery.llm import CompanyReviewClient, OutOfCreditsError, build_company_block
-from discovery.profile import compute_company_profile_version
+from company_discovery import config, dataset, db
+from company_discovery.llm import CompanyReviewClient, OutOfCreditsError, build_company_block
+from company_discovery.profile import compute_company_profile_version
 from observability import tracing
 
-log = logging.getLogger("discovery")
+log = logging.getLogger("company_discovery")
 
 # AI verdict string -> discovery_runs counts column.
 _VERDICT_COUNT_KEY = {"include": "included", "exclude": "excluded", "unknown": "unknown"}
@@ -21,7 +21,7 @@ async def review_company_one(c: dict, company_block: str, client,
     if lf is None:
         return await client.review(company_block=company_block, name=c["name"],
                                    ats=c["ats"], token=c["token"])
-    with tracing.identity(user_id=user_id, session_id=run_id, tags=["discovery"]):
+    with tracing.identity(user_id=user_id, session_id=run_id, tags=["company_discovery"]):
         with lf.start_as_current_observation(
             as_type="span", name="company-review",
             input={"company_id": c["id"], "name": c["name"], "ats": c["ats"]},
@@ -99,33 +99,33 @@ def _review_user(conn, profile: dict) -> None:
         if halted:
             status = "halted_no_credits"
             notes = f"out of credits; {backlog} pending"
-            log.warning("discovery halted (no credits) for %s; backlog=%s", user_id, backlog)
+            log.warning("company discovery halted (no credits) for %s; backlog=%s", user_id, backlog)
         db.set_halted(conn, halted)
         conn.commit()
     except Exception:
         conn.rollback()
-        status, notes = "error", "discovery errored; see logs"
+        status, notes = "error", "company discovery errored; see logs"
         backlog = 0
-        log.exception("discovery failed for %s", user_id)
+        log.exception("company discovery failed for %s", user_id)
     finally:
         db.finish_discovery_run(conn, run_id, status=status, ingested=0, backlog=backlog,
                                 notes=notes, **counts)
         conn.commit()
-    log.info("discovery finished for %s: %s status=%s", user_id, counts, status)
+    log.info("company discovery finished for %s: %s status=%s", user_id, counts, status)
 
 
 def run(conn=None) -> None:
-    from poller import db as poller_db  # reuse the shared connection factory
+    from job_discovery import db as job_discovery_db  # reuse the shared connection factory
     own = conn is None
-    conn = conn or poller_db.connect()
+    conn = conn or job_discovery_db.connect()
     try:
         if not config.has_api_key():
-            log.info("OPENROUTER_API_KEY not set; skipping discovery")
+            log.info("OPENROUTER_API_KEY not set; skipping company discovery")
             return
-        over, size_mb, ceiling_mb = poller_db.over_size_ceiling(conn)
+        over, size_mb, ceiling_mb = job_discovery_db.over_size_ceiling(conn)
         if over:
             log.error(
-                "DB at %.0f MB >= ceiling %.0f MB; skipping discovery so it does not "
+                "DB at %.0f MB >= ceiling %.0f MB; skipping company discovery so it does not "
                 "activate more companies near the disk limit", size_mb, ceiling_mb,
             )
             return

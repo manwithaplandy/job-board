@@ -19,6 +19,7 @@
     "postgres": "^3.4.5",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "recharts": "^2.15.4",
     "unpdf": "^1.6.2"
   },
   "devDependencies": {

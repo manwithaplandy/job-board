@@ -26,8 +26,10 @@ CREATE TABLE jobs (
 );
 CREATE INDEX idx_jobs_first_seen ON jobs (first_seen_at DESC);
 CREATE INDEX idx_jobs_open ON jobs (closed_at) WHERE closed_at IS NULL;
--- Supports the analytics funnel's full-table jobs aggregate (count + FILTER on closed_at)
--- via an index-only scan instead of a heap seq scan of the large jobs table.
+-- Lets the analytics "job lifespan" query (WHERE closed_at IS NOT NULL — a small
+-- minority of rows) use a bitmap index scan instead of a full seq scan of the large
+-- jobs table. (The whole-table funnel count still seq-scans, which is correct for a
+-- full count.) The durable fix for the /analytics load is the request-level caching.
 CREATE INDEX idx_jobs_closed_at ON jobs (closed_at);
 
 CREATE TABLE poll_runs (

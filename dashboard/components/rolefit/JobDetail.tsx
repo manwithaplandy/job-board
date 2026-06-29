@@ -29,6 +29,7 @@ export interface JobDetailProps {
   onCopy: (job: JobRow, data: TailoredResume) => void;
   copiedId: string | null;
   onOpenProfile: () => void;
+  onReject?: (job: JobRow) => void;
 }
 
 export function JobDetail({
@@ -42,6 +43,7 @@ export function JobDetail({
   onCopy,
   copiedId,
   onOpenProfile,
+  onReject,
 }: JobDetailProps) {
   const hasReview = job.fit_score != null;
   const fit = job.fit_score ?? 0;
@@ -271,6 +273,53 @@ export function JobDetail({
           </div>
         )}
       </div>
+
+      {/* ── Operator action row ── */}
+      {(job.human_override || (isAuthed && job.verdict === "approve")) && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            gap: "10px",
+            marginTop: "16px",
+          }}
+        >
+          {job.human_override && (
+            <span
+              style={{
+                fontSize: "11.5px",
+                fontWeight: 700,
+                color: "#a05f5f",
+                background: "#f8eded",
+                border: "1px solid #ecd6d6",
+                borderRadius: "20px",
+                padding: "4px 11px",
+              }}
+            >
+              Rejected · you
+            </span>
+          )}
+          {isAuthed && job.verdict === "approve" && (
+            <button
+              type="button"
+              onClick={() => onReject?.(job)}
+              style={{
+                fontWeight: 700,
+                fontSize: "12.5px",
+                color: "#a05f5f",
+                background: "#fff",
+                border: "1px solid #e2c9c9",
+                borderRadius: "9px",
+                padding: "7px 16px",
+                cursor: "pointer",
+              }}
+            >
+              Reject
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── NOT YET REVIEWED branch ── */}
       {!hasReview && (

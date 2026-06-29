@@ -13,9 +13,9 @@ export async function POST(req: Request) {
   } catch {
     // Malformed body → parseBoardFilters yields defaults.
   }
-  const filters = parseBoardFilters(body);
 
   try {
+    const filters = parseBoardFilters(body);
     const userId = await getUserId();
     if (userId) {
       await saveBoardFilters(userId, filters);

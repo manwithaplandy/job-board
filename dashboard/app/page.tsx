@@ -6,6 +6,7 @@ import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
 import { getUserId } from "@/lib/auth";
 import { saveProfileResume } from "@/app/actions/profile";
+import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 import type { OperatorSignals } from "@/lib/types";
 
@@ -49,6 +50,8 @@ export default async function Page({
       isOperator={!!ownerId}
       isAuthed={!!viewerId}
       saveResume={saveProfileResume}
+      rejectJob={rejectJob}
+      unrejectJob={unrejectJob}
       operator={operator}
       hasProfile={hasProfile}
       resumeText={resumeText}

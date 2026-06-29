@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react";
 import type { JobRow, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
@@ -18,6 +18,8 @@ export interface RolefitBoardProps {
   isOperator: boolean;
   isAuthed: boolean;
   saveResume: (fd: FormData) => Promise<void>;
+  rejectJob: (jobId: string) => Promise<void>;
+  unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;
@@ -29,6 +31,8 @@ export function RolefitBoard({
   isOperator: _isOperator,
   isAuthed,
   saveResume,
+  rejectJob,
+  unrejectJob,
   operator,
   hasProfile,
   resumeText,
@@ -47,6 +51,12 @@ export function RolefitBoard({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
 
+  // Manual-rejection state: optimistically hidden ids + the pending Undo toast.
+  const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<{ jobId: string; priorVerdict: string | null } | null>(null);
+  const [, startReject] = useTransition();
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Résumé generation state (keyed by job id)
   const [gen, setGen] = useState<Record<string, string>>({});
   const [genData, setGenData] = useState<Record<string, TailoredResume>>({});
@@ -57,9 +67,10 @@ export function RolefitBoard({
   const detailRef = useRef<HTMLDivElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cleanup copy timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => () => {
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
   }, []);
 
   // Outside-click closes open dropdown — port of reference componentDidMount doc listener
@@ -79,8 +90,9 @@ export function RolefitBoard({
   );
 
   const visible = useMemo(
-    () => sortJobs(applyFilters(jobs, filterState), filterState.sort),
-    [jobs, filterState],
+    () => sortJobs(applyFilters(jobs, filterState), filterState.sort)
+      .filter((j) => !rejectedIds.has(j.id)),
+    [jobs, filterState, rejectedIds],
   );
 
   // Resolve selected job
@@ -128,6 +140,29 @@ export function RolefitBoard({
     setSelectedId(id);
     if (detailRef.current) detailRef.current.scrollTop = 0;
   };
+
+  const handleReject = useCallback((job: JobRow) => {
+    const priorVerdict = job.verdict;
+    setRejectedIds((prev) => new Set(prev).add(job.id));
+    setSelectedId((prev) => (prev === job.id ? null : prev));
+    startReject(() => { void rejectJob(job.id); });
+    setToast({ jobId: job.id, priorVerdict });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 5000);
+  }, [rejectJob]);
+
+  const handleUndo = useCallback(() => {
+    if (!toast) return;
+    const { jobId, priorVerdict } = toast;
+    setRejectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(jobId);
+      return next;
+    });
+    startReject(() => { void unrejectJob(jobId, priorVerdict); });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(null);
+  }, [toast, unrejectJob]);
 
   // Résumé generation
   const handleGenerate = useCallback(async (job: JobRow) => {
@@ -253,6 +288,7 @@ export function RolefitBoard({
               onCopy={handleCopy}
               copiedId={copiedId}
               onOpenProfile={() => setProfileOpen(true)}
+              onReject={handleReject}
             />
           ) : (
             <div
@@ -272,6 +308,44 @@ export function RolefitBoard({
         </div>
       </div>
 
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "24px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+            background: "#1b2330",
+            color: "#fff",
+            borderRadius: "12px",
+            padding: "11px 18px",
+            boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+            fontSize: "13.5px",
+            fontWeight: 600,
+            zIndex: 50,
+          }}
+        >
+          <span>Rejected</span>
+          <button
+            type="button"
+            onClick={handleUndo}
+            style={{
+              fontWeight: 800,
+              fontSize: "13px",
+              color: "#9ec1ff",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Undo
+          </button>
+        </div>
+      )}
       <ProfileModal
         open={profileOpen}
         isAuthed={isAuthed}

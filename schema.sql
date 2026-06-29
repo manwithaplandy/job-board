@@ -26,6 +26,9 @@ CREATE TABLE jobs (
 );
 CREATE INDEX idx_jobs_first_seen ON jobs (first_seen_at DESC);
 CREATE INDEX idx_jobs_open ON jobs (closed_at) WHERE closed_at IS NULL;
+-- Supports the analytics funnel's full-table jobs aggregate (count + FILTER on closed_at)
+-- via an index-only scan instead of a heap seq scan of the large jobs table.
+CREATE INDEX idx_jobs_closed_at ON jobs (closed_at);
 
 CREATE TABLE poll_runs (
   id               SERIAL PRIMARY KEY,

@@ -37,5 +37,19 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
     modelResume: existing?.model_resume ?? null,
     companyInstructions: existing?.company_instructions ?? null,
     modelCompany: existing?.model_company ?? null,
+    // Application answers are edited only on /profile — preserve them here.
+    fullName: existing?.full_name ?? null,
+    email: existing?.email ?? null,
+    phone: existing?.phone ?? null,
+    links: existing?.links ?? {},
+    location: existing?.location ?? null,
+    workAuthorized: existing?.work_authorized ?? null,
+    needsSponsorship: existing?.needs_sponsorship ?? null,
+    eeoGender: existing?.eeo_gender ?? null,
+    eeoRace: existing?.eeo_race ?? null,
+    eeoVeteran: existing?.eeo_veteran ?? null,
+    eeoDisability: existing?.eeo_disability ?? null,
+    screeningAnswers: existing?.screening_answers ?? {},
+    modelCover: existing?.model_cover ?? null,
   });
 }

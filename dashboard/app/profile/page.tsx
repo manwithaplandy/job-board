@@ -10,8 +10,20 @@ import { ModelPicker } from "@/components/ModelPicker";
 import { LocationPicker } from "@/components/LocationPicker";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
+import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
 
 export const dynamic = "force-dynamic";
+
+// "" → null, "yes" → true, "no" → false. Mirrors the tri-state work-eligibility select.
+function parseTriState(v: FormDataEntryValue | null): boolean | null {
+  const s = String(v ?? "");
+  return s === "yes" ? true : s === "no" ? false : null;
+}
+const trimOrNull = (v: FormDataEntryValue | null): string | null =>
+  String(v ?? "").trim() || null;
+// boolean | null → the <select> value: true → "yes", false → "no", null → "".
+const triDefault = (v: boolean | null | undefined): string =>
+  v === true ? "yes" : v === false ? "no" : "";
 
 async function saveProfile(formData: FormData) {
   "use server";
@@ -28,14 +40,28 @@ async function saveProfile(formData: FormData) {
   const companyInstructions =
     (String(formData.get("company_instructions") ?? "")).trim() || null;
   const mc = validateModelId(String(formData.get("model_company") ?? ""), catalogIds);
+  const cl = validateModelId(String(formData.get("model_cover") ?? ""), catalogIds);
   if (!s1.ok) throw new Error(s1.reason);
   if (!s2.ok) throw new Error(s2.reason);
   if (!r.ok) throw new Error(r.reason);
   if (!mc.ok) throw new Error(mc.reason);
+  if (!cl.ok) throw new Error(cl.reason);
 
   const preferredLocations = parsePreferredLocations(
     String(formData.get("preferred_locations") ?? ""),
   );
+
+  // Reusable application answers. jsonb columns are stored as objects (NOT NULL).
+  const links = {
+    linkedin: trimOrNull(formData.get("link_linkedin")),
+    github: trimOrNull(formData.get("link_github")),
+    portfolio: trimOrNull(formData.get("link_portfolio")),
+  };
+  const screeningAnswers = {
+    notice_period: trimOrNull(formData.get("screen_notice_period")),
+    salary_expectation: trimOrNull(formData.get("screen_salary_expectation")),
+    relocation: trimOrNull(formData.get("screen_relocation")),
+  };
 
   const file = formData.get("resume_pdf");
   if (file instanceof File && file.size > 0) {
@@ -56,6 +82,19 @@ async function saveProfile(formData: FormData) {
     modelStage1: s1.value, modelStage2: s2.value,
     preferredLocations, modelResume: r.value,
     companyInstructions, modelCompany: mc.value,
+    fullName: trimOrNull(formData.get("full_name")),
+    email: trimOrNull(formData.get("email")),
+    phone: trimOrNull(formData.get("phone")),
+    links,
+    location: trimOrNull(formData.get("location")),
+    workAuthorized: parseTriState(formData.get("work_authorized")),
+    needsSponsorship: parseTriState(formData.get("needs_sponsorship")),
+    eeoGender: trimOrNull(formData.get("eeo_gender")),
+    eeoRace: trimOrNull(formData.get("eeo_race")),
+    eeoVeteran: trimOrNull(formData.get("eeo_veteran")),
+    eeoDisability: trimOrNull(formData.get("eeo_disability")),
+    screeningAnswers,
+    modelCover: cl.value,
   });
   redirect("/");
 }
@@ -120,6 +159,25 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
   fontFamily: "inherit",
   background: "#fff",
+};
+const selectStyle: React.CSSProperties = {
+  ...inputStyle,
+  appearance: "none",
+  cursor: "pointer",
+};
+const detailsCardStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "16px",
+  background: "#f9fbfd",
+  border: "1px solid #e7eaf0",
+  borderRadius: "14px",
+  padding: "18px",
+};
+const detailsRowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "16px",
 };
 const modelsCardStyle: React.CSSProperties = {
   display: "flex",
@@ -217,6 +275,120 @@ export default async function ProfilePage() {
           <LocationPicker name="preferred_locations" options={locations}
             defaultValue={profile?.preferred_locations ?? []} />
 
+          {/* ── Application details ── reusable answers surfaced per-job in the board */}
+          <div style={detailsCardStyle}>
+            <div style={modelsLegendStyle}>
+              Application details — reused across applications (copy buttons appear per role)
+            </div>
+            <div style={detailsRowStyle}>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Full name</span>
+                <input name="full_name" defaultValue={profile?.full_name ?? ""}
+                  placeholder="Jane Doe" style={inputStyle} />
+              </label>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Location</span>
+                <input name="location" defaultValue={profile?.location ?? ""}
+                  placeholder="San Francisco, CA" style={inputStyle} />
+              </label>
+            </div>
+            <div style={detailsRowStyle}>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Email</span>
+                <input name="email" type="email" defaultValue={profile?.email ?? ""}
+                  placeholder="jane@example.com" style={inputStyle} />
+              </label>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Phone</span>
+                <input name="phone" defaultValue={profile?.phone ?? ""}
+                  placeholder="+1 555 123 4567" style={inputStyle} />
+              </label>
+            </div>
+            <div style={detailsRowStyle}>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>LinkedIn</span>
+                <input name="link_linkedin" defaultValue={profile?.links?.linkedin ?? ""}
+                  placeholder="linkedin.com/in/…" style={inputStyle} />
+              </label>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>GitHub</span>
+                <input name="link_github" defaultValue={profile?.links?.github ?? ""}
+                  placeholder="github.com/…" style={inputStyle} />
+              </label>
+            </div>
+            <label style={fieldStyle}>
+              <span style={labelTextStyle}>Portfolio / website</span>
+              <input name="link_portfolio" defaultValue={profile?.links?.portfolio ?? ""}
+                placeholder="https://…" style={inputStyle} />
+            </label>
+            <div style={detailsRowStyle}>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Authorized to work?</span>
+                <select name="work_authorized" defaultValue={triDefault(profile?.work_authorized)}
+                  style={selectStyle}>
+                  <option value="">Prefer not to say</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </label>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Need sponsorship?</span>
+                <select name="needs_sponsorship" defaultValue={triDefault(profile?.needs_sponsorship)}
+                  style={selectStyle}>
+                  <option value="">Prefer not to say</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </label>
+            </div>
+            <div style={detailsRowStyle}>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Notice period</span>
+                <input name="screen_notice_period"
+                  defaultValue={profile?.screening_answers?.notice_period ?? ""}
+                  placeholder="2 weeks" style={inputStyle} />
+              </label>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Salary expectation</span>
+                <input name="screen_salary_expectation"
+                  defaultValue={profile?.screening_answers?.salary_expectation ?? ""}
+                  placeholder="$180k–$210k" style={inputStyle} />
+              </label>
+            </div>
+            <label style={fieldStyle}>
+              <span style={labelTextStyle}>Open to relocation?</span>
+              <input name="screen_relocation"
+                defaultValue={profile?.screening_answers?.relocation ?? ""}
+                placeholder="e.g. Open to relocation for the right role" style={inputStyle} />
+            </label>
+
+            <div style={modelsLegendStyle}>Voluntary EEO self-identification (optional)</div>
+            <div style={detailsRowStyle}>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Gender</span>
+                <input name="eeo_gender" defaultValue={profile?.eeo_gender ?? ""}
+                  placeholder="Prefer not to say" style={inputStyle} />
+              </label>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Race / ethnicity</span>
+                <input name="eeo_race" defaultValue={profile?.eeo_race ?? ""}
+                  placeholder="Prefer not to say" style={inputStyle} />
+              </label>
+            </div>
+            <div style={detailsRowStyle}>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Veteran status</span>
+                <input name="eeo_veteran" defaultValue={profile?.eeo_veteran ?? ""}
+                  placeholder="Prefer not to say" style={inputStyle} />
+              </label>
+              <label style={fieldStyle}>
+                <span style={labelTextStyle}>Disability status</span>
+                <input name="eeo_disability" defaultValue={profile?.eeo_disability ?? ""}
+                  placeholder="Prefer not to say" style={inputStyle} />
+              </label>
+            </div>
+          </div>
+
           <div style={modelsCardStyle}>
             <div style={modelsLegendStyle}>
               Review models (leave blank to use the default: {DEFAULT_MODEL_ID})
@@ -233,6 +405,10 @@ export default async function ProfilePage() {
               label="Résumé generation model"
               name="model_resume" models={models} curated={CURATED_MODELS}
               defaultValue={profile?.model_resume ?? null} placeholder={DEFAULT_RESUME_MODEL} />
+            <ModelPicker
+              label="Cover letter generation model"
+              name="model_cover" models={models} curated={CURATED_MODELS}
+              defaultValue={profile?.model_cover ?? null} placeholder={DEFAULT_COVER_MODEL} />
             <ModelPicker
               label="Company review model"
               name="model_company" models={models} curated={CURATED_MODELS}

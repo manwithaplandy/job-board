@@ -1,0 +1,59 @@
+// dashboard/lib/rolefit/coverLetterClient.test.ts
+import { describe, expect, test, vi } from "vitest";
+import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
+
+const LETTER = {
+  greeting: "Dear Hiring Manager,",
+  paragraphs: ["I'm excited to apply.", "My background fits."],
+  closing: "Sincerely,",
+  signature: "Alex Morgan",
+};
+
+function fakeFetch(payload: unknown, ok = true): typeof fetch {
+  return vi.fn(async () => ({ ok, status: ok ? 200 : 502, json: async () => payload })) as unknown as typeof fetch;
+}
+
+describe("generateCoverLetter", () => {
+  const args = {
+    resumeText: "Alex Morgan, React engineer",
+    candidateName: "Alex Morgan",
+    instructions: null,
+    job: {
+      title: "Frontend Engineer", company: "Cobalt", description: "Build apps.",
+      about: "Devtools.", requirements: [{ text: "React", met: true }],
+      skillGaps: [], redFlags: [],
+    },
+    model: "test/model", apiKey: "sk-test",
+  };
+
+  test("posts model + messages + response_format and returns parsed letter", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(LETTER) } }] });
+    const out = await generateCoverLetter({ ...args, fetchImpl: f });
+    expect(out.greeting).toBe("Dear Hiring Manager,");
+    expect(out.paragraphs).toHaveLength(2);
+    const call = (f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.model).toBe("test/model");
+    expect(body.response_format.type).toBe("json_schema");
+    expect(JSON.stringify(body.messages)).toContain("Cobalt");
+    expect((call[1] as RequestInit).headers).toMatchObject({ Authorization: "Bearer sk-test" });
+  });
+
+  test("throws on non-ok response", async () => {
+    await expect(generateCoverLetter({ ...args, fetchImpl: fakeFetch({}, false) })).rejects.toThrow();
+  });
+
+  test("throws when content is not valid cover-letter JSON", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: "not json" } }] });
+    await expect(generateCoverLetter({ ...args, fetchImpl: f })).rejects.toThrow();
+  });
+
+  test("throws when required fields are missing", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify({ greeting: "Hi" }) } }] });
+    await expect(generateCoverLetter({ ...args, fetchImpl: f })).rejects.toThrow();
+  });
+});
+
+test("DEFAULT_COVER_MODEL is claude haiku", () => {
+  expect(DEFAULT_COVER_MODEL).toBe("anthropic/claude-haiku-4.5");
+});

@@ -1,10 +1,11 @@
 "use client";
 
-import type { JobRow } from "@/lib/types";
+import type { ApplicationAnswers, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
+import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
-import { ResumePanel } from "./ResumePanel";
+import { ApplicationPanel } from "./ApplicationPanel";
 
 // Palette from reference getBaseJobs() — same as JobCard
 const LOGO_COLORS = [
@@ -23,12 +24,19 @@ export interface JobDetailProps {
   job: JobRow;
   nowIso: string;
   isAuthed: boolean;
+  answers: ApplicationAnswers | null;
   gen: Record<string, string>;
   genData: Record<string, TailoredResume>;
   genError: Record<string, string>;
   onGenerate: (job: JobRow) => void;
   onCopy: (job: JobRow, data: TailoredResume) => void;
   copiedId: string | null;
+  // Cover letter (state keyed by job id, owned by the board)
+  coverGen: Record<string, string>;
+  coverData: Record<string, TailoredCoverLetter>;
+  coverError: Record<string, string>;
+  onGenerateCover: (job: JobRow) => void;
+  onPrepare: (job: JobRow) => void;
   onOpenProfile: () => void;
   onReject?: (job: JobRow) => void;
 }
@@ -37,12 +45,18 @@ export function JobDetail({
   job,
   nowIso,
   isAuthed,
+  answers,
   gen,
   genData,
   genError,
   onGenerate,
   onCopy,
   copiedId,
+  coverGen,
+  coverData,
+  coverError,
+  onGenerateCover,
+  onPrepare,
   onOpenProfile,
   onReject,
 }: JobDetailProps) {
@@ -73,6 +87,11 @@ export function JobDetail({
   const gd = genData[job.id];
   const genErrorMsg = genError[job.id];
   const copyLabel = copiedId === job.id ? "Copied!" : "Copy text";
+
+  // Per-job cover-letter state
+  const coverState = coverGen[job.id];
+  const coverGd = coverData[job.id];
+  const coverErrorMsg = coverError[job.id];
 
   // Sub-score bars
   const subScores: { label: string; value: number | null }[] = [
@@ -279,8 +298,9 @@ export function JobDetail({
         )}
       </div>
 
-      {/* ── Operator action row ── */}
-      {(applyHref || job.human_override || (isAuthed && job.verdict === "approve")) && (
+      {/* ── Operator action row ── apply lives here only for not-yet-reviewed
+          roles; reviewed roles get the apply button inside ApplicationPanel. */}
+      {((applyHref && !hasReview) || job.human_override || (isAuthed && job.verdict === "approve")) && (
         <div
           style={{
             display: "flex",
@@ -323,7 +343,7 @@ export function JobDetail({
               Reject
             </button>
           )}
-          {applyHref && (
+          {applyHref && !hasReview && (
             <a
               href={applyHref}
               target="_blank"
@@ -376,19 +396,26 @@ export function JobDetail({
       {/* ── REVIEWED content ── */}
       {hasReview && (
         <>
-          {/* Résumé panel */}
-          <ResumePanel
+          {/* Application panel — résumé + cover letter + saved answers + apply */}
+          <ApplicationPanel
             job={job}
             isAuthed={isAuthed}
-            state={genState}
-            data={gd}
-            error={genErrorMsg}
-            onGenerate={() => onGenerate(job)}
-            onRegenerate={() => onGenerate(job)}
-            onCopy={() => { if (gd) onCopy(job, gd); }}
-            copyLabel={copyLabel}
+            answers={answers}
+            resumeState={genState}
+            resumeData={gd}
+            resumeError={genErrorMsg}
+            onGenerateResume={() => onGenerate(job)}
+            onRegenerateResume={() => onGenerate(job)}
+            onCopyResume={() => { if (gd) onCopy(job, gd); }}
+            resumeCopyLabel={copyLabel}
             usingSample={false}
             onOpenProfile={onOpenProfile}
+            coverState={coverState}
+            coverData={coverGd}
+            coverError={coverErrorMsg}
+            onGenerateCover={() => onGenerateCover(job)}
+            onRegenerateCover={() => onGenerateCover(job)}
+            onPrepare={() => onPrepare(job)}
           />
 
           {/* ── AI Review ── */}

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react";
-import type { JobRow, OperatorSignals } from "@/lib/types";
+import type { ApplicationAnswers, JobRow, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
+import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, sortJobs } from "@/lib/rolefit/filter";
 import { Header } from "./Header";
@@ -23,6 +24,7 @@ export interface RolefitBoardProps {
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;
+  applicationAnswers: ApplicationAnswers | null;
 }
 
 export function RolefitBoard({
@@ -36,6 +38,7 @@ export function RolefitBoard({
   operator,
   hasProfile,
   resumeText,
+  applicationAnswers,
 }: RolefitBoardProps) {
   // Filter state
   const [search, setSearch] = useState("");
@@ -62,6 +65,11 @@ export function RolefitBoard({
   const [genData, setGenData] = useState<Record<string, TailoredResume>>({});
   const [genError, setGenError] = useState<Record<string, string>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Cover-letter generation state (keyed by job id) — mirrors the résumé state
+  const [coverGen, setCoverGen] = useState<Record<string, string>>({});
+  const [coverData, setCoverData] = useState<Record<string, TailoredCoverLetter>>({});
+  const [coverError, setCoverError] = useState<Record<string, string>>({});
 
   // Refs
   const detailRef = useRef<HTMLDivElement>(null);
@@ -186,6 +194,34 @@ export function RolefitBoard({
     }
   }, []);
 
+  // Cover-letter generation — mirrors handleGenerate against /api/cover-letter
+  const handleGenerateCover = useCallback(async (job: JobRow) => {
+    setCoverGen((g) => ({ ...g, [job.id]: "busy" }));
+    try {
+      const res = await fetch("/api/cover-letter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? "failed");
+      }
+      const data = (await res.json()) as TailoredCoverLetter;
+      setCoverData((d) => ({ ...d, [job.id]: data }));
+      setCoverGen((g) => ({ ...g, [job.id]: "done" }));
+    } catch (e) {
+      setCoverGen((g) => ({ ...g, [job.id]: "error" }));
+      setCoverError((m) => ({ ...m, [job.id]: (e as Error).message }));
+    }
+  }, []);
+
+  // "Prepare application" — kick off résumé + cover letter together.
+  const handlePrepare = useCallback((job: JobRow) => {
+    void handleGenerate(job);
+    void handleGenerateCover(job);
+  }, [handleGenerate, handleGenerateCover]);
+
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
     const text = composeResumeText(job, data);
@@ -281,12 +317,18 @@ export function RolefitBoard({
               job={selectedJob}
               nowIso={nowIso}
               isAuthed={isAuthed}
+              answers={applicationAnswers}
               gen={gen}
               genData={genData}
               genError={genError}
               onGenerate={handleGenerate}
               onCopy={handleCopy}
               copiedId={copiedId}
+              coverGen={coverGen}
+              coverData={coverData}
+              coverError={coverError}
+              onGenerateCover={handleGenerateCover}
+              onPrepare={handlePrepare}
               onOpenProfile={() => setProfileOpen(true)}
               onReject={handleReject}
             />

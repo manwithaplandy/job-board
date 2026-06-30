@@ -57,6 +57,20 @@ CREATE TABLE profiles (
   company_instructions    TEXT,
   company_profile_version TEXT,
   model_company           TEXT,
+  -- Reusable application answers (do not affect review verdicts).
+  full_name         TEXT,
+  email             TEXT,
+  phone             TEXT,
+  links             JSONB NOT NULL DEFAULT '{}'::jsonb,  -- { linkedin, github, portfolio }
+  location          TEXT,
+  work_authorized   BOOLEAN,                  -- tri-state; NULL = unspecified
+  needs_sponsorship BOOLEAN,                  -- tri-state; NULL = unspecified
+  eeo_gender        TEXT,                     -- voluntary EEO; NULL = declined
+  eeo_race          TEXT,
+  eeo_veteran       TEXT,
+  eeo_disability    TEXT,
+  screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb,  -- { notice_period, salary_expectation, relocation, … }
+  model_cover       TEXT,                     -- OpenRouter model id; NULL = default
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );

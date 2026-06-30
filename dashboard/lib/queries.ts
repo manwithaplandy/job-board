@@ -1,7 +1,7 @@
 import { sql } from "@/lib/db";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, PollRunRow, ReviewRunRow, ProfileRow, ReviewStats } from "@/lib/types";
+import type { CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
 import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 
@@ -94,6 +94,43 @@ export async function getJobForResume(
   return (rows[0] as unknown as { title: string; company_name: string; description: string | null }) ?? null;
 }
 
+// Mirrors getJobForResume but joins the viewer's job_reviews so the cover-letter
+// prompt can lean on the rich per-job review context (about / requirements /
+// skill_gaps / red_flags). Missing review → empty arrays / null about.
+export async function getJobForCoverLetter(
+  jobId: string,
+  userId: string,
+): Promise<{
+  title: string;
+  company_name: string;
+  description: string | null;
+  about: string | null;
+  requirements: { text: string; met: boolean }[];
+  skill_gaps: string[];
+  red_flags: string[];
+} | null> {
+  const rows = await sql`
+    SELECT j.title, c.name AS company_name, j.description,
+           r.about,
+           COALESCE(r.requirements, '[]'::jsonb) AS requirements,
+           COALESCE(r.skill_gaps,   '[]'::jsonb) AS skill_gaps,
+           COALESCE(r.red_flags,    '[]'::jsonb) AS red_flags
+    FROM jobs j
+    JOIN companies c ON c.id = j.company_id
+    LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
+    WHERE j.id = ${jobId}
+  `;
+  return (rows[0] as unknown as {
+    title: string;
+    company_name: string;
+    description: string | null;
+    about: string | null;
+    requirements: { text: string; met: boolean }[];
+    skill_gaps: string[];
+    red_flags: string[];
+  }) ?? null;
+}
+
 export async function upsertProfile(
   userId: string,
   data: {
@@ -106,21 +143,44 @@ export async function upsertProfile(
     modelResume: string | null;
     companyInstructions: string | null;
     modelCompany: string | null;
+    // Reusable application answers (Phase 1).
+    fullName: string | null;
+    email: string | null;
+    phone: string | null;
+    links: ProfileLinks;
+    location: string | null;
+    workAuthorized: boolean | null;
+    needsSponsorship: boolean | null;
+    eeoGender: string | null;
+    eeoRace: string | null;
+    eeoVeteran: string | null;
+    eeoDisability: string | null;
+    screeningAnswers: ScreeningAnswers;
+    modelCover: string | null;
   },
 ): Promise<void> {
-  // profile_version intentionally excludes the model choice AND preferred
-  // locations — neither must invalidate existing verdicts (spec §4).
+  // profile_version intentionally excludes the model choice, preferred locations,
+  // AND the application answers — none must invalidate existing verdicts (spec §4).
   const version = profileVersion(data.resumeText, data.instructions);
   const companyVersion = companyProfileVersion(data.companyInstructions);
   await sql`
     INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
                           model_stage1, model_stage2, preferred_locations, model_resume,
                           company_instructions, company_profile_version, model_company,
+                          full_name, email, phone, links, location,
+                          work_authorized, needs_sponsorship,
+                          eeo_gender, eeo_race, eeo_veteran, eeo_disability,
+                          screening_answers, model_cover,
                           profile_version, updated_at)
     VALUES (${userId}::uuid, ${data.resumeText}, ${data.instructions},
             ${data.resumeFilePath}, ${data.modelStage1}, ${data.modelStage2},
             ${data.preferredLocations}, ${data.modelResume},
             ${data.companyInstructions}, ${companyVersion}, ${data.modelCompany},
+            ${data.fullName}, ${data.email}, ${data.phone},
+            ${JSON.stringify(data.links)}::jsonb, ${data.location},
+            ${data.workAuthorized}, ${data.needsSponsorship},
+            ${data.eeoGender}, ${data.eeoRace}, ${data.eeoVeteran}, ${data.eeoDisability},
+            ${JSON.stringify(data.screeningAnswers)}::jsonb, ${data.modelCover},
             ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       resume_text             = EXCLUDED.resume_text,
@@ -133,6 +193,19 @@ export async function upsertProfile(
       company_instructions    = EXCLUDED.company_instructions,
       company_profile_version = EXCLUDED.company_profile_version,
       model_company           = EXCLUDED.model_company,
+      full_name               = EXCLUDED.full_name,
+      email                   = EXCLUDED.email,
+      phone                   = EXCLUDED.phone,
+      links                   = EXCLUDED.links,
+      location                = EXCLUDED.location,
+      work_authorized         = EXCLUDED.work_authorized,
+      needs_sponsorship       = EXCLUDED.needs_sponsorship,
+      eeo_gender              = EXCLUDED.eeo_gender,
+      eeo_race                = EXCLUDED.eeo_race,
+      eeo_veteran             = EXCLUDED.eeo_veteran,
+      eeo_disability          = EXCLUDED.eeo_disability,
+      screening_answers       = EXCLUDED.screening_answers,
+      model_cover             = EXCLUDED.model_cover,
       profile_version         = EXCLUDED.profile_version,
       updated_at              = now()
   `;

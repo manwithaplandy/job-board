@@ -68,6 +68,21 @@ export interface ReviewRunRow {
   notes: string | null;
 }
 
+/** Free-form profile URLs stored in profiles.links (jsonb). */
+export interface ProfileLinks {
+  linkedin?: string | null;
+  github?: string | null;
+  portfolio?: string | null;
+}
+
+/** Free-form reusable application answers stored in profiles.screening_answers (jsonb). */
+export interface ScreeningAnswers {
+  notice_period?: string | null;
+  salary_expectation?: string | null;
+  relocation?: string | null;
+  [key: string]: string | null | undefined;
+}
+
 export interface ProfileRow {
   user_id: string;
   resume_text: string | null;
@@ -80,8 +95,38 @@ export interface ProfileRow {
   company_instructions: string | null;
   company_profile_version: string | null;
   model_company: string | null;
+  // Reusable application answers (Phase 1). jsonb columns are NOT NULL DEFAULT '{}'.
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  links: ProfileLinks;
+  location: string | null;
+  work_authorized: boolean | null;
+  needs_sponsorship: boolean | null;
+  eeo_gender: string | null;
+  eeo_race: string | null;
+  eeo_veteran: string | null;
+  eeo_disability: string | null;
+  screening_answers: ScreeningAnswers;
+  model_cover: string | null;
   profile_version: string;
   updated_at: string;
+}
+
+/** The reusable application answers surfaced (read-only) in the board's ApplicationPanel. */
+export interface ApplicationAnswers {
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  location: string | null;
+  links: ProfileLinks;
+  work_authorized: boolean | null;
+  needs_sponsorship: boolean | null;
+  eeo_gender: string | null;
+  eeo_race: string | null;
+  eeo_veteran: string | null;
+  eeo_disability: string | null;
+  screening_answers: ScreeningAnswers;
 }
 
 export interface ReviewStats {

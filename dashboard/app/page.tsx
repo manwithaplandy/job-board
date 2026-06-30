@@ -8,7 +8,7 @@ import { getUserId } from "@/lib/auth";
 import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
-import type { OperatorSignals } from "@/lib/types";
+import type { ApplicationAnswers, OperatorSignals } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +29,7 @@ export default async function Page({
   let operator: OperatorSignals | undefined;
   let hasProfile = false;
   let resumeText = "";
+  let applicationAnswers: ApplicationAnswers | null = null;
   if (viewerId) {
     const [pollRun, reviewStats, profile] = await Promise.all([
       getLatestPollRun(),
@@ -45,6 +46,22 @@ export default async function Page({
     };
     hasProfile = profile != null; // a saved profile row exists
     resumeText = profile?.resume_text ?? "";
+    applicationAnswers = profile
+      ? {
+          full_name: profile.full_name,
+          email: profile.email,
+          phone: profile.phone,
+          location: profile.location,
+          links: profile.links,
+          work_authorized: profile.work_authorized,
+          needs_sponsorship: profile.needs_sponsorship,
+          eeo_gender: profile.eeo_gender,
+          eeo_race: profile.eeo_race,
+          eeo_veteran: profile.eeo_veteran,
+          eeo_disability: profile.eeo_disability,
+          screening_answers: profile.screening_answers,
+        }
+      : null;
   }
 
   return (
@@ -59,6 +76,7 @@ export default async function Page({
       operator={operator}
       hasProfile={hasProfile}
       resumeText={resumeText}
+      applicationAnswers={applicationAnswers}
     />
   );
 }

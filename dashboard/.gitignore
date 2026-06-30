@@ -4,3 +4,5 @@ node_modules/
 next-env.d.ts
 *.tsbuildinfo
 .vercel
+# Local résumé-iteration fixtures (personal data — never commit)
+scripts/fixtures/

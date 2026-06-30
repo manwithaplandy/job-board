@@ -2,11 +2,25 @@
 import { describe, expect, test, vi } from "vitest";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 
-const RESUME = {
-  name: "Alex Morgan", headline: "Senior Engineer", summary: "…",
-  skills: ["React"], experience: [{ role: "SWE", company: "X", dates: "2020", bullets: ["a"] }],
-  education: "BS CS",
+// The model now returns ONLY the tailored fields; the fixed fields come from
+// parsing the résumé text below.
+const TAILORED = {
+  headline: "Senior Frontend Engineer",
+  summary: "Tailored summary.",
+  skills: ["React", "TypeScript"],
+  experience: [{ company: "Cobalt Inc", bullets: ["Tailored bullet about apps"] }],
 };
+
+// Parses (via the text fallback) to name + contact + one role.
+const RESUME_TEXT = [
+  "Alex Morgan",
+  "alex@example.com | 555-0100",
+  "Experience",
+  "2020 - 2023",
+  "Cobalt Inc",
+  "Frontend Engineer",
+  "- Built apps",
+].join("\n");
 
 function fakeFetch(payload: unknown, ok = true): typeof fetch {
   return vi.fn(async () => ({ ok, status: ok ? 200 : 502, json: async () => payload })) as unknown as typeof fetch;
@@ -14,15 +28,22 @@ function fakeFetch(payload: unknown, ok = true): typeof fetch {
 
 describe("generateResume", () => {
   const args = {
-    resumeText: "Alex Morgan, React engineer",
+    resumeText: RESUME_TEXT,
     job: { title: "Frontend Engineer", company: "Cobalt", description: "Build apps." },
     model: "test/model", apiKey: "sk-test",
   };
 
-  test("posts model + messages + response_format and returns parsed résumé", async () => {
-    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(RESUME) } }] });
+  test("assembles deterministic fields from parsing + tailored fields from the model", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(TAILORED) } }] });
     const out = await generateResume({ ...args, fetchImpl: f });
+    // Deterministic — from parsing the résumé text, not the model.
     expect(out.name).toBe("Alex Morgan");
+    expect(out.contact).toBe("alex@example.com | 555-0100");
+    // Tailored — from the model.
+    expect(out.headline).toBe("Senior Frontend Engineer");
+    expect(out.experience[0].company).toBe("Cobalt Inc");
+    expect(out.experience[0].bullets).toEqual(["Tailored bullet about apps"]);
+
     const call = (f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
     const body = JSON.parse((call[1] as RequestInit).body as string);
     expect(body.model).toBe("test/model");

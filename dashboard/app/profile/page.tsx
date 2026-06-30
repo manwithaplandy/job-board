@@ -28,9 +28,13 @@ const cachedDistinctLocations = unstable_cache(
 async function saveProfile(formData: FormData) {
   "use server";
   const userId = await requireUserId();
+  const existing = await getProfile(userId);
   const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
-  let resumeText = (String(formData.get("resume_text") ?? "")).trim() || null;
-  let resumeFilePath: string | null = null;
+  let resumeText = (String(formData.get("resume_text") ?? "")).trim() || existing?.resume_text || null;
+  // Preserve the previously-uploaded PDF: a file input is empty on every save
+  // that doesn't re-pick the file, so defaulting to null here would wipe the
+  // stored path. Only a fresh upload below replaces it.
+  let resumeFilePath: string | null = existing?.resume_file_path ?? null;
 
   const catalogIds = (await getStructuredModels()).map((m) => m.id);
   // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).

@@ -1,14 +1,17 @@
 import { parseFilters } from "@/lib/filters";
 import {
-  getBoardOwnerId, getBoardOwnerLocations, getJobs, getLatestPollRun, getProfile, getReviewStats,
+  getApplicationPackages, getBoardOwnerId, getBoardOwnerLocations, getJobs,
+  getLatestPollRun, getProfile, getReviewStats,
 } from "@/lib/queries";
+import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
 import { getUserId } from "@/lib/auth";
 import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
+import { markApplicationApplied } from "@/app/actions/applications";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
-import type { ApplicationAnswers, OperatorSignals } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, OperatorSignals } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +33,13 @@ export default async function Page({
   let hasProfile = false;
   let resumeText = "";
   let applicationAnswers: ApplicationAnswers | null = null;
+  let applicationPackages: ApplicationPackage[] = [];
   if (viewerId) {
-    const [pollRun, reviewStats, profile] = await Promise.all([
+    const [pollRun, reviewStats, profile, packages] = await Promise.all([
       getLatestPollRun(),
       getReviewStats(viewerId),
       getProfile(viewerId),
+      getApplicationPackages(viewerId),
     ]);
     operator = {
       health: computeHealth(
@@ -46,22 +51,8 @@ export default async function Page({
     };
     hasProfile = profile != null; // a saved profile row exists
     resumeText = profile?.resume_text ?? "";
-    applicationAnswers = profile
-      ? {
-          full_name: profile.full_name,
-          email: profile.email,
-          phone: profile.phone,
-          location: profile.location,
-          links: profile.links,
-          work_authorized: profile.work_authorized,
-          needs_sponsorship: profile.needs_sponsorship,
-          eeo_gender: profile.eeo_gender,
-          eeo_race: profile.eeo_race,
-          eeo_veteran: profile.eeo_veteran,
-          eeo_disability: profile.eeo_disability,
-          screening_answers: profile.screening_answers,
-        }
-      : null;
+    applicationAnswers = profile ? applicationAnswersFromProfile(profile) : null;
+    applicationPackages = packages;
   }
 
   return (
@@ -73,10 +64,12 @@ export default async function Page({
       saveResume={saveProfileResume}
       rejectJob={rejectJob}
       unrejectJob={unrejectJob}
+      markApplied={markApplicationApplied}
       operator={operator}
       hasProfile={hasProfile}
       resumeText={resumeText}
       applicationAnswers={applicationAnswers}
+      initialPackages={applicationPackages}
     />
   );
 }

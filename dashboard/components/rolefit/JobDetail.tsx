@@ -1,6 +1,6 @@
 "use client";
 
-import type { ApplicationAnswers, JobRow } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
@@ -37,6 +37,9 @@ export interface JobDetailProps {
   coverError: Record<string, string>;
   onGenerateCover: (job: JobRow) => void;
   onPrepare: (job: JobRow) => void;
+  // Persisted package for the selected job (Phase 3) — undefined until prepared.
+  pkg?: ApplicationPackage;
+  onMarkApplied: (job: JobRow) => void;
   onOpenProfile: () => void;
   onReject?: (job: JobRow) => void;
 }
@@ -57,6 +60,8 @@ export function JobDetail({
   coverError,
   onGenerateCover,
   onPrepare,
+  pkg,
+  onMarkApplied,
   onOpenProfile,
   onReject,
 }: JobDetailProps) {
@@ -416,6 +421,11 @@ export function JobDetail({
             onGenerateCover={() => onGenerateCover(job)}
             onRegenerateCover={() => onGenerateCover(job)}
             onPrepare={() => onPrepare(job)}
+            greenhouseQuestions={pkg?.greenhouseQuestions ?? null}
+            prefilledAnswers={pkg?.prefilledAnswers ?? null}
+            status={pkg?.status ?? null}
+            appliedAt={pkg?.appliedAt ?? null}
+            onMarkApplied={() => onMarkApplied(job)}
           />
 
           {/* ── AI Review ── */}

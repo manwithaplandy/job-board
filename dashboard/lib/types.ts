@@ -1,3 +1,8 @@
+import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
+import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
+import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
+import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
+
 export interface JobRow {
   id: string;
   title: string;
@@ -127,6 +132,25 @@ export interface ApplicationAnswers {
   eeo_veteran: string | null;
   eeo_disability: string | null;
   screening_answers: ScreeningAnswers;
+}
+
+/**
+ * A persisted, prepared application package for one (user, job) — the board loads
+ * this instead of regenerating on every click (Phase 3). `greenhouseQuestions` /
+ * `prefilledAnswers` are populated only for Greenhouse postings whose schema fetch
+ * + prefill succeeded; everything else falls back to the generic package.
+ */
+export interface ApplicationPackage {
+  jobId: string;
+  status: "prepared" | "applied";
+  resume: TailoredResume | null;
+  coverLetter: TailoredCoverLetter | null;
+  answersSnapshot: ApplicationAnswers | null;
+  greenhouseQuestions: GreenhouseQuestions | null;
+  prefilledAnswers: PrefilledAnswer[] | null;
+  applyUrl: string | null;
+  preparedAt: string;
+  appliedAt: string | null;
 }
 
 export interface ReviewStats {

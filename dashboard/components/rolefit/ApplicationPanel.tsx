@@ -4,8 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import type { ApplicationAnswers, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
+import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
+import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
+
+// File-upload questions can't be answered with text (the résumé/cover letter attach
+// separately), so they're excluded from the Greenhouse Q/A list.
+const isFileType = (type: string): boolean => /file|attachment/i.test(type);
 
 // Plain-text cover letter — mirrors composeResumeText in ResumePanel.
 function composeCoverLetterText(data: TailoredCoverLetter): string {
@@ -49,8 +55,15 @@ export interface ApplicationPanelProps {
   coverError?: string;
   onGenerateCover: () => void;
   onRegenerateCover: () => void;
-  // One-click: generate résumé + cover letter together
+  // One-click: build + persist the application package
   onPrepare: () => void;
+  // Persisted package extras (Phase 3). Greenhouse postings carry the real question
+  // schema + LLM-prefilled answers; everything else falls back to the generic package.
+  greenhouseQuestions: GreenhouseQuestions | null;
+  prefilledAnswers: PrefilledAnswer[] | null;
+  status: "prepared" | "applied" | null;
+  appliedAt: string | null;
+  onMarkApplied: () => void;
 }
 
 export function ApplicationPanel({
@@ -72,6 +85,11 @@ export function ApplicationPanel({
   onGenerateCover,
   onRegenerateCover,
   onPrepare,
+  greenhouseQuestions,
+  prefilledAnswers,
+  status,
+  appliedAt,
+  onMarkApplied,
 }: ApplicationPanelProps) {
   // Ephemeral "Copied!" feedback for the cover letter + per-field answers.
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -96,6 +114,16 @@ export function ApplicationPanel({
   const coverError_ = coverState === "error";
   const coverIdle = !coverState || coverState === "idle";
   const preparing = resumeState === "busy" || coverState === "busy";
+
+  // Phase 3: persisted package status + Greenhouse Q/A.
+  const prepared = status === "prepared" || status === "applied";
+  const applied = status === "applied";
+  const ghQuestions = greenhouseQuestions?.questions ?? [];
+  const hasGhAnswers = (prefilledAnswers?.length ?? 0) > 0;
+  // Non-file questions for the "no suggested answers yet" fallback list.
+  const ghPromptQuestions = ghQuestions.filter((q) => q.fields.some((f) => !isFileType(f.type)));
+  const hasGreenhouse = ghPromptQuestions.length > 0 || hasGhAnswers;
+  const appliedDate = appliedAt ? new Date(appliedAt).toLocaleDateString() : null;
 
   // Cover-letter PDF download — mirrors ResumePanel.handleDownload, falls back to .txt.
   const handleCoverDownload = async () => {
@@ -221,6 +249,46 @@ export function ApplicationPanel({
             Tailored résumé, cover letter, and your saved answers — ready for {job.company_name}.
           </div>
         </div>
+        {applied && (
+          <span
+            style={{
+              flex: "0 0 auto",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px",
+              fontWeight: 700,
+              fontSize: "12.5px",
+              color: "#2f7d54",
+              background: "#e3f1e9",
+              border: "1px solid #cfe6d8",
+              borderRadius: "20px",
+              padding: "7px 14px",
+            }}
+          >
+            ✓ Applied{appliedDate ? ` · ${appliedDate}` : ""}
+          </span>
+        )}
+        {isAuthed && prepared && !applied && (
+          <button
+            onClick={onMarkApplied}
+            style={{
+              flex: "0 0 auto",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px",
+              fontWeight: 700,
+              fontSize: "13.5px",
+              color: "#2f7d54",
+              background: "#fff",
+              border: "1px solid #cfe6d8",
+              borderRadius: "11px",
+              padding: "12px 16px",
+              cursor: "pointer",
+            }}
+          >
+            ✓ Mark as applied
+          </button>
+        )}
         {isAuthed && (
           <button
             onClick={onPrepare}
@@ -243,7 +311,7 @@ export function ApplicationPanel({
             }}
           >
             <span style={{ fontSize: "15px" }}>✦</span>
-            {preparing ? "Preparing…" : "Prepare application"}
+            {preparing ? "Preparing…" : prepared ? "Re-prepare" : "Prepare application"}
           </button>
         )}
         {applyHref && (
@@ -552,8 +620,163 @@ export function ApplicationPanel({
         )}
       </div>
 
-      {/* ── Profile answers ── */}
-      {isAuthed && (
+      {/* ── Greenhouse application questions (this posting's real form) ── */}
+      {isAuthed && hasGreenhouse && (
+        <div
+          style={{
+            marginTop: "18px",
+            border: "1px solid #e3e7ee",
+            borderRadius: "16px",
+            padding: "17px 19px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
+              Application questions
+            </div>
+            <span
+              style={{
+                fontSize: "10.5px",
+                fontWeight: 800,
+                letterSpacing: ".4px",
+                textTransform: "uppercase",
+                color: "#2f7d54",
+                background: "#e3f1e9",
+                border: "1px solid #cfe6d8",
+                borderRadius: "6px",
+                padding: "3px 8px",
+              }}
+            >
+              Greenhouse
+            </span>
+            <div style={{ flex: 1 }} />
+            <div style={{ fontSize: "11.5px", color: "#8a93a3", fontWeight: 600 }}>
+              Pulled from this posting
+            </div>
+          </div>
+
+          {hasGhAnswers ? (
+            <>
+              <div
+                style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "6px", fontWeight: 500 }}
+              >
+                Pre-filled from your profile and résumé — review before submitting.
+              </div>
+              <div
+                style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
+              >
+                {(prefilledAnswers ?? []).map((row, i) => (
+                  <div
+                    key={`${row.question}-${i}`}
+                    style={{
+                      background: "#f7f9fc",
+                      border: "1px solid #eef1f5",
+                      borderRadius: "10px",
+                      padding: "11px 13px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: "12.5px",
+                          fontWeight: 700,
+                          color: "#414b59",
+                        }}
+                      >
+                        {row.question}
+                      </div>
+                      <button
+                        onClick={() => flashCopied(`gh-${i}`, row.answer)}
+                        style={{
+                          flex: "0 0 auto",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontWeight: 700,
+                          fontSize: "12px",
+                          color: copiedKey === `gh-${i}` ? "#2f7d54" : "#5b6472",
+                          background: "#fff",
+                          border: "1px solid #dfe3ea",
+                          borderRadius: "8px",
+                          padding: "6px 11px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {copiedKey === `gh-${i}` ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        lineHeight: 1.55,
+                        color: "#2f3845",
+                        fontWeight: 500,
+                        marginTop: "7px",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {row.answer}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "6px", fontWeight: 500 }}
+              >
+                This posting asks the questions below — prepare the application to draft answers,
+                or fill them in on the form.
+              </div>
+              <div
+                style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}
+              >
+                {ghPromptQuestions.map((q, i) => (
+                  <div
+                    key={`${q.label}-${i}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      background: "#f7f9fc",
+                      border: "1px solid #eef1f5",
+                      borderRadius: "10px",
+                      padding: "9px 12px",
+                    }}
+                  >
+                    <span
+                      style={{ flex: 1, minWidth: 0, fontSize: "13px", fontWeight: 600, color: "#2f3845" }}
+                    >
+                      {q.label}
+                    </span>
+                    {q.required && (
+                      <span
+                        style={{
+                          flex: "0 0 auto",
+                          fontSize: "10.5px",
+                          fontWeight: 800,
+                          color: "#b07a2e",
+                          background: "#f6edda",
+                          borderRadius: "6px",
+                          padding: "2px 7px",
+                        }}
+                      >
+                        Required
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Profile answers (generic package — shown when no Greenhouse schema) ── */}
+      {isAuthed && !hasGreenhouse && (
         <div
           style={{
             marginTop: "18px",
@@ -566,6 +789,21 @@ export function ApplicationPanel({
             <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
               Profile answers
             </div>
+            <span
+              style={{
+                fontSize: "10.5px",
+                fontWeight: 800,
+                letterSpacing: ".4px",
+                textTransform: "uppercase",
+                color: "#5b6472",
+                background: "#f2f4f8",
+                border: "1px solid #e7eaf0",
+                borderRadius: "6px",
+                padding: "3px 8px",
+              }}
+            >
+              Generic
+            </span>
             <div style={{ flex: 1 }} />
             <a
               href="/profile"

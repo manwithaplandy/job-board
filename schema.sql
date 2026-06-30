@@ -175,6 +175,27 @@ CREATE TABLE discovery_state (
 );
 INSERT INTO discovery_state (id) VALUES (TRUE) ON CONFLICT (id) DO NOTHING;
 
+-- one prepared application package per (user, job); re-preparing upserts in place.
+-- Persists the tailored résumé/cover letter so the board stops regenerating on every
+-- click, plus (Greenhouse only) the fetched question schema and the LLM-prefilled
+-- answers for the posting. user_id mirrors auth.users(id) with no FK (see profiles).
+CREATE TABLE application_packages (
+  id                   SERIAL PRIMARY KEY,
+  user_id              UUID NOT NULL,
+  job_id               TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  resume_json          JSONB,                 -- TailoredResume (NULL until generated)
+  cover_letter_json    JSONB,                 -- TailoredCoverLetter (NULL until generated)
+  answers_snapshot     JSONB,                 -- reusable profile answers at prepare time
+  greenhouse_questions JSONB,                 -- parsed GH question schema (NULL = not GH / fetch failed)
+  prefilled_answers    JSONB,                 -- [{ question, answer }] mapped by the LLM (NULL = none)
+  apply_url            TEXT,
+  status               TEXT NOT NULL DEFAULT 'prepared'
+                         CHECK (status IN ('prepared','applied')),
+  prepared_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  applied_at           TIMESTAMPTZ,
+  UNIQUE (user_id, job_id)
+);
+
 -- Row-level security. The app and reviewer connect via a privileged DIRECT connection
 -- (DATABASE_URL) that bypasses RLS; nothing is served through the anon/PostgREST API.
 -- Each table gets RLS enabled plus one explicit permissive deny-all policy so the
@@ -200,3 +221,5 @@ ALTER TABLE discovery_runs   ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON discovery_runs   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE discovery_state  ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON discovery_state  FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE application_packages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON application_packages FOR ALL USING (false) WITH CHECK (false);

@@ -1,7 +1,11 @@
 import { sql } from "@/lib/db";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
+import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
+import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
+import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
+import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 
@@ -129,6 +133,122 @@ export async function getJobForCoverLetter(
     skill_gaps: string[];
     red_flags: string[];
   }) ?? null;
+}
+
+// Everything the "Prepare application" builder needs in one round-trip: the
+// résumé/cover-letter context (superset of getJobForCoverLetter) PLUS the ats,
+// company board token, and external_id required to construct the Greenhouse
+// question fetch, and the raw url for the apply link.
+export async function getJobForPackage(
+  jobId: string,
+  userId: string,
+): Promise<{
+  title: string;
+  company_name: string;
+  description: string | null;
+  url: string;
+  external_id: string;
+  ats: string;
+  company_token: string;
+  about: string | null;
+  requirements: { text: string; met: boolean }[];
+  skill_gaps: string[];
+  red_flags: string[];
+} | null> {
+  const rows = await sql`
+    SELECT j.title, c.name AS company_name, j.description, j.url, j.external_id,
+           c.ats, c.token AS company_token,
+           r.about,
+           COALESCE(r.requirements, '[]'::jsonb) AS requirements,
+           COALESCE(r.skill_gaps,   '[]'::jsonb) AS skill_gaps,
+           COALESCE(r.red_flags,    '[]'::jsonb) AS red_flags
+    FROM jobs j
+    JOIN companies c ON c.id = j.company_id
+    LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
+    WHERE j.id = ${jobId}
+  `;
+  return (rows[0] as unknown as {
+    title: string;
+    company_name: string;
+    description: string | null;
+    url: string;
+    external_id: string;
+    ats: string;
+    company_token: string;
+    about: string | null;
+    requirements: { text: string; met: boolean }[];
+    skill_gaps: string[];
+    red_flags: string[];
+  }) ?? null;
+}
+
+// postgres.js returns jsonb columns as parsed JS values and timestamptz as Date.
+function toApplicationPackage(row: Record<string, unknown>): ApplicationPackage {
+  const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
+  return {
+    jobId: row.job_id as string,
+    status: row.status as "prepared" | "applied",
+    resume: (row.resume_json as TailoredResume | null) ?? null,
+    coverLetter: (row.cover_letter_json as TailoredCoverLetter | null) ?? null,
+    answersSnapshot: (row.answers_snapshot as ApplicationAnswers | null) ?? null,
+    greenhouseQuestions: (row.greenhouse_questions as GreenhouseQuestions | null) ?? null,
+    prefilledAnswers: (row.prefilled_answers as PrefilledAnswer[] | null) ?? null,
+    applyUrl: (row.apply_url as string | null) ?? null,
+    preparedAt: iso(row.prepared_at),
+    appliedAt: row.applied_at != null ? iso(row.applied_at) : null,
+  };
+}
+
+// All of the viewer's prepared packages, keyed by job in the caller. Single-tenant
+// + only created on explicit "Prepare", so the row count stays small.
+export async function getApplicationPackages(userId: string): Promise<ApplicationPackage[]> {
+  const rows = await sql`
+    SELECT job_id, status, resume_json, cover_letter_json, answers_snapshot,
+           greenhouse_questions, prefilled_answers, apply_url, prepared_at, applied_at
+    FROM application_packages
+    WHERE user_id = ${userId}::uuid
+  `;
+  return (rows as unknown as Record<string, unknown>[]).map(toApplicationPackage);
+}
+
+// Persist (or refresh) a prepared package. Re-preparing upserts the generated
+// content in place; status / applied_at are deliberately left untouched so a
+// previously "applied" package is never silently downgraded.
+export async function upsertApplicationPackage(
+  userId: string,
+  jobId: string,
+  data: {
+    resume: TailoredResume | null;
+    coverLetter: TailoredCoverLetter | null;
+    answersSnapshot: ApplicationAnswers | null;
+    greenhouseQuestions: GreenhouseQuestions | null;
+    prefilledAnswers: PrefilledAnswer[] | null;
+    applyUrl: string | null;
+  },
+): Promise<ApplicationPackage> {
+  // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
+  const j = (v: unknown): string | null => (v == null ? null : JSON.stringify(v));
+  const rows = await sql`
+    INSERT INTO application_packages
+      (user_id, job_id, resume_json, cover_letter_json, answers_snapshot,
+       greenhouse_questions, prefilled_answers, apply_url, status, prepared_at)
+    VALUES (${userId}::uuid, ${jobId},
+            ${j(data.resume)}::jsonb, ${j(data.coverLetter)}::jsonb,
+            ${j(data.answersSnapshot)}::jsonb, ${j(data.greenhouseQuestions)}::jsonb,
+            ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl},
+            'prepared', now())
+    ON CONFLICT (user_id, job_id) DO UPDATE SET
+      resume_json          = EXCLUDED.resume_json,
+      cover_letter_json    = EXCLUDED.cover_letter_json,
+      answers_snapshot     = EXCLUDED.answers_snapshot,
+      greenhouse_questions = EXCLUDED.greenhouse_questions,
+      prefilled_answers    = EXCLUDED.prefilled_answers,
+      apply_url            = EXCLUDED.apply_url,
+      prepared_at          = now()
+    RETURNING job_id, status, resume_json, cover_letter_json, answers_snapshot,
+              greenhouse_questions, prefilled_answers, apply_url, prepared_at, applied_at
+  `;
+  return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);
 }
 
 export async function upsertProfile(

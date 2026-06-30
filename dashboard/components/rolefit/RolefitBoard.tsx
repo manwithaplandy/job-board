@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react";
-import type { ApplicationAnswers, JobRow, OperatorSignals } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, JobRow, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
@@ -21,10 +21,14 @@ export interface RolefitBoardProps {
   saveResume: (fd: FormData) => Promise<void>;
   rejectJob: (jobId: string) => Promise<void>;
   unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
+  markApplied: (jobId: string) => Promise<void>;
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;
   applicationAnswers: ApplicationAnswers | null;
+  // Saved application packages (Phase 3) — the board seeds résumé/cover-letter +
+  // Greenhouse Q/A state from these so reopening a role loads instead of regenerating.
+  initialPackages: ApplicationPackage[];
 }
 
 export function RolefitBoard({
@@ -35,10 +39,12 @@ export function RolefitBoard({
   saveResume,
   rejectJob,
   unrejectJob,
+  markApplied,
   operator,
   hasProfile,
   resumeText,
   applicationAnswers,
+  initialPackages,
 }: RolefitBoardProps) {
   // Filter state
   const [search, setSearch] = useState("");
@@ -60,15 +66,40 @@ export function RolefitBoard({
   const [, startReject] = useTransition();
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Résumé generation state (keyed by job id)
-  const [gen, setGen] = useState<Record<string, string>>({});
-  const [genData, setGenData] = useState<Record<string, TailoredResume>>({});
+  // Persisted application packages (keyed by job id), seeded from the server load.
+  const [packages, setPackages] = useState<Record<string, ApplicationPackage>>(() => {
+    const m: Record<string, ApplicationPackage> = {};
+    for (const p of initialPackages) m[p.jobId] = p;
+    return m;
+  });
+  const [, startApply] = useTransition();
+
+  // Résumé generation state (keyed by job id) — seeded "done" for saved packages so a
+  // reopened role shows the persisted résumé instead of regenerating it.
+  const [gen, setGen] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of initialPackages) if (p.resume) m[p.jobId] = "done";
+    return m;
+  });
+  const [genData, setGenData] = useState<Record<string, TailoredResume>>(() => {
+    const m: Record<string, TailoredResume> = {};
+    for (const p of initialPackages) if (p.resume) m[p.jobId] = p.resume;
+    return m;
+  });
   const [genError, setGenError] = useState<Record<string, string>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Cover-letter generation state (keyed by job id) — mirrors the résumé state
-  const [coverGen, setCoverGen] = useState<Record<string, string>>({});
-  const [coverData, setCoverData] = useState<Record<string, TailoredCoverLetter>>({});
+  const [coverGen, setCoverGen] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of initialPackages) if (p.coverLetter) m[p.jobId] = "done";
+    return m;
+  });
+  const [coverData, setCoverData] = useState<Record<string, TailoredCoverLetter>>(() => {
+    const m: Record<string, TailoredCoverLetter> = {};
+    for (const p of initialPackages) if (p.coverLetter) m[p.jobId] = p.coverLetter;
+    return m;
+  });
   const [coverError, setCoverError] = useState<Record<string, string>>({});
 
   // Refs
@@ -216,11 +247,63 @@ export function RolefitBoard({
     }
   }, []);
 
-  // "Prepare application" — kick off résumé + cover letter together.
-  const handlePrepare = useCallback((job: JobRow) => {
-    void handleGenerate(job);
-    void handleGenerateCover(job);
-  }, [handleGenerate, handleGenerateCover]);
+  // "Prepare application" — build + PERSIST the package in one call (résumé + cover
+  // letter + answers snapshot, plus Greenhouse Q/A when available). The résumé and
+  // cover-letter panels reflect progress via their existing busy/done/error states.
+  const handlePrepare = useCallback(async (job: JobRow) => {
+    setGen((g) => ({ ...g, [job.id]: "busy" }));
+    setCoverGen((g) => ({ ...g, [job.id]: "busy" }));
+    try {
+      const res = await fetch("/api/application/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? "failed");
+      }
+      const pkg = (await res.json()) as ApplicationPackage;
+      setPackages((p) => ({ ...p, [job.id]: pkg }));
+      const resume = pkg.resume;
+      if (resume) {
+        setGenData((d) => ({ ...d, [job.id]: resume }));
+        setGen((g) => ({ ...g, [job.id]: "done" }));
+      } else {
+        setGen((g) => ({ ...g, [job.id]: "idle" }));
+      }
+      const cover = pkg.coverLetter;
+      if (cover) {
+        setCoverData((d) => ({ ...d, [job.id]: cover }));
+        setCoverGen((g) => ({ ...g, [job.id]: "done" }));
+      } else {
+        setCoverGen((g) => ({ ...g, [job.id]: "idle" }));
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      setGen((g) => ({ ...g, [job.id]: "error" }));
+      setGenError((m) => ({ ...m, [job.id]: msg }));
+      setCoverGen((g) => ({ ...g, [job.id]: "error" }));
+      setCoverError((m) => ({ ...m, [job.id]: msg }));
+    }
+  }, []);
+
+  // "Mark as applied" — optimistic flip + persist (status='applied', applied_at set).
+  const handleMarkApplied = useCallback((job: JobRow) => {
+    setPackages((p) => {
+      const existing = p[job.id];
+      if (!existing) return p;
+      return {
+        ...p,
+        [job.id]: {
+          ...existing,
+          status: "applied",
+          appliedAt: existing.appliedAt ?? new Date().toISOString(),
+        },
+      };
+    });
+    startApply(() => { void markApplied(job.id); });
+  }, [markApplied]);
 
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
@@ -329,6 +412,8 @@ export function RolefitBoard({
               coverError={coverError}
               onGenerateCover={handleGenerateCover}
               onPrepare={handlePrepare}
+              pkg={packages[selectedJob.id]}
+              onMarkApplied={handleMarkApplied}
               onOpenProfile={() => setProfileOpen(true)}
               onReject={handleReject}
             />

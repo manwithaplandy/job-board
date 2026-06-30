@@ -1,0 +1,45 @@
+Jordan Casey
+jordan.casey@example.com | 555-013-4827 | Austin, TX 78701 | https://linkedin.com/in/jordancasey
+Experience
+February 2023 - PRESENT
+Northwind Systems, Austin, TX
+Lead AI/ML Engineer
+● Saved $9M/yr in spend with an in-house, policy-compliant enterprise AI assistant (managed inference, vector
+store, gateway proxy, serverless jobs) — now serving 4,000+ monthly and 800+ daily active users.
+● Boosted 3x workflow efficiency for 8,000+ teams with a managed retrieval service using hybrid ranking
+built on a managed search index, embeddings, and Python.
+● Develop structured evaluations for AI agents using a model-as-a-judge through a managed eval service.
+● Cut technical document turnaround by 35% with agentic search and generation powered by
+a graph retrieval layer over a managed search index and managed inference.
+● Cut deployment time from days to minutes through infrastructure-as-code with a provisioning toolchain
+and automated CI/CD pipelines.
+● Removed 80% of manual processing across core workflows with autonomous multi-agent pipelines
+built on managed durable functions, Python, a graph runner, and an agent toolkit.
+● expanding AI tooling adoption and weaving it into the SDLC while maintaining security and
+trustworthiness.
+● Raised team delivery throughput by 25% by leading the adoption of new practices for AI-first coding
+using internal tooling, standardizing processes with shared templates, plugins, and layered agent
+instructions in a monorepo.
+● Centralized observability for model inference across the company by standing up a gateway service using
+a container platform, ensuring a highly-available gateway with automatic failover for agent workloads.
+October 2021 - February 2023
+Brightpath Retail, Austin, TX
+IT Strategic Analyst (Systems Administrator)
+● Reduced onboarding/offboarding time by 85% and enhanced security through automated account
+provisioning across all applications
+● Built a centralized API management layer using an integration platform to enable discoverability and
+maintainability to accelerate developers while maintaining high security and auditability
+April 2018 - October 2021
+Cedar & Lane Co, Austin, TX
+Compliance & Marketing Consultant
+● Managed a territory of over 90 clients and over $1.2M in annual sales, ensuring compliance with
+industry and partner regulations
+Skills Certifications Education
+Python, Javascript, Typescript, Node
+SQL, AWS, Azure, CI/CD, Git, REST APIs,
+TDD, OOP, Claude Code, LLMs, Agents
+Cloud AI Engineer Associate
+Cloud Solutions Architect Associate
+State University - BA, Economics
+Lakeside Institute of Technology - MS, Computer
+Science (In Progress)

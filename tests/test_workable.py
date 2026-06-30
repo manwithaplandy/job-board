@@ -6,34 +6,42 @@ from job_discovery.adapters.workable import fetch_workable, parse_workable_job
 from job_discovery.jd import extract_description
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "workable.json").read_text())
-DETAILS = FIXTURE["details"]
+WIDGET = FIXTURE["widget"]
+JOBS = {j["shortcode"]: j for j in WIDGET["jobs"]}
+
+WIDGET_URL = "https://apply.workable.com/api/v1/widget/accounts/acme?details=true"
 
 
-def test_field_mapping_uses_application_url_and_telecommuting():
-    eng = parse_workable_job(DETAILS["ENG123"])
+def test_field_mapping_uses_widget_fields_and_telecommuting():
+    eng = parse_workable_job(JOBS["ENG123"], "acme")
     assert eng.external_id == "ENG123"
     assert eng.title == "Senior Backend Engineer"
-    assert eng.url == "https://apply.workable.com/acme/j/ENG123/"  # application_url
+    # URL is built account-qualified (not from application_url/shortlink).
+    assert eng.url == "https://apply.workable.com/acme/j/ENG123/"
     assert eng.location == "San Francisco, California, United States"
-    assert eng.department == "Engineering"
-    assert eng.remote is True  # location.telecommuting
+    assert eng.department == "Engineering"  # widget `department` is a string
+    assert eng.remote is True  # job-top-level `telecommuting` flag
+    assert eng.raw is JOBS["ENG123"]  # the full widget entry (with description) is kept
 
 
 def test_department_list_and_onsite_not_remote():
-    ops = parse_workable_job(DETAILS["OPS456"])
-    assert ops.department == "Operations"  # department given as a list
+    ops = parse_workable_job(JOBS["OPS456"], "acme")
+    assert ops.department == "Operations"  # tolerate `department` given as a list
     assert ops.location == "Austin, Texas, United States"
-    assert ops.remote is False  # workplace_type == "on-site"
+    assert ops.url == "https://apply.workable.com/acme/j/OPS456/"
+    assert ops.remote is False  # telecommuting False + non-remote location
 
 
-def test_url_falls_back_to_shortlink():
-    ds = parse_workable_job(DETAILS["DS789"])
-    assert ds.url == "https://apply.workable.com/j/DS789"  # no application_url
-    assert ds.remote is False  # hybrid
+def test_url_is_account_qualified():
+    ds = parse_workable_job(JOBS["DS789"], "acme")
+    assert ds.url == "https://apply.workable.com/acme/j/DS789/"
+    assert ds.location == "Toronto, Ontario, Canada"
+    assert ds.remote is False
 
 
-def test_extract_description_combines_sections():
-    out = extract_description("workable", DETAILS["ENG123"])
+def test_extract_description_reads_merged_widget_html():
+    # The widget merges description + requirements + benefits into `description`.
+    out = extract_description("workable", JOBS["ENG123"])
     assert "Senior Backend Engineer" in out
     assert "5+ years experience" in out
     assert "Equity & healthcare" in out  # entity decoded, tags stripped
@@ -41,65 +49,59 @@ def test_extract_description_combines_sections():
 
 
 def test_extract_description_none_when_empty():
-    assert extract_description("workable", {"requirements": "", "benefits": ""}) is None
+    assert extract_description("workable", {"description": ""}) is None
 
 
-def test_fetch_walks_pages_and_fetches_details(monkeypatch):
+def test_fetch_is_a_single_widget_call_with_no_pagination(monkeypatch):
     requested: list[str] = []
-    pages = iter(FIXTURE["list_pages"])
 
     def fake_get_json(url):
         requested.append(url)
-        if "/jobs/" in url:  # detail call: /spi/v3/jobs/{shortcode}
-            return DETAILS[url.rsplit("/", 1)[1]]
-        return next(pages)  # listing page (first call + each paging.next)
+        return WIDGET
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
     postings = fetch_workable("acme")
 
     assert [p.external_id for p in postings] == ["ENG123", "OPS456", "DS789"]
-    assert requested[0] == "https://acme.workable.com/spi/v3/jobs?state=published"
-    # second listing page is the server-provided paging.next cursor
-    assert "since_id=1002" in requested[3]
+    # exactly ONE call: the widget endpoint — no per-job detail fetch, no paging
+    assert requested == [WIDGET_URL]
+    assert postings[0].url == "https://apply.workable.com/acme/j/ENG123/"
 
 
-def test_fetch_keeps_minimal_posting_when_detail_fails(monkeypatch):
-    # FIX 2: a failed detail fetch must NOT drop the posting (dropping it would let
-    # run.py's close-detection falsely close a still-open job). Instead a minimal
-    # posting is built from the listing entry so the job stays in `seen`.
-    page = {"jobs": [
-        {"shortcode": "ENG123", "title": "Senior Backend Engineer"},
-        {"shortcode": "BAD", "title": "Broken Posting"},
-    ], "paging": {}}
+def test_fetch_keeps_minimal_posting_when_job_malformed(monkeypatch):
+    # A malformed entry (here: missing `title`, which the parser dereferences)
+    # must not abort the company fetch nor be dropped — dropping it would let
+    # run.py's close-detection falsely close a still-open job. A minimal posting
+    # built from the entry is kept instead.
+    payload = {"name": "Acme", "jobs": [
+        {"shortcode": "ENG123", "title": "Good", "telecommuting": False,
+         "city": "SF", "department": "Eng", "description": "<p>x</p>"},
+        {"shortcode": "BAD"},  # no title -> parse raises -> minimal posting kept
+    ]}
 
     def fake_get_json(url):
-        if url.endswith("/jobs/BAD"):
-            raise RuntimeError("404")
-        if "/jobs/" in url:
-            return DETAILS[url.rsplit("/", 1)[1]]
-        return page
+        return payload
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
     postings = fetch_workable("acme")
     assert [p.external_id for p in postings] == ["ENG123", "BAD"]
     bad = postings[1]
-    assert bad.title == "Broken Posting"  # carried over from the listing entry
-    assert bad.url == "https://apply.workable.com/acme/j/BAD/"  # built from token+shortcode
+    assert bad.title is None  # no title available in the listing entry
+    assert bad.url == "https://apply.workable.com/acme/j/BAD/"  # token+shortcode
 
 
-def test_fetch_keeps_minimal_posting_when_detail_malformed(monkeypatch):
-    # FIX 1: a malformed HTTP-200 detail body (here: missing `shortcode`, which the
-    # parser dereferences) must not abort the whole company fetch; the posting is
-    # kept as a minimal entry instead.
-    page = {"jobs": [{"shortcode": "ENG123", "title": "Senior Backend Engineer"}],
-            "paging": {}}
+def test_fetch_drops_only_entries_without_a_shortcode(monkeypatch):
+    # The single legitimate drop: an entry with no shortcode (no stable id, no
+    # apply URL) cannot become even a minimal posting.
+    payload = {"jobs": [
+        {"title": "No Shortcode", "telecommuting": True},  # no shortcode -> dropped
+        {"shortcode": "OK", "title": "OK", "telecommuting": False,
+         "city": "NYC", "department": "Eng", "description": "<p>x</p>"},
+    ]}
 
     def fake_get_json(url):
-        if "/jobs/" in url:
-            return {"id": 1, "title": "Senior Backend Engineer"}  # no shortcode key
-        return page
+        return payload
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
     postings = fetch_workable("acme")
-    assert [p.external_id for p in postings] == ["ENG123"]
-    assert postings[0].url == "https://apply.workable.com/acme/j/ENG123/"
+    assert [p.external_id for p in postings] == ["OK"]

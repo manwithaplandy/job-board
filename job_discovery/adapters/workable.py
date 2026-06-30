@@ -6,111 +6,102 @@ from job_discovery.normalize import detect_remote
 
 log = logging.getLogger("job_discovery")
 
-# Workable's listing returns only summaries (no JD), so the full description is
-# read from a per-job detail call. `paging.next` is a server-provided cursor URL;
-# cap the walk so a misbehaving cursor can never loop forever.
-_PAGE_CAP = 50
+# Workable's PUBLIC, no-auth widget endpoint returns the FULL published job list
+# for an account in a SINGLE GET, with the full HTML job description inline
+# (the widget merges description + requirements + benefits into one `description`
+# field). There is no pagination and no per-job detail call — `?details=true`
+# returns everything:
+#   GET https://apply.workable.com/api/v1/widget/accounts/{account}?details=true
+#       -> { "name", "description", "jobs": [ {job}, ... ] }
+# (The old /spi/v3 path is the AUTHENTICATED employer SPI and 401s for any real
+# company, which is why it was replaced.)
+_WIDGET_URL = "https://apply.workable.com/api/v1/widget/accounts/{account}?details=true"
 
 
-def _location_str(loc: dict | None) -> str | None:
-    if not loc:
-        return None
-    parts = [loc.get("city"), loc.get("region"), loc.get("country")]
+def _location_str(job: dict) -> str | None:
+    # The widget carries city/state/country at the job top level (with a parallel
+    # `locations` list). Join the non-empty parts into a single location string,
+    # the way greenhouse/the other adapters format location.
+    parts = [job.get("city"), job.get("state"), job.get("country")]
+    joined = ", ".join(p for p in parts if p)
+    if joined:
+        return joined
+    # Fall back to the structured `locations` list if the flat fields are blank.
+    first = (job.get("locations") or [{}])[0]
+    parts = [first.get("city"), first.get("region"), first.get("country")]
     joined = ", ".join(p for p in parts if p)
     return joined or None
 
 
-def _department(detail: dict) -> str | None:
-    # Workable exposes `department` as either a string or a list of strings
-    # depending on account configuration; take the first usable value.
-    dept = detail.get("department")
+def _department(job: dict) -> str | None:
+    # The widget exposes `department` as a plain STRING; other/older Workable
+    # payloads use a list of strings. Accept either and take the first usable.
+    dept = job.get("department")
     if isinstance(dept, list):
         return next((d for d in dept if d), None)
     return dept or None
 
 
-def _explicit_remote(loc: dict | None) -> bool | None:
-    if not loc:
-        return None
-    if loc.get("telecommuting") is True:
-        return True
-    workplace = loc.get("workplace_type")
-    if workplace == "remote":
-        return True
-    if workplace in ("on-site", "hybrid"):
-        return False
-    if loc.get("telecommuting") is False:
-        return False
-    return None
+def parse_workable_job(job: dict, account: str) -> Posting:
+    """Map a Workable widget job entry to the internal Posting model.
 
-
-def parse_workable_job(detail: dict) -> Posting:
-    """Map a Workable SPI job-detail payload to the internal Posting model."""
-    loc = detail.get("location") or {}
-    location = _location_str(loc)
+    The widget puts the remote flag at the JOB top level as `telecommuting`
+    (bool) — there is no per-location dict and no `workplace_type`. The public
+    apply URL is built account-qualified (`/{account}/j/{shortcode}/`) so it
+    resolves with a 200 instead of bouncing through an apply.workable.com
+    redirect. The full HTML JD lives in `job["description"]` and is kept on `raw`.
+    """
+    shortcode = str(job["shortcode"])
+    location = _location_str(job)
     return Posting(
-        external_id=str(detail["shortcode"]),
-        title=detail.get("title") or detail.get("full_title"),
-        # `application_url` is the hosted apply page (apply.workable.com); fall
-        # back to the public shortlink and finally the SPI self URL.
-        url=detail.get("application_url") or detail.get("shortlink") or detail.get("url"),
+        external_id=shortcode,
+        title=job["title"],
+        url=f"https://apply.workable.com/{account}/j/{shortcode}/",
         location=location,
-        department=_department(detail),
-        remote=detect_remote(location, _explicit_remote(loc)),
-        raw=detail,
+        department=_department(job),
+        # `telecommuting` is True/False/None; feed it as the explicit ATS flag.
+        remote=detect_remote(location, job.get("telecommuting")),
+        raw=job,
     )
 
 
-def _minimal_posting(token: str, entry: dict) -> Posting | None:
-    """Build a bare Posting from a listing entry when the detail fetch/parse fails.
+def _minimal_posting(account: str, job: dict) -> Posting | None:
+    """Build a bare Posting from a widget entry when full parsing fails.
 
     Keeping the posting (rather than dropping it) preserves the job in run.py's
     seen-set so close-detection does not falsely mark a still-open job as closed.
-    `shortcode` is the same value `parse_workable_job` uses for the external id, so
-    the row stays stable across runs; the apply page mirrors the `application_url`
-    the detail parser prefers. Returns None only if no id is available.
+    `shortcode` is the same value `parse_workable_job` uses for the external id,
+    so the row stays stable across runs; the apply URL is identical to the one
+    the full parser builds. Returns None only when no shortcode is available.
     """
-    shortcode = entry.get("shortcode")
+    shortcode = job.get("shortcode")
     if not shortcode:
         return None
     return Posting(
         external_id=str(shortcode),
-        title=entry.get("title"),
-        url=f"https://apply.workable.com/{token}/j/{shortcode}/",
-        raw=entry,
+        title=job.get("title"),
+        url=f"https://apply.workable.com/{account}/j/{shortcode}/",
+        raw=job,
     )
 
 
 def fetch_workable(token: str) -> list[Posting]:
-    base = f"https://{token}.workable.com/spi/v3"
-    # TODO(live-validation): /spi/v3 is the AUTHENTICATED Workable SPI and needs an
-    # employer account token the http layer does not send, so this 401s for any real
-    # company. The fix is Workable's PUBLIC job-board API, whose exact endpoint and
-    # response shape cannot be verified without live access — do NOT swap in an
-    # unverified endpoint (risks substituting another wrong one). Leave the parser
-    # as-is pending live validation.
-    url: str | None = f"{base}/jobs?state=published"
+    # ONE no-auth GET returns every published job with its full description
+    # inline. Parse each entry inside a try/except so a single malformed job
+    # entry yields a minimal posting instead of being dropped or crashing the
+    # whole company fetch (a dropped job would let run.py's close-detection
+    # falsely close a still-open posting).
+    payload = get_json(_WIDGET_URL.format(account=token))
     postings: list[Posting] = []
-    pages = 0
-    while url and pages < _PAGE_CAP:
-        page = get_json(url)
-        for j in page.get("jobs", []):
-            shortcode = j.get("shortcode")
-            if not shortcode:
-                continue
-            try:
-                # Both the fetch and the parse live inside the try: a malformed
-                # HTTP-200 detail body must not abort the whole company fetch.
-                detail = get_json(f"{base}/jobs/{shortcode}")
-                posting = parse_workable_job(detail)
-            except Exception:  # detail unavailable/unparseable: keep, don't drop
-                log.warning(
-                    "workable: detail unavailable for %s/%s; keeping minimal posting",
-                    token, shortcode,
-                )
-                posting = _minimal_posting(token, j)
-            if posting is not None:
-                postings.append(posting)
-        url = (page.get("paging") or {}).get("next")
-        pages += 1
+    for job in payload.get("jobs", []):
+        try:
+            posting = parse_workable_job(job, token)
+        except Exception:  # malformed entry: keep a minimal posting, don't drop
+            log.warning(
+                "workable: malformed job entry for %s/%s; keeping minimal posting",
+                token, job.get("shortcode"),
+            )
+            posting = _minimal_posting(token, job)
+        if posting is not None:
+            postings.append(posting)
     return postings

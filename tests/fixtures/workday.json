@@ -1,66 +1,139 @@
 {
+  "_NOTE": "Shape mirrors Workday's public cxs endpoints for tenant acme:wd5:External. Listing = POST {host}/wday/cxs/{tenant}/{site}/jobs -> {total, jobPostings:[{title, externalPath, locationsText, postedOn, bulletFields}]}. Detail = GET {cxs}{externalPath} -> {jobPostingInfo:{...location, additionalLocations[], externalUrl, jobReqId, jobDescription...}}. Real cxs detail has NO remoteType field; remoteness is inferred from location/additionalLocations/the externalPath slug. `locationsText` for multi-loc jobs is the unreliable bare count (e.g. '13 Locations'). HTML/long bodies trimmed; keys intact.",
   "list_pages": [
     {
-      "total": 3,
+      "total": 2000,
       "jobPostings": [
         {
           "title": "Senior Software Engineer",
-          "externalPath": "/job/San-Francisco/Senior-Software-Engineer_R-1001",
-          "locationsText": "San Francisco, CA",
+          "externalPath": "/job/US-CA-Santa-Clara/Senior-Software-Engineer_JR-1001",
+          "locationsText": "US, CA, Santa Clara",
           "postedOn": "Posted 5 Days Ago",
-          "bulletFields": ["R-1001"]
+          "bulletFields": ["JR-1001"]
         },
         {
-          "title": "Product Manager",
-          "externalPath": "/job/New-York/Product-Manager_R-1002",
-          "locationsText": "New York, NY",
-          "bulletFields": ["R-1002"]
+          "title": "Senior HPC Architect, Automation and At-Scale Deployment",
+          "externalPath": "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-1999579",
+          "locationsText": "13 Locations",
+          "postedOn": "Posted Today",
+          "bulletFields": ["JR-1999579"]
         }
       ]
     },
     {
-      "total": 3,
+      "total": 2000,
       "jobPostings": [
         {
-          "title": "Remote Recruiter",
-          "externalPath": "/job/Remote/Remote-Recruiter_R-1003",
-          "locationsText": "Remote - US",
-          "bulletFields": ["R-1003"]
+          "title": "Senior ASIC Methodology Engineer - LPU Division",
+          "externalPath": "/job/US-CA-Remote/Senior-ASIC-Methodology-Engineer_JR-2013789",
+          "locationsText": "6 Locations",
+          "postedOn": "Posted Today",
+          "bulletFields": ["JR-2013789"]
+        },
+        {
+          "title": "Product Manager",
+          "externalPath": "/job/US-NY-New-York/Product-Manager_JR-1002",
+          "locationsText": "US, NY, New York",
+          "postedOn": "Posted 12 Days Ago",
+          "bulletFields": ["JR-1002"]
         }
       ]
     }
   ],
   "details": {
-    "/job/San-Francisco/Senior-Software-Engineer_R-1001": {
+    "/job/US-CA-Santa-Clara/Senior-Software-Engineer_JR-1001": {
       "jobPostingInfo": {
-        "id": "R-1001",
+        "id": "26a2c7006b11100114a28c7b16800000",
         "title": "Senior Software Engineer",
         "jobDescription": "<p>Build distributed systems at scale.</p>",
-        "location": "San Francisco, CA",
-        "externalUrl": "https://acme.wd5.myworkdayjobs.com/en-US/External/job/San-Francisco/Senior-Software-Engineer_R-1001",
-        "jobReqId": "R-1001",
-        "remoteType": "On-site",
-        "timeType": "Full time"
-      }
+        "location": "US, CA, Santa Clara",
+        "additionalLocations": [],
+        "postedOn": "Posted 5 Days Ago",
+        "startDate": "2026-06-25",
+        "timeType": "Full time",
+        "jobReqId": "JR-1001",
+        "jobPostingId": "Senior-Software-Engineer_JR-1001",
+        "jobPostingSiteId": "NVIDIAExternalCareerSite",
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Santa-Clara/Senior-Software-Engineer_JR-1001",
+        "canApply": true,
+        "posted": true
+      },
+      "hiringOrganization": {"name": "Acme USA", "url": ""},
+      "userAuthenticated": false
     },
-    "/job/New-York/Product-Manager_R-1002": {
+    "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-1999579": {
       "jobPostingInfo": {
-        "id": "R-1002",
+        "id": "26a2c7006b11100114a28c7b16800001",
+        "title": "Senior HPC Architect, Automation and At-Scale Deployment",
+        "jobDescription": "<p>Support deployment and bringup of large-scale GPU compute clusters.</p>",
+        "location": "US, CA, Santa Clara",
+        "additionalLocations": [
+          "US, TX, Remote",
+          "US, CO, Remote",
+          "US, WA, Remote",
+          "US, CA, Remote",
+          "US, Remote",
+          "US, NC, Remote",
+          "US, IL, Remote",
+          "US, OR, Remote",
+          "US, UT, Remote",
+          "US, NM, Remote",
+          "US, MA, Remote"
+        ],
+        "postedOn": "Posted Today",
+        "startDate": "2026-06-30",
+        "timeType": "Full time",
+        "jobReqId": "JR-1999579",
+        "jobPostingId": "Senior-HPC-Architect_JR-1999579",
+        "jobPostingSiteId": "NVIDIAExternalCareerSite",
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-1999579",
+        "canApply": true,
+        "posted": true
+      },
+      "hiringOrganization": {"name": "Acme USA", "url": ""},
+      "userAuthenticated": false
+    },
+    "/job/US-CA-Remote/Senior-ASIC-Methodology-Engineer_JR-2013789": {
+      "jobPostingInfo": {
+        "id": "26a2c7006b11100114a28c7b16800002",
+        "title": "Senior ASIC Methodology Engineer - LPU Division",
+        "jobDescription": "<p>Own the ASIC methodology stack.</p>",
+        "location": "US, CA, Remote",
+        "additionalLocations": [
+          "US, TX, Remote",
+          "US, WA, Remote"
+        ],
+        "postedOn": "Posted Today",
+        "startDate": "2026-06-30",
+        "timeType": "Full time",
+        "jobReqId": "JR-2013789",
+        "jobPostingId": "Senior-ASIC-Methodology-Engineer_JR-2013789",
+        "jobPostingSiteId": "NVIDIAExternalCareerSite",
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Remote/Senior-ASIC-Methodology-Engineer_JR-2013789",
+        "canApply": true,
+        "posted": true
+      },
+      "hiringOrganization": {"name": "Acme USA", "url": ""},
+      "userAuthenticated": false
+    },
+    "/job/US-NY-New-York/Product-Manager_JR-1002": {
+      "jobPostingInfo": {
+        "id": "26a2c7006b11100114a28c7b16800003",
         "title": "Product Manager",
         "jobDescription": "<p>Own the roadmap.</p>",
-        "location": "New York, NY",
-        "remoteType": "Hybrid"
-      }
-    },
-    "/job/Remote/Remote-Recruiter_R-1003": {
-      "jobPostingInfo": {
-        "id": "R-1003",
-        "title": "Remote Recruiter",
-        "jobDescription": "<p>Recruit remotely.</p>",
-        "location": "Remote - US",
-        "externalUrl": "https://acme.wd5.myworkdayjobs.com/en-US/External/job/Remote/Remote-Recruiter_R-1003",
-        "remoteType": "Remote"
-      }
+        "location": "US, NY, New York",
+        "additionalLocations": [],
+        "postedOn": "Posted 12 Days Ago",
+        "startDate": "2026-06-18",
+        "timeType": "Full time",
+        "jobReqId": "JR-1002",
+        "jobPostingId": "Product-Manager_JR-1002",
+        "jobPostingSiteId": "NVIDIAExternalCareerSite",
+        "canApply": true,
+        "posted": true
+      },
+      "hiringOrganization": {"name": "Acme USA", "url": ""},
+      "userAuthenticated": false
     }
   }
 }

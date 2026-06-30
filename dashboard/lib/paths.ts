@@ -1,4 +1,7 @@
-const PUBLIC_PREFIXES = ["/", "/login", "/auth"];
+// "/api/board-filters" is the anon-callable persistence endpoint — anonymous
+// visitors must reach it to save their board filters to a cookie, so it must
+// bypass the auth-redirect (other /api routes stay private).
+const PUBLIC_PREFIXES = ["/", "/login", "/auth", "/api/board-filters"];
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

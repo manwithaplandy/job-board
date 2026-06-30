@@ -2,11 +2,13 @@
 
 import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
+import { renderResumePdf } from "@/lib/rolefit/resumePdf";
 
 // Build plain-text résumé from TailoredResume — mirrors composeResumeText in reference
 function composeResumeText(data: TailoredResume): string {
-  let t = `${data.name}\n${data.headline}\n\n`;
-  t += `SUMMARY\n${data.summary}\n\nCORE SKILLS\n${data.skills.join(", ")}\n\nEXPERIENCE\n`;
+  let t = `${data.name}\n${data.headline}\n`;
+  if (data.contact) t += `${data.contact}\n`;
+  t += `\nSUMMARY\n${data.summary}\n\nCORE SKILLS\n${data.skills.join(", ")}\n\nEXPERIENCE\n`;
   data.experience.forEach((exp) => {
     t += `${exp.role}, ${exp.company} (${exp.dates})\n`;
     exp.bullets.forEach((b) => { t += `  - ${b}\n`; });
@@ -91,105 +93,10 @@ export function ResumePanel({
       return;
     }
 
-    // PDF generation — errors bubble up.
+    // PDF generation — errors bubble up. Layout lives in lib/rolefit/resumePdf
+    // so it's shared with the CLI résumé-iteration harness.
     const doc = new JsPDF({ unit: "pt", format: "letter" });
-    const W: number = doc.internal.pageSize.getWidth();
-    const M = 56;
-    const TOP = 66;
-    const BOTTOM = 752; // content must stay above this y to remain on one page
-
-    // Lay the résumé out at scale `s`. When `draw` is false it only advances `y`
-    // (a measurement pass); when true it actually paints. Font + size are set in
-    // both passes so line-wrapping during measurement matches the drawn output.
-    // Returns the y of the content bottom.
-    const layout = (s: number, draw: boolean): number => {
-      let y = TOP;
-      const body = () => { doc.setFont("helvetica", "normal"); doc.setFontSize(10.5 * s); };
-      const wrapLines = (txt: string, w: number, lh: number) => {
-        body();
-        doc.splitTextToSize(txt, w).forEach((l: string) => {
-          if (draw) doc.text(l, M, y);
-          y += lh * s;
-        });
-      };
-      const section = (title: string) => {
-        if (draw) {
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(11.5 * s);
-          doc.setTextColor(27, 35, 48);
-          doc.text(title.toUpperCase(), M, y);
-        }
-        y += 7 * s;
-        if (draw) {
-          doc.setDrawColor(222, 227, 234);
-          doc.line(M, y, W - M, y);
-        }
-        y += 17 * s;
-        if (draw) doc.setTextColor(47, 56, 69);
-        body();
-      };
-
-      // Name
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(21 * s);
-      if (draw) { doc.setTextColor(22, 29, 41); doc.text(data.name, M, y); }
-      y += 17 * s;
-
-      // Headline (wraps if long)
-      body();
-      if (draw) doc.setTextColor(95, 100, 114);
-      doc.splitTextToSize(data.headline, W - 2 * M).forEach((l: string) => {
-        if (draw) doc.text(l, M, y);
-        y += 13 * s;
-      });
-      y += 17 * s;
-
-      section("Summary");
-      wrapLines(data.summary, W - 2 * M, 15);
-      y += 9 * s;
-
-      section("Core skills");
-      wrapLines(data.skills.join("   ·   "), W - 2 * M, 15);
-      y += 9 * s;
-
-      section("Experience");
-      data.experience.forEach((exp) => {
-        if (draw) {
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(10.8 * s);
-          doc.setTextColor(27, 35, 48);
-          doc.text(`${exp.role}, ${exp.company}`, M, y);
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(9.5 * s);
-          doc.setTextColor(130, 136, 148);
-          doc.text(exp.dates, W - M, y, { align: "right" });
-        }
-        y += 15 * s;
-        if (draw) doc.setTextColor(47, 56, 69);
-        exp.bullets.forEach((b) => {
-          body();
-          doc.splitTextToSize("•  " + b, W - 2 * M - 8).forEach((l: string, i: number) => {
-            if (draw) doc.text(l, M + (i ? 12 : 6), y);
-            y += 14 * s;
-          });
-        });
-        y += 9 * s;
-      });
-
-      section("Education");
-      wrapLines(data.education, W - 2 * M, 15);
-
-      return y;
-    };
-
-    // Pick the largest scale in [0.7, 1] that keeps everything on one page,
-    // using cheap measurement passes, then draw once at that scale.
-    let scale = 0.7;
-    for (let s = 1; s >= 0.7 - 1e-9; s -= 0.02) {
-      if (layout(s, false) <= BOTTOM) { scale = s; break; }
-    }
-    layout(scale, true);
-
+    renderResumePdf(doc, data);
     doc.save(fname);
   };
 

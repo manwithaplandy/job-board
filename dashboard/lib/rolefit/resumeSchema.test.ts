@@ -1,31 +1,109 @@
 import { describe, expect, test } from "vitest";
-import { RESUME_JSON_SCHEMA, buildResumePrompt } from "@/lib/rolefit/resumeSchema";
+import { TAILORED_RESUME_SCHEMA, buildResumePrompt, assembleResume } from "@/lib/rolefit/resumeSchema";
+import type { ParsedProfile } from "@/lib/rolefit/parseProfile";
+
+const PROFILE: ParsedProfile = {
+  name: "Alex Morgan",
+  contact: "alex@example.com | 555-0100 | github.com/alex",
+  education: "M.S. CS · B.A. Math",
+  certifications: [],
+  experience: [
+    { role: "Senior Engineer", company: "Cobalt Labs", dates: "2021 – Present", sourceBullets: ["Built X", "Shipped Y"] },
+    { role: "Engineer", company: "Tin Co", dates: "2018 – 2021", sourceBullets: ["Wrote Z"] },
+  ],
+};
 
 describe("buildResumePrompt", () => {
   const out = buildResumePrompt({
+    profile: PROFILE,
     resumeText: "Alex Morgan — Senior Engineer, React/TS",
     job: { title: "Frontend Engineer", company: "Cobalt", description: "Build React apps." },
   });
-  test("includes the candidate resume", () => { expect(out.user).toContain("Alex Morgan"); });
+  test("includes the candidate background text", () => { expect(out.user).toContain("Alex Morgan"); });
   test("includes the job title, company, and JD", () => {
     expect(out.user).toContain("Frontend Engineer");
     expect(out.user).toContain("Cobalt");
     expect(out.user).toContain("Build React apps.");
   });
+  test("lists the candidate's roles in order with their source bullets", () => {
+    expect(out.user).toContain("Cobalt Labs");
+    expect(out.user).toContain("Tin Co");
+    expect(out.user).toContain("Built X");
+    expect(out.user.indexOf("Cobalt Labs")).toBeLessThan(out.user.indexOf("Tin Co"));
+  });
   test("system instructs tailoring without fabrication", () => {
     expect(out.system.toLowerCase()).toContain("tailor");
+    expect(out.system.toLowerCase()).toContain("never invent");
   });
   test("handles a missing JD", () => {
-    const o = buildResumePrompt({ resumeText: "x", job: { title: "T", company: "C", description: null } });
+    const o = buildResumePrompt({ profile: PROFILE, resumeText: "x", job: { title: "T", company: "C", description: null } });
     expect(o.user).toContain("T");
   });
 });
 
-describe("RESUME_JSON_SCHEMA", () => {
-  test("declares the required résumé fields", () => {
-    const s = JSON.stringify(RESUME_JSON_SCHEMA);
-    for (const k of ["name", "headline", "summary", "skills", "experience", "education"]) {
+describe("TAILORED_RESUME_SCHEMA", () => {
+  test("declares only the tailored fields (no fixed fields)", () => {
+    const s = JSON.stringify(TAILORED_RESUME_SCHEMA);
+    for (const k of ["headline", "summary", "skills", "experience", "company", "bullets"]) {
       expect(s).toContain(k);
     }
+    // Fixed/deterministic fields are NOT requested from the model.
+    expect(TAILORED_RESUME_SCHEMA.json_schema.schema.required).toEqual([
+      "headline", "summary", "skills", "experience",
+    ]);
+    expect(TAILORED_RESUME_SCHEMA.json_schema.strict).toBe(true);
+  });
+});
+
+describe("assembleResume", () => {
+  test("deterministic fields come from the profile; tailored fields from the model", () => {
+    const out = assembleResume(PROFILE, {
+      headline: "Tailored headline",
+      summary: "Tailored summary.",
+      skills: ["React", "TypeScript"],
+      experience: [
+        { company: "Cobalt Labs", bullets: ["Tailored A", "Tailored B"] },
+        { company: "Tin Co", bullets: ["Tailored Z"] },
+      ],
+    });
+    // Deterministic — verbatim from the ParsedProfile.
+    expect(out.name).toBe("Alex Morgan");
+    expect(out.contact).toBe("alex@example.com | 555-0100 | github.com/alex");
+    expect(out.education).toBe("M.S. CS · B.A. Math");
+    expect(out.experience.map((e) => [e.role, e.company, e.dates])).toEqual([
+      ["Senior Engineer", "Cobalt Labs", "2021 – Present"],
+      ["Engineer", "Tin Co", "2018 – 2021"],
+    ]);
+    // Tailored.
+    expect(out.headline).toBe("Tailored headline");
+    expect(out.summary).toBe("Tailored summary.");
+    expect(out.skills).toEqual(["React", "TypeScript"]);
+    expect(out.experience[0].bullets).toEqual(["Tailored A", "Tailored B"]);
+    expect(out.experience[1].bullets).toEqual(["Tailored Z"]);
+  });
+
+  test("matches tailored bullets by company when order/index differs", () => {
+    const out = assembleResume(PROFILE, {
+      headline: "h", summary: "s", skills: [],
+      experience: [
+        { company: "Tin Co", bullets: ["Z-tailored"] },
+        { company: "Cobalt Labs", bullets: ["Cobalt-tailored"] },
+      ],
+    });
+    expect(out.experience[0].company).toBe("Cobalt Labs");
+    expect(out.experience[0].bullets).toEqual(["Cobalt-tailored"]);
+    expect(out.experience[1].bullets).toEqual(["Z-tailored"]);
+  });
+
+  test("falls back to source bullets when a tailored role is missing or empty", () => {
+    const out = assembleResume(PROFILE, {
+      headline: "h", summary: "s", skills: [],
+      experience: [
+        { company: "Cobalt Labs", bullets: [] }, // empty → fall back
+        // Tin Co omitted entirely → fall back
+      ],
+    });
+    expect(out.experience[0].bullets).toEqual(["Built X", "Shipped Y"]);
+    expect(out.experience[1].bullets).toEqual(["Wrote Z"]);
   });
 });

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile, getDistinctLocations } from "@/lib/queries";
@@ -12,6 +13,17 @@ import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 
 export const dynamic = "force-dynamic";
+
+// getDistinctLocations() seq-scans ~115k open jobs (~100ms + cross-region RTT)
+// on every profile load, but the distinct-location option set changes slowly.
+// Cache it across requests so the page doesn't pay that scan each time; the
+// LocationPicker options being a few minutes stale is harmless. No user arg —
+// the option set is global.
+const cachedDistinctLocations = unstable_cache(
+  () => getDistinctLocations(),
+  ["profile-distinct-locations"],
+  { revalidate: 600 },
+);
 
 async function saveProfile(formData: FormData) {
   "use server";
@@ -156,7 +168,7 @@ const lastSavedStyle: React.CSSProperties = {
 export default async function ProfilePage() {
   const userId = await requireUserId();
   const [profile, models, locations] = await Promise.all([
-    getProfile(userId), getStructuredModels(), getDistinctLocations(),
+    getProfile(userId), getStructuredModels(), cachedDistinctLocations(),
   ]);
   return (
     <main style={pageStyle}>

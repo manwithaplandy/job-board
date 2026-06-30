@@ -34,3 +34,11 @@ def test_identity_is_nullcontext_when_disabled(monkeypatch):
 def test_flush_is_noop_when_disabled(monkeypatch):
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
     tracing.flush()  # must not raise
+
+
+def test_get_langfuse_returns_none_by_default_even_with_ambient_keys():
+    """Regression: a real LANGFUSE_PUBLIC_KEY/SECRET_KEY exported in the shell or
+    CI environment must not make tests send real traces into the production
+    Langfuse project. conftest.py must neutralize ambient keys for every test;
+    tests that want to exercise tracing opt in by stubbing tracing.get_langfuse."""
+    assert tracing.get_langfuse() is None

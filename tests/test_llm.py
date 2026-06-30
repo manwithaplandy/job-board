@@ -141,3 +141,44 @@ def test_stage1_creates_generation_when_tracing_enabled(monkeypatch):
     assert events["create"]["model"] == "m1"
     assert events["create"]["name"] == "stage1"
     assert "output" in events["update"]
+
+
+def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
+    """OpenRouter returns the actual USD cost on resp.usage.cost; Langfuse has no
+    price entry for OpenRouter-prefixed model slugs like deepseek/deepseek-v4-flash,
+    so without forwarding this explicitly, cost is silently always $0."""
+    from observability import tracing
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    usage = types.SimpleNamespace(prompt_tokens=868, completion_tokens=38, cost=1.23e-05)
+
+    class _CostCompletions:
+        async def parse(self, **kwargs):
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(
+                    message=types.SimpleNamespace(
+                        parsed=Stage1Result(decision="pass", reason="r"), refusal=None
+                    )
+                )],
+                usage=usage,
+            )
+
+    client = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_CostCompletions()))
+    )
+    rc = ReviewClient(client=client, model_stage1="m1", model_stage2="m2")
+    asyncio.run(rc.stage1(profile_block="P", title="T", company="C", location=None))
+
+    assert events["update"]["cost_details"] == {"total": 1.23e-05}

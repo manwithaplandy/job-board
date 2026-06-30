@@ -93,11 +93,16 @@ class CompanyReviewClient:
                    {"role": "user", "content": user}],
         ) as gen:
             parsed, usage = await self._call(system=system, user=user)
+            cost = getattr(usage, "cost", None)
             gen.update(
                 output=parsed.model_dump(),
                 usage_details={
                     "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
                     "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
                 } if usage is not None else None,
+                # OpenRouter returns the actual billed USD cost on usage.cost.
+                # Langfuse has no price entry for OpenRouter-prefixed model
+                # slugs, so without this its inferred cost is always $0.
+                cost_details={"total": cost} if cost is not None else None,
             )
             return parsed

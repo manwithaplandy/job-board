@@ -135,3 +135,45 @@ def test_review_creates_generation_when_tracing_enabled(monkeypatch):
     assert events["create"]["name"] == "company-screen"
     assert events["create"]["model"] == "m"
     assert "output" in events["update"]
+
+
+def test_review_forwards_openrouter_cost_as_cost_details(monkeypatch):
+    """OpenRouter returns the actual USD cost on resp.usage.cost; Langfuse has no
+    price entry for OpenRouter-prefixed model slugs, so without forwarding this
+    explicitly, cost is silently always $0."""
+    from observability import tracing
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    usage = type("U", (), {"prompt_tokens": 200, "completion_tokens": 50, "cost": 4.5e-06})()
+    parsed = CompanyReviewResult(verdict="include", confidence="high", reasoning="x")
+
+    class _CostResp:
+        def __init__(self):
+            msg = type("M", (), {"parsed": parsed, "refusal": None})()
+            self.choices = [type("C", (), {"message": msg})()]
+            self.usage = usage
+
+    class _CostParse:
+        async def parse(self, **kw):
+            return _CostResp()
+
+    client = type("Cl", (), {"beta": type("B", (), {
+        "chat": type("Ch", (), {"completions": _CostParse()})()
+    })()})()
+
+    rc = CompanyReviewClient(client=client, model="m")
+    asyncio.run(rc.review(company_block="P", name="Linear", ats="ashby", token="linear"))
+
+    assert events["update"]["cost_details"] == {"total": 4.5e-06}

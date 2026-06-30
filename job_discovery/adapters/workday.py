@@ -65,6 +65,10 @@ def parse_workday_job(item: dict, detail: dict, *, host: str, site: str) -> Post
     location = item.get("locationsText") or info.get("location")
     # The detail payload carries the authoritative public job-page URL; fall back
     # to constructing it from the path (best-effort — omits any locale segment).
+    # TODO(live-validation): this fallback drops the locale segment (e.g. /en-US/)
+    # that real Workday job pages carry, so it may 404. The correct locale is
+    # tenant/region-specific, so it is deliberately NOT hardcoded here pending live
+    # validation.
     url = info.get("externalUrl")
     if not url and external_path:
         url = f"https://{host}/{site}{external_path}"
@@ -76,6 +80,27 @@ def parse_workday_job(item: dict, detail: dict, *, host: str, site: str) -> Post
         department=None,  # not exposed by the public cxs read endpoints
         remote=detect_remote(location, _explicit_remote(info.get("remoteType"))),
         raw=detail,
+    )
+
+
+def _minimal_posting(item: dict, *, host: str, site: str) -> Posting | None:
+    """Build a bare Posting from a listing item when the detail fetch/parse fails.
+
+    Keeping the posting (rather than dropping it) preserves the job in run.py's
+    seen-set so close-detection does not falsely close a still-open job.
+    `externalPath` is the same value `parse_workday_job` uses for the external id,
+    and the URL is the same best-effort host/site/path fallback the parser builds.
+    Returns None only if no externalPath is available.
+    """
+    external_path = item.get("externalPath")
+    if not external_path:
+        return None
+    return Posting(
+        external_id=str(external_path),
+        title=item.get("title"),
+        url=f"https://{host}/{site}{external_path}",
+        location=item.get("locationsText"),
+        raw=item,
     )
 
 
@@ -98,13 +123,27 @@ def fetch_workday(token: str) -> list[Posting]:
                 continue
             try:
                 # externalPath already begins with `/job/...`, so it appends
-                # directly onto the cxs base.
+                # directly onto the cxs base. Both the fetch and the parse live
+                # inside the try: a malformed HTTP-200 detail body must not abort
+                # the whole tenant fetch.
                 detail = get_json(f"{cxs}{external_path}")
-            except Exception:  # one bad detail must not sink the whole tenant
-                log.warning("workday: detail fetch failed for %s%s", host, external_path)
-                continue
-            postings.append(parse_workday_job(item, detail, host=host, site=site))
+                posting = parse_workday_job(item, detail, host=host, site=site)
+            except Exception:  # detail unavailable/unparseable: keep, don't drop
+                log.warning(
+                    "workday: detail unavailable for %s%s; keeping minimal posting",
+                    host, external_path,
+                )
+                posting = _minimal_posting(item, host=host, site=site)
+            if posting is not None:
+                postings.append(posting)
+        # Page while a FULL page comes back and stop on a short/empty one. The
+        # `total` count is only an *additional* stop signal when it is a positive
+        # number — a missing/null/zero total must NOT end paging, which previously
+        # truncated after page 1 and triggered false closures.
         offset += _PAGE_LIMIT
-        if not items or offset >= (page.get("total") or 0):
+        total = page.get("total")
+        full_page = len(items) == _PAGE_LIMIT
+        reached_total = isinstance(total, int) and total > 0 and offset >= total
+        if not full_page or reached_total:
             break
     return postings

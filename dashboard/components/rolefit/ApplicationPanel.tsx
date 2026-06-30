@@ -6,12 +6,9 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
+import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
-
-// File-upload questions can't be answered with text (the résumé/cover letter attach
-// separately), so they're excluded from the Greenhouse Q/A list.
-const isFileType = (type: string): boolean => /file|attachment/i.test(type);
 
 // Plain-text cover letter — mirrors composeResumeText in ResumePanel.
 function composeCoverLetterText(data: TailoredCoverLetter): string {
@@ -118,11 +115,10 @@ export function ApplicationPanel({
   // Phase 3: persisted package status + Greenhouse Q/A.
   const prepared = status === "prepared" || status === "applied";
   const applied = status === "applied";
-  const ghQuestions = greenhouseQuestions?.questions ?? [];
-  const hasGhAnswers = (prefilledAnswers?.length ?? 0) > 0;
-  // Non-file questions for the "no suggested answers yet" fallback list.
-  const ghPromptQuestions = ghQuestions.filter((q) => q.fields.some((f) => !isFileType(f.type)));
-  const hasGreenhouse = ghPromptQuestions.length > 0 || hasGhAnswers;
+  // Every text-answerable question this posting asks, paired with its prefilled answer
+  // when one exists — so answered AND still-unanswered (required) questions both render.
+  const ghRows = mergeGreenhouseQuestions(greenhouseQuestions, prefilledAnswers);
+  const hasGreenhouse = ghRows.length > 0;
   const appliedDate = appliedAt ? new Date(appliedAt).toLocaleDateString() : null;
 
   // Cover-letter PDF download — mirrors ResumePanel.handleDownload, falls back to .txt.
@@ -655,123 +651,105 @@ export function ApplicationPanel({
             </div>
           </div>
 
-          {hasGhAnswers ? (
-            <>
+          <div
+            style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "6px", fontWeight: 500 }}
+          >
+            Pre-filled from your profile and résumé where possible — review before submitting,
+            and fill in anything still marked “Needs your answer” on the form.
+          </div>
+          {/* Every question this posting asks: answered ones carry a suggested answer +
+              copy button; unanswered (often required) ones stay visible so the operator
+              never discovers a missing required field only on the live form. */}
+          <div
+            style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
+          >
+            {ghRows.map((row) => (
               <div
-                style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "6px", fontWeight: 500 }}
+                key={row.key}
+                style={{
+                  background: "#f7f9fc",
+                  border: "1px solid #eef1f5",
+                  borderRadius: "10px",
+                  padding: "11px 13px",
+                }}
               >
-                Pre-filled from your profile and résumé — review before submitting.
-              </div>
-              <div
-                style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
-              >
-                {(prefilledAnswers ?? []).map((row, i) => (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
                   <div
-                    key={`${row.question}-${i}`}
                     style={{
-                      background: "#f7f9fc",
-                      border: "1px solid #eef1f5",
-                      borderRadius: "10px",
-                      padding: "11px 13px",
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: "12.5px",
+                      fontWeight: 700,
+                      color: "#414b59",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                      <div
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          fontSize: "12.5px",
-                          fontWeight: 700,
-                          color: "#414b59",
-                        }}
-                      >
-                        {row.question}
-                      </div>
-                      <button
-                        onClick={() => flashCopied(`gh-${i}`, row.answer)}
-                        style={{
-                          flex: "0 0 auto",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          fontWeight: 700,
-                          fontSize: "12px",
-                          color: copiedKey === `gh-${i}` ? "#2f7d54" : "#5b6472",
-                          background: "#fff",
-                          border: "1px solid #dfe3ea",
-                          borderRadius: "8px",
-                          padding: "6px 11px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {copiedKey === `gh-${i}` ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <div
+                    {row.label}
+                  </div>
+                  {row.required && (
+                    <span
                       style={{
-                        fontSize: "13px",
-                        lineHeight: 1.55,
-                        color: "#2f3845",
-                        fontWeight: 500,
-                        marginTop: "7px",
-                        whiteSpace: "pre-wrap",
+                        flex: "0 0 auto",
+                        fontSize: "10.5px",
+                        fontWeight: 800,
+                        color: "#b07a2e",
+                        background: "#f6edda",
+                        borderRadius: "6px",
+                        padding: "2px 7px",
                       }}
                     >
-                      {row.answer}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <div
-                style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "6px", fontWeight: 500 }}
-              >
-                This posting asks the questions below — prepare the application to draft answers,
-                or fill them in on the form.
-              </div>
-              <div
-                style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}
-              >
-                {ghPromptQuestions.map((q, i) => (
+                      Required
+                    </span>
+                  )}
+                  {row.answer != null && (
+                    <button
+                      onClick={() => flashCopied(row.key, row.answer as string)}
+                      style={{
+                        flex: "0 0 auto",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontWeight: 700,
+                        fontSize: "12px",
+                        color: copiedKey === row.key ? "#2f7d54" : "#5b6472",
+                        background: "#fff",
+                        border: "1px solid #dfe3ea",
+                        borderRadius: "8px",
+                        padding: "6px 11px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {copiedKey === row.key ? "Copied!" : "Copy"}
+                    </button>
+                  )}
+                </div>
+                {row.answer != null ? (
                   <div
-                    key={`${q.label}-${i}`}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                      background: "#f7f9fc",
-                      border: "1px solid #eef1f5",
-                      borderRadius: "10px",
-                      padding: "9px 12px",
+                      fontSize: "13px",
+                      lineHeight: 1.55,
+                      color: "#2f3845",
+                      fontWeight: 500,
+                      marginTop: "7px",
+                      whiteSpace: "pre-wrap",
                     }}
                   >
-                    <span
-                      style={{ flex: 1, minWidth: 0, fontSize: "13px", fontWeight: 600, color: "#2f3845" }}
-                    >
-                      {q.label}
-                    </span>
-                    {q.required && (
-                      <span
-                        style={{
-                          flex: "0 0 auto",
-                          fontSize: "10.5px",
-                          fontWeight: 800,
-                          color: "#b07a2e",
-                          background: "#f6edda",
-                          borderRadius: "6px",
-                          padding: "2px 7px",
-                        }}
-                      >
-                        Required
-                      </span>
-                    )}
+                    {row.answer}
                   </div>
-                ))}
+                ) : (
+                  <div
+                    style={{
+                      fontSize: "12.5px",
+                      color: "#b07a2e",
+                      fontWeight: 600,
+                      marginTop: "7px",
+                    }}
+                  >
+                    Needs your answer — fill this in on the form.
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            ))}
+          </div>
         </div>
       )}
 

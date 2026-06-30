@@ -44,6 +44,25 @@ def parse_smartrecruiters_posting(detail: dict) -> Posting:
     )
 
 
+def _minimal_posting(token: str, item: dict) -> Posting | None:
+    """Build a bare Posting from a listing item when the detail fetch/parse fails.
+
+    Keeping the posting (rather than dropping it) preserves the job in run.py's
+    seen-set so close-detection does not falsely close a still-open job. `id`
+    matches the external id `parse_smartrecruiters_posting` uses; the URL is the
+    public posting-page form. Returns None only if no id is available.
+    """
+    pid = item.get("id")
+    if not pid:
+        return None
+    return Posting(
+        external_id=str(pid),
+        title=item.get("name"),
+        url=f"https://jobs.smartrecruiters.com/{token}/{pid}",
+        raw=item,
+    )
+
+
 def fetch_smartrecruiters(token: str) -> list[Posting]:
     base = f"https://api.smartrecruiters.com/v1/companies/{token}/postings"
     postings: list[Posting] = []
@@ -56,12 +75,26 @@ def fetch_smartrecruiters(token: str) -> list[Posting]:
             if not pid:
                 continue
             try:
+                # Both the fetch and the parse live inside the try: a malformed
+                # HTTP-200 detail body must not abort the whole company fetch.
                 detail = get_json(f"{base}/{pid}")
-            except Exception:  # one bad detail must not sink the whole company
-                log.warning("smartrecruiters: detail fetch failed for %s/%s", token, pid)
-                continue
-            postings.append(parse_smartrecruiters_posting(detail))
+                posting = parse_smartrecruiters_posting(detail)
+            except Exception:  # detail unavailable/unparseable: keep, don't drop
+                log.warning(
+                    "smartrecruiters: detail unavailable for %s/%s; keeping minimal posting",
+                    token, pid,
+                )
+                posting = _minimal_posting(token, item)
+            if posting is not None:
+                postings.append(posting)
+        # Page while a FULL page comes back and stop on a short/empty one. The
+        # `totalFound` count is only an *additional* stop signal when it is a
+        # positive number — a missing/null/zero total must NOT end paging, which
+        # previously truncated after page 1 and triggered false closures.
         offset += _PAGE_LIMIT
-        if not content or offset >= (page.get("totalFound") or 0):
+        total = page.get("totalFound")
+        full_page = len(content) == _PAGE_LIMIT
+        reached_total = isinstance(total, int) and total > 0 and offset >= total
+        if not full_page or reached_total:
             break
     return postings

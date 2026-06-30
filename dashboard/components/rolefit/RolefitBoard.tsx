@@ -22,6 +22,10 @@ export interface RolefitBoardProps {
   rejectJob: (jobId: string) => Promise<void>;
   unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
   markApplied: (jobId: string) => Promise<void>;
+  // Persist a regenerated résumé/cover back into an existing application_packages row
+  // (so regenerating after Prepare survives a reload). No-op server-side when unprepared.
+  persistResume: (jobId: string, resume: TailoredResume) => Promise<void>;
+  persistCover: (jobId: string, coverLetter: TailoredCoverLetter) => Promise<void>;
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;
@@ -40,6 +44,8 @@ export function RolefitBoard({
   rejectJob,
   unrejectJob,
   markApplied,
+  persistResume,
+  persistCover,
   operator,
   hasProfile,
   resumeText,
@@ -102,6 +108,11 @@ export function RolefitBoard({
   });
   const [coverError, setCoverError] = useState<Record<string, string>>({});
 
+  // Transient bottom-of-screen error notice for failed actions (mark-applied rollback,
+  // non-destructive re-prepare/regenerate failures) — mirrors the reject toast styling.
+  const [actionError, setActionError] = useState<string | null>(null);
+  const actionErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Refs
   const detailRef = useRef<HTMLDivElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,6 +121,13 @@ export function RolefitBoard({
   useEffect(() => () => {
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
+  }, []);
+
+  const showActionError = useCallback((msg: string) => {
+    setActionError(msg);
+    if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
+    actionErrorTimerRef.current = setTimeout(() => setActionError(null), 5000);
   }, []);
 
   // Outside-click closes open dropdown — port of reference componentDidMount doc listener
@@ -219,11 +237,21 @@ export function RolefitBoard({
       const data = (await res.json()) as TailoredResume;
       setGenData((d) => ({ ...d, [job.id]: data }));
       setGen((g) => ({ ...g, [job.id]: "done" }));
+      // If a package already exists, regenerating must persist the new résumé back into
+      // it — otherwise the stale saved version reseeds on reload and the work is lost.
+      if (packages[job.id]) {
+        setPackages((p) => (p[job.id] ? { ...p, [job.id]: { ...p[job.id], resume: data } } : p));
+        startApply(() => {
+          void persistResume(job.id, data).catch(() =>
+            showActionError("Couldn’t save the regenerated résumé. Re-prepare to retry."),
+          );
+        });
+      }
     } catch (e) {
       setGen((g) => ({ ...g, [job.id]: "error" }));
       setGenError((m) => ({ ...m, [job.id]: (e as Error).message }));
     }
-  }, []);
+  }, [packages, persistResume, showActionError]);
 
   // Cover-letter generation — mirrors handleGenerate against /api/cover-letter
   const handleGenerateCover = useCallback(async (job: JobRow) => {
@@ -241,16 +269,29 @@ export function RolefitBoard({
       const data = (await res.json()) as TailoredCoverLetter;
       setCoverData((d) => ({ ...d, [job.id]: data }));
       setCoverGen((g) => ({ ...g, [job.id]: "done" }));
+      // Persist the regenerated cover letter into an existing package (see handleGenerate).
+      if (packages[job.id]) {
+        setPackages((p) => (p[job.id] ? { ...p, [job.id]: { ...p[job.id], coverLetter: data } } : p));
+        startApply(() => {
+          void persistCover(job.id, data).catch(() =>
+            showActionError("Couldn’t save the regenerated cover letter. Re-prepare to retry."),
+          );
+        });
+      }
     } catch (e) {
       setCoverGen((g) => ({ ...g, [job.id]: "error" }));
       setCoverError((m) => ({ ...m, [job.id]: (e as Error).message }));
     }
-  }, []);
+  }, [packages, persistCover, showActionError]);
 
   // "Prepare application" — build + PERSIST the package in one call (résumé + cover
   // letter + answers snapshot, plus Greenhouse Q/A when available). The résumé and
   // cover-letter panels reflect progress via their existing busy/done/error states.
   const handlePrepare = useCallback(async (job: JobRow) => {
+    // Snapshot whether we already have successful content to fall back to, so a failed
+    // re-prepare doesn't blank out the still-valid résumé/cover the user can see.
+    const hadResume = Boolean(genData[job.id]);
+    const hadCover = Boolean(coverData[job.id]);
     setGen((g) => ({ ...g, [job.id]: "busy" }));
     setCoverGen((g) => ({ ...g, [job.id]: "busy" }));
     try {
@@ -281,29 +322,39 @@ export function RolefitBoard({
       }
     } catch (e) {
       const msg = (e as Error).message;
-      setGen((g) => ({ ...g, [job.id]: "error" }));
-      setGenError((m) => ({ ...m, [job.id]: msg }));
-      setCoverGen((g) => ({ ...g, [job.id]: "error" }));
-      setCoverError((m) => ({ ...m, [job.id]: msg }));
+      // Only fall to the full "error" state when there was nothing to preserve. When
+      // prior content exists, keep it visible (state stays "done") and surface the
+      // failure non-destructively via the toast instead of blanking the panels.
+      setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
+      setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
+      if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
+      if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
+      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
     }
-  }, []);
+  }, [genData, coverData, showActionError]);
 
   // "Mark as applied" — optimistic flip + persist (status='applied', applied_at set).
   const handleMarkApplied = useCallback((job: JobRow) => {
-    setPackages((p) => {
-      const existing = p[job.id];
-      if (!existing) return p;
-      return {
-        ...p,
-        [job.id]: {
-          ...existing,
-          status: "applied",
-          appliedAt: existing.appliedAt ?? new Date().toISOString(),
-        },
-      };
+    const prior = packages[job.id];
+    if (!prior) return;
+    setPackages((p) => ({
+      ...p,
+      [job.id]: {
+        ...prior,
+        status: "applied",
+        appliedAt: prior.appliedAt ?? new Date().toISOString(),
+      },
+    }));
+    // Await the action: if the server rejects (auth/network) the DB stays "prepared",
+    // so roll the optimistic flip back and tell the user instead of showing a false
+    // "Applied".
+    startApply(() => {
+      void markApplied(job.id).catch(() => {
+        setPackages((p) => ({ ...p, [job.id]: prior }));
+        showActionError("Couldn’t mark as applied. Please try again.");
+      });
     });
-    startApply(() => { void markApplied(job.id); });
-  }, [markApplied]);
+  }, [packages, markApplied, showActionError]);
 
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
@@ -470,6 +521,45 @@ export function RolefitBoard({
             }}
           >
             Undo
+          </button>
+        </div>
+      )}
+      {actionError && (
+        <div
+          role="alert"
+          style={{
+            position: "fixed",
+            bottom: "24px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+            background: "#7a2e22",
+            color: "#fff",
+            borderRadius: "12px",
+            padding: "11px 18px",
+            boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+            fontSize: "13.5px",
+            fontWeight: 600,
+            zIndex: 50,
+          }}
+        >
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            style={{
+              fontWeight: 800,
+              fontSize: "13px",
+              color: "#ffd2c8",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Dismiss
           </button>
         </div>
       )}

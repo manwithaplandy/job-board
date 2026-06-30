@@ -63,8 +63,14 @@ def test_fetch_walks_pages_and_fetches_details(monkeypatch):
     assert "since_id=1002" in requested[3]
 
 
-def test_fetch_skips_posting_when_detail_fails(monkeypatch):
-    page = {"jobs": [{"shortcode": "ENG123"}, {"shortcode": "BAD"}], "paging": {}}
+def test_fetch_keeps_minimal_posting_when_detail_fails(monkeypatch):
+    # FIX 2: a failed detail fetch must NOT drop the posting (dropping it would let
+    # run.py's close-detection falsely close a still-open job). Instead a minimal
+    # posting is built from the listing entry so the job stays in `seen`.
+    page = {"jobs": [
+        {"shortcode": "ENG123", "title": "Senior Backend Engineer"},
+        {"shortcode": "BAD", "title": "Broken Posting"},
+    ], "paging": {}}
 
     def fake_get_json(url):
         if url.endswith("/jobs/BAD"):
@@ -75,4 +81,25 @@ def test_fetch_skips_posting_when_detail_fails(monkeypatch):
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
     postings = fetch_workable("acme")
+    assert [p.external_id for p in postings] == ["ENG123", "BAD"]
+    bad = postings[1]
+    assert bad.title == "Broken Posting"  # carried over from the listing entry
+    assert bad.url == "https://apply.workable.com/acme/j/BAD/"  # built from token+shortcode
+
+
+def test_fetch_keeps_minimal_posting_when_detail_malformed(monkeypatch):
+    # FIX 1: a malformed HTTP-200 detail body (here: missing `shortcode`, which the
+    # parser dereferences) must not abort the whole company fetch; the posting is
+    # kept as a minimal entry instead.
+    page = {"jobs": [{"shortcode": "ENG123", "title": "Senior Backend Engineer"}],
+            "paging": {}}
+
+    def fake_get_json(url):
+        if "/jobs/" in url:
+            return {"id": 1, "title": "Senior Backend Engineer"}  # no shortcode key
+        return page
+
+    monkeypatch.setattr(workable, "get_json", fake_get_json)
+    postings = fetch_workable("acme")
     assert [p.external_id for p in postings] == ["ENG123"]
+    assert postings[0].url == "https://apply.workable.com/acme/j/ENG123/"

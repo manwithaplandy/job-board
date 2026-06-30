@@ -39,9 +39,46 @@ export async function POST(req: Request) {
   const resumeText = profile.resume_text!;
   const answers = applicationAnswersFromProfile(profile);
 
+  // Greenhouse-only side-quest: fetch the posting's real question schema, then
+  // prefill the answerable (non-file) questions. It depends only on profile/job
+  // data — NOT the generated résumé/cover — so it overlaps them in the Promise.all
+  // below instead of running afterward. fetchGreenhouseQuestions never throws (it
+  // degrades to null), and the prefill round-trip is caught, so a Greenhouse/LLM
+  // hiccup still persists a usable generic package and never fails the prepare.
+  const greenhousePrefill = async (): Promise<{
+    greenhouseQuestions: GreenhouseQuestions | null;
+    prefilledAnswers: PrefilledAnswer[] | null;
+  }> => {
+    if (job.ats !== "greenhouse") return { greenhouseQuestions: null, prefilledAnswers: null };
+    const greenhouseQuestions = await fetchGreenhouseQuestions({
+      token: job.company_token,
+      externalId: job.external_id,
+    });
+    if (!greenhouseQuestions) return { greenhouseQuestions: null, prefilledAnswers: null };
+    const questions = toPrefillQuestions(greenhouseQuestions);
+    if (questions.length === 0) return { greenhouseQuestions, prefilledAnswers: null };
+    try {
+      const prefilledAnswers = await generatePrefilledAnswers({
+        resumeText,
+        instructions: profile.instructions ?? null,
+        answers,
+        job: { title: job.title, company: job.company_name, description: job.description },
+        questions,
+        model: DEFAULT_PREFILL_MODEL,
+        apiKey,
+      });
+      return { greenhouseQuestions, prefilledAnswers };
+    } catch (e) {
+      // Best-effort: keep the question list, drop the suggested answers.
+      console.error("greenhouse prefill failed", e);
+      return { greenhouseQuestions, prefilledAnswers: null };
+    }
+  };
+
   const run = async () => {
-    // Résumé + cover letter are the core deliverables — generate in parallel.
-    const [resume, coverLetter] = await Promise.all([
+    // Résumé, cover letter, and the Greenhouse prefill are independent round-trips —
+    // run all three in parallel so the prefill LLM call overlaps the others.
+    const [resume, coverLetter, gh] = await Promise.all([
       generateResume({
         resumeText,
         job: { title: job.title, company: job.company_name, description: job.description },
@@ -64,46 +101,15 @@ export async function POST(req: Request) {
         model: profile.model_cover ?? DEFAULT_COVER_MODEL,
         apiKey,
       }),
+      greenhousePrefill(),
     ]);
-
-    // Greenhouse-only: fetch the posting's real question schema, then prefill the
-    // answerable (non-file) questions. Each step degrades to null, so a usable
-    // generic package is still persisted on any Greenhouse/LLM hiccup.
-    let greenhouseQuestions: GreenhouseQuestions | null = null;
-    let prefilledAnswers: PrefilledAnswer[] | null = null;
-    if (job.ats === "greenhouse") {
-      greenhouseQuestions = await fetchGreenhouseQuestions({
-        token: job.company_token,
-        externalId: job.external_id,
-      });
-      if (greenhouseQuestions) {
-        const questions = toPrefillQuestions(greenhouseQuestions);
-        if (questions.length > 0) {
-          try {
-            prefilledAnswers = await generatePrefilledAnswers({
-              resumeText,
-              instructions: profile.instructions ?? null,
-              answers,
-              job: { title: job.title, company: job.company_name, description: job.description },
-              questions,
-              model: DEFAULT_PREFILL_MODEL,
-              apiKey,
-            });
-          } catch (e) {
-            // Best-effort: keep the question list, drop the suggested answers.
-            console.error("greenhouse prefill failed", e);
-            prefilledAnswers = null;
-          }
-        }
-      }
-    }
 
     const pkg = await upsertApplicationPackage(userId, jobId, {
       resume,
       coverLetter,
       answersSnapshot: answers,
-      greenhouseQuestions,
-      prefilledAnswers,
+      greenhouseQuestions: gh.greenhouseQuestions,
+      prefilledAnswers: gh.prefilledAnswers,
       applyUrl: applyUrl(job.ats, job.url),
     });
     return Response.json(pkg);

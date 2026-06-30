@@ -37,3 +37,13 @@ def test_load_targets_rejects_unknown_ats(tmp_path):
     p.write_text(json.dumps([{"name": "Acme", "ats": "bamboohr", "token": "acme"}]))
     with pytest.raises(ValueError, match="bamboohr"):
         load_targets(p)
+
+
+@pytest.mark.parametrize("bad_token", ["acme:wd5", "acme::External", "acme:wd5:", "plain"])
+def test_load_targets_rejects_malformed_workday_token(tmp_path, bad_token):
+    # FIX 4: a Workday token must be a well-formed 'tenant:datacenter:site' triple;
+    # reject a malformed one at load time instead of failing every poll.
+    p = tmp_path / "targets.json"
+    p.write_text(json.dumps([{"name": "Bad", "ats": "workday", "token": bad_token}]))
+    with pytest.raises(ValueError, match="workday token"):
+        load_targets(p)

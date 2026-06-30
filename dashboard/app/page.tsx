@@ -9,7 +9,9 @@ import { computeHealth } from "@/lib/status";
 import { getUserId } from "@/lib/auth";
 import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
-import { markApplicationApplied } from "@/app/actions/applications";
+import {
+  markApplicationApplied, persistRegeneratedResume, persistRegeneratedCover,
+} from "@/app/actions/applications";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 import type { ApplicationAnswers, ApplicationPackage, OperatorSignals } from "@/lib/types";
 
@@ -65,6 +67,8 @@ export default async function Page({
       rejectJob={rejectJob}
       unrejectJob={unrejectJob}
       markApplied={markApplicationApplied}
+      persistResume={persistRegeneratedResume}
+      persistCover={persistRegeneratedCover}
       operator={operator}
       hasProfile={hasProfile}
       resumeText={resumeText}

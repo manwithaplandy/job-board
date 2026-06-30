@@ -3,11 +3,9 @@ import {
   COVER_LETTER_JSON_SCHEMA, buildCoverLetterPrompt,
   type CoverLetterJob, type TailoredCoverLetter,
 } from "@/lib/rolefit/coverLetterSchema";
-import { startObservation } from "@langfuse/tracing";
-import { tracingEnabled } from "@/lib/observability";
+import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
 
 export const DEFAULT_COVER_MODEL = "anthropic/claude-haiku-4.5";
-const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 export async function generateCoverLetter(args: {
   resumeText: string;
@@ -18,62 +16,34 @@ export async function generateCoverLetter(args: {
   apiKey: string;
   fetchImpl?: typeof fetch;
 }): Promise<TailoredCoverLetter> {
-  const doFetch = args.fetchImpl ?? fetch;
   const { system, user } = buildCoverLetterPrompt({
     resumeText: args.resumeText,
     candidateName: args.candidateName,
     instructions: args.instructions,
     job: args.job,
   });
-  const gen = tracingEnabled()
-    ? startObservation(
-        "cover-letter-generation",
-        { model: args.model, input: [{ role: "system", content: system }, { role: "user", content: user }] },
-        { asType: "generation" },
-      )
-    : null;
-  try {
-    const res = await doFetch(OPENROUTER_CHAT_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.apiKey}`,
-        "Content-Type": "application/json",
-        "X-Title": "job-board",
-      },
-      body: JSON.stringify({
-        model: args.model,
-        max_tokens: 2000,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        response_format: COVER_LETTER_JSON_SCHEMA,
-      }),
-    });
-    if (!res.ok) throw new Error(`OpenRouter cover letter request failed: ${res.status}`);
-    const json = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
-    };
-    const content = json.choices?.[0]?.message?.content;
-    if (!content) throw new Error("OpenRouter returned no content");
-    let parsed: TailoredCoverLetter;
-    try { parsed = JSON.parse(content) as TailoredCoverLetter; }
-    catch { throw new Error("OpenRouter returned non-JSON cover letter content"); }
-    if (!parsed.greeting || !Array.isArray(parsed.paragraphs)) {
-      throw new Error("OpenRouter cover letter missing required fields");
-    }
-    gen?.update({
-      output: parsed,
-      usageDetails: json.usage
-        ? { input: json.usage.prompt_tokens ?? 0, output: json.usage.completion_tokens ?? 0 }
-        : undefined,
-    });
-    return parsed;
-  } catch (e) {
-    gen?.update({ level: "ERROR", statusMessage: e instanceof Error ? e.message : String(e) });
-    throw e;
-  } finally {
-    gen?.end();
-  }
+  return callOpenRouterStructured<TailoredCoverLetter>({
+    generationName: "cover-letter-generation",
+    label: "cover letter",
+    model: args.model,
+    apiKey: args.apiKey,
+    system,
+    user,
+    responseFormat: COVER_LETTER_JSON_SCHEMA,
+    maxTokens: 2000,
+    fetchImpl: args.fetchImpl,
+    parse: (raw) => {
+      const parsed = raw as TailoredCoverLetter;
+      // Require every field the renderer dereferences unconditionally — composeCoverLetterText
+      // and the PDF writer use closing + signature, so a model omitting them must fail here
+      // rather than surface literal "undefined" in copied text / PDF / preview.
+      if (
+        !parsed.greeting || !Array.isArray(parsed.paragraphs)
+        || !parsed.closing || !parsed.signature
+      ) {
+        throw new Error("OpenRouter cover letter missing required fields");
+      }
+      return parsed;
+    },
+  });
 }

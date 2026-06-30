@@ -61,8 +61,34 @@ def parse_workable_job(detail: dict) -> Posting:
     )
 
 
+def _minimal_posting(token: str, entry: dict) -> Posting | None:
+    """Build a bare Posting from a listing entry when the detail fetch/parse fails.
+
+    Keeping the posting (rather than dropping it) preserves the job in run.py's
+    seen-set so close-detection does not falsely mark a still-open job as closed.
+    `shortcode` is the same value `parse_workable_job` uses for the external id, so
+    the row stays stable across runs; the apply page mirrors the `application_url`
+    the detail parser prefers. Returns None only if no id is available.
+    """
+    shortcode = entry.get("shortcode")
+    if not shortcode:
+        return None
+    return Posting(
+        external_id=str(shortcode),
+        title=entry.get("title"),
+        url=f"https://apply.workable.com/{token}/j/{shortcode}/",
+        raw=entry,
+    )
+
+
 def fetch_workable(token: str) -> list[Posting]:
     base = f"https://{token}.workable.com/spi/v3"
+    # TODO(live-validation): /spi/v3 is the AUTHENTICATED Workable SPI and needs an
+    # employer account token the http layer does not send, so this 401s for any real
+    # company. The fix is Workable's PUBLIC job-board API, whose exact endpoint and
+    # response shape cannot be verified without live access — do NOT swap in an
+    # unverified endpoint (risks substituting another wrong one). Leave the parser
+    # as-is pending live validation.
     url: str | None = f"{base}/jobs?state=published"
     postings: list[Posting] = []
     pages = 0
@@ -73,11 +99,18 @@ def fetch_workable(token: str) -> list[Posting]:
             if not shortcode:
                 continue
             try:
+                # Both the fetch and the parse live inside the try: a malformed
+                # HTTP-200 detail body must not abort the whole company fetch.
                 detail = get_json(f"{base}/jobs/{shortcode}")
-            except Exception:  # one bad detail must not sink the whole board
-                log.warning("workable: detail fetch failed for %s/%s", token, shortcode)
-                continue
-            postings.append(parse_workable_job(detail))
+                posting = parse_workable_job(detail)
+            except Exception:  # detail unavailable/unparseable: keep, don't drop
+                log.warning(
+                    "workable: detail unavailable for %s/%s; keeping minimal posting",
+                    token, shortcode,
+                )
+                posting = _minimal_posting(token, j)
+            if posting is not None:
+                postings.append(posting)
         url = (page.get("paging") or {}).get("next")
         pages += 1
     return postings

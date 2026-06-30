@@ -101,10 +101,13 @@ def test_fetch_posts_search_pages_and_reads_details(monkeypatch):
     assert [b["offset"] for b in list_bodies] == [0, 2]  # walked two search pages
 
 
-def test_fetch_skips_posting_when_detail_fails(monkeypatch):
+def test_fetch_keeps_minimal_posting_when_detail_fails(monkeypatch):
+    # FIX 2: a failed detail fetch must NOT drop the posting (dropping it would let
+    # run.py's close-detection falsely close a still-open job). A minimal posting is
+    # built from the listing item so the job stays in `seen`.
     page = {"total": 2, "jobPostings": [
-        {"externalPath": "/job/ok/R-1", "title": "OK"},
-        {"externalPath": "/job/bad/R-2", "title": "Bad"},
+        {"externalPath": "/job/ok/R-1", "title": "OK", "locationsText": "NYC"},
+        {"externalPath": "/job/bad/R-2", "title": "Bad", "locationsText": "Remote"},
     ]}
 
     def fake_post_json(url, json=None):
@@ -118,4 +121,66 @@ def test_fetch_skips_posting_when_detail_fails(monkeypatch):
     monkeypatch.setattr(workday, "post_json", fake_post_json)
     monkeypatch.setattr(workday, "get_json", fake_get_json)
     postings = fetch_workday("acme:wd5:External")
-    assert [p.external_id for p in postings] == ["/job/ok/R-1"]
+    assert [p.external_id for p in postings] == ["/job/ok/R-1", "/job/bad/R-2"]
+    bad = postings[1]
+    assert bad.title == "Bad"  # carried over from the listing item
+    assert bad.url == f"https://{HOST}/{SITE}/job/bad/R-2"  # built from host/site/path
+    assert bad.location == "Remote"
+
+
+def test_fetch_keeps_minimal_posting_when_detail_malformed(monkeypatch):
+    # FIX 1: a malformed HTTP-200 detail body (here: a non-dict, which the parser
+    # dereferences via .get) must not abort the whole tenant fetch.
+    page = {"total": 1, "jobPostings": [
+        {"externalPath": "/job/x/R-9", "title": "X", "locationsText": "Remote"},
+    ]}
+
+    def fake_post_json(url, json=None):
+        return page
+
+    def fake_get_json(url):
+        return ["unexpected", "list"]  # non-dict body -> AttributeError in parser
+
+    monkeypatch.setattr(workday, "post_json", fake_post_json)
+    monkeypatch.setattr(workday, "get_json", fake_get_json)
+    postings = fetch_workday("acme:wd5:External")
+    assert [p.external_id for p in postings] == ["/job/x/R-9"]
+    assert postings[0].title == "X"
+    assert postings[0].url == f"https://{HOST}/{SITE}/job/x/R-9"
+    assert postings[0].location == "Remote"
+
+
+def test_fetch_pages_until_short_page_when_total_missing(monkeypatch):
+    # FIX 3: when the listing omits `total`, paging must continue while a full page
+    # comes back and stop on the short page — not truncate after page 1 (which would
+    # drop later postings and trigger false closures).
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    pages = {
+        0: {"jobPostings": [
+            {"externalPath": "/job/a/R-1", "title": "A"},
+            {"externalPath": "/job/b/R-2", "title": "B"},
+        ]},
+        2: {"jobPostings": [
+            {"externalPath": "/job/c/R-3", "title": "C"},
+            {"externalPath": "/job/d/R-4", "title": "D"},
+        ]},
+        4: {"jobPostings": [  # short page -> stop
+            {"externalPath": "/job/e/R-5", "title": "E"},
+        ]},
+    }
+
+    def fake_post_json(url, json=None):
+        return pages[json["offset"]]
+
+    def fake_get_json(url):
+        for ep in ("/job/a/R-1", "/job/b/R-2", "/job/c/R-3", "/job/d/R-4", "/job/e/R-5"):
+            if url.endswith(ep):
+                return {"jobPostingInfo": {"title": ep, "externalUrl": f"https://x{ep}"}}
+        raise AssertionError(f"unexpected detail url {url}")
+
+    monkeypatch.setattr(workday, "post_json", fake_post_json)
+    monkeypatch.setattr(workday, "get_json", fake_get_json)
+    postings = fetch_workday("acme:wd5:External")
+    assert [p.external_id for p in postings] == [
+        "/job/a/R-1", "/job/b/R-2", "/job/c/R-3", "/job/d/R-4", "/job/e/R-5",
+    ]

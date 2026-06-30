@@ -64,8 +64,14 @@ def test_fetch_pages_by_offset_and_fetches_details(monkeypatch):
     assert any("offset=2" in u for u in requested)  # second page was walked
 
 
-def test_fetch_skips_posting_when_detail_fails(monkeypatch):
-    page = {"totalFound": 2, "content": [{"id": "743111"}, {"id": "BAD"}]}
+def test_fetch_keeps_minimal_posting_when_detail_fails(monkeypatch):
+    # FIX 2: a failed detail fetch must NOT drop the posting (dropping it would let
+    # run.py's close-detection falsely close a still-open job). A minimal posting is
+    # built from the listing item so the job stays in `seen`.
+    page = {"totalFound": 2, "content": [
+        {"id": "743111", "name": "Staff Engineer"},
+        {"id": "BAD", "name": "Broken Posting"},
+    ]}
 
     def fake_get_json(url):
         if url.endswith("/postings/BAD"):
@@ -76,4 +82,46 @@ def test_fetch_skips_posting_when_detail_fails(monkeypatch):
 
     monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
     postings = fetch_smartrecruiters("acme")
+    assert [p.external_id for p in postings] == ["743111", "BAD"]
+    bad = postings[1]
+    assert bad.title == "Broken Posting"  # carried over from the listing item
+    assert bad.url == "https://jobs.smartrecruiters.com/acme/BAD"  # built from token+id
+
+
+def test_fetch_keeps_minimal_posting_when_detail_malformed(monkeypatch):
+    # FIX 1: a malformed HTTP-200 detail body (here: missing `id`, which the parser
+    # dereferences) must not abort the whole company fetch.
+    page = {"totalFound": 1, "content": [{"id": "743111", "name": "Staff Engineer"}]}
+
+    def fake_get_json(url):
+        if "/postings/" in url:
+            return {"name": "Staff Engineer"}  # no id key
+        return page
+
+    monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
+    postings = fetch_smartrecruiters("acme")
     assert [p.external_id for p in postings] == ["743111"]
+    assert postings[0].url == "https://jobs.smartrecruiters.com/acme/743111"
+
+
+def test_fetch_pages_until_short_page_when_total_missing(monkeypatch):
+    # FIX 3: when the listing omits `totalFound`, paging must continue while a full
+    # page comes back and stop on the short page — not truncate after page 1 (which
+    # would drop later postings and trigger false closures).
+    monkeypatch.setattr(smartrecruiters, "_PAGE_LIMIT", 2)
+    pages = {
+        0: {"content": [{"id": "1", "name": "A"}, {"id": "2", "name": "B"}]},
+        2: {"content": [{"id": "3", "name": "C"}, {"id": "4", "name": "D"}]},
+        4: {"content": [{"id": "5", "name": "E"}]},  # short page -> stop
+    }
+
+    def fake_get_json(url):
+        if "/postings/" in url:  # detail call
+            pid = url.rsplit("/", 1)[1]
+            return {"id": pid, "name": f"Job {pid}", "applyUrl": f"https://x/{pid}"}
+        offset = int(url.split("offset=")[1])
+        return pages[offset]
+
+    monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
+    postings = fetch_smartrecruiters("acme")
+    assert [p.external_id for p in postings] == ["1", "2", "3", "4", "5"]

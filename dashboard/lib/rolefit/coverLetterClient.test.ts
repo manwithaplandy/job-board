@@ -52,6 +52,18 @@ describe("generateCoverLetter", () => {
     const f = fakeFetch({ choices: [{ message: { content: JSON.stringify({ greeting: "Hi" }) } }] });
     await expect(generateCoverLetter({ ...args, fetchImpl: f })).rejects.toThrow();
   });
+
+  test("throws when closing is missing (renderer dereferences it)", async () => {
+    const noClosing = { greeting: "Hi", paragraphs: ["p"], signature: "Alex" };
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(noClosing) } }] });
+    await expect(generateCoverLetter({ ...args, fetchImpl: f })).rejects.toThrow();
+  });
+
+  test("throws when signature is missing (renderer dereferences it)", async () => {
+    const noSignature = { greeting: "Hi", paragraphs: ["p"], closing: "Sincerely," };
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(noSignature) } }] });
+    await expect(generateCoverLetter({ ...args, fetchImpl: f })).rejects.toThrow();
+  });
 });
 
 test("DEFAULT_COVER_MODEL is claude haiku", () => {

@@ -323,6 +323,7 @@ export function RolefitBoard({
         >
           {selectedJobWithDetail ? (
             <JobDetail
+              key={selectedJobWithDetail.id}
               job={selectedJobWithDetail}
               nowIso={nowIso}
               isAuthed={isAuthed}

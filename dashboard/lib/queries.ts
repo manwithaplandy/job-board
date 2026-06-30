@@ -34,12 +34,16 @@ export async function getBoardOwner(): Promise<{ id: string | null; locations: s
 }
 
 export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail | null> {
-  // Heavy, detail-only review fields for one job, scoped to the board owner's
-  // review (the same owner the list LEFT JOINs). Resolved in one round-trip via
-  // the owner subquery. Fetched lazily on job-open so the board list stays lean.
+  // Heavy, detail-only fields for one job, scoped to the board owner's review
+  // (the same owner the list LEFT JOINs). Resolved in one round-trip via the
+  // owner subquery. Fetched lazily on job-open so the board list stays lean.
+  // j.description (full JD plaintext) and j.url (apply link) ride along here too
+  // — both were dropped from the list payload for the same payload-size reason.
   const rows = await sql`
-    SELECT r.reasoning, r.about, r.red_flags, r.benefits, r.requirements
+    SELECT r.reasoning, r.about, r.red_flags, r.benefits, r.requirements,
+           j.description, j.url
     FROM job_reviews r
+    JOIN jobs j ON j.id = r.job_id
     WHERE r.job_id = ${jobId}
       AND r.user_id = (SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1)
   `;

@@ -1,13 +1,16 @@
-// Heavy, detail-only review fields. These are NOT included in the board's list
-// query (they serialized ~171KB into every board response while only ever showing
+// Heavy, detail-only fields. These are NOT included in the board's list query
+// (they serialized ~171KB into every board response while only ever showing
 // one-at-a-time in JobDetail). They're fetched on job-open via GET /api/jobs/[id]
-// and merged into the selected JobRow client-side.
+// and merged into the selected JobRow client-side. description (full JD plaintext)
+// and url (apply link) come from the jobs table and ride along on the same fetch.
 export interface JobReviewDetail {
   reasoning: string | null;
   about: string | null;
   red_flags: string[] | null;
   benefits: string[] | null;
   requirements: { text: string; met: boolean }[] | null;
+  description: string | null;
+  url: string | null;
 }
 
 export interface JobRow {
@@ -44,9 +47,10 @@ export interface JobRow {
   red_flags?: string[] | null;
   benefits?: string[] | null;
   requirements?: { text: string; met: boolean }[] | null;
+  description?: string | null;  // full JD plaintext (apply view)
+  url?: string | null;          // apply link
   // Dropped from every query (no render path reads them); kept optional so any
   // stray reference still type-checks rather than silently breaking.
-  url?: string;
   ats?: string;
   experience_match?: string | null;
   industry?: string | null;

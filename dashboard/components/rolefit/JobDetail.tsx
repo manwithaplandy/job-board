@@ -1,9 +1,40 @@
 "use client";
 
+import { useState } from "react";
 import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
 import { ResumePanel } from "./ResumePanel";
+
+// Filled primary "Apply" link → the job's ATS posting. Opens a new tab; rel
+// guards the opener. Shown twice (header + bottom of the detail) so it's
+// reachable without scrolling and again right by the full JD.
+function ApplyButton({ url }: { url: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        fontWeight: 700,
+        fontSize: "13px",
+        color: "#fff",
+        background: "#3b6fd4",
+        border: "1px solid #3b6fd4",
+        borderRadius: "9px",
+        padding: "8px 18px",
+        textDecoration: "none",
+        cursor: "pointer",
+      }}
+    >
+      Apply
+      <span aria-hidden="true">↗</span>
+    </a>
+  );
+}
 
 // Palette from reference getBaseJobs() — same as JobCard
 const LOGO_COLORS = [
@@ -83,6 +114,13 @@ export function JobDetail({
   const redFlags = job.red_flags ?? [];
   const skillGaps = job.skill_gaps ?? [];
   const benefits = job.benefits ?? [];
+
+  // Apply link + full JD — both arrive on the lazy /api/jobs/[id] fetch, so they
+  // pop in a beat after open (like the other detail-only fields). Collapsed by
+  // default; toggle resets per job via key={job.id} on this component.
+  const applyUrl = job.url;
+  const fullJD = job.description;
+  const [showJD, setShowJD] = useState(false);
 
   return (
     <div style={{ maxWidth: "880px", margin: "0 auto", padding: "30px 36px 70px" }}>
@@ -274,8 +312,8 @@ export function JobDetail({
         )}
       </div>
 
-      {/* ── Operator action row ── */}
-      {(job.human_override || (isAuthed && job.verdict === "approve")) && (
+      {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
+      {hasReview && (job.human_override || (isAuthed && job.verdict === "approve") || applyUrl) && (
         <div
           style={{
             display: "flex",
@@ -318,6 +356,7 @@ export function JobDetail({
               Reject
             </button>
           )}
+          {applyUrl && <ApplyButton url={applyUrl} />}
         </div>
       )}
 
@@ -652,6 +691,57 @@ export function JobDetail({
               >
                 {job.about}
               </p>
+            </div>
+          )}
+
+          {/* ── Full job description (collapsible) + Apply ── */}
+          {(fullJD || applyUrl) && (
+            <div
+              style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
+            >
+              {fullJD && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowJD((v) => !v)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "7px",
+                      fontWeight: 700,
+                      fontSize: "13px",
+                      color: "#3b6fd4",
+                      background: "#fff",
+                      border: "1px solid #d7e0f2",
+                      borderRadius: "9px",
+                      padding: "8px 16px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showJD ? "Hide full job description" : "Show full job description"}
+                    <span aria-hidden="true">{showJD ? "▴" : "▾"}</span>
+                  </button>
+                  {showJD && (
+                    <div
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        fontSize: "13.5px",
+                        lineHeight: 1.6,
+                        color: "#5b6472",
+                        marginTop: "16px",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {fullJD}
+                    </div>
+                  )}
+                </>
+              )}
+              {applyUrl && (
+                <div style={{ marginTop: "18px" }}>
+                  <ApplyButton url={applyUrl} />
+                </div>
+              )}
             </div>
           )}
         </>

@@ -37,9 +37,24 @@ describe("applyUrl", () => {
       .toBe("https://jobs.lever.co/acme/uuid/apply");
   });
 
+  test("workable uses the application_url as-is", () => {
+    const u = "https://apply.workable.com/acme/j/ENG123/";
+    expect(applyUrl("workable", u)).toBe(u);
+  });
+
+  test("smartrecruiters uses the apply/posting url as-is", () => {
+    const u = "https://jobs.smartrecruiters.com/acme/743111";
+    expect(applyUrl("smartrecruiters", u)).toBe(u);
+  });
+
+  test("workday uses the external job url as-is", () => {
+    const u = "https://acme.wd5.myworkdayjobs.com/en-US/External/job/SF/Eng_R-1";
+    expect(applyUrl("workday", u)).toBe(u);
+  });
+
   test("unknown ats returns the url unchanged", () => {
     const u = "https://careers.acme.com/job/42";
-    expect(applyUrl("workday", u)).toBe(u);
+    expect(applyUrl("bamboohr", u)).toBe(u);
   });
 
   test("empty url returns null", () => {

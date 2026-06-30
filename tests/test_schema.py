@@ -18,7 +18,17 @@ def test_tables_exist(conn):
 def test_ats_check_constraint(conn):
     with conn.cursor() as cur, pytest.raises(psycopg.errors.CheckViolation):
         cur.execute(
-            "INSERT INTO companies (name, ats, token) VALUES ('X', 'workday', 't')"
+            "INSERT INTO companies (name, ats, token) VALUES ('X', 'bamboohr', 't')"
+        )
+
+
+@requires_db
+@pytest.mark.parametrize("ats", ["workable", "smartrecruiters", "workday"])
+def test_ats_check_allows_new_providers(conn, ats):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token) VALUES ('X', %s, %s)",
+            (ats, f"tok-{ats}"),
         )
 
 

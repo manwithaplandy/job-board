@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 DEFAULT_TARGETS_PATH = Path(__file__).resolve().parent.parent / "targets.json"
-_VALID_ATS = {"greenhouse", "lever", "ashby"}
+_VALID_ATS = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday"}
 
 
 def load_targets(path: Path = DEFAULT_TARGETS_PATH) -> list[dict]:

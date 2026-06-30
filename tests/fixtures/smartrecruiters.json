@@ -1,0 +1,61 @@
+{
+  "list_pages": [
+    {
+      "offset": 0,
+      "limit": 2,
+      "totalFound": 3,
+      "content": [
+        { "id": "743111", "name": "Staff Engineer", "refNumber": "REF-1" },
+        { "id": "743222", "name": "Recruiter", "refNumber": "REF-2" }
+      ]
+    },
+    {
+      "offset": 2,
+      "limit": 2,
+      "totalFound": 3,
+      "content": [
+        { "id": "743333", "name": "Designer", "refNumber": "REF-3" }
+      ]
+    }
+  ],
+  "details": {
+    "743111": {
+      "id": "743111",
+      "name": "Staff Engineer",
+      "refNumber": "REF-1",
+      "company": { "identifier": "acme", "name": "Acme" },
+      "location": { "city": "San Francisco", "region": "CA", "country": "us", "remote": false },
+      "department": { "label": "Engineering" },
+      "jobAd": {
+        "sections": {
+          "companyDescription": { "title": "Company Description", "text": "<p>Acme builds things.</p>" },
+          "jobDescription": { "title": "Job Description", "text": "<p>Lead the backend.</p>" },
+          "qualifications": { "title": "Qualifications", "text": "<ul><li>10y exp</li></ul>" },
+          "additionalInformation": { "title": "Additional Information", "text": "<p>Equity &amp; more</p>" }
+        }
+      },
+      "applyUrl": "https://jobs.smartrecruiters.com/acme/743111-staff-engineer",
+      "postingUrl": "https://careers.acme.com/743111"
+    },
+    "743222": {
+      "id": "743222",
+      "name": "Recruiter",
+      "location": { "city": "Remote", "country": "us", "remote": true },
+      "department": { "label": "People" },
+      "jobAd": {
+        "sections": {
+          "jobDescription": { "title": "Job Description", "text": "<p>Hire people.</p>" }
+        }
+      },
+      "postingUrl": "https://jobs.smartrecruiters.com/acme/743222"
+    },
+    "743333": {
+      "id": "743333",
+      "name": "Designer",
+      "location": { "city": "London", "region": "England", "country": "uk", "remote": false },
+      "department": { "label": "Design" },
+      "jobAd": { "sections": {} },
+      "applyUrl": "https://jobs.smartrecruiters.com/acme/743333"
+    }
+  }
+}

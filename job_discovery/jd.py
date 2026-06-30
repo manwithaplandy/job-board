@@ -29,6 +29,37 @@ def _lever(raw: dict) -> str | None:
     return text.strip() or None
 
 
+def _workable(raw: dict) -> str | None:
+    # Workable splits the JD across HTML `description` / `requirements` / `benefits`.
+    parts = []
+    for key in ("description", "requirements", "benefits"):
+        body = html_to_text(raw.get(key) or "")
+        if body:
+            parts.append(body)
+    return "\n\n".join(parts).strip() or None
+
+
+def _smartrecruiters(raw: dict) -> str | None:
+    # SmartRecruiters nests titled HTML sections under jobAd.sections.
+    sections = (raw.get("jobAd") or {}).get("sections") or {}
+    parts = []
+    for key in ("companyDescription", "jobDescription", "qualifications",
+                "additionalInformation"):
+        sec = sections.get(key) or {}
+        title = (sec.get("title") or "").strip()
+        body = html_to_text(sec.get("text") or "")
+        section = "\n".join(p for p in (title, body) if p)
+        if section:
+            parts.append(section)
+    return "\n\n".join(parts).strip() or None
+
+
+def _workday(raw: dict) -> str | None:
+    desc = (raw.get("jobPostingInfo") or {}).get("jobDescription")
+    text = html_to_text(desc) if desc else ""
+    return text or None
+
+
 def extract_description(ats: str, raw: dict) -> str | None:
     """Pull JD plain text from the stored `raw` payload. No HTTP — spec §5."""
     if not raw:
@@ -41,4 +72,10 @@ def extract_description(ats: str, raw: dict) -> str | None:
         content = raw.get("content")
         text = html_to_text(content) if content else ""
         return text or None
+    if ats == "workable":
+        return _workable(raw)
+    if ats == "smartrecruiters":
+        return _smartrecruiters(raw)
+    if ats == "workday":
+        return _workday(raw)
     return None

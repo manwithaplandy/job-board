@@ -26,3 +26,28 @@ def get_json(
                 time.sleep(backoff * (2**attempt))
     assert last_exc is not None
     raise last_exc
+
+
+def post_json(
+    url: str,
+    *,
+    json: Any = None,
+    retries: int = 2,
+    backoff: float = 0.5,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> Any:
+    """POST a JSON body and return the decoded JSON response. Same retry/backoff
+    contract as get_json — used by ATSes whose listing endpoint is a POST search
+    (e.g. Workday's cxs `/jobs`)."""
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            resp = httpx.post(url, json=json, timeout=timeout, headers=_HEADERS)
+            resp.raise_for_status()
+            return resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(backoff * (2**attempt))
+    assert last_exc is not None
+    raise last_exc

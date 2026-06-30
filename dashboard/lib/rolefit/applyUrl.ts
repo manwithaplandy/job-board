@@ -1,9 +1,14 @@
 // Resolve the public "apply" URL for a job from its ATS + stored url. The
 // pipeline stores different url shapes per provider (see job_discovery/adapters):
-//   greenhouse → absolute_url (the public posting, apply lives on the same page)
-//   ashby      → jobUrl / applyUrl (already the posting)
-//   lever      → hostedUrl (the posting page; the form is at `${hostedUrl}/apply`)
-// Pure and total: never throws, and returns null when there is no usable url.
+//   greenhouse      → absolute_url (the public posting, apply lives on the same page)
+//   ashby           → jobUrl / applyUrl (already the posting)
+//   lever           → hostedUrl (the posting page; the form is at `${hostedUrl}/apply`)
+//   workable        → application_url (the hosted apply page)
+//   smartrecruiters → applyUrl / postingUrl (the public apply/posting page)
+//   workday         → externalUrl (the public job page)
+// All but lever already store a url that links straight to the posting/apply page,
+// so they pass through unchanged. Pure and total: never throws, and returns null
+// when there is no usable url.
 export function applyUrl(
   ats: string | null | undefined,
   url: string | null | undefined,
@@ -16,6 +21,9 @@ export function applyUrl(
       return leverApplyUrl(trimmed);
     case "greenhouse":
     case "ashby":
+    case "workable":
+    case "smartrecruiters":
+    case "workday":
     default:
       return trimmed;
   }

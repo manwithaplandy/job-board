@@ -1,0 +1,66 @@
+{
+  "list_pages": [
+    {
+      "total": 3,
+      "jobPostings": [
+        {
+          "title": "Senior Software Engineer",
+          "externalPath": "/job/San-Francisco/Senior-Software-Engineer_R-1001",
+          "locationsText": "San Francisco, CA",
+          "postedOn": "Posted 5 Days Ago",
+          "bulletFields": ["R-1001"]
+        },
+        {
+          "title": "Product Manager",
+          "externalPath": "/job/New-York/Product-Manager_R-1002",
+          "locationsText": "New York, NY",
+          "bulletFields": ["R-1002"]
+        }
+      ]
+    },
+    {
+      "total": 3,
+      "jobPostings": [
+        {
+          "title": "Remote Recruiter",
+          "externalPath": "/job/Remote/Remote-Recruiter_R-1003",
+          "locationsText": "Remote - US",
+          "bulletFields": ["R-1003"]
+        }
+      ]
+    }
+  ],
+  "details": {
+    "/job/San-Francisco/Senior-Software-Engineer_R-1001": {
+      "jobPostingInfo": {
+        "id": "R-1001",
+        "title": "Senior Software Engineer",
+        "jobDescription": "<p>Build distributed systems at scale.</p>",
+        "location": "San Francisco, CA",
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/en-US/External/job/San-Francisco/Senior-Software-Engineer_R-1001",
+        "jobReqId": "R-1001",
+        "remoteType": "On-site",
+        "timeType": "Full time"
+      }
+    },
+    "/job/New-York/Product-Manager_R-1002": {
+      "jobPostingInfo": {
+        "id": "R-1002",
+        "title": "Product Manager",
+        "jobDescription": "<p>Own the roadmap.</p>",
+        "location": "New York, NY",
+        "remoteType": "Hybrid"
+      }
+    },
+    "/job/Remote/Remote-Recruiter_R-1003": {
+      "jobPostingInfo": {
+        "id": "R-1003",
+        "title": "Remote Recruiter",
+        "jobDescription": "<p>Recruit remotely.</p>",
+        "location": "Remote - US",
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/en-US/External/job/Remote/Remote-Recruiter_R-1003",
+        "remoteType": "Remote"
+      }
+    }
+  }
+}

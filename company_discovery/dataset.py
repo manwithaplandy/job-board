@@ -2,7 +2,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-SUPPORTED_ATS = ("greenhouse", "lever", "ashby")
+SUPPORTED_ATS = ("greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday")
+
+# Slug-style tokens are case-insensitive and get lower-cased for dedup. Workday
+# packs a case-sensitive `site` segment into its token (see
+# job_discovery/adapters/workday.py), so its tokens are preserved verbatim.
+_CASE_SENSITIVE_ATS = frozenset({"workday"})
 
 
 @dataclass(frozen=True)
@@ -23,7 +28,8 @@ def _parse_row(ats: str, row) -> Candidate | None:
         return None
     if not token:
         return None
-    return Candidate(name=name or token, ats=ats, token=token.lower())
+    normalized = token if ats in _CASE_SENSITIVE_ATS else token.lower()
+    return Candidate(name=name or token, ats=ats, token=normalized)
 
 
 def load_candidates(dataset_dir: Path) -> list[Candidate]:

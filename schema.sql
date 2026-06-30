@@ -1,7 +1,8 @@
 CREATE TABLE companies (
   id      SERIAL PRIMARY KEY,
   name    TEXT NOT NULL,
-  ats     TEXT NOT NULL CHECK (ats IN ('greenhouse','lever','ashby')),
+  ats     TEXT NOT NULL CHECK (ats IN ('greenhouse','lever','ashby',
+                                        'workable','smartrecruiters','workday')),
   token   TEXT NOT NULL,
   active           BOOLEAN NOT NULL DEFAULT TRUE,
   discovery_source TEXT NOT NULL DEFAULT 'manual'

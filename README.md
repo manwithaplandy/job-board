@@ -73,7 +73,9 @@ reviewer-only commits also redeploy the Job Discovery service.
 ## Configuration
 
 - `targets.json` — the tracked companies (`{ name, ats, token }`); `ats` is one
-  of `greenhouse` / `lever` / `ashby`.
+  of `greenhouse` / `lever` / `ashby` / `workable` / `smartrecruiters` / `workday`.
+  Workday packs its three coordinates into `token` as `tenant:datacenter:site`
+  (e.g. `acme:wd5:External`); the others use the provider's account slug.
 - `DATABASE_URL` — Postgres connection string (Railway service variable; never committed).
 
 ## Deployment

@@ -1,11 +1,42 @@
 "use client";
 
+import { useState } from "react";
 import type { ApplicationAnswers, ApplicationPackage, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
-import { applyUrl } from "@/lib/rolefit/applyUrl";
+import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
+
+// Filled primary "Apply" link → the job's ATS posting. Opens a new tab; rel
+// guards the opener. Shown twice (header + bottom of the detail) so it's
+// reachable without scrolling and again right by the full JD.
+function ApplyButton({ url }: { url: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        fontWeight: 700,
+        fontSize: "13px",
+        color: "#fff",
+        background: "#3b6fd4",
+        border: "1px solid #3b6fd4",
+        borderRadius: "9px",
+        padding: "8px 18px",
+        textDecoration: "none",
+        cursor: "pointer",
+      }}
+    >
+      Apply
+      <span aria-hidden="true">↗</span>
+    </a>
+  );
+}
 
 // Palette from reference getBaseJobs() — same as JobCard
 const LOGO_COLORS = [
@@ -83,10 +114,6 @@ export function JobDetail({
     .join(" · ");
   const postedText = "Posted " + fmtPosted(job.first_seen_at, nowIso);
 
-  // One-click apply: the hosted apply form for this job (null when no url).
-  const applyHref = applyUrl(job.ats, job.url);
-  const atsLabel = job.ats ? job.ats.charAt(0).toUpperCase() + job.ats.slice(1) : "site";
-
   // Per-job gen state
   const genState = gen[job.id];
   const gd = genData[job.id];
@@ -112,6 +139,13 @@ export function JobDetail({
   const redFlags = job.red_flags ?? [];
   const skillGaps = job.skill_gaps ?? [];
   const benefits = job.benefits ?? [];
+
+  // Apply link + full JD — both arrive on the lazy /api/jobs/[id] fetch, so they
+  // pop in a beat after open (like the other detail-only fields). Collapsed by
+  // default; toggle resets per job via key={job.id} on this component.
+  const applyUrl = normalizeApplyUrl(job.ats, job.url);
+  const fullJD = job.description;
+  const [showJD, setShowJD] = useState(false);
 
   return (
     <div style={{ maxWidth: "880px", margin: "0 auto", padding: "30px 36px 70px" }}>
@@ -303,9 +337,8 @@ export function JobDetail({
         )}
       </div>
 
-      {/* ── Operator action row ── apply lives here only for not-yet-reviewed
-          roles; reviewed roles get the apply button inside ApplicationPanel. */}
-      {((applyHref && !hasReview) || job.human_override || (isAuthed && job.verdict === "approve")) && (
+      {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
+      {hasReview && (job.human_override || (isAuthed && job.verdict === "approve") || applyUrl) && (
         <div
           style={{
             display: "flex",
@@ -348,30 +381,7 @@ export function JobDetail({
               Reject
             </button>
           )}
-          {applyHref && !hasReview && (
-            <a
-              href={applyHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "7px",
-                fontWeight: 700,
-                fontSize: "13.5px",
-                color: "#fff",
-                background: "#3b6fd4",
-                border: "none",
-                borderRadius: "10px",
-                padding: "9px 18px",
-                cursor: "pointer",
-                textDecoration: "none",
-                boxShadow: "0 3px 10px rgba(59,111,212,.26)",
-              }}
-            >
-              Apply on {atsLabel}<span style={{ fontSize: "15px" }}>→</span>
-            </a>
-          )}
+          {applyUrl && <ApplyButton url={applyUrl} />}
         </div>
       )}
 
@@ -718,6 +728,57 @@ export function JobDetail({
               >
                 {job.about}
               </p>
+            </div>
+          )}
+
+          {/* ── Full job description (collapsible) + Apply ── */}
+          {(fullJD || applyUrl) && (
+            <div
+              style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
+            >
+              {fullJD && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowJD((v) => !v)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "7px",
+                      fontWeight: 700,
+                      fontSize: "13px",
+                      color: "#3b6fd4",
+                      background: "#fff",
+                      border: "1px solid #d7e0f2",
+                      borderRadius: "9px",
+                      padding: "8px 16px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showJD ? "Hide full job description" : "Show full job description"}
+                    <span aria-hidden="true">{showJD ? "▴" : "▾"}</span>
+                  </button>
+                  {showJD && (
+                    <div
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        fontSize: "13.5px",
+                        lineHeight: 1.6,
+                        color: "#5b6472",
+                        marginTop: "16px",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {fullJD}
+                    </div>
+                  )}
+                </>
+              )}
+              {applyUrl && (
+                <div style={{ marginTop: "18px" }}>
+                  <ApplyButton url={applyUrl} />
+                </div>
+              )}
             </div>
           )}
         </>

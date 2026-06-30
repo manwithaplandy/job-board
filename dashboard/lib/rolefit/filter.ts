@@ -10,6 +10,16 @@ export interface BoardFilterState {
   sort: "match" | "pay" | "newest" | "az";
 }
 
+export const DEFAULT_FILTERS: BoardFilterState = {
+  search: "",
+  cats: [],
+  locs: [],
+  remote: "all",
+  minFit: 0,
+  payMin: 0,
+  sort: "match",
+};
+
 function arrangementOf(j: JobRow): string {
   if (j.work_arrangement) return j.work_arrangement;
   if (j.remote === true) return "remote";

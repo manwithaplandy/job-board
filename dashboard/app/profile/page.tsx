@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile, getDistinctLocations } from "@/lib/queries";
@@ -14,6 +15,17 @@ import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
 
 export const dynamic = "force-dynamic";
 
+// getDistinctLocations() seq-scans ~115k open jobs (~100ms + cross-region RTT)
+// on every profile load, but the distinct-location option set changes slowly.
+// Cache it across requests so the page doesn't pay that scan each time; the
+// LocationPicker options being a few minutes stale is harmless. No user arg —
+// the option set is global.
+const cachedDistinctLocations = unstable_cache(
+  () => getDistinctLocations(),
+  ["profile-distinct-locations"],
+  { revalidate: 600 },
+);
+
 // "" → null, "yes" → true, "no" → false. Mirrors the tri-state work-eligibility select.
 function parseTriState(v: FormDataEntryValue | null): boolean | null {
   const s = String(v ?? "");
@@ -28,9 +40,13 @@ const triDefault = (v: boolean | null | undefined): string =>
 async function saveProfile(formData: FormData) {
   "use server";
   const userId = await requireUserId();
+  const existing = await getProfile(userId);
   const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
-  let resumeText = (String(formData.get("resume_text") ?? "")).trim() || null;
-  let resumeFilePath: string | null = null;
+  let resumeText = (String(formData.get("resume_text") ?? "")).trim() || existing?.resume_text || null;
+  // Preserve the previously-uploaded PDF: a file input is empty on every save
+  // that doesn't re-pick the file, so defaulting to null here would wipe the
+  // stored path. Only a fresh upload below replaces it.
+  let resumeFilePath: string | null = existing?.resume_file_path ?? null;
 
   const catalogIds = (await getStructuredModels()).map((m) => m.id);
   // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
@@ -214,7 +230,7 @@ const lastSavedStyle: React.CSSProperties = {
 export default async function ProfilePage() {
   const userId = await requireUserId();
   const [profile, models, locations] = await Promise.all([
-    getProfile(userId), getStructuredModels(), getDistinctLocations(),
+    getProfile(userId), getStructuredModels(), cachedDistinctLocations(),
   ]);
   return (
     <main style={pageStyle}>

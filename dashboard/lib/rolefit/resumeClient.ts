@@ -1,17 +1,29 @@
 // dashboard/lib/rolefit/resumeClient.ts
-import { RESUME_JSON_SCHEMA, buildResumePrompt, type TailoredResume } from "@/lib/rolefit/resumeSchema";
+import {
+  TAILORED_RESUME_SCHEMA,
+  buildResumePrompt,
+  assembleResume,
+  type TailoredResume,
+  type TailoredContent,
+} from "@/lib/rolefit/resumeSchema";
+import { parseProfile, yearsOfExperience } from "@/lib/rolefit/parseProfile";
 import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
 
 export const DEFAULT_RESUME_MODEL = "anthropic/claude-haiku-4.5";
 
 export async function generateResume(args: {
   resumeText: string;
+  pdfBytes?: Uint8Array | null;
   job: { title: string; company: string; description: string | null };
   model: string;
   apiKey: string;
   fetchImpl?: typeof fetch;
 }): Promise<TailoredResume> {
-  const { system, user } = buildResumePrompt({ resumeText: args.resumeText, job: args.job });
+  // Deterministically extract the fixed fields; the LLM only tailors the rest,
+  // and the OpenRouter transport (+ Langfuse generation span) is the shared helper.
+  const profile = await parseProfile({ pdfBytes: args.pdfBytes ?? null, text: args.resumeText });
+  const tenureYears = yearsOfExperience(profile, Date.now());
+  const { system, user } = buildResumePrompt({ profile, resumeText: args.resumeText, job: args.job, tenureYears });
   return callOpenRouterStructured<TailoredResume>({
     generationName: "resume-generation",
     label: "résumé",
@@ -19,15 +31,15 @@ export async function generateResume(args: {
     apiKey: args.apiKey,
     system,
     user,
-    responseFormat: RESUME_JSON_SCHEMA,
+    responseFormat: TAILORED_RESUME_SCHEMA,
     maxTokens: 4000,
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
-      const parsed = raw as TailoredResume;
-      if (!parsed.name || !Array.isArray(parsed.experience)) {
+      const tailored = raw as TailoredContent;
+      if (!tailored.headlineFocus || !Array.isArray(tailored.experience)) {
         throw new Error("OpenRouter résumé missing required fields");
       }
-      return parsed;
+      return assembleResume(profile, tailored);
     },
   });
 }

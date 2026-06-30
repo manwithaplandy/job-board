@@ -75,18 +75,28 @@ export function buildJobsQuery(
     }
   }
 
+  // List payload is deliberately lean: only the columns the JobCard list and the
+  // client filter/sort (lib/rolefit/filter.ts) actually read. The heavy, detail-only
+  // review fields (reasoning, requirements, about, benefits, red_flags) are NOT
+  // selected here — they serialized ~171KB into every board response while only ever
+  // being shown one-at-a-time in JobDetail. They're fetched on job-open via
+  // GET /api/jobs/[id] instead. Eight more columns that no render path reads
+  // (url, ats, experience_match, industry, industry_subcategory, confidence,
+  // stage1_decision, stage1_reason) are dropped entirely. Note experience_match /
+  // industry / industry_subcategory are still referenced in the WHERE clause above
+  // for the (currently UI-dormant) dimension filters — it's selecting them that was
+  // unnecessary, not filtering on them.
   const selectCols = [
-    "j.id", "j.title", "j.url", "j.location", "j.remote",
-    "j.first_seen_at", "j.closed_at", "c.name AS company_name", "c.ats",
+    "j.id", "j.title", "j.location", "j.remote",
+    "j.first_seen_at", "j.closed_at", "c.name AS company_name",
   ];
   if (hasReviews) {
     selectCols.push(
-      "r.verdict", "r.human_override", "r.experience_match", "r.industry", "r.industry_subcategory",
-      "r.confidence", "r.reasoning", "r.stage1_decision", "r.stage1_reason",
-      "r.role_category", "r.seniority", "r.work_arrangement", "r.about",
+      "r.verdict", "r.human_override",
+      "r.role_category", "r.seniority", "r.work_arrangement",
       "r.pay_min", "r.pay_max", "r.pay_currency", "r.pay_period", "r.headcount",
       "r.skills_score", "r.experience_score", "r.comp_score", "r.fit_score",
-      "r.red_flags", "r.skill_gaps", "r.benefits", "r.requirements",
+      "r.skill_gaps",
     );
   }
   const reviewJoin = hasReviews

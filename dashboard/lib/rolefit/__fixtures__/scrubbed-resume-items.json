@@ -1,0 +1,1026 @@
+[
+  {
+    "str": "Jordan Casey",
+    "x": 40.32,
+    "y": 749.424,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 113.955
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 726.746,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "jordan.casey@example.com",
+    "x": 40.32,
+    "y": 726.746,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 126.554
+  },
+  {
+    "str": " ",
+    "x": 166.874,
+    "y": 726.746,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 2.844
+  },
+  {
+    "str": "| 555-013-4827 | Austin, TX 78701 |",
+    "x": 169.007,
+    "y": 726.746,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 162.285
+  },
+  {
+    "str": " ",
+    "x": 331.292,
+    "y": 726.746,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 2.844
+  },
+  {
+    "str": "https://linkedin.com/in/jordancasey",
+    "x": 333.425,
+    "y": 726.746,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 170.551
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 698.816,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 0
+  },
+  {
+    "str": "Experience",
+    "x": 40.32,
+    "y": 698.816,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 77.493
+  },
+  {
+    "str": "",
+    "x": 39.57,
+    "y": 682.498,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "February 2023 - PRESENT",
+    "x": 39.57,
+    "y": 682.498,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 113.747
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 665.823,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 0
+  },
+  {
+    "str": "Northwind Systems,",
+    "x": 40.32,
+    "y": 665.823,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 92.291
+  },
+  {
+    "str": " ",
+    "x": 132.611,
+    "y": 665.823,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 3.471
+  },
+  {
+    "str": "Austin, TX",
+    "x": 135.214,
+    "y": 665.823,
+    "size": 11,
+    "font": "g_d0_f2",
+    "width": 73.103
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 651.996,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 0
+  },
+  {
+    "str": "Lead AI/ML Engineer",
+    "x": 40.32,
+    "y": 651.996,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 105.773
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 639.153,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 639.153,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 639.153,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Saved $9M/yr in spend with an in-house, policy-compliant enterprise AI assistant (managed inference,",
+    "x": 76.32,
+    "y": 639.153,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 494.859
+  },
+  {
+    "str": "a vector store, a gateway proxy, and serverless jobs) — now serving 4,000+ monthly and 800+ daily users.",
+    "x": 76.32,
+    "y": 622.812,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 483.073
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 606.471,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 606.471,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 606.471,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Boosted 3x work",
+    "x": 76.32,
+    "y": 606.471,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 85.239
+  },
+  {
+    "str": "fl",
+    "x": 161.606,
+    "y": 606.471,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 7.19
+  },
+  {
+    "str": "ow ef",
+    "x": 168.753,
+    "y": 606.471,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 25.606
+  },
+  {
+    "str": "fi",
+    "x": 194.473,
+    "y": 606.471,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 7.195
+  },
+  {
+    "str": "ciency for 8,000+ teams with a managed retrieval service using hybrid ranking",
+    "x": 201.595,
+    "y": 606.471,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 370.999
+  },
+  {
+    "str": "built on a managed search index, embeddings, and Python.",
+    "x": 76.32,
+    "y": 590.13,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 225.652
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 573.789,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 573.789,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 573.789,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Develop structured evaluations for AI agents using a model-as-a-judge through a managed eval service.",
+    "x": 76.32,
+    "y": 573.789,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 463.6
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 557.448,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 557.448,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 557.448,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Cut technical document turnaround by 35% with agentic search and generation powered by",
+    "x": 76.32,
+    "y": 557.448,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 448.514
+  },
+  {
+    "str": "a graph retrieval layer over a managed search index and managed inference.",
+    "x": 76.32,
+    "y": 541.107,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 348.623
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 524.766,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 524.766,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 524.766,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Cut deployment time from days to minutes through infrastructure-as-code with a provisioning toolchain",
+    "x": 76.32,
+    "y": 524.766,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 493.035
+  },
+  {
+    "str": "and automated CI/CD pipelines.",
+    "x": 76.32,
+    "y": 508.425,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 125.196
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 492.084,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 492.084,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 492.084,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Removed 80% of manual processing across core work",
+    "x": 76.32,
+    "y": 492.084,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 262.608
+  },
+  {
+    "str": "fl",
+    "x": 338.976,
+    "y": 492.084,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 7.19
+  },
+  {
+    "str": "ows with autonomous multi-agent pipelines",
+    "x": 346.123,
+    "y": 492.084,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 207.559
+  },
+  {
+    "str": "built on managed durable functions, Python, a graph runner, and an agent toolkit.",
+    "x": 76.32,
+    "y": 475.743,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 442.821
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 459.402,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 459.402,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 459.402,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "expanding AI tooling adoption and weaving it into the SDLC while maintaining security and",
+    "x": 76.32,
+    "y": 459.402,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 480.092
+  },
+  {
+    "str": "trustworthiness.",
+    "x": 76.32,
+    "y": 443.061,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 80.289
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 426.72,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 426.72,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 426.72,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Raised team delivery throughput by 25% by leading the adoption of new practices for AI-",
+    "x": 76.32,
+    "y": 426.72,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 422.45
+  },
+  {
+    "str": "fi",
+    "x": 497.963,
+    "y": 426.72,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 7.195
+  },
+  {
+    "str": "rst coding",
+    "x": 505.15,
+    "y": 426.72,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 48.438
+  },
+  {
+    "str": "using internal tooling, standardizing processes with shared templates, plugins, and layered agent",
+    "x": 76.32,
+    "y": 410.379,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 497.175
+  },
+  {
+    "str": "instructions in a monorepo.",
+    "x": 76.32,
+    "y": 394.038,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 133.478
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 377.697,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 377.697,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 377.697,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Centralized observability for model inference across the company by standing up a gateway service using",
+    "x": 76.32,
+    "y": 377.697,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 485.035
+  },
+  {
+    "str": "a container platform, ensuring a highly-available gateway with automatic failover for agent workloads.",
+    "x": 76.32,
+    "y": 361.356,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 483.069
+  },
+  {
+    "str": "",
+    "x": 39.57,
+    "y": 335.999,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "October 2021 - February 2023",
+    "x": 39.57,
+    "y": 335.999,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 127.778
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 319.325,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 0
+  },
+  {
+    "str": "Brightpath Retail,",
+    "x": 40.32,
+    "y": 319.325,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 62.431
+  },
+  {
+    "str": " ",
+    "x": 102.751,
+    "y": 319.325,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 3.471
+  },
+  {
+    "str": "Austin, TX",
+    "x": 105.354,
+    "y": 319.325,
+    "size": 11,
+    "font": "g_d0_f2",
+    "width": 73.103
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 305.498,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 0
+  },
+  {
+    "str": "IT Strategic Analyst (Systems Administrator)",
+    "x": 40.32,
+    "y": 305.498,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 218.967
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 282.655,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 282.655,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 282.655,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Reduced onboarding/offboarding time by 85% and enhanced security through automated account",
+    "x": 76.32,
+    "y": 282.655,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 493.266
+  },
+  {
+    "str": "provisioning across all applications",
+    "x": 76.32,
+    "y": 266.314,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 168.825
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 249.973,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 249.973,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 249.973,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Built a centralized API management layer using an integration platform to enable discoverability and",
+    "x": 76.32,
+    "y": 249.973,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 462.349
+  },
+  {
+    "str": "maintainability to accelerate developers while maintaining high security and auditability",
+    "x": 76.32,
+    "y": 233.632,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 425.629
+  },
+  {
+    "str": "",
+    "x": 39.57,
+    "y": 208.275,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "April 2018 - October 2021",
+    "x": 39.57,
+    "y": 208.275,
+    "size": 9,
+    "font": "g_d0_f2",
+    "width": 109.04
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 191.6,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 0
+  },
+  {
+    "str": "Cedar & Lane Co,",
+    "x": 40.32,
+    "y": 191.6,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 117.304
+  },
+  {
+    "str": " ",
+    "x": 157.624,
+    "y": 191.6,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 3.471
+  },
+  {
+    "str": "Austin, TX",
+    "x": 160.227,
+    "y": 191.6,
+    "size": 11,
+    "font": "g_d0_f2",
+    "width": 73.103
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 177.773,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 0
+  },
+  {
+    "str": "Compliance & Marketing Consultant",
+    "x": 40.32,
+    "y": 177.773,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 180.722
+  },
+  {
+    "str": "",
+    "x": 58.32,
+    "y": 154.93,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 0
+  },
+  {
+    "str": "●",
+    "x": 58.32,
+    "y": 154.93,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 6.04
+  },
+  {
+    "str": " ",
+    "x": 64.36,
+    "y": 154.93,
+    "size": 10,
+    "font": "g_d0_f4",
+    "width": 15.947
+  },
+  {
+    "str": "Managed a territory of over 90 clients and over $1.2M in annual sales, ensuring compliance with",
+    "x": 76.32,
+    "y": 154.93,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 455.227
+  },
+  {
+    "str": "industry and partner regulations.",
+    "x": 76.32,
+    "y": 138.589,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 205.255
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 113.062,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 0
+  },
+  {
+    "str": "Skills",
+    "x": 40.32,
+    "y": 113.062,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 38.622
+  },
+  {
+    "str": " ",
+    "x": 78.942,
+    "y": 113.062,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 205.503
+  },
+  {
+    "str": "Certi",
+    "x": 233.07,
+    "y": 113.062,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 33.584
+  },
+  {
+    "str": "fi",
+    "x": 266.553,
+    "y": 113.062,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 10.605
+  },
+  {
+    "str": "cations",
+    "x": 277.082,
+    "y": 113.062,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 50.327
+  },
+  {
+    "str": " ",
+    "x": 327.409,
+    "y": 113.062,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 110.215
+  },
+  {
+    "str": "Education",
+    "x": 410.07,
+    "y": 113.062,
+    "size": 14,
+    "font": "g_d0_f1",
+    "width": 69.721
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 86.26,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "Python, Javascript, Typescript, Node",
+    "x": 40.32,
+    "y": 86.26,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 174.783
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 71.804,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "SQL, AWS, Azure, CI/CD, Git, REST APIs,",
+    "x": 40.32,
+    "y": 71.804,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 187.866
+  },
+  {
+    "str": "",
+    "x": 40.32,
+    "y": 57.349,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "TDD, OOP, Claude Code, LLMs, Agents",
+    "x": 40.32,
+    "y": 57.349,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 179.645
+  },
+  {
+    "str": "",
+    "x": 233.07,
+    "y": 86.26,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "Cloud AI Engineer Associate",
+    "x": 233.07,
+    "y": 86.26,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 135.654
+  },
+  {
+    "str": "",
+    "x": 233.07,
+    "y": 71.804,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 0
+  },
+  {
+    "str": "Cloud Solutions Architect Associate",
+    "x": 233.07,
+    "y": 71.804,
+    "size": 10,
+    "font": "g_d0_f2",
+    "width": 163.982
+  },
+  {
+    "str": "",
+    "x": 409.32,
+    "y": 85.276,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 0
+  },
+  {
+    "str": "State University",
+    "x": 409.32,
+    "y": 85.276,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 94.74
+  },
+  {
+    "str": " ",
+    "x": 504.06,
+    "y": 85.276,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 3.468
+  },
+  {
+    "str": "- BA, Economics",
+    "x": 506.66,
+    "y": 85.276,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 84.22
+  },
+  {
+    "str": "",
+    "x": 409.32,
+    "y": 69.375,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 0
+  },
+  {
+    "str": "Lakeside Institute of Technology -",
+    "x": 409.32,
+    "y": 69.375,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 80.609
+  },
+  {
+    "str": " ",
+    "x": 489.929,
+    "y": 69.375,
+    "size": 11,
+    "font": "g_d0_f1",
+    "width": 3.467
+  },
+  {
+    "str": "MS, Computer",
+    "x": 492.53,
+    "y": 69.375,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 70.104
+  },
+  {
+    "str": "Science (In Progress)",
+    "x": 409.32,
+    "y": 53.474,
+    "size": 11,
+    "font": "g_d0_f3",
+    "width": 101.496
+  }
+]

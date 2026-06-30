@@ -58,6 +58,7 @@ CREATE TABLE profiles (
   company_instructions    TEXT,
   company_profile_version TEXT,
   model_company           TEXT,
+  board_filters    JSONB,                     -- remembered board filter state; NULL = defaults
   -- Reusable application answers (do not affect review verdicts).
   full_name         TEXT,
   email             TEXT,

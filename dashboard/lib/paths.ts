@@ -1,4 +1,9 @@
-const PUBLIC_PREFIXES = ["/", "/login", "/auth"];
+// "/api/board-filters" is the anon-callable persistence endpoint — anonymous
+// visitors must reach it to save their board filters to a cookie, so it must
+// bypass the auth-redirect. "/api/jobs" serves the lazy per-job detail fields
+// the public board fetches when a visitor opens a role. Other /api routes stay
+// private.
+const PUBLIC_PREFIXES = ["/", "/login", "/auth", "/api/board-filters", "/api/jobs"];
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

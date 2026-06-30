@@ -11,6 +11,10 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/profile")).toBe(false);
     expect(isPublicPath("/something")).toBe(false);
   });
+  test("the board-filters API is public (anon must save filters) but other APIs stay private", () => {
+    expect(isPublicPath("/api/board-filters")).toBe(true);
+    expect(isPublicPath("/api/resume")).toBe(false);
+  });
 });
 
 describe("internalPathFromReferer", () => {

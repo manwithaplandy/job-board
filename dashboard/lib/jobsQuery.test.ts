@@ -128,18 +128,29 @@ describe("buildJobsQuery", () => {
     expect(q.values).toEqual([["Berlin, Germany"]]);
   });
 
-  test("selects rolefit review columns when an owner is present", () => {
+  test("selects the lean rolefit list columns when an owner is present", () => {
     const t = buildJobsQuery(base, UID).text;
     for (const col of ["r.role_category", "r.fit_score", "r.pay_min",
-      "r.skills_score", "r.red_flags", "r.requirements", "r.work_arrangement"]) {
+      "r.skills_score", "r.work_arrangement", "r.skill_gaps", "r.seniority"]) {
       expect(t).toContain(col);
+    }
+  });
+
+  test("does NOT select heavy detail-only or dead columns", () => {
+    // Detail-only fields are fetched lazily via /api/jobs/[id]; the rest are read
+    // by no render path. Keeping them out of the list query is the payload trim.
+    const t = buildJobsQuery(base, UID).text;
+    for (const col of ["r.reasoning", "r.requirements", "r.about", "r.benefits",
+      "r.red_flags", "r.stage1_reason", "r.stage1_decision", "r.confidence",
+      "r.experience_match", "r.industry", "r.industry_subcategory", "j.url", "c.ats"]) {
+      expect(t).not.toContain(col);
     }
   });
 
   test("rolefit columns absent without an owner", () => {
     const t = buildJobsQuery(base, null).text;
     expect(t).not.toContain("r.fit_score");
-    expect(t).not.toContain("r.requirements");
+    expect(t).not.toContain("r.skill_gaps");
   });
 
   test("selects r.human_override when an owner is present", () => {

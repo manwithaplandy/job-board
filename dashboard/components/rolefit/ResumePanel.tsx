@@ -2,18 +2,21 @@
 
 import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
+import { renderResumePdf } from "@/lib/rolefit/resumePdf";
 
 // Build plain-text résumé from TailoredResume — mirrors composeResumeText in reference
-function composeResumeText(job: JobRow, data: TailoredResume): string {
-  let t = `${data.name}\n${data.headline}\n\n`;
-  t += `TAILORED FOR: ${job.title} — ${job.company_name}\n\n`;
-  t += `SUMMARY\n${data.summary}\n\nCORE SKILLS\n${data.skills.join(", ")}\n\nEXPERIENCE\n`;
+function composeResumeText(data: TailoredResume): string {
+  let t = `${data.name}\n${data.headline}\n`;
+  if (data.contact) t += `${data.contact}\n`;
+  t += `\nSUMMARY\n${data.summary}\n\nCORE SKILLS\n${data.skills.join(", ")}\n\nEXPERIENCE\n`;
   data.experience.forEach((exp) => {
     t += `${exp.role}, ${exp.company} (${exp.dates})\n`;
     exp.bullets.forEach((b) => { t += `  - ${b}\n`; });
     t += "\n";
   });
-  t += `EDUCATION\n${data.education}\n`;
+  t += "EDUCATION\n";
+  data.education.forEach((entry) => { t += `${entry}\n`; });
+  if (data.certifications.length) t += `Certifications: ${data.certifications.join(" · ")}\n`;
   return t;
 }
 
@@ -80,7 +83,7 @@ export function ResumePanel({
       JsPDF = jsPDFMod.jsPDF ?? jsPDFMod.default;
     } catch (e) {
       console.error("Failed to import jsPDF; falling back to .txt download", e);
-      const text = composeResumeText(job, data);
+      const text = composeResumeText(data);
       const blob = new Blob([text], { type: "text/plain" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -92,86 +95,10 @@ export function ResumePanel({
       return;
     }
 
-    // PDF generation — errors bubble up
+    // PDF generation — errors bubble up. Layout lives in lib/rolefit/resumePdf
+    // so it's shared with the CLI résumé-iteration harness.
     const doc = new JsPDF({ unit: "pt", format: "letter" });
-    const W: number = doc.internal.pageSize.getWidth();
-    const M = 56;
-    let y = 66;
-
-    const wrap = (txt: string, w: number): string[] => doc.splitTextToSize(txt, w);
-
-    // Name
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(21);
-    doc.setTextColor(22, 29, 41);
-    doc.text(data.name, M, y);
-    y += 17;
-
-    // Headline
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10.5);
-    doc.setTextColor(95, 100, 114);
-    doc.text(data.headline, M, y);
-    y += 24;
-
-    // "TAILORED FOR" box
-    doc.setFillColor(238, 243, 252);
-    doc.roundedRect(M, y - 13, W - 2 * M, 25, 5, 5, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(47, 92, 191);
-    doc.text(`TAILORED FOR  —  ${job.title} at ${job.company_name}`, M + 11, y + 3);
-    y += 38;
-
-    const section = (title: string) => {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11.5);
-      doc.setTextColor(27, 35, 48);
-      doc.text(title.toUpperCase(), M, y);
-      y += 7;
-      doc.setDrawColor(222, 227, 234);
-      doc.line(M, y, W - M, y);
-      y += 17;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10.5);
-      doc.setTextColor(47, 56, 69);
-    };
-
-    section("Summary");
-    wrap(data.summary, W - 2 * M).forEach((l: string) => { doc.text(l, M, y); y += 15; });
-    y += 9;
-
-    section("Core skills");
-    wrap(data.skills.join("   ·   "), W - 2 * M).forEach((l: string) => { doc.text(l, M, y); y += 15; });
-    y += 9;
-
-    section("Experience");
-    data.experience.forEach((exp) => {
-      if (y > 700) { doc.addPage(); y = 66; }
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10.8);
-      doc.setTextColor(27, 35, 48);
-      doc.text(`${exp.role}, ${exp.company}`, M, y);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9.5);
-      doc.setTextColor(130, 136, 148);
-      doc.text(exp.dates, W - M, y, { align: "right" });
-      y += 15;
-      doc.setFontSize(10.5);
-      doc.setTextColor(47, 56, 69);
-      exp.bullets.forEach((b) => {
-        wrap("•  " + b, W - 2 * M - 8).forEach((l: string, i: number) => {
-          doc.text(l, M + (i ? 12 : 6), y);
-          y += 14;
-        });
-      });
-      y += 9;
-    });
-
-    if (y > 710) { doc.addPage(); y = 66; }
-    section("Education");
-    doc.text(data.education, M, y);
-
+    renderResumePdf(doc, data);
     doc.save(fname);
   };
 

@@ -1,13 +1,14 @@
 import { sql } from "@/lib/db";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
+import type { BoardFilterState } from "@/lib/rolefit/filter";
 
 export async function getJobs(
   f: Filters,
@@ -25,13 +26,32 @@ export async function getBoardOwnerId(): Promise<string | null> {
   return (rows[0]?.user_id as string | undefined) ?? null;
 }
 
-export async function getBoardOwnerLocations(): Promise<string[]> {
-  // Single-tenant: the board owner's location include-list (same profile that
-  // getBoardOwnerId resolves). Empty array = no location pre-filter on the board.
+export async function getBoardOwner(): Promise<{ id: string | null; locations: string[] }> {
+  // Single-tenant: the board owner's id AND location include-list come from the
+  // same most-recently-updated profile row. One query instead of two separate
+  // SELECTs of the same row (getBoardOwnerId + getBoardOwnerLocations).
   const rows = await sql`
-    SELECT preferred_locations FROM profiles ORDER BY updated_at DESC LIMIT 1
+    SELECT user_id, preferred_locations FROM profiles ORDER BY updated_at DESC LIMIT 1
   `;
-  return (rows[0]?.preferred_locations as string[] | undefined) ?? [];
+  const row = rows[0] as { user_id?: string; preferred_locations?: string[] } | undefined;
+  return { id: row?.user_id ?? null, locations: row?.preferred_locations ?? [] };
+}
+
+export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail | null> {
+  // Heavy, detail-only fields for one job, scoped to the board owner's review
+  // (the same owner the list LEFT JOINs). Resolved in one round-trip via the
+  // owner subquery. Fetched lazily on job-open so the board list stays lean.
+  // j.description (full JD plaintext) and j.url (apply link) ride along here too
+  // — both were dropped from the list payload for the same payload-size reason.
+  const rows = await sql`
+    SELECT r.reasoning, r.about, r.red_flags, r.benefits, r.requirements,
+           j.description, j.url
+    FROM job_reviews r
+    JOIN jobs j ON j.id = r.job_id
+    WHERE r.job_id = ${jobId}
+      AND r.user_id = (SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1)
+  `;
+  return (rows[0] as unknown as JobReviewDetail) ?? null;
 }
 
 export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {
@@ -85,6 +105,21 @@ export async function getProfile(userId: string): Promise<ProfileRow | null> {
   // ::uuid — postgres.js binds the JS string as text; the uuid column needs the cast.
   const rows = await sql`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`;
   return (rows[0] as unknown as ProfileRow) ?? null;
+}
+
+export async function saveBoardFilters(
+  userId: string,
+  filters: BoardFilterState,
+): Promise<void> {
+  // UPDATE-only and intentionally does NOT touch updated_at: getBoardOwnerId()
+  // resolves the single-tenant board owner by most-recent updated_at, and
+  // profile_version is NOT NULL with no default — so we must not INSERT a row
+  // or bump updated_at when persisting a viewer's filters.
+  await sql`
+    UPDATE profiles
+    SET board_filters = ${JSON.stringify(filters)}::jsonb
+    WHERE user_id = ${userId}::uuid
+  `;
 }
 
 export async function getJobForResume(

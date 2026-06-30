@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react";
-import type { ApplicationAnswers, ApplicationPackage, JobRow, OperatorSignals } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
@@ -18,6 +18,7 @@ export interface RolefitBoardProps {
   nowIso: string;
   isOperator: boolean;
   isAuthed: boolean;
+  initialFilters: BoardFilterState;
   saveResume: (fd: FormData) => Promise<void>;
   rejectJob: (jobId: string) => Promise<void>;
   unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
@@ -40,6 +41,7 @@ export function RolefitBoard({
   nowIso,
   isOperator: _isOperator,
   isAuthed,
+  initialFilters,
   saveResume,
   rejectJob,
   unrejectJob,
@@ -52,14 +54,14 @@ export function RolefitBoard({
   applicationAnswers,
   initialPackages,
 }: RolefitBoardProps) {
-  // Filter state
-  const [search, setSearch] = useState("");
-  const [cats, setCats] = useState<string[]>([]);
-  const [locs, setLocs] = useState<string[]>([]);
-  const [remote, setRemote] = useState<BoardFilterState["remote"]>("all");
-  const [minFit, setMinFit] = useState(0);
-  const [payMin, setPayMin] = useState(0);
-  const [sort, setSort] = useState<BoardFilterState["sort"]>("match");
+  // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
+  const [search, setSearch] = useState(initialFilters.search);
+  const [cats, setCats] = useState<string[]>(initialFilters.cats);
+  const [locs, setLocs] = useState<string[]>(initialFilters.locs);
+  const [remote, setRemote] = useState<BoardFilterState["remote"]>(initialFilters.remote);
+  const [minFit, setMinFit] = useState(initialFilters.minFit);
+  const [payMin, setPayMin] = useState(initialFilters.payMin);
+  const [sort, setSort] = useState<BoardFilterState["sort"]>(initialFilters.sort);
 
   // UI state
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -146,6 +148,26 @@ export function RolefitBoard({
     [search, cats, locs, remote, minFit, payMin, sort],
   );
 
+  // Persist filter changes (debounced) so they survive navigation/visits.
+  // Skips the initial mount so the just-loaded initialFilters aren't re-saved.
+  // Best-effort: failures are swallowed and never block filtering.
+  const firstFilterSave = useRef(true);
+  useEffect(() => {
+    if (firstFilterSave.current) {
+      firstFilterSave.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      void fetch("/api/board-filters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(filterState),
+        keepalive: true,
+      }).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [filterState]);
+
   const visible = useMemo(
     () => sortJobs(applyFilters(jobs, filterState), filterState.sort)
       .filter((j) => !rejectedIds.has(j.id)),
@@ -157,6 +179,29 @@ export function RolefitBoard({
     () => jobs.find((j) => j.id === selectedId) ?? null,
     [jobs, selectedId],
   );
+
+  // Heavy, detail-only review fields (reasoning/about/requirements/benefits/
+  // red_flags) are not in the list payload — fetch them on job-open and cache by
+  // id. JobDetail renders them as they arrive (its sections are already guarded
+  // for absent fields), so the lightweight detail view shows instantly.
+  const [details, setDetails] = useState<Record<string, JobReviewDetail>>({});
+  useEffect(() => {
+    if (!selectedId || details[selectedId]) return;
+    let cancelled = false;
+    void fetch(`/api/jobs/${selectedId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: JobReviewDetail | null) => {
+        if (!cancelled && d) setDetails((prev) => ({ ...prev, [selectedId]: d }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedId, details]);
+
+  const selectedJobWithDetail = useMemo(() => {
+    if (!selectedJob) return null;
+    const d = details[selectedJob.id];
+    return d ? { ...selectedJob, ...d } : selectedJob;
+  }, [selectedJob, details]);
 
   // Handlers
   const toggleCat = (cat: string) =>
@@ -358,7 +403,7 @@ export function RolefitBoard({
 
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
-    const text = composeResumeText(job, data);
+    const text = composeResumeText(data);
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
@@ -446,9 +491,10 @@ export function RolefitBoard({
           className="rf-scroll"
           style={{ flex: 1, overflowY: "auto", background: "#fff", minWidth: 0 }}
         >
-          {selectedJob ? (
+          {selectedJobWithDetail ? (
             <JobDetail
-              job={selectedJob}
+              key={selectedJobWithDetail.id}
+              job={selectedJobWithDetail}
               nowIso={nowIso}
               isAuthed={isAuthed}
               answers={applicationAnswers}
@@ -463,7 +509,7 @@ export function RolefitBoard({
               coverError={coverError}
               onGenerateCover={handleGenerateCover}
               onPrepare={handlePrepare}
-              pkg={packages[selectedJob.id]}
+              pkg={packages[selectedJobWithDetail.id]}
               onMarkApplied={handleMarkApplied}
               onOpenProfile={() => setProfileOpen(true)}
               onReject={handleReject}

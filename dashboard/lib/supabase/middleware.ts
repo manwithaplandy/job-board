@@ -24,11 +24,19 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims() verifies the access-token JWT LOCALLY (WebCrypto) using the
+  // project's ES256 asymmetric signing key, instead of getUser()'s network
+  // round-trip to GoTrue in us-west-1 on every request. The JWKS is fetched
+  // once per process and cached, so warm requests do zero auth network I/O.
+  // It still calls getSession() underneath, so an expired token is refreshed
+  // and the rotated cookies are written (the setAll callback above), preserving
+  // session refresh. Tradeoff: a server-side-revoked token stays valid until it
+  // expires (<=1h) rather than being caught immediately — acceptable for this
+  // single-tenant board.
+  const { data } = await supabase.auth.getClaims();
+  const claims = data?.claims;
 
-  if (!user && !isPublicPath(request.nextUrl.pathname)) {
+  if (!claims && !isPublicPath(request.nextUrl.pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

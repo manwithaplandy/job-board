@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react";
-import type { JobRow, OperatorSignals } from "@/lib/types";
+import type { JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, sortJobs } from "@/lib/rolefit/filter";
@@ -122,6 +122,29 @@ export function RolefitBoard({
     () => jobs.find((j) => j.id === selectedId) ?? null,
     [jobs, selectedId],
   );
+
+  // Heavy, detail-only review fields (reasoning/about/requirements/benefits/
+  // red_flags) are not in the list payload — fetch them on job-open and cache by
+  // id. JobDetail renders them as they arrive (its sections are already guarded
+  // for absent fields), so the lightweight detail view shows instantly.
+  const [details, setDetails] = useState<Record<string, JobReviewDetail>>({});
+  useEffect(() => {
+    if (!selectedId || details[selectedId]) return;
+    let cancelled = false;
+    void fetch(`/api/jobs/${selectedId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: JobReviewDetail | null) => {
+        if (!cancelled && d) setDetails((prev) => ({ ...prev, [selectedId]: d }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedId, details]);
+
+  const selectedJobWithDetail = useMemo(() => {
+    if (!selectedJob) return null;
+    const d = details[selectedJob.id];
+    return d ? { ...selectedJob, ...d } : selectedJob;
+  }, [selectedJob, details]);
 
   // Handlers
   const toggleCat = (cat: string) =>
@@ -298,9 +321,9 @@ export function RolefitBoard({
           className="rf-scroll"
           style={{ flex: 1, overflowY: "auto", background: "#fff", minWidth: 0 }}
         >
-          {selectedJob ? (
+          {selectedJobWithDetail ? (
             <JobDetail
-              job={selectedJob}
+              job={selectedJobWithDetail}
               nowIso={nowIso}
               isAuthed={isAuthed}
               gen={gen}

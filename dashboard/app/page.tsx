@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { parseFilters } from "@/lib/filters";
 import {
-  getBoardOwnerId, getBoardOwnerLocations, getJobs, getLatestPollRun, getProfile, getReviewStats,
+  getBoardOwner, getJobs, getLatestPollRun, getProfile, getReviewStats,
 } from "@/lib/queries";
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
@@ -20,9 +20,11 @@ export default async function Page({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [viewerId, ownerId, ownerLocations] = await Promise.all([
-    getUserId(), getBoardOwnerId(), getBoardOwnerLocations(),
+  const [viewerId, owner] = await Promise.all([
+    getUserId(), getBoardOwner(),
   ]);
+  const ownerId = owner.id;
+  const ownerLocations = owner.locations;
   await searchParams; // filters now client-side; keep the param contract
   const filters = parseFilters({}, { include: DEFAULT_INCLUDE_KEYWORDS });
   const jobs = await getJobs(filters, ownerId, ownerLocations);

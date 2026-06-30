@@ -1,7 +1,7 @@
 import { sql } from "@/lib/db";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, PollRunRow, ReviewRunRow, ProfileRow, ReviewStats } from "@/lib/types";
+import type { CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileRow, ReviewStats } from "@/lib/types";
 import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
@@ -22,13 +22,28 @@ export async function getBoardOwnerId(): Promise<string | null> {
   return (rows[0]?.user_id as string | undefined) ?? null;
 }
 
-export async function getBoardOwnerLocations(): Promise<string[]> {
-  // Single-tenant: the board owner's location include-list (same profile that
-  // getBoardOwnerId resolves). Empty array = no location pre-filter on the board.
+export async function getBoardOwner(): Promise<{ id: string | null; locations: string[] }> {
+  // Single-tenant: the board owner's id AND location include-list come from the
+  // same most-recently-updated profile row. One query instead of two separate
+  // SELECTs of the same row (getBoardOwnerId + getBoardOwnerLocations).
   const rows = await sql`
-    SELECT preferred_locations FROM profiles ORDER BY updated_at DESC LIMIT 1
+    SELECT user_id, preferred_locations FROM profiles ORDER BY updated_at DESC LIMIT 1
   `;
-  return (rows[0]?.preferred_locations as string[] | undefined) ?? [];
+  const row = rows[0] as { user_id?: string; preferred_locations?: string[] } | undefined;
+  return { id: row?.user_id ?? null, locations: row?.preferred_locations ?? [] };
+}
+
+export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail | null> {
+  // Heavy, detail-only review fields for one job, scoped to the board owner's
+  // review (the same owner the list LEFT JOINs). Resolved in one round-trip via
+  // the owner subquery. Fetched lazily on job-open so the board list stays lean.
+  const rows = await sql`
+    SELECT r.reasoning, r.about, r.red_flags, r.benefits, r.requirements
+    FROM job_reviews r
+    WHERE r.job_id = ${jobId}
+      AND r.user_id = (SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1)
+  `;
+  return (rows[0] as unknown as JobReviewDetail) ?? null;
 }
 
 export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {

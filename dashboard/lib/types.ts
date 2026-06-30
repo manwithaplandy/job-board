@@ -1,30 +1,32 @@
+// Heavy, detail-only review fields. These are NOT included in the board's list
+// query (they serialized ~171KB into every board response while only ever showing
+// one-at-a-time in JobDetail). They're fetched on job-open via GET /api/jobs/[id]
+// and merged into the selected JobRow client-side.
+export interface JobReviewDetail {
+  reasoning: string | null;
+  about: string | null;
+  red_flags: string[] | null;
+  benefits: string[] | null;
+  requirements: { text: string; met: boolean }[] | null;
+}
+
 export interface JobRow {
   id: string;
   title: string;
-  url: string;
   location: string | null;
   remote: boolean | null;
   first_seen_at: string;
   closed_at: string | null;
   company_name: string;
-  ats: string;
   // Review fields below are populated only when the board has an owner whose
   // job_reviews are joined (buildJobsQuery). With no owner the query omits these
   // columns and they are undefined at runtime — read them only behind the
-  // showMatch / verdict guards (see JobsTable, FilterBar review filters).
+  // showMatch / verdict guards (see JobCard, FilterBar review filters).
   verdict: string | null;
   human_override: boolean;  // TRUE when the operator manually rejected this job
-  experience_match: string | null;
-  industry: string | null;
-  industry_subcategory: string | null;
-  confidence: string | null;
-  reasoning: string | null;
-  stage1_decision: string | null;
-  stage1_reason: string | null;
   role_category: string | null;
   seniority: string | null;
   work_arrangement: string | null;
-  about: string | null;
   pay_min: number | null;
   pay_max: number | null;
   pay_currency: string | null;
@@ -34,10 +36,24 @@ export interface JobRow {
   experience_score: number | null;
   comp_score: number | null;
   fit_score: number | null;
-  red_flags: string[] | null;
   skill_gaps: string[] | null;
-  benefits: string[] | null;
-  requirements: { text: string; met: boolean }[] | null;
+  // Detail-only fields — see JobReviewDetail. Absent from the list payload;
+  // present on the selected job only after the /api/jobs/[id] fetch resolves.
+  reasoning?: string | null;
+  about?: string | null;
+  red_flags?: string[] | null;
+  benefits?: string[] | null;
+  requirements?: { text: string; met: boolean }[] | null;
+  // Dropped from every query (no render path reads them); kept optional so any
+  // stray reference still type-checks rather than silently breaking.
+  url?: string;
+  ats?: string;
+  experience_match?: string | null;
+  industry?: string | null;
+  industry_subcategory?: string | null;
+  confidence?: string | null;
+  stage1_decision?: string | null;
+  stage1_reason?: string | null;
 }
 
 export interface CompanyRow {

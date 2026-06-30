@@ -104,7 +104,10 @@ export interface JobFunnel {
 }
 export interface FunnelCounts { companies: CompanyFunnel; jobs: JobFunnel }
 
-export async function getFunnel(userId: string): Promise<FunnelCounts> {
+export async function getFunnel(
+  userId: string,
+  state: DiscoveryStateRow,
+): Promise<FunnelCounts> {
   const companyAggRows = await sql`
       SELECT count(*)::int AS tracked,
              count(*) FILTER (WHERE c.active)::int AS active,
@@ -131,7 +134,6 @@ export async function getFunnel(userId: string): Promise<FunnelCounts> {
     `;
   const verdicts = await getCompanyVerdictCounts(userId);
   const stats = await getReviewStats(userId);
-  const state = await getDiscoveryState(userId);
 
   const c = companyAggRows[0] as unknown as { tracked: number; active: number; discovery_sourced: number; reviewed: number };
   const j = jobAggRows[0] as unknown as { ever_seen: number; open: number; closed: number };
@@ -164,7 +166,10 @@ export interface PipelineHealth {
   companyDiscovery: { latest: DiscoveryRunRow | null; lastSuccess: DiscoveryRunRow | null; totals: CompanyDiscoveryTotals; state: DiscoveryStateRow }
 }
 
-export async function getPipelineHealth(userId: string): Promise<PipelineHealth> {
+export async function getPipelineHealth(
+  userId: string,
+  state: DiscoveryStateRow,
+): Promise<PipelineHealth> {
   const [
     jobDiscoveryLatestRows,
     reviewerLatestRows,
@@ -209,8 +214,6 @@ export async function getPipelineHealth(userId: string): Promise<PipelineHealth>
       FROM discovery_runs
     `,
   ]);
-
-  const state = await getDiscoveryState(userId);
 
   return {
     jobDiscovery: {
@@ -334,8 +337,12 @@ export interface PipelineSnapshot {
 }
 
 export async function getPipelineSnapshot(userId: string): Promise<PipelineSnapshot> {
-  const funnel = await getFunnel(userId);
-  const health = await getPipelineHealth(userId);
+  // Discovery state (a correlated company-backlog count) is read by both the
+  // funnel and the pipeline health. Compute it once and share it rather than
+  // running the same subquery twice per snapshot.
+  const state = await getDiscoveryState(userId);
+  const funnel = await getFunnel(userId, state);
+  const health = await getPipelineHealth(userId, state);
   const distributions = await getDistributions(userId);
   return { funnel, health, distributions };
 }

@@ -5,7 +5,10 @@ import pytest
 
 import job_discovery.adapters.workday as workday
 from job_discovery.adapters.workday import (
+    _choose_subdivider,
+    _iter_candidate_facets,
     _parse_token,
+    _true_total,
     fetch_workday,
     parse_workday_job,
 )
@@ -13,6 +16,11 @@ from job_discovery.jd import extract_description
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "workday.json").read_text())
 DETAILS = FIXTURE["details"]
+LARGE = json.loads(
+    (Path(__file__).parent / "fixtures" / "workday_large.json").read_text()
+)
+LID = LARGE["ids"]
+LDETAILS = LARGE["details"]
 HOST = "acme.wd5.myworkdayjobs.com"
 SITE = "External"
 CXS = f"https://{HOST}/wday/cxs/acme/{SITE}"
@@ -259,3 +267,232 @@ def test_fetch_stops_at_hard_cap(monkeypatch):
     postings = fetch_workday("acme:wd5:External")
     assert [b["offset"] for b in bodies] == [0, 2]  # stopped once offset >= 4
     assert len(postings) == 4
+
+
+# --- true-total / facet helpers -------------------------------------------
+
+
+def test_true_total_sums_disjoint_facet_over_capped_listing_total():
+    # listing `total` is the unreliable 2000 cap; jobFamilyGroup counts sum to
+    # the real tenant total (the helper must prefer the facet sum).
+    facets = [{"facetParameter": "jobFamilyGroup", "values": [
+        {"id": "a", "count": 1759}, {"id": "b", "count": 791}]}]
+    assert _true_total(facets, 2000) == 2550
+
+
+def test_true_total_falls_back_through_disjoint_facets():
+    # no jobFamilyGroup -> the next disjoint facet (workerSubType) is summed.
+    facets = [{"facetParameter": "workerSubType", "values": [
+        {"id": "a", "count": 100}, {"id": "b", "count": 5}]}]
+    assert _true_total(facets, 2000) == 105
+
+
+def test_true_total_uses_listing_total_only_when_no_facets():
+    assert _true_total(None, 1234) == 1234
+    assert _true_total([], None) == 0
+
+
+def test_iter_candidate_facets_descends_into_location_group():
+    # the nested locationMainGroup wrapper must expose its inner location facets
+    # as selectable candidates (its own values are facets, not filterable ids).
+    facets = [
+        {"facetParameter": "jobFamilyGroup", "values": [{"id": "e", "count": 1}]},
+        {"facetParameter": "locationMainGroup", "values": [
+            {"facetParameter": "locationHierarchy1", "values": [{"id": "us", "count": 9}]},
+            {"facetParameter": "locations", "values": [{"id": "sc", "count": 3}]},
+        ]},
+    ]
+    assert {p for p, _ in _iter_candidate_facets(facets)} == {
+        "jobFamilyGroup", "locationHierarchy1", "locations"
+    }
+
+
+def test_choose_subdivider_skips_applied_and_over_cap_picks_tightest(monkeypatch):
+    monkeypatch.setattr(workday, "_HARD_CAP", 100)
+    facets = [
+        {"facetParameter": "jobFamilyGroup", "values": [{"id": "e", "count": 50}]},
+        {"facetParameter": "workerSubType", "values": [{"id": "r", "count": 150}]},
+        {"facetParameter": "timeType", "values": [
+            {"id": "f", "count": 40}, {"id": "p", "count": 10}]},
+        {"facetParameter": "locationMainGroup", "values": [
+            {"facetParameter": "locationHierarchy1", "values": [
+                {"id": "us", "count": 30}, {"id": "eu", "count": 20}]},
+        ]},
+    ]
+    param, values = _choose_subdivider(facets, {"jobFamilyGroup"})
+    # jobFamilyGroup excluded (already applied); workerSubType excluded (150>=cap);
+    # locationHierarchy1 (max 30) beats timeType (max 40) as the tightest split.
+    assert param == "locationHierarchy1"
+    assert {v["id"] for v in values} == {"us", "eu"}
+
+
+def test_choose_subdivider_returns_none_when_nothing_under_cap(monkeypatch):
+    monkeypatch.setattr(workday, "_HARD_CAP", 4)
+    facets = [{"facetParameter": "workerSubType", "values": [{"id": "r", "count": 10}]}]
+    assert _choose_subdivider(facets, {"jobFamilyGroup"}) is None
+
+
+# --- faceted crawl (tenants with >2000 postings) --------------------------
+
+
+def _large_facet_label(applied: dict) -> str:
+    """Map an appliedFacets body to its workday_large.json response label."""
+    if not applied:
+        return "unfaceted"
+    jfg = applied.get("jobFamilyGroup", [])
+    loc = applied.get("locationHierarchy1", [])
+    if jfg == [LID["ENG"]] and loc == [LID["US"]]:
+        return "ENG_US"
+    if jfg == [LID["ENG"]] and loc == [LID["EU"]]:
+        return "ENG_EU"
+    if jfg == [LID["ENG"]]:
+        return "ENG"
+    if jfg == [LID["SALES"]]:
+        return "SALES"
+    raise AssertionError(f"unexpected appliedFacets {applied}")
+
+
+def _make_large_fakes():
+    """Build post/get fakes that DISPATCH on appliedFacets, plus call recorders."""
+    post_bodies: list[dict] = []
+    get_paths: list[str] = []
+
+    def fake_post_json(url, json=None):
+        post_bodies.append(json)
+        assert url == f"{CXS}/jobs"
+        label = _large_facet_label(json["appliedFacets"])
+        resp = LARGE["unfaceted"] if label == "unfaceted" else LARGE["filtered"][label]
+        items = resp.get("jobPostings") or []
+        off = json["offset"]
+        page = dict(resp)
+        page["jobPostings"] = items[off: off + workday._PAGE_LIMIT]  # slice the page
+        return page
+
+    def fake_get_json(url):
+        for key in LDETAILS:
+            if url.endswith(key):
+                get_paths.append(key)
+                return LDETAILS[key]
+        raise AssertionError(f"unexpected detail url {url}")
+
+    return fake_post_json, fake_get_json, post_bodies, get_paths
+
+
+def test_large_tenant_escalates_facets_subdivides_and_dedups(monkeypatch):
+    # true_total (8, summed from jobFamilyGroup) exceeds the capped listing total
+    # (6) -> escalate to a facet-partitioned crawl, sub-dividing the over-cap
+    # Engineering slice on the location facet and de-duping its US/EU overlap.
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    monkeypatch.setattr(workday, "_HARD_CAP", 6)
+    fake_post, fake_get, bodies, gets = _make_large_fakes()
+    monkeypatch.setattr(workday, "post_json", fake_post)
+    monkeypatch.setattr(workday, "get_json", fake_get)
+
+    postings = fetch_workday("acme:wd5:External")
+    ids = [p.external_id for p in postings]
+    applied = [b["appliedFacets"] for b in bodies]
+
+    assert {} in applied  # the single unfaceted probe
+    assert {"jobFamilyGroup": [LID["ENG"]]} in applied  # partition by category
+    assert {"jobFamilyGroup": [LID["SALES"]]} in applied
+    # Engineering (count 6 == cap) is recursively sub-divided on the location facet
+    assert {"jobFamilyGroup": [LID["ENG"]],
+            "locationHierarchy1": [LID["US"]]} in applied
+    assert {"jobFamilyGroup": [LID["ENG"]],
+            "locationHierarchy1": [LID["EU"]]} in applied
+
+    assert sorted(ids) == sorted([
+        "/job/US-CA-Santa-Clara/Account-Executive_JR-S1",
+        "/job/US-NY-New-York/Sales-Director_JR-S2",
+        "/job/US-CA-Santa-Clara/Principal-Systems-Software-Engineer_JR-E1",
+        "/job/US-TX-Austin/Senior-GPU-Compiler-Engineer_JR-E2",
+        "/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3",
+        "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4",
+        "/job/Germany-Munich/Embedded-Systems-Engineer_JR-E5",
+        "/job/France-Remote/Compiler-Engineer_JR-E6",
+    ])
+    assert len(ids) == len(set(ids)) == 8  # union == true total; no duplicates
+    assert not any("canary" in i for i in ids)  # page-0 items of escalated calls skipped
+    # dedup also skips the detail re-fetch for the overlapping e3/e4 postings
+    assert gets.count("/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3") == 1
+    assert gets.count("/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4") == 1
+
+
+def test_small_tenant_with_facets_stays_on_unfaceted_walk(monkeypatch):
+    # Facets are present but their true total is under the cap, so the adapter
+    # must NOT escalate — it pages the plain unfaceted walk and never issues a
+    # per-facet query (keeping small tenants cheap).
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    monkeypatch.setattr(workday, "_HARD_CAP", 6)
+    page0 = {
+        "total": 3,
+        "jobPostings": [
+            {"externalPath": "/job/a/JR-1", "title": "A"},
+            {"externalPath": "/job/b/JR-2", "title": "B"},
+        ],
+        "facets": [{"facetParameter": "jobFamilyGroup", "values": [
+            {"descriptor": "Eng", "id": "eng", "count": 2},
+            {"descriptor": "Sales", "id": "sales", "count": 1},
+        ]}],
+    }
+    page1 = {"total": 3, "jobPostings": [{"externalPath": "/job/c/JR-3", "title": "C"}]}
+    bodies: list[dict] = []
+
+    def fake_post_json(url, json=None):
+        bodies.append(json)
+        return {0: page0, 2: page1}.get(json["offset"], {"jobPostings": []})
+
+    def fake_get_json(url):
+        return {"jobPostingInfo": {"title": "x", "externalUrl": f"https://x{url[-8:]}"}}
+
+    monkeypatch.setattr(workday, "post_json", fake_post_json)
+    monkeypatch.setattr(workday, "get_json", fake_get_json)
+    postings = fetch_workday("acme:wd5:External")
+    assert [p.external_id for p in postings] == [
+        "/job/a/JR-1", "/job/b/JR-2", "/job/c/JR-3",
+    ]
+    assert all(b["appliedFacets"] == {} for b in bodies)  # never partitioned
+
+
+def test_oversized_partition_without_splitter_pages_to_cap_and_warns(monkeypatch, caplog):
+    # A partition over the cap whose facets offer no value below the cap cannot be
+    # sub-divided; the crawl must page it up to the hard cap (never looping past
+    # the wrap, never silently dropping the tail) and warn that it is truncated.
+    import logging
+
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    monkeypatch.setattr(workday, "_HARD_CAP", 4)
+    mega_items = [
+        {"externalPath": f"/job/m/JR-{i}", "title": f"M{i}"} for i in range(1, 7)
+    ]
+    unfaceted = {
+        "total": 4,
+        "jobPostings": [],
+        "facets": [{"facetParameter": "jobFamilyGroup", "values": [
+            {"descriptor": "Mega", "id": "mega", "count": 10}]}],
+    }
+    mega = {  # filtered slice: reports the capped 4, but a finer facet still >= cap
+        "total": 4,
+        "jobPostings": mega_items,
+        "facets": [{"facetParameter": "workerSubType", "values": [
+            {"descriptor": "Regular", "id": "reg", "count": 10}]}],
+    }
+
+    def fake_post_json(url, json=None):
+        resp = unfaceted if not json["appliedFacets"] else mega
+        items = resp["jobPostings"]
+        off = json["offset"]
+        page = dict(resp)
+        page["jobPostings"] = items[off: off + workday._PAGE_LIMIT]
+        return page
+
+    def fake_get_json(url):
+        return {"jobPostingInfo": {"title": url[-6:], "externalUrl": f"https://x{url[-6:]}"}}
+
+    monkeypatch.setattr(workday, "post_json", fake_post_json)
+    monkeypatch.setattr(workday, "get_json", fake_get_json)
+    with caplog.at_level(logging.WARNING, logger="job_discovery"):
+        postings = fetch_workday("acme:wd5:External")
+    ids = [p.external_id for p in postings]
+    assert ids == ["/job/m/JR-1", "/job/m/JR-2", "/job/m/JR-3", "/job/m/JR-4"]
+    assert "too large to fully enumerate" in caplog.text

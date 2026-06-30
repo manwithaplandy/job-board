@@ -20,10 +20,33 @@ def _location_str(loc: dict | None) -> str | None:
 
 
 def _department(detail: dict) -> str | None:
-    return (detail.get("department") or {}).get("label") or None
+    # Large companies (e.g. Bosch) return `department: {}` and categorise the
+    # role under `function` instead. Fall back to `function.label` so the
+    # category is not needlessly null — both map to the same Posting.department.
+    dept = (detail.get("department") or {}).get("label")
+    if dept:
+        return dept
+    return (detail.get("function") or {}).get("label") or None
+
+
+def _view_url(detail: dict) -> str | None:
+    # `postingUrl` is the canonical, viewable job page (HTTP 200). `applyUrl`
+    # (…?oga=true) is the apply form and 302->403s for non-browser clients, so
+    # it is never used as the job URL. When `postingUrl` is absent, fall back to
+    # the bare-id posting form (same safe shape as `_minimal_posting`).
+    posting_url = detail.get("postingUrl")
+    if posting_url:
+        return posting_url
+    company = (detail.get("company") or {}).get("identifier")
+    pid = detail.get("id")
+    if company and pid:
+        return f"https://jobs.smartrecruiters.com/{company}/{pid}"
+    return None
 
 
 def _explicit_remote(loc: dict | None) -> bool | None:
+    # Remote is `location.remote` only. `location.hybrid` is a separate bool
+    # that the adapter intentionally does NOT treat as remote.
     remote = (loc or {}).get("remote")
     return remote if isinstance(remote, bool) else None
 
@@ -35,8 +58,7 @@ def parse_smartrecruiters_posting(detail: dict) -> Posting:
     return Posting(
         external_id=str(detail["id"]),
         title=detail.get("name"),
-        # `applyUrl` is the public apply ref; `postingUrl` is the posting page.
-        url=detail.get("applyUrl") or detail.get("postingUrl"),
+        url=_view_url(detail),
         location=location,
         department=_department(detail),
         remote=detect_remote(location, _explicit_remote(loc)),

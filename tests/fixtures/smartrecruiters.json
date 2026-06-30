@@ -5,8 +5,45 @@
       "limit": 2,
       "totalFound": 3,
       "content": [
-        { "id": "743111", "name": "Staff Engineer", "refNumber": "REF-1" },
-        { "id": "743222", "name": "Recruiter", "refNumber": "REF-2" }
+        {
+          "id": "744000135080134",
+          "name": "Facilities Soft Services Engineer",
+          "uuid": "74689b1f-da7b-42b3-83a3-18da07a4f700",
+          "refNumber": "REF290165M",
+          "company": { "identifier": "BoschGroup", "name": "Bosch Group" },
+          "releasedDate": "2026-06-30T17:49:03.000Z",
+          "location": {
+            "city": "Pedro Escobedo",
+            "region": "Qro.",
+            "country": "mx",
+            "remote": false,
+            "hybrid": false,
+            "fullLocation": "Pedro Escobedo, Qro., Mexico"
+          },
+          "department": {},
+          "function": { "id": "education", "label": "Education" },
+          "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+          "ref": "https://api.smartrecruiters.com/v1/companies/BoschGroup/postings/744000135080134"
+        },
+        {
+          "id": "744000900000001",
+          "name": "Senior Data Engineer",
+          "uuid": "a1b2c3d4-0000-4000-9000-000000000001",
+          "refNumber": "REF900001",
+          "company": { "identifier": "TheNielsenCompany", "name": "The Nielsen Company" },
+          "releasedDate": "2026-06-29T10:00:00.000Z",
+          "location": {
+            "city": "Remote",
+            "country": "us",
+            "remote": true,
+            "hybrid": false,
+            "fullLocation": "Remote, , United States"
+          },
+          "department": { "id": "technology", "label": "Technology" },
+          "function": { "id": "engineering", "label": "Engineering" },
+          "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+          "ref": "https://api.smartrecruiters.com/v1/companies/TheNielsenCompany/postings/744000900000001"
+        }
       ]
     },
     {
@@ -14,48 +51,134 @@
       "limit": 2,
       "totalFound": 3,
       "content": [
-        { "id": "743333", "name": "Designer", "refNumber": "REF-3" }
+        {
+          "id": "744000135078460",
+          "name": "Software Architect",
+          "uuid": "3041f852-f8ac-405c-9072-eb81282f94f6",
+          "refNumber": "REF289553X",
+          "company": { "identifier": "BoschGroup", "name": "Bosch Group" },
+          "releasedDate": "2026-06-30T17:30:04.932Z",
+          "location": {
+            "city": "bangalore",
+            "country": "in",
+            "remote": false,
+            "hybrid": true,
+            "fullLocation": "bangalore, , India"
+          },
+          "department": {},
+          "function": { "id": "engineering", "label": "Engineering" },
+          "typeOfEmployment": { "id": "part-time", "label": "Part-time" },
+          "ref": "https://api.smartrecruiters.com/v1/companies/BoschGroup/postings/744000135078460"
+        }
       ]
     }
   ],
   "details": {
-    "743111": {
-      "id": "743111",
-      "name": "Staff Engineer",
-      "refNumber": "REF-1",
-      "company": { "identifier": "acme", "name": "Acme" },
-      "location": { "city": "San Francisco", "region": "CA", "country": "us", "remote": false },
-      "department": { "label": "Engineering" },
+    "744000135080134": {
+      "id": "744000135080134",
+      "name": "Facilities Soft Services Engineer",
+      "uuid": "74689b1f-da7b-42b3-83a3-18da07a4f700",
+      "refNumber": "REF290165M",
+      "company": { "name": "Bosch Group", "identifier": "BoschGroup" },
+      "location": {
+        "city": "Pedro Escobedo",
+        "region": "Qro.",
+        "country": "mx",
+        "address": "Carretera Federal No. 57 Km. 183+700, Pedro Escobedo, Mexico",
+        "remote": false,
+        "hybrid": false,
+        "fullLocation": "Pedro Escobedo, Qro., Mexico"
+      },
+      "releasedDate": "2026-06-30T17:49:03.000Z",
+      "postingUrl": "https://jobs.smartrecruiters.com/BoschGroup/744000135080134-facilities-soft-services-engineer",
+      "applyUrl": "https://jobs.smartrecruiters.com/BoschGroup/744000135080134-facilities-soft-services-engineer?oga=true",
+      "referralUrl": "https://jobs.smartrecruiters.com/external-referrals/company/BoschGroup/publication/74689b1f-da7b-42b3-83a3-18da07a4f700?dcr_ci=BoschGroup",
       "jobAd": {
         "sections": {
-          "companyDescription": { "title": "Company Description", "text": "<p>Acme builds things.</p>" },
-          "jobDescription": { "title": "Job Description", "text": "<p>Lead the backend.</p>" },
-          "qualifications": { "title": "Qualifications", "text": "<ul><li>10y exp</li></ul>" },
-          "additionalInformation": { "title": "Additional Information", "text": "<p>Equity &amp; more</p>" }
+          "companyDescription": {
+            "title": "Descripción de la empresa",
+            "text": "<p>Bosch fue fundada en Stuttgart en 1886 por Robert Bosch.</p>"
+          },
+          "jobDescription": {
+            "title": "Descripción del empleo",
+            "text": "<p>Responsible for Facilities Services including Landscaping &amp; Pest Control.</p>"
+          },
+          "qualifications": {
+            "title": "Requisitos",
+            "text": "<ul><li>Engineering background required.</li></ul>"
+          },
+          "additionalInformation": {
+            "title": "Información adicional",
+            "text": "<p>Get to know more about how we work at Bosch.</p>"
+          }
         }
       },
-      "applyUrl": "https://jobs.smartrecruiters.com/acme/743111-staff-engineer",
-      "postingUrl": "https://careers.acme.com/743111"
+      "active": true,
+      "visibility": "PUBLIC",
+      "department": {},
+      "function": { "id": "education", "label": "Education" },
+      "experienceLevel": { "id": "associate", "label": "Associate" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "language": { "code": "es-MX", "label": "Spanish (LATAM)" }
     },
-    "743222": {
-      "id": "743222",
-      "name": "Recruiter",
-      "location": { "city": "Remote", "country": "us", "remote": true },
-      "department": { "label": "People" },
+    "744000900000001": {
+      "id": "744000900000001",
+      "name": "Senior Data Engineer",
+      "uuid": "a1b2c3d4-0000-4000-9000-000000000001",
+      "refNumber": "REF900001",
+      "company": { "name": "The Nielsen Company", "identifier": "TheNielsenCompany" },
+      "location": {
+        "city": "Remote",
+        "country": "us",
+        "remote": true,
+        "hybrid": false,
+        "fullLocation": "Remote, , United States"
+      },
+      "releasedDate": "2026-06-29T10:00:00.000Z",
+      "applyUrl": "https://jobs.smartrecruiters.com/TheNielsenCompany/744000900000001-senior-data-engineer?oga=true",
+      "referralUrl": "https://jobs.smartrecruiters.com/external-referrals/company/TheNielsenCompany/publication/a1b2c3d4-0000-4000-9000-000000000001?dcr_ci=TheNielsenCompany",
       "jobAd": {
         "sections": {
-          "jobDescription": { "title": "Job Description", "text": "<p>Hire people.</p>" }
+          "jobDescription": {
+            "title": "Job Description",
+            "text": "<p>Build data pipelines.</p>"
+          }
         }
       },
-      "postingUrl": "https://jobs.smartrecruiters.com/acme/743222"
+      "active": true,
+      "visibility": "PUBLIC",
+      "department": { "id": "technology", "label": "Technology" },
+      "function": { "id": "engineering", "label": "Engineering" },
+      "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "language": { "code": "en", "label": "English" }
     },
-    "743333": {
-      "id": "743333",
-      "name": "Designer",
-      "location": { "city": "London", "region": "England", "country": "uk", "remote": false },
-      "department": { "label": "Design" },
+    "744000135078460": {
+      "id": "744000135078460",
+      "name": "Software Architect",
+      "uuid": "3041f852-f8ac-405c-9072-eb81282f94f6",
+      "refNumber": "REF289553X",
+      "company": { "name": "Bosch Group", "identifier": "BoschGroup" },
+      "location": {
+        "city": "bangalore",
+        "country": "in",
+        "address": "building 601 & 602, p.b.3000, adugodi. hosur road,",
+        "postalCode": "560030",
+        "remote": false,
+        "hybrid": true,
+        "fullLocation": "bangalore, , India"
+      },
+      "releasedDate": "2026-06-30T17:30:04.932Z",
+      "postingUrl": "https://jobs.smartrecruiters.com/BoschGroup/744000135078460-software-architect",
+      "applyUrl": "https://jobs.smartrecruiters.com/BoschGroup/744000135078460-software-architect?oga=true",
       "jobAd": { "sections": {} },
-      "applyUrl": "https://jobs.smartrecruiters.com/acme/743333"
+      "active": true,
+      "visibility": "PUBLIC",
+      "department": {},
+      "function": { "id": "engineering", "label": "Engineering" },
+      "experienceLevel": { "id": "associate", "label": "Associate" },
+      "typeOfEmployment": { "id": "part-time", "label": "Part-time" },
+      "language": { "code": "en", "label": "English" }
     }
   }
 }

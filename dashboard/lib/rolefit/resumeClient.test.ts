@@ -5,7 +5,7 @@ import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient
 // The model now returns ONLY the tailored fields; the fixed fields come from
 // parsing the résumé text below.
 const TAILORED = {
-  headline: "Senior Frontend Engineer",
+  headlineFocus: "Modern web apps",
   summary: "Tailored summary.",
   skills: ["React", "TypeScript"],
   experience: [{ company: "Cobalt Inc", bullets: ["Tailored bullet about apps"] }],
@@ -39,8 +39,8 @@ describe("generateResume", () => {
     // Deterministic — from parsing the résumé text, not the model.
     expect(out.name).toBe("Alex Morgan");
     expect(out.contact).toBe("alex@example.com | 555-0100");
-    // Tailored — from the model.
-    expect(out.headline).toBe("Senior Frontend Engineer");
+    // Tailored — deterministic role identity ("Frontend Engineer") + model focus.
+    expect(out.headline).toBe("Frontend Engineer | Modern web apps");
     expect(out.experience[0].company).toBe("Cobalt Inc");
     expect(out.experience[0].bullets).toEqual(["Tailored bullet about apps"]);
 

@@ -16,9 +16,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => path.resolve(here, "../../scripts/fixtures", name);
 const pdfBytes = () => new Uint8Array(readFileSync(fixture("source.pdf")));
 
-const EXPECTED_EDUCATION =
-  "UC Santa Barbara - BA, Psychology · Georgia Tech - MS, Computer Science (In Progress) · " +
-  "Certifications: Azure AI Engineer Associate, AWS Solutions Architect Associate";
+const EXPECTED_EDU_ENTRIES = [
+  "UC Santa Barbara - BA, Psychology",
+  "Georgia Tech - MS, Computer Science (In Progress)",
+];
+const EXPECTED_CERTS = ["Azure AI Engineer Associate", "AWS Solutions Architect Associate"];
 
 describe("parsePdfItems on the real source résumé", () => {
   test("extracts the fixed fields by coordinate clustering", async () => {
@@ -47,11 +49,8 @@ describe("parsePdfItems on the real source résumé", () => {
       },
     ]);
 
-    expect(profile.education).toBe(EXPECTED_EDUCATION);
-    expect(profile.certifications).toEqual([
-      "Azure AI Engineer Associate",
-      "AWS Solutions Architect Associate",
-    ]);
+    expect(profile.educationEntries).toEqual(EXPECTED_EDU_ENTRIES);
+    expect(profile.certifications).toEqual(EXPECTED_CERTS);
   });
 
   test("captures General Atomics source bullets faithfully", async () => {
@@ -80,7 +79,7 @@ describe("yearsOfExperience", () => {
   const withDates = (dates: string): ParsedProfile => ({
     name: "X",
     contact: "",
-    education: "",
+    educationEntries: [],
     certifications: [],
     experience: [{ role: "Engineer", company: "Co", dates, sourceBullets: [] }],
   });
@@ -100,7 +99,7 @@ describe("yearsOfExperience", () => {
     const empty: ParsedProfile = {
       name: "",
       contact: "",
-      education: "",
+      educationEntries: [],
       certifications: [],
       experience: [],
     };
@@ -117,7 +116,7 @@ describe("parseProfile dispatcher", () => {
     const profile = await parseProfile({ pdfBytes: pdfBytes(), text: "garbage fallback" });
     expect(profile.name).toBe("Andrew Malvani");
     expect(profile.experience).toHaveLength(3);
-    expect(profile.education).toBe(EXPECTED_EDUCATION);
+    expect(profile.educationEntries).toEqual(EXPECTED_EDU_ENTRIES);
   });
 
   test("falls back to text when no PDF bytes are supplied", async () => {
@@ -172,9 +171,7 @@ describe("parseProfileText fallback", () => {
     });
 
     expect(profile.certifications).toEqual(["AWS Certified Solutions Architect"]);
-    expect(profile.education).toBe(
-      "MIT - BS, Computer Science · Certifications: AWS Certified Solutions Architect",
-    );
+    expect(profile.educationEntries).toEqual(["MIT - BS, Computer Science"]);
   });
 
   test("recovers the same roles from the flattened profile.txt", () => {
@@ -185,22 +182,22 @@ describe("parseProfileText fallback", () => {
       "IT Strategic Analyst (Systems Administrator) @ Tillster Inc (October 2021 – February 2023)",
       "Compliance & Marketing Consultant @ Reynolds & Reynolds (April 2018 – October 2021)",
     ]);
-    expect(profile.education).toContain("UC Santa Barbara - BA, Psychology");
-    expect(profile.education).toContain("Certifications: Azure AI Engineer Associate");
+    expect(profile.educationEntries).toContain("UC Santa Barbara - BA, Psychology");
+    expect(profile.certifications).toContain("Azure AI Engineer Associate");
   });
 
   test("re-joins a wrapped education entry instead of truncating it", () => {
     const profile = parseProfileText(readFileSync(fixture("profile.txt"), "utf8"));
     // The degree line wraps mid-phrase ("…MS, Computer" / "Science (In Progress)");
     // the continuation must be appended, not dropped.
-    expect(profile.education).toContain("Georgia Tech - MS, Computer Science (In Progress)");
+    expect(profile.educationEntries).toContain("Georgia Tech - MS, Computer Science (In Progress)");
   });
 
   test("returns an empty profile for null/empty input", () => {
     expect(parseProfileText(null)).toEqual({
       name: "",
       contact: "",
-      education: "",
+      educationEntries: [],
       certifications: [],
       experience: [],
     });

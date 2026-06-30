@@ -92,7 +92,8 @@ async function main() {
   console.log("Deterministic fields (identical across every job):");
   console.log(`  name:      ${profile.name}`);
   console.log(`  contact:   ${profile.contact}`);
-  console.log(`  education: ${profile.education}`);
+  console.log(`  education: ${profile.educationEntries.join(" | ")}`);
+  console.log(`  certs:     ${profile.certifications.join(" · ")}`);
   console.log(`  roles:     ${profile.experience.map((r) => `${r.role} @ ${r.company} (${r.dates})`).join(" | ")}`);
 
   const tenureYears = yearsOfExperience(profile, Date.now());
@@ -145,6 +146,8 @@ async function main() {
     (json.usage?.completion_tokens ? ` (${json.usage.completion_tokens} output tokens)` : ""));
   console.log(`  scale used:  ${scale.toFixed(2)}  (1.00 = full size; <1 = shrunk to fit one page)`);
   console.log(`  headline:    ${data.headline}`);
+  console.log(`  education:    ${JSON.stringify(data.education)}`);
+  console.log(`  certs:       ${JSON.stringify(data.certifications)}`);
   console.log(`  summary:     ${data.summary.length} chars`);
   console.log(`  skills:      ${data.skills.length}`);
   console.log(`  experience:  ${data.experience.length} roles [${data.experience.map((e) => e.company).join(", ")}], bullets [${bulletCounts.join(", ")}]`);

@@ -15,6 +15,7 @@ export interface ResumePdfDoc {
   text: (text: string, x: number, y: number, opts?: { align?: string }) => void;
   line: (x1: number, y1: number, x2: number, y2: number) => void;
   splitTextToSize: (text: string, maxWidth: number) => string[];
+  getTextWidth: (text: string) => number;
 }
 
 const M = 56; // left/right margin (pt)
@@ -171,7 +172,32 @@ export function renderResumePdf(doc: ResumePdfDoc, data: TailoredResume): number
     // Experience→Education is a major section break, so it absorbs slack.
     y += extra;
     section("Education");
-    wrapLines(data.education, W - 2 * M, 15);
+    // Each degree entry on its own line (stacked, most-advanced first), long
+    // entries wrapped. Measured + drawn identically so auto-fit stays exact.
+    data.education.forEach((entry) => wrapLines(entry, W - 2 * M, 15));
+    // One trailing certifications line: a bold "Certifications:" label, then the
+    // certs joined by " · " on the body font, hanging-indented under the label
+    // and wrapped if long.
+    if (data.certifications.length) {
+      const label = "Certifications:  ";
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10.5 * s);
+      const labelW = doc.getTextWidth(label);
+      body();
+      const certLines = doc.splitTextToSize(data.certifications.join(" · "), W - 2 * M - labelW);
+      certLines.forEach((l, i) => {
+        if (draw) {
+          if (i === 0) {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10.5 * s);
+            doc.text(label, M, y);
+          }
+          body();
+          doc.text(l, M + labelW, y);
+        }
+        y += 15 * s;
+      });
+    }
 
     return y;
   };

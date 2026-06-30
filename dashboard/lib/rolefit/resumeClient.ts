@@ -61,7 +61,7 @@ export async function generateResume(args: {
     let tailored: TailoredContent;
     try { tailored = JSON.parse(content) as TailoredContent; }
     catch { throw new Error("OpenRouter returned non-JSON résumé content"); }
-    if (!tailored.headline || !Array.isArray(tailored.experience)) {
+    if (!tailored.headlineFocus || !Array.isArray(tailored.experience)) {
       throw new Error("OpenRouter résumé missing required fields");
     }
     const resume = assembleResume(profile, tailored);

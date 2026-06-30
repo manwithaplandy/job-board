@@ -14,7 +14,9 @@ function composeResumeText(data: TailoredResume): string {
     exp.bullets.forEach((b) => { t += `  - ${b}\n`; });
     t += "\n";
   });
-  t += `EDUCATION\n${data.education}\n`;
+  t += "EDUCATION\n";
+  data.education.forEach((entry) => { t += `${entry}\n`; });
+  if (data.certifications.length) t += `Certifications: ${data.certifications.join(" · ")}\n`;
   return t;
 }
 

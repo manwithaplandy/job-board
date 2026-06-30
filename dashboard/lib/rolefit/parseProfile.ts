@@ -34,8 +34,8 @@ export interface ParsedProfile {
   name: string;
   /** contact line verbatim (items joined), "" if none */
   contact: string;
-  /** FINAL one-line string: edu entries joined by " · ", then certs appended */
-  education: string;
+  /** degree entries as a LIST, in source order (ordered most-advanced-first downstream) */
+  educationEntries: string[];
   /** raw cert list (may be empty) */
   certifications: string[];
   experience: ParsedRole[];
@@ -127,7 +127,7 @@ interface Line {
 }
 
 function emptyProfile(): ParsedProfile {
-  return { name: "", contact: "", education: "", certifications: [], experience: [] };
+  return { name: "", contact: "", educationEntries: [], certifications: [], experience: [] };
 }
 
 /** Join x-sorted items, inserting a space only across a real horizontal gap. */
@@ -212,13 +212,6 @@ function stripCompany(text: string): string {
     .replace(/\s*[,|]\s*(remote|hybrid|on-?site|worldwide|anywhere)\s*$/i, "")
     .replace(/[\s,|]+$/, "")
     .trim();
-}
-
-function buildEducation(eduEntries: string[], certs: string[]): string {
-  const edu = eduEntries.join(" · ");
-  if (!certs.length) return edu;
-  const certPart = `Certifications: ${certs.join(", ")}`;
-  return edu ? `${edu} · ${certPart}` : certPart;
 }
 
 interface RoleBlock {
@@ -399,9 +392,8 @@ export function parsePdfItems(items: PdfItem[]): ParsedProfile {
   const contact = findContact(lines);
   const experience = parseExperience(lines, headingLines, boldFont);
   const { certifications, eduEntries } = parseBottomColumns(clean, lines, headingLines, boldFont);
-  const education = buildEducation(eduEntries, certifications);
 
-  return { name, contact, education, certifications, experience };
+  return { name, contact, educationEntries: eduEntries, certifications, experience };
 }
 
 // ----------------------------------------------------------------------------
@@ -503,7 +495,7 @@ export function parseProfileText(text: string | null): ParsedProfile {
   return {
     name,
     contact,
-    education: buildEducation(eduEntries, certifications),
+    educationEntries: eduEntries,
     certifications,
     experience,
   };

@@ -1,14 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { TAILORED_RESUME_SCHEMA, buildResumePrompt, assembleResume } from "@/lib/rolefit/resumeSchema";
+import { TAILORED_RESUME_SCHEMA, buildResumePrompt, assembleResume, roleIdentity } from "@/lib/rolefit/resumeSchema";
 import type { ParsedProfile } from "@/lib/rolefit/parseProfile";
 
 const PROFILE: ParsedProfile = {
   name: "Alex Morgan",
   contact: "alex@example.com | 555-0100 | github.com/alex",
-  education: "M.S. CS · B.A. Math",
-  certifications: [],
+  // Deliberately NOT most-advanced first — sortEducation must reorder these.
+  educationEntries: ["B.A. Math", "M.S. CS"],
+  certifications: ["AWS Solutions Architect Associate"],
   experience: [
-    { role: "Senior Engineer", company: "Cobalt Labs", dates: "2021 – Present", sourceBullets: ["Built X", "Shipped Y"] },
+    { role: "Lead AI/ML Engineer", company: "Cobalt Labs", dates: "2021 – Present", sourceBullets: ["Built X", "Shipped Y"] },
     { role: "Engineer", company: "Tin Co", dates: "2018 – 2021", sourceBullets: ["Wrote Z"] },
   ],
 };
@@ -49,16 +50,33 @@ describe("TAILORED_RESUME_SCHEMA", () => {
     }
     // Fixed/deterministic fields are NOT requested from the model.
     expect(TAILORED_RESUME_SCHEMA.json_schema.schema.required).toEqual([
-      "headline", "summary", "skills", "experience",
+      "headlineFocus", "summary", "skills", "experience",
     ]);
     expect(TAILORED_RESUME_SCHEMA.json_schema.strict).toBe(true);
+  });
+});
+
+describe("roleIdentity", () => {
+  test("strips a leading seniority qualifier", () => {
+    expect(roleIdentity("Lead AI/ML Engineer")).toBe("AI/ML Engineer");
+    expect(roleIdentity("Senior Software Engineer")).toBe("Software Engineer");
+    expect(roleIdentity("Sr. Data Scientist")).toBe("Data Scientist");
+    expect(roleIdentity("Principal Architect")).toBe("Architect");
+  });
+  test("leaves un-qualified titles unchanged", () => {
+    expect(roleIdentity("Compliance & Marketing Consultant")).toBe("Compliance & Marketing Consultant");
+    expect(roleIdentity("Software Engineer")).toBe("Software Engineer");
+  });
+  test("keeps the original title when stripping would empty it", () => {
+    expect(roleIdentity("Senior ")).toBe("Senior");
+    expect(roleIdentity("Lead")).toBe("Lead");
   });
 });
 
 describe("assembleResume", () => {
   test("deterministic fields come from the profile; tailored fields from the model", () => {
     const out = assembleResume(PROFILE, {
-      headline: "Tailored headline",
+      headlineFocus: "Tailored headline",
       summary: "Tailored summary.",
       skills: ["React", "TypeScript"],
       experience: [
@@ -69,13 +87,15 @@ describe("assembleResume", () => {
     // Deterministic — verbatim from the ParsedProfile.
     expect(out.name).toBe("Alex Morgan");
     expect(out.contact).toBe("alex@example.com | 555-0100 | github.com/alex");
-    expect(out.education).toBe("M.S. CS · B.A. Math");
+    // Education ordered most-advanced first; certifications passed through.
+    expect(out.education).toEqual(["M.S. CS", "B.A. Math"]);
+    expect(out.certifications).toEqual(["AWS Solutions Architect Associate"]);
     expect(out.experience.map((e) => [e.role, e.company, e.dates])).toEqual([
-      ["Senior Engineer", "Cobalt Labs", "2021 – Present"],
+      ["Lead AI/ML Engineer", "Cobalt Labs", "2021 – Present"],
       ["Engineer", "Tin Co", "2018 – 2021"],
     ]);
-    // Tailored.
-    expect(out.headline).toBe("Tailored headline");
+    // Headline = deterministic role identity ("Lead" stripped) + tailored focus.
+    expect(out.headline).toBe("AI/ML Engineer | Tailored headline");
     expect(out.summary).toBe("Tailored summary.");
     expect(out.skills).toEqual(["React", "TypeScript"]);
     expect(out.experience[0].bullets).toEqual(["Tailored A", "Tailored B"]);
@@ -84,7 +104,7 @@ describe("assembleResume", () => {
 
   test("matches tailored bullets by company when order/index differs", () => {
     const out = assembleResume(PROFILE, {
-      headline: "h", summary: "s", skills: [],
+      headlineFocus: "h", summary: "s", skills: [],
       experience: [
         { company: "Tin Co", bullets: ["Z-tailored"] },
         { company: "Cobalt Labs", bullets: ["Cobalt-tailored"] },
@@ -97,7 +117,7 @@ describe("assembleResume", () => {
 
   test("falls back to source bullets when a tailored role is missing or empty", () => {
     const out = assembleResume(PROFILE, {
-      headline: "h", summary: "s", skills: [],
+      headlineFocus: "h", summary: "s", skills: [],
       experience: [
         { company: "Cobalt Labs", bullets: [] }, // empty → fall back
         // Tin Co omitted entirely → fall back

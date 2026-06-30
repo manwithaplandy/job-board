@@ -3,6 +3,7 @@
 import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
+import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { ResumePanel } from "./ResumePanel";
 
 // Palette from reference getBaseJobs() — same as JobCard
@@ -62,6 +63,10 @@ export function JobDetail({
     .filter(Boolean)
     .join(" · ");
   const postedText = "Posted " + fmtPosted(job.first_seen_at, nowIso);
+
+  // One-click apply: the hosted apply form for this job (null when no url).
+  const applyHref = applyUrl(job.ats, job.url);
+  const atsLabel = job.ats ? job.ats.charAt(0).toUpperCase() + job.ats.slice(1) : "site";
 
   // Per-job gen state
   const genState = gen[job.id];
@@ -275,7 +280,7 @@ export function JobDetail({
       </div>
 
       {/* ── Operator action row ── */}
-      {(job.human_override || (isAuthed && job.verdict === "approve")) && (
+      {(applyHref || job.human_override || (isAuthed && job.verdict === "approve")) && (
         <div
           style={{
             display: "flex",
@@ -317,6 +322,30 @@ export function JobDetail({
             >
               Reject
             </button>
+          )}
+          {applyHref && (
+            <a
+              href={applyHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "7px",
+                fontWeight: 700,
+                fontSize: "13.5px",
+                color: "#fff",
+                background: "#3b6fd4",
+                border: "none",
+                borderRadius: "10px",
+                padding: "9px 18px",
+                cursor: "pointer",
+                textDecoration: "none",
+                boxShadow: "0 3px 10px rgba(59,111,212,.26)",
+              }}
+            >
+              Apply on {atsLabel}<span style={{ fontSize: "15px" }}>→</span>
+            </a>
           )}
         </div>
       )}

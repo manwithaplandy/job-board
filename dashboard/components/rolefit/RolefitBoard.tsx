@@ -436,6 +436,10 @@ export function RolefitBoard({
           else delete next[job.id];
           return next;
         });
+        // Clear the optimistic "Applied" Undo toast for this job — the mark didn't
+        // persist, so its Undo would fire unmarkApplied on a never-applied job. Leave
+        // any other job's toast intact. The error banner below is the only signal.
+        setToast((t) => (t?.kind === "apply" && t.jobId === job.id ? null : t));
         showActionError("Couldn’t mark as applied. Please try again.");
       });
     });

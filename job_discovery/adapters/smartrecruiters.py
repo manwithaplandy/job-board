@@ -103,10 +103,10 @@ def fetch_smartrecruiters(token: str) -> list[Posting]:
                 # HTTP-200 detail body must not abort the whole company fetch.
                 detail = get_json(f"{base}/{pid}")
                 posting = parse_smartrecruiters_posting(detail)
-            except Exception:  # detail unavailable/unparseable: keep, don't drop
+            except Exception as exc:  # detail unavailable/unparseable: keep, don't drop
                 log.warning(
-                    "smartrecruiters: detail unavailable for %s/%s; keeping minimal posting",
-                    token, pid,
+                    "smartrecruiters: detail unavailable for %s/%s; keeping minimal posting: %s: %s",
+                    token, pid, type(exc).__name__, exc,
                 )
                 posting = _minimal_posting(token, item)
             if posting is not None:

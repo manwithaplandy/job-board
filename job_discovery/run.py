@@ -16,7 +16,13 @@ def _run_prune(conn) -> None:
         log.exception("prune phase failed; poll results unaffected")
 
 
-def run(dsn: str | None = None) -> None:
+def run(dsn: str | None = None) -> dict:
+    """Execute one poll cycle.
+
+    Returns a counts dict with keys ``ok``, ``failed``, ``new_jobs``,
+    ``closed_jobs``.  Callers (e.g. ``__main__``) use this to decide the
+    process exit code.
+    """
     targets = load_targets()
     conn = db.connect(dsn)
     try:
@@ -27,7 +33,7 @@ def run(dsn: str | None = None) -> None:
         ).fetchone()["locked"]
         if not locked:
             log.warning("another poll run holds the lock; exiting")
-            return
+            return {"ok": 0, "failed": 0, "new_jobs": 0, "closed_jobs": 0}
 
         over, size_mb, ceiling_mb = db.over_size_ceiling(conn)
         if over:
@@ -35,11 +41,19 @@ def run(dsn: str | None = None) -> None:
                 "DB at %.0f MB >= ceiling %.0f MB; skipping poll to stay under the "
                 "disk limit (no jobs written this run)", size_mb, ceiling_mb,
             )
+            # Record the ceiling-guard fire so operators can see it in poll_runs.
+            note = f"skipped: db at {size_mb:.0f} MB >= ceiling {ceiling_mb:.0f} MB"
+            run_id = db.start_run(conn)
+            db.finish_run(conn, run_id,
+                          companies_ok=0, companies_failed=0,
+                          new_jobs=0, closed_jobs=0, notes=note)
+            conn.commit()
             # Still prune when the ceiling is breached: prune is delete/strip-only
             # and is the only automated mechanism that can shrink the DB back under
             # the ceiling.  Skipping it here would stall recovery.
             _run_prune(conn)
-            return
+            return {"ok": 0, "failed": 0, "new_jobs": 0, "closed_jobs": 0}
+
         run_id = db.start_run(conn)
         db.sync_seed(conn, targets)
         conn.commit()
@@ -114,3 +128,5 @@ def run(dsn: str | None = None) -> None:
         _run_prune(conn)
     finally:
         conn.close()
+
+    return {"ok": ok, "failed": failed, "new_jobs": new_jobs, "closed_jobs": closed_jobs}

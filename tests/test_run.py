@@ -381,3 +381,41 @@ def test_second_concurrent_run_exits_cleanly(conn, monkeypatch, caplog):
     # Release the lock so the test's conn isn't left dirty.
     conn.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
     conn.commit()
+
+
+# ── A9: honest exit codes + over-ceiling accounting ──────────────────────────
+
+@requires_db
+def test_all_companies_failed_exits_nonzero(conn, monkeypatch):
+    """run() must return a counts dict with ok=0, failed>0 when all companies fail.
+    __main__ uses this dict to decide sys.exit(1)."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Bad", "ats": "lever", "token": "bad"}])
+    monkeypatch.setitem(ADAPTERS, "lever", lambda token: (_ for _ in ()).throw(RuntimeError("api down")))
+
+    counts = run_module.run()
+
+    assert counts is not None, "run() must return a counts dict"
+    assert counts["ok"] == 0
+    assert counts["failed"] == 1
+
+
+@requires_db
+def test_over_ceiling_run_writes_poll_run_row(conn, monkeypatch):
+    """When the DB is over the size ceiling, run() must still write a poll_run row
+    so operators can see that the guard fired (not a silent skip)."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets", lambda: [])
+    # Force over-ceiling.
+    monkeypatch.setattr(run_module.db, "over_size_ceiling",
+                        lambda conn: (True, 9000.0, 6000.0))
+
+    run_module.run()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM poll_runs ORDER BY id DESC LIMIT 1")
+        row = cur.fetchone()
+    assert row is not None, "poll_run row must be written even when over ceiling"
+    assert row["finished_at"] is not None
+    assert "ceiling" in (row["notes"] or "").lower() or "skipped" in (row["notes"] or "").lower()

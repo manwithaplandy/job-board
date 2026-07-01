@@ -254,10 +254,10 @@ def _ingest_items(
             # onto the cxs base. Both the fetch and the parse live inside the try.
             detail = get_json(f"{cxs}{external_path}")
             posting = parse_workday_job(item, detail, host=host, site=site)
-        except Exception:  # detail unavailable/unparseable: keep, don't drop
+        except Exception as exc:  # detail unavailable/unparseable: keep, don't drop
             log.warning(
-                "workday: detail unavailable for %s%s; keeping minimal posting",
-                host, external_path,
+                "workday: detail unavailable for %s%s; keeping minimal posting: %s: %s",
+                host, external_path, type(exc).__name__, exc,
             )
             posting = _minimal_posting(item, host=host, site=site)
         if posting is not None:

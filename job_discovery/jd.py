@@ -7,10 +7,22 @@ _BLANKLINES_RE = re.compile(r"\n\s*\n\s*")
 
 
 def html_to_text(s: str) -> str:
-    """Convert (possibly entity-escaped) HTML to readable plain text."""
-    unescaped = _html.unescape(s)          # &lt;div&gt; -> <div>
-    no_tags = _TAG_RE.sub(" ", unescaped)  # strip tags
-    text = _html.unescape(no_tags)         # decode entities inside text (&amp; -> &)
+    """Convert (possibly entity-escaped) HTML to readable plain text.
+
+    Ordering matters: we strip tags *before* unescaping so that entities
+    embedded in text content (e.g. ``&lt;`` as a less-than sign, not a tag
+    opener) survive tag-stripping intact.
+
+    Pre-pass: some ATSes double-escape the entire document, so the string
+    arrives with no literal ``<`` characters at all.  In that case we decode
+    once first so the tag-stripping pass has real ``<…>`` to remove.
+    """
+    if "<" not in s:
+        # Fully entity-escaped document: unescape first, then fall through to
+        # the normal strip-then-unescape path.
+        s = _html.unescape(s)
+    no_tags = _TAG_RE.sub(" ", s)   # strip tags before any further unescaping
+    text = _html.unescape(no_tags)  # decode remaining entities inside text
     text = _SPACES_RE.sub(" ", text)
     text = _BLANKLINES_RE.sub("\n\n", text)
     return text.strip()

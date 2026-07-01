@@ -1,3 +1,5 @@
+import pytest
+
 from job_discovery.jd import extract_description, html_to_text
 
 
@@ -39,3 +41,24 @@ def test_extract_returns_none_when_absent():
     assert extract_description("lever", {}) is None
     assert extract_description("ashby", {"descriptionPlain": ""}) is None
     assert extract_description("unknown", {"descriptionPlain": "x"}) is None
+
+
+# ── A9: entity order fix ──────────────────────────────────────────────────────
+
+def test_entities_inside_text_survive():
+    """Entities embedded in real text (not marking HTML tags) must survive
+    tag-stripping — they should appear as literal characters, not be lost."""
+    # A common case: compensation ranges using < and > as comparison operators.
+    # Before the fix: unescape first → &lt; becomes < → treated as a tag opener
+    # and stripped. After the fix: strip tags first, then unescape.
+    assert html_to_text("<p>comp: 100k &lt; base &gt; equity</p>") == "comp: 100k < base > equity"
+
+
+def test_fully_entity_escaped_html_is_decoded():
+    """Some ATSes send the entire HTML double-escaped. The pre-pass must detect
+    that there are no literal '<' characters and unescape before tag-stripping."""
+    raw = "&lt;div&gt;&lt;h2&gt;About&lt;/h2&gt;&lt;p&gt;We build A &amp; B&lt;/p&gt;&lt;/div&gt;"
+    out = html_to_text(raw)
+    assert "<" not in out and "&lt;" not in out
+    assert "About" in out
+    assert "A & B" in out

@@ -68,3 +68,15 @@ export function facetCounts(jobs: JobRow[]): {
   }
   return { categories, locations };
 }
+
+// Partition the board by application status. `applied` holds the ids of jobs the
+// viewer has marked applied. The default board hides them (like a reject); the
+// Applied view shows only them. Applied state lives in the loaded packages (client
+// side), mirroring the rejectedIds hide in RolefitBoard — not the SQL query.
+export function filterByApplied(
+  jobs: JobRow[],
+  applied: ReadonlySet<string>,
+  appliedView: boolean,
+): JobRow[] {
+  return jobs.filter((j) => (appliedView ? applied.has(j.id) : !applied.has(j.id)));
+}

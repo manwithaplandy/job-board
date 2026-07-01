@@ -12,10 +12,8 @@ import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import {
   markApplicationApplied, unmarkApplicationApplied,
+  persistRegeneratedResume, persistRegeneratedCover,
 } from "@/app/actions/applications";
-// Resume/cover persistence is now server-side (D7). These no-ops satisfy the
-// component's prop contract until the component is updated to make them optional.
-const _noop = async (): Promise<void> => {};
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import { dbLimit } from "@/lib/dbLimit";
@@ -47,13 +45,23 @@ export default async function Page({
   let applicationPackages: ApplicationPackage[] = [];
   let initialFilters: BoardFilterState;
   if (viewerId) {
-    const [jobs, pollRun, reviewStats, profile, packages] = await Promise.all([
+    // The jobs query runs alongside a bounded-2 batch of the four authed
+    // queries (dbLimit), keeping at most 3 queries in flight — the pool max.
+    const [jobs, authed] = await Promise.all([
       jobsP,
-      getLatestPollRun(),
-      getReviewStats(viewerId),
-      getProfile(viewerId),
-      getApplicationPackages(viewerId),
+      dbLimit<unknown>([
+        () => getLatestPollRun(),
+        () => getReviewStats(viewerId),
+        () => getProfile(viewerId),
+        () => getApplicationPackages(viewerId),
+      ]),
     ]);
+    const [pollRun, reviewStats, profile, packages] = authed as [
+      Awaited<ReturnType<typeof getLatestPollRun>>,
+      Awaited<ReturnType<typeof getReviewStats>>,
+      Awaited<ReturnType<typeof getProfile>>,
+      Awaited<ReturnType<typeof getApplicationPackages>>,
+    ];
     operator = {
       health: computeHealth(
         pollRun ? { finished_at: pollRun.finished_at, failures: pollRun.companies_failed } : null,
@@ -79,8 +87,8 @@ export default async function Page({
         unrejectJob={unrejectJob}
         markApplied={markApplicationApplied}
         unmarkApplied={unmarkApplicationApplied}
-        persistResume={_noop}
-        persistCover={_noop}
+        persistResume={persistRegeneratedResume}
+        persistCover={persistRegeneratedCover}
         operator={operator}
         hasProfile={hasProfile}
         resumeText={resumeText}
@@ -104,8 +112,8 @@ export default async function Page({
         unrejectJob={unrejectJob}
         markApplied={markApplicationApplied}
         unmarkApplied={unmarkApplicationApplied}
-        persistResume={_noop}
-        persistCover={_noop}
+        persistResume={persistRegeneratedResume}
+        persistCover={persistRegeneratedCover}
         operator={undefined}
         hasProfile={false}
         resumeText=""

@@ -18,6 +18,17 @@ export async function markApplicationApplied(jobId: string): Promise<void> {
   `;
 }
 
+// Transitional no-op shims: /api/resume and /api/cover-letter now persist the
+// regenerated content server-side (they upsert the application package before
+// responding), so this client-initiated persistence round-trip is redundant.
+// RolefitBoard still requires these props and calls them after a regenerate —
+// keep them as harmless server actions until the component drops the call sites
+// (a plain function can't cross the server→client component boundary).
+export async function persistRegeneratedResume(): Promise<void> {}
+
+// Cover-letter counterpart of the persistRegeneratedResume shim.
+export async function persistRegeneratedCover(): Promise<void> {}
+
 // Undo "mark applied". A content-less marker row (created by the one-click path) is
 // deleted so no phantom "prepared" package lingers; a real prepared package is
 // reverted to status='prepared' (applied_at cleared) with its content preserved.

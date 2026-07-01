@@ -144,7 +144,16 @@ export async function POST(req: Request) {
       prefilledAnswers: gh.prefilledAnswers,
       applyUrl: applyUrl(job.ats, job.url),
     });
-    return Response.json(pkg);
+    // Per-leg status so the client can surface which parts of a partially
+    // failed prepare need a retry (the package persists whatever succeeded).
+    return Response.json({
+      package: pkg,
+      status: {
+        resume: resumeResult.status === "fulfilled" ? "ok" : "failed",
+        coverLetter: coverResult.status === "fulfilled" ? "ok" : "failed",
+        answers: ghResult.status === "fulfilled" ? "ok" : "failed",
+      },
+    });
   };
 
   try {
@@ -156,6 +165,9 @@ export async function POST(req: Request) {
     }
     return await run();
   } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 502 });
+    // Generation failures are salvaged per-leg above; this catches the upsert /
+    // infrastructure path. Never leak internal error detail to the client.
+    console.error("application prepare failed", e);
+    return Response.json({ error: "Preparation failed — try again." }, { status: 502 });
   }
 }

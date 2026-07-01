@@ -32,6 +32,7 @@ export interface JobRow {
   // showMatch / verdict guards (see JobCard, FilterBar review filters).
   verdict: string | null;
   human_override: boolean;  // TRUE when the operator manually rejected this job
+  corrected?: boolean;      // TRUE when a review_corrections row overrides the model review
   role_category: string | null;
   seniority: string | null;
   work_arrangement: string | null;

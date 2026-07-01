@@ -11,7 +11,8 @@ import { getUserId } from "@/lib/auth";
 import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import {
-  markApplicationApplied, persistRegeneratedResume, persistRegeneratedCover,
+  markApplicationApplied, unmarkApplicationApplied,
+  persistRegeneratedResume, persistRegeneratedCover,
 } from "@/app/actions/applications";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
@@ -78,6 +79,7 @@ export default async function Page({
       rejectJob={rejectJob}
       unrejectJob={unrejectJob}
       markApplied={markApplicationApplied}
+      unmarkApplied={unmarkApplicationApplied}
       persistResume={persistRegeneratedResume}
       persistCover={persistRegeneratedCover}
       operator={operator}

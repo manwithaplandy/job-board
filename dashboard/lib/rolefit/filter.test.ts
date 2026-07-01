@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { applyFilters, facetCounts, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
+import { applyFilters, facetCounts, filterByApplied, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
 import type { JobRow } from "@/lib/types";
 
 function job(p: Partial<JobRow>): JobRow {
@@ -85,5 +85,24 @@ describe("facetCounts", () => {
     const f = facetCounts(jobs);
     expect(f.categories).toEqual({ Backend: 2 });
     expect(f.locations).toEqual({ NYC: 1, SF: 1 });
+  });
+});
+
+describe("filterByApplied", () => {
+  const jobs = [job({ id: "a" }), job({ id: "b" }), job({ id: "c" })];
+
+  test("default view hides applied jobs", () => {
+    const out = filterByApplied(jobs, new Set(["b"]), false);
+    expect(out.map((j) => j.id)).toEqual(["a", "c"]);
+  });
+
+  test("applied view shows only applied jobs", () => {
+    const out = filterByApplied(jobs, new Set(["b"]), true);
+    expect(out.map((j) => j.id)).toEqual(["b"]);
+  });
+
+  test("empty set: default shows all, applied view shows none", () => {
+    expect(filterByApplied(jobs, new Set(), false).map((j) => j.id)).toEqual(["a", "b", "c"]);
+    expect(filterByApplied(jobs, new Set(), true)).toEqual([]);
   });
 });

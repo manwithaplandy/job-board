@@ -99,7 +99,7 @@ export interface CompanyFunnel {
 }
 export interface JobFunnel {
   ever_seen: number; open: number; closed: number; reviewed: number;
-  gate_rejected: number; approved: number; denied: number;
+  gate_rejected: number; approved: number; applied: number; denied: number;
   manual_rejected: number; unreviewed: number; errors: number;
 }
 export interface FunnelCounts { companies: CompanyFunnel; jobs: JobFunnel }
@@ -132,12 +132,18 @@ export async function getFunnel(
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.closed_at IS NULL
     `;
+  const appliedAggRows = await sql`
+      SELECT count(*)::int AS applied
+      FROM application_packages
+      WHERE user_id = ${userId}::uuid AND status = 'applied'
+    `;
   const verdicts = await getCompanyVerdictCounts(userId);
   const stats = await getReviewStats(userId);
 
   const c = companyAggRows[0] as unknown as { tracked: number; active: number; discovery_sourced: number; reviewed: number };
   const j = jobAggRows[0] as unknown as { ever_seen: number; open: number; closed: number };
   const rv = reviewAggRows[0] as unknown as { reviewed: number; gate_rejected: number; approved: number; denied: number; manual_rejected: number };
+  const ap = appliedAggRows[0] as unknown as { applied: number };
 
   return {
     companies: {
@@ -148,7 +154,8 @@ export async function getFunnel(
     jobs: {
       ever_seen: j.ever_seen, open: j.open, closed: j.closed,
       reviewed: rv.reviewed, gate_rejected: rv.gate_rejected,
-      approved: rv.approved, denied: rv.denied, manual_rejected: rv.manual_rejected,
+      approved: rv.approved, applied: ap.applied, denied: rv.denied,
+      manual_rejected: rv.manual_rejected,
       unreviewed: stats.unreviewed, errors: stats.errors,
     },
   };

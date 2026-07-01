@@ -37,7 +37,15 @@ function initialForm(job: JobRow): CorrectionForm {
   };
 }
 
-export function ReviewPanel({ job, isAuthed }: { job: JobRow; isAuthed: boolean }) {
+export function ReviewPanel({
+  job,
+  isAuthed,
+  onCorrected,
+}: {
+  job: JobRow;
+  isAuthed: boolean;
+  onCorrected?: (jobId: string, form: CorrectionForm) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<CorrectionForm>(() => initialForm(job));
   const [saving, setSaving] = useState(false);
@@ -53,7 +61,9 @@ export function ReviewPanel({ job, isAuthed }: { job: JobRow; isAuthed: boolean 
       const res = await saveReviewCorrection(job.id, form);
       setToast(res.langfuseSynced ? "Saved." : "Saved. LangFuse sync failed — will reconcile.");
       setEditing(false);
-    } catch {
+      onCorrected?.(job.id, form);
+    } catch (e) {
+      console.error(e);
       setToast("Save failed.");
     } finally {
       setSaving(false);

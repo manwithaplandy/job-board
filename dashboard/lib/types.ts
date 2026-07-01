@@ -62,8 +62,12 @@ export interface JobRow {
   requirements?: { text: string; met: boolean }[] | null;
   description?: string | null;  // full JD plaintext (apply view)
   url?: string | null;          // apply link
-  // Dropped from every query (no render path reads them); kept optional so any
-  // stray reference still type-checks rather than silently breaking.
+  // experience_match/industry/industry_subcategory/confidence/note are detail-only,
+  // like reasoning/about/etc. above: absent from the list payload, populated on the
+  // selected job via the /api/jobs/[id] fetch (see JobReviewDetail) and consumed by
+  // the correction edit form (ReviewPanel). ats/stage1_decision/stage1_reason remain
+  // genuinely dropped from every query — no render path reads them — and are kept
+  // optional only so a stray reference still type-checks rather than silently breaking.
   ats?: string;
   experience_match?: string | null;
   industry?: string | null;

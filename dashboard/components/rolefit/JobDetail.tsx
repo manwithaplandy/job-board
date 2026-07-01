@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ApplicationAnswers, ApplicationPackage, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
+import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
 import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
@@ -75,6 +76,7 @@ export interface JobDetailProps {
   onOpenProfile: () => void;
   onReject?: (job: JobRow) => void;
   onUnapply?: (job: JobRow) => void;
+  onCorrected?: (jobId: string, form: CorrectionForm) => void;
 }
 
 export function JobDetail({
@@ -98,6 +100,7 @@ export function JobDetail({
   onOpenProfile,
   onReject,
   onUnapply,
+  onCorrected,
 }: JobDetailProps) {
   const hasReview = job.fit_score != null;
   const applied = pkg?.status === "applied";
@@ -486,7 +489,7 @@ export function JobDetail({
             onMarkApplied={() => onMarkApplied(job)}
           />
 
-          <ReviewPanel job={job} isAuthed={isAuthed} />
+          <ReviewPanel job={job} isAuthed={isAuthed} onCorrected={onCorrected} />
 
           {/* ── Requirements ── */}
           {reqs.length > 0 && (

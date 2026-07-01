@@ -79,8 +79,11 @@ CREATE TABLE profiles (
   screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb,  -- { notice_period, salary_expectation, relocation, … }
   model_cover       TEXT,                     -- OpenRouter model id; NULL = default
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  is_owner         BOOLEAN NOT NULL DEFAULT FALSE  -- exactly one row may be TRUE (enforced by one_board_owner index)
 );
+-- Prevents any second profile row from claiming board ownership.
+CREATE UNIQUE INDEX one_board_owner ON profiles ((TRUE)) WHERE is_owner;
 
 -- one current verdict per (user, job); re-review upserts in place
 CREATE TABLE job_reviews (

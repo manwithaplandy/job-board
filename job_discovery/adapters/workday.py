@@ -303,6 +303,8 @@ def _page_walk(
         if len(items) < _PAGE_LIMIT:
             break  # short page -> end of results
         page = _post_jobs(cxs, applied_facets, offset)
+        if "jobPostings" not in page:
+            raise ValueError(f"workday response missing 'jobPostings' key")
 
 
 def _crawl(
@@ -325,6 +327,8 @@ def _crawl(
     and warn that the tail is unreadable.
     """
     first = _post_jobs(cxs, applied_facets, 0)
+    if "jobPostings" not in first:
+        raise ValueError(f"workday response missing 'jobPostings' key")
     total = first.get("total") or 0
     if total < _HARD_CAP:
         _ingest_items(first.get("jobPostings") or [], sink,
@@ -332,6 +336,8 @@ def _crawl(
         offset = _PAGE_LIMIT
         while offset < total:
             page = _post_jobs(cxs, applied_facets, offset)
+            if "jobPostings" not in page:
+                raise ValueError(f"workday response missing 'jobPostings' key")
             items = page.get("jobPostings") or []
             if not items:
                 break
@@ -371,6 +377,8 @@ def fetch_workday(token: str) -> list[Posting]:
     # One unfaceted offset-0 probe drives the escalation decision and doubles as
     # page 1 of the unfaceted walk (so a small tenant costs no extra call).
     first = _post_jobs(cxs, {}, 0)
+    if "jobPostings" not in first:
+        raise ValueError(f"workday response missing 'jobPostings' key")
     facets = first.get("facets")
     true_total = _true_total(facets, first.get("total"))
     partition = _facet_values(facets, _PARTITION_FACET)

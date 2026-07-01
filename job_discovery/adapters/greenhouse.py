@@ -5,7 +5,7 @@ from job_discovery.normalize import detect_remote
 
 def parse_greenhouse(data: dict) -> list[Posting]:
     postings: list[Posting] = []
-    for j in data.get("jobs", []):
+    for j in data.get("jobs") or []:
         loc = (j.get("location") or {}).get("name")
         depts = j.get("departments") or []
         dept = depts[0].get("name") if depts else None
@@ -25,4 +25,7 @@ def parse_greenhouse(data: dict) -> list[Posting]:
 
 def fetch_greenhouse(token: str) -> list[Posting]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
-    return parse_greenhouse(get_json(url))
+    data = get_json(url)
+    if "jobs" not in data:
+        raise ValueError(f"greenhouse response missing 'jobs' key")
+    return parse_greenhouse(data)

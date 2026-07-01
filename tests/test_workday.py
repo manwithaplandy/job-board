@@ -454,6 +454,15 @@ def test_small_tenant_with_facets_stays_on_unfaceted_walk(monkeypatch):
     assert all(b["appliedFacets"] == {} for b in bodies)  # never partitioned
 
 
+# ── A3: missing top-level key ─────────────────────────────────────────────────
+
+
+def test_missing_jobpostings_key_raises(monkeypatch):
+    monkeypatch.setattr(workday, "post_json", lambda url, json=None: {"error": "gone"})
+    with pytest.raises(ValueError, match="missing 'jobPostings'"):
+        fetch_workday("acme:wd5:External")
+
+
 def test_oversized_partition_without_splitter_pages_to_cap_and_warns(monkeypatch, caplog):
     # A partition over the cap whose facets offer no value below the cap cannot be
     # sub-divided; the crawl must page it up to the hard cap (never looping past

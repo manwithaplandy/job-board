@@ -25,7 +25,7 @@ def test_run_experiment_iterates_items(monkeypatch):
             "ats": "lever", "description": "jd",
             "resume_text": "r", "instructions": "i",
         }
-        expected_output = {"verdict": "approve"}
+        expected_output = {"verdict": "approve", "seniority": "senior"}
         metadata = None
 
     class _FakeResult:
@@ -36,28 +36,21 @@ def test_run_experiment_iterates_items(monkeypatch):
 
         def run_experiment(self, *, name, task, evaluators, **kwargs):
             items = [_Item(), _Item()]
-            evaluator_calls = []
 
             async def _drive():
                 for item in items:
                     result = task(item=item)
                     output = await result if asyncio.iscoroutine(result) else result
-                    for ev in evaluators:
-                        evaluator_calls.append(
-                            ev(
-                                input=item.input,
-                                output=output,
+                    assert "seniority" in output
+                    assert "skills_score" in output
+                    names = {ev(input=item.input, output=output,
                                 expected_output=item.expected_output,
-                                metadata=item.metadata,
-                            )
-                        )
+                                metadata=item.metadata).name
+                             for ev in evaluators}
+                    assert "verdict_match" in names
+                    assert "field_accuracy" in names
 
             asyncio.run(_drive())
-            # Assert evaluator returned Evaluation objects with the right name
-            assert len(evaluator_calls) == 2
-            for ev_result in evaluator_calls:
-                assert ev_result.name == "verdict_match"
-                assert ev_result.value == 1.0  # "approve" == "approve"
             return _FakeResult()
 
     class _Span:

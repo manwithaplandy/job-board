@@ -4,6 +4,20 @@ from observability import tracing
 from reviewer.schemas import TAXONOMY_TEXT, Stage1Result, Stage2Result
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
+
+
+class OutOfCreditsError(Exception):
+    """OpenRouter returned HTTP 402 (insufficient credits). Halt the batch; do not retry."""
+
+
+def _is_out_of_credits(exc: Exception) -> bool:
+    if getattr(exc, "status_code", None) == 402 or getattr(exc, "status", None) == 402:
+        return True
+    resp = getattr(exc, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) == 402:
+        return True
+    text = str(exc).lower()
+    return "402" in text and "credit" in text
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 _STAGE1_INSTRUCTIONS = (
@@ -71,15 +85,20 @@ class ReviewClient:
         self.model_stage2 = model_stage2 or os.environ.get("REVIEW_MODEL_STAGE2", DEFAULT_MODEL)
 
     async def _call(self, *, model: str, max_tokens: int, system: str, user: str, schema):
-        resp = await self._client.beta.chat.completions.parse(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            response_format=schema,
-        )
+        try:
+            resp = await self._client.beta.chat.completions.parse(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format=schema,
+            )
+        except Exception as exc:
+            if _is_out_of_credits(exc):
+                raise OutOfCreditsError(str(exc)) from exc
+            raise
         msg = resp.choices[0].message
         if getattr(msg, "refusal", None):
             raise ValueError(f"model refused: {msg.refusal}")

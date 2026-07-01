@@ -78,7 +78,8 @@ def test_stage2_error_isolated_keeps_stage1():
 def test_batch_continues_past_one_failure():
     client = StubClient()
     cands = [_cand("BOOM1"), _cand("SRE"), _cand("Forklift Operator")]
-    results = asyncio.run(review_batch(cands, "P", client, concurrency=2))
+    results, halted = asyncio.run(review_batch(cands, "P", client, concurrency=2))
+    assert not halted
     assert len(results) == 3
     by_title = {r.job_id.split(":")[-1]: r for r in results}
     assert by_title["BOOM1"].error is not None
@@ -132,10 +133,51 @@ def test_review_one_traces_when_enabled_and_sampled(monkeypatch):
 import os
 import uuid
 
+import pytest
+
 from job_discovery import db as poller_db
 from job_discovery.models import Posting
 from reviewer import db as rdb
+from reviewer.llm import OutOfCreditsError
 from tests.conftest import requires_db
+
+
+class _Status402(Exception):
+    status_code = 402
+
+
+class CreditsBoomClient:
+    """Raises a 402-shaped error on the first stage1 call; subsequent calls would succeed."""
+
+    def __init__(self):
+        self.model_stage1 = "m1"
+        self.model_stage2 = "m2"
+        self.calls = 0
+
+    async def stage1(self, *, profile_block, title, company, location):
+        self.calls += 1
+        raise _Status402("insufficient credits")
+
+    async def stage2(self, **_):  # pragma: no cover
+        raise AssertionError("stage2 should never be called after halt")
+
+
+def test_402_halts_batch_without_writing_skipped_rows():
+    """402 on first job → OutOfCreditsError path sets halt; later jobs get no result."""
+    client = CreditsBoomClient()
+    cands = [
+        _cand("Boom402"),
+        _cand("SRE"),
+        _cand("DataEng"),
+    ]
+    results, halted = asyncio.run(review_batch(cands, "P", client, concurrency=1))
+    assert halted, "halt flag must be set after 402"
+    ids = {r.job_id for r in results}
+    # boom job was attempted and must not appear (OutOfCreditsError → halt, no result written)
+    # SRE and DataEng skipped due to halt → also not in results
+    assert "lever:acme:Boom402" not in ids
+    assert "lever:acme:SRE" not in ids
+    assert "lever:acme:DataEng" not in ids
 
 USER = "22222222-2222-2222-2222-222222222222"
 

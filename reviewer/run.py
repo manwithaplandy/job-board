@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from observability import tracing
 from reviewer import config, db, scoring
-from reviewer.llm import ReviewClient, build_profile_block
+from reviewer.llm import OutOfCreditsError, ReviewClient, _is_out_of_credits, build_profile_block
 
 log = logging.getLogger("reviewer")
 
@@ -96,7 +96,11 @@ async def _review_one_inner(candidate: dict, profile_block: str, client) -> Revi
             comp_score=s2.comp_score, experience_match=s2.experience_match,
             confidence=s2.confidence, red_flags=s2.red_flags, verdict=s2.verdict,
         )
+    except OutOfCreditsError:
+        raise  # let review_batch's halt logic handle it; do not write an error row
     except Exception as exc:  # per-job isolation (spec §3)
+        if _is_out_of_credits(exc):
+            raise OutOfCreditsError(str(exc)) from exc
         res.error = f"{type(exc).__name__}: {exc}"
         log.warning("review failed for %s: %s", candidate["id"], res.error)
     return res
@@ -125,15 +129,30 @@ async def review_one(candidate: dict, profile_block: str, client,
 
 async def review_batch(candidates: list[dict], profile_block: str, client,
                        concurrency: int, *, user_id: str | None = None,
-                       run_id=None) -> list[ReviewResult]:
+                       run_id=None) -> tuple[list[ReviewResult], bool]:
+    """Return (results, halted).
+
+    Skipped jobs (due to halt) are excluded from results so they stay retryable.
+    halted=True means a 402 was encountered and remaining candidates were skipped.
+    """
     sem = asyncio.Semaphore(concurrency)
+    halt = asyncio.Event()
 
-    async def _guarded(c: dict) -> ReviewResult:
+    async def _guarded(c: dict) -> ReviewResult | None:
+        if halt.is_set():
+            return None  # skipped: stay retryable (no row written)
         async with sem:
-            return await review_one(c, profile_block, client,
-                                    user_id=user_id, run_id=run_id)
+            if halt.is_set():
+                return None
+            try:
+                return await review_one(c, profile_block, client,
+                                        user_id=user_id, run_id=run_id)
+            except OutOfCreditsError:
+                halt.set()
+                return None
 
-    return await asyncio.gather(*[_guarded(c) for c in candidates])
+    raw = await asyncio.gather(*[_guarded(c) for c in candidates])
+    return [r for r in raw if r is not None], halt.is_set()
 
 
 def _review_user(conn, profile: dict) -> None:
@@ -160,10 +179,13 @@ def _review_user(conn, profile: dict) -> None:
             model_stage1=profile.get("model_stage1"),
             model_stage2=profile.get("model_stage2"),
         )
-        results = asyncio.run(review_batch(
+        results, halted = asyncio.run(review_batch(
             candidates, profile_block, client, config.CONCURRENCY,
             user_id=user_id, run_id=run_id,
         ))
+        if halted:
+            notes = (f"{notes}; " if notes else "") + "halted: out of credits"
+            log.warning("review halted (no credits) for %s", user_id)
 
         for r in results:
             db.upsert_review(conn, r.as_row(user_id=user_id, profile_version=pv))

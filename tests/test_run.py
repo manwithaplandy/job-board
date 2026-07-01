@@ -258,3 +258,126 @@ def test_empty_result_with_many_open_jobs_skips_close(conn, monkeypatch, caplog)
                     "(SELECT id FROM companies WHERE token='big') AND closed_at IS NULL")
         assert cur.fetchone()["n"] == 25
     assert "skipping close-detection" in caplog.text
+
+
+# ── A7: connection resilience + advisory lock ─────────────────────────────────
+
+@requires_db
+def test_rollback_failure_does_not_escape_company_handler(conn, monkeypatch):
+    """When conn.rollback() raises inside a company's error handler, the next
+    company must still be polled (the exception must not bubble out)."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(
+        run_module, "load_targets",
+        lambda: [
+            {"name": "Bad", "ats": "lever", "token": "bad"},
+            {"name": "Good", "ats": "greenhouse", "token": "good"},
+        ],
+    )
+    monkeypatch.setitem(ADAPTERS, "lever", lambda token: (_ for _ in ()).throw(RuntimeError("api down")))
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="1", title="Eng", url="u")])
+
+    rollback_calls = {"n": 0}
+    original_connect = run_module.db.connect
+
+    class _BrokenRollbackConn:
+        """Proxy that lets all calls through but makes rollback raise once."""
+        def __init__(self, real):
+            self._real = real
+        def rollback(self):
+            rollback_calls["n"] += 1
+            if rollback_calls["n"] == 1:
+                raise OSError("network gone during rollback")
+            return self._real.rollback()
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    def patched_connect(dsn=None):
+        real = original_connect(dsn)
+        return _BrokenRollbackConn(real)
+
+    monkeypatch.setattr(run_module.db, "connect", patched_connect)
+
+    run_module.run()  # must not raise
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM jobs")
+        assert cur.fetchone()["n"] == 1  # Good's job was still polled
+
+
+@requires_db
+def test_review_phase_exception_rolls_back(conn, monkeypatch):
+    """When review_all raises AFTER dirtying the connection (mid-transaction),
+    the connection must be rolled back so prune can still run cleanly (not left
+    in a failed-transaction state that makes every subsequent SQL fail)."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Good", "ats": "greenhouse", "token": "good"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="1", title="Eng", url="u")])
+
+    import reviewer.run as reviewer_run
+
+    def dirty_then_raise(c):
+        # Leave the connection in a failed-transaction state, then raise.
+        # In psycopg3, a failed SQL inside a transaction block aborts the entire
+        # transaction. Without conn.rollback() after catching review_all's
+        # exception, any subsequent SQL (in prune) will raise "current transaction
+        # is aborted".
+        try:
+            c.execute("SELECT 1/0")  # aborts the transaction block
+        except Exception:
+            pass  # don't rollback here — let run.py do it
+        raise RuntimeError("anthropic down")
+
+    monkeypatch.setattr(reviewer_run, "review_all", dirty_then_raise)
+
+    prune_exceptions = []
+    import job_discovery.prune as prune_module
+
+    def catching_prune(c):
+        try:
+            # A simple SELECT verifies the connection is in a clean state.
+            c.execute("SELECT 1")
+            return prune_module.prune_jobs.__wrapped__(c) if hasattr(prune_module.prune_jobs, "__wrapped__") else {}
+        except Exception as e:
+            prune_exceptions.append(e)
+            raise
+
+    original_prune = prune_module.prune_jobs
+    monkeypatch.setattr(prune_module, "prune_jobs", catching_prune)
+
+    run_module.run()  # must not raise
+
+    # If prune had exceptions (e.g. "current transaction is aborted"), it means
+    # the connection was NOT rolled back after review_all raised — that's the bug.
+    assert prune_exceptions == [], \
+        f"prune got exceptions (conn not rolled back): {prune_exceptions}"
+
+
+@requires_db
+def test_second_concurrent_run_exits_cleanly(conn, monkeypatch, caplog):
+    """When another process holds the advisory lock, run() must log a warning
+    and return without writing a poll_run row (clean early exit, no exception)."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+
+    # Hold the advisory lock on our test conn so the run() conn cannot acquire it.
+    lock_key = conn.execute(
+        "SELECT hashtext('job_discovery_poll') AS k"
+    ).fetchone()["k"]
+    conn.execute("SELECT pg_advisory_lock(%s)", (lock_key,))
+    conn.commit()
+
+    run_module.run()  # must return cleanly (not raise)
+
+    # No poll_run row should have been written.
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM poll_runs")
+        assert cur.fetchone()["n"] == 0
+
+    assert "already running" in caplog.text or "holds the lock" in caplog.text
+
+    # Release the lock so the test's conn isn't left dirty.
+    conn.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
+    conn.commit()

@@ -20,6 +20,15 @@ def run(dsn: str | None = None) -> None:
     targets = load_targets()
     conn = db.connect(dsn)
     try:
+        # Advisory lock: only one poll run at a time per DB. pg_try_advisory_lock
+        # returns TRUE if we acquired it, FALSE if another session holds it.
+        locked = conn.execute(
+            "SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked"
+        ).fetchone()["locked"]
+        if not locked:
+            log.warning("another poll run holds the lock; exiting")
+            return
+
         over, size_mb, ceiling_mb = db.over_size_ceiling(conn)
         if over:
             log.error(
@@ -68,7 +77,18 @@ def run(dsn: str | None = None) -> None:
                 conn.commit()
                 ok += 1
             except Exception as exc:  # per-company isolation (incl. dead boards)
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except Exception:
+                    log.exception("rollback failed for %s; attempting reconnect",
+                                  co["name"])
+                    try:
+                        conn = db.connect(dsn)
+                    except Exception:
+                        log.exception("reconnect failed; aborting poll")
+                        failures.append(f"{co['name']}: {type(exc).__name__}: {exc}")
+                        failed += 1
+                        break
                 failed += 1
                 failures.append(f"{co['name']}: {type(exc).__name__}: {exc}")
                 log.exception("poll failed for %s (%s:%s)", co["name"], ats, token)
@@ -87,6 +107,7 @@ def run(dsn: str | None = None) -> None:
             from reviewer.run import review_all
             review_all(conn)
         except Exception:
+            conn.rollback()
             log.exception("review phase failed; poll results unaffected")
 
         _run_prune(conn)

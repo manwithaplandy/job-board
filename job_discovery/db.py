@@ -9,7 +9,15 @@ from job_discovery.models import Posting
 
 def connect(dsn: str | None = None) -> psycopg.Connection:
     dsn = dsn or os.environ["DATABASE_URL"]
-    return psycopg.connect(dsn, row_factory=dict_row)
+    return psycopg.connect(
+        dsn,
+        row_factory=dict_row,
+        connect_timeout=10,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=3,
+    )
 
 
 # The Supabase Pro volume is 8 GB. A poll now stores only the distilled JD text

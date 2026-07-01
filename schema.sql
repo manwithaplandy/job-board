@@ -118,6 +118,45 @@ CREATE TABLE job_reviews (
 CREATE INDEX idx_job_reviews_user_verdict ON job_reviews (user_id, verdict);
 CREATE INDEX idx_job_reviews_user_profile_version ON job_reviews (user_id, profile_version);
 
+-- Human corrections to model reviews — a golden-dataset OVERLAY. Never mutates
+-- job_reviews or the reviewer pipeline; read-time COALESCE lets it drive display.
+-- model_snapshot preserves the model's job_reviews values at correction time so
+-- the model-vs-human diff survives later re-reviews.
+CREATE TABLE review_corrections (
+  user_id              UUID NOT NULL,
+  job_id               TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  verdict              TEXT CHECK (verdict IN ('approve','deny')),
+  experience_match     TEXT CHECK (experience_match IN
+                         ('step_down','match','reach','far_reach')),
+  industry             TEXT,
+  industry_subcategory TEXT,
+  confidence           TEXT CHECK (confidence IN ('low','medium','high')),
+  role_category        TEXT,
+  seniority            TEXT,
+  work_arrangement     TEXT CHECK (work_arrangement IN
+                         ('remote','hybrid','onsite','unknown')),
+  skills_score         INT,
+  experience_score     INT,
+  comp_score           INT,
+  fit_score            INT,        -- recomputed from corrected sub-scores at save time
+  reasoning            TEXT,
+  about                TEXT,
+  pay_min              INT,
+  pay_max              INT,
+  pay_currency         TEXT,
+  pay_period           TEXT CHECK (pay_period IN ('year','hour','month')),
+  headcount            TEXT,
+  red_flags            JSONB NOT NULL DEFAULT '[]'::jsonb,
+  skill_gaps           JSONB NOT NULL DEFAULT '[]'::jsonb,
+  benefits             JSONB NOT NULL DEFAULT '[]'::jsonb,
+  requirements         JSONB NOT NULL DEFAULT '[]'::jsonb,
+  model_snapshot       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  note                 TEXT,
+  corrected_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, job_id)
+);
+CREATE INDEX idx_review_corrections_user ON review_corrections (user_id);
+
 -- accounting, mirrors poll_runs
 CREATE TABLE review_runs (
   id            SERIAL PRIMARY KEY,

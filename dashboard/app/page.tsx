@@ -15,6 +15,7 @@ import {
 } from "@/app/actions/applications";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
+import { dbLimit } from "@/lib/dbLimit";
 import type { ApplicationAnswers, ApplicationPackage, OperatorSignals } from "@/lib/types";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 
@@ -32,7 +33,7 @@ export default async function Page({
   const ownerLocations = owner.locations;
   await searchParams; // filters now client-side; keep the param contract
   const filters = parseFilters({}, { include: DEFAULT_INCLUDE_KEYWORDS });
-  const jobs = await getJobs(filters, ownerId, ownerLocations);
+  const jobsP = getJobs(filters, ownerId, ownerLocations);
 
   // Operator-only telemetry — not fetched or exposed to anonymous visitors.
   // Profile drives the header button label + modal prefill; anon path keeps the defaults.
@@ -43,11 +44,14 @@ export default async function Page({
   let applicationPackages: ApplicationPackage[] = [];
   let initialFilters: BoardFilterState;
   if (viewerId) {
-    const [pollRun, reviewStats, profile, packages] = await Promise.all([
-      getLatestPollRun(),
-      getReviewStats(viewerId),
-      getProfile(viewerId),
-      getApplicationPackages(viewerId),
+    const [jobs, [pollRun, reviewStats, profile, packages]] = await Promise.all([
+      jobsP,
+      dbLimit([
+        () => getLatestPollRun(),
+        () => getReviewStats(viewerId),
+        () => getProfile(viewerId),
+        () => getApplicationPackages(viewerId),
+      ]),
     ]);
     operator = {
       health: computeHealth(
@@ -62,28 +66,47 @@ export default async function Page({
     applicationAnswers = profile ? applicationAnswersFromProfile(profile) : null;
     applicationPackages = packages;
     initialFilters = parseBoardFilters(profile?.board_filters);
+    return (
+      <RolefitBoard
+        jobs={jobs}
+        nowIso={new Date().toISOString()}
+        isOperator={!!ownerId}
+        isAuthed={!!viewerId}
+        initialFilters={initialFilters}
+        saveResume={saveProfileResume}
+        rejectJob={rejectJob}
+        unrejectJob={unrejectJob}
+        markApplied={markApplicationApplied}
+        unmarkApplied={unmarkApplicationApplied}
+        operator={operator}
+        hasProfile={hasProfile}
+        resumeText={resumeText}
+        applicationAnswers={applicationAnswers}
+        initialPackages={applicationPackages}
+      />
+    );
   } else {
+    const jobs = await jobsP;
     const store = await cookies();
     initialFilters = parseBoardFilters(store.get("board_filters")?.value);
+    return (
+      <RolefitBoard
+        jobs={jobs}
+        nowIso={new Date().toISOString()}
+        isOperator={!!ownerId}
+        isAuthed={false}
+        initialFilters={initialFilters}
+        saveResume={saveProfileResume}
+        rejectJob={rejectJob}
+        unrejectJob={unrejectJob}
+        markApplied={markApplicationApplied}
+        unmarkApplied={unmarkApplicationApplied}
+        operator={undefined}
+        hasProfile={false}
+        resumeText=""
+        applicationAnswers={null}
+        initialPackages={[]}
+      />
+    );
   }
-
-  return (
-    <RolefitBoard
-      jobs={jobs}
-      nowIso={new Date().toISOString()}
-      isOperator={!!ownerId}
-      isAuthed={!!viewerId}
-      initialFilters={initialFilters}
-      saveResume={saveProfileResume}
-      rejectJob={rejectJob}
-      unrejectJob={unrejectJob}
-      markApplied={markApplicationApplied}
-      unmarkApplied={unmarkApplicationApplied}
-      operator={operator}
-      hasProfile={hasProfile}
-      resumeText={resumeText}
-      applicationAnswers={applicationAnswers}
-      initialPackages={applicationPackages}
-    />
-  );
 }

@@ -1,23 +1,9 @@
 import os
 
-from observability import tracing
+from observability.llm import OutOfCreditsError, _is_out_of_credits, traced_structured_call
 from reviewer.schemas import TAXONOMY_TEXT, Stage1BatchResult, Stage1Decision, Stage1Result, Stage2Result
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
-
-
-class OutOfCreditsError(Exception):
-    """OpenRouter returned HTTP 402 (insufficient credits). Halt the batch; do not retry."""
-
-
-def _is_out_of_credits(exc: Exception) -> bool:
-    if getattr(exc, "status_code", None) == 402 or getattr(exc, "status", None) == 402:
-        return True
-    resp = getattr(exc, "response", None)
-    if resp is not None and getattr(resp, "status_code", None) == 402:
-        return True
-    text = str(exc).lower()
-    return "402" in text and "credit" in text
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 _STAGE1_INSTRUCTIONS = (
@@ -102,59 +88,18 @@ class ReviewClient:
         self.model_stage1 = model_stage1 or os.environ.get("REVIEW_MODEL_STAGE1", DEFAULT_MODEL)
         self.model_stage2 = model_stage2 or os.environ.get("REVIEW_MODEL_STAGE2", DEFAULT_MODEL)
 
-    async def _call(self, *, model: str, max_tokens: int, system: str, user: str, schema):
-        try:
-            resp = await self._client.beta.chat.completions.parse(
-                model=model,
-                max_tokens=max_tokens,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                response_format=schema,
-            )
-        except Exception as exc:
-            if _is_out_of_credits(exc):
-                raise OutOfCreditsError(str(exc)) from exc
-            raise
-        msg = resp.choices[0].message
-        if getattr(msg, "refusal", None):
-            raise ValueError(f"model refused: {msg.refusal}")
-        if msg.parsed is None:
-            raise ValueError("OpenRouter returned no parsed output")
-        return msg.parsed, getattr(resp, "usage", None)
-
     async def _parse(self, *, model: str, max_tokens: int, system: str, user: str,
                      schema, stage: int):
-        lf = tracing.get_langfuse()
-        if lf is None:
-            parsed, _ = await self._call(
-                model=model, max_tokens=max_tokens, system=system, user=user, schema=schema
-            )
-            return parsed
-        with lf.start_as_current_observation(
-            as_type="generation",
-            name=f"stage{stage}",
-            model=model,
-            input=[{"role": "system", "content": system},
-                   {"role": "user", "content": user}],
-        ) as gen:
-            parsed, usage = await self._call(
-                model=model, max_tokens=max_tokens, system=system, user=user, schema=schema
-            )
-            cost = getattr(usage, "cost", None)
-            gen.update(
-                output=parsed.model_dump(),
-                usage_details={
-                    "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                    "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                } if usage is not None else None,
-                # OpenRouter returns the actual billed USD cost on usage.cost.
-                # Langfuse has no price entry for OpenRouter-prefixed model
-                # slugs, so without this its inferred cost is always $0.
-                cost_details={"total": cost} if cost is not None else None,
-            )
-            return parsed
+        """Delegate to the shared traced call helper; adds usage accounting + span."""
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        parsed, _ = await traced_structured_call(
+            self._client, model=model, messages=messages,
+            schema=schema, name=f"stage{stage}", metadata={"max_tokens": max_tokens},
+        )
+        return parsed
 
     async def stage1_batch(self, *, profile_block: str,
                            jobs: list[dict]) -> list[Stage1Decision]:
@@ -176,11 +121,13 @@ class ReviewClient:
             extra = {"cache_control": {"type": "ephemeral"}}
         else:
             extra = {}
-        parsed, _ = await self._call(
-            model=self.model_stage1, max_tokens=2048,
-            system=system,
-            user=f"Jobs to screen:\n{numbered}",
-            schema=Stage1BatchResult,
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"Jobs to screen:\n{numbered}"},
+        ]
+        parsed, _ = await traced_structured_call(
+            self._client, model=self.model_stage1, messages=messages,
+            schema=Stage1BatchResult, name="stage1_batch", metadata={"batch_size": len(jobs)},
         )
         return parsed.decisions
 

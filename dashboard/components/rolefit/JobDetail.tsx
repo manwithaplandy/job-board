@@ -73,6 +73,7 @@ export interface JobDetailProps {
   onMarkApplied: (job: JobRow) => void;
   onOpenProfile: () => void;
   onReject?: (job: JobRow) => void;
+  onUnapply?: (job: JobRow) => void;
 }
 
 export function JobDetail({
@@ -95,8 +96,10 @@ export function JobDetail({
   onMarkApplied,
   onOpenProfile,
   onReject,
+  onUnapply,
 }: JobDetailProps) {
   const hasReview = job.fit_score != null;
+  const applied = pkg?.status === "applied";
   const fit = job.fit_score ?? 0;
   const c = fitColor(fit);
   const CIRC = 2 * Math.PI * 34;
@@ -338,7 +341,7 @@ export function JobDetail({
       </div>
 
       {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
-      {hasReview && (job.human_override || (isAuthed && job.verdict === "approve") || applyUrl) && (
+      {hasReview && (job.human_override || applied || (isAuthed && job.verdict === "approve") || applyUrl) && (
         <div
           style={{
             display: "flex",
@@ -363,7 +366,43 @@ export function JobDetail({
               Rejected · you
             </span>
           )}
-          {isAuthed && job.verdict === "approve" && (
+          {applied && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+                color: "#2f7d54",
+                background: "#e3f1e9",
+                border: "1px solid #cfe6d8",
+                borderRadius: "20px",
+                padding: "4px 11px",
+              }}
+            >
+              ✓ Applied · you
+              {onUnapply && (
+                <button
+                  type="button"
+                  onClick={() => onUnapply(job)}
+                  style={{
+                    fontWeight: 800,
+                    fontSize: "11px",
+                    color: "#2f7d54",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                    textDecoration: "underline",
+                  }}
+                >
+                  Undo
+                </button>
+              )}
+            </span>
+          )}
+          {isAuthed && job.verdict === "approve" && !applied && (
             <button
               type="button"
               onClick={() => onReject?.(job)}
@@ -379,6 +418,24 @@ export function JobDetail({
               }}
             >
               Reject
+            </button>
+          )}
+          {isAuthed && job.verdict === "approve" && !applied && (
+            <button
+              type="button"
+              onClick={() => onMarkApplied(job)}
+              style={{
+                fontWeight: 700,
+                fontSize: "12.5px",
+                color: "#2f7d54",
+                background: "#fff",
+                border: "1px solid #cfe6d8",
+                borderRadius: "9px",
+                padding: "7px 16px",
+                cursor: "pointer",
+              }}
+            >
+              Mark as applied
             </button>
           )}
           {applyUrl && <ApplyButton url={applyUrl} />}

@@ -15,6 +15,58 @@ def verdict_match(expected, actual) -> float:
     return 1.0 if expected == actual else 0.0
 
 
+GOLDEN_CATEGORICALS = [
+    "verdict", "experience_match", "industry", "industry_subcategory",
+    "role_category", "seniority", "work_arrangement", "confidence",
+]
+GOLDEN_SCORES = ["skills_score", "experience_score", "comp_score"]
+_SCORE_TOL = 10
+
+
+def _match(expected, actual) -> float:
+    return 1.0 if (expected is not None and actual is not None
+                   and expected == actual) else 0.0
+
+
+def _categorical_evaluator(field: str):
+    name = "verdict_match" if field == "verdict" else f"match_{field}"
+
+    def _ev(*, input, output, expected_output, metadata=None, **kwargs):
+        exp = (expected_output or {}).get(field)
+        act = (output or {}).get(field)
+        return Evaluation(name=name, value=_match(exp, act))
+
+    return _ev
+
+
+def _score_evaluator(field: str, tol: int = _SCORE_TOL):
+    def _ev(*, input, output, expected_output, metadata=None, **kwargs):
+        exp = (expected_output or {}).get(field)
+        act = (output or {}).get(field)
+        val = 1.0 if (exp is not None and act is not None
+                      and abs(exp - act) <= tol) else 0.0
+        return Evaluation(name=f"close_{field}", value=val)
+
+    return _ev
+
+
+def _field_accuracy_evaluator(*, input, output, expected_output, metadata=None, **kwargs):
+    exp, act = expected_output or {}, output or {}
+    fields = [f for f in GOLDEN_CATEGORICALS if f != "verdict"]
+    scored = [f for f in fields if exp.get(f) is not None]
+    hits = sum(1 for f in scored if exp.get(f) == act.get(f))
+    return Evaluation(name="field_accuracy",
+                      value=(hits / len(scored) if scored else 0.0))
+
+
+def build_evaluators() -> list:
+    return (
+        [_categorical_evaluator(f) for f in GOLDEN_CATEGORICALS]
+        + [_score_evaluator(f) for f in GOLDEN_SCORES]
+        + [_field_accuracy_evaluator]
+    )
+
+
 def seed_dataset_from_reviews(conn, name: str, limit: int) -> int:
     """Push recent stage-2 reviews as dataset items: input=job fields, expected=verdict."""
     lf = tracing.get_langfuse()

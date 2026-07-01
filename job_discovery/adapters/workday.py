@@ -330,6 +330,12 @@ def _crawl(
     if "jobPostings" not in first:
         raise ValueError(f"workday response missing 'jobPostings' key")
     total = first.get("total") or 0
+    # Total-flap fallback: total=0 but the page has items → Workday is reporting a
+    # stale/flapped total. Use the wrap-guarded _page_walk (which never relies on
+    # `total` as a stop signal) to keep paging until the genuine end of results.
+    if not total and first.get("jobPostings"):
+        _page_walk(cxs, applied_facets, first, sink, host=host, site=site)
+        return
     if total < _HARD_CAP:
         _ingest_items(first.get("jobPostings") or [], sink,
                       cxs=cxs, host=host, site=site)
@@ -401,5 +407,11 @@ def fetch_workday(token: str) -> list[Posting]:
                 continue
             _crawl(cxs, {_PARTITION_FACET: [vid]}, sink,
                    host=host, site=site, depth=1)
+        # Some postings belong to NO jobFamilyGroup facet value and therefore never
+        # appear in any per-facet slice. Walk the full unfaceted feed one more time
+        # (using the already-fetched first page) so these postings are ingested.
+        # The dedup-by-externalPath sink ensures facet-overlapping postings are not
+        # re-fetched or double-counted.
+        _page_walk(cxs, {}, first, sink, host=host, site=site)
 
     return list(sink.values())

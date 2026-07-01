@@ -410,9 +410,13 @@ def test_large_tenant_escalates_facets_subdivides_and_dedups(monkeypatch):
         "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4",
         "/job/Germany-Munich/Embedded-Systems-Engineer_JR-E5",
         "/job/France-Remote/Compiler-Engineer_JR-E6",
+        "/job/canary/JR-C1",  # A4: unfaceted walk after escalated crawl ingests these
+        "/job/canary/JR-C2",
     ])
-    assert len(ids) == len(set(ids)) == 8  # union == true total; no duplicates
-    assert not any("canary" in i for i in ids)  # page-0 items of escalated calls skipped
+    assert len(ids) == len(set(ids)) == 10  # union == true total + canary; no duplicates
+    # A4: the escalated path must also run an unfaceted walk to pick up postings
+    # with NO jobFamilyGroup facet value (the canary postings above).
+    assert any("canary" in i for i in ids)
     # dedup also skips the detail re-fetch for the overlapping e3/e4 postings
     assert gets.count("/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3") == 1
     assert gets.count("/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4") == 1
@@ -461,6 +465,130 @@ def test_missing_jobpostings_key_raises(monkeypatch):
     monkeypatch.setattr(workday, "post_json", lambda url, json=None: {"error": "gone"})
     with pytest.raises(ValueError, match="missing 'jobPostings'"):
         fetch_workday("acme:wd5:External")
+
+
+# ── A4: total-flap fallback + unfaceted walk on escalated crawls ──────────────
+
+
+def test_crawl_falls_back_to_page_walk_when_total_flaps_to_zero(monkeypatch):
+    """When a FACETED PARTITION's first page reports total=0 but still has a full
+    page of postings (Workday total-flap bug), _crawl must fall back to _page_walk
+    to keep paging and ingest all the postings — not stop after page 0.
+
+    This exercises _crawl (not the unfaceted _page_walk path): the unfaceted probe
+    returns a true_total > cap, forcing escalation to _crawl for each facet slice.
+    The ENG slice's first page shows total=0 despite having a full page of items.
+    """
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    monkeypatch.setattr(workday, "_HARD_CAP", 4)
+    # Unfaceted probe: true_total=5 (facet sum), forces escalation.
+    unfaceted = {
+        "total": 4,
+        "jobPostings": [],
+        "facets": [{"facetParameter": "jobFamilyGroup", "values": [
+            {"descriptor": "Eng", "id": "eng", "count": 3},
+            {"descriptor": "Sales", "id": "sales", "count": 2},
+        ]}],
+    }
+    # ENG partition: total flaps to 0 despite 3 real postings across 2 pages.
+    eng_pages = {
+        0: {"total": 0, "jobPostings": [
+            {"externalPath": "/job/eng/JR-E1", "title": "E1"},
+            {"externalPath": "/job/eng/JR-E2", "title": "E2"},
+        ]},
+        2: {"total": 0, "jobPostings": [
+            {"externalPath": "/job/eng/JR-E3", "title": "E3"},
+        ]},
+    }
+    # SALES partition: normal (total=2 < cap, fits in 1 page).
+    sales_page = {"total": 2, "jobPostings": [
+        {"externalPath": "/job/sales/JR-S1", "title": "S1"},
+        {"externalPath": "/job/sales/JR-S2", "title": "S2"},
+    ]}
+    offsets_by_facet: dict[str, list[int]] = {}
+
+    def fake_post_json(url, json=None):
+        applied = json.get("appliedFacets", {})
+        off = json["offset"]
+        if not applied:
+            return unfaceted  # unfaceted probe
+        facet_id = list(applied.values())[0][0]
+        offsets_by_facet.setdefault(facet_id, []).append(off)
+        if facet_id == "eng":
+            return eng_pages.get(off, {"total": 0, "jobPostings": []})
+        return sales_page if off == 0 else {"total": 2, "jobPostings": []}
+
+    def fake_get_json(url):
+        return {"jobPostingInfo": {"title": url[-6:], "externalUrl": f"https://x{url[-6:]}"}}
+
+    monkeypatch.setattr(workday, "post_json", fake_post_json)
+    monkeypatch.setattr(workday, "get_json", fake_get_json)
+    postings = fetch_workday("acme:wd5:External")
+    ids = [p.external_id for p in postings]
+    # _crawl must have paged beyond offset 0 for ENG (total-flap fallback via _page_walk).
+    assert offsets_by_facet.get("eng", []) == [0, 2], \
+        "ENG partition must have been walked to offset 2 (total-flap fallback)"
+    assert "/job/eng/JR-E1" in ids
+    assert "/job/eng/JR-E2" in ids
+    assert "/job/eng/JR-E3" in ids  # this one is missed without the fallback
+    assert "/job/sales/JR-S1" in ids
+
+
+def test_escalated_crawl_includes_unfaceted_postings(monkeypatch):
+    """After the per-facet partition loop on an escalated crawl, the adapter must
+    also do an unfaceted _page_walk to ingest postings with NO jobFamilyGroup
+    facet value (they are absent from every per-facet slice)."""
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    monkeypatch.setattr(workday, "_HARD_CAP", 4)
+    # Unfaceted probe: facet count sum = 6 > cap=4 → escalates.
+    # The probe page itself has 2 canary postings (no jobFamilyGroup).
+    unfaceted = {
+        "total": 4,
+        "jobPostings": [
+            {"externalPath": "/job/canary/JR-X1", "title": "Canary 1"},
+            {"externalPath": "/job/canary/JR-X2", "title": "Canary 2"},
+        ],
+        "facets": [{"facetParameter": "jobFamilyGroup", "values": [
+            {"descriptor": "Eng", "id": "eng", "count": 3},
+            {"descriptor": "Sales", "id": "sales", "count": 3},
+        ]}],
+    }
+    # ENG partition: 3 postings, all fit (count 3 < cap 4).
+    eng_page = {"total": 3, "jobPostings": [
+        {"externalPath": "/job/eng/JR-E1", "title": "Eng 1"},
+        {"externalPath": "/job/eng/JR-E2", "title": "Eng 2"},
+        {"externalPath": "/job/eng/JR-E3", "title": "Eng 3"},
+    ]}
+    # SALES partition: 2 postings (3 count but total=2 from first page).
+    sales_page = {"total": 2, "jobPostings": [
+        {"externalPath": "/job/sales/JR-S1", "title": "Sales 1"},
+        {"externalPath": "/job/sales/JR-S2", "title": "Sales 2"},
+    ]}
+
+    def fake_post_json(url, json=None):
+        applied = json.get("appliedFacets", {})
+        off = json["offset"]
+        if not applied:
+            return unfaceted if off == 0 else {"jobPostings": []}
+        facet_id = list(applied.values())[0][0]
+        if facet_id == "eng":
+            return eng_page if off == 0 else {"jobPostings": []}
+        return sales_page if off == 0 else {"jobPostings": []}
+
+    def fake_get_json(url):
+        return {"jobPostingInfo": {"title": url[-6:], "externalUrl": f"https://x{url[-6:]}"}}
+
+    monkeypatch.setattr(workday, "post_json", fake_post_json)
+    monkeypatch.setattr(workday, "get_json", fake_get_json)
+    postings = fetch_workday("acme:wd5:External")
+    ids = [p.external_id for p in postings]
+    # Both faceted postings AND unfaceted canary postings must be in the result.
+    assert "/job/eng/JR-E1" in ids
+    assert "/job/eng/JR-E2" in ids
+    assert "/job/eng/JR-E3" in ids
+    assert "/job/sales/JR-S1" in ids
+    assert "/job/canary/JR-X1" in ids   # unfaceted postings picked up by the trailing walk
+    assert "/job/canary/JR-X2" in ids
 
 
 def test_oversized_partition_without_splitter_pages_to_cap_and_warns(monkeypatch, caplog):

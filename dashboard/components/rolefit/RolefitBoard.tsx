@@ -5,7 +5,7 @@ import type { ApplicationAnswers, ApplicationPackage, JobRow, JobReviewDetail, O
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
-import { applyFilters, filterByApplied, sortJobs } from "@/lib/rolefit/filter";
+import { applyFilters, filterByView, sortJobs } from "@/lib/rolefit/filter";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
 import { Header } from "./Header";
@@ -77,7 +77,7 @@ export function RolefitBoard({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [appliedView, setAppliedView] = useState(false);
+  const [view, setView] = useState<"all" | "applied" | "rejected">("all");
 
   // Manual-rejection state: optimistically hidden ids + the pending Undo toast.
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
@@ -209,13 +209,13 @@ export function RolefitBoard({
   );
 
   const visible = useMemo(
-    () => filterByApplied(
-      sortJobs(applyFilters(jobs, filterState), filterState.sort)
-        .filter((j) => !rejectedIds.has(j.id)),
+    () => filterByView(
+      sortJobs(applyFilters(jobs, filterState), filterState.sort),
+      view,
+      rejectedIds,
       appliedSet,
-      appliedView,
     ),
-    [jobs, filterState, rejectedIds, appliedSet, appliedView],
+    [jobs, filterState, rejectedIds, appliedSet, view],
   );
 
   // Display-only overlay of `corrections` on top of the filtered/sorted/bucketed
@@ -307,15 +307,25 @@ export function RolefitBoard({
     if (detailRef.current) detailRef.current.scrollTop = 0;
   }, []);
 
-  const handleReject = useCallback((job: JobRow) => {
+  const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;
     setRejectedIds((prev) => new Set(prev).add(job.id));
     setSelectedId((prev) => (prev === job.id ? null : prev));
-    startReject(() => { void rejectJob(job.id); });
     setToast({ kind: "reject", jobId: job.id, priorVerdict });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 5000);
-  }, [rejectJob]);
+    try {
+      await rejectJob(job.id);
+    } catch {
+      setRejectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(job.id);
+        return next;
+      });
+      setToast(null);
+      showActionError("Couldn't save rejection — try again.");
+    }
+  }, [rejectJob, showActionError]);
 
   const handleUndo = useCallback(() => {
     if (!toast) return;
@@ -593,9 +603,10 @@ export function RolefitBoard({
         sort={sort}
         openMenu={openMenu}
         visibleCount={visible.length}
-        appliedView={appliedView}
+        view={view}
         appliedCount={appliedSet.size}
-        onToggleApplied={() => setAppliedView((v) => !v)}
+        rejectedCount={rejectedIds.size}
+        onToggleView={setView}
         onToggleMenu={toggleMenu}
         onToggleCat={toggleCat}
         onToggleLoc={toggleLoc}

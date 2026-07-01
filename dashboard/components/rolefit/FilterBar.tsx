@@ -42,9 +42,10 @@ export interface FilterBarProps {
   sort: BoardFilterState["sort"];
   openMenu: string | null;
   visibleCount: number;
-  appliedView?: boolean;
+  view?: "all" | "applied" | "rejected";
   appliedCount?: number;
-  onToggleApplied?: () => void;
+  rejectedCount?: number;
+  onToggleView?: (v: "all" | "applied" | "rejected") => void;
   onToggleMenu: (name: string) => void;
   onToggleCat: (cat: string) => void;
   onToggleLoc: (loc: string) => void;
@@ -64,9 +65,10 @@ export function FilterBar({
   sort,
   openMenu,
   visibleCount,
-  appliedView,
+  view,
   appliedCount,
-  onToggleApplied,
+  rejectedCount,
+  onToggleView,
   onToggleMenu,
   onToggleCat,
   onToggleLoc,
@@ -438,26 +440,50 @@ export function FilterBar({
         </div>
       </div>
 
-      {/* Applied view toggle — switches the list to jobs marked applied */}
-      {onToggleApplied && (
-        <button
-          onClick={onToggleApplied}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "7px",
-            fontWeight: 600,
-            fontSize: "12.5px",
-            color: appliedView ? "#2f7d54" : "#39424f",
-            background: appliedView ? "#e3f1e9" : "#ffffff",
-            border: `1px solid ${appliedView ? "#cfe6d8" : "#dfe3ea"}`,
-            borderRadius: "9px",
-            padding: "7px 11px",
-            cursor: "pointer",
-          }}
-        >
-          Applied{appliedCount ? ` · ${appliedCount}` : ""}
-        </button>
+      {/* Applied/Rejected view toggles */}
+      {onToggleView && (
+        <>
+          <button
+            type="button"
+            onClick={() => onToggleView(view === "applied" ? "all" : "applied")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px",
+              fontWeight: 600,
+              fontSize: "12.5px",
+              color: view === "applied" ? "#2f7d54" : "#39424f",
+              background: view === "applied" ? "#e3f1e9" : "#ffffff",
+              border: `1px solid ${view === "applied" ? "#cfe6d8" : "#dfe3ea"}`,
+              borderRadius: "9px",
+              padding: "7px 11px",
+              cursor: "pointer",
+            }}
+          >
+            Applied{appliedCount ? ` · ${appliedCount}` : ""}
+          </button>
+          {(rejectedCount ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => onToggleView(view === "rejected" ? "all" : "rejected")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "7px",
+                fontWeight: 600,
+                fontSize: "12.5px",
+                color: view === "rejected" ? "#a05f5f" : "#39424f",
+                background: view === "rejected" ? "#f8eded" : "#ffffff",
+                border: `1px solid ${view === "rejected" ? "#ecd6d6" : "#dfe3ea"}`,
+                borderRadius: "9px",
+                padding: "7px 11px",
+                cursor: "pointer",
+              }}
+            >
+              Rejected · {rejectedCount}
+            </button>
+          )}
+        </>
       )}
 
       <div style={{ flex: 1 }} />

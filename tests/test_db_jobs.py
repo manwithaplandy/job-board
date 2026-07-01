@@ -57,17 +57,19 @@ def test_upsert_stores_extracted_description(conn):
 
 
 @requires_db
-def test_resight_does_not_overwrite_description(conn):
+def test_resight_does_not_overwrite_pruned_description(conn):
     cid = _seed_company(conn)
     db.upsert_job(conn, cid, "lever", "acme",
                   Posting(external_id="1", title="Eng", url="https://x",
                           raw={"descriptionPlain": "Original"}))
     conn.commit()
-    # Simulate the JD being pruned to NULL after a deny.
+    # Simulate the JD being pruned to NULL after a deny (A1 sets description_pruned=TRUE).
     with conn.cursor() as cur:
-        cur.execute("UPDATE jobs SET description=NULL WHERE id='lever:acme:1'")
+        cur.execute(
+            "UPDATE jobs SET description=NULL, description_pruned=TRUE WHERE id='lever:acme:1'"
+        )
     conn.commit()
-    # Re-poll with a different JD must NOT restore description (insert-only).
+    # Re-poll with a different JD must NOT restore description when pruned.
     db.upsert_job(conn, cid, "lever", "acme",
                   Posting(external_id="1", title="Eng", url="https://x",
                           raw={"descriptionPlain": "Rewritten"}))
@@ -75,3 +77,90 @@ def test_resight_does_not_overwrite_description(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT description FROM jobs WHERE id='lever:acme:1'")
         assert cur.fetchone()["description"] is None
+
+
+# ── A5: enriched-field preservation + JD refill + no-op skip ─────────────────
+
+@requires_db
+def test_minimal_posting_does_not_null_enriched_fields(conn):
+    """A re-poll with no location must not clobber an existing location."""
+    cid = _seed_company(conn)
+    # First upsert: full posting with location.
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="1", title="Eng", url="https://x", location="NYC"))
+    conn.commit()
+    # Second upsert: same id but location=None (minimal posting).
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="1", title="Eng", url="https://x", location=None))
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT location FROM jobs WHERE id='lever:acme:1'")
+        assert cur.fetchone()["location"] == "NYC"
+
+
+@requires_db
+def test_description_refills_when_never_captured(conn):
+    """If description was never captured (NULL, description_pruned=FALSE), a re-poll
+    that provides a description must fill it in."""
+    cid = _seed_company(conn)
+    # First upsert: no description in raw.
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="1", title="Eng", url="https://x", raw={}))
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT description, description_pruned FROM jobs WHERE id='lever:acme:1'")
+        row = cur.fetchone()
+        assert row["description"] is None
+        assert row["description_pruned"] is False  # not pruned, just never captured
+    # Second upsert: now has a description.
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="1", title="Eng", url="https://x",
+                          raw={"descriptionPlain": "JD text"}))
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT description FROM jobs WHERE id='lever:acme:1'")
+        assert cur.fetchone()["description"] == "JD text"
+
+
+@requires_db
+def test_description_stays_null_when_pruned(conn):
+    """If description_pruned=TRUE, a re-poll must NOT refill the description."""
+    cid = _seed_company(conn)
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="1", title="Eng", url="https://x",
+                          raw={"descriptionPlain": "Original JD"}))
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET description=NULL, description_pruned=TRUE WHERE id='lever:acme:1'"
+        )
+    conn.commit()
+    # Re-poll with a JD must NOT refill.
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="1", title="Eng", url="https://x",
+                          raw={"descriptionPlain": "New JD"}))
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT description FROM jobs WHERE id='lever:acme:1'")
+        assert cur.fetchone()["description"] is None
+
+
+@requires_db
+def test_unchanged_row_is_not_rewritten(conn):
+    """Upserting identical data must not update xmin (no actual write)."""
+    cid = _seed_company(conn)
+    p = Posting(external_id="1", title="Eng", url="https://x", location="NYC",
+                raw={"descriptionPlain": "JD"})
+    db.upsert_job(conn, cid, "lever", "acme", p)
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT xmin FROM jobs WHERE id='lever:acme:1'")
+        xmin_before = cur.fetchone()["xmin"]
+    # Second identical upsert → no-op (WHERE filter skips the update).
+    result = db.upsert_job(conn, cid, "lever", "acme", p)
+    conn.commit()
+    assert result is False  # not new
+    with conn.cursor() as cur:
+        cur.execute("SELECT xmin FROM jobs WHERE id='lever:acme:1'")
+        xmin_after = cur.fetchone()["xmin"]
+    assert xmin_before == xmin_after  # xmin unchanged → row was not rewritten

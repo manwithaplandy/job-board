@@ -79,21 +79,34 @@ def upsert_job(conn, company_id: int, ats: str, token: str, p: Posting) -> bool:
                               location, department, remote, description)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
+                title       = EXCLUDED.title,
+                url         = EXCLUDED.url,
+                location    = COALESCE(EXCLUDED.location,    jobs.location),
+                department  = COALESCE(EXCLUDED.department,  jobs.department),
+                remote      = COALESCE(EXCLUDED.remote,      jobs.remote),
+                description = CASE WHEN jobs.description IS NULL AND NOT jobs.description_pruned
+                                   THEN EXCLUDED.description ELSE jobs.description END,
                 last_seen_at = now(),
-                closed_at    = NULL,
-                title        = EXCLUDED.title,
-                url          = EXCLUDED.url,
-                location     = EXCLUDED.location,
-                department   = EXCLUDED.department,
-                remote       = EXCLUDED.remote
-            RETURNING (xmax = 0) AS inserted
+                closed_at    = NULL
+            WHERE jobs.closed_at IS NOT NULL
+               OR (jobs.title, jobs.url) IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.url)
+               OR COALESCE(EXCLUDED.location,   jobs.location)   IS DISTINCT FROM jobs.location
+               OR COALESCE(EXCLUDED.department, jobs.department) IS DISTINCT FROM jobs.department
+               OR COALESCE(EXCLUDED.remote,     jobs.remote)     IS DISTINCT FROM jobs.remote
+               OR (jobs.description IS NULL AND NOT jobs.description_pruned
+                   AND EXCLUDED.description IS NOT NULL)
+            RETURNING (xmax = 0) AS is_new
             """,
             (
                 job_id, company_id, p.external_id, p.title, p.url,
                 p.location, p.department, p.remote, description,
             ),
         )
-        return cur.fetchone()["inserted"]
+        # A conditional DO UPDATE returns no row when the WHERE clause filters it
+        # out (no-op: nothing changed). A skipped update is by definition not new.
+        # Note: last_seen_at no longer advances for unchanged rows.
+        row = cur.fetchone()
+        return bool(row and row["is_new"])
 
 
 def compute_newly_closed(

@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@langfuse/client": "^5.9.1",
     "@langfuse/otel": "^5.9.0",
     "@langfuse/tracing": "^5.9.0",
     "@opentelemetry/sdk-node": "^0.219.0",

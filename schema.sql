@@ -265,6 +265,15 @@ CREATE TABLE application_packages (
 -- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.
 CREATE INDEX idx_application_packages_job ON application_packages (job_id);
 
+-- Applied-migrations ledger. Record each migration with:
+--   INSERT INTO schema_migrations (filename) VALUES ('<file>');
+-- when applied. Every new migration must be idempotent, transactional where
+-- possible, and recorded here so the applied set is auditable.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename   TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Row-level security. The app and reviewer connect via a privileged DIRECT connection
 -- (DATABASE_URL) that bypasses RLS; nothing is served through the anon/PostgREST API.
 -- Each table gets RLS enabled plus one explicit permissive deny-all policy so the

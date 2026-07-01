@@ -13,6 +13,9 @@ import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import {
   markApplicationApplied, unmarkApplicationApplied,
 } from "@/app/actions/applications";
+// Resume/cover persistence is now server-side (D7). These no-ops satisfy the
+// component's prop contract until the component is updated to make them optional.
+const _noop = async (): Promise<void> => {};
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import { dbLimit } from "@/lib/dbLimit";
@@ -44,14 +47,12 @@ export default async function Page({
   let applicationPackages: ApplicationPackage[] = [];
   let initialFilters: BoardFilterState;
   if (viewerId) {
-    const [jobs, [pollRun, reviewStats, profile, packages]] = await Promise.all([
+    const [jobs, pollRun, reviewStats, profile, packages] = await Promise.all([
       jobsP,
-      dbLimit([
-        () => getLatestPollRun(),
-        () => getReviewStats(viewerId),
-        () => getProfile(viewerId),
-        () => getApplicationPackages(viewerId),
-      ]),
+      getLatestPollRun(),
+      getReviewStats(viewerId),
+      getProfile(viewerId),
+      getApplicationPackages(viewerId),
     ]);
     operator = {
       health: computeHealth(
@@ -78,6 +79,8 @@ export default async function Page({
         unrejectJob={unrejectJob}
         markApplied={markApplicationApplied}
         unmarkApplied={unmarkApplicationApplied}
+        persistResume={_noop}
+        persistCover={_noop}
         operator={operator}
         hasProfile={hasProfile}
         resumeText={resumeText}
@@ -101,6 +104,8 @@ export default async function Page({
         unrejectJob={unrejectJob}
         markApplied={markApplicationApplied}
         unmarkApplied={unmarkApplicationApplied}
+        persistResume={_noop}
+        persistCover={_noop}
         operator={undefined}
         hasProfile={false}
         resumeText=""

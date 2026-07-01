@@ -46,14 +46,14 @@ describe("mergeGreenhouseQuestions", () => {
   });
 
   test("drops answers that match no option (option validation)", () => {
-    const questions: GreenhouseQuestions = { questions: [{ label: "Can you start immediately?", required: false, fields: [{ name: "q1", type: "select", options: [{ label: "Yes" }, { label: "No" }] }] }] };
+    const questions: GreenhouseQuestions = { questions: [{ label: "Can you start immediately?", required: false, fields: [{ name: "q1", type: "select", options: [{ value: "1", label: "Yes" }, { value: "2", label: "No" }] }] }] };
     const answers = [{ question: "Can you start immediately?", answer: "Yes, definitely" }];
     const merged = mergeGreenhouseQuestions(questions, answers);
     expect(merged[0].answer).toBeNull();
   });
 
   test("keeps case-insensitive exact option match", () => {
-    const questions: GreenhouseQuestions = { questions: [{ label: "Are you authorized?", required: true, fields: [{ name: "q1", type: "select", options: [{ label: "Yes" }, { label: "No" }] }] }] };
+    const questions: GreenhouseQuestions = { questions: [{ label: "Are you authorized?", required: true, fields: [{ name: "q1", type: "select", options: [{ value: "1", label: "Yes" }, { value: "2", label: "No" }] }] }] };
     const answers = [{ question: "Are you authorized?", answer: "yes" }];
     const merged = mergeGreenhouseQuestions(questions, answers);
     expect(merged[0].answer).toBe("Yes");

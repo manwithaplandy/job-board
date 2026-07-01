@@ -25,7 +25,7 @@ export interface JobReviewDetail {
   corrected: boolean;
 }
 
-export interface JobRow {
+export interface ReviewedJobRow {
   id: string;
   title: string;
   location: string | null;
@@ -77,6 +77,9 @@ export interface JobRow {
   stage1_decision?: string | null;
   stage1_reason?: string | null;
 }
+
+// Backward-compat alias so existing component imports keep compiling.
+export type JobRow = ReviewedJobRow;
 
 export interface CompanyRow {
   id: number;

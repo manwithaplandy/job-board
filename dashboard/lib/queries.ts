@@ -2,7 +2,7 @@ import { sql } from "@/lib/db";
 import { unstable_cache } from "next/cache";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, ReviewedJobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
@@ -11,14 +11,43 @@ import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 
+function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
+  const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ""));
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    location: (row.location as string | null) ?? null,
+    remote: (row.remote as boolean | null) ?? null,
+    first_seen_at: iso(row.first_seen_at),
+    closed_at: row.closed_at != null ? iso(row.closed_at) : null,
+    company_name: row.company_name as string,
+    verdict: (row.verdict as string | null) ?? null,
+    human_override: (row.human_override as boolean) ?? false,
+    corrected: row.corrected as boolean | undefined,
+    role_category: (row.role_category as string | null) ?? null,
+    seniority: (row.seniority as string | null) ?? null,
+    work_arrangement: (row.work_arrangement as string | null) ?? null,
+    pay_min: (row.pay_min as number | null) ?? null,
+    pay_max: (row.pay_max as number | null) ?? null,
+    pay_currency: (row.pay_currency as string | null) ?? null,
+    pay_period: (row.pay_period as string | null) ?? null,
+    headcount: (row.headcount as string | null) ?? null,
+    skills_score: (row.skills_score as number | null) ?? null,
+    experience_score: (row.experience_score as number | null) ?? null,
+    comp_score: (row.comp_score as number | null) ?? null,
+    fit_score: (row.fit_score as number | null) ?? null,
+    skill_gaps: (row.skill_gaps as string[] | null) ?? null,
+  };
+}
+
 export async function getJobs(
   f: Filters,
   userId: string | null,
   ownerLocations: string[] = [],
-): Promise<JobRow[]> {
+): Promise<ReviewedJobRow[]> {
   const { text, values } = buildJobsQuery(f, userId, ownerLocations);
   const rows = await sql.unsafe(text, values as never[]);
-  return rows as unknown as JobRow[];
+  return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
 }
 
 export async function getBoardOwnerId(): Promise<string | null> {

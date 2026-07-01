@@ -135,3 +135,30 @@ def finish_review_run(conn, run_id: int, *, reviewed: int, gate_rejected: int,
             """,
             (reviewed, gate_rejected, approved, denied, errors, notes, run_id),
         )
+
+
+def golden_corrections(conn) -> list[dict]:
+    """Human corrections joined to each job's review inputs, for dataset seeding.
+
+    input fields (title..instructions) reconstruct the review_one call; the
+    remaining fields are the golden expected_output. Newest-first.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT rc.user_id, rc.job_id, j.title, c.name AS company_name,
+                   j.location, c.ats, j.description,
+                   p.resume_text, p.instructions,
+                   rc.verdict, rc.experience_match, rc.industry,
+                   rc.industry_subcategory, rc.confidence, rc.role_category,
+                   rc.seniority, rc.work_arrangement,
+                   rc.skills_score, rc.experience_score, rc.comp_score,
+                   rc.note, rc.corrected_at
+            FROM review_corrections rc
+            JOIN jobs j ON j.id = rc.job_id
+            JOIN companies c ON c.id = j.company_id
+            JOIN profiles p ON p.user_id = rc.user_id
+            ORDER BY rc.corrected_at DESC
+            """
+        )
+        return cur.fetchall()

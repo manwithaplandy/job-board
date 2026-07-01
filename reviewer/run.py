@@ -95,11 +95,14 @@ async def _review_one_inner(candidate: dict, profile_block: str, client) -> Revi
         res.skill_gaps = list(s2.skill_gaps)
         res.benefits = list(s2.benefits)
         res.requirements = [r.model_dump() for r in s2.requirements]
-        res.fit_score = scoring.compute_fit(
-            skills_score=s2.skills_score, experience_score=s2.experience_score,
-            comp_score=s2.comp_score, experience_match=s2.experience_match,
-            confidence=s2.confidence, red_flags=s2.red_flags, verdict=s2.verdict,
-        )
+        if None not in (s2.skills_score, s2.experience_score, s2.comp_score):
+            res.fit_score = scoring.compute_fit(
+                skills_score=s2.skills_score, experience_score=s2.experience_score,
+                comp_score=s2.comp_score, experience_match=s2.experience_match,
+                confidence=s2.confidence, red_flags=s2.red_flags, verdict=s2.verdict,
+            )
+        # else: fit_score stays None; the fit_score IS NULL AND verdict IS NOT NULL clause
+        # in select_candidates will re-select this row for re-review on the next run.
     except OutOfCreditsError:
         raise  # let review_batch's halt logic handle it; do not write an error row
     except Exception as exc:  # per-job isolation (spec §3)

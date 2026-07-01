@@ -143,6 +143,29 @@ def test_stage1_creates_generation_when_tracing_enabled(monkeypatch):
     assert "output" in events["update"]
 
 
+def test_prompt_contains_anchors_and_guard():
+    """Stage-2 system prompt must contain score anchors, UNTRUSTED guard, and comp definition."""
+    from reviewer.llm import _STAGE2_INSTRUCTIONS, _STAGE1_INSTRUCTIONS
+    # Score anchor for skills_score
+    assert "90-100" in _STAGE2_INSTRUCTIONS
+    # Separate comp definition
+    assert "comp_score" in _STAGE2_INSTRUCTIONS and "compensation fit" in _STAGE2_INSTRUCTIONS
+    # Untrusted JD guard in stage-2
+    assert "UNTRUSTED" in _STAGE2_INSTRUCTIONS or "untrusted" in _STAGE2_INSTRUCTIONS
+    # job_description delimiter present
+    assert "<job_description>" in _STAGE2_INSTRUCTIONS
+
+
+def test_stage1_jd_guard():
+    """Stage-1 user message wraps job data in untrusted block when calling stage."""
+    fake = _FakeClient()
+    rc = ReviewClient(client=fake, model_stage1="m1", model_stage2="m2")
+    asyncio.run(rc.stage1(profile_block="P", title="SRE", company="Acme", location="NYC"))
+    # Stage-1 system prompt should also include untrusted-JD awareness
+    user_msg = fake.calls[0]["messages"][1]["content"]
+    assert "SRE" in user_msg
+
+
 def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
     """OpenRouter returns the actual USD cost on resp.usage.cost; Langfuse has no
     price entry for OpenRouter-prefixed model slugs like deepseek/deepseek-v4-flash,

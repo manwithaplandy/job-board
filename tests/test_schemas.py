@@ -63,7 +63,8 @@ def test_stage2_defaults_when_new_fields_omitted():
     assert r.role_category == "Other"
     assert r.seniority == "unknown"
     assert r.work_arrangement == "unknown"
-    assert r.skills_score == 0 and r.red_flags == [] and r.requirements == []
+    assert r.skills_score is None and r.experience_score is None and r.comp_score is None
+    assert r.red_flags == [] and r.requirements == []
     assert r.pay_min is None and r.headcount is None
 
 
@@ -95,3 +96,15 @@ def test_stage2_rejects_unknown_role_category():
 
 def test_role_categories_nonempty_and_has_other():
     assert "Other" in ROLE_CATEGORIES and len(ROLE_CATEGORIES) >= 5
+
+
+def test_missing_scores_yield_null_defaults():
+    """skills_score / experience_score / comp_score should default to None, not 0."""
+    r = Stage2Result(
+        verdict="approve", experience_match="match",
+        industry="software_internet", industry_subcategory="devtools_platforms",
+        confidence="high", reasoning="ok",
+    )
+    assert r.skills_score is None
+    assert r.experience_score is None
+    assert r.comp_score is None

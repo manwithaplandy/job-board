@@ -15,6 +15,11 @@ import { JobDetail } from "./JobDetail";
 import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
 
+type DetailState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "done"; detail: JobReviewDetail };
+
 export interface RolefitBoardProps {
   jobs: JobRow[];
   nowIso: string;
@@ -231,34 +236,33 @@ export function RolefitBoard({
   // red_flags) are not in the list payload — fetch them on job-open and cache by
   // id. JobDetail renders them as they arrive (its sections are already guarded
   // for absent fields), so the lightweight detail view shows instantly.
-  const [details, setDetails] = useState<Record<string, JobReviewDetail>>({});
-  const inFlightDetailIds = useRef<Set<string>>(new Set());
+  const [details, setDetails] = useState<Record<string, DetailState>>({});
   useEffect(() => {
+    // Fetch only when no cached state exists for the job — "loading"/"done"/"error"
+    // all short-circuit, so errors never auto-loop; Retry deletes the entry to refetch.
     if (!selectedId || details[selectedId] != null) return;
-    if (inFlightDetailIds.current.has(selectedId)) return;
-    inFlightDetailIds.current.add(selectedId);
     let cancelled = false;
+    setDetails((prev) => ({ ...prev, [selectedId]: { status: "loading" } }));
     fetch(`/api/jobs/${selectedId}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: JobReviewDetail) => {
         if (!cancelled) {
-          setDetails((prev) => ({ ...prev, [selectedId]: d }));
-          inFlightDetailIds.current.delete(selectedId);
+          setDetails((prev) => ({ ...prev, [selectedId]: { status: "done", detail: d } }));
         }
       })
       .catch((e) => {
         if (!cancelled) {
           console.error("job detail fetch failed", e);
-          inFlightDetailIds.current.delete(selectedId);
+          setDetails((prev) => ({ ...prev, [selectedId]: { status: "error" } }));
         }
       });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]); // details NOT in dep array — cached by id, never re-fetched
+  }, [selectedId, details]);
 
   const selectedJobWithDetail = useMemo(() => {
     if (!selectedJob) return null;
-    const d = details[selectedJob.id];
+    const ds = details[selectedJob.id];
+    const d = ds?.status === "done" ? ds.detail : {};
     const c = corrections[selectedJob.id];
     return { ...selectedJob, ...(d ?? {}), ...(c ?? {}) };
   }, [selectedJob, details, corrections]);
@@ -347,6 +351,16 @@ export function RolefitBoard({
       [jobId]: { ...row, note: form.note, corrected: true },
     }));
   }, []);
+
+  // Clear a failed detail fetch so the effect retries it.
+  const handleRetryDetail = useCallback(() => {
+    if (!selectedId) return;
+    setDetails((prev) => {
+      const next = { ...prev };
+      delete next[selectedId];
+      return next;
+    });
+  }, [selectedId]);
 
   // Résumé generation
   const handleGenerate = useCallback(async (job: JobRow) => {
@@ -642,6 +656,8 @@ export function RolefitBoard({
               onReject={handleReject}
               onUnapply={handleUnapply}
               onCorrected={handleCorrected}
+              detailState={details[selectedJobWithDetail.id]}
+              onRetryDetail={handleRetryDetail}
             />
           ) : (
             <div

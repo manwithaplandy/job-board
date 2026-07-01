@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ApplicationAnswers, ApplicationPackage, JobRow } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, JobReviewDetail, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
@@ -77,6 +77,8 @@ export interface JobDetailProps {
   onReject?: (job: JobRow) => void;
   onUnapply?: (job: JobRow) => void;
   onCorrected?: (jobId: string, form: CorrectionForm) => void;
+  detailState?: { status: "loading" } | { status: "error" } | { status: "done"; detail: JobReviewDetail } | undefined;
+  onRetryDetail?: () => void;
 }
 
 export function JobDetail({
@@ -101,6 +103,8 @@ export function JobDetail({
   onReject,
   onUnapply,
   onCorrected,
+  detailState,
+  onRetryDetail,
 }: JobDetailProps) {
   const hasReview = job.fit_score != null;
   const applied = pkg?.status === "applied";
@@ -490,6 +494,28 @@ export function JobDetail({
           />
 
           <ReviewPanel job={job} isAuthed={isAuthed} onCorrected={onCorrected} />
+
+          {/* Detail-fetch loading shimmer */}
+          {detailState?.status === "loading" && (
+            <div style={{ marginTop: "24px" }}>
+              {[120, 80, 60].map((h, i) => (
+                <div key={i} style={{ height: h, background: "#eef1f5", borderRadius: 8, marginTop: 12 }} />
+              ))}
+            </div>
+          )}
+          {/* Detail-fetch error */}
+          {detailState?.status === "error" && (
+            <div style={{ marginTop: "24px", padding: "16px 20px", border: "1px solid #e3e7ee", borderRadius: "12px", background: "#fdf6f5", display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ flex: 1, fontSize: "13.5px", color: "#b25a36", fontWeight: 600 }}>
+                Couldn&apos;t load full job details.
+              </div>
+              {onRetryDetail && (
+                <button type="button" onClick={onRetryDetail} style={{ fontWeight: 700, fontSize: "13px", color: "#3b6fd4", background: "#eef3fc", border: "1px solid #d8e2f6", borderRadius: "9px", padding: "7px 14px", cursor: "pointer" }}>
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
 
           {/* ── Requirements ── */}
           {reqs.length > 0 && (

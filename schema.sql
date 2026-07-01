@@ -23,7 +23,8 @@ CREATE TABLE jobs (
   first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   closed_at     TIMESTAMPTZ,                  -- set when role drops out of feed
-  description   TEXT                          -- cached full JD plaintext (from the ATS payload)
+  description   TEXT,                         -- cached full JD plaintext (from the ATS payload)
+  description_pruned BOOLEAN NOT NULL DEFAULT FALSE  -- TRUE = JD pruned by lifecycle Rule A (final); FALSE = never captured or not yet pruned
 );
 CREATE INDEX idx_jobs_first_seen ON jobs (first_seen_at DESC);
 CREATE INDEX idx_jobs_open ON jobs (closed_at) WHERE closed_at IS NULL;
@@ -32,6 +33,8 @@ CREATE INDEX idx_jobs_open ON jobs (closed_at) WHERE closed_at IS NULL;
 -- jobs table. (The whole-table funnel count still seq-scans, which is correct for a
 -- full count.) The durable fix for the /analytics load is the request-level caching.
 CREATE INDEX idx_jobs_closed_at ON jobs (closed_at);
+-- Poller: get_open_external_ids / close_jobs filter WHERE company_id = $1 AND closed_at IS NULL.
+CREATE INDEX idx_jobs_company_open ON jobs (company_id) WHERE closed_at IS NULL;
 
 CREATE TABLE poll_runs (
   id               SERIAL PRIMARY KEY,
@@ -43,6 +46,8 @@ CREATE TABLE poll_runs (
   closed_jobs      INT,
   notes            TEXT
 );
+-- Dashboard getLatestPollRun / pipeline health sort on started_at.
+CREATE INDEX idx_poll_runs_started_at ON poll_runs (started_at DESC);
 
 -- one row per user (the operator). user_id mirrors auth.users(id) in production,
 -- but no FK: auth.users is Supabase-managed and absent in the throwaway test DB.
@@ -74,8 +79,11 @@ CREATE TABLE profiles (
   screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb,  -- { notice_period, salary_expectation, relocation, … }
   model_cover       TEXT,                     -- OpenRouter model id; NULL = default
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  is_owner         BOOLEAN NOT NULL DEFAULT FALSE  -- exactly one row may be TRUE (enforced by one_board_owner index)
 );
+-- Prevents any second profile row from claiming board ownership.
+CREATE UNIQUE INDEX one_board_owner ON profiles ((TRUE)) WHERE is_owner;
 
 -- one current verdict per (user, job); re-review upserts in place
 CREATE TABLE job_reviews (
@@ -113,10 +121,17 @@ CREATE TABLE job_reviews (
   model_stage2         TEXT,
   error                TEXT,
   reviewed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT job_reviews_scores_range CHECK (
+    (skills_score     IS NULL OR skills_score     BETWEEN 0 AND 100) AND
+    (experience_score IS NULL OR experience_score BETWEEN 0 AND 100) AND
+    (comp_score       IS NULL OR comp_score       BETWEEN 0 AND 100) AND
+    (fit_score        IS NULL OR fit_score        BETWEEN 0 AND 100)),
   PRIMARY KEY (user_id, job_id)
 );
 CREATE INDEX idx_job_reviews_user_verdict ON job_reviews (user_id, verdict);
 CREATE INDEX idx_job_reviews_user_profile_version ON job_reviews (user_id, profile_version);
+-- FK-cascade lookup: jobs DELETE cascades require job_id-leading index on child tables.
+CREATE INDEX idx_job_reviews_job ON job_reviews (job_id);
 
 -- Human corrections to model reviews — a golden-dataset OVERLAY. Never mutates
 -- job_reviews or the reviewer pipeline; read-time COALESCE lets it drive display.
@@ -152,10 +167,21 @@ CREATE TABLE review_corrections (
   requirements         JSONB NOT NULL DEFAULT '[]'::jsonb,
   model_snapshot       JSONB NOT NULL DEFAULT '{}'::jsonb,
   note                 TEXT,
+  -- Frozen at correction time so golden-dataset eval inputs survive JD pruning and profile drift.
+  description_snapshot  TEXT,
+  resume_text_snapshot  TEXT,
+  instructions_snapshot TEXT,
   corrected_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT review_corrections_scores_range CHECK (
+    (skills_score     IS NULL OR skills_score     BETWEEN 0 AND 100) AND
+    (experience_score IS NULL OR experience_score BETWEEN 0 AND 100) AND
+    (comp_score       IS NULL OR comp_score       BETWEEN 0 AND 100) AND
+    (fit_score        IS NULL OR fit_score        BETWEEN 0 AND 100)),
   PRIMARY KEY (user_id, job_id)
 );
-CREATE INDEX idx_review_corrections_user ON review_corrections (user_id);
+-- Redundant idx_review_corrections_user removed: PK (user_id, job_id) already serves user_id-leading lookups.
+-- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.
+CREATE INDEX idx_review_corrections_job ON review_corrections (job_id);
 
 -- accounting, mirrors poll_runs
 CREATE TABLE review_runs (
@@ -233,7 +259,19 @@ CREATE TABLE application_packages (
                          CHECK (status IN ('prepared','applied')),
   prepared_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   applied_at           TIMESTAMPTZ,
+  CONSTRAINT applied_iff_timestamp CHECK ((status = 'applied') = (applied_at IS NOT NULL)),
   UNIQUE (user_id, job_id)
+);
+-- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.
+CREATE INDEX idx_application_packages_job ON application_packages (job_id);
+
+-- Applied-migrations ledger. Record each migration with:
+--   INSERT INTO schema_migrations (filename) VALUES ('<file>');
+-- when applied. Every new migration must be idempotent, transactional where
+-- possible, and recorded here so the applied set is auditable.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename   TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Row-level security. The app and reviewer connect via a privileged DIRECT connection

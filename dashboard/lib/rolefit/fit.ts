@@ -36,10 +36,14 @@ export function fmtPay(j: PayLike): string | null {
   if (j.pay_min == null && j.pay_max == null) return null;
   const cur = !j.pay_currency || j.pay_currency === "USD" ? "$" : `${j.pay_currency} `;
   if (j.pay_period === "hour") {
+    if (j.pay_min != null && j.pay_max == null) return `From ${cur}${j.pay_min}/hr`;
+    if (j.pay_max != null && j.pay_min == null) return `Up to ${cur}${j.pay_max}/hr`;
     return `${cur}${j.pay_min ?? "?"}–${j.pay_max ?? "?"}/hr`;
   }
-  const k = (n: number | null) => (n == null ? "?" : `${Math.round(n / 1000)}k`);
-  return `${cur}${k(j.pay_min)}–${k(j.pay_max)}`;
+  const k = (n: number) => `${Math.round(n / 1000)}k`;
+  if (j.pay_min != null && j.pay_max == null) return `From ${cur}${k(j.pay_min)}`;
+  if (j.pay_max != null && j.pay_min == null) return `Up to ${cur}${k(j.pay_max)}`;
+  return `${cur}${j.pay_min != null ? k(j.pay_min) : "?"}–${j.pay_max != null ? k(j.pay_max) : "?"}`;
 }
 
 export function fmtPosted(firstSeenIso: string, nowIso: string): string {

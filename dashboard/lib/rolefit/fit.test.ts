@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { fitColor, fmtPay, fmtPosted, initialsOf } from "@/lib/rolefit/fit";
 import { computeFit } from "@/lib/rolefit/fit";
 
@@ -31,6 +31,8 @@ describe("fmtPay", () => {
   test("no pay -> null", () => {
     expect(fmtPay({ pay_min: null, pay_max: null, pay_currency: null, pay_period: null })).toBeNull();
   });
+  it("formats lower-bound-only pay", () => expect(fmtPay({ pay_min: 120_000, pay_max: null, pay_currency: "USD", pay_period: "year" })).toBe("From $120k"));
+  it("formats upper-bound-only pay", () => expect(fmtPay({ pay_max: 180_000, pay_min: null, pay_currency: "USD", pay_period: "year" })).toBe("Up to $180k"));
 });
 
 describe("fmtPosted", () => {

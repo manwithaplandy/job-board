@@ -38,14 +38,15 @@ export async function saveReviewCorrection(
     | undefined;
   if (!src) throw new Error(`job ${jobId} not found`);
 
-  const correctedAt = new Date().toISOString();
+  const correctedAt = new Date().toISOString(); // used for LangFuse dataset item only
   await sql`
     INSERT INTO review_corrections (
       user_id, job_id, verdict, experience_match, industry, industry_subcategory,
       confidence, role_category, seniority, work_arrangement,
       skills_score, experience_score, comp_score, fit_score,
       reasoning, about, pay_min, pay_max, pay_currency, pay_period, headcount,
-      red_flags, skill_gaps, benefits, requirements, model_snapshot, note, corrected_at
+      red_flags, skill_gaps, benefits, requirements, model_snapshot, note, corrected_at,
+      description_snapshot, resume_text_snapshot, instructions_snapshot
     ) VALUES (
       ${userId}::uuid, ${jobId}, ${row.verdict}, ${row.experience_match},
       ${row.industry}, ${row.industry_subcategory}, ${row.confidence},
@@ -55,7 +56,8 @@ export async function saveReviewCorrection(
       ${row.pay_currency}, ${row.pay_period}, ${row.headcount},
       ${sql.json(row.red_flags)}, ${sql.json(row.skill_gaps)},
       ${sql.json(row.benefits)}, ${sql.json(row.requirements)},
-      ${sql.json((src.model_snapshot ?? {}) as any)}, ${form.note}, ${correctedAt}
+      ${sql.json((src.model_snapshot ?? {}) as any)}, ${form.note}, now(),
+      ${src.description}, ${src.resume_text}, ${src.instructions}
     )
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       verdict = EXCLUDED.verdict, experience_match = EXCLUDED.experience_match,
@@ -70,7 +72,10 @@ export async function saveReviewCorrection(
       headcount = EXCLUDED.headcount, red_flags = EXCLUDED.red_flags,
       skill_gaps = EXCLUDED.skill_gaps, benefits = EXCLUDED.benefits,
       requirements = EXCLUDED.requirements, model_snapshot = EXCLUDED.model_snapshot,
-      note = EXCLUDED.note, corrected_at = EXCLUDED.corrected_at
+      note = EXCLUDED.note, corrected_at = now(),
+      description_snapshot = EXCLUDED.description_snapshot,
+      resume_text_snapshot = EXCLUDED.resume_text_snapshot,
+      instructions_snapshot = EXCLUDED.instructions_snapshot
   `;
 
   let langfuseSynced = true;

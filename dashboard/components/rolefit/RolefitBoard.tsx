@@ -44,6 +44,18 @@ export interface RolefitBoardProps {
   initialPackages: ApplicationPackage[];
 }
 
+function useIsNarrow() {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 760px)");
+    setNarrow(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setNarrow(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return narrow;
+}
+
 export function RolefitBoard({
   jobs,
   nowIso,
@@ -63,6 +75,7 @@ export function RolefitBoard({
   applicationAnswers,
   initialPackages,
 }: RolefitBoardProps) {
+  const isNarrow = useIsNarrow();
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
   const [search, setSearch] = useState(initialFilters.search);
   const deferredSearch = useDeferredValue(search);
@@ -571,12 +584,12 @@ export function RolefitBoard({
   return (
     <div
       style={{
-        height: "100vh",
+        height: isNarrow ? undefined : "100vh",
         display: "flex",
         flexDirection: "column",
         background: "#f4f6fa",
         color: "#1f2430",
-        overflow: "hidden",
+        overflow: isNarrow ? undefined : "hidden",
       }}
     >
       <Header
@@ -617,75 +630,104 @@ export function RolefitBoard({
       />
 
       {/* Split pane — left: job list; right: detail */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+      <div style={{ flex: 1, display: "flex", minHeight: isNarrow ? undefined : 0 }}>
         {/* List pane */}
-        <div
-          className="rf-scroll"
-          style={{
-            flex: "0 0 426px",
-            overflowY: "auto",
-            background: "#f4f6fa",
-            borderRight: "1px solid #e7eaf0",
-            padding: "13px 2px 24px",
-          }}
-        >
-          <JobList
-            jobs={visibleWithCorrections}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-            onClearFilters={clearFilters}
-          />
-        </div>
+        {(!isNarrow || !selectedId) && (
+          <div
+            className={isNarrow ? undefined : "rf-scroll"}
+            style={{
+              flex: isNarrow ? undefined : "0 0 426px",
+              width: isNarrow ? "100%" : undefined,
+              overflowY: isNarrow ? undefined : "auto",
+              background: "#f4f6fa",
+              borderRight: isNarrow ? "none" : "1px solid #e7eaf0",
+              padding: "13px 2px 24px",
+            }}
+          >
+            <JobList
+              jobs={visibleWithCorrections}
+              selectedId={selectedId}
+              onSelect={handleSelect}
+              onClearFilters={clearFilters}
+            />
+          </div>
+        )}
 
         {/* Detail pane */}
-        <div
-          ref={detailRef}
-          className="rf-scroll"
-          style={{ flex: 1, overflowY: "auto", background: "#fff", minWidth: 0 }}
-        >
-          {selectedJobWithDetail ? (
-            <JobDetail
-              key={selectedJobWithDetail.id}
-              job={selectedJobWithDetail}
-              nowIso={nowIso}
-              isAuthed={isAuthed}
-              answers={applicationAnswers}
-              gen={gen}
-              genData={genData}
-              genError={genError}
-              onGenerate={handleGenerate}
-              onCopy={handleCopy}
-              copiedId={copiedId}
-              coverGen={coverGen}
-              coverData={coverData}
-              coverError={coverError}
-              onGenerateCover={handleGenerateCover}
-              onPrepare={handlePrepare}
-              pkg={packages[selectedJobWithDetail.id]}
-              onMarkApplied={handleMarkApplied}
-              onOpenProfile={() => setProfileOpen(true)}
-              onReject={handleReject}
-              onUnapply={handleUnapply}
-              onCorrected={handleCorrected}
-              detailState={details[selectedJobWithDetail.id]}
-              onRetryDetail={handleRetryDetail}
-            />
-          ) : (
-            <div
-              style={{
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#8a93a3",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              Select a role
-            </div>
-          )}
-        </div>
+        {(!isNarrow || selectedId) && (
+          <div
+            ref={detailRef}
+            className={isNarrow ? undefined : "rf-scroll"}
+            style={{ flex: 1, overflowY: isNarrow ? undefined : "auto", background: "#fff", minWidth: 0 }}
+          >
+            {selectedJobWithDetail ? (
+              <>
+                {isNarrow && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(null)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "7px",
+                      margin: "16px 16px 0",
+                      fontWeight: 700,
+                      fontSize: "13px",
+                      color: "#3b6fd4",
+                      background: "#eef3fc",
+                      border: "1px solid #d8e2f6",
+                      borderRadius: "9px",
+                      padding: "8px 14px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ← Back
+                  </button>
+                )}
+                <JobDetail
+                  key={selectedJobWithDetail.id}
+                  job={selectedJobWithDetail}
+                  nowIso={nowIso}
+                  isAuthed={isAuthed}
+                  answers={applicationAnswers}
+                  gen={gen}
+                  genData={genData}
+                  genError={genError}
+                  onGenerate={handleGenerate}
+                  onCopy={handleCopy}
+                  copiedId={copiedId}
+                  coverGen={coverGen}
+                  coverData={coverData}
+                  coverError={coverError}
+                  onGenerateCover={handleGenerateCover}
+                  onPrepare={handlePrepare}
+                  pkg={packages[selectedJobWithDetail.id]}
+                  onMarkApplied={handleMarkApplied}
+                  onOpenProfile={() => setProfileOpen(true)}
+                  onReject={handleReject}
+                  onUnapply={handleUnapply}
+                  onCorrected={handleCorrected}
+                  detailState={details[selectedJobWithDetail.id]}
+                  onRetryDetail={handleRetryDetail}
+                />
+              </>
+            ) : (
+              <div
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#8a93a3",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                }}
+              >
+                Select a role
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {(toast || actionError) && (

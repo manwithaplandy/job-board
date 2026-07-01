@@ -42,7 +42,7 @@ def test_load_profiles(conn):
 @requires_db
 def test_candidates_missing_then_excluded_when_fresh(conn):
     job_id = _seed_job(conn)
-    cands = rdb.select_candidates(conn, USER, "v1", limit=10)
+    cands, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
     assert [c["id"] for c in cands] == [job_id]
     assert cands[0]["ats"] == "lever"
     assert cands[0]["company_name"] == "Acme"
@@ -58,9 +58,11 @@ def test_candidates_missing_then_excluded_when_fresh(conn):
     })
     conn.commit()
     # fresh verdict -> excluded
-    assert rdb.select_candidates(conn, USER, "v1", limit=10) == []
+    rows, total = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert rows == [] and total == 0
     # stale profile_version -> re-selected
-    assert [c["id"] for c in rdb.select_candidates(conn, USER, "v2", limit=10)] == [job_id]
+    rows2, _ = rdb.select_candidates(conn, USER, "v2", limit=10)
+    assert [c["id"] for c in rows2] == [job_id]
 
 
 def _seed_loc(conn, ext, location, remote):
@@ -82,17 +84,18 @@ def test_candidates_filtered_by_preferred_locations(conn):
     remote = _seed_loc(conn, "4", "Anywhere", True)
 
     # no preference -> every open job is a candidate
-    assert {c["id"] for c in rdb.select_candidates(conn, USER, "v1", limit=10)} == {
-        berlin, ny, blank, remote}
+    rows, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert {c["id"] for c in rows} == {berlin, ny, blank, remote}
 
     # include-list -> exact match + remote pass; non-match and blank dropped
-    got = {c["id"] for c in rdb.select_candidates(
-        conn, USER, "v1", limit=10, preferred_locations=["Berlin, Germany"])}
-    assert got == {berlin, remote}
+    rows2, _ = rdb.select_candidates(
+        conn, USER, "v1", limit=10, preferred_locations=["Berlin, Germany"])
+    assert {c["id"] for c in rows2} == {berlin, remote}
 
     # empty list behaves like no preference
-    assert {c["id"] for c in rdb.select_candidates(
-        conn, USER, "v1", limit=10, preferred_locations=[])} == {berlin, ny, blank, remote}
+    rows3, _ = rdb.select_candidates(
+        conn, USER, "v1", limit=10, preferred_locations=[])
+    assert {c["id"] for c in rows3} == {berlin, ny, blank, remote}
 
 
 @requires_db
@@ -102,14 +105,14 @@ def test_closed_jobs_excluded_and_limit_and_count(conn):
     with conn.cursor() as cur:
         cur.execute("UPDATE jobs SET closed_at = now() WHERE id = %s", (j2,))
     conn.commit()
-    rows = rdb.select_candidates(conn, USER, "v1", limit=10)
+    rows, total = rdb.select_candidates(conn, USER, "v1", limit=10)
     assert [r["id"] for r in rows] == [j1]
-    assert rows[0]["total_stale"] == 1
-    # limit caps the rows returned but total_stale reflects all stale
+    assert total == 1
+    # limit caps the rows returned but total reflects all stale
     _seed_job(conn, "3")
-    rows = rdb.select_candidates(conn, USER, "v1", limit=1)
-    assert len(rows) == 1
-    assert rows[0]["total_stale"] == 2
+    rows2, total2 = rdb.select_candidates(conn, USER, "v1", limit=1)
+    assert len(rows2) == 1
+    assert total2 == 2
 
 
 @requires_db
@@ -155,7 +158,8 @@ def test_candidate_reselected_when_fit_score_null(conn):
     })
     conn.commit()
     # null fit_score forces re-review even when profile_version matches
-    assert [c["id"] for c in rdb.select_candidates(conn, USER, "v1", limit=10)] == [job_id]
+    rows, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert [c["id"] for c in rows] == [job_id]
 
 
 @requires_db
@@ -170,7 +174,8 @@ def test_gate_rejected_not_reselected(conn):
     conn.commit()
     # Must NOT be re-selected: no verdict means this is a gate-rejected/errored row,
     # not a pre-migration backfill target.
-    assert rdb.select_candidates(conn, USER, "v1", limit=10) == []
+    rows, total = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert rows == [] and total == 0
 
 
 @requires_db
@@ -204,8 +209,10 @@ def test_denied_never_reselected_even_on_profile_change(conn):
     })
     conn.commit()
 
-    ids_v1 = {c["id"] for c in rdb.select_candidates(conn, USER, "v1", limit=10)}
-    ids_v2 = {c["id"] for c in rdb.select_candidates(conn, USER, "v2", limit=10)}
+    rows_v1, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    rows_v2, _ = rdb.select_candidates(conn, USER, "v2", limit=10)
+    ids_v1 = {c["id"] for c in rows_v1}
+    ids_v2 = {c["id"] for c in rows_v2}
 
     # Denied job excluded at same version
     assert denied_id not in ids_v1, "denied job must be excluded at v1"
@@ -369,6 +376,34 @@ def test_recent_stage2_reviews_respects_limit(conn):
     conn.commit()
     assert len(rdb.recent_stage2_reviews(conn, limit=2)) == 2
     assert len(rdb.recent_stage2_reviews(conn, limit=10)) == 3
+
+
+@requires_db
+def test_errored_review_is_reselected(conn):
+    """A review row with error set must be re-selected so it can be retried."""
+    job_id = _seed_job(conn)
+    rdb.upsert_review(conn, {
+        "user_id": USER, "job_id": job_id, "profile_version": "v1",
+        "stage1_decision": None, "verdict": None, "error": "timeout",
+    })
+    conn.commit()
+    # error IS NOT NULL → must be re-selected even though profile_version matches
+    rows, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert [c["id"] for c in rows] == [job_id]
+
+
+@requires_db
+def test_total_stale_still_reported(conn):
+    """total_stale count is still returned alongside candidate rows."""
+    j1 = _seed_job(conn, "1")
+    j2 = _seed_job(conn, "2")
+    rows, total = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert {r["id"] for r in rows} == {j1, j2}
+    assert total == 2
+    # limit=1 still reports full total
+    rows2, total2 = rdb.select_candidates(conn, USER, "v1", limit=1)
+    assert len(rows2) == 1
+    assert total2 == 2
 
 
 @requires_db

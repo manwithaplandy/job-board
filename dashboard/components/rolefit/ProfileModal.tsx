@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 export interface ProfileModalProps {
   open: boolean;
@@ -22,15 +22,58 @@ export function ProfileModal({
   const [profileTab, setProfileTab] = useState<"paste" | "upload">("paste");
   const [uploadName, setUploadName] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Save and restore focus
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement as HTMLElement;
+      // Focus the dialog after mount
+      const timer = setTimeout(() => {
+        dialogRef.current?.focus();
+      }, 0);
+      return () => clearTimeout(timer);
+    } else {
+      previousFocusRef.current?.focus();
+    }
+  }, [open]);
+
+  // Escape key closes modal
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, isDirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
 
+  const handleClose = () => {
+    if (isDirty) {
+      if (!window.confirm("You have unsaved changes. Close anyway?")) return;
+    }
+    setSaveError(null);
+    setIsDirty(false);
+    onClose();
+  };
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setSaveError(null);
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
-      await saveResume(fd);
-      onClose();
+      try {
+        await saveResume(fd);
+        setIsDirty(false);
+        onClose();
+      } catch (err) {
+        setSaveError((err as Error).message ?? "Save failed. Please try again.");
+      }
     });
   };
 
@@ -42,7 +85,9 @@ export function ProfileModal({
 
   return (
     <div
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -55,6 +100,11 @@ export function ProfileModal({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={hasProfile ? "Edit profile" : "Set up profile"}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "480px",
@@ -63,6 +113,7 @@ export function ProfileModal({
           borderRadius: "18px",
           boxShadow: "0 30px 70px rgba(15,22,35,.4)",
           overflow: "hidden",
+          outline: "none",
         }}
       >
         {/* Modal header */}
@@ -90,7 +141,9 @@ export function ProfileModal({
             </div>
           </div>
           <button
-            onClick={onClose}
+            type="button"
+            aria-label="Close"
+            onClick={handleClose}
             style={{
               width: "30px",
               height: "30px",
@@ -200,6 +253,7 @@ export function ProfileModal({
                   <textarea
                     name="resume_text"
                     defaultValue={resumeText}
+                    onChange={() => setIsDirty(true)}
                     placeholder="Paste your résumé or a few lines about your experience, skills, and roles…"
                     style={{
                       width: "100%",
@@ -289,7 +343,10 @@ export function ProfileModal({
                     type="file"
                     name="resume_pdf"
                     accept=".pdf,.txt,.doc,.docx"
-                    onChange={(e) => setUploadName(e.target.files?.[0]?.name ?? "")}
+                    onChange={(e) => {
+                      setUploadName(e.target.files?.[0]?.name ?? "");
+                      setIsDirty(true);
+                    }}
                     style={{ display: "none" }}
                   />
                 </>
@@ -318,9 +375,14 @@ export function ProfileModal({
               >
                 Advanced settings →
               </a>
+              {saveError && (
+                <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "#b25a36", fontWeight: 600 }}>
+                  {saveError}
+                </p>
+              )}
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 style={{
                   fontWeight: 700,
                   fontSize: "13.5px",

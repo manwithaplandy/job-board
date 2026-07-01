@@ -36,19 +36,124 @@ export default async function LoginPage({
 }) {
   const { error } = await searchParams;
   return (
-    <main className="mx-auto mt-24 max-w-sm px-6">
-      <h1 className="text-lg font-semibold">Sign in</h1>
-      <form action={signIn} className="mt-4 flex flex-col gap-3">
-        <input name="email" type="email" required placeholder="email"
-          className="rounded border px-2 py-1 text-sm" />
-        <input name="password" type="password" required placeholder="password"
-          className="rounded border px-2 py-1 text-sm" />
-        <button type="submit"
-          className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white">
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#f4f6fa",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          width: "360px",
+          maxWidth: "calc(100vw - 32px)",
+          background: "#fff",
+          borderRadius: "18px",
+          border: "1px solid #e7eaf0",
+          boxShadow: "0 12px 40px rgba(15,22,35,.08)",
+          padding: "32px",
+        }}
+      >
+        <h1
+          style={{
+            margin: "0 0 20px",
+            fontSize: "20px",
+            fontWeight: 800,
+            color: "#161d29",
+          }}
+        >
           Sign in
-        </button>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </form>
+        </h1>
+        <form
+          action={signIn}
+          style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+        >
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "#5b6472",
+            }}
+          >
+            Email
+            <input
+              name="email"
+              type="email"
+              required
+              placeholder="you@example.com"
+              style={{
+                border: "1px solid #e3e7ee",
+                borderRadius: "10px",
+                padding: "10px 13px",
+                fontSize: "13px",
+                outline: "none",
+                fontFamily: "inherit",
+              }}
+            />
+          </label>
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "#5b6472",
+            }}
+          >
+            Password
+            <input
+              name="password"
+              type="password"
+              required
+              placeholder="••••••••"
+              style={{
+                border: "1px solid #e3e7ee",
+                borderRadius: "10px",
+                padding: "10px 13px",
+                fontSize: "13px",
+                outline: "none",
+                fontFamily: "inherit",
+              }}
+            />
+          </label>
+          {error && (
+            <p
+              role="alert"
+              style={{
+                margin: 0,
+                fontSize: "12.5px",
+                color: "#b25a36",
+                fontWeight: 600,
+              }}
+            >
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            style={{
+              fontWeight: 700,
+              fontSize: "13.5px",
+              color: "#fff",
+              background: "#3b6fd4",
+              border: "none",
+              borderRadius: "10px",
+              padding: "11px 20px",
+              cursor: "pointer",
+              boxShadow: "0 3px 10px rgba(59,111,212,.26)",
+              marginTop: "4px",
+            }}
+          >
+            Sign in
+          </button>
+        </form>
+      </div>
     </main>
   );
 }

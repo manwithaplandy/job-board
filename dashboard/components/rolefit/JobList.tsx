@@ -16,6 +16,7 @@ export function JobList({ jobs, selectedId, onSelect, onClearFilters }: JobListP
           No roles match your filters
         </div>
         <button
+          type="button"
           onClick={onClearFilters}
           style={{
             marginTop: "14px",
@@ -36,15 +37,16 @@ export function JobList({ jobs, selectedId, onSelect, onClearFilters }: JobListP
   }
 
   return (
-    <>
+    <div role="list">
       {jobs.map((job) => (
-        <JobCard
-          key={job.id}
-          job={job}
-          selected={job.id === selectedId}
-          onSelect={() => onSelect(job.id)}
-        />
+        <div role="listitem" key={job.id}>
+          <JobCard
+            job={job}
+            selected={job.id === selectedId}
+            onSelect={onSelect}
+          />
+        </div>
       ))}
-    </>
+    </div>
   );
 }

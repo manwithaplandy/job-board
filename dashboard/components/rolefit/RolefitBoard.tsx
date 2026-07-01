@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
 import type { ApplicationAnswers, ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
@@ -60,6 +60,7 @@ export function RolefitBoard({
 }: RolefitBoardProps) {
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
   const [search, setSearch] = useState(initialFilters.search);
+  const deferredSearch = useDeferredValue(search);
   const [cats, setCats] = useState<string[]>(initialFilters.cats);
   const [locs, setLocs] = useState<string[]>(initialFilters.locs);
   const [remote, setRemote] = useState<BoardFilterState["remote"]>(initialFilters.remote);
@@ -158,28 +159,43 @@ export function RolefitBoard({
   }, []);
 
   const filterState: BoardFilterState = useMemo(
-    () => ({ search, cats, locs, remote, minFit, payMin, sort }),
-    [search, cats, locs, remote, minFit, payMin, sort],
+    () => ({ search: deferredSearch, cats, locs, remote, minFit, payMin, sort }),
+    [deferredSearch, cats, locs, remote, minFit, payMin, sort],
   );
 
   // Persist filter changes (debounced) so they survive navigation/visits.
   // Skips the initial mount so the just-loaded initialFilters aren't re-saved.
   // Best-effort: failures are swallowed and never block filtering.
   const firstFilterSave = useRef(true);
+  const lastSavedRef = useRef<string | null>(null);
   useEffect(() => {
     if (firstFilterSave.current) {
       firstFilterSave.current = false;
       return;
     }
+    const serialized = JSON.stringify(filterState);
+    if (serialized === lastSavedRef.current) return;
     const t = setTimeout(() => {
+      lastSavedRef.current = serialized;
       void fetch("/api/board-filters", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(filterState),
+        body: serialized,
         keepalive: true,
       }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
+  }, [filterState]);
+
+  // Flush filter state on page unload via sendBeacon (no timer needed)
+  useEffect(() => {
+    const handlePageHide = () => {
+      const serialized = JSON.stringify(filterState);
+      if (serialized === lastSavedRef.current) return;
+      navigator.sendBeacon("/api/board-filters", serialized);
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
   }, [filterState]);
 
   const appliedSet = useMemo(
@@ -216,17 +232,29 @@ export function RolefitBoard({
   // id. JobDetail renders them as they arrive (its sections are already guarded
   // for absent fields), so the lightweight detail view shows instantly.
   const [details, setDetails] = useState<Record<string, JobReviewDetail>>({});
+  const inFlightDetailIds = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!selectedId || details[selectedId]) return;
+    if (!selectedId || details[selectedId] != null) return;
+    if (inFlightDetailIds.current.has(selectedId)) return;
+    inFlightDetailIds.current.add(selectedId);
     let cancelled = false;
-    void fetch(`/api/jobs/${selectedId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: JobReviewDetail | null) => {
-        if (!cancelled && d) setDetails((prev) => ({ ...prev, [selectedId]: d }));
+    fetch(`/api/jobs/${selectedId}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: JobReviewDetail) => {
+        if (!cancelled) {
+          setDetails((prev) => ({ ...prev, [selectedId]: d }));
+          inFlightDetailIds.current.delete(selectedId);
+        }
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (!cancelled) {
+          console.error("job detail fetch failed", e);
+          inFlightDetailIds.current.delete(selectedId);
+        }
+      });
     return () => { cancelled = true; };
-  }, [selectedId, details]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]); // details NOT in dep array — cached by id, never re-fetched
 
   const selectedJobWithDetail = useMemo(() => {
     if (!selectedJob) return null;
@@ -270,10 +298,10 @@ export function RolefitBoard({
     setOpenMenu(null);
   };
 
-  const handleSelect = (id: string) => {
+  const handleSelect = useCallback((id: string) => {
     setSelectedId(id);
     if (detailRef.current) detailRef.current.scrollTop = 0;
-  };
+  }, []);
 
   const handleReject = useCallback((job: JobRow) => {
     const priorVerdict = job.verdict;
@@ -633,7 +661,7 @@ export function RolefitBoard({
         </div>
       </div>
 
-      {toast && (
+      {(toast || actionError) && (
         <div
           style={{
             position: "fixed",
@@ -641,73 +669,81 @@ export function RolefitBoard({
             left: "50%",
             transform: "translateX(-50%)",
             display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            background: "#1b2330",
-            color: "#fff",
-            borderRadius: "12px",
-            padding: "11px 18px",
-            boxShadow: "0 8px 22px rgba(20,28,40,.22)",
-            fontSize: "13.5px",
-            fontWeight: 600,
+            flexDirection: "column",
+            gap: "8px",
             zIndex: 50,
+            alignItems: "center",
           }}
         >
-          <span>{toast.kind === "apply" ? "Applied" : "Rejected"}</span>
-          <button
-            type="button"
-            onClick={handleUndo}
-            style={{
-              fontWeight: 800,
-              fontSize: "13px",
-              color: "#9ec1ff",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            Undo
-          </button>
-        </div>
-      )}
-      {actionError && (
-        <div
-          role="alert"
-          style={{
-            position: "fixed",
-            bottom: "24px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            background: "#7a2e22",
-            color: "#fff",
-            borderRadius: "12px",
-            padding: "11px 18px",
-            boxShadow: "0 8px 22px rgba(20,28,40,.22)",
-            fontSize: "13.5px",
-            fontWeight: 600,
-            zIndex: 50,
-          }}
-        >
-          <span>{actionError}</span>
-          <button
-            type="button"
-            onClick={() => setActionError(null)}
-            style={{
-              fontWeight: 800,
-              fontSize: "13px",
-              color: "#ffd2c8",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            Dismiss
-          </button>
+          {toast && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "16px",
+                background: "#1b2330",
+                color: "#fff",
+                borderRadius: "12px",
+                padding: "11px 18px",
+                boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+                fontSize: "13.5px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span>{toast.kind === "apply" ? "Applied" : "Rejected"}</span>
+              <button
+                type="button"
+                onClick={handleUndo}
+                style={{
+                  fontWeight: 800,
+                  fontSize: "13px",
+                  color: "#9ec1ff",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Undo
+              </button>
+            </div>
+          )}
+          {actionError && (
+            <div
+              role="alert"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "16px",
+                background: "#7a2e22",
+                color: "#fff",
+                borderRadius: "12px",
+                padding: "11px 18px",
+                boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+                fontSize: "13.5px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span>{actionError}</span>
+              <button
+                type="button"
+                onClick={() => setActionError(null)}
+                style={{
+                  fontWeight: 800,
+                  fontSize: "13px",
+                  color: "#ffd2c8",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         </div>
       )}
       <ProfileModal

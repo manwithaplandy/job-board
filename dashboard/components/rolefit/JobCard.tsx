@@ -1,4 +1,5 @@
 "use client";
+import React from "react";
 import type { JobRow } from "@/lib/types";
 import { fitColor, initialsOf, fmtPay } from "@/lib/rolefit/fit";
 
@@ -18,10 +19,10 @@ function logoColor(name: string): string {
 export interface JobCardProps {
   job: JobRow;
   selected: boolean;
-  onSelect: () => void;
+  onSelect: (id: string) => void;
 }
 
-export function JobCard({ job, selected, onSelect }: JobCardProps) {
+export const JobCard = React.memo(function JobCard({ job, selected, onSelect }: JobCardProps) {
   const c = fitColor(job.fit_score ?? 0);
   const initials = initialsOf(job.company_name);
   const payLabel = fmtPay(job);
@@ -39,8 +40,10 @@ export function JobCard({ job, selected, onSelect }: JobCardProps) {
     : "0 1px 2px rgba(20,28,40,.045)";
 
   return (
-    <div
-      onClick={onSelect}
+    <button
+      type="button"
+      onClick={() => onSelect(job.id)}
+      aria-pressed={selected}
       style={{
         position: "relative",
         display: "flex",
@@ -52,6 +55,10 @@ export function JobCard({ job, selected, onSelect }: JobCardProps) {
         background: cardBg,
         border: cardBorder,
         boxShadow: cardShadow,
+        textAlign: "left",
+        width: "calc(100% - 26px)",
+        font: "inherit",
+        color: "inherit",
       }}
     >
       {/* Accent bar */}
@@ -175,6 +182,6 @@ export function JobCard({ job, selected, onSelect }: JobCardProps) {
           )}
         </div>
       </div>
-    </div>
+    </button>
   );
-}
+});

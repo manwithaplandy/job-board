@@ -545,7 +545,7 @@ export function ApplicationPanel({
                     strokeLinecap="round"
                   />
                 </svg>
-                {copiedKey === "cover" ? "Copied!" : "Copy text"}
+                <span aria-live="polite">{copiedKey === "cover" ? "Copied!" : "Copy text"}</span>
               </button>
               <button onClick={onRegenerateCover} style={copyBtnStyle}>
                 <span>↻</span>Regenerate
@@ -703,7 +703,7 @@ export function ApplicationPanel({
                         cursor: "pointer",
                       }}
                     >
-                      {copiedKey === row.key ? "Copied!" : "Copy"}
+                      <span aria-live="polite">{copiedKey === row.key ? "Copied!" : "Copy"}</span>
                     </button>
                   )}
                 </div>
@@ -847,7 +847,7 @@ export function ApplicationPanel({
                       cursor: "pointer",
                     }}
                   >
-                    {copiedKey === row.key ? "Copied!" : "Copy"}
+                    <span aria-live="polite">{copiedKey === row.key ? "Copied!" : "Copy"}</span>
                   </button>
                 </div>
               ))}

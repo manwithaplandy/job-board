@@ -1,3 +1,4 @@
+import logging
 import os
 
 import job_discovery.run as run_module
@@ -208,3 +209,52 @@ def test_run_survives_prune_error(conn, monkeypatch):
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM poll_runs ORDER BY id DESC LIMIT 1")
         assert cur.fetchone()["finished_at"] is not None
+
+
+# ── A2: malformed posting / empty-result guard ─────────────────────────────────
+
+@requires_db
+def test_posting_without_title_still_counts_as_seen(conn, monkeypatch):
+    """A malformed posting (no title/url) must still go into seen so it is NOT
+    treated as closed by the close-detection pass that runs immediately after."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    # First run: seed a real job so x1 exists and is open.
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Co", "ats": "greenhouse", "token": "c1"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="x1", title="Eng", url="u")])
+    run_module.run()
+
+    # Second run: same external_id but malformed (no title/url) — must NOT close x1.
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="x1", title=None, url=None)])
+    run_module.run()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT closed_at FROM jobs WHERE id='greenhouse:c1:x1'")
+        assert cur.fetchone()["closed_at"] is None
+
+
+@requires_db
+def test_empty_result_with_many_open_jobs_skips_close(conn, monkeypatch, caplog):
+    """When a feed returns zero postings but the company has >20 open jobs,
+    skip close-detection and log a warning (suspicious scraper block, not real closure)."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    # Seed 25 open jobs via first run.
+    postings_25 = [Posting(external_id=f"j{i}", title=f"Job {i}", url=f"u{i}")
+                   for i in range(25)]
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Big", "ats": "greenhouse", "token": "big"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse", lambda token: postings_25)
+    run_module.run()
+
+    # Second run: feed returns empty — should NOT close those 25 jobs.
+    monkeypatch.setitem(ADAPTERS, "greenhouse", lambda token: [])
+    with caplog.at_level(logging.ERROR, logger="job_discovery"):
+        run_module.run()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM jobs WHERE company_id IN "
+                    "(SELECT id FROM companies WHERE token='big') AND closed_at IS NULL")
+        assert cur.fetchone()["n"] == 25
+    assert "skipping close-detection" in caplog.text

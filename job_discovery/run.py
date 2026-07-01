@@ -45,19 +45,26 @@ def run(dsn: str | None = None) -> None:
                 postings = ADAPTERS[ats](token)
                 seen: set[str] = set()
                 for p in postings:
-                    if not p.url or not p.title:
+                    if p.external_id:
+                        seen.add(p.external_id)   # close-detection sees every live posting,
+                    if not p.url or not p.title:  # even ones too malformed to upsert
                         log.warning(
-                            "skipping malformed posting (missing url/title) for %s: %r",
-                            co["name"], p.external_id,
+                            "skipping malformed posting %s for %s",
+                            p.external_id, co["name"],
                         )
                         continue
                     if db.upsert_job(conn, company_id, ats, token, p):
                         new_jobs += 1
-                    seen.add(p.external_id)
                 open_ids = db.get_open_external_ids(conn, company_id)
-                closed_jobs += db.close_jobs(
-                    conn, company_id, db.compute_newly_closed(open_ids, seen)
-                )
+                if not seen and len(open_ids) > 20:
+                    log.error(
+                        "%s returned zero postings but has %d open jobs; skipping close-detection",
+                        co["name"], len(open_ids),
+                    )
+                else:
+                    closed_jobs += db.close_jobs(
+                        conn, company_id, db.compute_newly_closed(open_ids, seen)
+                    )
                 conn.commit()
                 ok += 1
             except Exception as exc:  # per-company isolation (incl. dead boards)

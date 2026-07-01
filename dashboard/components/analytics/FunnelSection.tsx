@@ -49,6 +49,7 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
     { label: "Reviewed", value: j.reviewed },
     { label: "Gate-rejected", value: j.gate_rejected, tone: "bad" },
     { label: "Approved", value: j.approved },
+    { label: "Applied", value: j.applied },
     { label: "Denied", value: j.denied, tone: "bad" },
     { label: "Manual reject", value: j.manual_rejected, tone: "bad" },
     { label: "Unreviewed", value: j.unreviewed, tone: "muted" },

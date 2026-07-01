@@ -263,3 +263,5 @@ ALTER TABLE discovery_state  ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON discovery_state  FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE application_packages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON application_packages FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE review_corrections   ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON review_corrections   FOR ALL USING (false) WITH CHECK (false);

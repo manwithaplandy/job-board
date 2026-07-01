@@ -486,7 +486,7 @@ export function JobDetail({
             onMarkApplied={() => onMarkApplied(job)}
           />
 
-          <ReviewPanel job={job} />
+          <ReviewPanel job={job} isAuthed={isAuthed} />
 
           {/* ── Requirements ── */}
           {reqs.length > 0 && (

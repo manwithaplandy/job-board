@@ -1,8 +1,91 @@
 "use client";
 
+import { useState } from "react";
 import type { JobRow } from "@/lib/types";
+import type { CorrectionForm } from "@/lib/rolefit/correction";
+import { saveReviewCorrection } from "@/app/actions/corrections";
+import {
+  VERDICTS, EXPERIENCE_MATCH, INDUSTRIES, SUBCATEGORIES_BY_INDUSTRY,
+  ROLE_CATEGORIES, SENIORITY, WORK_ARRANGEMENT, CONFIDENCE,
+} from "@/lib/rolefit/taxonomy";
 
-export function ReviewPanel({ job }: { job: JobRow }) {
+function initialForm(job: JobRow): CorrectionForm {
+  return {
+    verdict: job.verdict ?? null,
+    experienceMatch: job.experience_match ?? null,
+    industry: job.industry ?? null,
+    industrySubcategory: job.industry_subcategory ?? null,
+    confidence: job.confidence ?? null,
+    roleCategory: job.role_category ?? null,
+    seniority: job.seniority ?? null,
+    workArrangement: job.work_arrangement ?? null,
+    skillsScore: job.skills_score ?? null,
+    experienceScore: job.experience_score ?? null,
+    compScore: job.comp_score ?? null,
+    reasoning: job.reasoning ?? null,
+    about: job.about ?? null,
+    payMin: job.pay_min ?? null,
+    payMax: job.pay_max ?? null,
+    payCurrency: job.pay_currency ?? null,
+    payPeriod: job.pay_period ?? null,
+    headcount: job.headcount ?? null,
+    redFlags: job.red_flags ?? [],
+    skillGaps: job.skill_gaps ?? [],
+    benefits: job.benefits ?? [],
+    requirements: job.requirements ?? [],
+    note: job.note ?? null,
+  };
+}
+
+export function ReviewPanel({ job, isAuthed }: { job: JobRow; isAuthed: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<CorrectionForm>(() => initialForm(job));
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  function set<K extends keyof CorrectionForm>(k: K, v: CorrectionForm[K]) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  async function onSave() {
+    setSaving(true);
+    try {
+      const res = await saveReviewCorrection(job.id, form);
+      setToast(res.langfuseSynced ? "Saved." : "Saved. LangFuse sync failed — will reconcile.");
+      setEditing(false);
+    } catch {
+      setToast("Save failed.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const sel = (label: string, k: keyof CorrectionForm, opts: readonly string[]) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "#5b6472" }}>
+      {label}
+      <select
+        value={(form[k] as string) ?? ""}
+        onChange={(e) => set(k, (e.target.value || null) as CorrectionForm[typeof k])}
+        style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13 }}
+      >
+        <option value="">—</option>
+        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  );
+
+  const num = (label: string, k: "skillsScore" | "experienceScore" | "compScore") => (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "#5b6472" }}>
+      {label}
+      <input
+        type="number" min={0} max={100}
+        value={form[k] ?? ""}
+        onChange={(e) => set(k, e.target.value === "" ? null : Number(e.target.value))}
+        style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13, width: 90 }}
+      />
+    </label>
+  );
+
   // Sub-score bars
   const subScores: { label: string; value: number | null }[] = [
     { label: "Skills match", value: job.skills_score },
@@ -46,6 +129,59 @@ export function ReviewPanel({ job }: { job: JobRow }) {
           </div>
         )}
       </div>
+
+      {isAuthed && (
+        <div style={{ marginTop: 12 }}>
+          {!editing ? (
+            <button type="button" onClick={() => { setForm(initialForm(job)); setEditing(true); }}
+              style={{ fontWeight: 700, fontSize: 12.5, color: "#3b6fd4", background: "#fff", border: "1px solid #d7e0f2", borderRadius: 9, padding: "7px 14px", cursor: "pointer" }}>
+              {job.corrected ? "Edit correction" : "Correct job details"}
+            </button>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, border: "1px solid #e3e7ee", borderRadius: 12, padding: 16, marginBottom: 8 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                {sel("Verdict", "verdict", VERDICTS)}
+                {sel("Experience match", "experienceMatch", EXPERIENCE_MATCH)}
+                {sel("Confidence", "confidence", CONFIDENCE)}
+                {sel("Role category", "roleCategory", ROLE_CATEGORIES)}
+                {sel("Seniority", "seniority", SENIORITY)}
+                {sel("Work arrangement", "workArrangement", WORK_ARRANGEMENT)}
+                {sel("Industry", "industry", INDUSTRIES)}
+                {sel("Subcategory", "industrySubcategory",
+                  form.industry ? (SUBCATEGORIES_BY_INDUSTRY[form.industry] ?? []) : [])}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                {num("Skills", "skillsScore")}
+                {num("Experience", "experienceScore")}
+                {num("Comp", "compScore")}
+              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "#5b6472" }}>
+                Reasoning
+                <textarea value={form.reasoning ?? ""} rows={3}
+                  onChange={(e) => set("reasoning", e.target.value || null)}
+                  style={{ padding: 8, borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13 }} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "#5b6472" }}>
+                Note (why corrected)
+                <input value={form.note ?? ""}
+                  onChange={(e) => set("note", e.target.value || null)}
+                  style={{ padding: 8, borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13 }} />
+              </label>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button type="button" onClick={onSave} disabled={saving}
+                  style={{ fontWeight: 700, fontSize: 12.5, color: "#fff", background: "#3b6fd4", border: "1px solid #3b6fd4", borderRadius: 9, padding: "7px 16px", cursor: "pointer" }}>
+                  {saving ? "Saving…" : "Save correction"}
+                </button>
+                <button type="button" onClick={() => setEditing(false)} disabled={saving}
+                  style={{ fontWeight: 700, fontSize: 12.5, color: "#5b6472", background: "#fff", border: "1px solid #d7dce5", borderRadius: 9, padding: "7px 16px", cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {toast && <div style={{ fontSize: 12, color: "#5b6472", marginTop: 6 }}>{toast}</div>}
+        </div>
+      )}
 
       {/* Sub-score bars */}
       <div style={{ marginTop: "15px" }}>

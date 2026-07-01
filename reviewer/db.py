@@ -159,13 +159,21 @@ def golden_corrections(conn) -> list[dict]:
 
     input fields (title..instructions) reconstruct the review_one call; the
     remaining fields are the golden expected_output. Newest-first.
+
+    Snapshot columns (description_snapshot, resume_text_snapshot,
+    instructions_snapshot) are preferred over live job/profile data so that
+    corrections remain stable even after the job description is pruned or the
+    candidate's résumé is updated (C-lane DDL; COALESCE falls back to live for
+    legacy rows where snapshots were not captured).
     """
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT rc.user_id, rc.job_id, j.title, c.name AS company_name,
-                   j.location, c.ats, j.description,
-                   p.resume_text, p.instructions,
+                   j.location, c.ats,
+                   COALESCE(rc.description_snapshot, j.description) AS description,
+                   COALESCE(rc.resume_text_snapshot, p.resume_text) AS resume_text,
+                   COALESCE(rc.instructions_snapshot, p.instructions) AS instructions,
                    rc.verdict, rc.experience_match, rc.industry,
                    rc.industry_subcategory, rc.confidence, rc.role_category,
                    rc.seniority, rc.work_arrangement,

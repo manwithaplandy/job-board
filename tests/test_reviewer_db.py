@@ -419,6 +419,40 @@ def test_total_stale_still_reported(conn):
 
 
 @requires_db
+def test_golden_corrections_prefer_snapshots(conn):
+    """Snapshot columns take priority over live job/profile data."""
+    job_id = _seed_job(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'live resume', 'live instr', 'v1')",
+            (USER,),
+        )
+        # Set the live job description to NULL (as if it was pruned)
+        cur.execute("UPDATE jobs SET description = NULL WHERE id = %s", (job_id,))
+        cur.execute(
+            "INSERT INTO review_corrections "
+            "(user_id, job_id, verdict, experience_match, industry, "
+            " industry_subcategory, confidence, role_category, seniority, "
+            " work_arrangement, skills_score, experience_score, comp_score, "
+            " description_snapshot, resume_text_snapshot, instructions_snapshot) "
+            "VALUES (%s, %s, 'approve', 'match', 'software_internet', "
+            " 'devtools_platforms', 'high', 'Backend', 'senior', 'remote', "
+            " 80, 70, 60, 'old JD', 'snapshot resume', 'snapshot instr')",
+            (USER, job_id),
+        )
+    conn.commit()
+
+    rows = rdb.golden_corrections(conn)
+    assert len(rows) == 1
+    r = rows[0]
+    # Snapshot columns preferred over live data
+    assert r["description"] == "old JD"
+    assert r["resume_text"] == "snapshot resume"
+    assert r["instructions"] == "snapshot instr"
+
+
+@requires_db
 def test_golden_corrections_joins_inputs(conn):
     job_id = _seed_job(conn)
     with conn.cursor() as cur:

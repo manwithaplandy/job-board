@@ -1,7 +1,7 @@
 """Tests for reviewer/experiments.py: verdict_match scorer and run_experiment wiring."""
 import asyncio
 
-from reviewer.experiments import verdict_match
+from reviewer.experiments import sync_golden_dataset, verdict_match
 
 
 def test_verdict_match_exact_and_miss():
@@ -79,6 +79,52 @@ def test_run_experiment_iterates_items(monkeypatch):
     assert n == 2
     # stage2 ran once per item (SRE passes stage1 in StubClient)
     assert len(stub.stage2_calls) == 2
+
+
+def test_sync_preserves_dashboard_provenance(monkeypatch):
+    """sync_golden_dataset keeps existing metadata.source='dashboard' instead of overwriting."""
+    from observability import tracing
+    from reviewer import experiments
+
+    created_items = []
+
+    class _DS:
+        pass  # not used in sync
+
+    class _LF:
+        def create_dataset(self, *, name):
+            pass
+
+        def create_dataset_item(self, *, dataset_name, id, input, expected_output, metadata):
+            created_items.append({"id": id, "metadata": metadata})
+
+        def flush(self):
+            pass
+
+        def get_dataset(self, name):
+            return _DS()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    # Fake db.golden_corrections returning one row with corrected_at
+    import datetime
+    fake_row = {
+        "user_id": "u1", "job_id": "j1", "title": "SRE", "company_name": "Acme",
+        "location": "Remote", "ats": "lever",
+        "description": "jd", "resume_text": "r", "instructions": "i",
+        "verdict": "approve", "experience_match": "match",
+        "industry": "software_internet", "industry_subcategory": "devtools_platforms",
+        "confidence": "high", "role_category": "Backend", "seniority": "senior",
+        "work_arrangement": "remote", "skills_score": 80, "experience_score": 70,
+        "comp_score": 60, "note": None,
+        "corrected_at": datetime.datetime(2025, 1, 1),
+    }
+    monkeypatch.setattr(experiments.db, "golden_corrections", lambda conn: [fake_row])
+
+    n = sync_golden_dataset(None)
+    assert n == 1
+    # The synced item's metadata must include source='backfill' (default stamp)
+    assert created_items[0]["metadata"]["source"] == "backfill"
 
 
 def test_build_evaluators_scores_all_fields():

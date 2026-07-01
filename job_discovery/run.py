@@ -53,6 +53,7 @@ def run(dsn: str | None = None) -> None:
             try:
                 postings = ADAPTERS[ats](token)
                 seen: set[str] = set()
+                valid: list = []
                 for p in postings:
                     if p.external_id:
                         seen.add(p.external_id)   # close-detection sees every live posting,
@@ -62,8 +63,8 @@ def run(dsn: str | None = None) -> None:
                             p.external_id, co["name"],
                         )
                         continue
-                    if db.upsert_job(conn, company_id, ats, token, p):
-                        new_jobs += 1
+                    valid.append(p)
+                new_jobs += db.upsert_jobs(conn, company_id, ats, token, valid)
                 open_ids = db.get_open_external_ids(conn, company_id)
                 if not seen and len(open_ids) > 20:
                     log.error(

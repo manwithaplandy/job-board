@@ -164,3 +164,24 @@ def test_unchanged_row_is_not_rewritten(conn):
         cur.execute("SELECT xmin FROM jobs WHERE id='lever:acme:1'")
         xmin_after = cur.fetchone()["xmin"]
     assert xmin_before == xmin_after  # xmin unchanged → row was not rewritten
+
+
+# ── A8: batch upsert ──────────────────────────────────────────────────────────
+
+@requires_db
+def test_upsert_jobs_batch_reports_new_count(conn):
+    """upsert_jobs: batch of 3 (2 new, 1 existing-unchanged) returns new == 2."""
+    cid = _seed_company(conn)
+    # Pre-insert one existing job so it will be a no-op.
+    db.upsert_job(conn, cid, "lever", "acme",
+                  Posting(external_id="existing", title="Existing", url="https://x"))
+    conn.commit()
+
+    postings = [
+        Posting(external_id="new1", title="New Job 1", url="https://a"),
+        Posting(external_id="new2", title="New Job 2", url="https://b"),
+        Posting(external_id="existing", title="Existing", url="https://x"),  # no-op
+    ]
+    new_count = db.upsert_jobs(conn, cid, "lever", "acme", postings)
+    conn.commit()
+    assert new_count == 2

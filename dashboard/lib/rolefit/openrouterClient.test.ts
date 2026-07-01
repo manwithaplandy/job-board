@@ -15,6 +15,7 @@ const baseArgs = {
   user: "Cobalt user prompt",
   responseFormat: { type: "json_schema", json_schema: { name: "x" } },
   maxTokens: 1234,
+  retryDelayMs: 0, // avoid real delays in tests
 };
 
 describe("callOpenRouterStructured", () => {
@@ -66,5 +67,60 @@ describe("callOpenRouterStructured", () => {
         parse: () => { throw new Error("missing required fields"); },
       }),
     ).rejects.toThrow("missing required fields");
+  });
+});
+
+describe("transport hardening", () => {
+  test("sends usage accounting opt-in", async () => {
+    const f = vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) }, finish_reason: "stop" }], usage: { cost: 0.001 } }),
+    })) as unknown as typeof fetch;
+    await callOpenRouterStructured({ ...baseArgs, fetchImpl: f, parse: (r) => r as { ok: number } });
+    const calls = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls;
+    const body = JSON.parse(calls[0][1].body as string) as { usage: unknown };
+    expect(body.usage).toEqual({ include: true });
+  });
+
+  test("includes response body in thrown error on 429", async () => {
+    const f = vi.fn(async () => ({
+      ok: false, status: 429,
+      text: async () => "rate limited",
+    })) as unknown as typeof fetch;
+    await expect(
+      callOpenRouterStructured({ ...baseArgs, fetchImpl: f, parse: (r) => r }),
+    ).rejects.toThrow(/rate limited/);
+  });
+
+  test("retries once on 429 then succeeds", async () => {
+    let call = 0;
+    const f = vi.fn(async () => {
+      call++;
+      if (call === 1) return { ok: false, status: 429, text: async () => "rate limited" };
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) }, finish_reason: "stop" }] }) };
+    }) as unknown as typeof fetch;
+    const result = await callOpenRouterStructured({ ...baseArgs, fetchImpl: f, parse: (r) => r as { ok: number } });
+    expect(result).toEqual({ ok: 1 });
+    expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
+  });
+
+  test("labels max_tokens truncation distinctly", async () => {
+    const f = vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) }, finish_reason: "length" }] }),
+    })) as unknown as typeof fetch;
+    await expect(
+      callOpenRouterStructured({ ...baseArgs, fetchImpl: f, parse: (r) => r }),
+    ).rejects.toThrow(/truncated/);
+  });
+
+  test("aborts after timeout (AbortSignal.timeout wired)", async () => {
+    const f = vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) }, finish_reason: "stop" }] }),
+    })) as unknown as typeof fetch;
+    await callOpenRouterStructured({ ...baseArgs, fetchImpl: f, parse: (r) => r as { ok: number } });
+    const calls = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls;
+    expect(calls[0][1].signal).toBeDefined();
   });
 });

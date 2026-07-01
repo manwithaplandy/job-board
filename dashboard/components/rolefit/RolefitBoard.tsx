@@ -5,7 +5,7 @@ import type { ApplicationAnswers, ApplicationPackage, JobRow, JobReviewDetail, O
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
-import { applyFilters, sortJobs } from "@/lib/rolefit/filter";
+import { applyFilters, filterByApplied, sortJobs } from "@/lib/rolefit/filter";
 import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
@@ -23,6 +23,7 @@ export interface RolefitBoardProps {
   rejectJob: (jobId: string) => Promise<void>;
   unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
   markApplied: (jobId: string) => Promise<void>;
+  unmarkApplied: (jobId: string) => Promise<void>;
   // Persist a regenerated résumé/cover back into an existing application_packages row
   // (so regenerating after Prepare survives a reload). No-op server-side when unprepared.
   persistResume: (jobId: string, resume: TailoredResume) => Promise<void>;
@@ -46,6 +47,7 @@ export function RolefitBoard({
   rejectJob,
   unrejectJob,
   markApplied,
+  unmarkApplied,
   persistResume,
   persistCover,
   operator,
@@ -67,10 +69,15 @@ export function RolefitBoard({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [appliedView, setAppliedView] = useState(false);
 
   // Manual-rejection state: optimistically hidden ids + the pending Undo toast.
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState<{ jobId: string; priorVerdict: string | null } | null>(null);
+  const [toast, setToast] = useState<
+    | { kind: "reject"; jobId: string; priorVerdict: string | null }
+    | { kind: "apply"; jobId: string; prior: ApplicationPackage | undefined }
+    | null
+  >(null);
   const [, startReject] = useTransition();
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -168,10 +175,19 @@ export function RolefitBoard({
     return () => clearTimeout(t);
   }, [filterState]);
 
+  const appliedSet = useMemo(
+    () => new Set(jobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
+    [jobs, packages],
+  );
+
   const visible = useMemo(
-    () => sortJobs(applyFilters(jobs, filterState), filterState.sort)
-      .filter((j) => !rejectedIds.has(j.id)),
-    [jobs, filterState, rejectedIds],
+    () => filterByApplied(
+      sortJobs(applyFilters(jobs, filterState), filterState.sort)
+        .filter((j) => !rejectedIds.has(j.id)),
+      appliedSet,
+      appliedView,
+    ),
+    [jobs, filterState, rejectedIds, appliedSet, appliedView],
   );
 
   // Resolve selected job
@@ -248,23 +264,34 @@ export function RolefitBoard({
     setRejectedIds((prev) => new Set(prev).add(job.id));
     setSelectedId((prev) => (prev === job.id ? null : prev));
     startReject(() => { void rejectJob(job.id); });
-    setToast({ jobId: job.id, priorVerdict });
+    setToast({ kind: "reject", jobId: job.id, priorVerdict });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 5000);
   }, [rejectJob]);
 
   const handleUndo = useCallback(() => {
     if (!toast) return;
-    const { jobId, priorVerdict } = toast;
-    setRejectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(jobId);
-      return next;
-    });
-    startReject(() => { void unrejectJob(jobId, priorVerdict); });
+    if (toast.kind === "reject") {
+      const { jobId, priorVerdict } = toast;
+      setRejectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+      startReject(() => { void unrejectJob(jobId, priorVerdict); });
+    } else {
+      const { jobId, prior } = toast;
+      setPackages((p) => {
+        const next = { ...p };
+        if (prior) next[jobId] = prior;
+        else delete next[jobId];
+        return next;
+      });
+      startApply(() => { void unmarkApplied(jobId); });
+    }
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(null);
-  }, [toast, unrejectJob]);
+  }, [toast, unrejectJob, unmarkApplied]);
 
   // Résumé generation
   const handleGenerate = useCallback(async (job: JobRow) => {
@@ -378,28 +405,66 @@ export function RolefitBoard({
     }
   }, [genData, coverData, showActionError]);
 
-  // "Mark as applied" — optimistic flip + persist (status='applied', applied_at set).
+  // "Mark as applied" — works with OR without a prepared package. Optimistically
+  // flips/creates the package to status='applied' (hiding the job from the default
+  // board via appliedSet), shows an Undo toast (mirrors reject), and persists via the
+  // upsert action. On failure, roll the optimistic change back and surface an error.
   const handleMarkApplied = useCallback((job: JobRow) => {
     const prior = packages[job.id];
-    if (!prior) return;
-    setPackages((p) => ({
-      ...p,
-      [job.id]: {
-        ...prior,
-        status: "applied",
-        appliedAt: prior.appliedAt ?? new Date().toISOString(),
-      },
-    }));
-    // Await the action: if the server rejects (auth/network) the DB stays "prepared",
-    // so roll the optimistic flip back and tell the user instead of showing a false
-    // "Applied".
+    const appliedAt = new Date().toISOString();
+    const optimistic: ApplicationPackage = prior
+      ? { ...prior, status: "applied", appliedAt: prior.appliedAt ?? appliedAt }
+      : {
+          jobId: job.id,
+          status: "applied",
+          resume: null,
+          coverLetter: null,
+          answersSnapshot: null,
+          greenhouseQuestions: null,
+          prefilledAnswers: null,
+          applyUrl: null,
+          preparedAt: appliedAt,
+          appliedAt,
+        };
+    setPackages((p) => ({ ...p, [job.id]: optimistic }));
+    setSelectedId((prev) => (prev === job.id ? null : prev));
     startApply(() => {
       void markApplied(job.id).catch(() => {
-        setPackages((p) => ({ ...p, [job.id]: prior }));
+        setPackages((p) => {
+          const next = { ...p };
+          if (prior) next[job.id] = prior;
+          else delete next[job.id];
+          return next;
+        });
         showActionError("Couldn’t mark as applied. Please try again.");
       });
     });
+    setToast({ kind: "apply", jobId: job.id, prior });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 5000);
   }, [packages, markApplied, showActionError]);
+
+  // Un-mark applied from the Applied view (no toast — immediate). Deletes a bare
+  // marker; reverts a real prepared package to status='prepared'. Rolls back on error.
+  const handleUnapply = useCallback((job: JobRow) => {
+    const prior = packages[job.id];
+    const hasContent = Boolean(
+      prior && (prior.resume || prior.coverLetter || prior.answersSnapshot
+        || prior.greenhouseQuestions || prior.prefilledAnswers),
+    );
+    setPackages((p) => {
+      const next = { ...p };
+      if (prior && hasContent) next[job.id] = { ...prior, status: "prepared", appliedAt: null };
+      else delete next[job.id];
+      return next;
+    });
+    startApply(() => {
+      void unmarkApplied(job.id).catch(() => {
+        if (prior) setPackages((p) => ({ ...p, [job.id]: prior }));
+        showActionError("Couldn’t undo. Please try again.");
+      });
+    });
+  }, [packages, unmarkApplied, showActionError]);
 
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
@@ -455,6 +520,9 @@ export function RolefitBoard({
         sort={sort}
         openMenu={openMenu}
         visibleCount={visible.length}
+        appliedView={appliedView}
+        appliedCount={appliedSet.size}
+        onToggleApplied={() => setAppliedView((v) => !v)}
         onToggleMenu={toggleMenu}
         onToggleCat={toggleCat}
         onToggleLoc={toggleLoc}
@@ -513,6 +581,7 @@ export function RolefitBoard({
               onMarkApplied={handleMarkApplied}
               onOpenProfile={() => setProfileOpen(true)}
               onReject={handleReject}
+              onUnapply={handleUnapply}
             />
           ) : (
             <div
@@ -552,7 +621,7 @@ export function RolefitBoard({
             zIndex: 50,
           }}
         >
-          <span>Rejected</span>
+          <span>{toast.kind === "apply" ? "Applied" : "Rejected"}</span>
           <button
             type="button"
             onClick={handleUndo}

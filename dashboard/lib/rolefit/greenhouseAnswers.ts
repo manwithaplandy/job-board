@@ -21,6 +21,15 @@ export interface MergedGreenhouseQuestion {
   answer: string | null;
 }
 
+/** Validate an answer against the question's option list (case-insensitive).
+ *  Returns the canonical option label if matched, the answer as-is for free-text
+ *  questions (no options), or null when the answer doesn't match any option. */
+function normalizeToOption(answer: string, options: string[]): string | null {
+  if (options.length === 0) return answer; // free text — no constraint
+  const lower = answer.trim().toLowerCase();
+  return options.find((o) => o.toLowerCase() === lower) ?? null;
+}
+
 export function mergeGreenhouseQuestions(
   greenhouseQuestions: GreenhouseQuestions | null,
   prefilledAnswers: PrefilledAnswer[] | null,
@@ -41,11 +50,17 @@ export function mergeGreenhouseQuestions(
   const renderedLabels = new Set<string>();
   promptQuestions.forEach((q, i) => {
     renderedLabels.add(q.label);
+    // Collect the option labels for this question (deduplicated).
+    const options = Array.from(
+      new Set(q.fields.flatMap((f) => f.options.map((o) => o.label)).filter(Boolean)),
+    );
+    const rawAnswer = byLabel.get(q.label) ?? null;
+    const answer = rawAnswer != null ? normalizeToOption(rawAnswer, options) : null;
     rows.push({
       key: `${q.label}-${i}`,
       label: q.label,
       required: q.required,
-      answer: byLabel.get(q.label) ?? null,
+      answer,
     });
   });
 

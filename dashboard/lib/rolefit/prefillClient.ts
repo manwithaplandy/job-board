@@ -8,8 +8,18 @@ import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
 
 export const DEFAULT_PREFILL_MODEL = "anthropic/claude-haiku-4.5";
 
-// Map a Greenhouse posting's questions to suggested answers. Only the answers
-// the model returns with non-empty text are kept (blank = "couldn't answer").
+// EEO questions are answered deterministically from the profile — never via LLM.
+// This is more accurate (no hallucination risk), faster, and avoids token cost.
+const EEO_PATTERNS: { pattern: RegExp; field: keyof ApplicationAnswers }[] = [
+  { pattern: /gender/i, field: "eeo_gender" },
+  { pattern: /race|ethnicity/i, field: "eeo_race" },
+  { pattern: /veteran/i, field: "eeo_veteran" },
+  { pattern: /disability/i, field: "eeo_disability" },
+];
+
+// Map a Greenhouse posting's questions to suggested answers. EEO questions are
+// answered deterministically from the profile. Only the remaining LLM answers
+// with non-empty text are kept (blank = "couldn't answer").
 export async function generatePrefilledAnswers(args: {
   resumeText: string;
   instructions: string | null;
@@ -20,14 +30,32 @@ export async function generatePrefilledAnswers(args: {
   apiKey: string;
   fetchImpl?: typeof fetch;
 }): Promise<PrefilledAnswer[]> {
+  const eeoAnswers: PrefilledAnswer[] = [];
+  const remainingQuestions = args.questions.filter((q) => {
+    for (const { pattern, field } of EEO_PATTERNS) {
+      if (pattern.test(q.label) && args.answers?.[field]) {
+        const value = args.answers[field] as string;
+        // Only use the saved value if it matches one of the allowed options (or is free-text).
+        if (q.options.length === 0 || q.options.some((o) => o.toLowerCase() === value.toLowerCase())) {
+          eeoAnswers.push({ question: q.label, answer: value });
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+
+  if (remainingQuestions.length === 0) return eeoAnswers;
+
   const { system, user } = buildPrefillPrompt({
     resumeText: args.resumeText,
     instructions: args.instructions,
     answers: args.answers,
     job: args.job,
-    questions: args.questions,
+    questions: remainingQuestions,
   });
-  return callOpenRouterStructured<PrefilledAnswer[]>({
+
+  const llmAnswers = await callOpenRouterStructured<PrefilledAnswer[]>({
     generationName: "greenhouse-prefill-generation",
     label: "prefill",
     model: args.model,
@@ -48,4 +76,6 @@ export async function generatePrefilledAnswers(args: {
         .filter((a) => a.question && a.answer);
     },
   });
+
+  return [...eeoAnswers, ...llmAnswers];
 }

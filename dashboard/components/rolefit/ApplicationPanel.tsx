@@ -9,6 +9,7 @@ import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
+import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 
 // Plain-text cover letter — mirrors composeResumeText in ResumePanel.
 function composeCoverLetterText(data: TailoredCoverLetter): string {
@@ -121,52 +122,36 @@ export function ApplicationPanel({
   const hasGreenhouse = ghRows.length > 0;
   const appliedDate = appliedAt ? new Date(appliedAt).toLocaleDateString() : null;
 
-  // Cover-letter PDF download — mirrors ResumePanel.handleDownload, falls back to .txt.
+  // Cover-letter PDF download — shared helper handles the import + .txt fallback.
   const handleCoverDownload = async () => {
     if (!coverData) return;
     const fname = `Cover Letter - ${job.company_name} - ${job.title}.pdf`.replace(/[\\/:*?"<>|]/g, " ");
     const text = composeCoverLetterText(coverData);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let JsPDF: any;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const jsPDFMod = (await import("jspdf")) as any;
-      JsPDF = jsPDFMod.jsPDF ?? jsPDFMod.default;
-    } catch (e) {
-      console.error("Failed to import jsPDF; falling back to .txt download", e);
-      const blob = new Blob([text], { type: "text/plain" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = fname.replace(/\.pdf$/, ".txt");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(a.href);
-      return;
-    }
-
-    const doc = new JsPDF({ unit: "pt", format: "letter" });
-    const W: number = doc.internal.pageSize.getWidth();
-    const M = 56;
-    let y = 72;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.setTextColor(31, 36, 48);
-    const wrap = (txt: string): string[] => doc.splitTextToSize(txt, W - 2 * M);
-    const writeBlock = (txt: string) => {
-      wrap(txt).forEach((l: string) => {
-        if (y > 720) { doc.addPage(); y = 72; }
-        doc.text(l, M, y);
-        y += 16;
-      });
-    };
-    writeBlock(coverData.greeting);
-    y += 8;
-    coverData.paragraphs.forEach((p) => { writeBlock(p); y += 10; });
-    writeBlock(coverData.closing);
-    writeBlock(coverData.signature);
-    doc.save(fname);
+    await downloadPdf(
+      fname,
+      (doc) => {
+        const W: number = doc.internal.pageSize.getWidth();
+        const M = 56;
+        let y = 72;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        doc.setTextColor(31, 36, 48);
+        const wrap = (txt: string): string[] => doc.splitTextToSize(txt, W - 2 * M);
+        const writeBlock = (txt: string) => {
+          wrap(txt).forEach((l: string) => {
+            if (y > 720) { doc.addPage(); y = 72; }
+            doc.text(l, M, y);
+            y += 16;
+          });
+        };
+        writeBlock(coverData.greeting);
+        y += 8;
+        coverData.paragraphs.forEach((p) => { writeBlock(p); y += 10; });
+        writeBlock(coverData.closing);
+        writeBlock(coverData.signature);
+      },
+      text,
+    );
   };
 
   // Read-only application answers, surfaced only when present.

@@ -3,6 +3,7 @@
 import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import { renderResumePdf } from "@/lib/rolefit/resumePdf";
+import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 
 // Build plain-text résumé from TailoredResume — mirrors composeResumeText in reference
 function composeResumeText(data: TailoredResume): string {
@@ -70,36 +71,12 @@ export function ResumePanel({
   const isDone = state === "done";
   const isError = state === "error";
 
-  // jsPDF download — dynamic import, mirrors reference download() layout
+  // jsPDF download — shared helper handles the dynamic import + .txt fallback.
+  // Layout lives in lib/rolefit/resumePdf so it's shared with the CLI harness.
   const handleDownload = async () => {
     if (!data) return;
     const fname = `Resume - ${job.company_name} - ${job.title}.pdf`.replace(/[\\/:*?"<>|]/g, " ");
-
-    // Import jsPDF; fall back to .txt if import fails
-    let JsPDF: any;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const jsPDFMod = (await import("jspdf")) as any;
-      JsPDF = jsPDFMod.jsPDF ?? jsPDFMod.default;
-    } catch (e) {
-      console.error("Failed to import jsPDF; falling back to .txt download", e);
-      const text = composeResumeText(data);
-      const blob = new Blob([text], { type: "text/plain" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = fname.replace(/\.pdf$/, ".txt");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(a.href);
-      return;
-    }
-
-    // PDF generation — errors bubble up. Layout lives in lib/rolefit/resumePdf
-    // so it's shared with the CLI résumé-iteration harness.
-    const doc = new JsPDF({ unit: "pt", format: "letter" });
-    renderResumePdf(doc, data);
-    doc.save(fname);
+    await downloadPdf(fname, (doc) => renderResumePdf(doc, data), composeResumeText(data));
   };
 
   return (

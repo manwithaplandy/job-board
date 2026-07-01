@@ -166,6 +166,70 @@ def test_stage1_jd_guard():
     assert "SRE" in user_msg
 
 
+def test_stage1_batches_titles():
+    """45 candidates → 1 LLM call with a batch of titles; responses mapped back by job_id."""
+    from reviewer.llm import ReviewClient
+    from reviewer.schemas import Stage1BatchResult, Stage1Decision
+
+    batch_calls = []
+
+    class _BatchCompletions:
+        async def parse(self, **kwargs):
+            batch_calls.append(kwargs)
+            # Return a batch result with all 45 jobs passing
+            decisions = [
+                Stage1Decision(job_id=str(i), decision="pass", reason="ok")
+                for i in range(45)
+            ]
+            return _make_response(Stage1BatchResult(decisions=decisions))
+
+    fake_client = types.SimpleNamespace(
+        beta=types.SimpleNamespace(
+            chat=types.SimpleNamespace(completions=_BatchCompletions())
+        )
+    )
+    rc = ReviewClient(client=fake_client, model_stage1="m1", model_stage2="m2")
+    jobs = [{"id": str(i), "title": f"Job {i}", "company_name": "X", "location": None}
+            for i in range(45)]
+    results = asyncio.run(rc.stage1_batch(profile_block="P", jobs=jobs))
+    # 1 LLM call (all 45 fit in the batch cap of 50)
+    assert len(batch_calls) == 1
+    # All 45 jobs mapped back
+    assert len(results) == 45
+    assert all(r.decision == "pass" for r in results)
+
+
+def test_persist_commits_per_chunk(monkeypatch):
+    """Exception on row 7 of 10 → rows 1-6 committed; row 7 error logged; rows 8-10 committed."""
+    persisted = []
+    commits = [0]
+    rollbacks = [0]
+
+    class _FakeConn:
+        def commit(self):
+            commits[0] += 1
+
+        def rollback(self):
+            rollbacks[0] += 1
+
+    def _fake_upsert(conn, row):
+        job_id = row.get("job_id")
+        if job_id == 7:
+            raise RuntimeError("row 7 explodes")
+        persisted.append(job_id)
+
+    import reviewer.run as run_mod
+    import reviewer.db as db_mod
+    monkeypatch.setattr(db_mod, "upsert_review", _fake_upsert)
+
+    rows = [{"job_id": i, "user_id": "u", "profile_version": "v"} for i in range(1, 11)]
+    conn = _FakeConn()
+    run_mod._persist_rows(conn, rows, chunk_size=6)
+    # rows 1-6 → commit after chunk, row 7 errors → rollback (but continues), rows 8-10 → final commit
+    assert set(persisted) == {1, 2, 3, 4, 5, 6, 8, 9, 10}
+    assert commits[0] >= 2   # at least the chunk commit and final commit
+
+
 def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
     """OpenRouter returns the actual USD cost on resp.usage.cost; Langfuse has no
     price entry for OpenRouter-prefixed model slugs like deepseek/deepseek-v4-flash,

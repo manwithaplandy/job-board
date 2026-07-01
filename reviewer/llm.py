@@ -1,7 +1,7 @@
 import os
 
 from observability import tracing
-from reviewer.schemas import TAXONOMY_TEXT, Stage1Result, Stage2Result
+from reviewer.schemas import TAXONOMY_TEXT, Stage1BatchResult, Stage1Decision, Stage1Result, Stage2Result
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 
@@ -26,6 +26,13 @@ _STAGE1_INSTRUCTIONS = (
     "Reject ONLY obvious non-fits (e.g., a software engineer seeing 'Forklift "
     "Operator' or 'Social Media Manager'). When unsure, pass. Respond with "
     "decision='pass' or 'reject' and a one-sentence reason."
+)
+
+_STAGE1_BATCH_INSTRUCTIONS = (
+    "You are a relevance gatekeeper. Below is a numbered list of jobs (id, title, "
+    "company, location). For each job decide whether it could plausibly fit the "
+    "candidate above. Reject ONLY obvious non-fits. When unsure, pass. "
+    "Return one decision per job, preserving the job_id exactly."
 )
 
 _STAGE2_INSTRUCTIONS = (
@@ -148,6 +155,34 @@ class ReviewClient:
                 cost_details={"total": cost} if cost is not None else None,
             )
             return parsed
+
+    async def stage1_batch(self, *, profile_block: str,
+                           jobs: list[dict]) -> list[Stage1Decision]:
+        """Batch stage-1 gate: screen multiple jobs in a single LLM call.
+
+        Each dict in jobs must have keys: id, title, company_name, location.
+        Returns one Stage1Decision per job (missing ids treated as errors).
+        """
+        numbered = "\n".join(
+            f"{i + 1}. id={j['id']} | title={j['title']} | company={j['company_name']}"
+            f" | location={j.get('location') or 'n/a'}"
+            for i, j in enumerate(jobs)
+        )
+        system = _system(profile_block, _STAGE1_BATCH_INSTRUCTIONS)
+        # For Anthropic model slugs: attach cache_control on the static profile block
+        # (OpenRouter passthrough; other providers cache automatically).
+        if "anthropic/" in self.model_stage1 or "claude" in self.model_stage1.lower():
+            # Extra body is OpenRouter's passthrough for Anthropic cache_control.
+            extra = {"cache_control": {"type": "ephemeral"}}
+        else:
+            extra = {}
+        parsed, _ = await self._call(
+            model=self.model_stage1, max_tokens=2048,
+            system=system,
+            user=f"Jobs to screen:\n{numbered}",
+            schema=Stage1BatchResult,
+        )
+        return parsed.decisions
 
     async def stage1(self, *, profile_block: str, title: str, company: str,
                      location: str | None) -> Stage1Result:

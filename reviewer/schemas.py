@@ -67,6 +67,18 @@ class Stage1Result(BaseModel):
     reason: str
 
 
+class Stage1Decision(BaseModel):
+    """Per-job decision in a batched stage-1 response."""
+    job_id: str
+    decision: Literal["pass", "reject"]
+    reason: str
+
+
+class Stage1BatchResult(BaseModel):
+    """Batched stage-1 gate: one decision per job in the batch."""
+    decisions: list[Stage1Decision]
+
+
 class Stage2Result(BaseModel):
     verdict: Literal["approve", "deny"]
     experience_match: Literal["step_down", "match", "reach", "far_reach"]

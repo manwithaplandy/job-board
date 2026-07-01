@@ -11,6 +11,28 @@ log = logging.getLogger("reviewer")
 _NO_JD = "(no description available)"
 
 
+def _persist_rows(conn, rows: list[dict], chunk_size: int = 20) -> None:
+    """Persist review rows with per-chunk commits.
+
+    Commits every chunk_size rows so a partial batch is durable on partial
+    failure. An exception on a single row is logged and skipped; the chunk
+    committed so far is kept and iteration continues from the next row.
+    """
+    for i, row in enumerate(rows):
+        try:
+            db.upsert_review(conn, row)
+        except Exception as exc:
+            log.warning("persist failed for row %s: %s", row.get("job_id"), exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            continue
+        if (i + 1) % chunk_size == 0:
+            conn.commit()
+    conn.commit()  # final commit for the tail
+
+
 @dataclass
 class ReviewResult:
     job_id: str

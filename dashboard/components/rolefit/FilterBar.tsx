@@ -42,6 +42,9 @@ export interface FilterBarProps {
   sort: BoardFilterState["sort"];
   openMenu: string | null;
   visibleCount: number;
+  appliedView?: boolean;
+  appliedCount?: number;
+  onToggleApplied?: () => void;
   onToggleMenu: (name: string) => void;
   onToggleCat: (cat: string) => void;
   onToggleLoc: (loc: string) => void;
@@ -61,6 +64,9 @@ export function FilterBar({
   sort,
   openMenu,
   visibleCount,
+  appliedView,
+  appliedCount,
+  onToggleApplied,
   onToggleMenu,
   onToggleCat,
   onToggleLoc,
@@ -431,6 +437,28 @@ export function FilterBar({
           })}
         </div>
       </div>
+
+      {/* Applied view toggle — switches the list to jobs marked applied */}
+      {onToggleApplied && (
+        <button
+          onClick={onToggleApplied}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "7px",
+            fontWeight: 600,
+            fontSize: "12.5px",
+            color: appliedView ? "#2f7d54" : "#39424f",
+            background: appliedView ? "#e3f1e9" : "#ffffff",
+            border: `1px solid ${appliedView ? "#cfe6d8" : "#dfe3ea"}`,
+            borderRadius: "9px",
+            padding: "7px 11px",
+            cursor: "pointer",
+          }}
+        >
+          Applied{appliedCount ? ` · ${appliedCount}` : ""}
+        </button>
+      )}
 
       <div style={{ flex: 1 }} />
 

@@ -6,6 +6,8 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, filterByApplied, sortJobs } from "@/lib/rolefit/filter";
+import type { CorrectionForm } from "@/lib/rolefit/correction";
+import { formToCorrection } from "@/lib/rolefit/correction";
 import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
@@ -73,6 +75,11 @@ export function RolefitBoard({
 
   // Manual-rejection state: optimistically hidden ids + the pending Undo toast.
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
+
+  // Optimistic correction overlay (keyed by job id) — a saved reviewer correction is
+  // applied on top of both the board row and the cached detail so the card + detail
+  // pane reflect it immediately. `revalidatePath` alone can't reach this client state.
+  const [corrections, setCorrections] = useState<Record<string, Partial<JobRow>>>({});
   const [toast, setToast] = useState<
     | { kind: "reject"; jobId: string; priorVerdict: string | null }
     | { kind: "apply"; jobId: string; prior: ApplicationPackage | undefined }
@@ -190,6 +197,14 @@ export function RolefitBoard({
     [jobs, filterState, rejectedIds, appliedSet, appliedView],
   );
 
+  // Display-only overlay of `corrections` on top of the filtered/sorted/bucketed
+  // `visible` rows — a corrected job keeps its current position until reload (same
+  // tradeoff as rejectedIds); this only refreshes what the card renders.
+  const visibleWithCorrections = useMemo(
+    () => visible.map((j) => (corrections[j.id] ? { ...j, ...corrections[j.id] } : j)),
+    [visible, corrections],
+  );
+
   // Resolve selected job
   const selectedJob = useMemo(
     () => jobs.find((j) => j.id === selectedId) ?? null,
@@ -216,8 +231,9 @@ export function RolefitBoard({
   const selectedJobWithDetail = useMemo(() => {
     if (!selectedJob) return null;
     const d = details[selectedJob.id];
-    return d ? { ...selectedJob, ...d } : selectedJob;
-  }, [selectedJob, details]);
+    const c = corrections[selectedJob.id];
+    return { ...selectedJob, ...(d ?? {}), ...(c ?? {}) };
+  }, [selectedJob, details, corrections]);
 
   // Handlers
   const toggleCat = (cat: string) =>
@@ -292,6 +308,17 @@ export function RolefitBoard({
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(null);
   }, [toast, unrejectJob, unmarkApplied]);
+
+  // Optimistically apply a saved reviewer correction to the board card + detail pane —
+  // formToCorrection(form) already returns snake_case JobRow field names, so spreading
+  // it plus note/corrected yields a valid Partial<JobRow>.
+  const handleCorrected = useCallback((jobId: string, form: CorrectionForm) => {
+    const row = formToCorrection(form);
+    setCorrections((prev) => ({
+      ...prev,
+      [jobId]: { ...row, note: form.note, corrected: true },
+    }));
+  }, []);
 
   // Résumé generation
   const handleGenerate = useCallback(async (job: JobRow) => {
@@ -550,7 +577,7 @@ export function RolefitBoard({
           }}
         >
           <JobList
-            jobs={visible}
+            jobs={visibleWithCorrections}
             selectedId={selectedId}
             onSelect={handleSelect}
             onClearFilters={clearFilters}
@@ -586,6 +613,7 @@ export function RolefitBoard({
               onOpenProfile={() => setProfileOpen(true)}
               onReject={handleReject}
               onUnapply={handleUnapply}
+              onCorrected={handleCorrected}
             />
           ) : (
             <div

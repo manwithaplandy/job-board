@@ -44,10 +44,23 @@ export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail
   // j.description (full JD plaintext) and j.url (apply link) ride along here too
   // — both were dropped from the list payload for the same payload-size reason.
   const rows = await sql`
-    SELECT r.reasoning, r.about, r.red_flags, r.benefits, r.requirements,
-           j.description, j.url
+    SELECT
+      COALESCE(rc.reasoning, r.reasoning) AS reasoning,
+      COALESCE(rc.about, r.about) AS about,
+      COALESCE(rc.red_flags, r.red_flags) AS red_flags,
+      COALESCE(rc.benefits, r.benefits) AS benefits,
+      COALESCE(rc.requirements, r.requirements) AS requirements,
+      j.description, j.url,
+      COALESCE(rc.experience_match, r.experience_match) AS experience_match,
+      COALESCE(rc.industry, r.industry) AS industry,
+      COALESCE(rc.industry_subcategory, r.industry_subcategory) AS industry_subcategory,
+      COALESCE(rc.confidence, r.confidence) AS confidence,
+      rc.note,
+      (rc.job_id IS NOT NULL) AS corrected
     FROM job_reviews r
     JOIN jobs j ON j.id = r.job_id
+    LEFT JOIN review_corrections rc
+      ON rc.job_id = r.job_id AND rc.user_id = r.user_id
     WHERE r.job_id = ${jobId}
       AND r.user_id = (SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1)
   `;

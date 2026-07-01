@@ -5,6 +5,8 @@ export const dynamic = "force-dynamic";
 const EMPTY = {
   reasoning: null, about: null, red_flags: null, benefits: null, requirements: null,
   description: null, url: null,
+  experience_match: null, industry: null, industry_subcategory: null,
+  confidence: null, note: null, corrected: false,
 };
 
 // Detail-only review fields for one job (board owner's review), fetched lazily

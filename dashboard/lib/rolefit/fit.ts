@@ -50,3 +50,46 @@ export function fmtPosted(firstSeenIso: string, nowIso: string): string {
   if (days === 1) return "1 day ago";
   return `${days} days ago`;
 }
+
+// Verbatim port of reviewer/scoring.py::compute_fit — keep in lockstep with it.
+// Deterministic overall fit (0-100) from the corrected sub-scores, so the board
+// ring reflects a correction without a Python round-trip.
+const FIT_WEIGHTS = { skills: 0.45, experience: 0.3, comp: 0.25 };
+const EXPERIENCE_BONUS: Record<string, number> = {
+  match: 4, step_down: 2, reach: -3, far_reach: -8,
+};
+const CONFIDENCE_BONUS: Record<string, number> = { high: 3, medium: 0, low: -5 };
+const RED_FLAG_PENALTY = 3;
+const RED_FLAG_PENALTY_CAP = 9;
+const DENY_CAP = 58;
+
+// Python's round() is round-half-to-even; JS Math.round is half-up. Match Python.
+function roundHalfEven(x: number): number {
+  const floor = Math.floor(x);
+  const diff = x - floor;
+  if (diff < 0.5) return floor;
+  if (diff > 0.5) return floor + 1;
+  return floor % 2 === 0 ? floor : floor + 1;
+}
+
+export function computeFit(a: {
+  skillsScore: number | null;
+  experienceScore: number | null;
+  compScore: number | null;
+  experienceMatch: string | null;
+  confidence: string | null;
+  redFlags: string[];
+  verdict: string | null;
+}): number {
+  const s = a.skillsScore ?? 0;
+  const e = a.experienceScore ?? 0;
+  const c = a.compScore ?? 0;
+  let fit =
+    FIT_WEIGHTS.skills * s + FIT_WEIGHTS.experience * e + FIT_WEIGHTS.comp * c;
+  fit += EXPERIENCE_BONUS[a.experienceMatch ?? ""] ?? 0;
+  fit += CONFIDENCE_BONUS[a.confidence ?? ""] ?? 0;
+  fit -= Math.min(RED_FLAG_PENALTY_CAP, RED_FLAG_PENALTY * (a.redFlags?.length ?? 0));
+  fit = roundHalfEven(Math.max(0, Math.min(100, fit)));
+  if (a.verdict === "deny") fit = Math.min(fit, DENY_CAP);
+  return fit;
+}

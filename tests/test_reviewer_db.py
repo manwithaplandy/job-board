@@ -369,3 +369,39 @@ def test_recent_stage2_reviews_respects_limit(conn):
     conn.commit()
     assert len(rdb.recent_stage2_reviews(conn, limit=2)) == 2
     assert len(rdb.recent_stage2_reviews(conn, limit=10)) == 3
+
+
+@requires_db
+def test_golden_corrections_joins_inputs(conn):
+    job_id = _seed_job(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'resume', 'instr', 'v1')",
+            (USER,),
+        )
+        cur.execute(
+            "INSERT INTO review_corrections "
+            "(user_id, job_id, verdict, experience_match, industry, "
+            " industry_subcategory, confidence, role_category, seniority, "
+            " work_arrangement, skills_score, experience_score, comp_score, note) "
+            "VALUES (%s, %s, 'approve', 'match', 'software_internet', "
+            " 'devtools_platforms', 'high', 'Backend', 'senior', 'remote', "
+            " 80, 70, 60, 'looks right')",
+            (USER, job_id),
+        )
+    conn.commit()
+
+    rows = rdb.golden_corrections(conn)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["job_id"] == job_id
+    assert r["title"] == "Engineer"
+    assert r["company_name"] == "Acme"
+    assert r["ats"] == "lever"
+    assert r["description"] == "jd"
+    assert r["resume_text"] == "resume"
+    assert r["instructions"] == "instr"
+    assert r["verdict"] == "approve"
+    assert r["industry_subcategory"] == "devtools_platforms"
+    assert r["skills_score"] == 80

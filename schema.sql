@@ -164,6 +164,10 @@ CREATE TABLE review_corrections (
   requirements         JSONB NOT NULL DEFAULT '[]'::jsonb,
   model_snapshot       JSONB NOT NULL DEFAULT '{}'::jsonb,
   note                 TEXT,
+  -- Frozen at correction time so golden-dataset eval inputs survive JD pruning and profile drift.
+  description_snapshot  TEXT,
+  resume_text_snapshot  TEXT,
+  instructions_snapshot TEXT,
   corrected_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT review_corrections_scores_range CHECK (
     (skills_score     IS NULL OR skills_score     BETWEEN 0 AND 100) AND

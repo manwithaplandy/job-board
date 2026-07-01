@@ -16,6 +16,13 @@ export interface JobReviewDetail {
   requirements: { text: string; met: boolean }[] | null;
   description: string | null;
   url: string | null;
+  // categoricals + provenance for the correction edit form
+  experience_match: string | null;
+  industry: string | null;
+  industry_subcategory: string | null;
+  confidence: string | null;
+  note: string | null;
+  corrected: boolean;
 }
 
 export interface JobRow {
@@ -62,6 +69,7 @@ export interface JobRow {
   industry?: string | null;
   industry_subcategory?: string | null;
   confidence?: string | null;
+  note?: string | null;
   stage1_decision?: string | null;
   stage1_reason?: string | null;
 }

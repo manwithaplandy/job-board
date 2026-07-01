@@ -1,13 +1,11 @@
 """Tests for reviewer/experiments.py: verdict_match scorer and run_experiment wiring."""
 import asyncio
+import contextlib
 
-from reviewer.experiments import sync_golden_dataset, verdict_match
+import pytest
 
+from reviewer.experiments import sync_golden_dataset
 
-def test_verdict_match_exact_and_miss():
-    assert verdict_match("approve", "approve") == 1.0
-    assert verdict_match("approve", "deny") == 0.0
-    assert verdict_match(None, "approve") == 0.0
 
 
 def test_run_experiment_iterates_items(monkeypatch):
@@ -125,6 +123,82 @@ def test_sync_preserves_dashboard_provenance(monkeypatch):
     assert n == 1
     # The synced item's metadata must include source='backfill' (default stamp)
     assert created_items[0]["metadata"]["source"] == "backfill"
+
+
+def test_experiment_bypasses_stage1():
+    """run_experiment task must feed golden items straight to stage 2 (no stage-1 gate)."""
+    from observability import tracing
+    from reviewer import experiments
+    from tests.test_reviewer_run import StubClient
+
+    class _DS:
+        def run_experiment(self, *, name, task, evaluators, **kwargs):
+            class _Item:
+                id = "item-1"
+                input = {
+                    "title": "Forklift Operator",  # would be rejected by stage-1
+                    "company_name": "X", "location": None,
+                    "ats": "lever", "description": "jd",
+                    "resume_text": "r", "instructions": "i",
+                }
+                expected_output = {"verdict": "approve"}
+                metadata = None
+
+            items = [_Item()]
+
+            async def _drive():
+                for item in items:
+                    result = await task(item=item)
+                    # For a golden item, stage 2 must run regardless of stage-1 signal
+                    assert result.get("verdict") is not None, \
+                        "stage-2 must run even if stage-1 would reject"
+
+            asyncio.run(_drive())
+
+            class _Res:
+                item_results = items
+            return _Res()
+
+    class _Span:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): pass
+
+    class _LF:
+        def get_dataset(self, name): return _DS()
+        def flush(self): pass
+        def start_as_current_observation(self, **kw): return _Span()
+
+    from observability import tracing
+    import contextlib
+    # We need a monkeypatch-like approach; use direct attribute setting
+    original = tracing.get_langfuse
+    original_identity = tracing.identity
+    try:
+        tracing.get_langfuse = lambda: _LF()
+        tracing.identity = lambda **kw: contextlib.nullcontext()
+        stub = StubClient()
+        n = experiments.run_experiment("golden", "exp-1", client=stub)
+        assert n == 1
+    finally:
+        tracing.get_langfuse = original
+        tracing.identity = original_identity
+
+
+def test_verdict_match_module_fn_removed():
+    """The dead module-level verdict_match function must not exist in experiments."""
+    import reviewer.experiments as exp
+    # After B8, verdict_match is removed from experiments.py
+    with pytest.raises(AttributeError):
+        _ = exp.verdict_match
+
+
+def test_screen_prompt_defines_neutral_case():
+    """Company screen prompt must contain the known-but-neutral confidence rule."""
+    from company_discovery.llm import _INSTRUCTIONS
+    # The specific neutral rule added by B8: when known but preferences neither
+    # clearly match nor clearly violate, return 'include' with low confidence.
+    assert "0.4" in _INSTRUCTIONS, "neutral-company rule must reference confidence <= 0.4"
 
 
 def test_build_evaluators_scores_all_fields():

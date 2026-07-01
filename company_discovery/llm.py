@@ -20,7 +20,10 @@ _INSTRUCTIONS = (
     f"or null if unknown:\n{TAXONOMY_TEXT}\n"
     "- tech_tags: known stack keywords relevant to the preferences (e.g. 'java', "
     "'c++'); [] if unknown.\n"
-    "- red_flags: short reasons the candidate might avoid it; [] if none."
+    "- red_flags: short reasons the candidate might avoid it; [] if none.\n"
+    "If you have real knowledge of the company but the preferences neither clearly "
+    "match nor clearly violate it, return 'include' with confidence <= 0.4 so "
+    "polling is not silently skipped."
 )
 
 

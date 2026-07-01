@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { sql } from "@/lib/db";
 
@@ -18,7 +17,6 @@ export async function rejectJob(jobId: string): Promise<void> {
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       verdict = 'deny', human_override = TRUE, reviewed_at = now()
   `;
-  revalidatePath("/");
 }
 
 // Undo (in-session). Non-destructive restore of the prior verdict, guarded by
@@ -35,5 +33,4 @@ export async function unrejectJob(
        SET verdict = ${priorVerdict}, human_override = FALSE, reviewed_at = now()
      WHERE user_id = ${userId}::uuid AND job_id = ${jobId} AND human_override = TRUE
   `;
-  revalidatePath("/");
 }

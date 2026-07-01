@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { formToCorrection, buildDatasetItem } from "@/lib/rolefit/correction";
@@ -92,6 +91,5 @@ export async function saveReviewCorrection(
     langfuseSynced = false;
   }
 
-  revalidatePath("/");
   return { ok: true, langfuseSynced };
 }

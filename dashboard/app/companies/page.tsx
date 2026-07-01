@@ -14,7 +14,14 @@ const cardStyle: React.CSSProperties = {
   maxWidth: "780px", margin: "0 auto",
 };
 
-export default async function CompaniesPage() {
+const VALID_BUCKETS = ["include", "exclude", "unknown"] as const;
+type Bucket = typeof VALID_BUCKETS[number];
+
+export default async function CompaniesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const userId = await getBoardOwnerId();
   if (!userId) {
     return (
@@ -30,16 +37,25 @@ export default async function CompaniesPage() {
     );
   }
 
-  const [included, excluded, unknown, counts, state]: [
-    CompanyReviewRow[], CompanyReviewRow[], CompanyReviewRow[],
-    { include: number; exclude: number; unknown: number }, DiscoveryStateRow,
+  const sp = await searchParams;
+  const rawBucket = sp.bucket;
+  const bucket: Bucket = VALID_BUCKETS.includes(rawBucket as Bucket)
+    ? (rawBucket as Bucket)
+    : "include";
+
+  const [companies, counts, state]: [
+    CompanyReviewRow[],
+    { include: number; exclude: number; unknown: number },
+    DiscoveryStateRow,
   ] = await Promise.all([
-    getCompanyReviews(userId, "include"),
-    getCompanyReviews(userId, "exclude"),
-    getCompanyReviews(userId, "unknown"),
+    getCompanyReviews(userId, bucket),
     getCompanyVerdictCounts(userId),
     getDiscoveryState(userId),
   ]);
+
+  const included = bucket === "include" ? companies : [];
+  const excluded = bucket === "exclude" ? companies : [];
+  const unknown = bucket === "unknown" ? companies : [];
 
   return (
     <main style={pageStyle}>

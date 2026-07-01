@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { unstable_cache } from "next/cache";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
 import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
@@ -22,16 +23,15 @@ export async function getJobs(
 
 export async function getBoardOwnerId(): Promise<string | null> {
   // Single-tenant: the one operator whose verdicts the public board shows.
-  const rows = await sql`SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1`;
+  const rows = await sql`SELECT user_id FROM profiles WHERE is_owner LIMIT 1`;
   return (rows[0]?.user_id as string | undefined) ?? null;
 }
 
 export async function getBoardOwner(): Promise<{ id: string | null; locations: string[] }> {
   // Single-tenant: the board owner's id AND location include-list come from the
-  // same most-recently-updated profile row. One query instead of two separate
-  // SELECTs of the same row (getBoardOwnerId + getBoardOwnerLocations).
+  // same is_owner profile row. One query instead of two separate SELECTs.
   const rows = await sql`
-    SELECT user_id, preferred_locations FROM profiles ORDER BY updated_at DESC LIMIT 1
+    SELECT user_id, preferred_locations FROM profiles WHERE is_owner LIMIT 1
   `;
   const row = rows[0] as { user_id?: string; preferred_locations?: string[] } | undefined;
   return { id: row?.user_id ?? null, locations: row?.preferred_locations ?? [] };
@@ -62,7 +62,7 @@ export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail
     LEFT JOIN review_corrections rc
       ON rc.job_id = r.job_id AND rc.user_id = r.user_id
     WHERE r.job_id = ${jobId}
-      AND r.user_id = (SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1)
+      AND r.user_id = (SELECT user_id FROM profiles WHERE is_owner LIMIT 1)
   `;
   return (rows[0] as unknown as JobReviewDetail) ?? null;
 }
@@ -74,7 +74,7 @@ export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {
   return (rows[0] as unknown as ReviewRunRow) ?? null;
 }
 
-export async function getReviewStats(userId: string): Promise<ReviewStats> {
+async function _getReviewStatsImpl(userId: string): Promise<ReviewStats> {
   const rows = await sql`
     SELECT
       (count(*) FILTER (WHERE r.job_id IS NULL))::int      AS unreviewed,
@@ -84,6 +84,14 @@ export async function getReviewStats(userId: string): Promise<ReviewStats> {
     WHERE j.closed_at IS NULL
   `;
   return (rows[0] as unknown as ReviewStats) ?? { unreviewed: 0, errors: 0 };
+}
+
+export function getReviewStats(userId: string): Promise<ReviewStats> {
+  return unstable_cache(
+    () => _getReviewStatsImpl(userId),
+    ["review-stats", userId],
+    { revalidate: 300 },
+  )();
 }
 
 export async function getCompanies(): Promise<CompanyRow[]> {
@@ -125,7 +133,7 @@ export async function saveBoardFilters(
   filters: BoardFilterState,
 ): Promise<void> {
   // UPDATE-only and intentionally does NOT touch updated_at: getBoardOwnerId()
-  // resolves the single-tenant board owner by most-recent updated_at, and
+  // resolves the single-tenant board owner by is_owner flag, and
   // profile_version is NOT NULL with no default — so we must not INSERT a row
   // or bump updated_at when persisting a viewer's filters.
   await sql`

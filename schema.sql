@@ -118,6 +118,11 @@ CREATE TABLE job_reviews (
   model_stage2         TEXT,
   error                TEXT,
   reviewed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT job_reviews_scores_range CHECK (
+    (skills_score     IS NULL OR skills_score     BETWEEN 0 AND 100) AND
+    (experience_score IS NULL OR experience_score BETWEEN 0 AND 100) AND
+    (comp_score       IS NULL OR comp_score       BETWEEN 0 AND 100) AND
+    (fit_score        IS NULL OR fit_score        BETWEEN 0 AND 100)),
   PRIMARY KEY (user_id, job_id)
 );
 CREATE INDEX idx_job_reviews_user_verdict ON job_reviews (user_id, verdict);
@@ -160,6 +165,11 @@ CREATE TABLE review_corrections (
   model_snapshot       JSONB NOT NULL DEFAULT '{}'::jsonb,
   note                 TEXT,
   corrected_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT review_corrections_scores_range CHECK (
+    (skills_score     IS NULL OR skills_score     BETWEEN 0 AND 100) AND
+    (experience_score IS NULL OR experience_score BETWEEN 0 AND 100) AND
+    (comp_score       IS NULL OR comp_score       BETWEEN 0 AND 100) AND
+    (fit_score        IS NULL OR fit_score        BETWEEN 0 AND 100)),
   PRIMARY KEY (user_id, job_id)
 );
 -- Redundant idx_review_corrections_user removed: PK (user_id, job_id) already serves user_id-leading lookups.
@@ -242,6 +252,7 @@ CREATE TABLE application_packages (
                          CHECK (status IN ('prepared','applied')),
   prepared_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   applied_at           TIMESTAMPTZ,
+  CONSTRAINT applied_iff_timestamp CHECK ((status = 'applied') = (applied_at IS NOT NULL)),
   UNIQUE (user_id, job_id)
 );
 -- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.

@@ -38,6 +38,18 @@ def _cand(title, ats="lever", description="jd"):
             "ats": ats, "company_name": "Acme", "description": description}
 
 
+def test_missing_jd_skips_stage2_and_writes_no_row():
+    """When stage-1 passes but description is NULL/empty, stage-2 must NOT run."""
+    client = StubClient()
+    res = asyncio.run(review_one(_cand("SRE", description=None), "P", client))
+    # stage1 passed (SRE is not a forklift operator), but JD is None
+    assert res.stage1_decision == "pass"
+    # stage2 must NOT run — no verdict, no row
+    assert res.verdict is None
+    assert client.stage2_calls == []
+    assert res.error is None  # not an error; deferred
+
+
 def test_gate_reject_skips_stage2():
     client = StubClient()
     res = asyncio.run(review_one(_cand("Forklift Operator"), "P", client))
@@ -53,11 +65,13 @@ def test_pass_runs_stage2_with_stored_jd():
     assert client.stage2_calls == ["jd"]
 
 
-def test_pass_with_missing_jd_uses_placeholder():
+def test_pass_with_missing_jd_defers_stage2():
+    """When stage-1 passes but JD is absent, stage-2 is deferred (not run with a placeholder)."""
     client = StubClient()
     res = asyncio.run(review_one(_cand("SRE", description=None), "P", client))
-    assert res.verdict == "approve"
-    assert client.stage2_calls and "no description" in client.stage2_calls[0].lower()
+    assert res.stage1_decision == "pass"
+    assert res.verdict is None   # deferred — no fabricated score
+    assert client.stage2_calls == []  # stage2 must NOT be called
 
 
 def test_stage1_error_isolated():

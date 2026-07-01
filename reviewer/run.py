@@ -64,7 +64,11 @@ async def _review_one_inner(candidate: dict, profile_block: str, client) -> Revi
         if s1.decision == "reject":
             return res
 
-        jd = candidate.get("description") or _NO_JD
+        jd = candidate.get("description")
+        if not jd:
+            log.info("no JD for %s; deferring stage-2", candidate["id"])
+            return res  # caller treats None verdict as "skip persist" for the review row
+
         s2 = await client.stage2(
             profile_block=profile_block, title=candidate["title"],
             company=candidate["company_name"], location=candidate.get("location"),

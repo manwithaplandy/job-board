@@ -3,7 +3,7 @@ import uuid
 from job_discovery import db as poller_db
 from job_discovery.models import Posting
 from reviewer import db as rdb
-from tests.conftest import requires_db
+from tests.conftest import apply_clane_ddl, requires_db
 
 USER = "11111111-1111-1111-1111-111111111111"
 
@@ -376,6 +376,18 @@ def test_recent_stage2_reviews_respects_limit(conn):
     conn.commit()
     assert len(rdb.recent_stage2_reviews(conn, limit=2)) == 2
     assert len(rdb.recent_stage2_reviews(conn, limit=10)) == 3
+
+
+@requires_db
+def test_pruned_jd_rows_are_never_selected(conn):
+    """Jobs with description_pruned=TRUE must never appear as review candidates."""
+    apply_clane_ddl(conn)
+    job_id = _seed_job(conn)
+    with conn.cursor() as cur:
+        cur.execute("UPDATE jobs SET description_pruned = TRUE WHERE id = %s", (job_id,))
+    conn.commit()
+    rows, total = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert rows == [] and total == 0, "pruned jobs must be excluded from candidate selection"
 
 
 @requires_db

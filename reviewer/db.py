@@ -72,6 +72,7 @@ def select_candidates(
           -- IS DISTINCT FROM treats NULL (never-reviewed) as NOT 'deny', so
           -- unreviewed jobs still pass through correctly.
           AND (r.verdict IS DISTINCT FROM 'deny')
+          AND NOT COALESCE(j.description_pruned, FALSE)
           AND (NOT %(has_prefs)s OR j.remote IS TRUE OR j.location = ANY(%(prefs)s::text[]))
     """
     params = {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,

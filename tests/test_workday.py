@@ -143,7 +143,7 @@ def test_fetch_keeps_minimal_posting_when_detail_fails(monkeypatch):
 
     monkeypatch.setattr(workday, "post_json", fake_post_json)
     monkeypatch.setattr(workday, "get_json", fake_get_json)
-    postings = fetch_workday("acme:wd5:External")
+    postings = list(fetch_workday("acme:wd5:External"))
     assert [p.external_id for p in postings] == ["/job/ok/JR-1", "/job/bad/JR-2"]
     bad = postings[1]
     assert bad.title == "Bad"  # carried over from the listing item
@@ -166,7 +166,7 @@ def test_fetch_keeps_minimal_posting_when_detail_malformed(monkeypatch):
 
     monkeypatch.setattr(workday, "post_json", fake_post_json)
     monkeypatch.setattr(workday, "get_json", fake_get_json)
-    postings = fetch_workday("acme:wd5:External")
+    postings = list(fetch_workday("acme:wd5:External"))
     assert [p.external_id for p in postings] == ["/job/x/JR-9"]
     assert postings[0].title == "X"
     assert postings[0].url == f"https://{HOST}/{SITE}/job/x/JR-9"
@@ -264,7 +264,7 @@ def test_fetch_stops_at_hard_cap(monkeypatch):
 
     monkeypatch.setattr(workday, "post_json", fake_post_json)
     monkeypatch.setattr(workday, "get_json", fake_get_json)
-    postings = fetch_workday("acme:wd5:External")
+    postings = list(fetch_workday("acme:wd5:External"))
     assert [b["offset"] for b in bodies] == [0, 2]  # stopped once offset >= 4
     assert len(postings) == 4
 
@@ -464,7 +464,8 @@ def test_small_tenant_with_facets_stays_on_unfaceted_walk(monkeypatch):
 def test_missing_jobpostings_key_raises(monkeypatch):
     monkeypatch.setattr(workday, "post_json", lambda url, json=None: {"error": "gone"})
     with pytest.raises(ValueError, match="missing 'jobPostings'"):
-        fetch_workday("acme:wd5:External")
+        # fetch_workday is a generator; the error fires on first iteration.
+        list(fetch_workday("acme:wd5:External"))
 
 
 # ── A4: total-flap fallback + unfaceted walk on escalated crawls ──────────────
@@ -589,6 +590,41 @@ def test_escalated_crawl_includes_unfaceted_postings(monkeypatch):
     assert "/job/sales/JR-S1" in ids
     assert "/job/canary/JR-X1" in ids   # unfaceted postings picked up by the trailing walk
     assert "/job/canary/JR-X2" in ids
+
+
+# ── A10: generator-based fetch (memory bounding) ──────────────────────────────
+
+
+def test_fetch_workday_returns_iterator_not_list(monkeypatch):
+    """fetch_workday must return a lazy iterator, not a list.
+
+    Memory bounding: a Workday tenant can have tens of thousands of postings.
+    Building a list before returning would hold every Posting object (+ its full
+    raw detail dict) in memory simultaneously. An iterator lets run.py upsert and
+    discard each posting before the next one is fetched, keeping peak memory at
+    O(1) postings rather than O(N).
+    """
+    import types
+
+    page = {"total": 1, "jobPostings": [
+        {"externalPath": "/job/a/JR-1", "title": "A"},
+    ]}
+
+    monkeypatch.setattr(workday, "post_json",
+                        lambda url, json=None: page if json["offset"] == 0 else {"jobPostings": []})
+    monkeypatch.setattr(workday, "get_json",
+                        lambda url: {"jobPostingInfo": {"title": "A", "externalUrl": "https://x/a"}})
+
+    result = fetch_workday("acme:wd5:External")
+
+    assert not isinstance(result, list), (
+        "fetch_workday returned a list; it must return a lazy iterator/generator "
+        "so callers process one posting at a time without buffering all N in memory"
+    )
+    # Must still be iterable and yield the correct posting.
+    postings = list(result)
+    assert len(postings) == 1
+    assert postings[0].external_id == "/job/a/JR-1"
 
 
 def test_oversized_partition_without_splitter_pages_to_cap_and_warns(monkeypatch, caplog):

@@ -1,10 +1,9 @@
-import type { DatasetItem } from "@/lib/rolefit/correction";
+import type { ResumeGoldenItem } from "@/lib/rolefit/resumeScore";
 import { getClient } from "@/lib/langfuseClient";
 
-// Upsert one golden dataset item. No-op when keys are absent (local/dev). The
-// same id re-upserts (Langfuse upserts dataset items on `id`), so re-editing a
-// correction updates the item in place rather than duplicating it.
-export async function upsertDatasetItem(item: DatasetItem): Promise<void> {
+// Upsert one resume-golden dataset item. No-op when keys are absent (local/dev).
+// Same id re-upserts (LangFuse upserts on `id`), so re-scoring updates in place.
+export async function upsertResumeGoldenItem(item: ResumeGoldenItem): Promise<void> {
   const c = getClient();
   if (c === null) return;
   // Ensure the dataset exists (idempotent; ignore "already exists").

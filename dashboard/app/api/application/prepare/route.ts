@@ -105,7 +105,9 @@ export async function POST(req: Request) {
           async (span) => {
             resumeTraceId = span.traceId;
             span.update({
-              input: { title: job.title, company: job.company_name, description: job.description },
+              // `background` = the candidate's real source résumé, the grounding
+              // truth the judge compares generated claims against ({{candidate_background}}).
+              input: { title: job.title, company: job.company_name, description: job.description, background: resumeText },
             });
             const r = await generateResume(genArgs);
             span.update({

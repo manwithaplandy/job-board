@@ -51,16 +51,17 @@ dashboard/lib/rolefit/resumeJudgeRubric.ts
 
 This file is the source of truth for the rubric; the running copy lives in the LangFuse UI. If you update the rubric, update both in sync.
 
-The rubric uses four template variables. Map them as follows:
+The rubric uses five template variables. Map them as follows:
 
 | Template variable | Source | LangFuse mapping |
 |---|---|---|
+| `{{candidate_background}}` | Trace INPUT | `input.background` (the candidate's real source résumé — the grounding truth) |
 | `{{job_title}}` | Trace INPUT | `input.title` |
 | `{{job_company}}` | Trace INPUT | `input.company` |
 | `{{job_description}}` | Trace INPUT | `input.description` |
 | `{{resume}}` | Trace OUTPUT | `output` (the composed résumé text) |
 
-The parent `resume` span on each trace sets `input = { title, company, description }` and `output` = the rendered résumé text. `metadata.mechanical_checks` carries the deterministic check results (for reference only — the judge does not score this).
+The parent `resume` span on each trace sets `input = { title, company, description, background }` and `output` = the rendered résumé text. `background` is the candidate's uploaded source résumé — the judge **must** have it to score `grounding` (fabrication is judged relative to it; without it the judge has nothing to compare claims against). The resume-golden dataset items use the same `input.background` key, so this mapping also works when the evaluator runs on dataset runs. `metadata.mechanical_checks` carries the deterministic check results (for reference only — the judge does not score this).
 
 ### 1.3 Configure Evaluator Outputs
 

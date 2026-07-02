@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import type { ApplicationAnswers, ApplicationPackage, JobRow } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, JobReviewDetail, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
+import type { PrepareLegStatus } from "./RolefitBoard";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
 import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
@@ -70,13 +71,23 @@ export interface JobDetailProps {
   coverError: Record<string, string>;
   onGenerateCover: (job: JobRow) => void;
   onPrepare: (job: JobRow) => void;
+  // Single generation lock for this job (résumé/cover/prepare share one slot) + cancel.
+  generating?: boolean;
+  onCancelGeneration?: () => void;
+  // Per-leg result of the last prepare — failed legs get an inline retry.
+  prepareStatus?: PrepareLegStatus | null;
   // Persisted package for the selected job (Phase 3) — undefined until prepared.
   pkg?: ApplicationPackage;
   onMarkApplied: (job: JobRow) => void;
   onOpenProfile: () => void;
   onReject?: (job: JobRow) => void;
   onUnapply?: (job: JobRow) => void;
+  // Session-rejected (hidden from the default board); the Rejected view surfaces an un-reject.
+  isRejected?: boolean;
+  onUnreject?: (job: JobRow) => void;
   onCorrected?: (jobId: string, form: CorrectionForm) => void;
+  detailState?: { status: "loading" } | { status: "error" } | { status: "done"; detail: JobReviewDetail } | undefined;
+  onRetryDetail?: () => void;
 }
 
 export function JobDetail({
@@ -95,12 +106,19 @@ export function JobDetail({
   coverError,
   onGenerateCover,
   onPrepare,
+  generating,
+  onCancelGeneration,
+  prepareStatus,
   pkg,
   onMarkApplied,
   onOpenProfile,
   onReject,
   onUnapply,
+  isRejected,
+  onUnreject,
   onCorrected,
+  detailState,
+  onRetryDetail,
 }: JobDetailProps) {
   const hasReview = job.fit_score != null;
   const applied = pkg?.status === "applied";
@@ -262,7 +280,7 @@ export function JobDetail({
                 alignItems: "center",
                 fontSize: "11.5px",
                 fontWeight: 700,
-                color: "#8a93a3",
+                color: "#6b7480",
                 borderRadius: "7px",
                 padding: "4px 2px",
               }}
@@ -323,7 +341,7 @@ export function JobDetail({
                   fontSize: "9px",
                   fontWeight: 700,
                   letterSpacing: "1.2px",
-                  color: "#8a93a3",
+                  color: "#6b7480",
                   marginTop: "3px",
                 }}
               >
@@ -335,7 +353,7 @@ export function JobDetail({
       </div>
 
       {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
-      {hasReview && (job.human_override || applied || (isAuthed && job.verdict === "approve") || applyUrl) && (
+      {hasReview && (job.human_override || isRejected || applied || (isAuthed && job.verdict === "approve") || applyUrl) && (
         <div
           style={{
             display: "flex",
@@ -345,7 +363,7 @@ export function JobDetail({
             marginTop: "16px",
           }}
         >
-          {job.human_override && (
+          {(job.human_override || isRejected) && (
             <span
               style={{
                 fontSize: "11.5px",
@@ -359,6 +377,24 @@ export function JobDetail({
             >
               Rejected · you
             </span>
+          )}
+          {isAuthed && isRejected && onUnreject && (
+            <button
+              type="button"
+              onClick={() => onUnreject(job)}
+              style={{
+                fontWeight: 700,
+                fontSize: "12.5px",
+                color: "#2f7d54",
+                background: "#fff",
+                border: "1px solid #cfe6d8",
+                borderRadius: "9px",
+                padding: "7px 16px",
+                cursor: "pointer",
+              }}
+            >
+              Un-reject
+            </button>
           )}
           {applied && (
             <span
@@ -396,7 +432,7 @@ export function JobDetail({
               )}
             </span>
           )}
-          {isAuthed && job.verdict === "approve" && !applied && (
+          {isAuthed && job.verdict === "approve" && !applied && !isRejected && (
             <button
               type="button"
               onClick={() => onReject?.(job)}
@@ -414,7 +450,7 @@ export function JobDetail({
               Reject
             </button>
           )}
-          {isAuthed && job.verdict === "approve" && !applied && (
+          {isAuthed && job.verdict === "approve" && !applied && !isRejected && (
             <button
               type="button"
               onClick={() => onMarkApplied(job)}
@@ -448,7 +484,7 @@ export function JobDetail({
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "#8a93a3" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "#6b7480" }}>
             Not yet reviewed
           </div>
           <div
@@ -482,6 +518,9 @@ export function JobDetail({
             onGenerateCover={() => onGenerateCover(job)}
             onRegenerateCover={() => onGenerateCover(job)}
             onPrepare={() => onPrepare(job)}
+            generating={generating}
+            onCancelGeneration={onCancelGeneration}
+            prepareStatus={prepareStatus}
             greenhouseQuestions={pkg?.greenhouseQuestions ?? null}
             prefilledAnswers={pkg?.prefilledAnswers ?? null}
             status={pkg?.status ?? null}
@@ -490,6 +529,28 @@ export function JobDetail({
           />
 
           <ReviewPanel job={job} isAuthed={isAuthed} onCorrected={onCorrected} />
+
+          {/* Detail-fetch loading shimmer */}
+          {detailState?.status === "loading" && (
+            <div style={{ marginTop: "24px" }}>
+              {[120, 80, 60].map((h, i) => (
+                <div key={i} style={{ height: h, background: "#eef1f5", borderRadius: 8, marginTop: 12 }} />
+              ))}
+            </div>
+          )}
+          {/* Detail-fetch error */}
+          {detailState?.status === "error" && (
+            <div style={{ marginTop: "24px", padding: "16px 20px", border: "1px solid #e3e7ee", borderRadius: "12px", background: "#fdf6f5", display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ flex: 1, fontSize: "13.5px", color: "#b25a36", fontWeight: 600 }}>
+                Couldn&apos;t load full job details.
+              </div>
+              {onRetryDetail && (
+                <button type="button" onClick={onRetryDetail} style={{ fontWeight: 700, fontSize: "13px", color: "#3b6fd4", background: "#eef3fc", border: "1px solid #d8e2f6", borderRadius: "9px", padding: "7px 14px", cursor: "pointer" }}>
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
 
           {/* ── Requirements ── */}
           {reqs.length > 0 && (
@@ -600,57 +661,59 @@ export function JobDetail({
             </div>
           )}
 
-          {/* ── Full job description (collapsible) + Apply ── */}
-          {(fullJD || applyUrl) && (
-            <div
-              style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
-            >
-              {fullJD && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowJD((v) => !v)}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "7px",
-                      fontWeight: 700,
-                      fontSize: "13px",
-                      color: "#3b6fd4",
-                      background: "#fff",
-                      border: "1px solid #d7e0f2",
-                      borderRadius: "9px",
-                      padding: "8px 16px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {showJD ? "Hide full job description" : "Show full job description"}
-                    <span aria-hidden="true">{showJD ? "▴" : "▾"}</span>
-                  </button>
-                  {showJD && (
-                    <div
-                      style={{
-                        whiteSpace: "pre-wrap",
-                        fontSize: "13.5px",
-                        lineHeight: 1.6,
-                        color: "#5b6472",
-                        marginTop: "16px",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {fullJD}
-                    </div>
-                  )}
-                </>
-              )}
-              {applyUrl && (
-                <div style={{ marginTop: "18px" }}>
-                  <ApplyButton url={applyUrl} />
+        </>
+      )}
+
+      {/* ── Full job description (collapsible) + Apply — rendered for any role that has
+           a JD or apply link, reviewed or not, so an unreviewed role is never a dead end. ── */}
+      {(fullJD || applyUrl) && (
+        <div
+          style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
+        >
+          {fullJD && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowJD((v) => !v)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                  color: "#3b6fd4",
+                  background: "#fff",
+                  border: "1px solid #d7e0f2",
+                  borderRadius: "9px",
+                  padding: "8px 16px",
+                  cursor: "pointer",
+                }}
+              >
+                {showJD ? "Hide full job description" : "Show full job description"}
+                <span aria-hidden="true">{showJD ? "▴" : "▾"}</span>
+              </button>
+              {showJD && (
+                <div
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    fontSize: "13.5px",
+                    lineHeight: 1.6,
+                    color: "#5b6472",
+                    marginTop: "16px",
+                    fontWeight: 500,
+                  }}
+                >
+                  {fullJD}
                 </div>
               )}
+            </>
+          )}
+          {applyUrl && (
+            <div style={{ marginTop: "18px" }}>
+              <ApplyButton url={applyUrl} />
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

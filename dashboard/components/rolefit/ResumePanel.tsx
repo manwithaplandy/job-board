@@ -3,6 +3,8 @@
 import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import { renderResumePdf } from "@/lib/rolefit/resumePdf";
+import { downloadPdf } from "@/lib/rolefit/downloadPdf";
+import { Button } from "@/components/ui/Button";
 
 // Build plain-text résumé from TailoredResume — mirrors composeResumeText in reference
 function composeResumeText(data: TailoredResume): string {
@@ -50,6 +52,9 @@ export interface ResumePanelProps {
   copyLabel: string;
   usingSample: boolean;
   onOpenProfile: () => void;
+  // Single generation lock for this job (résumé/cover/prepare) + cancel.
+  generating?: boolean;
+  onCancelGeneration?: () => void;
 }
 
 export function ResumePanel({
@@ -64,42 +69,20 @@ export function ResumePanel({
   copyLabel,
   usingSample,
   onOpenProfile,
+  generating,
+  onCancelGeneration,
 }: ResumePanelProps) {
   const isIdle = !state || state === "idle";
   const isBusy = state === "busy";
   const isDone = state === "done";
   const isError = state === "error";
 
-  // jsPDF download — dynamic import, mirrors reference download() layout
+  // jsPDF download — shared helper handles the dynamic import + .txt fallback.
+  // Layout lives in lib/rolefit/resumePdf so it's shared with the CLI harness.
   const handleDownload = async () => {
     if (!data) return;
     const fname = `Resume - ${job.company_name} - ${job.title}.pdf`.replace(/[\\/:*?"<>|]/g, " ");
-
-    // Import jsPDF; fall back to .txt if import fails
-    let JsPDF: any;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const jsPDFMod = (await import("jspdf")) as any;
-      JsPDF = jsPDFMod.jsPDF ?? jsPDFMod.default;
-    } catch (e) {
-      console.error("Failed to import jsPDF; falling back to .txt download", e);
-      const text = composeResumeText(data);
-      const blob = new Blob([text], { type: "text/plain" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = fname.replace(/\.pdf$/, ".txt");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(a.href);
-      return;
-    }
-
-    // PDF generation — errors bubble up. Layout lives in lib/rolefit/resumePdf
-    // so it's shared with the CLI résumé-iteration harness.
-    const doc = new JsPDF({ unit: "pt", format: "letter" });
-    renderResumePdf(doc, data);
-    doc.save(fname);
+    await downloadPdf(fname, (doc) => renderResumePdf(doc, data), composeResumeText(data));
   };
 
   return (
@@ -201,26 +184,9 @@ export function ResumePanel({
               </div>
             )}
           </div>
-          <button
-            onClick={onGenerate}
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              fontWeight: 700,
-              fontSize: "14px",
-              color: "#fff",
-              background: "#3b6fd4",
-              border: "none",
-              borderRadius: "11px",
-              padding: "12px 20px",
-              cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-            }}
-          >
+          <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
             <span style={{ fontSize: "15px" }}>✦</span>Generate résumé
-          </button>
+          </Button>
         </div>
       )}
 
@@ -246,16 +212,35 @@ export function ResumePanel({
               flex: "0 0 auto",
             }}
           />
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
               Tailoring your résumé to {job.company_name}…
             </div>
             <div
               style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
             >
-              Matching your background against this role&apos;s requirements.
+              Matching your background against this role&apos;s requirements. Usually about 30 seconds.
             </div>
           </div>
+          {onCancelGeneration && (
+            <button
+              type="button"
+              onClick={onCancelGeneration}
+              style={{
+                flex: "0 0 auto",
+                fontWeight: 700,
+                fontSize: "12.5px",
+                color: "#5b6472",
+                background: "#fff",
+                border: "1px solid #dfe3ea",
+                borderRadius: "9px",
+                padding: "8px 14px",
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          )}
         </div>
       )}
 
@@ -371,10 +356,11 @@ export function ResumePanel({
                   strokeLinecap="round"
                 />
               </svg>
-              {copyLabel}
+              <span aria-live="polite">{copyLabel}</span>
             </button>
             <button
               onClick={onRegenerate}
+              disabled={generating}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -386,7 +372,8 @@ export function ResumePanel({
                 border: "1px solid #dfe3ea",
                 borderRadius: "10px",
                 padding: "10px 15px",
-                cursor: "pointer",
+                cursor: generating ? "not-allowed" : "pointer",
+                opacity: generating ? 0.6 : 1,
               }}
             >
               <span>↻</span>Regenerate
@@ -418,26 +405,9 @@ export function ResumePanel({
               </div>
             )}
           </div>
-          <button
-            onClick={onGenerate}
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              fontWeight: 700,
-              fontSize: "14px",
-              color: "#fff",
-              background: "#3b6fd4",
-              border: "none",
-              borderRadius: "11px",
-              padding: "12px 20px",
-              cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-            }}
-          >
+          <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
     </div>

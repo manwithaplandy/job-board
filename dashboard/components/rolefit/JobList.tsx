@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { RefObject } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { JobRow } from "@/lib/types";
 import { JobCard } from "./JobCard";
 
@@ -6,45 +11,143 @@ export interface JobListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onClearFilters: () => void;
+  view?: "all" | "applied" | "rejected";
+  onBackToAll?: () => void;
+  // The board's scroll container. When provided the list virtualizes against it; when
+  // absent (narrow single-pane layout uses natural page scroll) it renders in full.
+  scrollParentRef?: RefObject<HTMLDivElement | null>;
 }
 
-export function JobList({ jobs, selectedId, onSelect, onClearFilters }: JobListProps) {
+const pillBtnStyle = {
+  marginTop: "14px",
+  fontWeight: 700,
+  fontSize: "13px",
+  color: "#3b6fd4",
+  background: "#eef3fc",
+  border: "1px solid #d8e2f6",
+  borderRadius: "9px",
+  padding: "8px 14px",
+  cursor: "pointer",
+} as const;
+
+// Windowed list: only the cards near the viewport are mounted, so filtering a ~100k-row
+// board stays cheap. The full (filtered) array stays in memory — virtualization is purely
+// a render optimization. Row heights vary slightly (chips wrap), so measureElement refines
+// the estimate as rows mount.
+function VirtualJobList({
+  jobs,
+  selectedId,
+  onSelect,
+  scrollParentRef,
+}: {
+  jobs: JobRow[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  scrollParentRef: RefObject<HTMLDivElement | null>;
+}) {
+  // The scroll element is an ancestor (the board's list pane), whose ref attaches after
+  // this child's layout effect — so getScrollElement() is null on the first commit. Force
+  // one re-render after mount so the virtualizer picks up the now-attached element instead
+  // of rendering an empty list until the first scroll/resize.
+  const [, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const virtualizer = useVirtualizer({
+    count: jobs.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 116,
+    overscan: 6,
+    getItemKey: (index) => jobs[index].id,
+  });
+
+  return (
+    <div role="list" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
+      {virtualizer.getVirtualItems().map((vi) => {
+        const job = jobs[vi.index];
+        return (
+          <div
+            role="listitem"
+            key={vi.key}
+            data-index={vi.index}
+            ref={virtualizer.measureElement}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              transform: `translateY(${vi.start}px)`,
+            }}
+          >
+            <JobCard job={job} selected={job.id === selectedId} onSelect={onSelect} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function JobList({
+  jobs,
+  selectedId,
+  onSelect,
+  onClearFilters,
+  view = "all",
+  onBackToAll,
+  scrollParentRef,
+}: JobListProps) {
   if (jobs.length === 0) {
+    // Applied/Rejected buckets aren't "filtered out" — they're just empty. Say so, and
+    // offer a route back to the full board instead of an irrelevant "Clear filters".
+    if (view !== "all") {
+      const msg =
+        view === "applied"
+          ? "You haven't marked any roles as applied yet."
+          : "You haven't rejected any roles yet.";
+      return (
+        <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>{msg}</div>
+          {onBackToAll && (
+            <button type="button" onClick={onBackToAll} style={pillBtnStyle}>
+              Back to all roles
+            </button>
+          )}
+        </div>
+      );
+    }
     return (
-      <div style={{ padding: "60px 30px", textAlign: "center", color: "#8a93a3" }}>
+      <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
         <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
           No roles match your filters
         </div>
-        <button
-          onClick={onClearFilters}
-          style={{
-            marginTop: "14px",
-            fontWeight: 700,
-            fontSize: "13px",
-            color: "#3b6fd4",
-            background: "#eef3fc",
-            border: "1px solid #d8e2f6",
-            borderRadius: "9px",
-            padding: "8px 14px",
-            cursor: "pointer",
-          }}
-        >
+        <button type="button" onClick={onClearFilters} style={pillBtnStyle}>
           Clear filters
         </button>
       </div>
     );
   }
 
+  if (scrollParentRef) {
+    return (
+      <VirtualJobList
+        jobs={jobs}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        scrollParentRef={scrollParentRef}
+      />
+    );
+  }
+
   return (
-    <>
+    <div role="list">
       {jobs.map((job) => (
-        <JobCard
-          key={job.id}
-          job={job}
-          selected={job.id === selectedId}
-          onSelect={() => onSelect(job.id)}
-        />
+        <div role="listitem" key={job.id}>
+          <JobCard
+            job={job}
+            selected={job.id === selectedId}
+            onSelect={onSelect}
+          />
+        </div>
       ))}
-    </>
+    </div>
   );
 }

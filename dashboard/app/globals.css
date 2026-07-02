@@ -28,3 +28,9 @@ input, button, textarea { font-family: inherit; }
   background-clip: padding-box;
 }
 .rf-scroll::-webkit-scrollbar-track { background: transparent; }
+
+@media (max-width: 760px) {
+  .rf-scroll {
+    overflow-y: visible;
+  }
+}

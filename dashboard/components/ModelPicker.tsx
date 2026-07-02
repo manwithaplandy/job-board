@@ -35,7 +35,7 @@ export function ModelPicker({
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {selected && (
-        <span className="mt-2 text-[11.5px] text-[#8a93a3]">
+        <span className="mt-2 text-[11.5px] text-[#6b7480]">
           selected: {selected}{" "}
           <button type="button" className="font-semibold text-[#3b6fd4] underline"
             onClick={() => setSelected("")}>

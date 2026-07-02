@@ -80,3 +80,17 @@ export function filterByApplied(
 ): JobRow[] {
   return jobs.filter((j) => (appliedView ? applied.has(j.id) : !applied.has(j.id)));
 }
+
+// Three-way view partition: "all" hides both rejected and applied; "applied" shows only
+// applied; "rejected" shows only session-rejected (optimistic, cleared on reload).
+export function filterByView(
+  jobs: JobRow[],
+  view: "all" | "applied" | "rejected",
+  rejectedIds: ReadonlySet<string>,
+  appliedIds: ReadonlySet<string>,
+): JobRow[] {
+  if (view === "rejected") return jobs.filter((j) => rejectedIds.has(j.id));
+  if (view === "applied") return jobs.filter((j) => appliedIds.has(j.id));
+  // "all" — hide both rejected and applied
+  return jobs.filter((j) => !rejectedIds.has(j.id) && !appliedIds.has(j.id));
+}

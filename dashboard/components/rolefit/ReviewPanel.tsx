@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { JobRow } from "@/lib/types";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { saveReviewCorrection } from "@/app/actions/corrections";
@@ -50,6 +50,8 @@ export function ReviewPanel({
   const [form, setForm] = useState<CorrectionForm>(() => initialForm(job));
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   function set<K extends keyof CorrectionForm>(k: K, v: CorrectionForm[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -59,12 +61,17 @@ export function ReviewPanel({
     setSaving(true);
     try {
       const res = await saveReviewCorrection(job.id, form);
-      setToast(res.langfuseSynced ? "Saved." : "Saved. LangFuse sync failed — will reconcile.");
+      const msg = res.langfuseSynced ? "Saved." : "Saved. LangFuse sync failed — will reconcile.";
+      setToast(msg);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setToast(null), 4000);
       setEditing(false);
       onCorrected?.(job.id, form);
     } catch (e) {
       console.error(e);
-      setToast("Save failed.");
+      setToast(`Save failed: ${(e as Error).message}`);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setToast(null), 4000);
     } finally {
       setSaving(false);
     }
@@ -90,9 +97,13 @@ export function ReviewPanel({
       <input
         type="number" min={0} max={100}
         value={form[k] ?? ""}
-        onChange={(e) => set(k, e.target.value === "" ? null : Number(e.target.value))}
+        onChange={(e) => {
+          const raw = e.target.value;
+          set(k, raw === "" ? null : Math.max(0, Math.min(100, Number(raw))));
+        }}
         style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13, width: 90 }}
       />
+      <span style={{ fontSize: 11, color: "#9aa3b0", fontWeight: 500 }}>0–100</span>
     </label>
   );
 
@@ -133,7 +144,7 @@ export function ReviewPanel({
         <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>Review</div>
         <div style={{ flex: 1 }} />
         {job.role_category && (
-          <div style={{ fontSize: "11.5px", color: "#8a93a3", fontWeight: 600 }}>
+          <div style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 600 }}>
             Auto-categorized ·{" "}
             <span style={{ color: "#5b6472", fontWeight: 700 }}>{job.role_category}</span>
           </div>
@@ -189,7 +200,11 @@ export function ReviewPanel({
               </div>
             </div>
           )}
-          {toast && <div style={{ fontSize: 12, color: "#5b6472", marginTop: 6 }}>{toast}</div>}
+          {toast && (
+            <div role="status" aria-live="polite" style={{ fontSize: 12, color: "#5b6472", marginTop: 6 }}>
+              {toast}
+            </div>
+          )}
         </div>
       )}
 

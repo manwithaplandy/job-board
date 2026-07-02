@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import type { DiscoveryStateRow } from "@/lib/types";
+import { Button } from "@/components/ui/Button";
 
 export function CreditBanner({
   state, refresh,
@@ -18,18 +19,17 @@ export function CreditBanner({
       <span>⚠️ Company scan paused — OpenRouter out of credits.
         {state.backlog > 0 ? ` ${state.backlog.toLocaleString()} companies still pending.` : ""}
       </span>
-      <button
+      <Button
+        variant="primary"
         onClick={() => start(async () => { await refresh(); })}
         disabled={pending}
         style={{
-          marginLeft: "auto", fontWeight: 700, fontSize: "12.5px", color: "#fff",
-          background: "#3b6fd4", border: "none", borderRadius: "9px",
-          padding: "8px 14px", cursor: pending ? "not-allowed" : "pointer",
-          opacity: pending ? 0.7 : 1,
+          marginLeft: "auto", borderRadius: "9px", padding: "8px 14px",
+          fontSize: "12.5px", boxShadow: "none",
         }}
       >
         {pending ? "Refreshing…" : "Refresh"}
-      </button>
+      </Button>
     </div>
   );
 }

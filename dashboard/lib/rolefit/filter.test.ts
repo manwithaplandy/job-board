@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { applyFilters, facetCounts, filterByApplied, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
+import { applyFilters, facetCounts, filterByApplied, filterByView, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
 import type { JobRow } from "@/lib/types";
 
 function job(p: Partial<JobRow>): JobRow {
@@ -104,5 +104,29 @@ describe("filterByApplied", () => {
   test("empty set: default shows all, applied view shows none", () => {
     expect(filterByApplied(jobs, new Set(), false).map((j) => j.id)).toEqual(["a", "b", "c"]);
     expect(filterByApplied(jobs, new Set(), true)).toEqual([]);
+  });
+});
+
+describe("filterByView", () => {
+  const jobs = [job({ id: "a" }), job({ id: "b" }), job({ id: "c" }), job({ id: "d" })];
+
+  test("rejected view returns only rejected jobs", () => {
+    const out = filterByView(jobs, "rejected", new Set(["b", "c"]), new Set(["d"]));
+    expect(out.map((j) => j.id)).toEqual(["b", "c"]);
+  });
+
+  test("applied view returns only applied jobs", () => {
+    const out = filterByView(jobs, "applied", new Set(["b"]), new Set(["d"]));
+    expect(out.map((j) => j.id)).toEqual(["d"]);
+  });
+
+  test("all view hides rejected and applied", () => {
+    const out = filterByView(jobs, "all", new Set(["b"]), new Set(["d"]));
+    expect(out.map((j) => j.id)).toEqual(["a", "c"]);
+  });
+
+  test("empty sets: all view shows everything", () => {
+    const out = filterByView(jobs, "all", new Set(), new Set());
+    expect(out.map((j) => j.id)).toEqual(["a", "b", "c", "d"]);
   });
 });

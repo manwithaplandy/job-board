@@ -1,6 +1,9 @@
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
+import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
 import { requireUserId } from "@/lib/auth";
+import { internalPathFromReferer } from "@/lib/paths";
+import { ProfileFormShell, type ProfileSaveState } from "@/components/ProfileFormShell";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile, getDistinctLocations } from "@/lib/queries";
 import { extractPdfText } from "@/lib/pdf";
@@ -37,82 +40,96 @@ const trimOrNull = (v: FormDataEntryValue | null): string | null =>
 const triDefault = (v: boolean | null | undefined): string =>
   v === true ? "yes" : v === false ? "no" : "";
 
-async function saveProfile(formData: FormData) {
+async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise<ProfileSaveState> {
   "use server";
-  const userId = await requireUserId();
-  const existing = await getProfile(userId);
-  const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
-  let resumeText = (String(formData.get("resume_text") ?? "")).trim() || existing?.resume_text || null;
-  // Preserve the previously-uploaded PDF: a file input is empty on every save
-  // that doesn't re-pick the file, so defaulting to null here would wipe the
-  // stored path. Only a fresh upload below replaces it.
-  let resumeFilePath: string | null = existing?.resume_file_path ?? null;
+  // Guard against open redirects: only same-origin absolute paths are honored, anything
+  // else falls back to the board. Computed after a successful save, used post-try.
+  let returnTo = "/";
+  try {
+    const userId = await requireUserId();
+    const existing = await getProfile(userId);
+    const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
+    let resumeText = (String(formData.get("resume_text") ?? "")).trim() || existing?.resume_text || null;
+    // Preserve the previously-uploaded PDF: a file input is empty on every save
+    // that doesn't re-pick the file, so defaulting to null here would wipe the
+    // stored path. Only a fresh upload below replaces it.
+    let resumeFilePath: string | null = existing?.resume_file_path ?? null;
 
-  const catalogIds = (await getStructuredModels()).map((m) => m.id);
-  // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
-  const s1 = validateModelId(String(formData.get("model_stage1") ?? ""), catalogIds);
-  const s2 = validateModelId(String(formData.get("model_stage2") ?? ""), catalogIds);
-  const r = validateModelId(String(formData.get("model_resume") ?? ""), catalogIds);
-  const companyInstructions =
-    (String(formData.get("company_instructions") ?? "")).trim() || null;
-  const mc = validateModelId(String(formData.get("model_company") ?? ""), catalogIds);
-  const cl = validateModelId(String(formData.get("model_cover") ?? ""), catalogIds);
-  if (!s1.ok) throw new Error(s1.reason);
-  if (!s2.ok) throw new Error(s2.reason);
-  if (!r.ok) throw new Error(r.reason);
-  if (!mc.ok) throw new Error(mc.reason);
-  if (!cl.ok) throw new Error(cl.reason);
+    const catalogIds = (await getStructuredModels()).map((m) => m.id);
+    // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
+    const s1 = validateModelId(String(formData.get("model_stage1") ?? ""), catalogIds);
+    const s2 = validateModelId(String(formData.get("model_stage2") ?? ""), catalogIds);
+    const r = validateModelId(String(formData.get("model_resume") ?? ""), catalogIds);
+    const companyInstructions =
+      (String(formData.get("company_instructions") ?? "")).trim() || null;
+    const mc = validateModelId(String(formData.get("model_company") ?? ""), catalogIds);
+    const cl = validateModelId(String(formData.get("model_cover") ?? ""), catalogIds);
+    if (!s1.ok) return { error: s1.reason };
+    if (!s2.ok) return { error: s2.reason };
+    if (!r.ok) return { error: r.reason };
+    if (!mc.ok) return { error: mc.reason };
+    if (!cl.ok) return { error: cl.reason };
 
-  const preferredLocations = parsePreferredLocations(
-    String(formData.get("preferred_locations") ?? ""),
-  );
+    const preferredLocations = parsePreferredLocations(
+      String(formData.get("preferred_locations") ?? ""),
+    );
 
-  // Reusable application answers. jsonb columns are stored as objects (NOT NULL).
-  const links = {
-    linkedin: trimOrNull(formData.get("link_linkedin")),
-    github: trimOrNull(formData.get("link_github")),
-    portfolio: trimOrNull(formData.get("link_portfolio")),
-  };
-  const screeningAnswers = {
-    notice_period: trimOrNull(formData.get("screen_notice_period")),
-    salary_expectation: trimOrNull(formData.get("screen_salary_expectation")),
-    relocation: trimOrNull(formData.get("screen_relocation")),
-  };
+    // Reusable application answers. jsonb columns are stored as objects (NOT NULL).
+    const links = {
+      linkedin: trimOrNull(formData.get("link_linkedin")),
+      github: trimOrNull(formData.get("link_github")),
+      portfolio: trimOrNull(formData.get("link_portfolio")),
+    };
+    const screeningAnswers = {
+      notice_period: trimOrNull(formData.get("screen_notice_period")),
+      salary_expectation: trimOrNull(formData.get("screen_salary_expectation")),
+      relocation: trimOrNull(formData.get("screen_relocation")),
+    };
 
-  const file = formData.get("resume_pdf");
-  if (file instanceof File && file.size > 0) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const path = `${userId}/${Date.now()}-${file.name}`;
-    const supabase = await createClient();
-    const { error } = await supabase.storage
-      .from("resumes")
-      .upload(path, bytes, { contentType: "application/pdf", upsert: true });
-    if (error) throw new Error(`resume upload failed: ${error.message}`);
-    resumeFilePath = path;
-    const extracted = await extractPdfText(bytes);
-    if (extracted) resumeText = extracted; // paste-text is the fallback when extraction is poor
+    const file = formData.get("resume_pdf");
+    if (file instanceof File && file.size > 0) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const path = `${userId}/${Date.now()}-${file.name}`;
+      const supabase = await createClient();
+      const { error } = await supabase.storage
+        .from("resumes")
+        .upload(path, bytes, { contentType: "application/pdf", upsert: true });
+      if (error) return { error: `resume upload failed: ${error.message}` };
+      resumeFilePath = path;
+      const extracted = await extractPdfText(bytes);
+      if (extracted) resumeText = extracted; // paste-text is the fallback when extraction is poor
+    }
+
+    await upsertProfile(userId, {
+      resumeText, instructions, resumeFilePath,
+      modelStage1: s1.value, modelStage2: s2.value,
+      preferredLocations, modelResume: r.value,
+      companyInstructions, modelCompany: mc.value,
+      fullName: trimOrNull(formData.get("full_name")),
+      email: trimOrNull(formData.get("email")),
+      phone: trimOrNull(formData.get("phone")),
+      links,
+      location: trimOrNull(formData.get("location")),
+      workAuthorized: parseTriState(formData.get("work_authorized")),
+      needsSponsorship: parseTriState(formData.get("needs_sponsorship")),
+      eeoGender: trimOrNull(formData.get("eeo_gender")),
+      eeoRace: trimOrNull(formData.get("eeo_race")),
+      eeoVeteran: trimOrNull(formData.get("eeo_veteran")),
+      eeoDisability: trimOrNull(formData.get("eeo_disability")),
+      screeningAnswers,
+      modelCover: cl.value,
+    });
+    // Return to the page the user came from (threaded through a hidden field captured at
+    // GET time — the POST's own referer is /profile).
+    const rt = String(formData.get("return_to") ?? "/");
+    returnTo = rt.startsWith("/") && !rt.startsWith("//") ? rt : "/";
+  } catch (e) {
+    // Re-throw Next control-flow (redirect/notFound, e.g. an expired session in
+    // requireUserId); surface everything else inline so the form stays mounted.
+    unstable_rethrow(e);
+    return { error: (e as Error).message || "Save failed. Please try again." };
   }
-
-  await upsertProfile(userId, {
-    resumeText, instructions, resumeFilePath,
-    modelStage1: s1.value, modelStage2: s2.value,
-    preferredLocations, modelResume: r.value,
-    companyInstructions, modelCompany: mc.value,
-    fullName: trimOrNull(formData.get("full_name")),
-    email: trimOrNull(formData.get("email")),
-    phone: trimOrNull(formData.get("phone")),
-    links,
-    location: trimOrNull(formData.get("location")),
-    workAuthorized: parseTriState(formData.get("work_authorized")),
-    needsSponsorship: parseTriState(formData.get("needs_sponsorship")),
-    eeoGender: trimOrNull(formData.get("eeo_gender")),
-    eeoRace: trimOrNull(formData.get("eeo_race")),
-    eeoVeteran: trimOrNull(formData.get("eeo_veteran")),
-    eeoDisability: trimOrNull(formData.get("eeo_disability")),
-    screeningAnswers,
-    modelCover: cl.value,
-  });
-  redirect("/");
+  redirect(returnTo);
 }
 
 // Rolefit visual tokens — kept inline to match the sibling surfaces (Header, ProfileModal).
@@ -147,7 +164,7 @@ const titleStyle: React.CSSProperties = {
 const subtitleStyle: React.CSSProperties = {
   fontSize: "13px",
   fontWeight: 500,
-  color: "#8a93a3",
+  color: "#6b7480",
   marginBottom: "22px",
 };
 const fieldStyle: React.CSSProperties = { display: "flex", flexDirection: "column" };
@@ -207,19 +224,7 @@ const modelsCardStyle: React.CSSProperties = {
 const modelsLegendStyle: React.CSSProperties = {
   fontSize: "12px",
   fontWeight: 600,
-  color: "#8a93a3",
-};
-const saveBtnStyle: React.CSSProperties = {
-  alignSelf: "flex-start",
-  fontWeight: 700,
-  fontSize: "13.5px",
-  color: "#fff",
-  background: "#3b6fd4",
-  border: "none",
-  borderRadius: "10px",
-  padding: "11px 22px",
-  cursor: "pointer",
-  boxShadow: "0 3px 10px rgba(59,111,212,.26)",
+  color: "#6b7480",
 };
 const lastSavedStyle: React.CSSProperties = {
   fontSize: "12px",
@@ -232,6 +237,9 @@ export default async function ProfilePage() {
   const [profile, models, locations] = await Promise.all([
     getProfile(userId), getStructuredModels(), cachedDistinctLocations(),
   ]);
+  // Capture where the user came from now — the save POST's referer will be /profile.
+  const hdrs = await headers();
+  const returnTo = internalPathFromReferer(hdrs.get("referer"), hdrs.get("host") ?? "");
   return (
     <main style={pageStyle}>
       <div style={cardStyle}>
@@ -241,7 +249,16 @@ export default async function ProfilePage() {
           Advanced settings — résumé, review models, and location preferences.
         </div>
 
-        <form action={saveProfile} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+        <ProfileFormShell
+          action={saveProfile}
+          lastSaved={profile ? (
+            <span style={lastSavedStyle}>
+              Last saved {new Date(profile.updated_at).toLocaleString()} · version{" "}
+              {profile.profile_version.slice(0, 8)}
+            </span>
+          ) : undefined}
+        >
+          <input type="hidden" name="return_to" value={returnTo} />
           <label style={fieldStyle}>
             <span style={labelTextStyle}>Résumé PDF</span>
             <span style={hintStyle}>Optional — overrides pasted text when it extracts cleanly.</span>
@@ -431,16 +448,7 @@ export default async function ProfilePage() {
               defaultValue={profile?.model_company ?? null} placeholder={DEFAULT_MODEL_ID} />
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <button type="submit" style={saveBtnStyle}>Save</button>
-            {profile && (
-              <span style={lastSavedStyle}>
-                Last saved {new Date(profile.updated_at).toLocaleString()} · version{" "}
-                {profile.profile_version.slice(0, 8)}
-              </span>
-            )}
-          </div>
-        </form>
+        </ProfileFormShell>
       </div>
     </main>
   );

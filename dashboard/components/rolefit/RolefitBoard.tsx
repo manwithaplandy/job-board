@@ -150,6 +150,7 @@ export function RolefitBoard({
 
   // Refs
   const detailRef = useRef<HTMLDivElement>(null);
+  const listScrollRef = useRef<HTMLDivElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup timers on unmount
@@ -675,6 +676,7 @@ export function RolefitBoard({
         {/* List pane */}
         {(!isNarrow || !selectedId) && (
           <div
+            ref={listScrollRef}
             className={isNarrow ? undefined : "rf-scroll"}
             style={{
               flex: isNarrow ? undefined : "0 0 426px",
@@ -692,6 +694,7 @@ export function RolefitBoard({
               onClearFilters={clearFilters}
               view={view}
               onBackToAll={() => setView("all")}
+              scrollParentRef={isNarrow ? undefined : listScrollRef}
             />
           </div>
         )}

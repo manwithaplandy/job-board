@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { RefObject } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { JobRow } from "@/lib/types";
 import { JobCard } from "./JobCard";
 
@@ -8,6 +13,9 @@ export interface JobListProps {
   onClearFilters: () => void;
   view?: "all" | "applied" | "rejected";
   onBackToAll?: () => void;
+  // The board's scroll container. When provided the list virtualizes against it; when
+  // absent (narrow single-pane layout uses natural page scroll) it renders in full.
+  scrollParentRef?: RefObject<HTMLDivElement | null>;
 }
 
 const pillBtnStyle = {
@@ -22,6 +30,62 @@ const pillBtnStyle = {
   cursor: "pointer",
 } as const;
 
+// Windowed list: only the cards near the viewport are mounted, so filtering a ~100k-row
+// board stays cheap. The full (filtered) array stays in memory — virtualization is purely
+// a render optimization. Row heights vary slightly (chips wrap), so measureElement refines
+// the estimate as rows mount.
+function VirtualJobList({
+  jobs,
+  selectedId,
+  onSelect,
+  scrollParentRef,
+}: {
+  jobs: JobRow[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  scrollParentRef: RefObject<HTMLDivElement | null>;
+}) {
+  // The scroll element is an ancestor (the board's list pane), whose ref attaches after
+  // this child's layout effect — so getScrollElement() is null on the first commit. Force
+  // one re-render after mount so the virtualizer picks up the now-attached element instead
+  // of rendering an empty list until the first scroll/resize.
+  const [, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const virtualizer = useVirtualizer({
+    count: jobs.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 116,
+    overscan: 6,
+    getItemKey: (index) => jobs[index].id,
+  });
+
+  return (
+    <div role="list" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
+      {virtualizer.getVirtualItems().map((vi) => {
+        const job = jobs[vi.index];
+        return (
+          <div
+            role="listitem"
+            key={vi.key}
+            data-index={vi.index}
+            ref={virtualizer.measureElement}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              transform: `translateY(${vi.start}px)`,
+            }}
+          >
+            <JobCard job={job} selected={job.id === selectedId} onSelect={onSelect} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function JobList({
   jobs,
   selectedId,
@@ -29,6 +93,7 @@ export function JobList({
   onClearFilters,
   view = "all",
   onBackToAll,
+  scrollParentRef,
 }: JobListProps) {
   if (jobs.length === 0) {
     // Applied/Rejected buckets aren't "filtered out" — they're just empty. Say so, and
@@ -58,6 +123,17 @@ export function JobList({
           Clear filters
         </button>
       </div>
+    );
+  }
+
+  if (scrollParentRef) {
+    return (
+      <VirtualJobList
+        jobs={jobs}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        scrollParentRef={scrollParentRef}
+      />
     );
   }
 

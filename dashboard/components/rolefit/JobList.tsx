@@ -11,7 +11,7 @@ export interface JobListProps {
 export function JobList({ jobs, selectedId, onSelect, onClearFilters }: JobListProps) {
   if (jobs.length === 0) {
     return (
-      <div style={{ padding: "60px 30px", textAlign: "center", color: "#8a93a3" }}>
+      <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
         <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
           No roles match your filters
         </div>

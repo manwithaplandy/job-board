@@ -2,6 +2,7 @@
 import React from "react";
 import type { JobRow } from "@/lib/types";
 import { fitColor, initialsOf, fmtPay } from "@/lib/rolefit/fit";
+import { Chip } from "@/components/ui/Chip";
 
 // Palette from the reference design's getBaseJobs() logoBg array
 const LOGO_COLORS = [
@@ -137,49 +138,9 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect }: 
           {companyLine}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
-          {payLabel && (
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                color: "#566",
-                background: "#fff",
-                border: "1px solid #e7eaf0",
-                borderRadius: "7px",
-                padding: "2px 8px",
-              }}
-            >
-              {payLabel}
-            </span>
-          )}
-          <span
-            style={{
-              fontSize: "11px",
-              fontWeight: 600,
-              color: "#566",
-              background: "#fff",
-              border: "1px solid #e7eaf0",
-              borderRadius: "7px",
-              padding: "2px 8px",
-            }}
-          >
-            {remoteLabel}
-          </span>
-          {job.role_category && (
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                color: "#566",
-                background: "#fff",
-                border: "1px solid #e7eaf0",
-                borderRadius: "7px",
-                padding: "2px 8px",
-              }}
-            >
-              {job.role_category}
-            </span>
-          )}
+          {payLabel && <Chip>{payLabel}</Chip>}
+          <Chip>{remoteLabel}</Chip>
+          {job.role_category && <Chip>{job.role_category}</Chip>}
         </div>
       </div>
     </button>

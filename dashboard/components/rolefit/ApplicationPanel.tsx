@@ -631,7 +631,7 @@ export function ApplicationPanel({
               Greenhouse
             </span>
             <div style={{ flex: 1 }} />
-            <div style={{ fontSize: "11.5px", color: "#8a93a3", fontWeight: 600 }}>
+            <div style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 600 }}>
               Pulled from this posting
             </div>
           </div>
@@ -783,7 +783,7 @@ export function ApplicationPanel({
 
           {answerRows.length === 0 ? (
             <div
-              style={{ fontSize: "12.5px", color: "#8a93a3", marginTop: "10px", fontWeight: 500 }}
+              style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "10px", fontWeight: 500 }}
             >
               No saved answers yet —{" "}
               <a href="/profile" style={{ color: "#3b6fd4", textDecoration: "underline" }}>
@@ -811,7 +811,7 @@ export function ApplicationPanel({
                       flex: "0 0 150px",
                       fontSize: "12px",
                       fontWeight: 700,
-                      color: "#8a93a3",
+                      color: "#6b7480",
                     }}
                   >
                     {row.label}

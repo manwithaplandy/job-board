@@ -29,7 +29,7 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
         <h1 style={{ margin: "14px 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29" }}>
           Pipeline analytics
         </h1>
-        <div style={{ fontSize: "13px", color: "#8a93a3", marginBottom: "18px" }}>
+        <div style={{ fontSize: "13px", color: "#6b7480", marginBottom: "18px" }}>
           Company Discovery, Job Discovery, and reviewer pipelines — totals, throughput, and trends.
         </div>
 

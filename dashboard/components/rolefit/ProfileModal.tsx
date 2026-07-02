@@ -80,7 +80,7 @@ export function ProfileModal({
   const pasteActive = profileTab === "paste";
 
   const tabBg = (active: boolean) => (active ? "#fff" : "transparent");
-  const tabColor = (active: boolean) => (active ? "#1f2430" : "#8a93a3");
+  const tabColor = (active: boolean) => (active ? "#1f2430" : "#6b7480");
   const tabShadow = (active: boolean) => (active ? "0 1px 4px rgba(0,0,0,.1)" : "none");
 
   return (
@@ -132,7 +132,7 @@ export function ProfileModal({
             <div
               style={{
                 fontSize: "12.5px",
-                color: "#8a93a3",
+                color: "#6b7480",
                 marginTop: "2px",
                 fontWeight: 500,
               }}
@@ -150,7 +150,7 @@ export function ProfileModal({
               borderRadius: "8px",
               border: "1px solid #e7eaf0",
               background: "#fff",
-              color: "#8a93a3",
+              color: "#6b7480",
               fontSize: "16px",
               cursor: "pointer",
               display: "flex",
@@ -322,7 +322,7 @@ export function ProfileModal({
                     <div style={{ fontSize: "13.5px", fontWeight: 700, color: "#3b6fd4" }}>
                       Choose a PDF
                     </div>
-                    <div style={{ fontSize: "12px", color: "#8a93a3", fontWeight: 500 }}>
+                    <div style={{ fontSize: "12px", color: "#6b7480", fontWeight: 500 }}>
                       PDF, DOC or TXT — up to 5MB
                     </div>
                     {uploadName && (
@@ -367,7 +367,7 @@ export function ProfileModal({
                 href="/profile"
                 style={{
                   fontSize: "12.5px",
-                  color: "#8a93a3",
+                  color: "#6b7480",
                   fontWeight: 600,
                   textDecoration: "none",
                   marginRight: "auto",

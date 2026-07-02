@@ -31,7 +31,7 @@ export default function ErrorPage({
         <div
           style={{
             fontSize: "13px",
-            color: "#8a93a3",
+            color: "#6b7480",
             marginBottom: "20px",
             fontWeight: 500,
           }}

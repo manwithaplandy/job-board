@@ -147,7 +147,7 @@ const titleStyle: React.CSSProperties = {
 const subtitleStyle: React.CSSProperties = {
   fontSize: "13px",
   fontWeight: 500,
-  color: "#8a93a3",
+  color: "#6b7480",
   marginBottom: "22px",
 };
 const fieldStyle: React.CSSProperties = { display: "flex", flexDirection: "column" };
@@ -207,7 +207,7 @@ const modelsCardStyle: React.CSSProperties = {
 const modelsLegendStyle: React.CSSProperties = {
   fontSize: "12px",
   fontWeight: 600,
-  color: "#8a93a3",
+  color: "#6b7480",
 };
 const saveBtnStyle: React.CSSProperties = {
   alignSelf: "flex-start",

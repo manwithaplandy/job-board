@@ -59,7 +59,7 @@ function Card({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 14px" }}>
         {stats.map(([k, v]) => (
           <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-            <span style={{ color: "#8a93a3" }}>{k}</span>
+            <span style={{ color: "#6b7480" }}>{k}</span>
             <span style={{ color: "#1f2430", fontWeight: 700 }}>{v ?? "—"}</span>
           </div>
         ))}

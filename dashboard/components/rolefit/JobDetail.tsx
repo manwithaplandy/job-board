@@ -266,7 +266,7 @@ export function JobDetail({
                 alignItems: "center",
                 fontSize: "11.5px",
                 fontWeight: 700,
-                color: "#8a93a3",
+                color: "#6b7480",
                 borderRadius: "7px",
                 padding: "4px 2px",
               }}
@@ -327,7 +327,7 @@ export function JobDetail({
                   fontSize: "9px",
                   fontWeight: 700,
                   letterSpacing: "1.2px",
-                  color: "#8a93a3",
+                  color: "#6b7480",
                   marginTop: "3px",
                 }}
               >
@@ -452,7 +452,7 @@ export function JobDetail({
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "#8a93a3" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "#6b7480" }}>
             Not yet reviewed
           </div>
           <div

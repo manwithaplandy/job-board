@@ -14,7 +14,11 @@ export function fitColor(fit: number): FitColors {
   const L = lerp(a[0], b[0], t), C = lerp(a[1], b[1], t), H = lerp(a[2], b[2], t);
   return {
     strong: `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(1)})`,
-    textOn: L > 0.65 ? "#2a2410" : "#ffffff",
+    // The red→yellow→green scale bottoms out at L≈0.635 (the deny/low-fit reds), so a
+    // 0.65 cutoff put white text on those mid-lightness backgrounds at ~2.8:1. Drop the
+    // cutoff below the palette floor so every badge gets dark text (≥5:1); white text is
+    // never the higher-contrast choice on this scale.
+    textOn: L > 0.6 ? "#2a2410" : "#ffffff",
     tint: `oklch(0.975 ${Math.min(C, 0.026).toFixed(3)} ${H.toFixed(1)})`,
     tintVivid: `oklch(0.95 ${Math.min(C, 0.058).toFixed(3)} ${H.toFixed(1)})`,
     tintBorder: `oklch(0.905 ${Math.min(C, 0.05).toFixed(3)} ${H.toFixed(1)})`,

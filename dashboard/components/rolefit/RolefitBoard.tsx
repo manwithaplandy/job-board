@@ -728,7 +728,7 @@ export function RolefitBoard({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "#8a93a3",
+                  color: "#6b7480",
                   fontSize: "14px",
                   fontWeight: 600,
                 }}

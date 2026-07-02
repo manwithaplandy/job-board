@@ -144,7 +144,7 @@ export function ReviewPanel({
         <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>Review</div>
         <div style={{ flex: 1 }} />
         {job.role_category && (
-          <div style={{ fontSize: "11.5px", color: "#8a93a3", fontWeight: 600 }}>
+          <div style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 600 }}>
             Auto-categorized ·{" "}
             <span style={{ color: "#5b6472", fontWeight: 700 }}>{job.role_category}</span>
           </div>

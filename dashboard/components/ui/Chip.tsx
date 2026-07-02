@@ -5,7 +5,9 @@ export interface ChipProps {
   border?: string;
 }
 
-export function Chip({ children, color = "#566", bg = "#fff", border = "#e7eaf0" }: ChipProps) {
+// Default text color darkened from the old "#566" (~3.1:1 on #fff) to #5d6673, which
+// clears 4.5:1 at the 11px chip size.
+export function Chip({ children, color = "#5d6673", bg = "#fff", border = "#e7eaf0" }: ChipProps) {
   return (
     <span
       style={{

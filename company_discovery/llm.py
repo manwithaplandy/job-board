@@ -2,7 +2,7 @@ import os
 
 from company_discovery.schemas import CompanyReviewResult
 from observability.llm import OutOfCreditsError, traced_structured_call
-from reviewer.schemas import TAXONOMY_TEXT
+from reviewer.schemas import ENGLISH_ONLY_INSTRUCTION, TAXONOMY_TEXT
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -63,7 +63,7 @@ class CompanyReviewClient:
 
     async def review(self, *, company_block: str, name: str, ats: str,
                      token: str) -> CompanyReviewResult:
-        system = f"{company_block}\n\n{_INSTRUCTIONS}"
+        system = f"{company_block}\n\n{_INSTRUCTIONS}\n\n{ENGLISH_ONLY_INSTRUCTION}"
         user = f"Company: {name}\nATS: {ats}\nSlug: {token}"
         parsed, _ = await traced_structured_call(
             self._client,

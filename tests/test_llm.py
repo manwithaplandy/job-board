@@ -145,6 +145,19 @@ def test_stage1_creates_generation_when_tracing_enabled(monkeypatch):
     assert "output" in events["update"]
 
 
+def test_system_prompt_mandates_english_output():
+    # Every reviewer agent (stage1, stage1-batch, stage2) composes its system
+    # message through _system(), so the English mandate must land in all of them.
+    from reviewer.llm import (
+        _system, _STAGE1_INSTRUCTIONS, _STAGE1_BATCH_INSTRUCTIONS, _STAGE2_INSTRUCTIONS,
+    )
+    from reviewer.schemas import ENGLISH_ONLY_INSTRUCTION
+
+    assert "English" in ENGLISH_ONLY_INSTRUCTION
+    for instr in (_STAGE1_INSTRUCTIONS, _STAGE1_BATCH_INSTRUCTIONS, _STAGE2_INSTRUCTIONS):
+        assert ENGLISH_ONLY_INSTRUCTION in _system("PROFILE", instr)
+
+
 def test_prompt_contains_anchors_and_guard():
     """Stage-2 system prompt must contain score anchors, UNTRUSTED guard, and comp definition."""
     from reviewer.llm import _STAGE2_INSTRUCTIONS, _STAGE1_INSTRUCTIONS

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { TAILORED_RESUME_SCHEMA, buildResumePrompt, assembleResume, roleIdentity } from "@/lib/rolefit/resumeSchema";
+import { ENGLISH_ONLY_INSTRUCTION } from "@/lib/rolefit/promptPolicy";
 import type { ParsedProfile } from "@/lib/rolefit/parseProfile";
 
 const PROFILE: ParsedProfile = {
@@ -21,6 +22,7 @@ describe("buildResumePrompt", () => {
     job: { title: "Frontend Engineer", company: "Cobalt", description: "Build React apps." },
   });
   test("includes the candidate background text", () => { expect(out.user).toContain("Alex Morgan"); });
+  test("system prompt mandates English output", () => { expect(out.system).toContain(ENGLISH_ONLY_INSTRUCTION); });
   test("includes the job title, company, and JD", () => {
     expect(out.user).toContain("Frontend Engineer");
     expect(out.user).toContain("Cobalt");

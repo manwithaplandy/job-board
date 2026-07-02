@@ -1,7 +1,10 @@
 import os
 
 from observability.llm import OutOfCreditsError, _is_out_of_credits, traced_structured_call
-from reviewer.schemas import TAXONOMY_TEXT, Stage1BatchResult, Stage1Decision, Stage1Result, Stage2Result
+from reviewer.schemas import (
+    ENGLISH_ONLY_INSTRUCTION, TAXONOMY_TEXT,
+    Stage1BatchResult, Stage1Decision, Stage1Result, Stage2Result,
+)
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -71,7 +74,7 @@ def build_profile_block(resume_text: str | None, instructions: str | None) -> st
 
 def _system(profile_block: str, instructions: str) -> str:
     # OpenAI-style single system message (was Anthropic's two-block system list).
-    return f"{profile_block}\n\n{instructions}"
+    return f"{profile_block}\n\n{instructions}\n\n{ENGLISH_ONLY_INSTRUCTION}"
 
 
 class ReviewClient:

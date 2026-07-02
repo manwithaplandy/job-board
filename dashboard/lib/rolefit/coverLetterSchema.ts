@@ -1,3 +1,5 @@
+import { ENGLISH_ONLY_INSTRUCTION } from "@/lib/rolefit/promptPolicy";
+
 export interface TailoredCoverLetter {
   greeting: string;       // e.g. "Dear Hiring Manager,"
   paragraphs: string[];   // 3-4 short body paragraphs
@@ -48,7 +50,8 @@ export function buildCoverLetterPrompt(args: {
     "metrics, or credentials the candidate does not have. Address the role's stated " +
     "requirements; do not enumerate the candidate's gaps as weaknesses — instead lean " +
     "on transferable strengths. Keep it to 3-4 short body paragraphs. Return only the " +
-    "structured cover letter.";
+    "structured cover letter.\n\n" +
+    ENGLISH_ONLY_INSTRUCTION;
 
   const reqLines = args.job.requirements.length
     ? args.job.requirements.map((r) => `- ${r.text}`).join("\n")

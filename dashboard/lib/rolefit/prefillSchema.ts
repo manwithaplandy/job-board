@@ -6,6 +6,7 @@
 
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { ApplicationAnswers } from "@/lib/types";
+import { ENGLISH_ONLY_INSTRUCTION } from "@/lib/rolefit/promptPolicy";
 
 /** One suggested answer, keyed by the question's display label. */
 export interface PrefilledAnswer {
@@ -123,7 +124,8 @@ export function buildPrefillPrompt(args: {
     "options verbatim. Keep free-text answers concise and specific (1-3 sentences). " +
     "If you genuinely cannot answer a question from the given information, return an " +
     "empty string for that answer. Return an answer object for every question, using " +
-    "the question's exact label.";
+    "the question's exact label.\n\n" +
+    ENGLISH_ONLY_INSTRUCTION;
 
   const qLines = args.questions
     .map((q) => {

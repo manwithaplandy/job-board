@@ -1,6 +1,7 @@
 import type { JobRow } from "@/lib/types";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { facetCounts } from "@/lib/rolefit/filter";
+import { atsLabel } from "@/lib/rolefit/ats";
 
 // Static filter definitions — mirrored from reference design renderVals()
 const PAY_DEFS: [number, string][] = [
@@ -31,18 +32,6 @@ const REMOTE_DEFS: [BoardFilterState["remote"], string][] = [
   ["hybrid", "Hybrid"],
   ["onsite", "Onsite"],
 ];
-
-// Human-readable labels for the six companies.ats identifiers. Unknown values fall
-// back to the raw identifier so an unexpected provider never blanks or crashes.
-const ATS_LABELS: Record<string, string> = {
-  greenhouse: "Greenhouse",
-  lever: "Lever",
-  ashby: "Ashby",
-  workable: "Workable",
-  smartrecruiters: "SmartRecruiters",
-  workday: "Workday",
-};
-const atsLabel = (ats: string) => ATS_LABELS[ats] ?? ats;
 
 export interface FilterBarProps {
   jobs: JobRow[];

@@ -138,6 +138,27 @@ def test_review_creates_generation_when_tracing_enabled(monkeypatch):
     assert "output" in events["update"]
 
 
+def test_review_system_prompt_mandates_english_output():
+    from reviewer.schemas import ENGLISH_ONLY_INSTRUCTION
+
+    captured = {}
+
+    class _CapParse:
+        async def parse(self, **kw):
+            captured["messages"] = kw["messages"]
+            parsed = CompanyReviewResult(verdict="include", confidence="high", reasoning="x")
+            return _Resp(parsed)
+
+    client = type("Cl", (), {"beta": type("B", (), {
+        "chat": type("Ch", (), {"completions": _CapParse()})()
+    })()})()
+    rc = CompanyReviewClient(client=client, model="m")
+    asyncio.run(rc.review(company_block="P", name="X", ats="lever", token="x"))
+
+    system = captured["messages"][0]["content"]
+    assert ENGLISH_ONLY_INSTRUCTION in system
+
+
 def test_instructions_document_every_category():
     for category in RED_FLAG_CATEGORIES:
         assert category in _INSTRUCTIONS, f"prompt is missing category {category}"

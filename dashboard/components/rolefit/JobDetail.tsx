@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ApplicationAnswers, ApplicationPackage, JobReviewDetail, JobRow } from "@/lib/types";
+import type { ApplicationPackage, JobReviewDetail, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
@@ -58,7 +58,6 @@ export interface JobDetailProps {
   job: JobRow;
   nowIso: string;
   isAuthed: boolean;
-  answers: ApplicationAnswers | null;
   gen: Record<string, string>;
   genData: Record<string, TailoredResume>;
   genError: Record<string, string>;
@@ -94,7 +93,6 @@ export function JobDetail({
   job,
   nowIso,
   isAuthed,
-  answers,
   gen,
   genData,
   genError,
@@ -497,11 +495,10 @@ export function JobDetail({
       {/* ── REVIEWED content ── */}
       {hasReview && (
         <>
-          {/* Application panel — résumé + cover letter + saved answers + apply */}
+          {/* Application panel — résumé + cover letter + apply */}
           <ApplicationPanel
             job={job}
             isAuthed={isAuthed}
-            answers={answers}
             resumeState={genState}
             resumeData={gd}
             resumeError={genErrorMsg}

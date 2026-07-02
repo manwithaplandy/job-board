@@ -2,6 +2,7 @@
 // functions) so this module stays safe to import from the client bundle and the
 // CLI harness alike.
 import type { ParsedProfile } from "@/lib/rolefit/parseProfile";
+import { ENGLISH_ONLY_INSTRUCTION } from "@/lib/rolefit/promptPolicy";
 
 export interface ResumeExperience {
   role: string; company: string; dates: string; bullets: string[];
@@ -142,7 +143,9 @@ SKILLS, HEADLINE FOCUS, SUMMARY:
 STYLE:
 - Active voice, past tense, no first-person pronouns. No buzzwords or clichés ("results-driven", "team player", "passionate"), no emojis, no filler.
 
-Return only the structured tailored content defined by the schema — no name, contact, education, role titles, companies (other than the echoed company key), dates, notes, or commentary; those are supplied separately.`;
+Return only the structured tailored content defined by the schema — no name, contact, education, role titles, companies (other than the echoed company key), dates, notes, or commentary; those are supplied separately.
+
+${ENGLISH_ONLY_INSTRUCTION}`;
 
   const rolesBlock = args.profile.experience
     .map((r, i) => {

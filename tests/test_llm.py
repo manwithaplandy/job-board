@@ -76,7 +76,11 @@ def test_stage2_includes_jd_and_uses_stage2_model():
     assert call["model"] == "m2"
     assert call["response_format"] is Stage2Result
     assert call["max_tokens"] == 6000  # cap forwarded, not silently dropped
-    assert "Operate Kubernetes clusters" in call["messages"][1]["content"]
+    user_msg = call["messages"][1]["content"]
+    assert "Operate Kubernetes clusters" in user_msg
+    # The real posting is wrapped in the shared untrusted-input guard.
+    from reviewer.schemas import UNTRUSTED_JD_GUARD
+    assert UNTRUSTED_JD_GUARD in user_msg
 
 
 def test_models_default_from_env(monkeypatch):
@@ -165,8 +169,9 @@ def test_prompt_contains_anchors_and_guard():
     assert "90-100" in _STAGE2_INSTRUCTIONS
     # Separate comp definition
     assert "comp_score" in _STAGE2_INSTRUCTIONS and "compensation fit" in _STAGE2_INSTRUCTIONS
-    # Untrusted JD guard in stage-2
-    assert "UNTRUSTED" in _STAGE2_INSTRUCTIONS or "untrusted" in _STAGE2_INSTRUCTIONS
+    # Untrusted JD guard in stage-2 — sourced from the single shared constant.
+    from reviewer.schemas import UNTRUSTED_JD_GUARD
+    assert UNTRUSTED_JD_GUARD in _STAGE2_INSTRUCTIONS
     # job_description delimiter present
     assert "<job_description>" in _STAGE2_INSTRUCTIONS
 

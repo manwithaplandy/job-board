@@ -75,6 +75,18 @@ describe("buildJobsQuery", () => {
     expect(buildJobsQuery({ ...base, verdict: "all" }, UID).text).toContain("r.error IS NULL");
   });
 
+  test("humanOverrideOnly restricts deny to operator rejects (Rejected view)", () => {
+    const q = buildJobsQuery({ ...base, verdict: "deny" }, UID, [], { humanOverrideOnly: true });
+    expect(q.text).toContain("COALESCE(rc.verdict, r.verdict) = 'deny'");
+    expect(q.text).toContain("r.human_override IS TRUE");
+  });
+
+  test("no human_override WHERE clause without the opt", () => {
+    // r.human_override is still SELECTed as a column, but must not appear as a filter.
+    expect(buildJobsQuery({ ...base, verdict: "deny" }, UID).text)
+      .not.toContain("r.human_override IS TRUE");
+  });
+
   test("verdict=pending + experience skips dimension filter but retains pending clause", () => {
     const q = buildJobsQuery({ ...base, verdict: "pending", experience: "reach" }, UID);
     expect(q.text).not.toContain("r.experience_match =");

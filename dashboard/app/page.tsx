@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { parseFilters } from "@/lib/filters";
 import {
   getApplicationPackages, getBoardOwner, getJobs, getLatestPollRun,
-  getProfile, getReviewStats,
+  getProfile, getRejectedJobs, getReviewStats,
 } from "@/lib/queries";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
@@ -44,7 +44,7 @@ export default async function Page({
   let applicationPackages: ApplicationPackage[] = [];
   let initialFilters: BoardFilterState;
   if (viewerId) {
-    // The jobs query runs alongside a bounded-2 batch of the four authed
+    // The jobs query runs alongside a bounded-2 batch of the five authed
     // queries (dbLimit), keeping at most 3 queries in flight — the pool max.
     const [jobs, authed] = await Promise.all([
       jobsP,
@@ -53,13 +53,15 @@ export default async function Page({
         () => getReviewStats(viewerId),
         () => getProfile(viewerId),
         () => getApplicationPackages(viewerId),
+        () => getRejectedJobs(viewerId, ownerLocations),
       ]),
     ]);
-    const [pollRun, reviewStats, profile, packages] = authed as [
+    const [pollRun, reviewStats, profile, packages, rejectedJobs] = authed as [
       Awaited<ReturnType<typeof getLatestPollRun>>,
       Awaited<ReturnType<typeof getReviewStats>>,
       Awaited<ReturnType<typeof getProfile>>,
       Awaited<ReturnType<typeof getApplicationPackages>>,
+      Awaited<ReturnType<typeof getRejectedJobs>>,
     ];
     operator = {
       health: computeHealth(
@@ -91,6 +93,7 @@ export default async function Page({
         resumeText={resumeText}
         applicationAnswers={applicationAnswers}
         initialPackages={applicationPackages}
+        initialRejected={rejectedJobs}
       />
     );
   } else {
@@ -114,6 +117,7 @@ export default async function Page({
         resumeText=""
         applicationAnswers={null}
         initialPackages={[]}
+        initialRejected={[]}
       />
     );
   }

@@ -50,6 +50,26 @@ export async function getJobs(
   return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
 }
 
+// The operator's deliberate rejects (verdict='deny' + human_override) — loaded so a
+// mis-clicked reject is recoverable from the board's Rejected view AFTER a reload, not
+// just in-session. The default board loads only verdict='approve', so these rows are
+// otherwise never sent to the client. Same lean JobRow shape as the board list (reuses
+// buildJobsQuery), bounded by its LIMIT. human_override scopes to operator rejects so
+// the (huge) set of AI denies is excluded. Only called on the authed path.
+export async function getRejectedJobs(
+  userId: string,
+  ownerLocations: string[] = [],
+): Promise<ReviewedJobRow[]> {
+  const f: Filters = {
+    companies: [], include: [], exclude: [], remoteOnly: false,
+    status: "open", verdict: "deny",
+    experience: "", industry: "", subcategory: "", location: "",
+  };
+  const { text, values } = buildJobsQuery(f, userId, ownerLocations, { humanOverrideOnly: true });
+  const rows = await sql.unsafe(text, values as never[]);
+  return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
+}
+
 export async function getBoardOwnerId(): Promise<string | null> {
   // Single-tenant: the one operator whose verdicts the public board shows.
   const rows = await sql`SELECT user_id FROM profiles WHERE is_owner LIMIT 1`;

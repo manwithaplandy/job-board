@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { applyFilters, facetCounts, filterByApplied, filterByView, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
+import { applyFilters, facetCounts, filterByApplied, filterByView, mergeRejectedPool, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
 import type { JobRow } from "@/lib/types";
 
 function job(p: Partial<JobRow>): JobRow {
@@ -128,5 +128,36 @@ describe("filterByView", () => {
   test("empty sets: all view shows everything", () => {
     const out = filterByView(jobs, "all", new Set(), new Set());
     expect(out.map((j) => j.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  test("rejected view surfaces server-sourced rejects folded into the pool", () => {
+    // A reload loses the in-session rejects: the approve list ("a") plus the server
+    // reject ("s", not in the approve list) form the pool, and the seeded rejectedIds
+    // include "s", so the Rejected view still shows it.
+    const approve = [job({ id: "a" })];
+    const serverReject = job({ id: "s", verdict: "deny", human_override: true });
+    const pool = mergeRejectedPool(approve, [serverReject]);
+    const out = filterByView(pool, "rejected", new Set(["s"]), new Set());
+    expect(out.map((j) => j.id)).toEqual(["s"]);
+  });
+});
+
+describe("mergeRejectedPool", () => {
+  test("appends server rejects not already in the approve list", () => {
+    const jobs = [job({ id: "a" }), job({ id: "b" })];
+    const out = mergeRejectedPool(jobs, [job({ id: "s" })]);
+    expect(out.map((j) => j.id)).toEqual(["a", "b", "s"]);
+  });
+
+  test("dedupes by id — the board (approve) row wins on collision", () => {
+    const jobs = [job({ id: "a", verdict: "approve" })];
+    const out = mergeRejectedPool(jobs, [job({ id: "a", verdict: "deny" })]);
+    expect(out).toHaveLength(1);
+    expect(out[0].verdict).toBe("approve");
+  });
+
+  test("returns the input array unchanged when there are no server rejects", () => {
+    const jobs = [job({ id: "a" })];
+    expect(mergeRejectedPool(jobs, [])).toBe(jobs);
   });
 });

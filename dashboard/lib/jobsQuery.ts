@@ -9,6 +9,7 @@ export function buildJobsQuery(
   f: Filters,
   userId: string | null,
   ownerLocations: string[] = [],
+  opts: { humanOverrideOnly?: boolean } = {},
 ): SqlQuery {
   const values: unknown[] = [];
   const ph = () => `$${values.length + 1}`;
@@ -30,6 +31,9 @@ export function buildJobsQuery(
     else if (f.verdict === "pending") where.push("r.job_id IS NULL");
     // "all" adds no verdict clause
     where.push("r.error IS NULL");
+    // Rejected-view recovery (getRejectedJobs): restrict to the operator's deliberate
+    // rejects so AI denies — the bulk of deny rows — don't flood the view.
+    if (opts.humanOverrideOnly) where.push("r.human_override IS TRUE");
   }
 
   // --- plain job filters (apply with or without an owner) ---

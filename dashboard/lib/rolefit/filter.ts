@@ -81,8 +81,21 @@ export function filterByApplied(
   return jobs.filter((j) => (appliedView ? applied.has(j.id) : !applied.has(j.id)));
 }
 
+// The Rejected view's candidate pool: the approve-loaded board rows PLUS the operator's
+// server-loaded rejects (verdict='deny' + human_override), deduped by id (the board row
+// wins on a collision). The server rejects aren't in the approve list, so folding them
+// in is what makes a mis-clicked reject recoverable across reloads, not just in-session.
+// A no-op (returns `jobs` as-is) when there are no server rejects — the common case.
+export function mergeRejectedPool(jobs: JobRow[], serverRejected: JobRow[]): JobRow[] {
+  if (!serverRejected.length) return jobs;
+  const byId = new Map(jobs.map((j) => [j.id, j]));
+  for (const j of serverRejected) if (!byId.has(j.id)) byId.set(j.id, j);
+  return [...byId.values()];
+}
+
 // Three-way view partition: "all" hides both rejected and applied; "applied" shows only
-// applied; "rejected" shows only session-rejected (optimistic, cleared on reload).
+// applied; "rejected" shows only rejected — seeded from the server rejects union the
+// in-session rejects (see RolefitBoard), so both a reload and a live reject show up.
 export function filterByView(
   jobs: JobRow[],
   view: "all" | "applied" | "rejected",

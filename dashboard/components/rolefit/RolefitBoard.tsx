@@ -5,7 +5,7 @@ import type { ApplicationAnswers, ApplicationPackage, JobRow, JobReviewDetail, O
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
-import { applyFilters, facetCounts, filterByView, sortJobs } from "@/lib/rolefit/filter";
+import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
 import { Header } from "./Header";
@@ -49,6 +49,10 @@ export interface RolefitBoardProps {
   // Saved application packages (Phase 3) — the board seeds résumé/cover-letter +
   // Greenhouse Q/A state from these so reopening a role loads instead of regenerating.
   initialPackages: ApplicationPackage[];
+  // The operator's server-loaded rejects (verdict='deny' + human_override). The default
+  // board loads only approves, so these seed the Rejected view for cross-session recovery
+  // of a mis-clicked reject. Empty on the anon path.
+  initialRejected: JobRow[];
 }
 
 function useIsNarrow() {
@@ -79,6 +83,7 @@ export function RolefitBoard({
   resumeText,
   applicationAnswers,
   initialPackages,
+  initialRejected,
 }: RolefitBoardProps) {
   const isNarrow = useIsNarrow();
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
@@ -97,8 +102,19 @@ export function RolefitBoard({
   const [profileOpen, setProfileOpen] = useState(false);
   const [view, setView] = useState<"all" | "applied" | "rejected">("all");
 
-  // Manual-rejection state: optimistically hidden ids + the pending Undo toast.
-  const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
+  // Manual-rejection state: hidden ids + the pending Undo toast. Seeded from the server's
+  // rejected jobs (prior-session rejects) so the Rejected view survives a reload; live
+  // rejects add to it and un-rejects remove from it.
+  const [rejectedIds, setRejectedIds] = useState<Set<string>>(
+    () => new Set(initialRejected.map((j) => j.id)),
+  );
+  // Ids of the server-loaded rejects (stable from the initial load). Used to resolve the
+  // un-reject's prior verdict: a server reject was an approve before the reject (the board
+  // only ever shows approves), so restore it to 'approve' rather than its stored 'deny'.
+  const serverRejectedIds = useMemo(
+    () => new Set(initialRejected.map((j) => j.id)),
+    [initialRejected],
+  );
 
   // Optimistic correction overlay (keyed by job id) — a saved reviewer correction is
   // applied on top of both the board row and the cached detail so the card + detail
@@ -270,14 +286,22 @@ export function RolefitBoard({
   // keystroke/render (FilterBar used to recompute them internally each render).
   const facets = useMemo(() => facetCounts(jobs), [jobs]);
 
+  // The Rejected view draws from the approve list plus the server rejects (the latter
+  // aren't in `jobs`); every other view draws from `jobs` alone so server rejects can't
+  // leak into "all"/"applied".
+  const rejectedPool = useMemo(
+    () => mergeRejectedPool(jobs, initialRejected),
+    [jobs, initialRejected],
+  );
+
   const visible = useMemo(
     () => filterByView(
-      sortJobs(applyFilters(jobs, filterState), filterState.sort),
+      sortJobs(applyFilters(view === "rejected" ? rejectedPool : jobs, filterState), filterState.sort),
       view,
       rejectedIds,
       appliedSet,
     ),
-    [jobs, filterState, rejectedIds, appliedSet, view],
+    [jobs, rejectedPool, filterState, rejectedIds, appliedSet, view],
   );
 
   // Display-only overlay of `corrections` on top of the filtered/sorted/bucketed
@@ -288,10 +312,12 @@ export function RolefitBoard({
     [visible, corrections],
   );
 
-  // Resolve selected job
+  // Resolve selected job from the rejected pool (a superset of `jobs`) so opening a
+  // server-sourced rejected job — which isn't in the approve list — still renders its
+  // detail pane, and with it the un-reject action.
   const selectedJob = useMemo(
-    () => jobs.find((j) => j.id === selectedId) ?? null,
-    [jobs, selectedId],
+    () => rejectedPool.find((j) => j.id === selectedId) ?? null,
+    [rejectedPool, selectedId],
   );
 
   // Heavy, detail-only review fields (reasoning/about/requirements/benefits/
@@ -437,7 +463,10 @@ export function RolefitBoard({
   // Un-reject from the card/detail (the Rejected view) after the Undo toast has expired.
   // Optimistically un-hides the job, then persists via unrejectJob; rolls back on failure.
   const handleUnreject = useCallback((job: JobRow) => {
-    const priorVerdict = job.verdict;
+    // A server-sourced reject carries its stored verdict='deny'; restore it to 'approve'
+    // (its state before the reject — the board only ever surfaces approves). An in-session
+    // reject's row is still the loaded approve, so its own verdict is the right restore.
+    const priorVerdict = serverRejectedIds.has(job.id) ? "approve" : job.verdict;
     setRejectedIds((prev) => {
       const next = new Set(prev);
       next.delete(job.id);
@@ -449,7 +478,7 @@ export function RolefitBoard({
         showActionError("Couldn’t un-reject — try again.");
       });
     });
-  }, [unrejectJob, showActionError]);
+  }, [unrejectJob, showActionError, serverRejectedIds]);
 
   // Optimistically apply a saved reviewer correction to the board card + detail pane —
   // formToCorrection(form) already returns snake_case JobRow field names, so spreading

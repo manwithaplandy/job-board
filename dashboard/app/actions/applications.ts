@@ -49,12 +49,12 @@ export async function unmarkApplicationApplied(jobId: string): Promise<void> {
 export async function persistRegeneratedResume(jobId: string, resume: TailoredResume): Promise<void> {
   const userId = await requireUserId();
   await updateApplicationPackageResume(userId, jobId, resume);
-  revalidatePath("/");
 }
 
-// Cover-letter counterpart of persistRegeneratedResume.
+// Cover-letter counterpart of persistRegeneratedResume. The client updates the
+// visible package state optimistically, so these background saves do not need to
+// re-render the full board.
 export async function persistRegeneratedCover(jobId: string, coverLetter: TailoredCoverLetter): Promise<void> {
   const userId = await requireUserId();
   await updateApplicationPackageCover(userId, jobId, coverLetter);
-  revalidatePath("/");
 }

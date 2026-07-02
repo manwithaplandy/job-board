@@ -122,7 +122,9 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
     // Return to the page the user came from (threaded through a hidden field captured at
     // GET time — the POST's own referer is /profile).
     const rt = String(formData.get("return_to") ?? "/");
-    returnTo = rt.startsWith("/") && !rt.startsWith("//") ? rt : "/";
+    // Reject protocol-relative ("//host") and backslash ("/\host", "\/host") forms —
+    // browsers normalize "\" to "/", so either can escape to another origin.
+    returnTo = rt.startsWith("/") && !rt.startsWith("//") && !rt.includes("\\") ? rt : "/";
   } catch (e) {
     // Re-throw Next control-flow (redirect/notFound, e.g. an expired session in
     // requireUserId); surface everything else inline so the form stays mounted.

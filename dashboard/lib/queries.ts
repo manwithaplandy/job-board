@@ -10,6 +10,13 @@ import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
+import {
+  parseTailoredResume,
+  parseTailoredCoverLetter,
+  parsePrefilledAnswers,
+  parseApplicationAnswers,
+  parseGreenhouseQuestionsJsonb,
+} from "@/lib/rolefit/packageCodec";
 
 function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
   const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ""));
@@ -317,17 +324,29 @@ export async function getJobForPackage(
   }) ?? null;
 }
 
-// postgres.js returns jsonb columns as parsed JS values and timestamptz as Date.
-function toApplicationPackage(row: Record<string, unknown>): ApplicationPackage {
+// postgres.js returns jsonb columns as parsed JS values (a jsonb string scalar comes
+// back as a STRING) and timestamptz as Date. Every jsonb column is run through a total
+// parser: a malformed payload becomes null (the UI degrades to "not generated") and is
+// logged with the jobId, instead of a bad shape reaching React and crashing the board.
+export function toApplicationPackage(row: Record<string, unknown>): ApplicationPackage {
   const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
+  const jobId = row.job_id as string;
+  const parseField = <T>(field: string, raw: unknown, parse: (r: unknown) => T | null): T | null => {
+    if (raw == null) return null;
+    const parsed = parse(raw);
+    if (parsed == null) {
+      console.warn(`[application_packages] dropping malformed ${field} for job ${jobId}`);
+    }
+    return parsed;
+  };
   return {
-    jobId: row.job_id as string,
+    jobId,
     status: row.status as "prepared" | "applied",
-    resume: (row.resume_json as TailoredResume | null) ?? null,
-    coverLetter: (row.cover_letter_json as TailoredCoverLetter | null) ?? null,
-    answersSnapshot: (row.answers_snapshot as ApplicationAnswers | null) ?? null,
-    greenhouseQuestions: (row.greenhouse_questions as GreenhouseQuestions | null) ?? null,
-    prefilledAnswers: (row.prefilled_answers as PrefilledAnswer[] | null) ?? null,
+    resume: parseField("resume_json", row.resume_json, parseTailoredResume),
+    coverLetter: parseField("cover_letter_json", row.cover_letter_json, parseTailoredCoverLetter),
+    answersSnapshot: parseField("answers_snapshot", row.answers_snapshot, parseApplicationAnswers),
+    greenhouseQuestions: parseField("greenhouse_questions", row.greenhouse_questions, parseGreenhouseQuestionsJsonb),
+    prefilledAnswers: parseField("prefilled_answers", row.prefilled_answers, parsePrefilledAnswers),
     applyUrl: (row.apply_url as string | null) ?? null,
     preparedAt: iso(row.prepared_at),
     appliedAt: row.applied_at != null ? iso(row.applied_at) : null,

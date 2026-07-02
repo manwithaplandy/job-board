@@ -627,6 +627,53 @@ def test_fetch_workday_returns_iterator_not_list(monkeypatch):
     assert postings[0].external_id == "/job/a/JR-1"
 
 
+def test_fetch_is_lazy_bounds_detail_fetches(monkeypatch):
+    """Consuming only the first page's worth of postings from fetch_workday must
+    trigger at most one page's worth of detail fetches — proving the generator is
+    lazy. An eager (list-building) implementation would fetch EVERY page's details
+    up front (here 6), holding the whole tenant + all detail payloads in memory.
+    """
+    import itertools
+
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    pages = {
+        0: {"jobPostings": [
+            {"externalPath": "/job/a/JR-1", "title": "A"},
+            {"externalPath": "/job/b/JR-2", "title": "B"},
+        ]},
+        2: {"jobPostings": [
+            {"externalPath": "/job/c/JR-3", "title": "C"},
+            {"externalPath": "/job/d/JR-4", "title": "D"},
+        ]},
+        4: {"jobPostings": [
+            {"externalPath": "/job/e/JR-5", "title": "E"},
+            {"externalPath": "/job/f/JR-6", "title": "F"},
+        ]},
+        6: {"jobPostings": []},
+    }
+    post_calls = {"n": 0}
+    detail_calls = {"n": 0}
+
+    def fake_post_json(url, json=None):
+        post_calls["n"] += 1
+        return pages[json["offset"]]
+
+    def fake_get_json(url):
+        detail_calls["n"] += 1
+        return {"jobPostingInfo": {"title": "x", "externalUrl": f"https://x{url[-10:]}"}}
+
+    monkeypatch.setattr(workday, "post_json", fake_post_json)
+    monkeypatch.setattr(workday, "get_json", fake_get_json)
+
+    it = fetch_workday("acme:wd5:External")
+    first_page = list(itertools.islice(it, workday._PAGE_LIMIT))  # pull ONE page's worth
+
+    assert [p.external_id for p in first_page] == ["/job/a/JR-1", "/job/b/JR-2"]
+    # Laziness: only the first page's details were fetched; later pages untouched.
+    assert detail_calls["n"] <= workday._PAGE_LIMIT
+    assert post_calls["n"] == 1  # never paged ahead to fetch later pages' listings/details
+
+
 def test_oversized_partition_without_splitter_pages_to_cap_and_warns(monkeypatch, caplog):
     # A partition over the cap whose facets offer no value below the cap cannot be
     # sub-divided; the crawl must page it up to the hard cap (never looping past

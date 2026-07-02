@@ -5,6 +5,7 @@ import {
 } from "@/lib/rolefit/prefillSchema";
 import type { ApplicationAnswers } from "@/lib/types";
 import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
+import { parsePrefilledAnswers } from "@/lib/rolefit/packageCodec";
 
 export const DEFAULT_PREFILL_MODEL = "anthropic/claude-haiku-4.5";
 
@@ -66,14 +67,10 @@ export async function generatePrefilledAnswers(args: {
     maxTokens: 2000,
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
-      const parsed = raw as { answers?: PrefilledAnswer[] };
-      if (!Array.isArray(parsed.answers)) {
-        throw new Error("OpenRouter prefill missing answers array");
-      }
-      return parsed.answers
-        .filter((a) => a && typeof a.question === "string" && typeof a.answer === "string")
-        .map((a) => ({ question: a.question.trim(), answer: a.answer.trim() }))
-        .filter((a) => a.question && a.answer);
+      const parsed = raw as { answers?: unknown };
+      const answers = parsePrefilledAnswers(parsed.answers);
+      if (!answers) throw new Error("OpenRouter prefill missing answers array");
+      return answers;
     },
   });
 

@@ -9,6 +9,7 @@ import {
 import { parseProfile, yearsOfExperience } from "@/lib/rolefit/parseProfile";
 import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
 import { resumeChecks, type ResumeChecks } from "@/lib/rolefit/resumeChecks";
+import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
 
 export const DEFAULT_RESUME_MODEL = "anthropic/claude-haiku-4.5";
 
@@ -40,7 +41,11 @@ export async function generateResume(args: {
       if (!tailored.headlineFocus || !Array.isArray(tailored.experience)) {
         throw new Error("OpenRouter résumé missing required fields");
       }
-      return assembleResume(profile, tailored);
+      const resume = assembleResume(profile, tailored);
+      if (!parseTailoredResume(resume)) {
+        throw new Error("assembled résumé failed shape validation");
+      }
+      return resume;
     },
   });
   return { resume, checks: resumeChecks(resume, profile) };

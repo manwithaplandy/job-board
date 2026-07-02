@@ -2,6 +2,7 @@
 
 import { requireUserId } from "@/lib/auth";
 import { sql } from "@/lib/db";
+import { BARE_MARKER_PREDICATE } from "@/lib/queries";
 
 // Mark a job applied. Upsert so a one-click "Mark as applied" works even when the
 // user never prepared a package (a content-less marker row); the Prepare-panel
@@ -40,9 +41,7 @@ export async function unmarkApplicationApplied(jobId: string): Promise<void> {
     await tx`
       DELETE FROM application_packages
        WHERE user_id = ${userId}::uuid AND job_id = ${jobId}
-         AND resume_json IS NULL AND cover_letter_json IS NULL
-         AND greenhouse_questions IS NULL AND prefilled_answers IS NULL
-         AND answers_snapshot IS NULL AND apply_url IS NULL
+         AND ${BARE_MARKER_PREDICATE}
     `;
     await tx`
       UPDATE application_packages

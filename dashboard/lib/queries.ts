@@ -66,6 +66,26 @@ export async function getBoardOwner(): Promise<{ id: string | null; locations: s
   return { id: row?.user_id ?? null, locations: row?.preferred_locations ?? [] };
 }
 
+// postgres.js delivers jsonb columns as parsed JS values; normalize a detail row
+// into the typed shape at the boundary instead of an `as unknown as` cast.
+function toJobReviewDetail(row: Record<string, unknown>): JobReviewDetail {
+  return {
+    reasoning: (row.reasoning as string | null) ?? null,
+    about: (row.about as string | null) ?? null,
+    red_flags: (row.red_flags as string[] | null) ?? null,
+    benefits: (row.benefits as string[] | null) ?? null,
+    requirements: (row.requirements as { text: string; met: boolean }[] | null) ?? null,
+    description: (row.description as string | null) ?? null,
+    url: (row.url as string | null) ?? null,
+    experience_match: (row.experience_match as string | null) ?? null,
+    industry: (row.industry as string | null) ?? null,
+    industry_subcategory: (row.industry_subcategory as string | null) ?? null,
+    confidence: (row.confidence as string | null) ?? null,
+    note: (row.note as string | null) ?? null,
+    corrected: (row.corrected as boolean) ?? false,
+  };
+}
+
 export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail | null> {
   // Heavy, detail-only fields for one job, scoped to the board owner's review
   // (the same owner the list LEFT JOINs). Resolved in one round-trip via the
@@ -93,7 +113,8 @@ export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail
     WHERE r.job_id = ${jobId}
       AND r.user_id = (SELECT user_id FROM profiles WHERE is_owner LIMIT 1)
   `;
-  return (rows[0] as unknown as JobReviewDetail) ?? null;
+  const row = rows[0] as Record<string, unknown> | undefined;
+  return row ? toJobReviewDetail(row) : null;
 }
 
 export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {
@@ -101,6 +122,13 @@ export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {
     SELECT * FROM review_runs WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1
   `;
   return (rows[0] as unknown as ReviewRunRow) ?? null;
+}
+
+function toReviewStats(row: Record<string, unknown>): ReviewStats {
+  return {
+    unreviewed: (row.unreviewed as number) ?? 0,
+    errors: (row.errors as number) ?? 0,
+  };
 }
 
 async function _getReviewStatsImpl(userId: string): Promise<ReviewStats> {
@@ -112,7 +140,8 @@ async function _getReviewStatsImpl(userId: string): Promise<ReviewStats> {
     LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
     WHERE j.closed_at IS NULL
   `;
-  return (rows[0] as unknown as ReviewStats) ?? { unreviewed: 0, errors: 0 };
+  const row = rows[0] as Record<string, unknown> | undefined;
+  return row ? toReviewStats(row) : { unreviewed: 0, errors: 0 };
 }
 
 export function getReviewStats(userId: string): Promise<ReviewStats> {
@@ -283,6 +312,18 @@ function toApplicationPackage(row: Record<string, unknown>): ApplicationPackage 
     appliedAt: row.applied_at != null ? iso(row.applied_at) : null,
   };
 }
+
+// A bare "applied" marker row (created by one-click "Mark as applied") carries no
+// prepared content — ALL of these columns are NULL. Setting ANY one makes the row
+// a real package that un-apply must preserve rather than delete. Kept as one shared
+// SQL fragment so the un-apply DELETE (app/actions/applications.ts) and any future
+// reader agree on the column set — including apply_url, which closes the dormant
+// un-apply gap if an apply_url-only write path is ever added.
+export const BARE_MARKER_PREDICATE = sql`
+  resume_json IS NULL AND cover_letter_json IS NULL
+    AND greenhouse_questions IS NULL AND prefilled_answers IS NULL
+    AND answers_snapshot IS NULL AND apply_url IS NULL
+`;
 
 // All of the viewer's prepared packages, keyed by job in the caller. Single-tenant
 // + only created on explicit "Prepare", so the row count stays small.

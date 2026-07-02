@@ -14,7 +14,7 @@ import { JobList } from "./JobList";
 import { JobDetail } from "./JobDetail";
 import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
-import { DetailErrorBoundary } from "@/components/rolefit/DetailErrorBoundary";
+import { DetailErrorBoundary } from "./DetailErrorBoundary";
 
 type DetailState =
   | { status: "loading" }

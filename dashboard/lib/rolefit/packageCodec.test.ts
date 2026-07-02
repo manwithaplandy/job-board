@@ -58,6 +58,7 @@ describe("parseTailoredResume", () => {
   });
   test("rejects when skills is not a string array", () => {
     expect(parseTailoredResume({ ...validResume, skills: "Python" })).toBeNull();
+    expect(parseTailoredResume({ ...validResume, skills: ["Python", 7] })).toBeNull();
   });
   test("rejects when an experience entry is malformed", () => {
     expect(parseTailoredResume({ ...validResume, experience: [{ role: "X" }] })).toBeNull();

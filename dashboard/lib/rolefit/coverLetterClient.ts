@@ -35,6 +35,10 @@ export async function generateCoverLetter(args: {
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
       const parsed = parseTailoredCoverLetter(raw);
+      // parseTailoredCoverLetter is shape-only (accepts ""), but composeCoverLetterText
+      // and the PDF writer use greeting/closing/signature unconditionally, so a model
+      // that omits them must fail here rather than surface a blank line in the copied
+      // text / PDF / preview.
       if (!parsed || !parsed.greeting || !parsed.closing || !parsed.signature) {
         throw new Error("OpenRouter cover letter missing required fields");
       }

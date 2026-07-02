@@ -2,6 +2,7 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
+import type { RedFlag } from "@/lib/redFlags";
 
 // Heavy, detail-only fields. These are NOT included in the board's list query
 // (they serialized ~171KB into every board response while only ever showing
@@ -201,7 +202,7 @@ export interface CompanyReviewRow {
   industry: string | null;
   industry_subcategory: string | null;
   tech_tags: string[] | null;
-  red_flags: string[] | null;
+  red_flags: RedFlag[] | null;
 }
 
 export interface DiscoveryRunRow {

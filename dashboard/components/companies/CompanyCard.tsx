@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import type { CompanyReviewRow } from "@/lib/types";
 import { verdictMeta } from "@/lib/companies/format";
+import { redFlagLabel } from "@/lib/redFlags";
 
 export function CompanyCard({
   company, override,
@@ -12,7 +13,7 @@ export function CompanyCard({
 }) {
   const [pending, start] = useTransition();
   const meta = verdictMeta(company.effective_verdict);
-  const tags = [...(company.tech_tags ?? []), ...(company.red_flags ?? [])];
+  const tags = [...(company.tech_tags ?? []), ...(company.red_flags ?? []).map(redFlagLabel)];
 
   const act = (verdict: "include" | "exclude") =>
     start(async () => { await override(company.id, verdict); });

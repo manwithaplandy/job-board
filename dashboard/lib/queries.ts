@@ -419,34 +419,6 @@ export async function upsertApplicationPackage(
   return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);
 }
 
-// Persist a regenerated résumé back into an already-prepared package, so a reopened
-// role doesn't reseed the stale version. A no-op when the user hasn't prepared this
-// job yet (no row to update) — regenerate-before-prepare is just a throwaway preview.
-export async function updateApplicationPackageResume(
-  userId: string,
-  jobId: string,
-  resume: TailoredResume,
-): Promise<void> {
-  await sql`
-    UPDATE application_packages
-       SET resume_json = ${JSON.stringify(resume)}::jsonb
-     WHERE user_id = ${userId}::uuid AND job_id = ${jobId}
-  `;
-}
-
-// Cover-letter counterpart of updateApplicationPackageResume.
-export async function updateApplicationPackageCover(
-  userId: string,
-  jobId: string,
-  coverLetter: TailoredCoverLetter,
-): Promise<void> {
-  await sql`
-    UPDATE application_packages
-       SET cover_letter_json = ${JSON.stringify(coverLetter)}::jsonb
-     WHERE user_id = ${userId}::uuid AND job_id = ${jobId}
-  `;
-}
-
 export async function upsertProfile(
   userId: string,
   data: {

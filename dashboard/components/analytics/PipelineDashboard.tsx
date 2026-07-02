@@ -31,6 +31,8 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
         </h1>
         <div style={{ fontSize: "13px", color: "#6b7480", marginBottom: "18px" }}>
           Company Discovery, Job Discovery, and reviewer pipelines — totals, throughput, and trends.
+          {" "}
+          <span style={{ fontWeight: 600 }}>Aggregates refresh at least every 10 minutes.</span>
         </div>
 
         <div style={{ position: "sticky", top: 0, zIndex: 10, display: "flex", gap: "8px",

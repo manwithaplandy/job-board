@@ -59,6 +59,21 @@ async def review_batch(candidates: list[dict], company_block: str, client,
     return [r for r in out if r is not None], halt.is_set()
 
 
+def _review_row(*, user_id, company_id, pv, model, res, err) -> dict:
+    row = {
+        "user_id": user_id, "company_id": company_id, "company_profile_version": pv,
+        "model": model, "error": err,
+    }
+    if res is not None:
+        row.update(
+            verdict=res.verdict, confidence=res.confidence, reasoning=res.reasoning,
+            industry=res.industry, industry_subcategory=res.industry_subcategory,
+            tech_tags=list(res.tech_tags),
+            red_flags=[rf.model_dump() for rf in res.red_flags],
+        )
+    return row
+
+
 def _review_user(conn, profile: dict) -> None:
     user_id = str(profile["user_id"])
     pv = profile.get("company_profile_version") \
@@ -78,16 +93,9 @@ def _review_user(conn, profile: dict) -> None:
                          user_id=user_id, run_id=run_id))
 
         for cid, res, err in results:
-            row = {
-                "user_id": user_id, "company_id": cid, "company_profile_version": pv,
-                "model": client.model, "error": err,
-            }
+            row = _review_row(user_id=user_id, company_id=cid, pv=pv,
+                              model=client.model, res=res, err=err)
             if res is not None:
-                row.update(
-                    verdict=res.verdict, confidence=res.confidence, reasoning=res.reasoning,
-                    industry=res.industry, industry_subcategory=res.industry_subcategory,
-                    tech_tags=list(res.tech_tags), red_flags=list(res.red_flags),
-                )
                 counts["reviewed"] += 1
                 counts[_VERDICT_COUNT_KEY[res.verdict]] += 1
             else:

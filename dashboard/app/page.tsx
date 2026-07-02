@@ -4,7 +4,6 @@ import {
   getApplicationPackages, getBoardOwner, getJobs, getLatestPollRun,
   getProfile, getRejectedJobs, getReviewStats,
 } from "@/lib/queries";
-import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
 import { getUserId } from "@/lib/auth";
@@ -16,7 +15,7 @@ import {
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import { dbLimit } from "@/lib/dbLimit";
-import type { ApplicationAnswers, ApplicationPackage, OperatorSignals } from "@/lib/types";
+import type { ApplicationPackage, OperatorSignals } from "@/lib/types";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +39,6 @@ export default async function Page({
   let operator: OperatorSignals | undefined;
   let hasProfile = false;
   let resumeText = "";
-  let applicationAnswers: ApplicationAnswers | null = null;
   let applicationPackages: ApplicationPackage[] = [];
   let initialFilters: BoardFilterState;
   if (viewerId) {
@@ -73,7 +71,6 @@ export default async function Page({
     };
     hasProfile = profile != null; // a saved profile row exists
     resumeText = profile?.resume_text ?? "";
-    applicationAnswers = profile ? applicationAnswersFromProfile(profile) : null;
     applicationPackages = packages;
     initialFilters = parseBoardFilters(profile?.board_filters);
     return (
@@ -91,7 +88,6 @@ export default async function Page({
         operator={operator}
         hasProfile={hasProfile}
         resumeText={resumeText}
-        applicationAnswers={applicationAnswers}
         initialPackages={applicationPackages}
         initialRejected={rejectedJobs}
       />
@@ -115,7 +111,6 @@ export default async function Page({
         operator={undefined}
         hasProfile={false}
         resumeText=""
-        applicationAnswers={null}
         initialPackages={[]}
         initialRejected={[]}
       />

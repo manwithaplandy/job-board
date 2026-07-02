@@ -172,7 +172,7 @@ export interface ProfileRow {
   updated_at: string;
 }
 
-/** The reusable application answers surfaced (read-only) in the board's ApplicationPanel. */
+/** The reusable application answers (edited on /profile) used to prefill an application package. */
 export interface ApplicationAnswers {
   full_name: string | null;
   email: string | null;

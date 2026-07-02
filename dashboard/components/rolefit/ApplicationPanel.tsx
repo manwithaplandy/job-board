@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ApplicationAnswers, JobRow } from "@/lib/types";
+import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
@@ -34,12 +34,9 @@ function copyToClipboard(text: string) {
   }
 }
 
-const triLabel = (v: boolean | null): string => (v === true ? "Yes" : v === false ? "No" : "");
-
 export interface ApplicationPanelProps {
   job: JobRow;
   isAuthed: boolean;
-  answers: ApplicationAnswers | null;
   // Résumé (state owned by the board, keyed by job id)
   resumeState: string | undefined;
   resumeData: TailoredResume | undefined;
@@ -74,7 +71,6 @@ export interface ApplicationPanelProps {
 export function ApplicationPanel({
   job,
   isAuthed,
-  answers,
   resumeState,
   resumeData,
   resumeError,
@@ -164,29 +160,6 @@ export function ApplicationPanel({
     );
   };
 
-  // Read-only application answers, surfaced only when present.
-  const answerRows: { key: string; label: string; value: string }[] = [];
-  const pushAnswer = (key: string, label: string, value: string | null | undefined) => {
-    const v = (value ?? "").trim();
-    if (v) answerRows.push({ key, label, value: v });
-  };
-  pushAnswer("full_name", "Full name", answers?.full_name);
-  pushAnswer("email", "Email", answers?.email);
-  pushAnswer("phone", "Phone", answers?.phone);
-  pushAnswer("location", "Location", answers?.location);
-  pushAnswer("linkedin", "LinkedIn", answers?.links?.linkedin);
-  pushAnswer("github", "GitHub", answers?.links?.github);
-  pushAnswer("portfolio", "Portfolio", answers?.links?.portfolio);
-  pushAnswer("work_authorized", "Work authorized", triLabel(answers?.work_authorized ?? null));
-  pushAnswer("needs_sponsorship", "Needs sponsorship", triLabel(answers?.needs_sponsorship ?? null));
-  pushAnswer("notice_period", "Notice period", answers?.screening_answers?.notice_period);
-  pushAnswer("salary_expectation", "Salary expectation", answers?.screening_answers?.salary_expectation);
-  pushAnswer("relocation", "Relocation", answers?.screening_answers?.relocation);
-  pushAnswer("eeo_gender", "Gender (EEO)", answers?.eeo_gender);
-  pushAnswer("eeo_race", "Race / ethnicity (EEO)", answers?.eeo_race);
-  pushAnswer("eeo_veteran", "Veteran status (EEO)", answers?.eeo_veteran);
-  pushAnswer("eeo_disability", "Disability status (EEO)", answers?.eeo_disability);
-
   const copyBtnStyle: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -257,7 +230,7 @@ export function ApplicationPanel({
           <div
             style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
           >
-            Tailored résumé, cover letter, and your saved answers — ready for {job.company_name}.
+            Tailored résumé and cover letter — ready for {job.company_name}.
           </div>
         </div>
         {applied && (
@@ -302,7 +275,7 @@ export function ApplicationPanel({
         )}
         {isAuthed && (
           <Button
-            variant="primary"
+            variant="secondary"
             onClick={onPrepare}
             disabled={preparing || generating}
             style={{ flex: "0 0 auto" }}
@@ -323,13 +296,14 @@ export function ApplicationPanel({
               gap: "7px",
               fontWeight: 700,
               fontSize: "14px",
-              color: "#3b6fd4",
-              background: "#fff",
-              border: "1px solid #cfddf6",
+              color: "#fff",
+              background: "#3b6fd4",
+              border: "1px solid #3b6fd4",
               borderRadius: "11px",
               padding: "12px 18px",
               cursor: "pointer",
               textDecoration: "none",
+              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
             }}
           >
             Apply on {atsLabel}<span style={{ fontSize: "15px" }}>→</span>
@@ -769,124 +743,6 @@ export function ApplicationPanel({
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* ── Profile answers (generic package — shown when no Greenhouse schema) ── */}
-      {isAuthed && !hasGreenhouse && (
-        <div
-          style={{
-            marginTop: "18px",
-            border: "1px solid #e3e7ee",
-            borderRadius: "16px",
-            padding: "17px 19px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
-              Profile answers
-            </div>
-            <span
-              style={{
-                fontSize: "10.5px",
-                fontWeight: 800,
-                letterSpacing: ".4px",
-                textTransform: "uppercase",
-                color: "#5b6472",
-                background: "#f2f4f8",
-                border: "1px solid #e7eaf0",
-                borderRadius: "6px",
-                padding: "3px 8px",
-              }}
-            >
-              Generic
-            </span>
-            <div style={{ flex: 1 }} />
-            <a
-              href="/profile"
-              style={{
-                fontSize: "12px",
-                fontWeight: 700,
-                color: "#3b6fd4",
-                textDecoration: "none",
-              }}
-            >
-              Edit →
-            </a>
-          </div>
-
-          {answerRows.length === 0 ? (
-            <div
-              style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "10px", fontWeight: 500 }}
-            >
-              No saved answers yet —{" "}
-              <a href="/profile" style={{ color: "#3b6fd4", textDecoration: "underline" }}>
-                add your application details
-              </a>{" "}
-              to copy them in one click per role.
-            </div>
-          ) : (
-            <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {answerRows.map((row) => (
-                <div
-                  key={row.key}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    background: "#f7f9fc",
-                    border: "1px solid #eef1f5",
-                    borderRadius: "10px",
-                    padding: "9px 12px",
-                  }}
-                >
-                  <div
-                    style={{
-                      flex: "0 0 150px",
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      color: "#6b7480",
-                    }}
-                  >
-                    {row.label}
-                  </div>
-                  <div
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      color: "#2f3845",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {row.value}
-                  </div>
-                  <button
-                    onClick={() => flashCopied(row.key, row.value)}
-                    style={{
-                      flex: "0 0 auto",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      fontWeight: 700,
-                      fontSize: "12px",
-                      color: copiedKey === row.key ? "#2f7d54" : "#5b6472",
-                      background: "#fff",
-                      border: "1px solid #dfe3ea",
-                      borderRadius: "8px",
-                      padding: "6px 11px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <span aria-live="polite">{copiedKey === row.key ? "Copied!" : "Copy"}</span>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -15,7 +15,7 @@ describe("parseBoardFilters", () => {
       '{"search":"eng","cats":["Backend"],"locs":["Berlin"],"remote":"remote","minFit":75,"payMin":150,"sort":"pay"}',
     );
     expect(f).toEqual({
-      search: "eng", cats: ["Backend"], locs: ["Berlin"],
+      search: "eng", cats: ["Backend"], locs: ["Berlin"], sources: [],
       remote: "remote", minFit: 75, payMin: 150, sort: "pay",
     });
   });
@@ -43,6 +43,14 @@ describe("parseBoardFilters", () => {
 
   test("non-array cats/locs → []", () => {
     expect(parseBoardFilters({ cats: "Backend" }).cats).toEqual([]);
+  });
+
+  test("sources round-trips; invalid input collapses to []", () => {
+    expect(parseBoardFilters({ sources: ["greenhouse", "workday"] }).sources)
+      .toEqual(["greenhouse", "workday"]);
+    expect(parseBoardFilters({ sources: "greenhouse" }).sources).toEqual([]);
+    expect(parseBoardFilters({ sources: ["greenhouse", 5, null] }).sources).toEqual(["greenhouse"]);
+    expect(parseBoardFilters({}).sources).toEqual([]);
   });
 
   test("over-long search is truncated to 200 chars", () => {

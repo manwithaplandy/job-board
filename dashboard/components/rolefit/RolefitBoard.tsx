@@ -1,17 +1,35 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback, useTransition } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
 import type { ApplicationAnswers, ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
-import { applyFilters, sortJobs } from "@/lib/rolefit/filter";
+import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
+import type { CorrectionForm } from "@/lib/rolefit/correction";
+import { formToCorrection } from "@/lib/rolefit/correction";
 import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
 import { JobDetail } from "./JobDetail";
 import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
+
+type DetailState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "done"; detail: JobReviewDetail };
+
+// D7's /api/application/prepare reports each leg independently so a partial failure
+// (e.g. cover letter timed out) still persists what succeeded and offers a per-leg retry.
+type LegStatus = "ok" | "failed";
+export interface PrepareLegStatus {
+  resume: LegStatus;
+  coverLetter: LegStatus;
+  answers: LegStatus;
+}
+
+const isAbort = (e: unknown) => e instanceof Error && e.name === "AbortError";
 
 export interface RolefitBoardProps {
   jobs: JobRow[];
@@ -23,10 +41,7 @@ export interface RolefitBoardProps {
   rejectJob: (jobId: string) => Promise<void>;
   unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
   markApplied: (jobId: string) => Promise<void>;
-  // Persist a regenerated résumé/cover back into an existing application_packages row
-  // (so regenerating after Prepare survives a reload). No-op server-side when unprepared.
-  persistResume: (jobId: string, resume: TailoredResume) => Promise<void>;
-  persistCover: (jobId: string, coverLetter: TailoredCoverLetter) => Promise<void>;
+  unmarkApplied: (jobId: string) => Promise<void>;
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;
@@ -34,6 +49,22 @@ export interface RolefitBoardProps {
   // Saved application packages (Phase 3) — the board seeds résumé/cover-letter +
   // Greenhouse Q/A state from these so reopening a role loads instead of regenerating.
   initialPackages: ApplicationPackage[];
+  // The operator's server-loaded rejects (verdict='deny' + human_override). The default
+  // board loads only approves, so these seed the Rejected view for cross-session recovery
+  // of a mis-clicked reject. Empty on the anon path.
+  initialRejected: JobRow[];
+}
+
+function useIsNarrow() {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 760px)");
+    setNarrow(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setNarrow(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return narrow;
 }
 
 export function RolefitBoard({
@@ -46,18 +77,21 @@ export function RolefitBoard({
   rejectJob,
   unrejectJob,
   markApplied,
-  persistResume,
-  persistCover,
+  unmarkApplied,
   operator,
   hasProfile,
   resumeText,
   applicationAnswers,
   initialPackages,
+  initialRejected,
 }: RolefitBoardProps) {
+  const isNarrow = useIsNarrow();
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
   const [search, setSearch] = useState(initialFilters.search);
+  const deferredSearch = useDeferredValue(search);
   const [cats, setCats] = useState<string[]>(initialFilters.cats);
   const [locs, setLocs] = useState<string[]>(initialFilters.locs);
+  const [sources, setSources] = useState<string[]>(initialFilters.sources);
   const [remote, setRemote] = useState<BoardFilterState["remote"]>(initialFilters.remote);
   const [minFit, setMinFit] = useState(initialFilters.minFit);
   const [payMin, setPayMin] = useState(initialFilters.payMin);
@@ -67,10 +101,31 @@ export function RolefitBoard({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [view, setView] = useState<"all" | "applied" | "rejected">("all");
 
-  // Manual-rejection state: optimistically hidden ids + the pending Undo toast.
-  const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState<{ jobId: string; priorVerdict: string | null } | null>(null);
+  // Manual-rejection state: hidden ids + the pending Undo toast. Seeded from the server's
+  // rejected jobs (prior-session rejects) so the Rejected view survives a reload; live
+  // rejects add to it and un-rejects remove from it.
+  const [rejectedIds, setRejectedIds] = useState<Set<string>>(
+    () => new Set(initialRejected.map((j) => j.id)),
+  );
+  // Ids of the server-loaded rejects (stable from the initial load). Used to resolve the
+  // un-reject's prior verdict: a server reject was an approve before the reject (the board
+  // only ever shows approves), so restore it to 'approve' rather than its stored 'deny'.
+  const serverRejectedIds = useMemo(
+    () => new Set(initialRejected.map((j) => j.id)),
+    [initialRejected],
+  );
+
+  // Optimistic correction overlay (keyed by job id) — a saved reviewer correction is
+  // applied on top of both the board row and the cached detail so the card + detail
+  // pane reflect it immediately. `revalidatePath` alone can't reach this client state.
+  const [corrections, setCorrections] = useState<Record<string, Partial<JobRow>>>({});
+  const [toast, setToast] = useState<
+    | { kind: "reject"; jobId: string; priorVerdict: string | null }
+    | { kind: "apply"; jobId: string; prior: ApplicationPackage | undefined }
+    | null
+  >(null);
   const [, startReject] = useTransition();
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -110,6 +165,14 @@ export function RolefitBoard({
   });
   const [coverError, setCoverError] = useState<Record<string, string>>({});
 
+  // Single in-flight generation lock (résumé / cover / prepare all share one slot per
+  // job). While set to a job id, that job's generate/cover/prepare buttons disable and a
+  // Cancel button shows; the AbortController backs the cancel. Per-leg prepare results
+  // land in prepareStatus so a partially-failed prepare can retry just the failed legs.
+  const [generationInFlight, setGenerationInFlight] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const [prepareStatus, setPrepareStatus] = useState<Record<string, PrepareLegStatus>>({});
+
   // Transient bottom-of-screen error notice for failed actions (mark-applied rollback,
   // non-destructive re-prepare/regenerate failures) — mirrors the reject toast styling.
   const [actionError, setActionError] = useState<string | null>(null);
@@ -117,6 +180,7 @@ export function RolefitBoard({
 
   // Refs
   const detailRef = useRef<HTMLDivElement>(null);
+  const listScrollRef = useRef<HTMLDivElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup timers on unmount
@@ -144,64 +208,164 @@ export function RolefitBoard({
   }, []);
 
   const filterState: BoardFilterState = useMemo(
-    () => ({ search, cats, locs, remote, minFit, payMin, sort }),
-    [search, cats, locs, remote, minFit, payMin, sort],
+    () => ({ search: deferredSearch, cats, locs, sources, remote, minFit, payMin, sort }),
+    [deferredSearch, cats, locs, sources, remote, minFit, payMin, sort],
   );
 
   // Persist filter changes (debounced) so they survive navigation/visits.
   // Skips the initial mount so the just-loaded initialFilters aren't re-saved.
   // Best-effort: failures are swallowed and never block filtering.
   const firstFilterSave = useRef(true);
+  const lastSavedRef = useRef<string | null>(null);
   useEffect(() => {
     if (firstFilterSave.current) {
       firstFilterSave.current = false;
       return;
     }
+    const serialized = JSON.stringify(filterState);
+    if (serialized === lastSavedRef.current) return;
     const t = setTimeout(() => {
+      lastSavedRef.current = serialized;
       void fetch("/api/board-filters", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(filterState),
+        body: serialized,
         keepalive: true,
       }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
   }, [filterState]);
 
-  const visible = useMemo(
-    () => sortJobs(applyFilters(jobs, filterState), filterState.sort)
-      .filter((j) => !rejectedIds.has(j.id)),
-    [jobs, filterState, rejectedIds],
+  // Flush filter state on page unload via sendBeacon (no timer needed)
+  useEffect(() => {
+    const handlePageHide = () => {
+      const serialized = JSON.stringify(filterState);
+      if (serialized === lastSavedRef.current) return;
+      navigator.sendBeacon("/api/board-filters", serialized);
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, [filterState]);
+
+  // Deep-linkable selection + view. Seed from the query string once on mount (read from
+  // window rather than a useState initializer so SSR and the client agree), then mirror
+  // selectedId + view back into the URL via replaceState (no navigation, no history spam).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get("view");
+    if (v === "applied" || v === "rejected") setView(v);
+    const job = params.get("job");
+    if (job) setSelectedId(job);
+  }, []);
+  const firstUrlMirror = useRef(true);
+  useEffect(() => {
+    // Skip the mount pass so it can't erase deep-linked params before the seed applies;
+    // the seed's state change re-runs this with the resolved selection/view.
+    if (firstUrlMirror.current) {
+      firstUrlMirror.current = false;
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (selectedId) params.set("job", selectedId);
+    else params.delete("job");
+    if (view !== "all") params.set("view", view);
+    else params.delete("view");
+    const qs = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash,
+    );
+  }, [selectedId, view]);
+
+  const appliedSet = useMemo(
+    () => new Set(jobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
+    [jobs, packages],
   );
 
-  // Resolve selected job
+  // Facet counts scan every job; memoize on `jobs` so they aren't recomputed on every
+  // keystroke/render (FilterBar used to recompute them internally each render).
+  const facets = useMemo(() => facetCounts(jobs), [jobs]);
+
+  // The Rejected view draws from the approve list plus the server rejects (the latter
+  // aren't in `jobs`); every other view draws from `jobs` alone so server rejects can't
+  // leak into "all"/"applied".
+  const rejectedPool = useMemo(
+    () => mergeRejectedPool(jobs, initialRejected),
+    [jobs, initialRejected],
+  );
+
+  const visible = useMemo(
+    () => filterByView(
+      sortJobs(applyFilters(view === "rejected" ? rejectedPool : jobs, filterState), filterState.sort),
+      view,
+      rejectedIds,
+      appliedSet,
+    ),
+    [jobs, rejectedPool, filterState, rejectedIds, appliedSet, view],
+  );
+
+  // Display-only overlay of `corrections` on top of the filtered/sorted/bucketed
+  // `visible` rows — a corrected job keeps its current position until reload (same
+  // tradeoff as rejectedIds); this only refreshes what the card renders.
+  const visibleWithCorrections = useMemo(
+    () => visible.map((j) => (corrections[j.id] ? { ...j, ...corrections[j.id] } : j)),
+    [visible, corrections],
+  );
+
+  // Resolve selected job from the rejected pool (a superset of `jobs`) so opening a
+  // server-sourced rejected job — which isn't in the approve list — still renders its
+  // detail pane, and with it the un-reject action.
   const selectedJob = useMemo(
-    () => jobs.find((j) => j.id === selectedId) ?? null,
-    [jobs, selectedId],
+    () => rejectedPool.find((j) => j.id === selectedId) ?? null,
+    [rejectedPool, selectedId],
   );
 
   // Heavy, detail-only review fields (reasoning/about/requirements/benefits/
   // red_flags) are not in the list payload — fetch them on job-open and cache by
   // id. JobDetail renders them as they arrive (its sections are already guarded
   // for absent fields), so the lightweight detail view shows instantly.
-  const [details, setDetails] = useState<Record<string, JobReviewDetail>>({});
-  useEffect(() => {
-    if (!selectedId || details[selectedId]) return;
-    let cancelled = false;
-    void fetch(`/api/jobs/${selectedId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: JobReviewDetail | null) => {
-        if (!cancelled && d) setDetails((prev) => ({ ...prev, [selectedId]: d }));
+  const [details, setDetails] = useState<Record<string, DetailState>>({});
+  // Ids with an in-flight /api/jobs/[id] request. This — not the effect's cleanup — is
+  // how we dedup: the previous version put `details` in the effect deps AND set the
+  // loading state inside it, so writing "loading" re-ran the effect, whose cleanup set
+  // `cancelled=true` and dropped the still-in-flight result (detail stuck on the skeleton
+  // forever). The ref lets the effect depend on `selectedId` alone.
+  const detailInFlightRef = useRef<Set<string>>(new Set());
+  const loadDetail = useCallback((id: string) => {
+    if (detailInFlightRef.current.has(id)) return;
+    detailInFlightRef.current.add(id);
+    setDetails((prev) => ({ ...prev, [id]: { status: "loading" } }));
+    fetch(`/api/jobs/${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: JobReviewDetail) => {
+        setDetails((prev) => ({ ...prev, [id]: { status: "done", detail: d } }));
       })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [selectedId, details]);
+      .catch((e) => {
+        console.error("job detail fetch failed", e);
+        setDetails((prev) => ({ ...prev, [id]: { status: "error" } }));
+      })
+      .finally(() => {
+        detailInFlightRef.current.delete(id);
+      });
+  }, []);
+  useEffect(() => {
+    // Fetch on open. `details` is read for the cache check but deliberately NOT a dep —
+    // see detailInFlightRef above. Retry refetches by clearing the cache entry + ref and
+    // calling loadDetail directly (removing `details` from deps means a cache-clear alone
+    // no longer re-runs this effect).
+    if (!selectedId || details[selectedId] != null || detailInFlightRef.current.has(selectedId)) return;
+    loadDetail(selectedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, loadDetail]);
 
   const selectedJobWithDetail = useMemo(() => {
     if (!selectedJob) return null;
-    const d = details[selectedJob.id];
-    return d ? { ...selectedJob, ...d } : selectedJob;
-  }, [selectedJob, details]);
+    const ds = details[selectedJob.id];
+    const d = ds?.status === "done" ? ds.detail : {};
+    const c = corrections[selectedJob.id];
+    return { ...selectedJob, ...(d ?? {}), ...(c ?? {}) };
+  }, [selectedJob, details, corrections]);
 
   // Handlers
   const toggleCat = (cat: string) =>
@@ -212,6 +376,10 @@ export function RolefitBoard({
     setLocs((prev) =>
       prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc],
     );
+  const toggleSource = (ats: string) =>
+    setSources((prev) =>
+      prev.includes(ats) ? prev.filter((s) => s !== ats) : [...prev, ats],
+    );
   const toggleMenu = (name: string) =>
     setOpenMenu((prev) => (prev === name ? null : name));
 
@@ -219,6 +387,7 @@ export function RolefitBoard({
     setSearch("");
     setCats([]);
     setLocs([]);
+    setSources([]);
     setRemote("all");
     setMinFit(0);
     setPayMin(0);
@@ -238,101 +407,214 @@ export function RolefitBoard({
     setOpenMenu(null);
   };
 
-  const handleSelect = (id: string) => {
+  const handleSelect = useCallback((id: string) => {
     setSelectedId(id);
     if (detailRef.current) detailRef.current.scrollTop = 0;
-  };
+  }, []);
 
-  const handleReject = useCallback((job: JobRow) => {
+  const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;
     setRejectedIds((prev) => new Set(prev).add(job.id));
     setSelectedId((prev) => (prev === job.id ? null : prev));
-    startReject(() => { void rejectJob(job.id); });
-    setToast({ jobId: job.id, priorVerdict });
+    setToast({ kind: "reject", jobId: job.id, priorVerdict });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 5000);
-  }, [rejectJob]);
+    try {
+      await rejectJob(job.id);
+    } catch {
+      setRejectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(job.id);
+        return next;
+      });
+      setToast(null);
+      showActionError("Couldn't save rejection — try again.");
+    }
+  }, [rejectJob, showActionError]);
 
   const handleUndo = useCallback(() => {
     if (!toast) return;
-    const { jobId, priorVerdict } = toast;
-    setRejectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(jobId);
-      return next;
-    });
-    startReject(() => { void unrejectJob(jobId, priorVerdict); });
+    if (toast.kind === "reject") {
+      const { jobId, priorVerdict } = toast;
+      setRejectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+      startReject(() => {
+        void unrejectJob(jobId, priorVerdict).catch(() => {
+          // Server still has the rejection — re-hide the card and say so.
+          setRejectedIds((prev) => new Set(prev).add(jobId));
+          showActionError("Couldn’t undo the rejection. Please try again.");
+        });
+      });
+    } else {
+      const { jobId, prior } = toast;
+      setPackages((p) => {
+        const next = { ...p };
+        if (prior) next[jobId] = prior;
+        else delete next[jobId];
+        return next;
+      });
+      startApply(() => {
+        void unmarkApplied(jobId).catch(() => {
+          showActionError("Couldn’t undo. Please try again.");
+        });
+      });
+    }
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(null);
-  }, [toast, unrejectJob]);
+  }, [toast, unrejectJob, unmarkApplied, showActionError]);
 
-  // Résumé generation
+  // Un-reject from the card/detail (the Rejected view) after the Undo toast has expired.
+  // Optimistically un-hides the job, then persists via unrejectJob; rolls back on failure.
+  const handleUnreject = useCallback((job: JobRow) => {
+    // A server-sourced reject carries its stored verdict='deny'; restore it to 'approve'
+    // (its state before the reject — the board only ever surfaces approves). An in-session
+    // reject's row is still the loaded approve, so its own verdict is the right restore.
+    const priorVerdict = serverRejectedIds.has(job.id) ? "approve" : job.verdict;
+    setRejectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(job.id);
+      return next;
+    });
+    startReject(() => {
+      void unrejectJob(job.id, priorVerdict).catch(() => {
+        setRejectedIds((prev) => new Set(prev).add(job.id));
+        showActionError("Couldn’t un-reject — try again.");
+      });
+    });
+  }, [unrejectJob, showActionError, serverRejectedIds]);
+
+  // Optimistically apply a saved reviewer correction to the board card + detail pane —
+  // formToCorrection(form) already returns snake_case JobRow field names, so spreading
+  // it plus note/corrected yields a valid Partial<JobRow>.
+  const handleCorrected = useCallback((jobId: string, form: CorrectionForm) => {
+    const row = formToCorrection(form);
+    setCorrections((prev) => ({
+      ...prev,
+      [jobId]: { ...row, note: form.note, corrected: true },
+    }));
+  }, []);
+
+  // Retry a failed detail fetch: clear the cache entry + in-flight guard, then refetch
+  // directly (the effect no longer depends on `details`, so clearing it won't re-run it).
+  const handleRetryDetail = useCallback(() => {
+    if (!selectedId) return;
+    const id = selectedId;
+    detailInFlightRef.current.delete(id);
+    setDetails((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    loadDetail(id);
+  }, [selectedId, loadDetail]);
+
+  // Begin a generation: claim the single lock + a fresh AbortController. Returns the
+  // controller (or null if a generation for this job is already running — the buttons
+  // are disabled in that case, so this is just a guard).
+  const beginGeneration = useCallback((jobId: string): AbortController | null => {
+    if (generationInFlight === jobId) return null;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setGenerationInFlight(jobId);
+    return controller;
+  }, [generationInFlight]);
+
+  // Release the lock only if this controller still owns it (a newer generation may have
+  // replaced it).
+  const endGeneration = useCallback((controller: AbortController) => {
+    if (abortRef.current === controller) {
+      abortRef.current = null;
+      setGenerationInFlight(null);
+    }
+  }, []);
+
+  const handleCancelGeneration = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setGenerationInFlight(null);
+  }, []);
+
+  // Résumé generation. D7 contract: /api/resume persists server-side and returns the full
+  // { package }. Standalone Generate always persists now (no client persist call, no
+  // "only if a package exists" gate — the server creates/updates the row).
   const handleGenerate = useCallback(async (job: JobRow) => {
+    const controller = beginGeneration(job.id);
+    if (!controller) return;
+    const hadResume = Boolean(genData[job.id]);
     setGen((g) => ({ ...g, [job.id]: "busy" }));
     try {
       const res = await fetch("/api/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "failed");
       }
-      const data = (await res.json()) as TailoredResume;
-      setGenData((d) => ({ ...d, [job.id]: data }));
+      const { package: pkg } = (await res.json()) as { package: ApplicationPackage };
+      setPackages((p) => ({ ...p, [job.id]: pkg }));
+      if (pkg.resume) setGenData((d) => ({ ...d, [job.id]: pkg.resume as TailoredResume }));
       setGen((g) => ({ ...g, [job.id]: "done" }));
-      // If a package already exists, regenerating must persist the new résumé back into
-      // it — otherwise the stale saved version reseeds on reload and the work is lost.
-      if (packages[job.id]) {
-        setPackages((p) => (p[job.id] ? { ...p, [job.id]: { ...p[job.id], resume: data } } : p));
-        startApply(() => {
-          void persistResume(job.id, data).catch(() =>
-            showActionError("Couldn’t save the regenerated résumé. Re-prepare to retry."),
-          );
-        });
-      }
+      // A successful standalone résumé clears a prior prepare's failed résumé leg.
+      setPrepareStatus((s) => (s[job.id] ? { ...s, [job.id]: { ...s[job.id], resume: "ok" } } : s));
     } catch (e) {
-      setGen((g) => ({ ...g, [job.id]: "error" }));
-      setGenError((m) => ({ ...m, [job.id]: (e as Error).message }));
+      if (isAbort(e)) {
+        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "idle" }));
+      } else {
+        setGen((g) => ({ ...g, [job.id]: "error" }));
+        setGenError((m) => ({ ...m, [job.id]: (e as Error).message }));
+      }
+    } finally {
+      endGeneration(controller);
     }
-  }, [packages, persistResume, showActionError]);
+  }, [beginGeneration, endGeneration, genData]);
 
-  // Cover-letter generation — mirrors handleGenerate against /api/cover-letter
+  // Cover-letter generation — mirrors handleGenerate against /api/cover-letter (D7).
   const handleGenerateCover = useCallback(async (job: JobRow) => {
+    const controller = beginGeneration(job.id);
+    if (!controller) return;
+    const hadCover = Boolean(coverData[job.id]);
     setCoverGen((g) => ({ ...g, [job.id]: "busy" }));
     try {
       const res = await fetch("/api/cover-letter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "failed");
       }
-      const data = (await res.json()) as TailoredCoverLetter;
-      setCoverData((d) => ({ ...d, [job.id]: data }));
+      const { package: pkg } = (await res.json()) as { package: ApplicationPackage };
+      setPackages((p) => ({ ...p, [job.id]: pkg }));
+      if (pkg.coverLetter) setCoverData((d) => ({ ...d, [job.id]: pkg.coverLetter as TailoredCoverLetter }));
       setCoverGen((g) => ({ ...g, [job.id]: "done" }));
-      // Persist the regenerated cover letter into an existing package (see handleGenerate).
-      if (packages[job.id]) {
-        setPackages((p) => (p[job.id] ? { ...p, [job.id]: { ...p[job.id], coverLetter: data } } : p));
-        startApply(() => {
-          void persistCover(job.id, data).catch(() =>
-            showActionError("Couldn’t save the regenerated cover letter. Re-prepare to retry."),
-          );
-        });
-      }
+      setPrepareStatus((s) => (s[job.id] ? { ...s, [job.id]: { ...s[job.id], coverLetter: "ok" } } : s));
     } catch (e) {
-      setCoverGen((g) => ({ ...g, [job.id]: "error" }));
-      setCoverError((m) => ({ ...m, [job.id]: (e as Error).message }));
+      if (isAbort(e)) {
+        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "idle" }));
+      } else {
+        setCoverGen((g) => ({ ...g, [job.id]: "error" }));
+        setCoverError((m) => ({ ...m, [job.id]: (e as Error).message }));
+      }
+    } finally {
+      endGeneration(controller);
     }
-  }, [packages, persistCover, showActionError]);
+  }, [beginGeneration, endGeneration, coverData]);
 
-  // "Prepare application" — build + PERSIST the package in one call (résumé + cover
-  // letter + answers snapshot, plus Greenhouse Q/A when available). The résumé and
-  // cover-letter panels reflect progress via their existing busy/done/error states.
+  // "Prepare application" — build + PERSIST the package in one call. D7 returns
+  // { package, status } where status reports each leg (resume / coverLetter / answers)
+  // independently, so a partial failure keeps what succeeded and offers a per-leg retry.
   const handlePrepare = useCallback(async (job: JobRow) => {
+    const controller = beginGeneration(job.id);
+    if (!controller) return;
     // Snapshot whether we already have successful content to fall back to, so a failed
     // re-prepare doesn't blank out the still-valid résumé/cover the user can see.
     const hadResume = Boolean(genData[job.id]);
@@ -344,62 +626,118 @@ export function RolefitBoard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "failed");
       }
-      const pkg = (await res.json()) as ApplicationPackage;
+      const { package: pkg, status } = (await res.json()) as {
+        package: ApplicationPackage;
+        status: PrepareLegStatus;
+      };
       setPackages((p) => ({ ...p, [job.id]: pkg }));
-      const resume = pkg.resume;
-      if (resume) {
-        setGenData((d) => ({ ...d, [job.id]: resume }));
+      setPrepareStatus((s) => ({ ...s, [job.id]: status }));
+      // Résumé leg
+      if (status.resume === "ok" && pkg.resume) {
+        setGenData((d) => ({ ...d, [job.id]: pkg.resume as TailoredResume }));
         setGen((g) => ({ ...g, [job.id]: "done" }));
       } else {
-        setGen((g) => ({ ...g, [job.id]: "idle" }));
+        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
+        if (!hadResume) setGenError((m) => ({ ...m, [job.id]: "Couldn’t generate the résumé." }));
       }
-      const cover = pkg.coverLetter;
-      if (cover) {
-        setCoverData((d) => ({ ...d, [job.id]: cover }));
+      // Cover-letter leg
+      if (status.coverLetter === "ok" && pkg.coverLetter) {
+        setCoverData((d) => ({ ...d, [job.id]: pkg.coverLetter as TailoredCoverLetter }));
         setCoverGen((g) => ({ ...g, [job.id]: "done" }));
       } else {
-        setCoverGen((g) => ({ ...g, [job.id]: "idle" }));
+        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
+        if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: "Couldn’t generate the cover letter." }));
       }
     } catch (e) {
-      const msg = (e as Error).message;
-      // Only fall to the full "error" state when there was nothing to preserve. When
-      // prior content exists, keep it visible (state stays "done") and surface the
-      // failure non-destructively via the toast instead of blanking the panels.
-      setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
-      setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
-      if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
-      if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
-      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+      if (isAbort(e)) {
+        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "idle" }));
+        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "idle" }));
+      } else {
+        const msg = (e as Error).message;
+        // Only fall to the full "error" state when there was nothing to preserve. When
+        // prior content exists, keep it visible (state stays "done") and surface the
+        // failure non-destructively via the toast instead of blanking the panels.
+        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
+        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
+        if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
+        if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
+        if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+      }
+    } finally {
+      endGeneration(controller);
     }
-  }, [genData, coverData, showActionError]);
+  }, [beginGeneration, endGeneration, genData, coverData, showActionError]);
 
-  // "Mark as applied" — optimistic flip + persist (status='applied', applied_at set).
+  // "Mark as applied" — works with OR without a prepared package. Optimistically
+  // flips/creates the package to status='applied' (hiding the job from the default
+  // board via appliedSet), shows an Undo toast (mirrors reject), and persists via the
+  // upsert action. On failure, roll the optimistic change back and surface an error.
   const handleMarkApplied = useCallback((job: JobRow) => {
     const prior = packages[job.id];
-    if (!prior) return;
-    setPackages((p) => ({
-      ...p,
-      [job.id]: {
-        ...prior,
-        status: "applied",
-        appliedAt: prior.appliedAt ?? new Date().toISOString(),
-      },
-    }));
-    // Await the action: if the server rejects (auth/network) the DB stays "prepared",
-    // so roll the optimistic flip back and tell the user instead of showing a false
-    // "Applied".
+    const appliedAt = new Date().toISOString();
+    const optimistic: ApplicationPackage = prior
+      ? { ...prior, status: "applied", appliedAt: prior.appliedAt ?? appliedAt }
+      : {
+          jobId: job.id,
+          status: "applied",
+          resume: null,
+          coverLetter: null,
+          answersSnapshot: null,
+          greenhouseQuestions: null,
+          prefilledAnswers: null,
+          applyUrl: null,
+          preparedAt: appliedAt,
+          appliedAt,
+        };
+    setPackages((p) => ({ ...p, [job.id]: optimistic }));
+    setSelectedId((prev) => (prev === job.id ? null : prev));
     startApply(() => {
       void markApplied(job.id).catch(() => {
-        setPackages((p) => ({ ...p, [job.id]: prior }));
+        setPackages((p) => {
+          const next = { ...p };
+          if (prior) next[job.id] = prior;
+          else delete next[job.id];
+          return next;
+        });
+        // Clear the optimistic "Applied" Undo toast for this job — the mark didn't
+        // persist, so its Undo would fire unmarkApplied on a never-applied job. Leave
+        // any other job's toast intact. The error banner below is the only signal.
+        setToast((t) => (t?.kind === "apply" && t.jobId === job.id ? null : t));
         showActionError("Couldn’t mark as applied. Please try again.");
       });
     });
+    setToast({ kind: "apply", jobId: job.id, prior });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 5000);
   }, [packages, markApplied, showActionError]);
+
+  // Un-mark applied from the Applied view (no toast — immediate). Deletes a bare
+  // marker; reverts a real prepared package to status='prepared'. Rolls back on error.
+  const handleUnapply = useCallback((job: JobRow) => {
+    const prior = packages[job.id];
+    const hasContent = Boolean(
+      prior && (prior.resume || prior.coverLetter || prior.answersSnapshot
+        || prior.greenhouseQuestions || prior.prefilledAnswers),
+    );
+    setPackages((p) => {
+      const next = { ...p };
+      if (prior && hasContent) next[job.id] = { ...prior, status: "prepared", appliedAt: null };
+      else delete next[job.id];
+      return next;
+    });
+    startApply(() => {
+      void unmarkApplied(job.id).catch(() => {
+        if (prior) setPackages((p) => ({ ...p, [job.id]: prior }));
+        showActionError("Couldn’t undo. Please try again.");
+      });
+    });
+  }, [packages, unmarkApplied, showActionError]);
 
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
@@ -423,12 +761,12 @@ export function RolefitBoard({
   return (
     <div
       style={{
-        height: "100vh",
+        height: isNarrow ? undefined : "100vh",
         display: "flex",
         flexDirection: "column",
         background: "#f4f6fa",
         color: "#1f2430",
-        overflow: "hidden",
+        overflow: isNarrow ? undefined : "hidden",
       }}
     >
       <Header
@@ -447,17 +785,24 @@ export function RolefitBoard({
       />
       <FilterBar
         jobs={jobs}
+        facets={facets}
         cats={cats}
         locs={locs}
+        sources={sources}
         remote={remote}
         minFit={minFit}
         payMin={payMin}
         sort={sort}
         openMenu={openMenu}
         visibleCount={visible.length}
+        view={view}
+        appliedCount={appliedSet.size}
+        rejectedCount={rejectedIds.size}
+        onToggleView={setView}
         onToggleMenu={toggleMenu}
         onToggleCat={toggleCat}
         onToggleLoc={toggleLoc}
+        onToggleSource={toggleSource}
         onSetRemote={setRemote}
         onSetMinFit={handleSetMinFit}
         onSetPayMin={handleSetPayMin}
@@ -465,74 +810,116 @@ export function RolefitBoard({
       />
 
       {/* Split pane — left: job list; right: detail */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+      <div style={{ flex: 1, display: "flex", minHeight: isNarrow ? undefined : 0 }}>
         {/* List pane */}
-        <div
-          className="rf-scroll"
-          style={{
-            flex: "0 0 426px",
-            overflowY: "auto",
-            background: "#f4f6fa",
-            borderRight: "1px solid #e7eaf0",
-            padding: "13px 2px 24px",
-          }}
-        >
-          <JobList
-            jobs={visible}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-            onClearFilters={clearFilters}
-          />
-        </div>
+        {(!isNarrow || !selectedId) && (
+          <div
+            ref={listScrollRef}
+            className={isNarrow ? undefined : "rf-scroll"}
+            style={{
+              flex: isNarrow ? undefined : "0 0 426px",
+              width: isNarrow ? "100%" : undefined,
+              overflowY: isNarrow ? undefined : "auto",
+              background: "#f4f6fa",
+              borderRight: isNarrow ? "none" : "1px solid #e7eaf0",
+              padding: "13px 2px 24px",
+            }}
+          >
+            <JobList
+              jobs={visibleWithCorrections}
+              selectedId={selectedId}
+              onSelect={handleSelect}
+              onClearFilters={clearFilters}
+              view={view}
+              onBackToAll={() => setView("all")}
+              scrollParentRef={isNarrow ? undefined : listScrollRef}
+            />
+          </div>
+        )}
 
         {/* Detail pane */}
-        <div
-          ref={detailRef}
-          className="rf-scroll"
-          style={{ flex: 1, overflowY: "auto", background: "#fff", minWidth: 0 }}
-        >
-          {selectedJobWithDetail ? (
-            <JobDetail
-              key={selectedJobWithDetail.id}
-              job={selectedJobWithDetail}
-              nowIso={nowIso}
-              isAuthed={isAuthed}
-              answers={applicationAnswers}
-              gen={gen}
-              genData={genData}
-              genError={genError}
-              onGenerate={handleGenerate}
-              onCopy={handleCopy}
-              copiedId={copiedId}
-              coverGen={coverGen}
-              coverData={coverData}
-              coverError={coverError}
-              onGenerateCover={handleGenerateCover}
-              onPrepare={handlePrepare}
-              pkg={packages[selectedJobWithDetail.id]}
-              onMarkApplied={handleMarkApplied}
-              onOpenProfile={() => setProfileOpen(true)}
-              onReject={handleReject}
-            />
-          ) : (
-            <div
-              style={{
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#8a93a3",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              Select a role
-            </div>
-          )}
-        </div>
+        {(!isNarrow || selectedId) && (
+          <div
+            ref={detailRef}
+            className={isNarrow ? undefined : "rf-scroll"}
+            style={{ flex: 1, overflowY: isNarrow ? undefined : "auto", background: "#fff", minWidth: 0 }}
+          >
+            {selectedJobWithDetail ? (
+              <>
+                {isNarrow && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(null)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "7px",
+                      margin: "16px 16px 0",
+                      fontWeight: 700,
+                      fontSize: "13px",
+                      color: "#3b6fd4",
+                      background: "#eef3fc",
+                      border: "1px solid #d8e2f6",
+                      borderRadius: "9px",
+                      padding: "8px 14px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ← Back
+                  </button>
+                )}
+                <JobDetail
+                  key={selectedJobWithDetail.id}
+                  job={selectedJobWithDetail}
+                  nowIso={nowIso}
+                  isAuthed={isAuthed}
+                  answers={applicationAnswers}
+                  gen={gen}
+                  genData={genData}
+                  genError={genError}
+                  onGenerate={handleGenerate}
+                  onCopy={handleCopy}
+                  copiedId={copiedId}
+                  coverGen={coverGen}
+                  coverData={coverData}
+                  coverError={coverError}
+                  onGenerateCover={handleGenerateCover}
+                  onPrepare={handlePrepare}
+                  generating={generationInFlight === selectedJobWithDetail.id}
+                  onCancelGeneration={handleCancelGeneration}
+                  prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
+                  pkg={packages[selectedJobWithDetail.id]}
+                  onMarkApplied={handleMarkApplied}
+                  onOpenProfile={() => setProfileOpen(true)}
+                  onReject={handleReject}
+                  onUnapply={handleUnapply}
+                  isRejected={rejectedIds.has(selectedJobWithDetail.id)}
+                  onUnreject={handleUnreject}
+                  onCorrected={handleCorrected}
+                  detailState={details[selectedJobWithDetail.id]}
+                  onRetryDetail={handleRetryDetail}
+                />
+              </>
+            ) : (
+              <div
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#6b7480",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                }}
+              >
+                Select a role
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {toast && (
+      {(toast || actionError) && (
         <div
           style={{
             position: "fixed",
@@ -540,73 +927,81 @@ export function RolefitBoard({
             left: "50%",
             transform: "translateX(-50%)",
             display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            background: "#1b2330",
-            color: "#fff",
-            borderRadius: "12px",
-            padding: "11px 18px",
-            boxShadow: "0 8px 22px rgba(20,28,40,.22)",
-            fontSize: "13.5px",
-            fontWeight: 600,
+            flexDirection: "column",
+            gap: "8px",
             zIndex: 50,
+            alignItems: "center",
           }}
         >
-          <span>Rejected</span>
-          <button
-            type="button"
-            onClick={handleUndo}
-            style={{
-              fontWeight: 800,
-              fontSize: "13px",
-              color: "#9ec1ff",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            Undo
-          </button>
-        </div>
-      )}
-      {actionError && (
-        <div
-          role="alert"
-          style={{
-            position: "fixed",
-            bottom: "24px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            background: "#7a2e22",
-            color: "#fff",
-            borderRadius: "12px",
-            padding: "11px 18px",
-            boxShadow: "0 8px 22px rgba(20,28,40,.22)",
-            fontSize: "13.5px",
-            fontWeight: 600,
-            zIndex: 50,
-          }}
-        >
-          <span>{actionError}</span>
-          <button
-            type="button"
-            onClick={() => setActionError(null)}
-            style={{
-              fontWeight: 800,
-              fontSize: "13px",
-              color: "#ffd2c8",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            Dismiss
-          </button>
+          {toast && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "16px",
+                background: "#1b2330",
+                color: "#fff",
+                borderRadius: "12px",
+                padding: "11px 18px",
+                boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+                fontSize: "13.5px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span>{toast.kind === "apply" ? "Applied" : "Rejected"}</span>
+              <button
+                type="button"
+                onClick={handleUndo}
+                style={{
+                  fontWeight: 800,
+                  fontSize: "13px",
+                  color: "#9ec1ff",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Undo
+              </button>
+            </div>
+          )}
+          {actionError && (
+            <div
+              role="alert"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "16px",
+                background: "#7a2e22",
+                color: "#fff",
+                borderRadius: "12px",
+                padding: "11px 18px",
+                boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+                fontSize: "13.5px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span>{actionError}</span>
+              <button
+                type="button"
+                onClick={() => setActionError(null)}
+                style={{
+                  fontWeight: 800,
+                  fontSize: "13px",
+                  color: "#ffd2c8",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         </div>
       )}
       <ProfileModal

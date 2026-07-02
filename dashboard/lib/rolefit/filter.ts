@@ -4,6 +4,7 @@ export interface BoardFilterState {
   search: string;
   cats: string[];
   locs: string[];
+  sources: string[];
   remote: "all" | "remote" | "hybrid" | "onsite";
   minFit: number;
   payMin: number; // in $k
@@ -14,6 +15,7 @@ export const DEFAULT_FILTERS: BoardFilterState = {
   search: "",
   cats: [],
   locs: [],
+  sources: [],
   remote: "all",
   minFit: 0,
   payMin: 0,
@@ -35,6 +37,7 @@ export function applyFilters(jobs: JobRow[], st: BoardFilterState): JobRow[] {
     }
     if (st.cats.length && !(j.role_category && st.cats.includes(j.role_category))) return false;
     if (st.locs.length && !(j.location && st.locs.includes(j.location))) return false;
+    if (st.sources.length && !st.sources.includes(j.ats)) return false;
     if (st.remote !== "all" && arrangementOf(j) !== st.remote) return false;
     if (st.minFit && (j.fit_score ?? 0) < st.minFit) return false;
     if (st.payMin) {
@@ -59,12 +62,54 @@ export function sortJobs(jobs: JobRow[], sort: BoardFilterState["sort"]): JobRow
 export function facetCounts(jobs: JobRow[]): {
   categories: Record<string, number>;
   locations: Record<string, number>;
+  sources: Record<string, number>;
 } {
   const categories: Record<string, number> = {};
   const locations: Record<string, number> = {};
+  const sources: Record<string, number> = {};
   for (const j of jobs) {
     if (j.role_category) categories[j.role_category] = (categories[j.role_category] ?? 0) + 1;
     if (j.location) locations[j.location] = (locations[j.location] ?? 0) + 1;
+    if (j.ats) sources[j.ats] = (sources[j.ats] ?? 0) + 1;
   }
-  return { categories, locations };
+  return { categories, locations, sources };
+}
+
+// Partition the board by application status. `applied` holds the ids of jobs the
+// viewer has marked applied. The default board hides them (like a reject); the
+// Applied view shows only them. Applied state lives in the loaded packages (client
+// side), mirroring the rejectedIds hide in RolefitBoard — not the SQL query.
+export function filterByApplied(
+  jobs: JobRow[],
+  applied: ReadonlySet<string>,
+  appliedView: boolean,
+): JobRow[] {
+  return jobs.filter((j) => (appliedView ? applied.has(j.id) : !applied.has(j.id)));
+}
+
+// The Rejected view's candidate pool: the approve-loaded board rows PLUS the operator's
+// server-loaded rejects (verdict='deny' + human_override), deduped by id (the board row
+// wins on a collision). The server rejects aren't in the approve list, so folding them
+// in is what makes a mis-clicked reject recoverable across reloads, not just in-session.
+// A no-op (returns `jobs` as-is) when there are no server rejects — the common case.
+export function mergeRejectedPool(jobs: JobRow[], serverRejected: JobRow[]): JobRow[] {
+  if (!serverRejected.length) return jobs;
+  const byId = new Map(jobs.map((j) => [j.id, j]));
+  for (const j of serverRejected) if (!byId.has(j.id)) byId.set(j.id, j);
+  return [...byId.values()];
+}
+
+// Three-way view partition: "all" hides both rejected and applied; "applied" shows only
+// applied; "rejected" shows only rejected — seeded from the server rejects union the
+// in-session rejects (see RolefitBoard), so both a reload and a live reject show up.
+export function filterByView(
+  jobs: JobRow[],
+  view: "all" | "applied" | "rejected",
+  rejectedIds: ReadonlySet<string>,
+  appliedIds: ReadonlySet<string>,
+): JobRow[] {
+  if (view === "rejected") return jobs.filter((j) => rejectedIds.has(j.id));
+  if (view === "applied") return jobs.filter((j) => appliedIds.has(j.id));
+  // "all" — hide both rejected and applied
+  return jobs.filter((j) => !rejectedIds.has(j.id) && !appliedIds.has(j.id));
 }

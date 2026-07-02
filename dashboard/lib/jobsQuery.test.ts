@@ -28,7 +28,9 @@ describe("buildJobsQuery", () => {
   });
 
   test("default verdict=approve filters on r.verdict", () => {
-    expect(buildJobsQuery(base, UID).text).toContain("r.verdict = 'approve'");
+    expect(buildJobsQuery(base, UID).text).toContain(
+      "COALESCE(rc.verdict, r.verdict) = 'approve'",
+    );
   });
 
   test("verdict=gate_rejected / pending / all", () => {
@@ -52,9 +54,9 @@ describe("buildJobsQuery", () => {
       { ...base, experience: "reach", industry: "software_internet", subcategory: "gaming" },
       UID,
     );
-    expect(q.text).toContain("r.experience_match = $2");
-    expect(q.text).toContain("r.industry = $3");
-    expect(q.text).toContain("r.industry_subcategory = $4");
+    expect(q.text).toContain("COALESCE(rc.experience_match, r.experience_match) = $2");
+    expect(q.text).toContain("COALESCE(rc.industry, r.industry) = $3");
+    expect(q.text).toContain("COALESCE(rc.industry_subcategory, r.industry_subcategory) = $4");
     expect(q.values).toEqual([UID, "reach", "software_internet", "gaming"]);
   });
 
@@ -73,6 +75,18 @@ describe("buildJobsQuery", () => {
     expect(buildJobsQuery({ ...base, verdict: "all" }, UID).text).toContain("r.error IS NULL");
   });
 
+  test("humanOverrideOnly restricts deny to operator rejects (Rejected view)", () => {
+    const q = buildJobsQuery({ ...base, verdict: "deny" }, UID, [], { humanOverrideOnly: true });
+    expect(q.text).toContain("COALESCE(rc.verdict, r.verdict) = 'deny'");
+    expect(q.text).toContain("r.human_override IS TRUE");
+  });
+
+  test("no human_override WHERE clause without the opt", () => {
+    // r.human_override is still SELECTed as a column, but must not appear as a filter.
+    expect(buildJobsQuery({ ...base, verdict: "deny" }, UID).text)
+      .not.toContain("r.human_override IS TRUE");
+  });
+
   test("verdict=pending + experience skips dimension filter but retains pending clause", () => {
     const q = buildJobsQuery({ ...base, verdict: "pending", experience: "reach" }, UID);
     expect(q.text).not.toContain("r.experience_match =");
@@ -81,7 +95,7 @@ describe("buildJobsQuery", () => {
 
   test("verdict=approve + experience applies dimension filter", () => {
     const q = buildJobsQuery({ ...base, verdict: "approve", experience: "reach" }, UID);
-    expect(q.text).toContain("r.experience_match = $2");
+    expect(q.text).toContain("COALESCE(rc.experience_match, r.experience_match) = $2");
   });
 
   test("null owner: no review join, columns, error clause, or user binding", () => {
@@ -142,9 +156,14 @@ describe("buildJobsQuery", () => {
     const t = buildJobsQuery(base, UID).text;
     for (const col of ["r.reasoning", "r.requirements", "r.about", "r.benefits",
       "r.red_flags", "r.stage1_reason", "r.stage1_decision", "r.confidence",
-      "r.experience_match", "r.industry", "r.industry_subcategory", "j.url", "c.ats"]) {
+      "r.experience_match", "r.industry", "r.industry_subcategory", "j.url"]) {
       expect(t).not.toContain(col);
     }
+  });
+
+  test("selects c.ats for the Source facet — with and without an owner", () => {
+    expect(buildJobsQuery(base, UID).text).toContain("c.ats");
+    expect(buildJobsQuery(base, null).text).toContain("c.ats");
   });
 
   test("rolefit columns absent without an owner", () => {
@@ -159,5 +178,21 @@ describe("buildJobsQuery", () => {
 
   test("human_override absent without an owner", () => {
     expect(buildJobsQuery(base, null).text).not.toContain("r.human_override");
+  });
+
+  test("coalesces corrections over the model review when an owner is present", () => {
+    const q = buildJobsQuery(base, UID);
+    expect(q.text).toContain(
+      "LEFT JOIN review_corrections rc ON rc.job_id = j.id AND rc.user_id = $1::uuid",
+    );
+    expect(q.text).toContain("COALESCE(rc.verdict, r.verdict) AS verdict");
+    expect(q.text).toContain("COALESCE(rc.fit_score, r.fit_score) AS fit_score");
+    // the verdict filter uses the coalesced value so filtering matches display
+    expect(q.text).toContain("COALESCE(rc.verdict, r.verdict) = 'approve'");
+  });
+
+  test("no corrections join without an owner", () => {
+    const q = buildJobsQuery(base, null);
+    expect(q.text).not.toContain("review_corrections");
   });
 });

@@ -5,6 +5,10 @@ import { isPublicPath } from "@/lib/paths";
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
 
+  // Fast-path: no auth cookie + public path → skip session work entirely.
+  const hasAuthCookie = request.cookies.getAll().some(c => c.name.startsWith("sb-"));
+  if (!hasAuthCookie && isPublicPath(request.nextUrl.pathname)) return NextResponse.next();
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

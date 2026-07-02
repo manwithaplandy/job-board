@@ -16,7 +16,7 @@ const TITLE: React.CSSProperties = {
   fontSize: "13.5px", fontWeight: 800, color: "#161d29", marginBottom: "12px", letterSpacing: "-.2px",
 };
 const EMPTY: React.CSSProperties = { fontSize: "12.5px", color: "#9aa3b0", padding: "28px 0" };
-const AXIS = { fontSize: 11, fill: "#8a93a3" } as const;
+const AXIS = { fontSize: 11, fill: "#6b7480" } as const;
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return <div style={CARD}><div style={TITLE}>{title}</div>{children}</div>;

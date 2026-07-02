@@ -3,22 +3,34 @@ import asyncio
 import pytest
 
 from reviewer.run import ReviewResult, review_batch, review_one
-from reviewer.schemas import Stage1Result, Stage2Result
+from reviewer.schemas import Stage1Decision, Stage1Result, Stage2Result
 
 
 class StubClient:
-    """Drives review_one without network. Behavior keyed off the title."""
+    """Drives review_one/review_batch without network. Behavior keyed off the title."""
 
     def __init__(self):
         self.model_stage1 = "m1"
         self.model_stage2 = "m2"
         self.stage2_calls = []
+        self.stage1_batch_calls = 0
 
     async def stage1(self, *, profile_block, title, company, location):
         if title == "BOOM1":
             raise RuntimeError("stage1 down")
         decision = "reject" if title == "Forklift Operator" else "pass"
         return Stage1Result(decision=decision, reason="r")
+
+    async def stage1_batch(self, *, profile_block, jobs):
+        self.stage1_batch_calls += 1
+        out = []
+        for j in jobs:
+            title = j["title"]
+            if title.startswith("MISSING"):
+                continue  # omit → no per-id decision → retryable error
+            decision = "reject" if title == "Forklift Operator" else "pass"
+            out.append(Stage1Decision(job_id=j["id"], decision=decision, reason="r"))
+        return out
 
     async def stage2(self, *, profile_block, title, company, location, jd):
         self.stage2_calls.append(jd)
@@ -38,6 +50,18 @@ def _cand(title, ats="lever", description="jd"):
             "ats": ats, "company_name": "Acme", "description": description}
 
 
+def test_missing_jd_skips_stage2_and_writes_no_row():
+    """When stage-1 passes but description is NULL/empty, stage-2 must NOT run."""
+    client = StubClient()
+    res = asyncio.run(review_one(_cand("SRE", description=None), "P", client))
+    # stage1 passed (SRE is not a forklift operator), but JD is None
+    assert res.stage1_decision == "pass"
+    # stage2 must NOT run — no verdict, no row
+    assert res.verdict is None
+    assert client.stage2_calls == []
+    assert res.error is None  # not an error; deferred
+
+
 def test_gate_reject_skips_stage2():
     client = StubClient()
     res = asyncio.run(review_one(_cand("Forklift Operator"), "P", client))
@@ -53,11 +77,13 @@ def test_pass_runs_stage2_with_stored_jd():
     assert client.stage2_calls == ["jd"]
 
 
-def test_pass_with_missing_jd_uses_placeholder():
+def test_pass_with_missing_jd_defers_stage2():
+    """When stage-1 passes but JD is absent, stage-2 is deferred (not run with a placeholder)."""
     client = StubClient()
     res = asyncio.run(review_one(_cand("SRE", description=None), "P", client))
-    assert res.verdict == "approve"
-    assert client.stage2_calls and "no description" in client.stage2_calls[0].lower()
+    assert res.stage1_decision == "pass"
+    assert res.verdict is None   # deferred — no fabricated score
+    assert client.stage2_calls == []  # stage2 must NOT be called
 
 
 def test_stage1_error_isolated():
@@ -76,14 +102,49 @@ def test_stage2_error_isolated_keeps_stage1():
 
 
 def test_batch_continues_past_one_failure():
+    """Batched stage-1 gate + per-job stage 2: a stage-2 error and a missing gate
+    decision are isolated; other jobs still complete."""
     client = StubClient()
-    cands = [_cand("BOOM1"), _cand("SRE"), _cand("Forklift Operator")]
-    results = asyncio.run(review_batch(cands, "P", client, concurrency=2))
-    assert len(results) == 3
+    cands = [_cand("BOOM2"), _cand("SRE"), _cand("Forklift Operator"), _cand("MISSING-1")]
+    results, halted = asyncio.run(review_batch(cands, "P", client, concurrency=2))
+    assert not halted
+    assert len(results) == 4
     by_title = {r.job_id.split(":")[-1]: r for r in results}
-    assert by_title["BOOM1"].error is not None
+    # stage-2 error isolated onto one job; stage-1 signal preserved
+    assert by_title["BOOM2"].stage1_decision == "pass"
+    assert by_title["BOOM2"].error is not None and "stage2 down" in by_title["BOOM2"].error
     assert by_title["SRE"].verdict == "approve"
     assert by_title["Forklift Operator"].stage1_decision == "reject"
+    # A missing per-id gate decision becomes a retryable error, not a fabricated verdict
+    assert by_title["MISSING-1"].error is not None
+    assert by_title["MISSING-1"].verdict is None
+
+
+def test_review_batch_gates_via_stage1_batch():
+    """45 candidates are screened in ONE batched stage-1 call (batch cap 50);
+    stage 2 runs only for the passes."""
+    client = StubClient()
+    cands = ([_cand(f"Eng{i}") for i in range(43)]
+             + [_cand("Forklift Operator"), _cand("SRE")])
+    results, halted = asyncio.run(review_batch(cands, "P", client, concurrency=5))
+    assert not halted
+    assert client.stage1_batch_calls == 1, "45 candidates fit one batch of 50"
+    # 44 pass (43 Eng + SRE) → stage 2 ran 44 times; the forklift reject skips stage 2
+    assert len(client.stage2_calls) == 44
+    by_title = {r.job_id.split(":")[-1]: r for r in results}
+    assert by_title["Forklift Operator"].stage1_decision == "reject"
+    assert by_title["Eng0"].verdict == "approve"
+
+
+def test_missing_stage1_decision_is_error():
+    """A candidate absent from the batched stage-1 response becomes a retryable error."""
+    client = StubClient()
+    results, halted = asyncio.run(
+        review_batch([_cand("MISSING-solo")], "P", client, concurrency=1))
+    assert not halted and len(results) == 1
+    r = results[0]
+    assert r.error is not None and r.verdict is None
+    assert client.stage2_calls == []  # never reached stage 2
 
 
 def test_as_row_maps_all_columns():
@@ -132,10 +193,55 @@ def test_review_one_traces_when_enabled_and_sampled(monkeypatch):
 import os
 import uuid
 
+import pytest
+
 from job_discovery import db as poller_db
 from job_discovery.models import Posting
 from reviewer import db as rdb
+from reviewer.llm import OutOfCreditsError
 from tests.conftest import requires_db
+
+
+class _Status402(Exception):
+    status_code = 402
+
+
+class CreditsBoomClient:
+    """Raises a 402-shaped error on the first stage1 call; subsequent calls would succeed."""
+
+    def __init__(self):
+        self.model_stage1 = "m1"
+        self.model_stage2 = "m2"
+        self.calls = 0
+
+    async def stage1(self, *, profile_block, title, company, location):
+        self.calls += 1
+        raise _Status402("insufficient credits")
+
+    async def stage1_batch(self, *, profile_block, jobs):
+        self.calls += 1
+        raise _Status402("insufficient credits")
+
+    async def stage2(self, **_):  # pragma: no cover
+        raise AssertionError("stage2 should never be called after halt")
+
+
+def test_402_halts_batch_without_writing_skipped_rows():
+    """402 on first job → OutOfCreditsError path sets halt; later jobs get no result."""
+    client = CreditsBoomClient()
+    cands = [
+        _cand("Boom402"),
+        _cand("SRE"),
+        _cand("DataEng"),
+    ]
+    results, halted = asyncio.run(review_batch(cands, "P", client, concurrency=1))
+    assert halted, "halt flag must be set after 402"
+    ids = {r.job_id for r in results}
+    # boom job was attempted and must not appear (OutOfCreditsError → halt, no result written)
+    # SRE and DataEng skipped due to halt → also not in results
+    assert "lever:acme:Boom402" not in ids
+    assert "lever:acme:SRE" not in ids
+    assert "lever:acme:DataEng" not in ids
 
 USER = "22222222-2222-2222-2222-222222222222"
 
@@ -148,8 +254,10 @@ def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
         cid = cur.fetchone()["id"]
+    # Title starts with MISSING → StubClient.stage1_batch omits it → the run layer
+    # records a retryable error row (stage1_decision NULL) without aborting the batch.
     poller_db.upsert_job(conn, cid, "lever", "acme",
-                         Posting(external_id="boom", title="BOOM1", url="u",
+                         Posting(external_id="boom", title="MISSING-boom", url="u",
                                  raw={"descriptionPlain": "jd"}))
     poller_db.upsert_job(conn, cid, "lever", "acme",
                          Posting(external_id="good", title="SRE", url="u2",
@@ -227,3 +335,96 @@ def test_review_all_writes_verdicts_and_run(conn, monkeypatch):
     assert rev["verdict"] == "approve" and rev["profile_version"] == "v1"
     assert desc == "jd"
     assert rr["approved"] == 1 and rr["finished_at"] is not None
+
+
+@requires_db
+def test_review_all_defers_jd_less_job_and_reselects(conn, monkeypatch):
+    """A stage-1 pass with no JD writes NO review row and stays a candidate next run.
+
+    A verdict=NULL/error=NULL row would be unreachable by every re-selection
+    predicate at the same profile_version, permanently sticking the job. The
+    persist filter must skip it entirely so the job is re-selected once a JD lands.
+    """
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
+    # raw={} → extract_description returns None → JD-less job.
+    poller_db.upsert_job(conn, cid, "lever", "acme",
+                         Posting(external_id="nojd", title="SRE", url="u", raw={}))
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'v1')",
+            (USER,),
+        )
+    conn.commit()
+
+    import reviewer.run as run_module
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+    run_module.review_all(conn)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*)::int AS n FROM job_reviews "
+            "WHERE user_id = %s AND job_id = 'lever:acme:nojd'",
+            (USER,),
+        )
+        assert cur.fetchone()["n"] == 0, "JD-less deferral must not write a review row"
+    # Re-selected on the next run: absent row → r.job_id IS NULL → candidate again.
+    cands, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert "lever:acme:nojd" in {c["id"] for c in cands}
+
+
+@requires_db
+def test_review_user_commits_earlier_chunks_on_midbatch_failure(conn, monkeypatch):
+    """A mid-batch upsert failure preserves earlier committed chunks.
+
+    Proves the chunked-commit durability guarantee is active through
+    _review_user: rows persisted before a later row explodes must survive, and
+    iteration must continue past the failure.
+    """
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    from reviewer import config
+    monkeypatch.setattr(config, "PERSIST_CHUNK_SIZE", 2)
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
+    for i in range(5):
+        poller_db.upsert_job(conn, cid, "lever", "acme",
+                             Posting(external_id=f"e{i}", title=f"Eng{i}", url="u",
+                                     raw={"descriptionPlain": "jd"}))
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'v1')",
+            (USER,),
+        )
+    conn.commit()
+
+    import reviewer.run as run_module
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+
+    seen = []
+    original = rdb.upsert_review
+
+    def failing_upsert(c, row):
+        seen.append(row["job_id"])
+        if len(seen) == 3:
+            raise RuntimeError("boom on the 3rd upsert")
+        original(c, row)
+
+    monkeypatch.setattr(rdb, "upsert_review", failing_upsert)
+    run_module.review_all(conn)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT job_id FROM job_reviews WHERE user_id = %s", (USER,))
+        persisted = {r["job_id"] for r in cur.fetchall()}
+    assert len(seen) == 5, "iteration must continue past the mid-batch failure"
+    failed_id = seen[2]
+    assert failed_id not in persisted, "the row that raised must not be persisted"
+    assert len(persisted) == 4, "the other four rows (incl. the first chunk) survive"

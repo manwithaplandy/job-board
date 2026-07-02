@@ -1,10 +1,13 @@
 import { getJobReviewDetail } from "@/lib/queries";
+import { JOB_ID_RE } from "@/lib/jobIdValidator";
 
 export const dynamic = "force-dynamic";
 
 const EMPTY = {
   reasoning: null, about: null, red_flags: null, benefits: null, requirements: null,
   description: null, url: null,
+  experience_match: null, industry: null, industry_subcategory: null,
+  confidence: null, note: null, corrected: false,
 };
 
 // Detail-only review fields for one job (board owner's review), fetched lazily
@@ -17,6 +20,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  if (!JOB_ID_RE.test(id)) return Response.json({ error: "not found" }, { status: 404 });
   const detail = await getJobReviewDetail(id);
-  return Response.json(detail ?? EMPTY);
+  return Response.json(detail ?? EMPTY, {
+    headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600" },
+  });
 }

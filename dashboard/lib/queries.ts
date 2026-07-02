@@ -1,7 +1,8 @@
 import { sql } from "@/lib/db";
+import { unstable_cache } from "next/cache";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
+import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, JobRow, ReviewedJobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
@@ -10,31 +11,100 @@ import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 
+function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
+  const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ""));
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    location: (row.location as string | null) ?? null,
+    remote: (row.remote as boolean | null) ?? null,
+    first_seen_at: iso(row.first_seen_at),
+    closed_at: row.closed_at != null ? iso(row.closed_at) : null,
+    company_name: row.company_name as string,
+    ats: row.ats as string,
+    verdict: (row.verdict as string | null) ?? null,
+    human_override: (row.human_override as boolean) ?? false,
+    corrected: row.corrected as boolean | undefined,
+    role_category: (row.role_category as string | null) ?? null,
+    seniority: (row.seniority as string | null) ?? null,
+    work_arrangement: (row.work_arrangement as string | null) ?? null,
+    pay_min: (row.pay_min as number | null) ?? null,
+    pay_max: (row.pay_max as number | null) ?? null,
+    pay_currency: (row.pay_currency as string | null) ?? null,
+    pay_period: (row.pay_period as string | null) ?? null,
+    headcount: (row.headcount as string | null) ?? null,
+    skills_score: (row.skills_score as number | null) ?? null,
+    experience_score: (row.experience_score as number | null) ?? null,
+    comp_score: (row.comp_score as number | null) ?? null,
+    fit_score: (row.fit_score as number | null) ?? null,
+    skill_gaps: (row.skill_gaps as string[] | null) ?? null,
+  };
+}
+
 export async function getJobs(
   f: Filters,
   userId: string | null,
   ownerLocations: string[] = [],
-): Promise<JobRow[]> {
+): Promise<ReviewedJobRow[]> {
   const { text, values } = buildJobsQuery(f, userId, ownerLocations);
   const rows = await sql.unsafe(text, values as never[]);
-  return rows as unknown as JobRow[];
+  return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
+}
+
+// The operator's deliberate rejects (verdict='deny' + human_override) — loaded so a
+// mis-clicked reject is recoverable from the board's Rejected view AFTER a reload, not
+// just in-session. The default board loads only verdict='approve', so these rows are
+// otherwise never sent to the client. Same lean JobRow shape as the board list (reuses
+// buildJobsQuery), bounded by its LIMIT. human_override scopes to operator rejects so
+// the (huge) set of AI denies is excluded. Only called on the authed path.
+export async function getRejectedJobs(
+  userId: string,
+  ownerLocations: string[] = [],
+): Promise<ReviewedJobRow[]> {
+  const f: Filters = {
+    companies: [], include: [], exclude: [], remoteOnly: false,
+    status: "open", verdict: "deny",
+    experience: "", industry: "", subcategory: "", location: "",
+  };
+  const { text, values } = buildJobsQuery(f, userId, ownerLocations, { humanOverrideOnly: true });
+  const rows = await sql.unsafe(text, values as never[]);
+  return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
 }
 
 export async function getBoardOwnerId(): Promise<string | null> {
   // Single-tenant: the one operator whose verdicts the public board shows.
-  const rows = await sql`SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1`;
+  const rows = await sql`SELECT user_id FROM profiles WHERE is_owner LIMIT 1`;
   return (rows[0]?.user_id as string | undefined) ?? null;
 }
 
 export async function getBoardOwner(): Promise<{ id: string | null; locations: string[] }> {
   // Single-tenant: the board owner's id AND location include-list come from the
-  // same most-recently-updated profile row. One query instead of two separate
-  // SELECTs of the same row (getBoardOwnerId + getBoardOwnerLocations).
+  // same is_owner profile row. One query instead of two separate SELECTs.
   const rows = await sql`
-    SELECT user_id, preferred_locations FROM profiles ORDER BY updated_at DESC LIMIT 1
+    SELECT user_id, preferred_locations FROM profiles WHERE is_owner LIMIT 1
   `;
   const row = rows[0] as { user_id?: string; preferred_locations?: string[] } | undefined;
   return { id: row?.user_id ?? null, locations: row?.preferred_locations ?? [] };
+}
+
+// postgres.js delivers jsonb columns as parsed JS values; normalize a detail row
+// into the typed shape at the boundary instead of an `as unknown as` cast.
+function toJobReviewDetail(row: Record<string, unknown>): JobReviewDetail {
+  return {
+    reasoning: (row.reasoning as string | null) ?? null,
+    about: (row.about as string | null) ?? null,
+    red_flags: (row.red_flags as string[] | null) ?? null,
+    benefits: (row.benefits as string[] | null) ?? null,
+    requirements: (row.requirements as { text: string; met: boolean }[] | null) ?? null,
+    description: (row.description as string | null) ?? null,
+    url: (row.url as string | null) ?? null,
+    experience_match: (row.experience_match as string | null) ?? null,
+    industry: (row.industry as string | null) ?? null,
+    industry_subcategory: (row.industry_subcategory as string | null) ?? null,
+    confidence: (row.confidence as string | null) ?? null,
+    note: (row.note as string | null) ?? null,
+    corrected: (row.corrected as boolean) ?? false,
+  };
 }
 
 export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail | null> {
@@ -44,14 +114,28 @@ export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail
   // j.description (full JD plaintext) and j.url (apply link) ride along here too
   // — both were dropped from the list payload for the same payload-size reason.
   const rows = await sql`
-    SELECT r.reasoning, r.about, r.red_flags, r.benefits, r.requirements,
-           j.description, j.url
+    SELECT
+      COALESCE(rc.reasoning, r.reasoning) AS reasoning,
+      COALESCE(rc.about, r.about) AS about,
+      COALESCE(rc.red_flags, r.red_flags) AS red_flags,
+      COALESCE(rc.benefits, r.benefits) AS benefits,
+      COALESCE(rc.requirements, r.requirements) AS requirements,
+      j.description, j.url,
+      COALESCE(rc.experience_match, r.experience_match) AS experience_match,
+      COALESCE(rc.industry, r.industry) AS industry,
+      COALESCE(rc.industry_subcategory, r.industry_subcategory) AS industry_subcategory,
+      COALESCE(rc.confidence, r.confidence) AS confidence,
+      rc.note,
+      (rc.job_id IS NOT NULL) AS corrected
     FROM job_reviews r
     JOIN jobs j ON j.id = r.job_id
+    LEFT JOIN review_corrections rc
+      ON rc.job_id = r.job_id AND rc.user_id = r.user_id
     WHERE r.job_id = ${jobId}
-      AND r.user_id = (SELECT user_id FROM profiles ORDER BY updated_at DESC LIMIT 1)
+      AND r.user_id = (SELECT user_id FROM profiles WHERE is_owner LIMIT 1)
   `;
-  return (rows[0] as unknown as JobReviewDetail) ?? null;
+  const row = rows[0] as Record<string, unknown> | undefined;
+  return row ? toJobReviewDetail(row) : null;
 }
 
 export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {
@@ -61,7 +145,14 @@ export async function getLatestReviewRun(): Promise<ReviewRunRow | null> {
   return (rows[0] as unknown as ReviewRunRow) ?? null;
 }
 
-export async function getReviewStats(userId: string): Promise<ReviewStats> {
+function toReviewStats(row: Record<string, unknown>): ReviewStats {
+  return {
+    unreviewed: (row.unreviewed as number) ?? 0,
+    errors: (row.errors as number) ?? 0,
+  };
+}
+
+async function _getReviewStatsImpl(userId: string): Promise<ReviewStats> {
   const rows = await sql`
     SELECT
       (count(*) FILTER (WHERE r.job_id IS NULL))::int      AS unreviewed,
@@ -70,7 +161,16 @@ export async function getReviewStats(userId: string): Promise<ReviewStats> {
     LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
     WHERE j.closed_at IS NULL
   `;
-  return (rows[0] as unknown as ReviewStats) ?? { unreviewed: 0, errors: 0 };
+  const row = rows[0] as Record<string, unknown> | undefined;
+  return row ? toReviewStats(row) : { unreviewed: 0, errors: 0 };
+}
+
+export function getReviewStats(userId: string): Promise<ReviewStats> {
+  return unstable_cache(
+    () => _getReviewStatsImpl(userId),
+    ["review-stats", userId],
+    { revalidate: 300 },
+  )();
 }
 
 export async function getCompanies(): Promise<CompanyRow[]> {
@@ -112,7 +212,7 @@ export async function saveBoardFilters(
   filters: BoardFilterState,
 ): Promise<void> {
   // UPDATE-only and intentionally does NOT touch updated_at: getBoardOwnerId()
-  // resolves the single-tenant board owner by most-recent updated_at, and
+  // resolves the single-tenant board owner by is_owner flag, and
   // profile_version is NOT NULL with no default — so we must not INSERT a row
   // or bump updated_at when persisting a viewer's filters.
   await sql`
@@ -233,6 +333,18 @@ function toApplicationPackage(row: Record<string, unknown>): ApplicationPackage 
     appliedAt: row.applied_at != null ? iso(row.applied_at) : null,
   };
 }
+
+// A bare "applied" marker row (created by one-click "Mark as applied") carries no
+// prepared content — ALL of these columns are NULL. Setting ANY one makes the row
+// a real package that un-apply must preserve rather than delete. Kept as one shared
+// SQL fragment so the un-apply DELETE (app/actions/applications.ts) and any future
+// reader agree on the column set — including apply_url, which closes the dormant
+// un-apply gap if an apply_url-only write path is ever added.
+export const BARE_MARKER_PREDICATE = sql`
+  resume_json IS NULL AND cover_letter_json IS NULL
+    AND greenhouse_questions IS NULL AND prefilled_answers IS NULL
+    AND answers_snapshot IS NULL AND apply_url IS NULL
+`;
 
 // All of the viewer's prepared packages, keyed by job in the caller. Single-tenant
 // + only created on explicit "Prepare", so the row count stays small.

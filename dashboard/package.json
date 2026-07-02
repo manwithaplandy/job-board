@@ -9,11 +9,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@langfuse/client": "^5.9.1",
     "@langfuse/otel": "^5.9.0",
     "@langfuse/tracing": "^5.9.0",
     "@opentelemetry/sdk-node": "^0.219.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
+    "@tanstack/react-virtual": "^3.14.5",
     "jspdf": "^4.2.1",
     "next": "15.5.19",
     "postgres": "^3.4.5",

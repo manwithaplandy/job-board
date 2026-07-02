@@ -17,22 +17,47 @@ export interface JobReviewDetail {
   requirements: { text: string; met: boolean }[] | null;
   description: string | null;
   url: string | null;
+  // categoricals + provenance for the correction edit form
+  experience_match: string | null;
+  industry: string | null;
+  industry_subcategory: string | null;
+  confidence: string | null;
+  note: string | null;
+  corrected: boolean;
 }
 
-export interface JobRow {
+// The columns present on EVERY board row — the ones buildJobsQuery selects even on
+// the anon path (no owner reviews joined). This is the honest DB-boundary shape the
+// row mappers consume: postgres delivers timestamptz as Date (normalized to ISO
+// strings by toJobRow), and human_override is null when no owner review was joined.
+export interface JobRowBase {
   id: string;
   title: string;
   location: string | null;
   remote: boolean | null;
+  first_seen_at: string | Date;
+  closed_at: string | Date | null;
+  company_name: string;
+  // Source ATS provider (companies.ats): one of greenhouse/lever/ashby/workable/
+  // smartrecruiters/workday. Always selected (present with or without an owner);
+  // read by the board's Source facet filter (lib/rolefit/filter.ts).
+  ats: string;
+  human_override: boolean | null;  // null when no owner review was joined
+}
+
+// A board row after mapping (toJobRow), with the owner's review columns merged in.
+// The mapper normalizes the JobRowBase timestamps to ISO strings and defaults
+// human_override, so those are narrowed here.
+export interface ReviewedJobRow extends JobRowBase {
   first_seen_at: string;
   closed_at: string | null;
-  company_name: string;
+  human_override: boolean;  // TRUE when the operator manually rejected this job
   // Review fields below are populated only when the board has an owner whose
   // job_reviews are joined (buildJobsQuery). With no owner the query omits these
   // columns and they are undefined at runtime — read them only behind the
   // showMatch / verdict guards (see JobCard, FilterBar review filters).
   verdict: string | null;
-  human_override: boolean;  // TRUE when the operator manually rejected this job
+  corrected?: boolean;      // TRUE when a review_corrections row overrides the model review
   role_category: string | null;
   seniority: string | null;
   work_arrangement: string | null;
@@ -55,16 +80,23 @@ export interface JobRow {
   requirements?: { text: string; met: boolean }[] | null;
   description?: string | null;  // full JD plaintext (apply view)
   url?: string | null;          // apply link
-  // Dropped from every query (no render path reads them); kept optional so any
-  // stray reference still type-checks rather than silently breaking.
-  ats?: string;
+  // experience_match/industry/industry_subcategory/confidence/note are detail-only,
+  // like reasoning/about/etc. above: absent from the list payload, populated on the
+  // selected job via the /api/jobs/[id] fetch (see JobReviewDetail) and consumed by
+  // the correction edit form (ReviewPanel). stage1_decision/stage1_reason remain
+  // genuinely dropped from every query — no render path reads them — and are kept
+  // optional only so a stray reference still type-checks rather than silently breaking.
   experience_match?: string | null;
   industry?: string | null;
   industry_subcategory?: string | null;
   confidence?: string | null;
+  note?: string | null;
   stage1_decision?: string | null;
   stage1_reason?: string | null;
 }
+
+// Backward-compat alias so existing component imports keep compiling.
+export type JobRow = ReviewedJobRow;
 
 export interface CompanyRow {
   id: number;

@@ -67,6 +67,18 @@ class Stage1Result(BaseModel):
     reason: str
 
 
+class Stage1Decision(BaseModel):
+    """Per-job decision in a batched stage-1 response."""
+    job_id: str
+    decision: Literal["pass", "reject"]
+    reason: str
+
+
+class Stage1BatchResult(BaseModel):
+    """Batched stage-1 gate: one decision per job in the batch."""
+    decisions: list[Stage1Decision]
+
+
 class Stage2Result(BaseModel):
     verdict: Literal["approve", "deny"]
     experience_match: Literal["step_down", "match", "reach", "far_reach"]
@@ -84,9 +96,9 @@ class Stage2Result(BaseModel):
     pay_currency: str | None = None
     pay_period: PayPeriod | None = None
     headcount: str | None = None
-    skills_score: int = 0
-    experience_score: int = 0
-    comp_score: int = 0
+    skills_score: int | None = None
+    experience_score: int | None = None
+    comp_score: int | None = None
     red_flags: list[str] = Field(default_factory=list)
     skill_gaps: list[str] = Field(default_factory=list)
     benefits: list[str] = Field(default_factory=list)

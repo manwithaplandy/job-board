@@ -162,6 +162,26 @@ def test_manual_companies_excluded_from_discovery(conn):
 
 
 @requires_db
+def test_errored_company_review_is_reselected(conn):
+    """A company_review row with error set must be re-selected for retry."""
+    db.upsert_candidates(conn, [Candidate("X", "greenhouse", "x")])
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE token='x'")
+        cid = cur.fetchone()["id"]
+    db.upsert_company_review(conn, {
+        "user_id": USER, "company_id": cid, "company_profile_version": "v1",
+        "verdict": None, "confidence": None, "reasoning": None,
+        "industry": None, "industry_subcategory": None,
+        "tech_tags": [], "red_flags": [], "model": "m", "error": "timeout",
+    })
+    conn.commit()
+    # error IS NOT NULL → must be re-selected even though profile_version matches
+    picked = {r["token"] for r in db.select_for_review(conn, USER, "v1", 100)}
+    assert "x" in picked
+
+
+@requires_db
 def test_run_and_state_helpers(conn):
     rid = db.start_discovery_run(conn)
     db.set_halted(conn, True)

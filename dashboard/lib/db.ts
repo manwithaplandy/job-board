@@ -20,4 +20,12 @@ export const sql = postgres(connectionString, {
   prepare: false,
   max: 3,
   idle_timeout: 20,
+  max_lifetime: 300,
+  connect_timeout: 5,
+  connection: {
+    application_name: "job-board-dashboard",
+    statement_timeout: 15_000,
+    lock_timeout: 5_000,
+    idle_in_transaction_session_timeout: 15_000,
+  },
 });

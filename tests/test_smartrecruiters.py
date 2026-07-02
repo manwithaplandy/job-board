@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 import job_discovery.adapters.smartrecruiters as smartrecruiters
 from job_discovery.adapters.smartrecruiters import (
     fetch_smartrecruiters,
@@ -194,3 +196,11 @@ def test_fetch_pages_until_short_page_when_total_missing(monkeypatch):
     monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
     postings = fetch_smartrecruiters("acme")
     assert [p.external_id for p in postings] == ["1", "2", "3", "4", "5"]
+
+
+# ── A3: missing top-level key ─────────────────────────────────────────────────
+
+def test_missing_content_key_raises(monkeypatch):
+    monkeypatch.setattr(smartrecruiters, "get_json", lambda url: {"error": "gone"})
+    with pytest.raises(ValueError, match="missing 'content'"):
+        fetch_smartrecruiters("BoschGroup")

@@ -1,16 +1,11 @@
 import os
 
 from company_discovery.schemas import CompanyReviewResult
-from observability import tracing
+from observability.llm import OutOfCreditsError, traced_structured_call
 from reviewer.schemas import TAXONOMY_TEXT
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-
-
-class OutOfCreditsError(Exception):
-    """OpenRouter returned HTTP 402 (insufficient credits). Halt the scan; do not retry."""
-
 
 _INSTRUCTIONS = (
     "You are screening COMPANIES for one candidate against their company "
@@ -39,7 +34,10 @@ _INSTRUCTIONS = (
     "  * values_mismatch: ethical/values conflict (e.g. cannabis, fossil fuel, "
     "gambling, predatory lending, tobacco).\n"
     "  * other: none of the above — put the specific reason in note.\n"
-    "  Set note to the specific reason (required for 'other'; optional otherwise)."
+    "  Set note to the specific reason (required for 'other'; optional otherwise).\n"
+    "If you have real knowledge of the company but the preferences neither clearly "
+    "match nor clearly violate it, return 'include' with confidence <= 0.4 so "
+    "polling is not silently skipped."
 )
 
 
@@ -49,15 +47,6 @@ def build_company_block(company_instructions: str | None) -> str:
         f"{company_instructions or '(none provided)'}"
     )
 
-
-def _is_out_of_credits(exc: Exception) -> bool:
-    if getattr(exc, "status_code", None) == 402 or getattr(exc, "status", None) == 402:
-        return True
-    resp = getattr(exc, "response", None)
-    if resp is not None and getattr(resp, "status_code", None) == 402:
-        return True
-    text = str(exc).lower()
-    return "402" in text and "credit" in text
 
 
 class CompanyReviewClient:
@@ -72,46 +61,19 @@ class CompanyReviewClient:
         self._client = client
         self.model = model or os.environ.get("DISCOVERY_MODEL", DEFAULT_MODEL)
 
-    async def _call(self, *, system: str, user: str):
-        try:
-            resp = await self._client.beta.chat.completions.parse(
-                model=self.model, max_tokens=700,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                response_format=CompanyReviewResult,
-            )
-        except Exception as exc:
-            if _is_out_of_credits(exc):
-                raise OutOfCreditsError(str(exc)) from exc
-            raise
-        msg = resp.choices[0].message
-        if getattr(msg, "refusal", None):
-            raise ValueError(f"model refused: {msg.refusal}")
-        if msg.parsed is None:
-            raise ValueError("OpenRouter returned no parsed output")
-        return msg.parsed, getattr(resp, "usage", None)
-
     async def review(self, *, company_block: str, name: str, ats: str,
                      token: str) -> CompanyReviewResult:
         system = f"{company_block}\n\n{_INSTRUCTIONS}"
         user = f"Company: {name}\nATS: {ats}\nSlug: {token}"
-        lf = tracing.get_langfuse()
-        if lf is None:
-            parsed, _ = await self._call(system=system, user=user)
-            return parsed
-        with lf.start_as_current_observation(
-            as_type="generation", name="company-screen", model=self.model,
-            input=[{"role": "system", "content": system},
-                   {"role": "user", "content": user}],
-        ) as gen:
-            parsed, usage = await self._call(system=system, user=user)
-            gen.update(
-                output=parsed.model_dump(),
-                usage_details={
-                    "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                    "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                } if usage is not None else None,
-            )
-            return parsed
+        parsed, _ = await traced_structured_call(
+            self._client,
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            schema=CompanyReviewResult,
+            name="company-screen",
+            metadata={"ats": ats, "token": token},
+        )
+        return parsed

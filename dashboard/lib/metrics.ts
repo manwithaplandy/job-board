@@ -3,19 +3,7 @@ import {
   getCompanyVerdictCounts, getReviewStats, getDiscoveryState,
 } from "@/lib/queries";
 import type { PollRunRow, ReviewRunRow, DiscoveryRunRow, DiscoveryStateRow } from "@/lib/types";
-
-// Run async thunks STRICTLY ONE AT A TIME (never concurrently). The /analytics page
-// fans out ~29 queries; issuing them concurrently hands postgres.js more queries than
-// its pool has connections, so it queues them — which wedges against Supabase's
-// transaction pooler. (Observed in prod: the serverless function froze mid-fan-out with
-// connections stuck in `ClientRead`, never reading results, until the 300s timeout.)
-// Running sequentially keeps exactly one query in flight — the safe pattern the rest of
-// the app uses. The latency cost (~a couple seconds) is hidden by the page's caching.
-async function seq<T>(thunks: ReadonlyArray<() => Promise<T>>): Promise<T[]> {
-  const out: T[] = [];
-  for (const thunk of thunks) out.push(await thunk());
-  return out;
-}
+import { dbLimit } from "@/lib/dbLimit";
 
 // ── Run series: 90-day daily aggregates per pipeline ─────────────────────────
 
@@ -38,7 +26,7 @@ export interface CompanyDiscoveryDay {
 export interface RunSeries { jobDiscovery: JobDiscoveryDay[]; review: ReviewDay[]; companyDiscovery: CompanyDiscoveryDay[] }
 
 export async function getRunSeries(): Promise<RunSeries> {
-  const [jobDiscovery, review, companyDiscovery] = await seq([
+  const [jobDiscovery, review, companyDiscovery] = await dbLimit([
     () => sql`
       SELECT to_char(date_trunc('day', started_at), 'YYYY-MM-DD') AS day,
              COALESCE(sum(new_jobs), 0)::int          AS new_jobs,
@@ -99,7 +87,7 @@ export interface CompanyFunnel {
 }
 export interface JobFunnel {
   ever_seen: number; open: number; closed: number; reviewed: number;
-  gate_rejected: number; approved: number; denied: number;
+  gate_rejected: number; approved: number; applied: number; denied: number;
   manual_rejected: number; unreviewed: number; errors: number;
 }
 export interface FunnelCounts { companies: CompanyFunnel; jobs: JobFunnel }
@@ -132,12 +120,18 @@ export async function getFunnel(
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.closed_at IS NULL
     `;
+  const appliedAggRows = await sql`
+      SELECT count(*)::int AS applied
+      FROM application_packages
+      WHERE user_id = ${userId}::uuid AND status = 'applied'
+    `;
   const verdicts = await getCompanyVerdictCounts(userId);
   const stats = await getReviewStats(userId);
 
   const c = companyAggRows[0] as unknown as { tracked: number; active: number; discovery_sourced: number; reviewed: number };
   const j = jobAggRows[0] as unknown as { ever_seen: number; open: number; closed: number };
   const rv = reviewAggRows[0] as unknown as { reviewed: number; gate_rejected: number; approved: number; denied: number; manual_rejected: number };
+  const ap = appliedAggRows[0] as unknown as { applied: number };
 
   return {
     companies: {
@@ -148,7 +142,8 @@ export async function getFunnel(
     jobs: {
       ever_seen: j.ever_seen, open: j.open, closed: j.closed,
       reviewed: rv.reviewed, gate_rejected: rv.gate_rejected,
-      approved: rv.approved, denied: rv.denied, manual_rejected: rv.manual_rejected,
+      approved: rv.approved, applied: ap.applied, denied: rv.denied,
+      manual_rejected: rv.manual_rejected,
       unreviewed: stats.unreviewed, errors: stats.errors,
     },
   };
@@ -180,7 +175,7 @@ export async function getPipelineHealth(
     jobDiscoveryTotalsRows,
     reviewerTotalsRows,
     companyDiscoveryTotalsRows,
-  ] = await seq([
+  ] = await dbLimit([
     () => sql`SELECT * FROM poll_runs ORDER BY started_at DESC LIMIT 1`,
     () => sql`SELECT * FROM review_runs ORDER BY started_at DESC LIMIT 1`,
     () => sql`SELECT * FROM discovery_runs ORDER BY started_at DESC LIMIT 1`,
@@ -258,7 +253,7 @@ export async function getDistributions(userId: string): Promise<Distributions> {
     experienceMatch, workArrangement,
     companiesByAts, companiesBySource, includedByIndustry, topTechTags, topRedFlags,
     otherRedFlags,
-  ] = await seq([
+  ] = await dbLimit([
     () => sql`SELECT location AS label, count(*)::int AS count FROM jobs
         WHERE closed_at IS NULL AND location IS NOT NULL AND location <> ''
         GROUP BY location ORDER BY count DESC LIMIT ${TOP_N}`,

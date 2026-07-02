@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import pytest
+
+import job_discovery.adapters.ashby as ashby
 from job_discovery.adapters.ashby import parse_ashby
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "ashby.json").read_text())
@@ -19,3 +22,11 @@ def test_field_mapping_uses_isremote_flag():
 def test_non_remote_flag():
     rec = parse_ashby(FIXTURE)[1]
     assert rec.remote is False
+
+
+# ── A3: missing top-level key ─────────────────────────────────────────────────
+
+def test_missing_jobs_key_raises(monkeypatch):
+    monkeypatch.setattr(ashby, "get_json", lambda url: {"error": "gone"})
+    with pytest.raises(ValueError, match="missing 'jobs'"):
+        ashby.fetch_ashby("acme")

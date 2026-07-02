@@ -8,7 +8,11 @@ import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
+import { atsLabel as atsLabelOf } from "@/lib/rolefit/ats";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
+import { downloadPdf } from "@/lib/rolefit/downloadPdf";
+import { Button } from "@/components/ui/Button";
+import type { PrepareLegStatus } from "./RolefitBoard";
 
 // Plain-text cover letter — mirrors composeResumeText in ResumePanel.
 function composeCoverLetterText(data: TailoredCoverLetter): string {
@@ -54,6 +58,10 @@ export interface ApplicationPanelProps {
   onRegenerateCover: () => void;
   // One-click: build + persist the application package
   onPrepare: () => void;
+  // Single generation lock for this job (résumé/cover/prepare) + cancel + last per-leg result.
+  generating?: boolean;
+  onCancelGeneration?: () => void;
+  prepareStatus?: PrepareLegStatus | null;
   // Persisted package extras (Phase 3). Greenhouse postings carry the real question
   // schema + LLM-prefilled answers; everything else falls back to the generic package.
   greenhouseQuestions: GreenhouseQuestions | null;
@@ -82,6 +90,9 @@ export function ApplicationPanel({
   onGenerateCover,
   onRegenerateCover,
   onPrepare,
+  generating,
+  onCancelGeneration,
+  prepareStatus,
   greenhouseQuestions,
   prefilledAnswers,
   status,
@@ -104,7 +115,7 @@ export function ApplicationPanel({
   };
 
   const applyHref = applyUrl(job.ats, job.url);
-  const atsLabel = job.ats ? job.ats.charAt(0).toUpperCase() + job.ats.slice(1) : "site";
+  const atsLabel = atsLabelOf(job.ats);
 
   const coverBusy = coverState === "busy";
   const coverDone = coverState === "done";
@@ -121,52 +132,36 @@ export function ApplicationPanel({
   const hasGreenhouse = ghRows.length > 0;
   const appliedDate = appliedAt ? new Date(appliedAt).toLocaleDateString() : null;
 
-  // Cover-letter PDF download — mirrors ResumePanel.handleDownload, falls back to .txt.
+  // Cover-letter PDF download — shared helper handles the import + .txt fallback.
   const handleCoverDownload = async () => {
     if (!coverData) return;
     const fname = `Cover Letter - ${job.company_name} - ${job.title}.pdf`.replace(/[\\/:*?"<>|]/g, " ");
     const text = composeCoverLetterText(coverData);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let JsPDF: any;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const jsPDFMod = (await import("jspdf")) as any;
-      JsPDF = jsPDFMod.jsPDF ?? jsPDFMod.default;
-    } catch (e) {
-      console.error("Failed to import jsPDF; falling back to .txt download", e);
-      const blob = new Blob([text], { type: "text/plain" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = fname.replace(/\.pdf$/, ".txt");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(a.href);
-      return;
-    }
-
-    const doc = new JsPDF({ unit: "pt", format: "letter" });
-    const W: number = doc.internal.pageSize.getWidth();
-    const M = 56;
-    let y = 72;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.setTextColor(31, 36, 48);
-    const wrap = (txt: string): string[] => doc.splitTextToSize(txt, W - 2 * M);
-    const writeBlock = (txt: string) => {
-      wrap(txt).forEach((l: string) => {
-        if (y > 720) { doc.addPage(); y = 72; }
-        doc.text(l, M, y);
-        y += 16;
-      });
-    };
-    writeBlock(coverData.greeting);
-    y += 8;
-    coverData.paragraphs.forEach((p) => { writeBlock(p); y += 10; });
-    writeBlock(coverData.closing);
-    writeBlock(coverData.signature);
-    doc.save(fname);
+    await downloadPdf(
+      fname,
+      (doc) => {
+        const W: number = doc.internal.pageSize.getWidth();
+        const M = 56;
+        let y = 72;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        doc.setTextColor(31, 36, 48);
+        const wrap = (txt: string): string[] => doc.splitTextToSize(txt, W - 2 * M);
+        const writeBlock = (txt: string) => {
+          wrap(txt).forEach((l: string) => {
+            if (y > 720) { doc.addPage(); y = 72; }
+            doc.text(l, M, y);
+            y += 16;
+          });
+        };
+        writeBlock(coverData.greeting);
+        y += 8;
+        coverData.paragraphs.forEach((p) => { writeBlock(p); y += 10; });
+        writeBlock(coverData.closing);
+        writeBlock(coverData.signature);
+      },
+      text,
+    );
   };
 
   // Read-only application answers, surfaced only when present.
@@ -219,6 +214,26 @@ export function ApplicationPanel({
     cursor: "pointer",
     boxShadow: "0 3px 10px rgba(59,111,212,.26)",
   };
+  const cancelBtnStyle: React.CSSProperties = {
+    flex: "0 0 auto",
+    fontWeight: 700,
+    fontSize: "12.5px",
+    color: "#5b6472",
+    background: "#fff",
+    border: "1px solid #dfe3ea",
+    borderRadius: "9px",
+    padding: "8px 14px",
+    cursor: "pointer",
+  };
+
+  // Per-leg failures from the last prepare. Résumé + cover retry their own endpoints;
+  // there's no answers-only route, so "answers" retries the whole prepare.
+  const failedLegs: { key: string; label: string; onRetry: () => void }[] = [];
+  if (prepareStatus) {
+    if (prepareStatus.resume === "failed") failedLegs.push({ key: "resume", label: "résumé", onRetry: onGenerateResume });
+    if (prepareStatus.coverLetter === "failed") failedLegs.push({ key: "coverLetter", label: "cover letter", onRetry: onGenerateCover });
+    if (prepareStatus.answers === "failed") failedLegs.push({ key: "answers", label: "application answers", onRetry: onPrepare });
+  }
 
   return (
     <div style={{ marginTop: "24px" }}>
@@ -286,29 +301,15 @@ export function ApplicationPanel({
           </button>
         )}
         {isAuthed && (
-          <button
+          <Button
+            variant="primary"
             onClick={onPrepare}
-            disabled={preparing}
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              fontWeight: 700,
-              fontSize: "14px",
-              color: "#fff",
-              background: "#3b6fd4",
-              border: "none",
-              borderRadius: "11px",
-              padding: "12px 20px",
-              cursor: preparing ? "not-allowed" : "pointer",
-              opacity: preparing ? 0.7 : 1,
-              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-            }}
+            disabled={preparing || generating}
+            style={{ flex: "0 0 auto" }}
           >
             <span style={{ fontSize: "15px" }}>✦</span>
-            {preparing ? "Preparing…" : prepared ? "Re-prepare" : "Prepare application"}
-          </button>
+            {preparing ? "Preparing… ~30s" : prepared ? "Re-prepare" : "Prepare application"}
+          </Button>
         )}
         {applyHref && (
           <a
@@ -336,6 +337,47 @@ export function ApplicationPanel({
         )}
       </div>
 
+      {/* Per-leg prepare failures — retry only the parts that failed (résumé / cover hit
+          their own endpoints; answers re-runs Prepare, as there's no answers-only route). */}
+      {failedLegs.length > 0 && (
+        <div
+          style={{
+            marginTop: "12px",
+            border: "1px solid #ecd6d6",
+            background: "#fdf6f5",
+            borderRadius: "12px",
+            padding: "13px 15px",
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: "13px", color: "#b25a36" }}>
+            Some parts couldn&apos;t be prepared
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
+            {failedLegs.map((leg) => (
+              <button
+                key={leg.key}
+                type="button"
+                onClick={leg.onRetry}
+                disabled={generating}
+                style={{
+                  fontWeight: 700,
+                  fontSize: "12.5px",
+                  color: "#b25a36",
+                  background: "#fff",
+                  border: "1px solid #ecd6d6",
+                  borderRadius: "9px",
+                  padding: "7px 13px",
+                  cursor: generating ? "not-allowed" : "pointer",
+                  opacity: generating ? 0.6 : 1,
+                }}
+              >
+                Retry {leg.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Tailored résumé (reused ResumePanel) ── */}
       <ResumePanel
         job={job}
@@ -349,6 +391,8 @@ export function ApplicationPanel({
         copyLabel={resumeCopyLabel}
         usingSample={usingSample}
         onOpenProfile={onOpenProfile}
+        generating={generating}
+        onCancelGeneration={onCancelGeneration}
       />
 
       {/* ── Cover letter ── */}
@@ -381,26 +425,9 @@ export function ApplicationPanel({
                 A focused letter that ties your background to this role.
               </div>
             </div>
-            <button
-              onClick={onGenerateCover}
-              style={{
-                flex: "0 0 auto",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                fontWeight: 700,
-                fontSize: "14px",
-                color: "#fff",
-                background: "#3b6fd4",
-                border: "none",
-                borderRadius: "11px",
-                padding: "12px 20px",
-                cursor: "pointer",
-                boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-              }}
-            >
+            <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
               <span style={{ fontSize: "15px" }}>✦</span>Generate cover letter
-            </button>
+            </Button>
           </div>
         )}
 
@@ -471,16 +498,21 @@ export function ApplicationPanel({
                 flex: "0 0 auto",
               }}
             />
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
                 Drafting your cover letter for {job.company_name}…
               </div>
               <div
                 style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
               >
-                Connecting your experience to this role&apos;s requirements.
+                Connecting your experience to this role&apos;s requirements. Usually about 30 seconds.
               </div>
             </div>
+            {onCancelGeneration && (
+              <button type="button" onClick={onCancelGeneration} style={cancelBtnStyle}>
+                Cancel
+              </button>
+            )}
           </div>
         )}
 
@@ -560,9 +592,13 @@ export function ApplicationPanel({
                     strokeLinecap="round"
                   />
                 </svg>
-                {copiedKey === "cover" ? "Copied!" : "Copy text"}
+                <span aria-live="polite">{copiedKey === "cover" ? "Copied!" : "Copy text"}</span>
               </button>
-              <button onClick={onRegenerateCover} style={copyBtnStyle}>
+              <button
+                onClick={onRegenerateCover}
+                disabled={generating}
+                style={{ ...copyBtnStyle, ...(generating ? { opacity: 0.6, cursor: "not-allowed" } : {}) }}
+              >
                 <span>↻</span>Regenerate
               </button>
             </div>
@@ -592,26 +628,9 @@ export function ApplicationPanel({
                 </div>
               )}
             </div>
-            <button
-              onClick={onGenerateCover}
-              style={{
-                flex: "0 0 auto",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                fontWeight: 700,
-                fontSize: "14px",
-                color: "#fff",
-                background: "#3b6fd4",
-                border: "none",
-                borderRadius: "11px",
-                padding: "12px 20px",
-                cursor: "pointer",
-                boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-              }}
-            >
+            <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
               Retry
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -646,7 +665,7 @@ export function ApplicationPanel({
               Greenhouse
             </span>
             <div style={{ flex: 1 }} />
-            <div style={{ fontSize: "11.5px", color: "#8a93a3", fontWeight: 600 }}>
+            <div style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 600 }}>
               Pulled from this posting
             </div>
           </div>
@@ -718,7 +737,7 @@ export function ApplicationPanel({
                         cursor: "pointer",
                       }}
                     >
-                      {copiedKey === row.key ? "Copied!" : "Copy"}
+                      <span aria-live="polite">{copiedKey === row.key ? "Copied!" : "Copy"}</span>
                     </button>
                   )}
                 </div>
@@ -798,7 +817,7 @@ export function ApplicationPanel({
 
           {answerRows.length === 0 ? (
             <div
-              style={{ fontSize: "12.5px", color: "#8a93a3", marginTop: "10px", fontWeight: 500 }}
+              style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "10px", fontWeight: 500 }}
             >
               No saved answers yet —{" "}
               <a href="/profile" style={{ color: "#3b6fd4", textDecoration: "underline" }}>
@@ -826,7 +845,7 @@ export function ApplicationPanel({
                       flex: "0 0 150px",
                       fontSize: "12px",
                       fontWeight: 700,
-                      color: "#8a93a3",
+                      color: "#6b7480",
                     }}
                   >
                     {row.label}
@@ -862,7 +881,7 @@ export function ApplicationPanel({
                       cursor: "pointer",
                     }}
                   >
-                    {copiedKey === row.key ? "Copied!" : "Copy"}
+                    <span aria-live="polite">{copiedKey === row.key ? "Copied!" : "Copy"}</span>
                   </button>
                 </div>
               ))}

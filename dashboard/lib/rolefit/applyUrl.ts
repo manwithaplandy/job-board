@@ -9,23 +9,33 @@
 // All but lever already store a url that links straight to the posting/apply page,
 // so they pass through unchanged. Pure and total: never throws, and returns null
 // when there is no usable url.
+
+function safeHttpUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:" ? raw : null;
+  } catch { return null; }
+}
+
 export function applyUrl(
   ats: string | null | undefined,
   url: string | null | undefined,
 ): string | null {
   const trimmed = url?.trim();
   if (!trimmed) return null;
+  const safe = safeHttpUrl(trimmed);
+  if (!safe) return null;
 
   switch ((ats ?? "").toLowerCase()) {
     case "lever":
-      return leverApplyUrl(trimmed);
+      return leverApplyUrl(safe);
     case "greenhouse":
     case "ashby":
     case "workable":
     case "smartrecruiters":
     case "workday":
     default:
-      return trimmed;
+      return safe;
   }
 }
 

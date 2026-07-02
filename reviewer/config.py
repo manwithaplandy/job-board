@@ -10,6 +10,8 @@ def _int_env(name: str, default: int) -> int:
 
 CONCURRENCY = _int_env("REVIEW_CONCURRENCY", 5)
 MAX_JOBS_PER_RUN = _int_env("REVIEW_MAX_JOBS_PER_RUN", 200)
+STAGE1_BATCH_SIZE = _int_env("REVIEW_STAGE1_BATCH", 50)
+PERSIST_CHUNK_SIZE = _int_env("REVIEW_PERSIST_CHUNK", 20)
 
 
 def has_api_key() -> bool:

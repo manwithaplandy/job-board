@@ -38,7 +38,7 @@ export function CompanyList({
               border: "none", cursor: "pointer", fontWeight: 700, fontSize: "13px",
               padding: "8px 16px", borderRadius: "8px",
               background: active ? "#fff" : "transparent",
-              color: active ? "#1f2430" : "#8a93a3",
+              color: active ? "#1f2430" : "#6b7480",
               boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
             }}>
               {t.label} <span style={{ color: "#9aa3b0" }}>{t.n}</span>

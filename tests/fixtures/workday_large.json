@@ -1,5 +1,5 @@
 {
-  "_NOTE": "Simulates a Workday tenant with MORE postings than a single query can return, to exercise the facet-partitioned crawl. Tests monkeypatch _HARD_CAP=6 and _PAGE_LIMIT=2, so 'over the cap' means total>=6 and pages hold 2 items. The unfaceted response's jobFamilyGroup counts sum to 8 (the true total) while its own `total` is capped at 6; the Engineering slice (count 6) is itself at the cap and must be sub-divided on a finer (location) facet, whose US/EU slices OVERLAP on e3/e4 — so dedup-by-externalPath must collapse them. Union of all leaves = the 8 distinct postings. ids are opaque 32-hex strings exactly like the live `values[].id`.",
+  "_NOTE": "Simulates a Workday tenant with MORE postings than a single query can return, to exercise the facet-partitioned crawl. Tests monkeypatch _HARD_CAP=6 and _PAGE_LIMIT=2, so 'over the cap' means total>=6 and pages hold 2 items. The unfaceted response's jobFamilyGroup counts sum to 8 (the true total) while its own `total` is capped at 6; the Engineering slice (count 6) is itself at the cap and must be sub-divided on a finer (location) facet, whose US/EU slices OVERLAP on e3/e4 \u2014 so dedup-by-externalPath must collapse them. Union of all leaves = the 8 distinct postings. ids are opaque 32-hex strings exactly like the live `values[].id`.",
   "ids": {
     "ENG": "0c40f6bd1d8f10ae43ffaefd46dc7e78",
     "SALES": "0c40f6bd1d8f10ae43ffcac5bbec7e90",
@@ -12,24 +12,48 @@
   "unfaceted": {
     "total": 6,
     "jobPostings": [
-      {"title": "Canary (must NOT be ingested directly)", "externalPath": "/job/canary/JR-C1", "locationsText": "X"},
-      {"title": "Canary (must NOT be ingested directly)", "externalPath": "/job/canary/JR-C2", "locationsText": "X"}
+      {
+        "title": "Canary (must NOT be ingested directly)",
+        "externalPath": "/job/canary/JR-C1",
+        "locationsText": "X"
+      },
+      {
+        "title": "Canary (must NOT be ingested directly)",
+        "externalPath": "/job/canary/JR-C2",
+        "locationsText": "X"
+      }
     ],
     "facets": [
       {
         "facetParameter": "jobFamilyGroup",
         "descriptor": "Job Category",
         "values": [
-          {"descriptor": "Engineering", "id": "0c40f6bd1d8f10ae43ffaefd46dc7e78", "count": 6},
-          {"descriptor": "Sales", "id": "0c40f6bd1d8f10ae43ffcac5bbec7e90", "count": 2}
+          {
+            "descriptor": "Engineering",
+            "id": "0c40f6bd1d8f10ae43ffaefd46dc7e78",
+            "count": 6
+          },
+          {
+            "descriptor": "Sales",
+            "id": "0c40f6bd1d8f10ae43ffcac5bbec7e90",
+            "count": 2
+          }
         ]
       },
       {
         "facetParameter": "timeType",
         "descriptor": "Time Type",
         "values": [
-          {"descriptor": "Full time", "id": "5509c0b5959810ac0029943377d47364", "count": 7},
-          {"descriptor": "Part time", "id": "5509c0b5959810ac00299430e7947363", "count": 1}
+          {
+            "descriptor": "Full time",
+            "id": "5509c0b5959810ac0029943377d47364",
+            "count": 7
+          },
+          {
+            "descriptor": "Part time",
+            "id": "5509c0b5959810ac00299430e7947363",
+            "count": 1
+          }
         ]
       }
     ]
@@ -38,30 +62,54 @@
     "ENG": {
       "total": 6,
       "jobPostings": [
-        {"title": "Engineering page-0 (sub-divided, not ingested here)", "externalPath": "/job/eng-canary/JR-EC1", "locationsText": "X"},
-        {"title": "Engineering page-0 (sub-divided, not ingested here)", "externalPath": "/job/eng-canary/JR-EC2", "locationsText": "X"}
+        {
+          "title": "Engineering page-0 (sub-divided, not ingested here)",
+          "externalPath": "/job/eng-canary/JR-EC1",
+          "locationsText": "X"
+        },
+        {
+          "title": "Engineering page-0 (sub-divided, not ingested here)",
+          "externalPath": "/job/eng-canary/JR-EC2",
+          "locationsText": "X"
+        }
       ],
       "facets": [
         {
           "facetParameter": "jobFamilyGroup",
           "descriptor": "Job Category",
           "values": [
-            {"descriptor": "Engineering", "id": "0c40f6bd1d8f10ae43ffaefd46dc7e78", "count": 6}
+            {
+              "descriptor": "Engineering",
+              "id": "0c40f6bd1d8f10ae43ffaefd46dc7e78",
+              "count": 6
+            }
           ]
         },
         {
           "facetParameter": "workerSubType",
           "descriptor": "Job Type",
           "values": [
-            {"descriptor": "Regular Employee", "id": "0c40f6bd1d8f10adf6dae161b1844a15", "count": 6}
+            {
+              "descriptor": "Regular Employee",
+              "id": "0c40f6bd1d8f10adf6dae161b1844a15",
+              "count": 6
+            }
           ]
         },
         {
           "facetParameter": "timeType",
           "descriptor": "Time Type",
           "values": [
-            {"descriptor": "Full time", "id": "5509c0b5959810ac0029943377d47364", "count": 5},
-            {"descriptor": "Part time", "id": "5509c0b5959810ac00299430e7947363", "count": 1}
+            {
+              "descriptor": "Full time",
+              "id": "5509c0b5959810ac0029943377d47364",
+              "count": 5
+            },
+            {
+              "descriptor": "Part time",
+              "id": "5509c0b5959810ac00299430e7947363",
+              "count": 1
+            }
           ]
         },
         {
@@ -71,8 +119,16 @@
               "facetParameter": "locationHierarchy1",
               "descriptor": "Locations",
               "values": [
-                {"descriptor": "United States", "id": "2fcb99c455831013ea52fb338f2932d8", "count": 4},
-                {"descriptor": "Germany", "id": "2fcb99c455831013ea52adc65f5d3254", "count": 4}
+                {
+                  "descriptor": "United States",
+                  "id": "2fcb99c455831013ea52fb338f2932d8",
+                  "count": 4
+                },
+                {
+                  "descriptor": "Germany",
+                  "id": "2fcb99c455831013ea52adc65f5d3254",
+                  "count": 4
+                }
               ]
             }
           ]
@@ -82,56 +138,147 @@
     "SALES": {
       "total": 2,
       "jobPostings": [
-        {"title": "Account Executive", "externalPath": "/job/US-CA-Santa-Clara/Account-Executive_JR-S1", "locationsText": "US, CA, Santa Clara"},
-        {"title": "Sales Director", "externalPath": "/job/US-NY-New-York/Sales-Director_JR-S2", "locationsText": "US, NY, New York"}
+        {
+          "title": "Account Executive",
+          "externalPath": "/job/US-CA-Santa-Clara/Account-Executive_JR-S1",
+          "locationsText": "US, CA, Santa Clara"
+        },
+        {
+          "title": "Sales Director",
+          "externalPath": "/job/US-NY-New-York/Sales-Director_JR-S2",
+          "locationsText": "US, NY, New York"
+        }
       ],
       "facets": []
     },
     "ENG_US": {
       "total": 4,
       "jobPostings": [
-        {"title": "Principal Systems Software Engineer", "externalPath": "/job/US-CA-Santa-Clara/Principal-Systems-Software-Engineer_JR-E1", "locationsText": "US, CA, Santa Clara"},
-        {"title": "Senior GPU Compiler Engineer", "externalPath": "/job/US-TX-Austin/Senior-GPU-Compiler-Engineer_JR-E2", "locationsText": "US, TX, Austin"},
-        {"title": "Distributed Systems Engineer", "externalPath": "/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3", "locationsText": "2 Locations"},
-        {"title": "Senior HPC Architect", "externalPath": "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4", "locationsText": "2 Locations"}
+        {
+          "title": "Principal Systems Software Engineer",
+          "externalPath": "/job/US-CA-Santa-Clara/Principal-Systems-Software-Engineer_JR-E1",
+          "locationsText": "US, CA, Santa Clara"
+        },
+        {
+          "title": "Senior GPU Compiler Engineer",
+          "externalPath": "/job/US-TX-Austin/Senior-GPU-Compiler-Engineer_JR-E2",
+          "locationsText": "US, TX, Austin"
+        },
+        {
+          "title": "Distributed Systems Engineer",
+          "externalPath": "/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3",
+          "locationsText": "2 Locations"
+        },
+        {
+          "title": "Senior HPC Architect",
+          "externalPath": "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4",
+          "locationsText": "2 Locations"
+        }
       ],
       "facets": []
     },
     "ENG_EU": {
       "total": 4,
       "jobPostings": [
-        {"title": "Distributed Systems Engineer", "externalPath": "/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3", "locationsText": "2 Locations"},
-        {"title": "Senior HPC Architect", "externalPath": "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4", "locationsText": "2 Locations"},
-        {"title": "Embedded Systems Engineer", "externalPath": "/job/Germany-Munich/Embedded-Systems-Engineer_JR-E5", "locationsText": "Germany, Munich"},
-        {"title": "Compiler Engineer", "externalPath": "/job/France-Remote/Compiler-Engineer_JR-E6", "locationsText": "France, Remote"}
+        {
+          "title": "Distributed Systems Engineer",
+          "externalPath": "/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3",
+          "locationsText": "2 Locations"
+        },
+        {
+          "title": "Senior HPC Architect",
+          "externalPath": "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4",
+          "locationsText": "2 Locations"
+        },
+        {
+          "title": "Embedded Systems Engineer",
+          "externalPath": "/job/Germany-Munich/Embedded-Systems-Engineer_JR-E5",
+          "locationsText": "Germany, Munich"
+        },
+        {
+          "title": "Compiler Engineer",
+          "externalPath": "/job/France-Remote/Compiler-Engineer_JR-E6",
+          "locationsText": "France, Remote"
+        }
       ],
       "facets": []
     }
   },
   "details": {
     "/job/US-CA-Santa-Clara/Account-Executive_JR-S1": {
-      "jobPostingInfo": {"title": "Account Executive", "location": "US, CA, Santa Clara", "additionalLocations": [], "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Santa-Clara/Account-Executive_JR-S1"}
+      "jobPostingInfo": {
+        "title": "Account Executive",
+        "location": "US, CA, Santa Clara",
+        "additionalLocations": [],
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Santa-Clara/Account-Executive_JR-S1"
+      }
     },
     "/job/US-NY-New-York/Sales-Director_JR-S2": {
-      "jobPostingInfo": {"title": "Sales Director", "location": "US, NY, New York", "additionalLocations": []}
+      "jobPostingInfo": {
+        "title": "Sales Director",
+        "location": "US, NY, New York",
+        "additionalLocations": []
+      }
     },
     "/job/US-CA-Santa-Clara/Principal-Systems-Software-Engineer_JR-E1": {
-      "jobPostingInfo": {"title": "Principal Systems Software Engineer", "location": "US, CA, Santa Clara", "additionalLocations": [], "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Santa-Clara/Principal-Systems-Software-Engineer_JR-E1"}
+      "jobPostingInfo": {
+        "title": "Principal Systems Software Engineer",
+        "location": "US, CA, Santa Clara",
+        "additionalLocations": [],
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Santa-Clara/Principal-Systems-Software-Engineer_JR-E1"
+      }
     },
     "/job/US-TX-Austin/Senior-GPU-Compiler-Engineer_JR-E2": {
-      "jobPostingInfo": {"title": "Senior GPU Compiler Engineer", "location": "US, TX, Austin", "additionalLocations": []}
+      "jobPostingInfo": {
+        "title": "Senior GPU Compiler Engineer",
+        "location": "US, TX, Austin",
+        "additionalLocations": []
+      }
     },
     "/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3": {
-      "jobPostingInfo": {"title": "Distributed Systems Engineer", "location": "US, CA, Remote", "additionalLocations": ["Germany, Munich"], "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3"}
+      "jobPostingInfo": {
+        "title": "Distributed Systems Engineer",
+        "location": "US, CA, Remote",
+        "additionalLocations": [
+          "Germany, Munich"
+        ],
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/US-CA-Remote/Distributed-Systems-Engineer_JR-E3"
+      }
     },
     "/job/US-CA-Santa-Clara/Senior-HPC-Architect_JR-E4": {
-      "jobPostingInfo": {"title": "Senior HPC Architect", "location": "US, CA, Santa Clara", "additionalLocations": ["Germany, Munich"]}
+      "jobPostingInfo": {
+        "title": "Senior HPC Architect",
+        "location": "US, CA, Santa Clara",
+        "additionalLocations": [
+          "Germany, Munich"
+        ]
+      }
     },
     "/job/Germany-Munich/Embedded-Systems-Engineer_JR-E5": {
-      "jobPostingInfo": {"title": "Embedded Systems Engineer", "location": "Germany, Munich", "additionalLocations": []}
+      "jobPostingInfo": {
+        "title": "Embedded Systems Engineer",
+        "location": "Germany, Munich",
+        "additionalLocations": []
+      }
     },
     "/job/France-Remote/Compiler-Engineer_JR-E6": {
-      "jobPostingInfo": {"title": "Compiler Engineer", "location": "France, Remote", "additionalLocations": []}
+      "jobPostingInfo": {
+        "title": "Compiler Engineer",
+        "location": "France, Remote",
+        "additionalLocations": []
+      }
+    },
+    "/job/canary/JR-C1": {
+      "jobPostingInfo": {
+        "title": "Canary Job 1",
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/canary/JR-C1"
+      }
+    },
+    "/job/canary/JR-C2": {
+      "jobPostingInfo": {
+        "title": "Canary Job 2",
+        "externalUrl": "https://acme.wd5.myworkdayjobs.com/External/job/canary/JR-C2"
+      }
     }
   }
 }

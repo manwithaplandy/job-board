@@ -105,7 +105,12 @@ reviewer-only commits also redeploy the Job Discovery service.
   deactivated-company roles are deleted after `CLOSED_JOB_RETENTION_DAYS` (default 30)
   unless approved. Tuning: `PRUNE_BATCH_SIZE` (2000), `PRUNE_MAX_ROWS_PER_RUN` (20000).
   One-time migration of pre-existing rows: `python -m job_discovery.backfill_descriptions`.
-- **Database** → Supabase (Postgres). Apply `schema.sql` as a migration.
+- **Database** → Supabase (Postgres). Apply `schema.sql` as a migration. Incremental
+  changes are in `migrations/` — apply each file manually in filename order against Supabase,
+  then record it with `INSERT INTO schema_migrations (filename) VALUES ('<file>');`.
+  Every migration must be idempotent (`IF [NOT] EXISTS`), transactional where possible
+  (`BEGIN/COMMIT`), and mirrored into `schema.sql`. `CREATE INDEX CONCURRENTLY` statements
+  cannot run inside a transaction — keep them outside `BEGIN/COMMIT` and run them individually.
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
 
 Pushes to `main` auto-deploy the affected component.

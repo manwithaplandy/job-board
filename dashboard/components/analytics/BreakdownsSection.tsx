@@ -7,7 +7,7 @@ import { redFlagCategoryLabel } from "@/lib/redFlags";
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: "20px" }}>
-      <div style={{ fontSize: "12px", fontWeight: 800, color: "#8a93a3", letterSpacing: ".4px", margin: "4px 0 10px" }}>
+      <div style={{ fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: "4px 0 10px" }}>
         {label}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px" }}>

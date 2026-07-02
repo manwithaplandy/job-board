@@ -25,7 +25,7 @@ function Toggle<T extends string | number>(
           <button key={String(o.v)} onClick={() => onChange(o.v)} style={{
             border: "none", cursor: "pointer", fontWeight: 700, fontSize: "12.5px", padding: "6px 14px",
             borderRadius: "7px", background: active ? "#fff" : "transparent",
-            color: active ? "#1f2430" : "#8a93a3", boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
+            color: active ? "#1f2430" : "#6b7480", boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
           }}>{o.label}</button>
         );
       })}
@@ -103,7 +103,7 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
           options={[{ v: 30, label: "30 days" }, { v: 90, label: "90 days" }]} />
       </div>
 
-      <div style={{ fontSize: "12px", fontWeight: 800, color: "#8a93a3", letterSpacing: ".4px", margin: "4px 0 10px" }}>VOLUME</div>
+      <div style={{ fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: "4px 0 10px" }}>VOLUME</div>
       <BarsCard title="Jobs found vs closed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
         bars={[{ key: "new_jobs", name: "New", color: COLORS.green }, { key: "closed_jobs", name: "Closed", color: COLORS.red }]} />
       <BarsCard title="Job Discovery — companies ok vs failed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
@@ -115,7 +115,7 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
         bars={[{ key: "included", name: "Included", color: COLORS.green }, { key: "excluded", name: "Excluded", color: COLORS.red },
                { key: "unknown", name: "Unknown", color: COLORS.slate }, { key: "errors", name: "Errors", color: COLORS.amber }]} />
 
-      <div style={{ fontSize: "12px", fontWeight: 800, color: "#8a93a3", letterSpacing: ".4px", margin: "18px 0 10px" }}>RATES &amp; OPERATIONS</div>
+      <div style={{ fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: "18px 0 10px" }}>RATES &amp; OPERATIONS</div>
       <LinesCard title="Review rates" data={reviewDerived} xKey="day" percent
         lines={[{ key: "approval_rate", name: "Approval", color: COLORS.green }, { key: "gate_rate", name: "Gate-reject", color: COLORS.amber }]} />
       <LinesCard title="Company Discovery inclusion rate" data={companyDiscoveryDerived} xKey="day" percent

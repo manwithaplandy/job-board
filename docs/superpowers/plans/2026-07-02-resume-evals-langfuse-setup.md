@@ -157,7 +157,7 @@ If no scores appear after ~30 seconds, check that the evaluator filter matches (
 2. Enter grounding and JD-relevance scores (1–5) and an optional comment.
 3. Submit. Confirm no error toast.
 4. In Supabase, verify a row was inserted into `resume_scores` for this application.
-5. In LangFuse → **Datasets** → `resume-golden`, confirm a new dataset item appears whose `expectedOutput` holds `{ grounding, jdRelevance, comment, overall }`.
+5. In LangFuse → **Datasets** → `resume-golden`, confirm a new dataset item appears whose `expectedOutput` holds `{ grounding, jd_relevance, comment, overall }`.
 
 ### Step 4.4 — Run the calibration report
 

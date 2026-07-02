@@ -237,7 +237,7 @@ const TOP_N = 10;
 
 export interface Distributions {
   jobsByLocation: Bar[]; jobsByDepartment: Bar[]; jobsRemote: Bar[];
-  jobsByCompany: Bar[]; jobLifespan: Bar[];
+  jobsByCompany: Bar[]; jobsByAts: Bar[]; jobLifespan: Bar[];
   fitScore: Bar[]; approvalsByIndustry: Bar[]; approvalsByRole: Bar[];
   approvalsBySeniority: Bar[]; experienceMatch: Bar[]; workArrangement: Bar[];
   companiesByAts: Bar[]; companiesBySource: Bar[]; includedByIndustry: Bar[];
@@ -248,7 +248,7 @@ const asBars = (rows: unknown) => rows as unknown as Bar[];
 
 export async function getDistributions(userId: string): Promise<Distributions> {
   const [
-    jobsByLocation, jobsByDepartment, jobsRemote, jobsByCompany, jobLifespan,
+    jobsByLocation, jobsByDepartment, jobsRemote, jobsByCompany, jobsByAts, jobLifespan,
     fitScore, approvalsByIndustry, approvalsByRole, approvalsBySeniority,
     experienceMatch, workArrangement,
     companiesByAts, companiesBySource, includedByIndustry, topTechTags, topRedFlags,
@@ -265,6 +265,9 @@ export async function getDistributions(userId: string): Promise<Distributions> {
     () => sql`SELECT c.name AS label, count(*)::int AS count
         FROM jobs j JOIN companies c ON c.id = j.company_id
         WHERE j.closed_at IS NULL GROUP BY c.name ORDER BY count DESC LIMIT ${TOP_N}`,
+    () => sql`SELECT c.ats AS label, count(*)::int AS count
+        FROM jobs j JOIN companies c ON c.id = j.company_id
+        WHERE j.closed_at IS NULL GROUP BY c.ats ORDER BY count DESC`,
     () => sql`SELECT CASE
                WHEN d < 1 THEN '<1d' WHEN d < 3 THEN '1-3d' WHEN d < 7 THEN '3-7d'
                WHEN d < 14 THEN '1-2w' WHEN d < 30 THEN '2-4w' WHEN d < 60 THEN '1-2mo'
@@ -322,7 +325,8 @@ export async function getDistributions(userId: string): Promise<Distributions> {
 
   return {
     jobsByLocation: asBars(jobsByLocation), jobsByDepartment: asBars(jobsByDepartment),
-    jobsRemote: asBars(jobsRemote), jobsByCompany: asBars(jobsByCompany), jobLifespan: asBars(jobLifespan),
+    jobsRemote: asBars(jobsRemote), jobsByCompany: asBars(jobsByCompany),
+    jobsByAts: asBars(jobsByAts), jobLifespan: asBars(jobLifespan),
     fitScore: asBars(fitScore), approvalsByIndustry: asBars(approvalsByIndustry),
     approvalsByRole: asBars(approvalsByRole), approvalsBySeniority: asBars(approvalsBySeniority),
     experienceMatch: asBars(experienceMatch), workArrangement: asBars(workArrangement),

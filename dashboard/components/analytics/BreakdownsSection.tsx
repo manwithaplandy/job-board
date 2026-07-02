@@ -26,6 +26,7 @@ export function BreakdownsSection({ distributions: d }: { distributions: Distrib
         <SimpleBarCard title="Open jobs by department" data={d.jobsByDepartment} />
         <SimpleBarCard title="Remote vs on-site/hybrid" data={d.jobsRemote} />
         <SimpleBarCard title="Top companies by open roles" data={d.jobsByCompany} />
+        <SimpleBarCard title="Open jobs by ATS" data={d.jobsByAts} />
         <SimpleBarCard title="Job lifespan (closed roles)" data={d.jobLifespan} />
       </Group>
       <Group label="REVIEWS">

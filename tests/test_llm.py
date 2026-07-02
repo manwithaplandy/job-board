@@ -56,6 +56,7 @@ def test_stage1_passes_title_and_sends_profile_in_system():
     call = fake.calls[0]
     assert call["model"] == "m1"
     assert call["response_format"] is Stage1Result
+    assert call["max_tokens"] == 512  # cap forwarded, not silently dropped
     msgs = call["messages"]
     assert msgs[0]["role"] == "system" and "P" in msgs[0]["content"]
     assert msgs[1]["role"] == "user" and "Staff Engineer" in msgs[1]["content"]
@@ -74,6 +75,7 @@ def test_stage2_includes_jd_and_uses_stage2_model():
     call = fake.calls[0]
     assert call["model"] == "m2"
     assert call["response_format"] is Stage2Result
+    assert call["max_tokens"] == 6000  # cap forwarded, not silently dropped
     assert "Operate Kubernetes clusters" in call["messages"][1]["content"]
 
 
@@ -197,6 +199,29 @@ def test_stage1_batches_titles():
     # All 45 jobs mapped back
     assert len(results) == 45
     assert all(r.decision == "pass" for r in results)
+
+
+def test_stage1_batch_forwards_cache_control_for_claude():
+    """For Claude model slugs, stage1_batch forwards its cache_control extra_body
+    (merged with usage accounting) to the transport instead of dropping it."""
+    from reviewer.schemas import Stage1BatchResult, Stage1Decision
+
+    calls = []
+
+    class _BatchCompletions:
+        async def parse(self, **kwargs):
+            calls.append(kwargs)
+            return _make_response(Stage1BatchResult(
+                decisions=[Stage1Decision(job_id="1", decision="pass", reason="r")]))
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_BatchCompletions())))
+    rc = ReviewClient(client=fake, model_stage1="anthropic/claude-3.5-sonnet", model_stage2="m2")
+    jobs = [{"id": "1", "title": "SRE", "company_name": "Acme", "location": None}]
+    asyncio.run(rc.stage1_batch(profile_block="P", jobs=jobs))
+    extra = calls[0]["extra_body"]
+    assert extra["cache_control"] == {"type": "ephemeral"}  # forwarded, not dropped
+    assert extra["usage"]["include"] is True                # accounting preserved
 
 
 def test_persist_commits_per_chunk(monkeypatch):

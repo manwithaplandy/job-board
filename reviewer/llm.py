@@ -98,6 +98,7 @@ class ReviewClient:
         parsed, _ = await traced_structured_call(
             self._client, model=model, messages=messages,
             schema=schema, name=f"stage{stage}", metadata={"max_tokens": max_tokens},
+            max_tokens=max_tokens,
         )
         return parsed
 
@@ -127,7 +128,8 @@ class ReviewClient:
         ]
         parsed, _ = await traced_structured_call(
             self._client, model=self.model_stage1, messages=messages,
-            schema=Stage1BatchResult, name="stage1_batch", metadata={"batch_size": len(jobs)},
+            schema=Stage1BatchResult, name="stage1_batch",
+            metadata={"batch_size": len(jobs)}, extra_body=extra,
         )
         return parsed.decisions
 

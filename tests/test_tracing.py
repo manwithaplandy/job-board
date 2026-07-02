@@ -166,3 +166,101 @@ def test_both_clients_share_helper(monkeypatch):
     crc = CompanyReviewClient(client=types.SimpleNamespace(), model="m")
     asyncio.run(crc.review(company_block="P", name="X", ats="lever", token="x"))
     assert "company-screen" in calls
+
+
+def test_extra_body_and_max_tokens_forwarded(monkeypatch):
+    """max_tokens and a caller extra_body (merged with usage accounting) reach the transport."""
+    from observability import llm as obs_llm
+    from reviewer.schemas import Stage1Result
+
+    calls = []
+
+    class _Completions:
+        async def parse(self, **kwargs):
+            calls.append(kwargs)
+            msg = types.SimpleNamespace(
+                parsed=Stage1Result(decision="pass", reason="ok"), refusal=None)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=msg)], usage=None)
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_Completions())))
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: None)
+    asyncio.run(obs_llm.traced_structured_call(
+        fake, model="m", messages=[{"role": "user", "content": "hi"}],
+        schema=Stage1Result, name="t", metadata={},
+        max_tokens=512, extra_body={"cache_control": {"type": "ephemeral"}},
+    ))
+    call = calls[0]
+    assert call["max_tokens"] == 512                                   # cap forwarded
+    assert call["extra_body"]["usage"]["include"] is True              # accounting preserved
+    assert call["extra_body"]["cache_control"] == {"type": "ephemeral"}  # caller passthrough
+
+
+def test_span_wraps_awaited_api_call(monkeypatch):
+    """The generation span is entered BEFORE the API call and exited AFTER it,
+    so recorded latency reflects the call rather than ~0."""
+    from observability import llm as obs_llm
+    from reviewer.schemas import Stage1Result
+
+    order = []
+
+    class _Gen:
+        def __enter__(self): order.append("enter"); return self
+        def __exit__(self, *a): order.append("exit"); return False
+        def update(self, **kw): order.append("update")
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    class _Completions:
+        async def parse(self, **kwargs):
+            order.append("call")
+            msg = types.SimpleNamespace(
+                parsed=Stage1Result(decision="pass", reason="ok"), refusal=None)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=msg)], usage=None)
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_Completions())))
+    asyncio.run(obs_llm.traced_structured_call(
+        fake, model="m", messages=[{"role": "user", "content": "hi"}],
+        schema=Stage1Result, name="t", metadata={},
+    ))
+    assert order.index("enter") < order.index("call") < order.index("exit")
+    assert order[-1] == "exit"  # span closes only after the call resolves
+
+
+def test_error_recorded_inside_span(monkeypatch):
+    """On API failure the span is opened and the error recorded inside it."""
+    from observability import llm as obs_llm
+    from reviewer.schemas import Stage1Result
+
+    recorded = {}
+    entered = []
+
+    class _Gen:
+        def __enter__(self): entered.append(True); return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): recorded.update(kw)
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    class _Boom:
+        async def parse(self, **kwargs):
+            raise RuntimeError("api down")
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_Boom())))
+    with pytest.raises(RuntimeError, match="api down"):
+        asyncio.run(obs_llm.traced_structured_call(
+            fake, model="m", messages=[{"role": "user", "content": "hi"}],
+            schema=Stage1Result, name="t", metadata={},
+        ))
+    assert entered == [True]                    # span opened before the failing call
+    assert recorded.get("level") == "ERROR"     # error recorded inside the span

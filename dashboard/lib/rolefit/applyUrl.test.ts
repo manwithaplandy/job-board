@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 
 describe("applyUrl", () => {
@@ -71,4 +71,8 @@ describe("applyUrl", () => {
     const u = "https://careers.acme.com/job/42";
     expect(applyUrl(null, u)).toBe(u);
   });
+
+  it("rejects javascript: URLs", () => expect(applyUrl(null, "javascript:alert(1)")).toBeNull());
+  it("rejects data: URLs",       () => expect(applyUrl(null, "data:text/html,x")).toBeNull());
+  it("keeps https URLs",         () => expect(applyUrl(null, "https://x.co/apply")).toBe("https://x.co/apply"));
 });

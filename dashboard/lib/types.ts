@@ -25,20 +25,33 @@ export interface JobReviewDetail {
   corrected: boolean;
 }
 
-export interface JobRow {
+// The columns present on EVERY board row — the ones buildJobsQuery selects even on
+// the anon path (no owner reviews joined). This is the honest DB-boundary shape the
+// row mappers consume: postgres delivers timestamptz as Date (normalized to ISO
+// strings by toJobRow), and human_override is null when no owner review was joined.
+export interface JobRowBase {
   id: string;
   title: string;
   location: string | null;
   remote: boolean | null;
+  first_seen_at: string | Date;
+  closed_at: string | Date | null;
+  company_name: string;
+  human_override: boolean | null;  // null when no owner review was joined
+}
+
+// A board row after mapping (toJobRow), with the owner's review columns merged in.
+// The mapper normalizes the JobRowBase timestamps to ISO strings and defaults
+// human_override, so those are narrowed here.
+export interface ReviewedJobRow extends JobRowBase {
   first_seen_at: string;
   closed_at: string | null;
-  company_name: string;
+  human_override: boolean;  // TRUE when the operator manually rejected this job
   // Review fields below are populated only when the board has an owner whose
   // job_reviews are joined (buildJobsQuery). With no owner the query omits these
   // columns and they are undefined at runtime — read them only behind the
   // showMatch / verdict guards (see JobCard, FilterBar review filters).
   verdict: string | null;
-  human_override: boolean;  // TRUE when the operator manually rejected this job
   corrected?: boolean;      // TRUE when a review_corrections row overrides the model review
   role_category: string | null;
   seniority: string | null;
@@ -77,6 +90,9 @@ export interface JobRow {
   stage1_decision?: string | null;
   stage1_reason?: string | null;
 }
+
+// Backward-compat alias so existing component imports keep compiling.
+export type JobRow = ReviewedJobRow;
 
 export interface CompanyRow {
   id: number;

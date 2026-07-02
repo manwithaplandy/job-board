@@ -79,35 +79,10 @@ def test_run_experiment_iterates_items(monkeypatch):
     assert len(stub.stage2_calls) == 2
 
 
-def test_sync_preserves_dashboard_provenance(monkeypatch):
-    """sync_golden_dataset keeps existing metadata.source='dashboard' instead of overwriting."""
-    from observability import tracing
-    from reviewer import experiments
-
-    created_items = []
-
-    class _DS:
-        pass  # not used in sync
-
-    class _LF:
-        def create_dataset(self, *, name):
-            pass
-
-        def create_dataset_item(self, *, dataset_name, id, input, expected_output, metadata):
-            created_items.append({"id": id, "metadata": metadata})
-
-        def flush(self):
-            pass
-
-        def get_dataset(self, name):
-            return _DS()
-
-    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
-
-    # Fake db.golden_corrections returning one row with corrected_at
+def _correction_row(user_id, job_id):
     import datetime
-    fake_row = {
-        "user_id": "u1", "job_id": "j1", "title": "SRE", "company_name": "Acme",
+    return {
+        "user_id": user_id, "job_id": job_id, "title": "SRE", "company_name": "Acme",
         "location": "Remote", "ats": "lever",
         "description": "jd", "resume_text": "r", "instructions": "i",
         "verdict": "approve", "experience_match": "match",
@@ -117,12 +92,69 @@ def test_sync_preserves_dashboard_provenance(monkeypatch):
         "comp_score": 60, "note": None,
         "corrected_at": datetime.datetime(2025, 1, 1),
     }
-    monkeypatch.setattr(experiments.db, "golden_corrections", lambda conn: [fake_row])
+
+
+def test_sync_preserves_dashboard_provenance(monkeypatch):
+    """An existing item with metadata.source='dashboard' keeps it after sync; an
+    item Langfuse doesn't already have is stamped 'backfill'."""
+    from observability import tracing
+    from reviewer import experiments
+
+    created_items = []
+
+    class _ExistingItem:
+        id = "u1:j1"
+        metadata = {"source": "dashboard"}
+
+    class _DS:
+        items = [_ExistingItem()]
+
+    class _LF:
+        def create_dataset(self, *, name):
+            pass
+
+        def get_dataset(self, name):
+            return _DS()
+
+        def create_dataset_item(self, *, dataset_name, id, input, expected_output, metadata):
+            created_items.append({"id": id, "metadata": metadata})
+
+        def flush(self):
+            pass
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    # u1:j1 already exists (dashboard-sourced); u2:j2 is new.
+    monkeypatch.setattr(
+        experiments.db, "golden_corrections",
+        lambda conn: [_correction_row("u1", "j1"), _correction_row("u2", "j2")],
+    )
 
     n = sync_golden_dataset(None)
-    assert n == 1
-    # The synced item's metadata must include source='backfill' (default stamp)
-    assert created_items[0]["metadata"]["source"] == "backfill"
+    assert n == 2
+    by_id = {i["id"]: i for i in created_items}
+    assert by_id["u1:j1"]["metadata"]["source"] == "dashboard"  # preserved, not overwritten
+    assert by_id["u2:j2"]["metadata"]["source"] == "backfill"   # default stamp for new items
+
+
+def test_stage1_evaluated_separately():
+    """The stage1_pass evaluator scores 1.0 when the gate passes, 0.0 when it rejects."""
+    from reviewer.experiments import _stage1_pass_evaluator
+    from tests.test_reviewer_run import StubClient
+
+    ev = _stage1_pass_evaluator(StubClient())
+
+    class _Pass:
+        input = {"title": "SRE", "company_name": "Acme", "location": "Remote",
+                 "resume_text": "r", "instructions": "i"}
+
+    class _Reject:
+        input = {"title": "Forklift Operator", "company_name": "X", "location": None,
+                 "resume_text": "r", "instructions": "i"}
+
+    e_pass = ev(input={}, output={}, expected_output={}, item=_Pass())
+    e_reject = ev(input={}, output={}, expected_output={}, item=_Reject())
+    assert e_pass.name == "stage1_pass" and e_pass.value == 1.0
+    assert e_reject.value == 0.0
 
 
 def test_experiment_bypasses_stage1():

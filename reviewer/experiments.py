@@ -94,22 +94,41 @@ _GOLDEN_FIELDS = GOLDEN_CATEGORICALS + GOLDEN_SCORES
 
 
 def sync_golden_dataset(conn, name: str = "reviewer-golden") -> int:
-    """Push every human correction as a dataset item (upsert by user:job id)."""
+    """Push every human correction as a dataset item (upsert by user:job id).
+
+    Provenance is preserved: an item Langfuse already has keeps its existing
+    metadata.source (e.g. 'dashboard'); only items not already present are stamped
+    'backfill'. This requires a get-before-upsert against the dataset.
+    """
     lf = tracing.get_langfuse()
     if lf is None:
         raise RuntimeError("LANGFUSE_* not set; cannot sync dataset")
     lf.create_dataset(name=name)
+
+    # Existing items' provenance, so a re-sync never clobbers a dashboard source.
+    existing_source: dict[str, str] = {}
+    try:
+        dataset = lf.get_dataset(name)
+    except Exception:
+        dataset = None
+    for it in (getattr(dataset, "items", None) or []):
+        src = (getattr(it, "metadata", None) or {}).get("source")
+        if src:
+            existing_source[it.id] = src
+
     rows = db.golden_corrections(conn)
     for r in rows:
+        item_id = f"{r['user_id']}:{r['job_id']}"
         lf.create_dataset_item(
             dataset_name=name,
-            id=f"{r['user_id']}:{r['job_id']}",
+            id=item_id,
             input={k: r[k] for k in ("title", "company_name", "location",
                                      "ats", "description", "resume_text",
                                      "instructions")},
             expected_output={k: r[k] for k in _GOLDEN_FIELDS},
             metadata={"corrected_at": r["corrected_at"].isoformat(),
-                      "note": r["note"], "source": "backfill"},
+                      "note": r["note"],
+                      "source": existing_source.get(item_id, "backfill")},
         )
     lf.flush()
     return len(rows)

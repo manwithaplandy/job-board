@@ -626,57 +626,59 @@ export function JobDetail({
             </div>
           )}
 
-          {/* ── Full job description (collapsible) + Apply ── */}
-          {(fullJD || applyUrl) && (
-            <div
-              style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
-            >
-              {fullJD && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowJD((v) => !v)}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "7px",
-                      fontWeight: 700,
-                      fontSize: "13px",
-                      color: "#3b6fd4",
-                      background: "#fff",
-                      border: "1px solid #d7e0f2",
-                      borderRadius: "9px",
-                      padding: "8px 16px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {showJD ? "Hide full job description" : "Show full job description"}
-                    <span aria-hidden="true">{showJD ? "▴" : "▾"}</span>
-                  </button>
-                  {showJD && (
-                    <div
-                      style={{
-                        whiteSpace: "pre-wrap",
-                        fontSize: "13.5px",
-                        lineHeight: 1.6,
-                        color: "#5b6472",
-                        marginTop: "16px",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {fullJD}
-                    </div>
-                  )}
-                </>
-              )}
-              {applyUrl && (
-                <div style={{ marginTop: "18px" }}>
-                  <ApplyButton url={applyUrl} />
+        </>
+      )}
+
+      {/* ── Full job description (collapsible) + Apply — rendered for any role that has
+           a JD or apply link, reviewed or not, so an unreviewed role is never a dead end. ── */}
+      {(fullJD || applyUrl) && (
+        <div
+          style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
+        >
+          {fullJD && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowJD((v) => !v)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                  color: "#3b6fd4",
+                  background: "#fff",
+                  border: "1px solid #d7e0f2",
+                  borderRadius: "9px",
+                  padding: "8px 16px",
+                  cursor: "pointer",
+                }}
+              >
+                {showJD ? "Hide full job description" : "Show full job description"}
+                <span aria-hidden="true">{showJD ? "▴" : "▾"}</span>
+              </button>
+              {showJD && (
+                <div
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    fontSize: "13.5px",
+                    lineHeight: 1.6,
+                    color: "#5b6472",
+                    marginTop: "16px",
+                    fontWeight: 500,
+                  }}
+                >
+                  {fullJD}
                 </div>
               )}
+            </>
+          )}
+          {applyUrl && (
+            <div style={{ marginTop: "18px" }}>
+              <ApplyButton url={applyUrl} />
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

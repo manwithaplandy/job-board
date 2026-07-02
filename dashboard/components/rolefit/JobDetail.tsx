@@ -5,6 +5,7 @@ import type { ApplicationAnswers, ApplicationPackage, JobReviewDetail, JobRow } 
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
+import type { PrepareLegStatus } from "./RolefitBoard";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
 import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
@@ -70,12 +71,20 @@ export interface JobDetailProps {
   coverError: Record<string, string>;
   onGenerateCover: (job: JobRow) => void;
   onPrepare: (job: JobRow) => void;
+  // Single generation lock for this job (résumé/cover/prepare share one slot) + cancel.
+  generating?: boolean;
+  onCancelGeneration?: () => void;
+  // Per-leg result of the last prepare — failed legs get an inline retry.
+  prepareStatus?: PrepareLegStatus | null;
   // Persisted package for the selected job (Phase 3) — undefined until prepared.
   pkg?: ApplicationPackage;
   onMarkApplied: (job: JobRow) => void;
   onOpenProfile: () => void;
   onReject?: (job: JobRow) => void;
   onUnapply?: (job: JobRow) => void;
+  // Session-rejected (hidden from the default board); the Rejected view surfaces an un-reject.
+  isRejected?: boolean;
+  onUnreject?: (job: JobRow) => void;
   onCorrected?: (jobId: string, form: CorrectionForm) => void;
   detailState?: { status: "loading" } | { status: "error" } | { status: "done"; detail: JobReviewDetail } | undefined;
   onRetryDetail?: () => void;
@@ -97,11 +106,16 @@ export function JobDetail({
   coverError,
   onGenerateCover,
   onPrepare,
+  generating,
+  onCancelGeneration,
+  prepareStatus,
   pkg,
   onMarkApplied,
   onOpenProfile,
   onReject,
   onUnapply,
+  isRejected,
+  onUnreject,
   onCorrected,
   detailState,
   onRetryDetail,
@@ -339,7 +353,7 @@ export function JobDetail({
       </div>
 
       {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
-      {hasReview && (job.human_override || applied || (isAuthed && job.verdict === "approve") || applyUrl) && (
+      {hasReview && (job.human_override || isRejected || applied || (isAuthed && job.verdict === "approve") || applyUrl) && (
         <div
           style={{
             display: "flex",
@@ -349,7 +363,7 @@ export function JobDetail({
             marginTop: "16px",
           }}
         >
-          {job.human_override && (
+          {(job.human_override || isRejected) && (
             <span
               style={{
                 fontSize: "11.5px",
@@ -363,6 +377,24 @@ export function JobDetail({
             >
               Rejected · you
             </span>
+          )}
+          {isAuthed && isRejected && onUnreject && (
+            <button
+              type="button"
+              onClick={() => onUnreject(job)}
+              style={{
+                fontWeight: 700,
+                fontSize: "12.5px",
+                color: "#2f7d54",
+                background: "#fff",
+                border: "1px solid #cfe6d8",
+                borderRadius: "9px",
+                padding: "7px 16px",
+                cursor: "pointer",
+              }}
+            >
+              Un-reject
+            </button>
           )}
           {applied && (
             <span
@@ -400,7 +432,7 @@ export function JobDetail({
               )}
             </span>
           )}
-          {isAuthed && job.verdict === "approve" && !applied && (
+          {isAuthed && job.verdict === "approve" && !applied && !isRejected && (
             <button
               type="button"
               onClick={() => onReject?.(job)}
@@ -418,7 +450,7 @@ export function JobDetail({
               Reject
             </button>
           )}
-          {isAuthed && job.verdict === "approve" && !applied && (
+          {isAuthed && job.verdict === "approve" && !applied && !isRejected && (
             <button
               type="button"
               onClick={() => onMarkApplied(job)}
@@ -486,6 +518,9 @@ export function JobDetail({
             onGenerateCover={() => onGenerateCover(job)}
             onRegenerateCover={() => onGenerateCover(job)}
             onPrepare={() => onPrepare(job)}
+            generating={generating}
+            onCancelGeneration={onCancelGeneration}
+            prepareStatus={prepareStatus}
             greenhouseQuestions={pkg?.greenhouseQuestions ?? null}
             prefilledAnswers={pkg?.prefilledAnswers ?? null}
             status={pkg?.status ?? null}

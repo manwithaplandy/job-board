@@ -5,7 +5,7 @@ import type { ApplicationAnswers, ApplicationPackage, JobRow, JobReviewDetail, O
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
-import { applyFilters, filterByView, sortJobs } from "@/lib/rolefit/filter";
+import { applyFilters, facetCounts, filterByView, sortJobs } from "@/lib/rolefit/filter";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
 import { Header } from "./Header";
@@ -20,6 +20,17 @@ type DetailState =
   | { status: "error" }
   | { status: "done"; detail: JobReviewDetail };
 
+// D7's /api/application/prepare reports each leg independently so a partial failure
+// (e.g. cover letter timed out) still persists what succeeded and offers a per-leg retry.
+type LegStatus = "ok" | "failed";
+export interface PrepareLegStatus {
+  resume: LegStatus;
+  coverLetter: LegStatus;
+  answers: LegStatus;
+}
+
+const isAbort = (e: unknown) => e instanceof Error && e.name === "AbortError";
+
 export interface RolefitBoardProps {
   jobs: JobRow[];
   nowIso: string;
@@ -31,10 +42,11 @@ export interface RolefitBoardProps {
   unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
   markApplied: (jobId: string) => Promise<void>;
   unmarkApplied: (jobId: string) => Promise<void>;
-  // Persist a regenerated résumé/cover back into an existing application_packages row
-  // (so regenerating after Prepare survives a reload). No-op server-side when unprepared.
-  persistResume: (jobId: string, resume: TailoredResume) => Promise<void>;
-  persistCover: (jobId: string, coverLetter: TailoredCoverLetter) => Promise<void>;
+  // removed at D→E merge — server routes persist directly now. Kept as optional props
+  // because this worktree's app/page.tsx (lane D) still passes them; lane D's merged
+  // page.tsx drops them and /api/resume + /api/cover-letter persist server-side.
+  persistResume?: (jobId: string, resume: TailoredResume) => Promise<void>;
+  persistCover?: (jobId: string, coverLetter: TailoredCoverLetter) => Promise<void>;
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;
@@ -67,8 +79,6 @@ export function RolefitBoard({
   unrejectJob,
   markApplied,
   unmarkApplied,
-  persistResume,
-  persistCover,
   operator,
   hasProfile,
   resumeText,
@@ -142,6 +152,14 @@ export function RolefitBoard({
     return m;
   });
   const [coverError, setCoverError] = useState<Record<string, string>>({});
+
+  // Single in-flight generation lock (résumé / cover / prepare all share one slot per
+  // job). While set to a job id, that job's generate/cover/prepare buttons disable and a
+  // Cancel button shows; the AbortController backs the cancel. Per-leg prepare results
+  // land in prepareStatus so a partially-failed prepare can retry just the failed legs.
+  const [generationInFlight, setGenerationInFlight] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const [prepareStatus, setPrepareStatus] = useState<Record<string, PrepareLegStatus>>({});
 
   // Transient bottom-of-screen error notice for failed actions (mark-applied rollback,
   // non-destructive re-prepare/regenerate failures) — mirrors the reject toast styling.
@@ -253,6 +271,10 @@ export function RolefitBoard({
     [jobs, packages],
   );
 
+  // Facet counts scan every job; memoize on `jobs` so they aren't recomputed on every
+  // keystroke/render (FilterBar used to recompute them internally each render).
+  const facets = useMemo(() => facetCounts(jobs), [jobs]);
+
   const visible = useMemo(
     () => filterByView(
       sortJobs(applyFilters(jobs, filterState), filterState.sort),
@@ -282,27 +304,38 @@ export function RolefitBoard({
   // id. JobDetail renders them as they arrive (its sections are already guarded
   // for absent fields), so the lightweight detail view shows instantly.
   const [details, setDetails] = useState<Record<string, DetailState>>({});
-  useEffect(() => {
-    // Fetch only when no cached state exists for the job — "loading"/"done"/"error"
-    // all short-circuit, so errors never auto-loop; Retry deletes the entry to refetch.
-    if (!selectedId || details[selectedId] != null) return;
-    let cancelled = false;
-    setDetails((prev) => ({ ...prev, [selectedId]: { status: "loading" } }));
-    fetch(`/api/jobs/${selectedId}`)
+  // Ids with an in-flight /api/jobs/[id] request. This — not the effect's cleanup — is
+  // how we dedup: the previous version put `details` in the effect deps AND set the
+  // loading state inside it, so writing "loading" re-ran the effect, whose cleanup set
+  // `cancelled=true` and dropped the still-in-flight result (detail stuck on the skeleton
+  // forever). The ref lets the effect depend on `selectedId` alone.
+  const detailInFlightRef = useRef<Set<string>>(new Set());
+  const loadDetail = useCallback((id: string) => {
+    if (detailInFlightRef.current.has(id)) return;
+    detailInFlightRef.current.add(id);
+    setDetails((prev) => ({ ...prev, [id]: { status: "loading" } }));
+    fetch(`/api/jobs/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: JobReviewDetail) => {
-        if (!cancelled) {
-          setDetails((prev) => ({ ...prev, [selectedId]: { status: "done", detail: d } }));
-        }
+        setDetails((prev) => ({ ...prev, [id]: { status: "done", detail: d } }));
       })
       .catch((e) => {
-        if (!cancelled) {
-          console.error("job detail fetch failed", e);
-          setDetails((prev) => ({ ...prev, [selectedId]: { status: "error" } }));
-        }
+        console.error("job detail fetch failed", e);
+        setDetails((prev) => ({ ...prev, [id]: { status: "error" } }));
+      })
+      .finally(() => {
+        detailInFlightRef.current.delete(id);
       });
-    return () => { cancelled = true; };
-  }, [selectedId, details]);
+  }, []);
+  useEffect(() => {
+    // Fetch on open. `details` is read for the cache check but deliberately NOT a dep —
+    // see detailInFlightRef above. Retry refetches by clearing the cache entry + ref and
+    // calling loadDetail directly (removing `details` from deps means a cache-clear alone
+    // no longer re-runs this effect).
+    if (!selectedId || details[selectedId] != null || detailInFlightRef.current.has(selectedId)) return;
+    loadDetail(selectedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, loadDetail]);
 
   const selectedJobWithDetail = useMemo(() => {
     if (!selectedJob) return null;
@@ -406,6 +439,23 @@ export function RolefitBoard({
     setToast(null);
   }, [toast, unrejectJob, unmarkApplied, showActionError]);
 
+  // Un-reject from the card/detail (the Rejected view) after the Undo toast has expired.
+  // Optimistically un-hides the job, then persists via unrejectJob; rolls back on failure.
+  const handleUnreject = useCallback((job: JobRow) => {
+    const priorVerdict = job.verdict;
+    setRejectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(job.id);
+      return next;
+    });
+    startReject(() => {
+      void unrejectJob(job.id, priorVerdict).catch(() => {
+        setRejectedIds((prev) => new Set(prev).add(job.id));
+        showActionError("Couldn’t un-reject — try again.");
+      });
+    });
+  }, [unrejectJob, showActionError]);
+
   // Optimistically apply a saved reviewer correction to the board card + detail pane —
   // formToCorrection(form) already returns snake_case JobRow field names, so spreading
   // it plus note/corrected yields a valid Partial<JobRow>.
@@ -417,83 +467,124 @@ export function RolefitBoard({
     }));
   }, []);
 
-  // Clear a failed detail fetch so the effect retries it.
+  // Retry a failed detail fetch: clear the cache entry + in-flight guard, then refetch
+  // directly (the effect no longer depends on `details`, so clearing it won't re-run it).
   const handleRetryDetail = useCallback(() => {
     if (!selectedId) return;
+    const id = selectedId;
+    detailInFlightRef.current.delete(id);
     setDetails((prev) => {
       const next = { ...prev };
-      delete next[selectedId];
+      delete next[id];
       return next;
     });
-  }, [selectedId]);
+    loadDetail(id);
+  }, [selectedId, loadDetail]);
 
-  // Résumé generation
+  // Begin a generation: claim the single lock + a fresh AbortController. Returns the
+  // controller (or null if a generation for this job is already running — the buttons
+  // are disabled in that case, so this is just a guard).
+  const beginGeneration = useCallback((jobId: string): AbortController | null => {
+    if (generationInFlight === jobId) return null;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setGenerationInFlight(jobId);
+    return controller;
+  }, [generationInFlight]);
+
+  // Release the lock only if this controller still owns it (a newer generation may have
+  // replaced it).
+  const endGeneration = useCallback((controller: AbortController) => {
+    if (abortRef.current === controller) {
+      abortRef.current = null;
+      setGenerationInFlight(null);
+    }
+  }, []);
+
+  const handleCancelGeneration = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setGenerationInFlight(null);
+  }, []);
+
+  // Résumé generation. D7 contract: /api/resume persists server-side and returns the full
+  // { package }. Standalone Generate always persists now (no client persist call, no
+  // "only if a package exists" gate — the server creates/updates the row).
   const handleGenerate = useCallback(async (job: JobRow) => {
+    const controller = beginGeneration(job.id);
+    if (!controller) return;
+    const hadResume = Boolean(genData[job.id]);
     setGen((g) => ({ ...g, [job.id]: "busy" }));
     try {
       const res = await fetch("/api/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "failed");
       }
-      const data = (await res.json()) as TailoredResume;
-      setGenData((d) => ({ ...d, [job.id]: data }));
+      const { package: pkg } = (await res.json()) as { package: ApplicationPackage };
+      setPackages((p) => ({ ...p, [job.id]: pkg }));
+      if (pkg.resume) setGenData((d) => ({ ...d, [job.id]: pkg.resume as TailoredResume }));
       setGen((g) => ({ ...g, [job.id]: "done" }));
-      // If a package already exists, regenerating must persist the new résumé back into
-      // it — otherwise the stale saved version reseeds on reload and the work is lost.
-      if (packages[job.id]) {
-        setPackages((p) => (p[job.id] ? { ...p, [job.id]: { ...p[job.id], resume: data } } : p));
-        startApply(() => {
-          void persistResume(job.id, data).catch(() =>
-            showActionError("Couldn’t save the regenerated résumé. Re-prepare to retry."),
-          );
-        });
-      }
+      // A successful standalone résumé clears a prior prepare's failed résumé leg.
+      setPrepareStatus((s) => (s[job.id] ? { ...s, [job.id]: { ...s[job.id], resume: "ok" } } : s));
     } catch (e) {
-      setGen((g) => ({ ...g, [job.id]: "error" }));
-      setGenError((m) => ({ ...m, [job.id]: (e as Error).message }));
+      if (isAbort(e)) {
+        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "idle" }));
+      } else {
+        setGen((g) => ({ ...g, [job.id]: "error" }));
+        setGenError((m) => ({ ...m, [job.id]: (e as Error).message }));
+      }
+    } finally {
+      endGeneration(controller);
     }
-  }, [packages, persistResume, showActionError]);
+  }, [beginGeneration, endGeneration, genData]);
 
-  // Cover-letter generation — mirrors handleGenerate against /api/cover-letter
+  // Cover-letter generation — mirrors handleGenerate against /api/cover-letter (D7).
   const handleGenerateCover = useCallback(async (job: JobRow) => {
+    const controller = beginGeneration(job.id);
+    if (!controller) return;
+    const hadCover = Boolean(coverData[job.id]);
     setCoverGen((g) => ({ ...g, [job.id]: "busy" }));
     try {
       const res = await fetch("/api/cover-letter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "failed");
       }
-      const data = (await res.json()) as TailoredCoverLetter;
-      setCoverData((d) => ({ ...d, [job.id]: data }));
+      const { package: pkg } = (await res.json()) as { package: ApplicationPackage };
+      setPackages((p) => ({ ...p, [job.id]: pkg }));
+      if (pkg.coverLetter) setCoverData((d) => ({ ...d, [job.id]: pkg.coverLetter as TailoredCoverLetter }));
       setCoverGen((g) => ({ ...g, [job.id]: "done" }));
-      // Persist the regenerated cover letter into an existing package (see handleGenerate).
-      if (packages[job.id]) {
-        setPackages((p) => (p[job.id] ? { ...p, [job.id]: { ...p[job.id], coverLetter: data } } : p));
-        startApply(() => {
-          void persistCover(job.id, data).catch(() =>
-            showActionError("Couldn’t save the regenerated cover letter. Re-prepare to retry."),
-          );
-        });
-      }
+      setPrepareStatus((s) => (s[job.id] ? { ...s, [job.id]: { ...s[job.id], coverLetter: "ok" } } : s));
     } catch (e) {
-      setCoverGen((g) => ({ ...g, [job.id]: "error" }));
-      setCoverError((m) => ({ ...m, [job.id]: (e as Error).message }));
+      if (isAbort(e)) {
+        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "idle" }));
+      } else {
+        setCoverGen((g) => ({ ...g, [job.id]: "error" }));
+        setCoverError((m) => ({ ...m, [job.id]: (e as Error).message }));
+      }
+    } finally {
+      endGeneration(controller);
     }
-  }, [packages, persistCover, showActionError]);
+  }, [beginGeneration, endGeneration, coverData]);
 
-  // "Prepare application" — build + PERSIST the package in one call (résumé + cover
-  // letter + answers snapshot, plus Greenhouse Q/A when available). The résumé and
-  // cover-letter panels reflect progress via their existing busy/done/error states.
+  // "Prepare application" — build + PERSIST the package in one call. D7 returns
+  // { package, status } where status reports each leg (resume / coverLetter / answers)
+  // independently, so a partial failure keeps what succeeded and offers a per-leg retry.
   const handlePrepare = useCallback(async (job: JobRow) => {
+    const controller = beginGeneration(job.id);
+    if (!controller) return;
     // Snapshot whether we already have successful content to fall back to, so a failed
     // re-prepare doesn't blank out the still-valid résumé/cover the user can see.
     const hadResume = Boolean(genData[job.id]);
@@ -505,39 +596,53 @@ export function RolefitBoard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? "failed");
       }
-      const pkg = (await res.json()) as ApplicationPackage;
+      const { package: pkg, status } = (await res.json()) as {
+        package: ApplicationPackage;
+        status: PrepareLegStatus;
+      };
       setPackages((p) => ({ ...p, [job.id]: pkg }));
-      const resume = pkg.resume;
-      if (resume) {
-        setGenData((d) => ({ ...d, [job.id]: resume }));
+      setPrepareStatus((s) => ({ ...s, [job.id]: status }));
+      // Résumé leg
+      if (status.resume === "ok" && pkg.resume) {
+        setGenData((d) => ({ ...d, [job.id]: pkg.resume as TailoredResume }));
         setGen((g) => ({ ...g, [job.id]: "done" }));
       } else {
-        setGen((g) => ({ ...g, [job.id]: "idle" }));
+        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
+        if (!hadResume) setGenError((m) => ({ ...m, [job.id]: "Couldn’t generate the résumé." }));
       }
-      const cover = pkg.coverLetter;
-      if (cover) {
-        setCoverData((d) => ({ ...d, [job.id]: cover }));
+      // Cover-letter leg
+      if (status.coverLetter === "ok" && pkg.coverLetter) {
+        setCoverData((d) => ({ ...d, [job.id]: pkg.coverLetter as TailoredCoverLetter }));
         setCoverGen((g) => ({ ...g, [job.id]: "done" }));
       } else {
-        setCoverGen((g) => ({ ...g, [job.id]: "idle" }));
+        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
+        if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: "Couldn’t generate the cover letter." }));
       }
     } catch (e) {
-      const msg = (e as Error).message;
-      // Only fall to the full "error" state when there was nothing to preserve. When
-      // prior content exists, keep it visible (state stays "done") and surface the
-      // failure non-destructively via the toast instead of blanking the panels.
-      setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
-      setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
-      if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
-      if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
-      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+      if (isAbort(e)) {
+        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "idle" }));
+        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "idle" }));
+      } else {
+        const msg = (e as Error).message;
+        // Only fall to the full "error" state when there was nothing to preserve. When
+        // prior content exists, keep it visible (state stays "done") and surface the
+        // failure non-destructively via the toast instead of blanking the panels.
+        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
+        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
+        if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
+        if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
+        if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+      }
+    } finally {
+      endGeneration(controller);
     }
-  }, [genData, coverData, showActionError]);
+  }, [beginGeneration, endGeneration, genData, coverData, showActionError]);
 
   // "Mark as applied" — works with OR without a prepared package. Optimistically
   // flips/creates the package to status='applied' (hiding the job from the default
@@ -650,6 +755,7 @@ export function RolefitBoard({
       />
       <FilterBar
         jobs={jobs}
+        facets={facets}
         cats={cats}
         locs={locs}
         remote={remote}
@@ -747,11 +853,16 @@ export function RolefitBoard({
                   coverError={coverError}
                   onGenerateCover={handleGenerateCover}
                   onPrepare={handlePrepare}
+                  generating={generationInFlight === selectedJobWithDetail.id}
+                  onCancelGeneration={handleCancelGeneration}
+                  prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
                   pkg={packages[selectedJobWithDetail.id]}
                   onMarkApplied={handleMarkApplied}
                   onOpenProfile={() => setProfileOpen(true)}
                   onReject={handleReject}
                   onUnapply={handleUnapply}
+                  isRejected={rejectedIds.has(selectedJobWithDetail.id)}
+                  onUnreject={handleUnreject}
                   onCorrected={handleCorrected}
                   detailState={details[selectedJobWithDetail.id]}
                   onRetryDetail={handleRetryDetail}

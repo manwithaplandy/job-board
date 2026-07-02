@@ -52,6 +52,9 @@ export interface ResumePanelProps {
   copyLabel: string;
   usingSample: boolean;
   onOpenProfile: () => void;
+  // Single generation lock for this job (résumé/cover/prepare) + cancel.
+  generating?: boolean;
+  onCancelGeneration?: () => void;
 }
 
 export function ResumePanel({
@@ -66,6 +69,8 @@ export function ResumePanel({
   copyLabel,
   usingSample,
   onOpenProfile,
+  generating,
+  onCancelGeneration,
 }: ResumePanelProps) {
   const isIdle = !state || state === "idle";
   const isBusy = state === "busy";
@@ -179,7 +184,7 @@ export function ResumePanel({
               </div>
             )}
           </div>
-          <Button variant="primary" onClick={onGenerate} style={{ flex: "0 0 auto" }}>
+          <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
             <span style={{ fontSize: "15px" }}>✦</span>Generate résumé
           </Button>
         </div>
@@ -207,16 +212,35 @@ export function ResumePanel({
               flex: "0 0 auto",
             }}
           />
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
               Tailoring your résumé to {job.company_name}…
             </div>
             <div
               style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
             >
-              Matching your background against this role&apos;s requirements.
+              Matching your background against this role&apos;s requirements. Usually about 30 seconds.
             </div>
           </div>
+          {onCancelGeneration && (
+            <button
+              type="button"
+              onClick={onCancelGeneration}
+              style={{
+                flex: "0 0 auto",
+                fontWeight: 700,
+                fontSize: "12.5px",
+                color: "#5b6472",
+                background: "#fff",
+                border: "1px solid #dfe3ea",
+                borderRadius: "9px",
+                padding: "8px 14px",
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          )}
         </div>
       )}
 
@@ -336,6 +360,7 @@ export function ResumePanel({
             </button>
             <button
               onClick={onRegenerate}
+              disabled={generating}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -347,7 +372,8 @@ export function ResumePanel({
                 border: "1px solid #dfe3ea",
                 borderRadius: "10px",
                 padding: "10px 15px",
-                cursor: "pointer",
+                cursor: generating ? "not-allowed" : "pointer",
+                opacity: generating ? 0.6 : 1,
               }}
             >
               <span>↻</span>Regenerate
@@ -379,7 +405,7 @@ export function ResumePanel({
               </div>
             )}
           </div>
-          <Button variant="primary" onClick={onGenerate} style={{ flex: "0 0 auto" }}>
+          <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
             Retry
           </Button>
         </div>

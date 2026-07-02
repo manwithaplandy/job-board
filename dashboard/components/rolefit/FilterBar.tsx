@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { JobRow } from "@/lib/types";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
-import { facetCounts } from "@/lib/rolefit/filter";
 
 // Static filter definitions — mirrored from reference design renderVals()
 const PAY_DEFS: [number, string][] = [
@@ -160,6 +159,8 @@ function FilterMenu({
 
 export interface FilterBarProps {
   jobs: JobRow[];
+  // Category/location counts, memoized by the board so they aren't recomputed per render.
+  facets: { categories: Record<string, number>; locations: Record<string, number> };
   cats: string[];
   locs: string[];
   remote: BoardFilterState["remote"];
@@ -183,6 +184,7 @@ export interface FilterBarProps {
 
 export function FilterBar({
   jobs,
+  facets,
   cats,
   locs,
   remote,
@@ -203,7 +205,7 @@ export function FilterBar({
   onSetPayMin,
   onSetSort,
 }: FilterBarProps) {
-  const { categories, locations } = facetCounts(jobs);
+  const { categories, locations } = facets;
 
   const activeBtn = (on: boolean) => ({
     bg: on ? "#eef3fc" : "#ffffff",

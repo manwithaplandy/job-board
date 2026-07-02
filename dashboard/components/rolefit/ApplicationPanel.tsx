@@ -11,6 +11,7 @@ import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
+import type { PrepareLegStatus } from "./RolefitBoard";
 
 // Plain-text cover letter — mirrors composeResumeText in ResumePanel.
 function composeCoverLetterText(data: TailoredCoverLetter): string {
@@ -56,6 +57,10 @@ export interface ApplicationPanelProps {
   onRegenerateCover: () => void;
   // One-click: build + persist the application package
   onPrepare: () => void;
+  // Single generation lock for this job (résumé/cover/prepare) + cancel + last per-leg result.
+  generating?: boolean;
+  onCancelGeneration?: () => void;
+  prepareStatus?: PrepareLegStatus | null;
   // Persisted package extras (Phase 3). Greenhouse postings carry the real question
   // schema + LLM-prefilled answers; everything else falls back to the generic package.
   greenhouseQuestions: GreenhouseQuestions | null;
@@ -84,6 +89,9 @@ export function ApplicationPanel({
   onGenerateCover,
   onRegenerateCover,
   onPrepare,
+  generating,
+  onCancelGeneration,
+  prepareStatus,
   greenhouseQuestions,
   prefilledAnswers,
   status,
@@ -205,6 +213,26 @@ export function ApplicationPanel({
     cursor: "pointer",
     boxShadow: "0 3px 10px rgba(59,111,212,.26)",
   };
+  const cancelBtnStyle: React.CSSProperties = {
+    flex: "0 0 auto",
+    fontWeight: 700,
+    fontSize: "12.5px",
+    color: "#5b6472",
+    background: "#fff",
+    border: "1px solid #dfe3ea",
+    borderRadius: "9px",
+    padding: "8px 14px",
+    cursor: "pointer",
+  };
+
+  // Per-leg failures from the last prepare. Résumé + cover retry their own endpoints;
+  // there's no answers-only route, so "answers" retries the whole prepare.
+  const failedLegs: { key: string; label: string; onRetry: () => void }[] = [];
+  if (prepareStatus) {
+    if (prepareStatus.resume === "failed") failedLegs.push({ key: "resume", label: "résumé", onRetry: onGenerateResume });
+    if (prepareStatus.coverLetter === "failed") failedLegs.push({ key: "coverLetter", label: "cover letter", onRetry: onGenerateCover });
+    if (prepareStatus.answers === "failed") failedLegs.push({ key: "answers", label: "application answers", onRetry: onPrepare });
+  }
 
   return (
     <div style={{ marginTop: "24px" }}>
@@ -275,11 +303,11 @@ export function ApplicationPanel({
           <Button
             variant="primary"
             onClick={onPrepare}
-            disabled={preparing}
+            disabled={preparing || generating}
             style={{ flex: "0 0 auto" }}
           >
             <span style={{ fontSize: "15px" }}>✦</span>
-            {preparing ? "Preparing…" : prepared ? "Re-prepare" : "Prepare application"}
+            {preparing ? "Preparing… ~30s" : prepared ? "Re-prepare" : "Prepare application"}
           </Button>
         )}
         {applyHref && (
@@ -308,6 +336,47 @@ export function ApplicationPanel({
         )}
       </div>
 
+      {/* Per-leg prepare failures — retry only the parts that failed (résumé / cover hit
+          their own endpoints; answers re-runs Prepare, as there's no answers-only route). */}
+      {failedLegs.length > 0 && (
+        <div
+          style={{
+            marginTop: "12px",
+            border: "1px solid #ecd6d6",
+            background: "#fdf6f5",
+            borderRadius: "12px",
+            padding: "13px 15px",
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: "13px", color: "#b25a36" }}>
+            Some parts couldn&apos;t be prepared
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
+            {failedLegs.map((leg) => (
+              <button
+                key={leg.key}
+                type="button"
+                onClick={leg.onRetry}
+                disabled={generating}
+                style={{
+                  fontWeight: 700,
+                  fontSize: "12.5px",
+                  color: "#b25a36",
+                  background: "#fff",
+                  border: "1px solid #ecd6d6",
+                  borderRadius: "9px",
+                  padding: "7px 13px",
+                  cursor: generating ? "not-allowed" : "pointer",
+                  opacity: generating ? 0.6 : 1,
+                }}
+              >
+                Retry {leg.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Tailored résumé (reused ResumePanel) ── */}
       <ResumePanel
         job={job}
@@ -321,6 +390,8 @@ export function ApplicationPanel({
         copyLabel={resumeCopyLabel}
         usingSample={usingSample}
         onOpenProfile={onOpenProfile}
+        generating={generating}
+        onCancelGeneration={onCancelGeneration}
       />
 
       {/* ── Cover letter ── */}
@@ -353,7 +424,7 @@ export function ApplicationPanel({
                 A focused letter that ties your background to this role.
               </div>
             </div>
-            <Button variant="primary" onClick={onGenerateCover} style={{ flex: "0 0 auto" }}>
+            <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
               <span style={{ fontSize: "15px" }}>✦</span>Generate cover letter
             </Button>
           </div>
@@ -426,16 +497,21 @@ export function ApplicationPanel({
                 flex: "0 0 auto",
               }}
             />
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
                 Drafting your cover letter for {job.company_name}…
               </div>
               <div
                 style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
               >
-                Connecting your experience to this role&apos;s requirements.
+                Connecting your experience to this role&apos;s requirements. Usually about 30 seconds.
               </div>
             </div>
+            {onCancelGeneration && (
+              <button type="button" onClick={onCancelGeneration} style={cancelBtnStyle}>
+                Cancel
+              </button>
+            )}
           </div>
         )}
 
@@ -517,7 +593,11 @@ export function ApplicationPanel({
                 </svg>
                 <span aria-live="polite">{copiedKey === "cover" ? "Copied!" : "Copy text"}</span>
               </button>
-              <button onClick={onRegenerateCover} style={copyBtnStyle}>
+              <button
+                onClick={onRegenerateCover}
+                disabled={generating}
+                style={{ ...copyBtnStyle, ...(generating ? { opacity: 0.6, cursor: "not-allowed" } : {}) }}
+              >
                 <span>↻</span>Regenerate
               </button>
             </div>
@@ -547,7 +627,7 @@ export function ApplicationPanel({
                 </div>
               )}
             </div>
-            <Button variant="primary" onClick={onGenerateCover} style={{ flex: "0 0 auto" }}>
+            <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
               Retry
             </Button>
           </div>

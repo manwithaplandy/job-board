@@ -81,8 +81,9 @@ export function buildJobsQuery(
   // review fields (reasoning, requirements, about, benefits, red_flags) are NOT
   // selected here — they serialized ~171KB into every board response while only ever
   // being shown one-at-a-time in JobDetail. They're fetched on job-open via
-  // GET /api/jobs/[id] instead. Eight more columns that no render path reads
-  // (url, ats, experience_match, industry, industry_subcategory, confidence,
+  // GET /api/jobs/[id] instead. c.ats IS selected (below) — the board's Source facet
+  // filter (lib/rolefit/filter.ts) reads it. Seven more columns that no render path
+  // reads (url, experience_match, industry, industry_subcategory, confidence,
   // stage1_decision, stage1_reason) are dropped entirely. Note experience_match /
   // industry / industry_subcategory are still referenced in the WHERE clause above
   // for the (currently UI-dormant) dimension filters — it's selecting them that was
@@ -90,6 +91,7 @@ export function buildJobsQuery(
   const selectCols = [
     "j.id", "j.title", "j.location", "j.remote",
     "j.first_seen_at", "j.closed_at", "c.name AS company_name",
+    "c.ats",
   ];
   if (hasReviews) {
     selectCols.push(

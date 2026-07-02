@@ -9,7 +9,7 @@ import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLet
 import { DEFAULT_PREFILL_MODEL, generatePrefilledAnswers } from "@/lib/rolefit/prefillClient";
 import { fetchGreenhouseQuestions, type GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
-import { createClient } from "@/lib/supabase/server";
+import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { tracingEnabled } from "@/lib/observability";
 import { langfuseSpanProcessor } from "@/instrumentation";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
@@ -41,24 +41,9 @@ export async function POST(req: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "application preparation not configured" }, { status: 500 });
 
-  const resumeText = profile.resume_text!;
   const answers = applicationAnswersFromProfile(profile);
-
-  // Download the candidate's PDF résumé once (shared by both résumé + prepare legs).
-  let pdfBytes: Uint8Array | null = null;
-  if (profile.resume_file_path) {
-    try {
-      const supabase = await createClient();
-      const { data, error } = await supabase.storage.from("resumes").download(profile.resume_file_path);
-      if (error || !data) {
-        console.error("résumé PDF download failed:", error?.message ?? "no data returned");
-      } else {
-        pdfBytes = new Uint8Array(await data.arrayBuffer());
-      }
-    } catch (e) {
-      console.error("résumé PDF download error:", e);
-    }
-  }
+  // Résumé plaintext + (best-effort) uploaded PDF bytes, via the shared helper.
+  const { resumeText, pdfBytes } = await getResumeSource(profile);
 
   // Greenhouse-only side-quest: fetch the posting's real question schema, then
   // prefill the answerable (non-file) questions. It depends only on profile/job

@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
 import { requireUserId } from "@/lib/auth";
+import { internalPathFromReferer } from "@/lib/paths";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile, getDistinctLocations } from "@/lib/queries";
 import { extractPdfText } from "@/lib/pdf";
@@ -112,7 +114,11 @@ async function saveProfile(formData: FormData) {
     screeningAnswers,
     modelCover: cl.value,
   });
-  redirect("/");
+  // Return to the page the user came from (threaded through a hidden field captured at
+  // GET time — the POST's own referer is /profile). Guard against open redirects: only
+  // same-origin absolute paths are honored, anything else falls back to the board.
+  const returnTo = String(formData.get("return_to") ?? "/");
+  redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/");
 }
 
 // Rolefit visual tokens — kept inline to match the sibling surfaces (Header, ProfileModal).
@@ -232,6 +238,9 @@ export default async function ProfilePage() {
   const [profile, models, locations] = await Promise.all([
     getProfile(userId), getStructuredModels(), cachedDistinctLocations(),
   ]);
+  // Capture where the user came from now — the save POST's referer will be /profile.
+  const hdrs = await headers();
+  const returnTo = internalPathFromReferer(hdrs.get("referer"), hdrs.get("host") ?? "");
   return (
     <main style={pageStyle}>
       <div style={cardStyle}>
@@ -242,6 +251,7 @@ export default async function ProfilePage() {
         </div>
 
         <form action={saveProfile} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          <input type="hidden" name="return_to" value={returnTo} />
           <label style={fieldStyle}>
             <span style={labelTextStyle}>Résumé PDF</span>
             <span style={hintStyle}>Optional — overrides pasted text when it extracts cleanly.</span>

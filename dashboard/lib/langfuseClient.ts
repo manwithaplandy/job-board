@@ -1,7 +1,9 @@
 import { LangfuseClient } from "@langfuse/client";
+import { resolveLangfuseHost } from "./langfuseHost.ts";
 
-// One shared client; reads keys explicitly (LANGFUSE_HOST is the repo's env name,
-// which the classic client expects as baseUrl).
+// One shared client; reads keys explicitly. The base URL goes through
+// resolveLangfuseHost so an empty/blank LANGFUSE_HOST can never be handed to
+// the SDK as "" (which fails every request with `fetch failed`).
 let client: LangfuseClient | null = null;
 
 export function getClient(): LangfuseClient | null {
@@ -12,7 +14,7 @@ export function getClient(): LangfuseClient | null {
     client = new LangfuseClient({
       publicKey: process.env.LANGFUSE_PUBLIC_KEY,
       secretKey: process.env.LANGFUSE_SECRET_KEY,
-      baseUrl: process.env.LANGFUSE_HOST,
+      baseUrl: resolveLangfuseHost(),
     });
   }
   return client;

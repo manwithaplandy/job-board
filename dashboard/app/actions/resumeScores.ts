@@ -5,6 +5,7 @@ import { requireUserId } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { formToScoreRow, buildResumeGoldenItem, type ResumeScoreForm } from "@/lib/rolefit/resumeScore";
 import { upsertResumeGoldenItem } from "@/lib/resumeGoldenDataset";
+import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
 
 // Persist a human résumé score (grounding + JD-relevance, 1–5) and push it to the
 // LangFuse `resume-golden` dataset. DB commits first, so a LangFuse failure never
@@ -44,7 +45,7 @@ export async function saveResumeScore(
       resume_trace_id, resume_snapshot, model, scored_at
     ) VALUES (
       ${userId}::uuid, ${jobId}, ${row.grounding}, ${row.jd_relevance}, ${row.comment},
-      ${src.resume_trace_id}, ${sql.json((src.resume_json ?? {}) as any)}, ${src.model_resume}, now()
+      ${src.resume_trace_id}, ${JSON.stringify(parseTailoredResume(src.resume_json) ?? {})}::jsonb, ${src.model_resume}, now()
     )
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       grounding = EXCLUDED.grounding, jd_relevance = EXCLUDED.jd_relevance,

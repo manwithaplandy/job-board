@@ -1,7 +1,10 @@
 import hashlib
 
+import pytest
+from pydantic import ValidationError
+
 from company_discovery.profile import compute_company_profile_version
-from company_discovery.schemas import CompanyReviewResult
+from company_discovery.schemas import CompanyReviewResult, RedFlag
 
 
 def test_version_is_sha256_of_instructions():
@@ -23,6 +26,19 @@ def test_result_full():
         "verdict": "exclude", "confidence": "high", "reasoning": "defense",
         "industry": "industrial_hardware",
         "industry_subcategory": "automotive_aerospace_defense",
-        "tech_tags": ["c++"], "red_flags": ["defense"],
+        "tech_tags": ["c++"],
+        "red_flags": [{"category": "defense_military", "note": "defense industry"}],
     })
     assert r.verdict == "exclude" and r.tech_tags == ["c++"]
+    assert r.red_flags[0].category == "defense_military"
+    assert r.red_flags[0].note == "defense industry"
+
+
+def test_red_flag_note_defaults_none():
+    rf = RedFlag.model_validate({"category": "consulting_agency"})
+    assert rf.note is None
+
+
+def test_red_flag_rejects_unknown_category():
+    with pytest.raises(ValidationError):
+        RedFlag.model_validate({"category": "banana"})

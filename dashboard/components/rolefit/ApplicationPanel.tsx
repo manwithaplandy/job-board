@@ -8,6 +8,7 @@ import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
+import { atsLabel as atsLabelOf } from "@/lib/rolefit/ats";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
@@ -114,7 +115,7 @@ export function ApplicationPanel({
   };
 
   const applyHref = applyUrl(job.ats, job.url);
-  const atsLabel = job.ats ? job.ats.charAt(0).toUpperCase() + job.ats.slice(1) : "site";
+  const atsLabel = atsLabelOf(job.ats);
 
   const coverBusy = coverState === "busy";
   const coverDone = coverState === "done";
@@ -301,7 +302,7 @@ export function ApplicationPanel({
         )}
         {isAuthed && (
           <Button
-            variant="primary"
+            variant="secondary"
             onClick={onPrepare}
             disabled={preparing || generating}
             style={{ flex: "0 0 auto" }}
@@ -322,13 +323,14 @@ export function ApplicationPanel({
               gap: "7px",
               fontWeight: 700,
               fontSize: "14px",
-              color: "#3b6fd4",
-              background: "#fff",
-              border: "1px solid #cfddf6",
+              color: "#fff",
+              background: "#3b6fd4",
+              border: "1px solid #3b6fd4",
               borderRadius: "11px",
               padding: "12px 18px",
               cursor: "pointer",
               textDecoration: "none",
+              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
             }}
           >
             Apply on {atsLabel}<span style={{ fontSize: "15px" }}>→</span>

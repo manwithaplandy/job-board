@@ -56,6 +56,26 @@ def test_batch_isolates_errors():
     assert by_id[2][1] is not None and "model down" in by_id[2][1]
 
 
+def test_review_row_serializes_red_flags_as_json_dicts():
+    from company_discovery.run import _review_row
+    res = CompanyReviewResult.model_validate({
+        "verdict": "exclude",
+        "red_flags": [{"category": "defense_military", "note": "defense"}],
+    })
+    row = _review_row(user_id="u", company_id=1, pv="v1", model="m", res=res, err=None)
+    # Stored as plain JSON dicts, not pydantic objects (psycopg Json() uses json.dumps).
+    assert row["red_flags"] == [{"category": "defense_military", "note": "defense"}]
+    import json
+    json.dumps(row["red_flags"])  # must not raise
+
+
+def test_review_row_error_has_no_ai_columns():
+    from company_discovery.run import _review_row
+    row = _review_row(user_id="u", company_id=1, pv="v1", model="m", res=None, err="boom")
+    assert row["error"] == "boom"
+    assert "red_flags" not in row and "verdict" not in row
+
+
 def test_review_company_one_traces_when_sampled(monkeypatch):
     from observability import tracing
     import contextlib

@@ -2,6 +2,7 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
+import type { RedFlag } from "@/lib/redFlags";
 
 // Heavy, detail-only fields. These are NOT included in the board's list query
 // (they serialized ~171KB into every board response while only ever showing
@@ -37,6 +38,10 @@ export interface JobRowBase {
   first_seen_at: string | Date;
   closed_at: string | Date | null;
   company_name: string;
+  // Source ATS provider (companies.ats): one of greenhouse/lever/ashby/workable/
+  // smartrecruiters/workday. Always selected (present with or without an owner);
+  // read by the board's Source facet filter (lib/rolefit/filter.ts).
+  ats: string;
   human_override: boolean | null;  // null when no owner review was joined
 }
 
@@ -78,10 +83,9 @@ export interface ReviewedJobRow extends JobRowBase {
   // experience_match/industry/industry_subcategory/confidence/note are detail-only,
   // like reasoning/about/etc. above: absent from the list payload, populated on the
   // selected job via the /api/jobs/[id] fetch (see JobReviewDetail) and consumed by
-  // the correction edit form (ReviewPanel). ats/stage1_decision/stage1_reason remain
+  // the correction edit form (ReviewPanel). stage1_decision/stage1_reason remain
   // genuinely dropped from every query — no render path reads them — and are kept
   // optional only so a stray reference still type-checks rather than silently breaking.
-  ats?: string;
   experience_match?: string | null;
   industry?: string | null;
   industry_subcategory?: string | null;
@@ -230,7 +234,7 @@ export interface CompanyReviewRow {
   industry: string | null;
   industry_subcategory: string | null;
   tech_tags: string[] | null;
-  red_flags: string[] | null;
+  red_flags: RedFlag[] | null;
 }
 
 export interface DiscoveryRunRow {

@@ -241,7 +241,7 @@ export interface Distributions {
   fitScore: Bar[]; approvalsByIndustry: Bar[]; approvalsByRole: Bar[];
   approvalsBySeniority: Bar[]; experienceMatch: Bar[]; workArrangement: Bar[];
   companiesByAts: Bar[]; companiesBySource: Bar[]; includedByIndustry: Bar[];
-  topTechTags: Bar[]; topRedFlags: Bar[];
+  topTechTags: Bar[]; topRedFlags: Bar[]; otherRedFlags: Bar[];
 }
 
 const asBars = (rows: unknown) => rows as unknown as Bar[];
@@ -252,6 +252,7 @@ export async function getDistributions(userId: string): Promise<Distributions> {
     fitScore, approvalsByIndustry, approvalsByRole, approvalsBySeniority,
     experienceMatch, workArrangement,
     companiesByAts, companiesBySource, includedByIndustry, topTechTags, topRedFlags,
+    otherRedFlags,
   ] = await dbLimit([
     () => sql`SELECT location AS label, count(*)::int AS count FROM jobs
         WHERE closed_at IS NULL AND location IS NOT NULL AND location <> ''
@@ -307,10 +308,16 @@ export async function getDistributions(userId: string): Promise<Distributions> {
         FROM company_reviews cr, jsonb_array_elements_text(cr.tech_tags) AS t
         WHERE cr.user_id = ${userId}::uuid
         GROUP BY t ORDER BY count DESC LIMIT ${TOP_N}`,
-    () => sql`SELECT f AS label, count(*)::int AS count
-        FROM company_reviews cr, jsonb_array_elements_text(cr.red_flags) AS f
+    () => sql`SELECT CASE WHEN jsonb_typeof(f) = 'object' THEN f->>'category' ELSE 'other' END AS label,
+               count(*)::int AS count
+        FROM company_reviews cr, jsonb_array_elements(cr.red_flags) AS f
         WHERE cr.user_id = ${userId}::uuid
-        GROUP BY f ORDER BY count DESC LIMIT ${TOP_N}`,
+        GROUP BY 1 ORDER BY count DESC LIMIT ${TOP_N}`,
+    () => sql`SELECT COALESCE(f->>'note', '(no note)') AS label, count(*)::int AS count
+        FROM company_reviews cr, jsonb_array_elements(cr.red_flags) AS f
+        WHERE cr.user_id = ${userId}::uuid
+          AND jsonb_typeof(f) = 'object' AND f->>'category' = 'other'
+        GROUP BY 1 ORDER BY count DESC LIMIT ${TOP_N}`,
   ]);
 
   return {
@@ -321,7 +328,7 @@ export async function getDistributions(userId: string): Promise<Distributions> {
     experienceMatch: asBars(experienceMatch), workArrangement: asBars(workArrangement),
     companiesByAts: asBars(companiesByAts), companiesBySource: asBars(companiesBySource),
     includedByIndustry: asBars(includedByIndustry), topTechTags: asBars(topTechTags),
-    topRedFlags: asBars(topRedFlags),
+    topRedFlags: asBars(topRedFlags), otherRedFlags: asBars(otherRedFlags),
   };
 }
 

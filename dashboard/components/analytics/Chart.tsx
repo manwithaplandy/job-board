@@ -78,3 +78,28 @@ export function SimpleBarCard(
   return <BarsCard title={title} data={data as unknown as Array<Record<string, string | number | null>>}
                    xKey="label" bars={[{ key: "count", name: "Count", color }]} empty={empty} />;
 }
+
+export function SimpleTableCard(
+  { title, data, empty = "No data yet." }:
+  { title: string; data: BarDatum[]; empty?: string },
+) {
+  if (data.length === 0) return <Card title={title}><div style={EMPTY}>{empty}</div></Card>;
+  return (
+    <Card title={title}>
+      <div style={{ paddingBottom: "8px" }}>
+        {data.map((row, i) => (
+          <div key={`${row.label}-${i}`} style={{
+            display: "flex", justifyContent: "space-between", gap: "12px",
+            fontSize: "12.5px", padding: "6px 2px",
+            borderBottom: i < data.length - 1 ? "1px solid #f0f2f6" : "none",
+          }}>
+            <span style={{ color: "#5b6472", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {row.label}
+            </span>
+            <span style={{ color: "#161d29", fontWeight: 700, flexShrink: 0 }}>{row.count}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}

@@ -1,7 +1,8 @@
 "use client";
 
 import type { Distributions } from "@/lib/metrics";
-import { SimpleBarCard } from "@/components/analytics/Chart";
+import { SimpleBarCard, SimpleTableCard } from "@/components/analytics/Chart";
+import { redFlagCategoryLabel } from "@/lib/redFlags";
 
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -17,6 +18,7 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function BreakdownsSection({ distributions: d }: { distributions: Distributions }) {
+  const redFlagBars = d.topRedFlags.map((b) => ({ ...b, label: redFlagCategoryLabel(b.label) }));
   return (
     <div>
       <Group label="JOBS">
@@ -39,7 +41,8 @@ export function BreakdownsSection({ distributions: d }: { distributions: Distrib
         <SimpleBarCard title="Companies by discovery source" data={d.companiesBySource} />
         <SimpleBarCard title="Included companies by industry" data={d.includedByIndustry} />
         <SimpleBarCard title="Top tech tags" data={d.topTechTags} color="#7a8699" />
-        <SimpleBarCard title="Top red flags" data={d.topRedFlags} color="#e0607e" />
+        <SimpleBarCard title="Top red flags" data={redFlagBars} color="#e0607e" />
+        <SimpleTableCard title="Uncategorized red flags (other)" data={d.otherRedFlags} />
       </Group>
     </div>
   );

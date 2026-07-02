@@ -14,7 +14,7 @@ function job(p: Partial<JobRow>): JobRow {
     red_flags: [], skill_gaps: ["Go"], benefits: [], requirements: null, ...p,
   };
 }
-const ST: BoardFilterState = { search: "", cats: [], locs: [], remote: "all", minFit: 0, payMin: 0, sort: "match" };
+const ST: BoardFilterState = { search: "", cats: [], locs: [], sources: [], remote: "all", minFit: 0, payMin: 0, sort: "match" };
 
 describe("applyFilters", () => {
   test("category filter", () => {
@@ -47,6 +47,32 @@ describe("applyFilters", () => {
       job({ id: "nomatch", work_arrangement: null, remote: false }),
     ];
     expect(applyFilters(jobs, { ...ST, remote: "remote" }).map((j) => j.id)).toEqual(["match"]);
+  });
+  test("source filter keeps only matching providers", () => {
+    const jobs = [job({ id: "a", ats: "greenhouse" }), job({ id: "b", ats: "workday" })];
+    expect(applyFilters(jobs, { ...ST, sources: ["workday"] }).map((j) => j.id)).toEqual(["b"]);
+  });
+  test("source filter is multi-select (OR within the filter)", () => {
+    const jobs = [
+      job({ id: "a", ats: "greenhouse" }),
+      job({ id: "b", ats: "workday" }),
+      job({ id: "c", ats: "lever" }),
+    ];
+    expect(applyFilters(jobs, { ...ST, sources: ["greenhouse", "lever"] }).map((j) => j.id))
+      .toEqual(["a", "c"]);
+  });
+  test("empty sources is a no-op", () => {
+    const jobs = [job({ id: "a", ats: "greenhouse" }), job({ id: "b", ats: "workday" })];
+    expect(applyFilters(jobs, { ...ST, sources: [] }).map((j) => j.id)).toEqual(["a", "b"]);
+  });
+  test("source combines with category (AND across filters)", () => {
+    const jobs = [
+      job({ id: "a", ats: "greenhouse", role_category: "Backend" }),
+      job({ id: "b", ats: "greenhouse", role_category: "Frontend" }),
+      job({ id: "c", ats: "workday", role_category: "Backend" }),
+    ];
+    expect(applyFilters(jobs, { ...ST, sources: ["greenhouse"], cats: ["Backend"] }).map((j) => j.id))
+      .toEqual(["a"]);
   });
 });
 
@@ -85,6 +111,10 @@ describe("facetCounts", () => {
     const f = facetCounts(jobs);
     expect(f.categories).toEqual({ Backend: 2 });
     expect(f.locations).toEqual({ NYC: 1, SF: 1 });
+  });
+  test("counts sources", () => {
+    const jobs = [job({ ats: "greenhouse" }), job({ ats: "greenhouse" }), job({ ats: "workday" })];
+    expect(facetCounts(jobs).sources).toEqual({ greenhouse: 2, workday: 1 });
   });
 });
 

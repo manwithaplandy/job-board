@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { propagateAttributes } from "@langfuse/tracing";
+import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserId } from "@/lib/auth";
 import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
@@ -10,6 +10,7 @@ import { DEFAULT_PREFILL_MODEL, generatePrefilledAnswers } from "@/lib/rolefit/p
 import { fetchGreenhouseQuestions, type GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
+import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { tracingEnabled } from "@/lib/observability";
 import { langfuseSpanProcessor } from "@/instrumentation";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
@@ -85,14 +86,37 @@ export async function POST(req: Request) {
     // Résumé, cover letter, and the Greenhouse prefill are independent round-trips.
     // Use allSettled so a failure in one leg doesn't block the others — persist
     // whatever succeeded.
+    let resumeTraceId: string | null = null;
     const [resumeResult, coverResult, ghResult] = await Promise.allSettled([
-      generateResume({
-        resumeText,
-        pdfBytes,
-        job: { title: job.title, company: job.company_name, description: job.description },
-        model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
-        apiKey,
-      }),
+      // résumé leg — wrapped so the managed judge has a clean `resume` trace and
+      // we capture its trace id for the golden-dataset join. Returns the
+      // TailoredResume so resumeResult.value stays the résumé (not { resume, checks }).
+      (async () => {
+        const genArgs = {
+          resumeText,
+          pdfBytes,
+          job: { title: job.title, company: job.company_name, description: job.description },
+          model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
+          apiKey,
+        };
+        if (!tracingEnabled()) return (await generateResume(genArgs)).resume;
+        return startActiveObservation(
+          "resume",
+          async (span) => {
+            resumeTraceId = span.traceId;
+            span.update({
+              input: { title: job.title, company: job.company_name, description: job.description },
+            });
+            const r = await generateResume(genArgs);
+            span.update({
+              output: composeResumeText(r.resume),
+              metadata: { mechanical_checks: r.checks },
+            });
+            return r.resume;
+          },
+          { asType: "span" },
+        );
+      })(),
       generateCoverLetter({
         resumeText,
         candidateName: profile.full_name ?? null,
@@ -128,6 +152,7 @@ export async function POST(req: Request) {
       greenhouseQuestions: gh.greenhouseQuestions,
       prefilledAnswers: gh.prefilledAnswers,
       applyUrl: applyUrl(job.ats, job.url),
+      resumeTraceId,
     });
     // Per-leg status so the client can surface which parts of a partially
     // failed prepare need a retry (the package persists whatever succeeded).

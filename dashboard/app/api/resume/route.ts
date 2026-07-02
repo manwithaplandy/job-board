@@ -1,11 +1,14 @@
 import { after } from "next/server";
-import { propagateAttributes } from "@langfuse/tracing";
+import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserId } from "@/lib/auth";
 import { getProfile, getJobForResume, upsertApplicationPackage } from "@/lib/queries";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
+import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { tracingEnabled } from "@/lib/observability";
 import { langfuseSpanProcessor } from "@/instrumentation";
+import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
+import type { ResumeChecks } from "@/lib/rolefit/resumeChecks";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -30,20 +33,49 @@ export async function POST(req: Request) {
 
   const run = async () => {
     try {
-      const resume = await generateResume({
-        resumeText,
-        pdfBytes,
-        job: { title: job.title, company: job.company_name, description: job.description },
-        model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
-        apiKey,
-      });
+      let traceId: string | null = null;
+      const generate = async (): Promise<{ resume: TailoredResume; checks: ResumeChecks }> =>
+        generateResume({
+          resumeText,
+          pdfBytes,
+          job: { title: job.title, company: job.company_name, description: job.description },
+          model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
+          apiKey,
+        });
+
+      let result: { resume: TailoredResume; checks: ResumeChecks };
+      if (tracingEnabled()) {
+        // Parent `resume` observation: clean input/output the managed judge targets,
+        // and the trace whose id links human scores to judge scores. The nested
+        // `resume-generation` span records inside this active trace.
+        result = await startActiveObservation(
+          "resume",
+          async (span) => {
+            traceId = span.traceId;
+            span.update({
+              input: { title: job.title, company: job.company_name, description: job.description },
+            });
+            const r = await generate();
+            span.update({
+              output: composeResumeText(r.resume),
+              metadata: { mechanical_checks: r.checks },
+            });
+            return r;
+          },
+          { asType: "span" },
+        );
+      } else {
+        result = await generate();
+      }
+
       const pkg = await upsertApplicationPackage(userId, jobId, {
-        resume,
+        resume: result.resume,
         coverLetter: null,
         answersSnapshot: null,
         greenhouseQuestions: null,
         prefilledAnswers: null,
         applyUrl: null,
+        resumeTraceId: traceId,
       });
       return Response.json({ package: pkg });
     } catch (e) {

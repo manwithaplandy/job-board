@@ -35,7 +35,7 @@ describe("generateResume", () => {
 
   test("assembles deterministic fields from parsing + tailored fields from the model", async () => {
     const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(TAILORED) } }] });
-    const out = await generateResume({ ...args, fetchImpl: f });
+    const { resume: out, checks } = await generateResume({ ...args, fetchImpl: f });
     // Deterministic — from parsing the résumé text, not the model.
     expect(out.name).toBe("Alex Morgan");
     expect(out.contact).toBe("alex@example.com | 555-0100");
@@ -43,6 +43,8 @@ describe("generateResume", () => {
     expect(out.headline).toBe("Frontend Engineer | Modern web apps");
     expect(out.experience[0].company).toBe("Cobalt Inc");
     expect(out.experience[0].bullets).toEqual(["Tailored bullet about apps"]);
+    // Mechanical checks are computed alongside the assembled résumé.
+    expect(checks.total).toBeGreaterThan(0);
 
     const call = (f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
     const body = JSON.parse((call[1] as RequestInit).body as string);

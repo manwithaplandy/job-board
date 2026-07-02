@@ -62,6 +62,7 @@ export function RolefitBoard({
   const [search, setSearch] = useState(initialFilters.search);
   const [cats, setCats] = useState<string[]>(initialFilters.cats);
   const [locs, setLocs] = useState<string[]>(initialFilters.locs);
+  const [sources, setSources] = useState<string[]>(initialFilters.sources);
   const [remote, setRemote] = useState<BoardFilterState["remote"]>(initialFilters.remote);
   const [minFit, setMinFit] = useState(initialFilters.minFit);
   const [payMin, setPayMin] = useState(initialFilters.payMin);
@@ -158,8 +159,8 @@ export function RolefitBoard({
   }, []);
 
   const filterState: BoardFilterState = useMemo(
-    () => ({ search, cats, locs, remote, minFit, payMin, sort }),
-    [search, cats, locs, remote, minFit, payMin, sort],
+    () => ({ search, cats, locs, sources, remote, minFit, payMin, sort }),
+    [search, cats, locs, sources, remote, minFit, payMin, sort],
   );
 
   // Persist filter changes (debounced) so they survive navigation/visits.
@@ -244,6 +245,10 @@ export function RolefitBoard({
     setLocs((prev) =>
       prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc],
     );
+  const toggleSource = (ats: string) =>
+    setSources((prev) =>
+      prev.includes(ats) ? prev.filter((s) => s !== ats) : [...prev, ats],
+    );
   const toggleMenu = (name: string) =>
     setOpenMenu((prev) => (prev === name ? null : name));
 
@@ -251,6 +256,7 @@ export function RolefitBoard({
     setSearch("");
     setCats([]);
     setLocs([]);
+    setSources([]);
     setRemote("all");
     setMinFit(0);
     setPayMin(0);
@@ -545,6 +551,7 @@ export function RolefitBoard({
         jobs={jobs}
         cats={cats}
         locs={locs}
+        sources={sources}
         remote={remote}
         minFit={minFit}
         payMin={payMin}
@@ -557,6 +564,7 @@ export function RolefitBoard({
         onToggleMenu={toggleMenu}
         onToggleCat={toggleCat}
         onToggleLoc={toggleLoc}
+        onToggleSource={toggleSource}
         onSetRemote={setRemote}
         onSetMinFit={handleSetMinFit}
         onSetPayMin={handleSetPayMin}

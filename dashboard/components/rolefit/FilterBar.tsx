@@ -32,10 +32,23 @@ const REMOTE_DEFS: [BoardFilterState["remote"], string][] = [
   ["onsite", "Onsite"],
 ];
 
+// Human-readable labels for the six companies.ats identifiers. Unknown values fall
+// back to the raw identifier so an unexpected provider never blanks or crashes.
+const ATS_LABELS: Record<string, string> = {
+  greenhouse: "Greenhouse",
+  lever: "Lever",
+  ashby: "Ashby",
+  workable: "Workable",
+  smartrecruiters: "SmartRecruiters",
+  workday: "Workday",
+};
+const atsLabel = (ats: string) => ATS_LABELS[ats] ?? ats;
+
 export interface FilterBarProps {
   jobs: JobRow[];
   cats: string[];
   locs: string[];
+  sources: string[];
   remote: BoardFilterState["remote"];
   minFit: number;
   payMin: number;
@@ -48,6 +61,7 @@ export interface FilterBarProps {
   onToggleMenu: (name: string) => void;
   onToggleCat: (cat: string) => void;
   onToggleLoc: (loc: string) => void;
+  onToggleSource: (ats: string) => void;
   onSetRemote: (r: BoardFilterState["remote"]) => void;
   onSetMinFit: (v: number) => void;
   onSetPayMin: (v: number) => void;
@@ -58,6 +72,7 @@ export function FilterBar({
   jobs,
   cats,
   locs,
+  sources,
   remote,
   minFit,
   payMin,
@@ -70,12 +85,13 @@ export function FilterBar({
   onToggleMenu,
   onToggleCat,
   onToggleLoc,
+  onToggleSource,
   onSetRemote,
   onSetMinFit,
   onSetPayMin,
   onSetSort,
 }: FilterBarProps) {
-  const { categories, locations } = facetCounts(jobs);
+  const { categories, locations, sources: sourceCounts } = facetCounts(jobs);
 
   const activeBtn = (on: boolean) => ({
     bg: on ? "#eef3fc" : "#ffffff",
@@ -83,11 +99,13 @@ export function FilterBar({
   });
   const cb = activeBtn(cats.length > 0);
   const lb = activeBtn(locs.length > 0);
+  const sb = activeBtn(sources.length > 0);
   const pb = activeBtn(payMin > 0);
   const mb = activeBtn(minFit > 0);
 
   const catBadge = cats.length ? ` · ${cats.length}` : "";
   const locBadge = locs.length ? ` · ${locs.length}` : "";
+  const srcBadge = sources.length ? ` · ${sources.length}` : "";
   const payBadge = payMin > 0 ? ` · ${PAY_DEFS.find(([v]) => v === payMin)?.[1] ?? ""}` : "";
   const matchBadge = minFit > 0 ? ` · ${MATCH_DEFS.find(([v]) => v === minFit)?.[1] ?? ""}` : "";
   const sortLabel = SORT_DEFS.find(([v]) => v === sort)?.[1] ?? "Best match";
@@ -110,6 +128,10 @@ export function FilterBar({
   const locItems = Object.entries(locations)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([loc, count]) => ({ loc, count, ...box(locs.includes(loc)) }));
+
+  const sourceItems = Object.entries(sourceCounts)
+    .map(([ats, count]) => ({ ats, label: atsLabel(ats), count, ...box(sources.includes(ats)) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   const dropdownBase = {
     position: "absolute" as const,
@@ -383,6 +405,80 @@ export function FilterBar({
                 </span>
                 <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#2b333f" }}>
                   {loc}
+                </span>
+                <span style={{ fontSize: "11.5px", color: "#9aa3b0", fontWeight: 700 }}>
+                  {count}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Source */}
+      <div data-menuroot="" style={{ position: "relative" }}>
+        <button
+          onClick={() => onToggleMenu("source")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "7px",
+            fontWeight: 600,
+            fontSize: "12.5px",
+            color: "#39424f",
+            background: sb.bg,
+            border: `1px solid ${sb.border}`,
+            borderRadius: "9px",
+            padding: "7px 11px",
+            cursor: "pointer",
+          }}
+        >
+          Source{srcBadge}
+          <span style={{ color: "#9aa3b0", fontSize: "9px" }}>▼</span>
+        </button>
+        {openMenu === "source" && (
+          <div
+            style={{
+              ...dropdownBase,
+              left: 0,
+              width: "230px",
+              maxHeight: "320px",
+              overflow: "auto",
+            }}
+          >
+            {sourceItems.map(({ ats, label, count, boxBg, boxBorder, check }) => (
+              <div
+                key={ats}
+                onClick={() => onToggleSource(ats)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  padding: "7px 8px",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  style={{
+                    width: "17px",
+                    height: "17px",
+                    borderRadius: "5px",
+                    border: `1.5px solid ${boxBorder}`,
+                    background: boxBg,
+                    color: "#fff",
+                    fontSize: "11px",
+                    fontWeight: 800,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flex: "0 0 auto",
+                  }}
+                >
+                  {check}
+                </span>
+                <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#2b333f" }}>
+                  {label}
                 </span>
                 <span style={{ fontSize: "11.5px", color: "#9aa3b0", fontWeight: 700 }}>
                   {count}

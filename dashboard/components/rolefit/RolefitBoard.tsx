@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
-import type { ApplicationAnswers, ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
+import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
@@ -45,7 +45,6 @@ export interface RolefitBoardProps {
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;
-  applicationAnswers: ApplicationAnswers | null;
   // Saved application packages (Phase 3) — the board seeds résumé/cover-letter +
   // Greenhouse Q/A state from these so reopening a role loads instead of regenerating.
   initialPackages: ApplicationPackage[];
@@ -81,7 +80,6 @@ export function RolefitBoard({
   operator,
   hasProfile,
   resumeText,
-  applicationAnswers,
   initialPackages,
   initialRejected,
 }: RolefitBoardProps) {
@@ -873,7 +871,6 @@ export function RolefitBoard({
                   job={selectedJobWithDetail}
                   nowIso={nowIso}
                   isAuthed={isAuthed}
-                  answers={applicationAnswers}
                   gen={gen}
                   genData={genData}
                   genError={genError}

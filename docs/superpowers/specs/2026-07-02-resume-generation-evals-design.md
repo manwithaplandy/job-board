@@ -57,7 +57,8 @@ Settled during brainstorming:
 2. **Two judge dimensions, 1–5:** `grounding` (every claim traceable to the
    candidate's real background — the #1 risk) and `jd_relevance` (content
    selected/emphasized toward the target role). Overall = grounding-weighted mean
-   (grounding 0.6 / jd_relevance 0.4). Weights are a constant, tunable later.
+   (grounding 0.7 / jd_relevance 0.3 — fabrication is the dominant failure).
+   Weights are a constant, tunable later.
 3. **Online judge = LangFuse-managed evaluator** (configured in the LangFuse UI),
    for near-zero online code. The rubric prompt is **mirrored in-repo as a
    reference constant** so it's versioned even though LangFuse holds the running
@@ -77,7 +78,7 @@ Settled during brainstorming:
 |--------|--------|----------------|-------|
 | `grounding` | human (offline) + managed judge (online) | golden dataset `expectedOutput` (human); trace score (judge) | 1–5 |
 | `jd_relevance` | human (offline) + managed judge (online) | golden dataset `expectedOutput` (human); trace score (judge) | 1–5 |
-| `overall` | derived | `0.6*grounding + 0.4*jd_relevance` | 1–5 |
+| `overall` | derived | `0.7*grounding + 0.3*jd_relevance` | 1–5 |
 | mechanical checks | deterministic code | trace scores + `/api/resume` response | bool / count |
 
 ## Architecture & data flow
@@ -140,11 +141,12 @@ time; the value is a hex trace id string.
   running copy and this file is the versioned source. A drift note like
   `taxonomy.ts` carries.
 - Configure the evaluator in LangFuse to run on résumé traces (filter on the
-  `resume` observation / a `resume` tag), model = a capable judge model (per the
-  subagent-model policy, **not** Haiku — e.g. a Sonnet-class model), mapping
-  `job_description` and `resume` from the parent I/O. **Also enable it on
-  dataset-run outputs** (not only live traces) so the future regression harness
-  is auto-scored.
+  `resume` observation / a `resume` tag), **judge model = Claude Sonnet 5** (the
+  exact LangFuse LLM-connection slug — e.g. `anthropic/claude-sonnet-5` on
+  OpenRouter, or the Anthropic connection's model id — confirmed against the
+  current model list when wiring the evaluator), mapping `job_description` and
+  `resume` from the parent I/O. **Also enable it on dataset-run outputs** (not
+  only live traces) so the future regression harness is auto-scored.
 - Sampling: 100% online at current volume; overridable via the existing
   `LANGFUSE_SAMPLE_RATE`.
 

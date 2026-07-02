@@ -302,7 +302,7 @@ export function ApplicationPanel({
         )}
         {isAuthed && (
           <Button
-            variant="primary"
+            variant="secondary"
             onClick={onPrepare}
             disabled={preparing || generating}
             style={{ flex: "0 0 auto" }}
@@ -323,13 +323,14 @@ export function ApplicationPanel({
               gap: "7px",
               fontWeight: 700,
               fontSize: "14px",
-              color: "#3b6fd4",
-              background: "#fff",
-              border: "1px solid #cfddf6",
+              color: "#fff",
+              background: "#3b6fd4",
+              border: "1px solid #3b6fd4",
               borderRadius: "11px",
               padding: "12px 18px",
               cursor: "pointer",
               textDecoration: "none",
+              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
             }}
           >
             Apply on {atsLabel}<span style={{ fontSize: "15px" }}>→</span>

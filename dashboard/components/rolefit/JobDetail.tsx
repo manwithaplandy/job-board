@@ -11,9 +11,9 @@ import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
 import { ReviewPanel } from "./ReviewPanel";
 
-// Filled primary "Apply" link → the job's ATS posting. Opens a new tab; rel
-// guards the opener. Shown twice (header + bottom of the detail) so it's
-// reachable without scrolling and again right by the full JD.
+// Generic "Apply" link → the job's ATS posting. Opens a new tab; rel guards the
+// opener. Now only the fallback for not-yet-reviewed roles (which have no
+// Application panel); reviewed roles apply via "Apply on {provider}" in the panel.
 function ApplyButton({ url }: { url: string }) {
   return (
     <a
@@ -353,7 +353,7 @@ export function JobDetail({
       </div>
 
       {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
-      {hasReview && (job.human_override || isRejected || applied || (isAuthed && job.verdict === "approve") || applyUrl) && (
+      {hasReview && (job.human_override || isRejected || applied || (isAuthed && job.verdict === "approve")) && (
         <div
           style={{
             display: "flex",
@@ -468,7 +468,6 @@ export function JobDetail({
               Mark as applied
             </button>
           )}
-          {applyUrl && <ApplyButton url={applyUrl} />}
         </div>
       )}
 
@@ -664,9 +663,11 @@ export function JobDetail({
         </>
       )}
 
-      {/* ── Full job description (collapsible) + Apply — rendered for any role that has
-           a JD or apply link, reviewed or not, so an unreviewed role is never a dead end. ── */}
-      {(fullJD || applyUrl) && (
+      {/* ── Full job description (collapsible) + Apply fallback — the Apply button here
+           renders only for not-yet-reviewed roles (which have no Application panel), so an
+           unreviewed role is never a dead end. Reviewed roles apply via the panel's
+           "Apply on {provider}" button. ── */}
+      {(fullJD || (!hasReview && applyUrl)) && (
         <div
           style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
         >
@@ -708,7 +709,7 @@ export function JobDetail({
               )}
             </>
           )}
-          {applyUrl && (
+          {!hasReview && applyUrl && (
             <div style={{ marginTop: "18px" }}>
               <ApplyButton url={applyUrl} />
             </div>

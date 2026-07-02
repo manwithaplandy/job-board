@@ -1,5 +1,5 @@
 import type { ResumeGoldenItem } from "@/lib/rolefit/resumeScore";
-import { getClient } from "@/lib/langfuseClient";
+import { getClient } from "./langfuseClient.ts";
 
 // Upsert one resume-golden dataset item. No-op when keys are absent (local/dev).
 // Same id re-upserts (LangFuse upserts on `id`), so re-scoring updates in place.

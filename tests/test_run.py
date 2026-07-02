@@ -419,3 +419,79 @@ def test_over_ceiling_run_writes_poll_run_row(conn, monkeypatch):
     assert row is not None, "poll_run row must be written even when over ceiling"
     assert row["finished_at"] is not None
     assert "ceiling" in (row["notes"] or "").lower() or "skipped" in (row["notes"] or "").lower()
+
+
+# ── A8⇄A10: chunked upserts keep peak memory bounded ─────────────────────────
+
+@requires_db
+def test_upserts_are_chunked_and_do_not_drain_the_generator(conn, monkeypatch):
+    """run() must consume a lazy adapter in fixed-size chunks and flush each chunk
+    to upsert_jobs before pulling the rest — otherwise A10's lazy workday generator
+    is defeated by buffering the whole tenant (and every detail payload) at once.
+
+    We prove it by recording, at each upsert_jobs call, how many postings the
+    generator has produced so far. With a chunk size of 2, the FIRST flush must
+    fire after exactly 2 postings (one chunk), NOT after the generator is drained.
+    """
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "UPSERT_CHUNK_SIZE", 2)
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Big", "ats": "greenhouse", "token": "big"}])
+
+    produced = {"n": 0}
+
+    def lazy_adapter(token):
+        for i in range(5):
+            produced["n"] += 1          # incremented as run.py pulls each posting
+            yield Posting(external_id=f"j{i}", title=f"Job {i}", url=f"u{i}")
+
+    monkeypatch.setitem(ADAPTERS, "greenhouse", lazy_adapter)
+
+    flushes: list[tuple[int, int]] = []  # (chunk_size, postings_produced_so_far)
+    real_upsert = run_module.db.upsert_jobs
+
+    def recording_upsert(conn_, company_id, ats, token, postings):
+        flushes.append((len(postings), produced["n"]))
+        return real_upsert(conn_, company_id, ats, token, postings)
+
+    monkeypatch.setattr(run_module.db, "upsert_jobs", recording_upsert)
+
+    run_module.run()
+
+    # First flush: one full chunk (2), and only those 2 have been produced so far
+    # — the generator was NOT drained to 5 before the first upsert.
+    assert flushes[0] == (2, 2), f"expected bounded first flush, got {flushes}"
+    # Chunks tile the whole feed: 2 + 2 + 1 == 5, none dropped.
+    assert [n for n, _ in flushes] == [2, 2, 1]
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM jobs WHERE company_id IN "
+                    "(SELECT id FROM companies WHERE token='big')")
+        assert cur.fetchone()["n"] == 5
+
+
+@requires_db
+def test_close_detection_sees_ids_from_all_chunks(conn, monkeypatch):
+    """Close-detection runs AFTER every chunk is consumed, so an id that appears
+    only in a LATER chunk is still in `seen` and must not be falsely closed."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "UPSERT_CHUNK_SIZE", 2)
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Big", "ats": "greenhouse", "token": "big"}])
+    # Seed j0..j4 (spanning multiple chunks).
+    seed = [Posting(external_id=f"j{i}", title=f"Job {i}", url=f"u{i}") for i in range(5)]
+    monkeypatch.setitem(ADAPTERS, "greenhouse", lambda token: list(seed))
+    run_module.run()
+
+    # Re-poll lazily returning j0..j3 (NOT j4). j3 lands in the SECOND chunk.
+    def lazy_adapter(token):
+        for i in range(4):
+            yield Posting(external_id=f"j{i}", title=f"Job {i}", url=f"u{i}")
+
+    monkeypatch.setitem(ADAPTERS, "greenhouse", lazy_adapter)
+    run_module.run()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT closed_at FROM jobs WHERE id='greenhouse:big:j3'")
+        assert cur.fetchone()["closed_at"] is None      # in a later chunk's seen -> kept open
+        cur.execute("SELECT closed_at FROM jobs WHERE id='greenhouse:big:j4'")
+        assert cur.fetchone()["closed_at"] is not None  # genuinely gone -> closed

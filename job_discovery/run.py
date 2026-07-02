@@ -6,6 +6,12 @@ from job_discovery.targets import load_targets
 
 log = logging.getLogger("job_discovery")
 
+# Upsert postings in fixed-size chunks. The workday adapter yields lazily to keep
+# peak memory bounded (A10); buffering a whole tenant into one list before a single
+# upsert would defeat that, so we flush every UPSERT_CHUNK_SIZE postings. At most
+# one chunk (plus its detail payloads) is resident at a time.
+UPSERT_CHUNK_SIZE = 500
+
 
 def _run_prune(conn) -> None:
     try:
@@ -67,7 +73,7 @@ def run(dsn: str | None = None) -> dict:
             try:
                 postings = ADAPTERS[ats](token)
                 seen: set[str] = set()
-                valid: list = []
+                chunk: list = []
                 for p in postings:
                     if p.external_id:
                         seen.add(p.external_id)   # close-detection sees every live posting,
@@ -77,8 +83,16 @@ def run(dsn: str | None = None) -> dict:
                             p.external_id, co["name"],
                         )
                         continue
-                    valid.append(p)
-                new_jobs += db.upsert_jobs(conn, company_id, ats, token, valid)
+                    chunk.append(p)
+                    if len(chunk) >= UPSERT_CHUNK_SIZE:
+                        # Flush and release this chunk so a large (lazily-yielded)
+                        # tenant never holds more than one chunk in memory at once.
+                        new_jobs += db.upsert_jobs(conn, company_id, ats, token, chunk)
+                        chunk = []
+                if chunk:
+                    new_jobs += db.upsert_jobs(conn, company_id, ats, token, chunk)
+                # `seen` now holds every truthy external_id from ALL chunks, so
+                # close-detection below never misses a posting from a later chunk.
                 open_ids = db.get_open_external_ids(conn, company_id)
                 if not seen and len(open_ids) > 20:
                     log.error(
@@ -97,6 +111,13 @@ def run(dsn: str | None = None) -> dict:
                 except Exception:
                     log.exception("rollback failed for %s; attempting reconnect",
                                   co["name"])
+                    # The old connection is unusable. Close it first — that releases
+                    # its session advisory lock and frees the socket — so we don't
+                    # leak the connection (and its lock) when we open a fresh one.
+                    try:
+                        conn.close()
+                    except Exception:
+                        log.exception("closing the broken connection failed")
                     try:
                         conn = db.connect(dsn)
                     except Exception:

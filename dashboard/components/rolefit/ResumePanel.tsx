@@ -6,6 +6,7 @@ import { renderResumePdf } from "@/lib/rolefit/resumePdf";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { Button } from "@/components/ui/Button";
+import { ResumeScorePanel } from "@/components/rolefit/ResumeScorePanel";
 
 function legacyCopy(text: string) {
   try {
@@ -364,6 +365,7 @@ export function ResumePanel({
               <span>↻</span>Regenerate
             </button>
           </div>
+          <ResumeScorePanel job={job} resume={data} isAuthed={isAuthed} />
         </div>
       )}
 

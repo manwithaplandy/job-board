@@ -12,7 +12,6 @@ import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import {
   markApplicationApplied, unmarkApplicationApplied,
-  persistRegeneratedResume, persistRegeneratedCover,
 } from "@/app/actions/applications";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
@@ -87,8 +86,6 @@ export default async function Page({
         unrejectJob={unrejectJob}
         markApplied={markApplicationApplied}
         unmarkApplied={unmarkApplicationApplied}
-        persistResume={persistRegeneratedResume}
-        persistCover={persistRegeneratedCover}
         operator={operator}
         hasProfile={hasProfile}
         resumeText={resumeText}
@@ -112,8 +109,6 @@ export default async function Page({
         unrejectJob={unrejectJob}
         markApplied={markApplicationApplied}
         unmarkApplied={unmarkApplicationApplied}
-        persistResume={persistRegeneratedResume}
-        persistCover={persistRegeneratedCover}
         operator={undefined}
         hasProfile={false}
         resumeText=""

@@ -42,11 +42,6 @@ export interface RolefitBoardProps {
   unrejectJob: (jobId: string, priorVerdict: string | null) => Promise<void>;
   markApplied: (jobId: string) => Promise<void>;
   unmarkApplied: (jobId: string) => Promise<void>;
-  // removed at D→E merge — server routes persist directly now. Kept as optional props
-  // because this worktree's app/page.tsx (lane D) still passes them; lane D's merged
-  // page.tsx drops them and /api/resume + /api/cover-letter persist server-side.
-  persistResume?: (jobId: string, resume: TailoredResume) => Promise<void>;
-  persistCover?: (jobId: string, coverLetter: TailoredCoverLetter) => Promise<void>;
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;

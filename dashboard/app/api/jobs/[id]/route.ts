@@ -3,8 +3,6 @@ import { JOB_ID_RE } from "@/lib/jobIdValidator";
 
 export const dynamic = "force-dynamic";
 
-export { JOB_ID_RE };
-
 const EMPTY = {
   reasoning: null, about: null, red_flags: null, benefits: null, requirements: null,
   description: null, url: null,

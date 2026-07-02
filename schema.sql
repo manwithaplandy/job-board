@@ -303,3 +303,5 @@ ALTER TABLE application_packages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON application_packages FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE review_corrections   ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON review_corrections   FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE schema_migrations    ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON schema_migrations    FOR ALL USING (false) WITH CHECK (false);

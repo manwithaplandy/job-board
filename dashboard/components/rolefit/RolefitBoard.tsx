@@ -14,6 +14,7 @@ import { JobList } from "./JobList";
 import { JobDetail } from "./JobDetail";
 import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
+import { DetailErrorBoundary } from "@/components/rolefit/DetailErrorBoundary";
 
 type DetailState =
   | { status: "loading" }
@@ -866,36 +867,37 @@ export function RolefitBoard({
                     ← Back
                   </button>
                 )}
-                <JobDetail
-                  key={selectedJobWithDetail.id}
-                  job={selectedJobWithDetail}
-                  nowIso={nowIso}
-                  isAuthed={isAuthed}
-                  gen={gen}
-                  genData={genData}
-                  genError={genError}
-                  onGenerate={handleGenerate}
-                  onCopy={handleCopy}
-                  copiedId={copiedId}
-                  coverGen={coverGen}
-                  coverData={coverData}
-                  coverError={coverError}
-                  onGenerateCover={handleGenerateCover}
-                  onPrepare={handlePrepare}
-                  generating={generationInFlight === selectedJobWithDetail.id}
-                  onCancelGeneration={handleCancelGeneration}
-                  prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
-                  pkg={packages[selectedJobWithDetail.id]}
-                  onMarkApplied={handleMarkApplied}
-                  onOpenProfile={() => setProfileOpen(true)}
-                  onReject={handleReject}
-                  onUnapply={handleUnapply}
-                  isRejected={rejectedIds.has(selectedJobWithDetail.id)}
-                  onUnreject={handleUnreject}
-                  onCorrected={handleCorrected}
-                  detailState={details[selectedJobWithDetail.id]}
-                  onRetryDetail={handleRetryDetail}
-                />
+                <DetailErrorBoundary key={selectedJobWithDetail.id}>
+                  <JobDetail
+                    job={selectedJobWithDetail}
+                    nowIso={nowIso}
+                    isAuthed={isAuthed}
+                    gen={gen}
+                    genData={genData}
+                    genError={genError}
+                    onGenerate={handleGenerate}
+                    onCopy={handleCopy}
+                    copiedId={copiedId}
+                    coverGen={coverGen}
+                    coverData={coverData}
+                    coverError={coverError}
+                    onGenerateCover={handleGenerateCover}
+                    onPrepare={handlePrepare}
+                    generating={generationInFlight === selectedJobWithDetail.id}
+                    onCancelGeneration={handleCancelGeneration}
+                    prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
+                    pkg={packages[selectedJobWithDetail.id]}
+                    onMarkApplied={handleMarkApplied}
+                    onOpenProfile={() => setProfileOpen(true)}
+                    onReject={handleReject}
+                    onUnapply={handleUnapply}
+                    isRejected={rejectedIds.has(selectedJobWithDetail.id)}
+                    onUnreject={handleUnreject}
+                    onCorrected={handleCorrected}
+                    detailState={details[selectedJobWithDetail.id]}
+                    onRetryDetail={handleRetryDetail}
+                  />
+                </DetailErrorBoundary>
               </>
             ) : (
               <div

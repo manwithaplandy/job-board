@@ -3,9 +3,10 @@ import asyncio
 import pytest
 
 from company_discovery.llm import (
-    CompanyReviewClient, OutOfCreditsError, _is_out_of_credits, build_company_block,
+    CompanyReviewClient, OutOfCreditsError, _INSTRUCTIONS, _is_out_of_credits,
+    build_company_block,
 )
-from company_discovery.schemas import CompanyReviewResult
+from company_discovery.schemas import RED_FLAG_CATEGORIES, CompanyReviewResult
 
 
 class _Resp:
@@ -135,3 +136,12 @@ def test_review_creates_generation_when_tracing_enabled(monkeypatch):
     assert events["create"]["name"] == "company-screen"
     assert events["create"]["model"] == "m"
     assert "output" in events["update"]
+
+
+def test_instructions_document_every_category():
+    for category in RED_FLAG_CATEGORIES:
+        assert category in _INSTRUCTIONS, f"prompt is missing category {category}"
+
+
+def test_instructions_ask_for_empty_list_when_none():
+    assert "[]" in _INSTRUCTIONS

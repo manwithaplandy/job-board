@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import pytest
+
+import job_discovery.adapters.greenhouse as greenhouse
 from job_discovery.adapters.greenhouse import parse_greenhouse
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "greenhouse.json").read_text())
@@ -41,3 +44,11 @@ def test_fetch_url_requests_content(monkeypatch):
     assert captured["url"] == (
         "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true"
     )
+
+
+# ── A3: missing top-level key ─────────────────────────────────────────────────
+
+def test_missing_jobs_key_raises(monkeypatch):
+    monkeypatch.setattr(greenhouse, "get_json", lambda url: {"error": "gone"})
+    with pytest.raises(ValueError, match="missing 'jobs'"):
+        greenhouse.fetch_greenhouse("acme")

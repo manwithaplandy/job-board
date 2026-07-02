@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Iterator
 
 from job_discovery.http import get_json, post_json
 from job_discovery.models import Posting
@@ -234,45 +235,50 @@ def _choose_subdivider(
     return None if best is None else (best[1], best[2])
 
 
-def _ingest_items(
-    items: list, sink: dict[str, Posting], *, cxs: str, host: str, site: str
-) -> None:
-    """Fetch+parse each listing item into `sink`, keyed by externalPath (dedup).
+def _yield_items(
+    items: list, seen: set[str], *, cxs: str, host: str, site: str
+) -> Iterator[Posting]:
+    """Fetch+parse each listing item and yield new Postings (dedup by externalPath).
 
     This is the per-page work shared by the unfaceted walk and the faceted crawl:
     skip items already seen (facet overlap / wrap), fetch the detail and parse
     inside a try (a malformed HTTP-200 body must not abort the tenant), and fall
     back to a minimal posting when the detail is unavailable so the job is not
     dropped from run.py's seen-set.
+
+    Memory note: `seen` is a set of path strings (O(n) memory), NOT a dict of
+    full Posting objects; callers receive each Posting via yield and may discard
+    it before the next one is fetched, keeping peak posting memory at O(1).
     """
     for item in items:
         external_path = item.get("externalPath")
-        if not external_path or external_path in sink:
+        if not external_path or external_path in seen:
             continue  # missing id, or already ingested via another facet/page
+        seen.add(external_path)
         try:
             # externalPath already begins with `/job/...`, so it appends directly
             # onto the cxs base. Both the fetch and the parse live inside the try.
             detail = get_json(f"{cxs}{external_path}")
             posting = parse_workday_job(item, detail, host=host, site=site)
-        except Exception:  # detail unavailable/unparseable: keep, don't drop
+        except Exception as exc:  # detail unavailable/unparseable: keep, don't drop
             log.warning(
-                "workday: detail unavailable for %s%s; keeping minimal posting",
-                host, external_path,
+                "workday: detail unavailable for %s%s; keeping minimal posting: %s: %s",
+                host, external_path, type(exc).__name__, exc,
             )
             posting = _minimal_posting(item, host=host, site=site)
         if posting is not None:
-            sink[external_path] = posting
+            yield posting
 
 
 def _page_walk(
     cxs: str,
     applied_facets: dict,
     first_page: dict,
-    sink: dict[str, Posting],
+    seen: set[str],
     *,
     host: str,
     site: str,
-) -> None:
+) -> Iterator[Posting]:
     """Wrap-guarded, hard-capped offset paging (the original unfaceted walk).
 
     `first_page` is the already-fetched offset-0 response, so the caller's
@@ -296,24 +302,26 @@ def _page_walk(
             first_path = this_first
         elif this_first is not None and this_first == first_path:
             break
-        _ingest_items(items, sink, cxs=cxs, host=host, site=site)
+        yield from _yield_items(items, seen, cxs=cxs, host=host, site=site)
         offset += _PAGE_LIMIT
         if offset >= _HARD_CAP:
             break  # hard cap: never page a single query past the 2000 ceiling
         if len(items) < _PAGE_LIMIT:
             break  # short page -> end of results
         page = _post_jobs(cxs, applied_facets, offset)
+        if "jobPostings" not in page:
+            raise ValueError("workday response missing 'jobPostings' key")
 
 
 def _crawl(
     cxs: str,
     applied_facets: dict,
-    sink: dict[str, Posting],
+    seen: set[str],
     *,
     host: str,
     site: str,
     depth: int,
-) -> None:
+) -> Iterator[Posting]:
     """Crawl one facet partition: page it when reachable, else sub-divide.
 
     Reads offset 0 first to learn the partition's `total` (reliable only at
@@ -325,17 +333,27 @@ def _crawl(
     and warn that the tail is unreadable.
     """
     first = _post_jobs(cxs, applied_facets, 0)
+    if "jobPostings" not in first:
+        raise ValueError("workday response missing 'jobPostings' key")
     total = first.get("total") or 0
+    # Total-flap fallback: total=0 but the page has items → Workday is reporting a
+    # stale/flapped total. Use the wrap-guarded _page_walk (which never relies on
+    # `total` as a stop signal) to keep paging until the genuine end of results.
+    if not total and first.get("jobPostings"):
+        yield from _page_walk(cxs, applied_facets, first, seen, host=host, site=site)
+        return
     if total < _HARD_CAP:
-        _ingest_items(first.get("jobPostings") or [], sink,
-                      cxs=cxs, host=host, site=site)
+        yield from _yield_items(first.get("jobPostings") or [], seen,
+                                cxs=cxs, host=host, site=site)
         offset = _PAGE_LIMIT
         while offset < total:
             page = _post_jobs(cxs, applied_facets, offset)
+            if "jobPostings" not in page:
+                raise ValueError("workday response missing 'jobPostings' key")
             items = page.get("jobPostings") or []
             if not items:
                 break
-            _ingest_items(items, sink, cxs=cxs, host=host, site=site)
+            yield from _yield_items(items, seen, cxs=cxs, host=host, site=site)
             offset += _PAGE_LIMIT
         return
 
@@ -350,7 +368,7 @@ def _crawl(
             "(total>=%d, depth=%d); reading only the first %d",
             applied_facets, host, _HARD_CAP, depth, _HARD_CAP,
         )
-        _page_walk(cxs, applied_facets, first, sink, host=host, site=site)
+        yield from _page_walk(cxs, applied_facets, first, seen, host=host, site=site)
         return
 
     param, values = subdivider
@@ -358,19 +376,27 @@ def _crawl(
         vid = value.get("id")
         if not vid:
             continue
-        _crawl(cxs, {**applied_facets, param: [vid]}, sink,
-               host=host, site=site, depth=depth + 1)
+        yield from _crawl(cxs, {**applied_facets, param: [vid]}, seen,
+                          host=host, site=site, depth=depth + 1)
 
 
-def fetch_workday(token: str) -> list[Posting]:
+def fetch_workday(token: str) -> Iterator[Posting]:
+    """Yield Postings for a Workday tenant, one at a time.
+
+    Returns a lazy iterator so callers (run.py) can upsert and discard each
+    Posting before the next is fetched, bounding peak memory to O(seen_paths)
+    rather than O(N postings × detail_size).
+    """
     tenant, datacenter, site = _parse_token(token)
     host = f"{tenant}.{datacenter}.myworkdayjobs.com"
     cxs = f"https://{host}/wday/cxs/{tenant}/{site}"
-    sink: dict[str, Posting] = {}  # externalPath -> Posting (dedup across facets)
+    seen: set[str] = set()  # externalPath strings only (dedup across facets; O(n) memory)
 
     # One unfaceted offset-0 probe drives the escalation decision and doubles as
     # page 1 of the unfaceted walk (so a small tenant costs no extra call).
     first = _post_jobs(cxs, {}, 0)
+    if "jobPostings" not in first:
+        raise ValueError("workday response missing 'jobPostings' key")
     facets = first.get("facets")
     true_total = _true_total(facets, first.get("total"))
     partition = _facet_values(facets, _PARTITION_FACET)
@@ -378,7 +404,7 @@ def fetch_workday(token: str) -> list[Posting]:
     if true_total <= _HARD_CAP or not partition:
         # Small tenant (or no facet to partition by): the original unfaceted walk,
         # bounded by the wrap-guard/hard-cap safety net, reads everything.
-        _page_walk(cxs, {}, first, sink, host=host, site=site)
+        yield from _page_walk(cxs, {}, first, seen, host=host, site=site)
     else:
         # >2000 postings: partition by jobFamilyGroup and crawl each slice,
         # sub-dividing any slice that is itself over the cap.
@@ -391,7 +417,11 @@ def fetch_workday(token: str) -> list[Posting]:
             vid = value.get("id")
             if not vid:
                 continue
-            _crawl(cxs, {_PARTITION_FACET: [vid]}, sink,
-                   host=host, site=site, depth=1)
-
-    return list(sink.values())
+            yield from _crawl(cxs, {_PARTITION_FACET: [vid]}, seen,
+                               host=host, site=site, depth=1)
+        # Some postings belong to NO jobFamilyGroup facet value and therefore never
+        # appear in any per-facet slice. Walk the full unfaceted feed one more time
+        # (using the already-fetched first page) so these postings are ingested.
+        # The dedup-by-externalPath seen-set ensures facet-overlapping postings are
+        # not re-fetched or double-counted.
+        yield from _page_walk(cxs, {}, first, seen, host=host, site=site)

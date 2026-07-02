@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from job_discovery.adapters.ashby import fetch_ashby
 from job_discovery.adapters.greenhouse import fetch_greenhouse
@@ -8,7 +8,8 @@ from job_discovery.adapters.workable import fetch_workable
 from job_discovery.adapters.workday import fetch_workday
 from job_discovery.models import Posting
 
-ADAPTERS: dict[str, Callable[[str], list[Posting]]] = {
+# Adapters return an Iterable (list or generator); run.py iterates with `for`.
+ADAPTERS: dict[str, Callable[[str], Iterable[Posting]]] = {
     "greenhouse": fetch_greenhouse,
     "lever": fetch_lever,
     "ashby": fetch_ashby,

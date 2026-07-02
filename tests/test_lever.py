@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import pytest
+
+import job_discovery.adapters.lever as lever
 from job_discovery.adapters.lever import parse_lever
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "lever.json").read_text())
@@ -20,3 +23,11 @@ def test_onsite_is_not_remote():
     ops = parse_lever(FIXTURE)[1]
     assert ops.remote is False
     assert ops.department == "Operations"
+
+
+# ── A3: non-list response raises ───────────────────────────────────────────────
+
+def test_non_list_response_raises(monkeypatch):
+    monkeypatch.setattr(lever, "get_json", lambda url: {"error": "gone"})
+    with pytest.raises(ValueError, match="expected a list"):
+        lever.fetch_lever("acme")

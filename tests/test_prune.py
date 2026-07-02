@@ -6,6 +6,19 @@ from tests.conftest import requires_db
 USER = "33333333-3333-3333-3333-333333333333"
 
 
+def _job_exists(conn, job_id):
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM jobs WHERE id=%s", (job_id,))
+        return cur.fetchone() is not None
+
+
+def _description(conn, job_id):
+    with conn.cursor() as cur:
+        cur.execute("SELECT description FROM jobs WHERE id=%s", (job_id,))
+        row = cur.fetchone()
+        return row["description"] if row else None
+
+
 def _company(conn, token, active=True):
     with conn.cursor() as cur:
         cur.execute(
@@ -118,3 +131,59 @@ def test_delete_cascades_to_reviews(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM job_reviews WHERE job_id=%s", (j,))
         assert cur.fetchone()["n"] == 0
+
+
+# ── A1: guard tests ────────────────────────────────────────────────────────────
+
+@requires_db
+def test_delete_closed_spares_jobs_with_application_package(conn):
+    cid = _company(conn, "guard1")
+    job_id = _job(conn, cid, "x1", closed_days=40)
+    _review(conn, job_id, verdict="deny")
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO application_packages (user_id, job_id, status, applied_at)"
+            " VALUES (%s, %s, 'applied', now())", (USER, job_id))
+    conn.commit()
+    prune_jobs(conn)
+    assert _job_exists(conn, job_id)
+
+
+@requires_db
+def test_delete_closed_spares_jobs_with_correction(conn):
+    cid = _company(conn, "guard2")
+    job_id = _job(conn, cid, "x2", closed_days=40)
+    _review(conn, job_id, verdict="deny")
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO review_corrections (user_id, job_id, verdict) VALUES (%s, %s, 'approve')",
+            (USER, job_id))
+    conn.commit()
+    prune_jobs(conn)
+    assert _job_exists(conn, job_id)
+
+
+@requires_db
+def test_drop_denied_keeps_description_when_correction_approves(conn):
+    cid = _company(conn, "guard3")
+    job_id = _job(conn, cid, "x3", description="full JD")
+    _review(conn, job_id, verdict="deny")
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO review_corrections (user_id, job_id, verdict) VALUES (%s, %s, 'approve')",
+            (USER, job_id))
+    conn.commit()
+    prune_jobs(conn)
+    assert _description(conn, job_id) == "full JD"
+
+
+@requires_db
+def test_drop_denied_sets_pruned_flag(conn):
+    cid = _company(conn, "guard4")
+    job_id = _job(conn, cid, "x4", description="full JD")
+    _review(conn, job_id, verdict="deny")
+    prune_jobs(conn)
+    assert _description(conn, job_id) is None
+    with conn.cursor() as cur:
+        row = conn.execute("SELECT description_pruned FROM jobs WHERE id=%s", (job_id,)).fetchone()
+        assert row["description_pruned"] is True

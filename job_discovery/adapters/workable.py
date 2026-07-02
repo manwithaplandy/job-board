@@ -92,14 +92,16 @@ def fetch_workable(token: str) -> list[Posting]:
     # whole company fetch (a dropped job would let run.py's close-detection
     # falsely close a still-open posting).
     payload = get_json(_WIDGET_URL.format(account=token))
+    if "jobs" not in payload:
+        raise ValueError("workable response missing 'jobs' key")
     postings: list[Posting] = []
-    for job in payload.get("jobs", []):
+    for job in payload.get("jobs") or []:
         try:
             posting = parse_workable_job(job, token)
-        except Exception:  # malformed entry: keep a minimal posting, don't drop
+        except Exception as exc:  # malformed entry: keep a minimal posting, don't drop
             log.warning(
-                "workable: malformed job entry for %s/%s; keeping minimal posting",
-                token, job.get("shortcode"),
+                "workable: malformed job entry for %s/%s; keeping minimal posting: %s: %s",
+                token, job.get("shortcode"), type(exc).__name__, exc,
             )
             posting = _minimal_posting(token, job)
         if posting is not None:

@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 import job_discovery.adapters.workable as workable
 from job_discovery.adapters.workable import fetch_workable, parse_workable_job
 from job_discovery.jd import extract_description
@@ -105,3 +107,11 @@ def test_fetch_drops_only_entries_without_a_shortcode(monkeypatch):
     monkeypatch.setattr(workable, "get_json", fake_get_json)
     postings = fetch_workable("acme")
     assert [p.external_id for p in postings] == ["OK"]
+
+
+# ── A3: missing top-level key ─────────────────────────────────────────────────
+
+def test_missing_jobs_key_raises(monkeypatch):
+    monkeypatch.setattr(workable, "get_json", lambda url: {"error": "gone"})
+    with pytest.raises(ValueError, match="missing 'jobs'"):
+        fetch_workable("acme")

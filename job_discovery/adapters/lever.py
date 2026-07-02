@@ -32,4 +32,7 @@ def parse_lever(data: list) -> list[Posting]:
 
 def fetch_lever(token: str) -> list[Posting]:
     url = f"https://api.lever.co/v0/postings/{token}?mode=json"
-    return parse_lever(get_json(url))
+    data = get_json(url)
+    if not isinstance(data, list):
+        raise ValueError(f"lever response expected a list, got {type(data).__name__}")
+    return parse_lever(data)

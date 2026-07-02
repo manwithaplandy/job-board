@@ -9,7 +9,15 @@ from job_discovery.models import Posting
 
 def connect(dsn: str | None = None) -> psycopg.Connection:
     dsn = dsn or os.environ["DATABASE_URL"]
-    return psycopg.connect(dsn, row_factory=dict_row)
+    return psycopg.connect(
+        dsn,
+        row_factory=dict_row,
+        connect_timeout=10,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=3,
+    )
 
 
 # The Supabase Pro volume is 8 GB. A poll now stores only the distilled JD text
@@ -69,31 +77,66 @@ def active_companies(conn) -> list[dict]:
         return cur.fetchall()
 
 
-def upsert_job(conn, company_id: int, ats: str, token: str, p: Posting) -> bool:
+_UPSERT_SQL = """
+    INSERT INTO jobs (id, company_id, external_id, title, url,
+                      location, department, remote, description)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (id) DO UPDATE SET
+        title       = EXCLUDED.title,
+        url         = EXCLUDED.url,
+        location    = COALESCE(EXCLUDED.location,    jobs.location),
+        department  = COALESCE(EXCLUDED.department,  jobs.department),
+        remote      = COALESCE(EXCLUDED.remote,      jobs.remote),
+        description = CASE WHEN jobs.description IS NULL AND NOT jobs.description_pruned
+                           THEN EXCLUDED.description ELSE jobs.description END,
+        last_seen_at = now(),
+        closed_at    = NULL
+    WHERE jobs.closed_at IS NOT NULL
+       OR (jobs.title, jobs.url) IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.url)
+       OR COALESCE(EXCLUDED.location,   jobs.location)   IS DISTINCT FROM jobs.location
+       OR COALESCE(EXCLUDED.department, jobs.department) IS DISTINCT FROM jobs.department
+       OR COALESCE(EXCLUDED.remote,     jobs.remote)     IS DISTINCT FROM jobs.remote
+       OR (jobs.description IS NULL AND NOT jobs.description_pruned
+           AND EXCLUDED.description IS NOT NULL)
+    RETURNING (xmax = 0) AS is_new
+"""
+
+
+def _posting_row(ats: str, token: str, company_id: int, p: Posting) -> tuple:
     job_id = f"{ats}:{token}:{p.external_id}"
     description = extract_description(ats, p.raw or {})
+    return (job_id, company_id, p.external_id, p.title, p.url,
+            p.location, p.department, p.remote, description)
+
+
+def upsert_jobs(
+    conn, company_id: int, ats: str, token: str, postings: list[Posting]
+) -> int:
+    """Batch-upsert a list of postings using psycopg3 pipelined executemany.
+
+    Returns the count of rows that were newly inserted (is_new=TRUE). A conditional
+    DO UPDATE skips no-op rows entirely (returns no RETURNING row for those), so a
+    skipped update is counted as not new. Note: last_seen_at does not advance for
+    unchanged rows.
+    """
+    if not postings:
+        return 0
+    rows = [_posting_row(ats, token, company_id, p) for p in postings]
+    new = 0
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO jobs (id, company_id, external_id, title, url,
-                              location, department, remote, description)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (id) DO UPDATE SET
-                last_seen_at = now(),
-                closed_at    = NULL,
-                title        = EXCLUDED.title,
-                url          = EXCLUDED.url,
-                location     = EXCLUDED.location,
-                department   = EXCLUDED.department,
-                remote       = EXCLUDED.remote
-            RETURNING (xmax = 0) AS inserted
-            """,
-            (
-                job_id, company_id, p.external_id, p.title, p.url,
-                p.location, p.department, p.remote, description,
-            ),
-        )
-        return cur.fetchone()["inserted"]
+        cur.executemany(_UPSERT_SQL, rows, returning=True)
+        while True:
+            row = cur.fetchone()
+            if row and row["is_new"]:
+                new += 1
+            if not cur.nextset():
+                break
+    return new
+
+
+def upsert_job(conn, company_id: int, ats: str, token: str, p: Posting) -> bool:
+    """Single-row upsert, implemented as a batch of one. Returns True if new."""
+    return upsert_jobs(conn, company_id, ats, token, [p]) > 0
 
 
 def compute_newly_closed(

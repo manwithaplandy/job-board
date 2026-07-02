@@ -31,7 +31,7 @@ def _run_batched(conn, sql: str, params_prefix: tuple, batch: int, cap: int) -> 
 
 
 _DROP_DENIED = """
-UPDATE jobs SET description = NULL
+UPDATE jobs SET description = NULL, description_pruned = TRUE
 WHERE id IN (
     SELECT j.id FROM jobs j
     WHERE j.description IS NOT NULL
@@ -39,6 +39,8 @@ WHERE id IN (
                   AND (r.verdict = 'deny' OR r.stage1_decision = 'reject'))
       AND NOT EXISTS (SELECT 1 FROM job_reviews r WHERE r.job_id = j.id
                       AND r.verdict = 'approve')
+      AND NOT EXISTS (SELECT 1 FROM review_corrections rc
+                      WHERE rc.job_id = j.id AND rc.verdict = 'approve')
     LIMIT %s
 )
 """
@@ -50,6 +52,8 @@ DELETE FROM jobs WHERE id IN (
       AND j.closed_at < now() - make_interval(days => %s)
       AND NOT EXISTS (SELECT 1 FROM job_reviews r WHERE r.job_id = j.id
                       AND r.verdict = 'approve')
+      AND NOT EXISTS (SELECT 1 FROM review_corrections rc WHERE rc.job_id = j.id)
+      AND NOT EXISTS (SELECT 1 FROM application_packages ap WHERE ap.job_id = j.id)
     LIMIT %s
 )
 """
@@ -61,6 +65,8 @@ DELETE FROM jobs WHERE id IN (
     WHERE c.active = FALSE
       AND NOT EXISTS (SELECT 1 FROM job_reviews r WHERE r.job_id = j.id
                       AND r.verdict = 'approve')
+      AND NOT EXISTS (SELECT 1 FROM review_corrections rc WHERE rc.job_id = j.id)
+      AND NOT EXISTS (SELECT 1 FROM application_packages ap WHERE ap.job_id = j.id)
     LIMIT %s
 )
 """

@@ -283,3 +283,96 @@ def test_review_all_writes_verdicts_and_run(conn, monkeypatch):
     assert rev["verdict"] == "approve" and rev["profile_version"] == "v1"
     assert desc == "jd"
     assert rr["approved"] == 1 and rr["finished_at"] is not None
+
+
+@requires_db
+def test_review_all_defers_jd_less_job_and_reselects(conn, monkeypatch):
+    """A stage-1 pass with no JD writes NO review row and stays a candidate next run.
+
+    A verdict=NULL/error=NULL row would be unreachable by every re-selection
+    predicate at the same profile_version, permanently sticking the job. The
+    persist filter must skip it entirely so the job is re-selected once a JD lands.
+    """
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
+    # raw={} → extract_description returns None → JD-less job.
+    poller_db.upsert_job(conn, cid, "lever", "acme",
+                         Posting(external_id="nojd", title="SRE", url="u", raw={}))
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'v1')",
+            (USER,),
+        )
+    conn.commit()
+
+    import reviewer.run as run_module
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+    run_module.review_all(conn)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*)::int AS n FROM job_reviews "
+            "WHERE user_id = %s AND job_id = 'lever:acme:nojd'",
+            (USER,),
+        )
+        assert cur.fetchone()["n"] == 0, "JD-less deferral must not write a review row"
+    # Re-selected on the next run: absent row → r.job_id IS NULL → candidate again.
+    cands, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert "lever:acme:nojd" in {c["id"] for c in cands}
+
+
+@requires_db
+def test_review_user_commits_earlier_chunks_on_midbatch_failure(conn, monkeypatch):
+    """A mid-batch upsert failure preserves earlier committed chunks.
+
+    Proves the chunked-commit durability guarantee is active through
+    _review_user: rows persisted before a later row explodes must survive, and
+    iteration must continue past the failure.
+    """
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    from reviewer import config
+    monkeypatch.setattr(config, "PERSIST_CHUNK_SIZE", 2)
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
+    for i in range(5):
+        poller_db.upsert_job(conn, cid, "lever", "acme",
+                             Posting(external_id=f"e{i}", title=f"Eng{i}", url="u",
+                                     raw={"descriptionPlain": "jd"}))
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'v1')",
+            (USER,),
+        )
+    conn.commit()
+
+    import reviewer.run as run_module
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+
+    seen = []
+    original = rdb.upsert_review
+
+    def failing_upsert(c, row):
+        seen.append(row["job_id"])
+        if len(seen) == 3:
+            raise RuntimeError("boom on the 3rd upsert")
+        original(c, row)
+
+    monkeypatch.setattr(rdb, "upsert_review", failing_upsert)
+    run_module.review_all(conn)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT job_id FROM job_reviews WHERE user_id = %s", (USER,))
+        persisted = {r["job_id"] for r in cur.fetchall()}
+    assert len(seen) == 5, "iteration must continue past the mid-batch failure"
+    failed_id = seen[2]
+    assert failed_id not in persisted, "the row that raised must not be persisted"
+    assert len(persisted) == 4, "the other four rows (incl. the first chunk) survive"

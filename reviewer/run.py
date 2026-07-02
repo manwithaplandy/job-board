@@ -216,20 +216,28 @@ def _review_user(conn, profile: dict) -> None:
             notes = (f"{notes}; " if notes else "") + "halted: out of credits"
             log.warning("review halted (no credits) for %s", user_id)
 
+        rows_to_persist = []
         for r in results:
-            db.upsert_review(conn, r.as_row(user_id=user_id, profile_version=pv))
             if r.error:
                 counts["errors"] += 1
-                continue
-            if r.stage1_decision is not None:
+            elif r.stage1_decision == "reject":
                 counts["reviewed"] += 1
-            if r.stage1_decision == "reject":
                 counts["gate_rejected"] += 1
-            if r.verdict == "approve":
-                counts["approved"] += 1
-            elif r.verdict == "deny":
-                counts["denied"] += 1
-        conn.commit()
+            elif r.verdict is not None:
+                counts["reviewed"] += 1
+                if r.verdict == "approve":
+                    counts["approved"] += 1
+                elif r.verdict == "deny":
+                    counts["denied"] += 1
+            else:
+                # Stage-1 passed but stage 2 was deferred (no JD yet): no terminal
+                # outcome. A verdict=NULL/error=NULL row is unreachable by every
+                # re-selection predicate at this profile_version and would stick the
+                # job forever, so skip persisting it — the absent row keeps the job
+                # re-selectable once a JD is refilled.
+                continue
+            rows_to_persist.append(r.as_row(user_id=user_id, profile_version=pv))
+        _persist_rows(conn, rows_to_persist, config.PERSIST_CHUNK_SIZE)
     except Exception:
         conn.rollback()
         notes = (f"{notes}; " if notes else "") + "review phase errored; see logs"

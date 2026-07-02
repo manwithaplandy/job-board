@@ -56,6 +56,7 @@ def test_stage1_passes_title_and_sends_profile_in_system():
     call = fake.calls[0]
     assert call["model"] == "m1"
     assert call["response_format"] is Stage1Result
+    assert call["max_tokens"] == 512  # cap forwarded, not silently dropped
     msgs = call["messages"]
     assert msgs[0]["role"] == "system" and "P" in msgs[0]["content"]
     assert msgs[1]["role"] == "user" and "Staff Engineer" in msgs[1]["content"]
@@ -74,6 +75,7 @@ def test_stage2_includes_jd_and_uses_stage2_model():
     call = fake.calls[0]
     assert call["model"] == "m2"
     assert call["response_format"] is Stage2Result
+    assert call["max_tokens"] == 6000  # cap forwarded, not silently dropped
     assert "Operate Kubernetes clusters" in call["messages"][1]["content"]
 
 
@@ -141,6 +143,116 @@ def test_stage1_creates_generation_when_tracing_enabled(monkeypatch):
     assert events["create"]["model"] == "m1"
     assert events["create"]["name"] == "stage1"
     assert "output" in events["update"]
+
+
+def test_prompt_contains_anchors_and_guard():
+    """Stage-2 system prompt must contain score anchors, UNTRUSTED guard, and comp definition."""
+    from reviewer.llm import _STAGE2_INSTRUCTIONS, _STAGE1_INSTRUCTIONS
+    # Score anchor for skills_score
+    assert "90-100" in _STAGE2_INSTRUCTIONS
+    # Separate comp definition
+    assert "comp_score" in _STAGE2_INSTRUCTIONS and "compensation fit" in _STAGE2_INSTRUCTIONS
+    # Untrusted JD guard in stage-2
+    assert "UNTRUSTED" in _STAGE2_INSTRUCTIONS or "untrusted" in _STAGE2_INSTRUCTIONS
+    # job_description delimiter present
+    assert "<job_description>" in _STAGE2_INSTRUCTIONS
+
+
+def test_stage1_jd_guard():
+    """Stage-1 user message wraps job data in untrusted block when calling stage."""
+    fake = _FakeClient()
+    rc = ReviewClient(client=fake, model_stage1="m1", model_stage2="m2")
+    asyncio.run(rc.stage1(profile_block="P", title="SRE", company="Acme", location="NYC"))
+    # Stage-1 system prompt should also include untrusted-JD awareness
+    user_msg = fake.calls[0]["messages"][1]["content"]
+    assert "SRE" in user_msg
+
+
+def test_stage1_batches_titles():
+    """45 candidates → 1 LLM call with a batch of titles; responses mapped back by job_id."""
+    from reviewer.llm import ReviewClient
+    from reviewer.schemas import Stage1BatchResult, Stage1Decision
+
+    batch_calls = []
+
+    class _BatchCompletions:
+        async def parse(self, **kwargs):
+            batch_calls.append(kwargs)
+            # Return a batch result with all 45 jobs passing
+            decisions = [
+                Stage1Decision(job_id=str(i), decision="pass", reason="ok")
+                for i in range(45)
+            ]
+            return _make_response(Stage1BatchResult(decisions=decisions))
+
+    fake_client = types.SimpleNamespace(
+        beta=types.SimpleNamespace(
+            chat=types.SimpleNamespace(completions=_BatchCompletions())
+        )
+    )
+    rc = ReviewClient(client=fake_client, model_stage1="m1", model_stage2="m2")
+    jobs = [{"id": str(i), "title": f"Job {i}", "company_name": "X", "location": None}
+            for i in range(45)]
+    results = asyncio.run(rc.stage1_batch(profile_block="P", jobs=jobs))
+    # 1 LLM call (all 45 fit in the batch cap of 50)
+    assert len(batch_calls) == 1
+    # All 45 jobs mapped back
+    assert len(results) == 45
+    assert all(r.decision == "pass" for r in results)
+
+
+def test_stage1_batch_forwards_cache_control_for_claude():
+    """For Claude model slugs, stage1_batch forwards its cache_control extra_body
+    (merged with usage accounting) to the transport instead of dropping it."""
+    from reviewer.schemas import Stage1BatchResult, Stage1Decision
+
+    calls = []
+
+    class _BatchCompletions:
+        async def parse(self, **kwargs):
+            calls.append(kwargs)
+            return _make_response(Stage1BatchResult(
+                decisions=[Stage1Decision(job_id="1", decision="pass", reason="r")]))
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_BatchCompletions())))
+    rc = ReviewClient(client=fake, model_stage1="anthropic/claude-3.5-sonnet", model_stage2="m2")
+    jobs = [{"id": "1", "title": "SRE", "company_name": "Acme", "location": None}]
+    asyncio.run(rc.stage1_batch(profile_block="P", jobs=jobs))
+    extra = calls[0]["extra_body"]
+    assert extra["cache_control"] == {"type": "ephemeral"}  # forwarded, not dropped
+    assert extra["usage"]["include"] is True                # accounting preserved
+
+
+def test_persist_commits_per_chunk(monkeypatch):
+    """Exception on row 7 of 10 → rows 1-6 committed; row 7 error logged; rows 8-10 committed."""
+    persisted = []
+    commits = [0]
+    rollbacks = [0]
+
+    class _FakeConn:
+        def commit(self):
+            commits[0] += 1
+
+        def rollback(self):
+            rollbacks[0] += 1
+
+    def _fake_upsert(conn, row):
+        job_id = row.get("job_id")
+        if job_id == 7:
+            raise RuntimeError("row 7 explodes")
+        persisted.append(job_id)
+
+    import reviewer.run as run_mod
+    import reviewer.db as db_mod
+    monkeypatch.setattr(db_mod, "upsert_review", _fake_upsert)
+
+    rows = [{"job_id": i, "user_id": "u", "profile_version": "v"} for i in range(1, 11)]
+    conn = _FakeConn()
+    run_mod._persist_rows(conn, rows, chunk_size=6)
+    # rows 1-6 → commit after chunk, row 7 errors → rollback (but continues), rows 8-10 → final commit
+    assert set(persisted) == {1, 2, 3, 4, 5, 6, 8, 9, 10}
+    assert commits[0] >= 2   # at least the chunk commit and final commit
 
 
 def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):

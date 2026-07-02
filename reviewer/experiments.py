@@ -7,14 +7,6 @@ from reviewer import db
 from reviewer.llm import ReviewClient, build_profile_block
 from reviewer.run import review_one
 
-
-def verdict_match(expected, actual) -> float:
-    """Return 1.0 only when both values are truthy and equal, else 0.0."""
-    if not expected or not actual:
-        return 0.0
-    return 1.0 if expected == actual else 0.0
-
-
 GOLDEN_CATEGORICALS = [
     "verdict", "experience_match", "industry", "industry_subcategory",
     "role_category", "seniority", "work_arrangement", "confidence",
@@ -59,34 +51,84 @@ def _field_accuracy_evaluator(*, input, output, expected_output, metadata=None, 
                       value=(hits / len(scored) if scored else 0.0))
 
 
-def build_evaluators() -> list:
-    return (
+def _stage1_pass_evaluator(client):
+    """Return an evaluator that runs stage-1 on the item and scores pass=1.0, reject=0.0.
+
+    Golden items passed the human-curation gate by construction; this evaluator
+    checks whether the model's stage-1 gate agrees.
+    """
+    async def _run(item):
+        block = build_profile_block(
+            item.input.get("resume_text"), item.input.get("instructions")
+        )
+        res = await client.stage1(
+            profile_block=block,
+            title=item.input.get("title", ""),
+            company=item.input.get("company_name", ""),
+            location=item.input.get("location"),
+        )
+        return res.decision
+
+    def _ev(*, input, output, expected_output, metadata=None, item=None, **kwargs):
+        import asyncio
+        if item is None:
+            return Evaluation(name="stage1_pass", value=0.0)
+        decision = asyncio.run(_run(item))
+        return Evaluation(name="stage1_pass", value=1.0 if decision == "pass" else 0.0)
+
+    return _ev
+
+
+def build_evaluators(client=None) -> list:
+    evals = (
         [_categorical_evaluator(f) for f in GOLDEN_CATEGORICALS]
         + [_score_evaluator(f) for f in GOLDEN_SCORES]
         + [_field_accuracy_evaluator]
     )
+    if client is not None:
+        evals.append(_stage1_pass_evaluator(client))
+    return evals
 
 
 _GOLDEN_FIELDS = GOLDEN_CATEGORICALS + GOLDEN_SCORES
 
 
 def sync_golden_dataset(conn, name: str = "reviewer-golden") -> int:
-    """Push every human correction as a dataset item (upsert by user:job id)."""
+    """Push every human correction as a dataset item (upsert by user:job id).
+
+    Provenance is preserved: an item Langfuse already has keeps its existing
+    metadata.source (e.g. 'dashboard'); only items not already present are stamped
+    'backfill'. This requires a get-before-upsert against the dataset.
+    """
     lf = tracing.get_langfuse()
     if lf is None:
         raise RuntimeError("LANGFUSE_* not set; cannot sync dataset")
     lf.create_dataset(name=name)
+
+    # Existing items' provenance, so a re-sync never clobbers a dashboard source.
+    existing_source: dict[str, str] = {}
+    try:
+        dataset = lf.get_dataset(name)
+    except Exception:
+        dataset = None
+    for it in (getattr(dataset, "items", None) or []):
+        src = (getattr(it, "metadata", None) or {}).get("source")
+        if src:
+            existing_source[it.id] = src
+
     rows = db.golden_corrections(conn)
     for r in rows:
+        item_id = f"{r['user_id']}:{r['job_id']}"
         lf.create_dataset_item(
             dataset_name=name,
-            id=f"{r['user_id']}:{r['job_id']}",
+            id=item_id,
             input={k: r[k] for k in ("title", "company_name", "location",
                                      "ats", "description", "resume_text",
                                      "instructions")},
             expected_output={k: r[k] for k in _GOLDEN_FIELDS},
             metadata={"corrected_at": r["corrected_at"].isoformat(),
-                      "note": r["note"], "source": "backfill"},
+                      "note": r["note"],
+                      "source": existing_source.get(item_id, "backfill")},
         )
     lf.flush()
     return len(rows)
@@ -94,6 +136,10 @@ def sync_golden_dataset(conn, name: str = "reviewer-golden") -> int:
 
 def run_experiment(name: str, run_name: str, client=None) -> int:
     """Run an offline experiment against a named Langfuse dataset.
+
+    Golden items are fed straight to stage 2 — the gate is evaluated separately
+    by the stage1_pass evaluator, so gate quality and stage-2 quality are
+    measured independently.
 
     Args:
         name:     Langfuse dataset name to evaluate against.
@@ -103,6 +149,8 @@ def run_experiment(name: str, run_name: str, client=None) -> int:
     Returns:
         Number of dataset items evaluated.
     """
+    from reviewer import scoring
+
     lf = tracing.get_langfuse()
     if lf is None:
         raise RuntimeError("LANGFUSE_* not set; cannot run experiment")
@@ -110,23 +158,37 @@ def run_experiment(name: str, run_name: str, client=None) -> int:
     dataset = lf.get_dataset(name)
 
     async def _task(*, item, **kwargs):
-        cand = {"id": f"exp:{item.id}", **item.input}
+        """Call stage 2 directly; golden items passed the gate by construction."""
         block = build_profile_block(
             item.input.get("resume_text"), item.input.get("instructions")
         )
-        res = await review_one(cand, block, client)
+        jd = item.input.get("description") or ""
+        s2 = await client.stage2(
+            profile_block=block,
+            title=item.input.get("title", ""),
+            company=item.input.get("company_name", ""),
+            location=item.input.get("location"),
+            jd=jd,
+        )
+        fit_score = None
+        if None not in (s2.skills_score, s2.experience_score, s2.comp_score):
+            fit_score = scoring.compute_fit(
+                skills_score=s2.skills_score, experience_score=s2.experience_score,
+                comp_score=s2.comp_score, experience_match=s2.experience_match,
+                confidence=s2.confidence, red_flags=s2.red_flags, verdict=s2.verdict,
+            )
         return {
-            "verdict": res.verdict, "fit_score": res.fit_score,
-            "experience_match": res.experience_match, "industry": res.industry,
-            "industry_subcategory": res.industry_subcategory,
-            "confidence": res.confidence, "role_category": res.role_category,
-            "seniority": res.seniority, "work_arrangement": res.work_arrangement,
-            "skills_score": res.skills_score,
-            "experience_score": res.experience_score, "comp_score": res.comp_score,
+            "verdict": s2.verdict, "fit_score": fit_score,
+            "experience_match": s2.experience_match, "industry": s2.industry,
+            "industry_subcategory": s2.industry_subcategory,
+            "confidence": s2.confidence, "role_category": s2.role_category,
+            "seniority": s2.seniority, "work_arrangement": s2.work_arrangement,
+            "skills_score": s2.skills_score,
+            "experience_score": s2.experience_score, "comp_score": s2.comp_score,
         }
 
     result = dataset.run_experiment(
-        name=run_name, task=_task, evaluators=build_evaluators(),
+        name=run_name, task=_task, evaluators=build_evaluators(client=client),
     )
     lf.flush()
     return len(result.item_results)

@@ -45,34 +45,51 @@ def load_profiles(conn) -> list[dict]:
 def select_candidates(
     conn, user_id: str, profile_version: str, limit: int,
     preferred_locations: list[str] | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
+    """Return (rows, total_stale) where total_stale is the unbounded stale count.
+
+    Splitting the count into a separate bounded SELECT avoids materialising the
+    full stale set before LIMIT when the window-aggregate approach would do.
+    """
     # Empty/None preference list = no location pre-filter (the `NOT has_prefs`
     # guard makes the whole OR true). When set, keep remote jobs always and
     # otherwise require an exact location match; blank locations are dropped.
     prefs = preferred_locations or []
+    _where = """
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
+        WHERE j.closed_at IS NULL
+          AND (
+            r.job_id IS NULL
+            OR r.profile_version <> %(pv)s
+            OR (r.fit_score IS NULL AND r.verdict IS NOT NULL)
+            OR r.error IS NOT NULL
+          )
+          -- Denied roles are never re-reviewed: their JD is pruned to NULL by
+          -- Rule A in prune.py, so a re-review after a profile change would be
+          -- JD-blind.  A deny is final regardless of future profile versions.
+          -- IS DISTINCT FROM treats NULL (never-reviewed) as NOT 'deny', so
+          -- unreviewed jobs still pass through correctly.
+          AND (r.verdict IS DISTINCT FROM 'deny')
+          AND NOT COALESCE(j.description_pruned, FALSE)
+          AND (NOT %(has_prefs)s OR j.remote IS TRUE OR j.location = ANY(%(prefs)s::text[]))
+    """
+    params = {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,
+              "has_prefs": bool(prefs), "prefs": prefs}
     with conn.cursor() as cur:
         cur.execute(
-            """
-            SELECT j.id, j.title, j.location, j.description, c.ats, c.name AS company_name, COUNT(*) OVER() AS total_stale
-            FROM jobs j
-            JOIN companies c ON c.id = j.company_id
-            LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
-            WHERE j.closed_at IS NULL
-              AND (r.job_id IS NULL OR r.profile_version <> %(pv)s OR (r.fit_score IS NULL AND r.verdict IS NOT NULL))
-              -- Denied roles are never re-reviewed: their JD is pruned to NULL by
-              -- Rule A in prune.py, so a re-review after a profile change would be
-              -- JD-blind.  A deny is final regardless of future profile versions.
-              -- IS DISTINCT FROM treats NULL (never-reviewed) as NOT 'deny', so
-              -- unreviewed jobs still pass through correctly.
-              AND (r.verdict IS DISTINCT FROM 'deny')
-              AND (NOT %(has_prefs)s OR j.remote IS TRUE OR j.location = ANY(%(prefs)s::text[]))
-            ORDER BY j.first_seen_at DESC
-            LIMIT %(lim)s
-            """,
-            {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,
-             "has_prefs": bool(prefs), "prefs": prefs},
+            f"SELECT count(*)::int AS n {_where}",
+            params,
         )
-        return cur.fetchall()
+        total = cur.fetchone()["n"]
+        cur.execute(
+            f"SELECT j.id, j.title, j.location, j.description, c.ats, c.name AS company_name"
+            f" {_where} ORDER BY j.first_seen_at DESC LIMIT %(lim)s",
+            params,
+        )
+        rows = cur.fetchall()
+    return rows, total
 
 
 
@@ -142,13 +159,21 @@ def golden_corrections(conn) -> list[dict]:
 
     input fields (title..instructions) reconstruct the review_one call; the
     remaining fields are the golden expected_output. Newest-first.
+
+    Snapshot columns (description_snapshot, resume_text_snapshot,
+    instructions_snapshot) are preferred over live job/profile data so that
+    corrections remain stable even after the job description is pruned or the
+    candidate's résumé is updated (C-lane DDL; COALESCE falls back to live for
+    legacy rows where snapshots were not captured).
     """
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT rc.user_id, rc.job_id, j.title, c.name AS company_name,
-                   j.location, c.ats, j.description,
-                   p.resume_text, p.instructions,
+                   j.location, c.ats,
+                   COALESCE(rc.description_snapshot, j.description) AS description,
+                   COALESCE(rc.resume_text_snapshot, p.resume_text) AS resume_text,
+                   COALESCE(rc.instructions_snapshot, p.instructions) AS instructions,
                    rc.verdict, rc.experience_match, rc.industry,
                    rc.industry_subcategory, rc.confidence, rc.role_category,
                    rc.seniority, rc.work_arrangement,

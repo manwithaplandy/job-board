@@ -59,7 +59,8 @@ def select_for_review(conn, user_id: str, company_profile_version: str,
             LEFT JOIN company_reviews r ON r.company_id = c.id AND r.user_id = %(uid)s
             WHERE c.discovery_source NOT IN ('seed', 'manual')
               AND (r.company_id IS NULL
-                   OR (r.human_override = FALSE AND r.company_profile_version <> %(pv)s))
+                   OR (r.human_override = FALSE AND r.company_profile_version <> %(pv)s)
+                   OR (r.human_override = FALSE AND r.error IS NOT NULL))
             ORDER BY c.first_seen_at DESC
             LIMIT %(lim)s
             """,
@@ -107,7 +108,8 @@ def count_backlog(conn, user_id: str, company_profile_version: str) -> int:
             LEFT JOIN company_reviews r ON r.company_id = c.id AND r.user_id = %(uid)s
             WHERE c.discovery_source NOT IN ('seed', 'manual')
               AND (r.company_id IS NULL
-                   OR (r.human_override = FALSE AND r.company_profile_version <> %(pv)s))
+                   OR (r.human_override = FALSE AND r.company_profile_version <> %(pv)s)
+                   OR (r.human_override = FALSE AND r.error IS NOT NULL))
             """,
             {"uid": _uuid(user_id), "pv": company_profile_version},
         )

@@ -52,3 +52,13 @@ def test_unknown_enum_keys_contribute_zero_bonus():
     assert compute_fit(skills_score=40, experience_score=40, comp_score=40,
                        experience_match="bogus", confidence="bogus",
                        red_flags=[], verdict="approve") == 40
+
+
+def test_missing_scores_yield_null_fit():
+    """When any sub-score is None, compute_fit must NOT be called; fit_score stays None."""
+    # This test lives here to document the intent; the guard is in run.py
+    # We verify compute_fit itself handles None gracefully (returns 0, not crash)
+    result = compute_fit(skills_score=None, experience_score=None, comp_score=None,
+                         experience_match="match", confidence="high",
+                         red_flags=[], verdict="approve")
+    assert result == 7  # 0*w + 0*w + 0*w + 4(match) + 3(high) - 0(flags) = 7

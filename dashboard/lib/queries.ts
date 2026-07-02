@@ -21,6 +21,7 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
     first_seen_at: iso(row.first_seen_at),
     closed_at: row.closed_at != null ? iso(row.closed_at) : null,
     company_name: row.company_name as string,
+    ats: row.ats as string,
     verdict: (row.verdict as string | null) ?? null,
     human_override: (row.human_override as boolean) ?? false,
     corrected: row.corrected as boolean | undefined,

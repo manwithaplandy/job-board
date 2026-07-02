@@ -8,6 +8,7 @@ import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
+import { atsLabel as atsLabelOf } from "@/lib/rolefit/ats";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
@@ -114,7 +115,7 @@ export function ApplicationPanel({
   };
 
   const applyHref = applyUrl(job.ats, job.url);
-  const atsLabel = job.ats ? job.ats.charAt(0).toUpperCase() + job.ats.slice(1) : "site";
+  const atsLabel = atsLabelOf(job.ats);
 
   const coverBusy = coverState === "busy";
   const coverDone = coverState === "done";

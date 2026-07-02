@@ -22,7 +22,7 @@ function nonNegNum(v: unknown): number {
 }
 
 function defaults(): BoardFilterState {
-  return { ...DEFAULT_FILTERS, cats: [], locs: [] };
+  return { ...DEFAULT_FILTERS, cats: [], locs: [], sources: [] };
 }
 
 export function parseBoardFilters(raw: unknown): BoardFilterState {
@@ -36,6 +36,7 @@ export function parseBoardFilters(raw: unknown): BoardFilterState {
     search: typeof o.search === "string" ? o.search.slice(0, MAX_SEARCH) : DEFAULT_FILTERS.search,
     cats: strList(o.cats),
     locs: strList(o.locs),
+    sources: strList(o.sources),
     remote: REMOTE.has(o.remote as BoardFilterState["remote"])
       ? (o.remote as BoardFilterState["remote"]) : DEFAULT_FILTERS.remote,
     minFit: nonNegNum(o.minFit),

@@ -4,6 +4,7 @@ export interface BoardFilterState {
   search: string;
   cats: string[];
   locs: string[];
+  sources: string[];
   remote: "all" | "remote" | "hybrid" | "onsite";
   minFit: number;
   payMin: number; // in $k
@@ -14,6 +15,7 @@ export const DEFAULT_FILTERS: BoardFilterState = {
   search: "",
   cats: [],
   locs: [],
+  sources: [],
   remote: "all",
   minFit: 0,
   payMin: 0,
@@ -35,6 +37,7 @@ export function applyFilters(jobs: JobRow[], st: BoardFilterState): JobRow[] {
     }
     if (st.cats.length && !(j.role_category && st.cats.includes(j.role_category))) return false;
     if (st.locs.length && !(j.location && st.locs.includes(j.location))) return false;
+    if (st.sources.length && !st.sources.includes(j.ats)) return false;
     if (st.remote !== "all" && arrangementOf(j) !== st.remote) return false;
     if (st.minFit && (j.fit_score ?? 0) < st.minFit) return false;
     if (st.payMin) {
@@ -59,14 +62,17 @@ export function sortJobs(jobs: JobRow[], sort: BoardFilterState["sort"]): JobRow
 export function facetCounts(jobs: JobRow[]): {
   categories: Record<string, number>;
   locations: Record<string, number>;
+  sources: Record<string, number>;
 } {
   const categories: Record<string, number> = {};
   const locations: Record<string, number> = {};
+  const sources: Record<string, number> = {};
   for (const j of jobs) {
     if (j.role_category) categories[j.role_category] = (categories[j.role_category] ?? 0) + 1;
     if (j.location) locations[j.location] = (locations[j.location] ?? 0) + 1;
+    if (j.ats) sources[j.ats] = (sources[j.ats] ?? 0) + 1;
   }
-  return { categories, locations };
+  return { categories, locations, sources };
 }
 
 // Partition the board by application status. `applied` holds the ids of jobs the

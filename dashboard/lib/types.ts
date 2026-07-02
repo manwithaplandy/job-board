@@ -37,6 +37,10 @@ export interface JobRowBase {
   first_seen_at: string | Date;
   closed_at: string | Date | null;
   company_name: string;
+  // Source ATS provider (companies.ats): one of greenhouse/lever/ashby/workable/
+  // smartrecruiters/workday. Always selected (present with or without an owner);
+  // read by the board's Source facet filter (lib/rolefit/filter.ts).
+  ats: string;
   human_override: boolean | null;  // null when no owner review was joined
 }
 
@@ -78,10 +82,9 @@ export interface ReviewedJobRow extends JobRowBase {
   // experience_match/industry/industry_subcategory/confidence/note are detail-only,
   // like reasoning/about/etc. above: absent from the list payload, populated on the
   // selected job via the /api/jobs/[id] fetch (see JobReviewDetail) and consumed by
-  // the correction edit form (ReviewPanel). ats/stage1_decision/stage1_reason remain
+  // the correction edit form (ReviewPanel). stage1_decision/stage1_reason remain
   // genuinely dropped from every query — no render path reads them — and are kept
   // optional only so a stray reference still type-checks rather than silently breaking.
-  ats?: string;
   experience_match?: string | null;
   industry?: string | null;
   industry_subcategory?: string | null;

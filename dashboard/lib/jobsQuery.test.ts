@@ -156,9 +156,14 @@ describe("buildJobsQuery", () => {
     const t = buildJobsQuery(base, UID).text;
     for (const col of ["r.reasoning", "r.requirements", "r.about", "r.benefits",
       "r.red_flags", "r.stage1_reason", "r.stage1_decision", "r.confidence",
-      "r.experience_match", "r.industry", "r.industry_subcategory", "j.url", "c.ats"]) {
+      "r.experience_match", "r.industry", "r.industry_subcategory", "j.url"]) {
       expect(t).not.toContain(col);
     }
+  });
+
+  test("selects c.ats for the Source facet — with and without an owner", () => {
+    expect(buildJobsQuery(base, UID).text).toContain("c.ats");
+    expect(buildJobsQuery(base, null).text).toContain("c.ats");
   });
 
   test("rolefit columns absent without an owner", () => {

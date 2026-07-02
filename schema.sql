@@ -258,6 +258,7 @@ CREATE TABLE application_packages (
   greenhouse_questions JSONB,                 -- parsed GH question schema (NULL = not GH / fetch failed)
   prefilled_answers    JSONB,                 -- [{ question, answer }] mapped by the LLM (NULL = none)
   apply_url            TEXT,
+  resume_trace_id      TEXT,
   status               TEXT NOT NULL DEFAULT 'prepared'
                          CHECK (status IN ('prepared','applied')),
   prepared_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -267,6 +268,21 @@ CREATE TABLE application_packages (
 );
 -- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.
 CREATE INDEX idx_application_packages_job ON application_packages (job_id);
+
+-- Résumé-generation eval golden dataset (see migrations/2026-07-02-resume-scores.sql).
+CREATE TABLE resume_scores (
+  user_id          UUID NOT NULL,
+  job_id           TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  grounding        INT  CHECK (grounding    BETWEEN 1 AND 5),
+  jd_relevance     INT  CHECK (jd_relevance BETWEEN 1 AND 5),
+  comment          TEXT,
+  resume_trace_id  TEXT,
+  resume_snapshot  JSONB NOT NULL DEFAULT '{}'::jsonb,
+  model            TEXT,
+  scored_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, job_id)
+);
+CREATE INDEX idx_resume_scores_user ON resume_scores (user_id);
 
 -- Applied-migrations ledger. Record each migration with:
 --   INSERT INTO schema_migrations (filename) VALUES ('<file>');
@@ -304,6 +320,8 @@ ALTER TABLE discovery_state  ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON discovery_state  FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE application_packages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON application_packages FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE resume_scores        ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON resume_scores        FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE review_corrections   ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON review_corrections   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE schema_migrations    ENABLE ROW LEVEL SECURITY;

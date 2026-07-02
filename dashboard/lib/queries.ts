@@ -371,6 +371,7 @@ export async function upsertApplicationPackage(
     greenhouseQuestions: GreenhouseQuestions | null;
     prefilledAnswers: PrefilledAnswer[] | null;
     applyUrl: string | null;
+    resumeTraceId?: string | null;
   },
 ): Promise<ApplicationPackage> {
   // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
@@ -378,11 +379,11 @@ export async function upsertApplicationPackage(
   const rows = await sql`
     INSERT INTO application_packages
       (user_id, job_id, resume_json, cover_letter_json, answers_snapshot,
-       greenhouse_questions, prefilled_answers, apply_url, status, prepared_at)
+       greenhouse_questions, prefilled_answers, apply_url, resume_trace_id, status, prepared_at)
     VALUES (${userId}::uuid, ${jobId},
             ${j(data.resume)}::jsonb, ${j(data.coverLetter)}::jsonb,
             ${j(data.answersSnapshot)}::jsonb, ${j(data.greenhouseQuestions)}::jsonb,
-            ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl},
+            ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
             'prepared', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       resume_json          = EXCLUDED.resume_json,
@@ -391,6 +392,7 @@ export async function upsertApplicationPackage(
       greenhouse_questions = EXCLUDED.greenhouse_questions,
       prefilled_answers    = EXCLUDED.prefilled_answers,
       apply_url            = EXCLUDED.apply_url,
+      resume_trace_id      = EXCLUDED.resume_trace_id,
       prepared_at          = now()
     RETURNING job_id, status, resume_json, cover_letter_json, answers_snapshot,
               greenhouse_questions, prefilled_answers, apply_url, prepared_at, applied_at

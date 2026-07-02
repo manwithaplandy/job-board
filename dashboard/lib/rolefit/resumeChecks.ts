@@ -78,7 +78,7 @@ export function resumeChecks(resume: TailoredResume, parsed?: ParsedProfile): Re
   const sw = wordCount(resume.summary);
   checks.push({ id: "summary_length", label: "summary ≤70 words", pass: sw <= 70, detail: `${sw} words` });
 
-  // Headline ≤55 chars (deterministic role-title portion may push it; heuristic guard).
+  // Headline ≤80 chars (deterministic role-title portion may push it; heuristic guard).
   checks.push({
     id: "headline_length",
     label: "headline ≤80 chars",

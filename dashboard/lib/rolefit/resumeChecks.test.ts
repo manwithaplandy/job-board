@@ -23,6 +23,10 @@ describe("resumeChecks — résumé-only", () => {
   it("passes a clean résumé", () => {
     const r = resumeChecks(base());
     expect(r.checks.find((c) => c.id === "skills_count")?.pass).toBe(true);
+    expect(r.checks.find((c) => c.id === "skills_dedup")?.pass).toBe(true);
+    expect(r.checks.find((c) => c.id === "verb_repeat")?.pass).toBe(true);
+    expect(r.checks.find((c) => c.id === "bullet_length")?.pass).toBe(true);
+    expect(r.checks.find((c) => c.id === "summary_length")?.pass).toBe(true);
   });
   it("flags <12 or >16 skills", () => {
     const r = base(); r.skills = ["Python", "Go"];
@@ -45,6 +49,28 @@ describe("resumeChecks — résumé-only", () => {
   it("flags a summary over 70 words", () => {
     const r = base(); r.summary = "word ".repeat(71).trim();
     expect(resumeChecks(r).checks.find((c) => c.id === "summary_length")?.pass).toBe(false);
+  });
+  it("flags a headline over 80 chars", () => {
+    const r = base(); r.headline = "Senior Staff Software Engineer".repeat(3);
+    expect(r.headline.length).toBeGreaterThan(80);
+    expect(resumeChecks(r).checks.find((c) => c.id === "headline_length")?.pass).toBe(false);
+  });
+  it("flags a role with more than 7 bullets", () => {
+    const r = base();
+    r.experience[0].bullets = [
+      "Built the platform", "Shipped the API", "Migrated the database",
+      "Automated the pipeline", "Reduced latency", "Scaled the service",
+      "Mentored the team", "Owned the roadmap",
+    ];
+    expect(resumeChecks(r).checks.find((c) => c.id === "bullets_per_role")?.pass).toBe(false);
+  });
+  it("flags more than 24 total bullets across roles", () => {
+    const r = base();
+    r.experience = [
+      { role: "Eng", company: "Acme", dates: "", bullets: Array.from({ length: 13 }, (_, i) => `Did thing ${i}`) },
+      { role: "Eng2", company: "Acme", dates: "", bullets: Array.from({ length: 13 }, (_, i) => `Made thing ${i}`) },
+    ];
+    expect(resumeChecks(r).checks.find((c) => c.id === "one_page_fit")?.pass).toBe(false);
   });
   it("omits profile-dependent checks when no profile is passed", () => {
     expect(resumeChecks(base()).checks.find((c) => c.id === "roles_present")).toBeUndefined();

@@ -348,7 +348,7 @@ export function ResumePanel({
                   strokeLinecap="round"
                 />
               </svg>
-              {copyLabel}
+              <span aria-live="polite">{copyLabel}</span>
             </button>
             <button
               onClick={onRegenerate}

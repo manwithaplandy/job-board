@@ -216,6 +216,37 @@ export function RolefitBoard({
     return () => window.removeEventListener("pagehide", handlePageHide);
   }, [filterState]);
 
+  // Deep-linkable selection + view. Seed from the query string once on mount (read from
+  // window rather than a useState initializer so SSR and the client agree), then mirror
+  // selectedId + view back into the URL via replaceState (no navigation, no history spam).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get("view");
+    if (v === "applied" || v === "rejected") setView(v);
+    const job = params.get("job");
+    if (job) setSelectedId(job);
+  }, []);
+  const firstUrlMirror = useRef(true);
+  useEffect(() => {
+    // Skip the mount pass so it can't erase deep-linked params before the seed applies;
+    // the seed's state change re-runs this with the resolved selection/view.
+    if (firstUrlMirror.current) {
+      firstUrlMirror.current = false;
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (selectedId) params.set("job", selectedId);
+    else params.delete("job");
+    if (view !== "all") params.set("view", view);
+    else params.delete("view");
+    const qs = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash,
+    );
+  }, [selectedId, view]);
+
   const appliedSet = useMemo(
     () => new Set(jobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
     [jobs, packages],
@@ -659,6 +690,8 @@ export function RolefitBoard({
               selectedId={selectedId}
               onSelect={handleSelect}
               onClearFilters={clearFilters}
+              view={view}
+              onBackToAll={() => setView("all")}
             />
           </div>
         )}

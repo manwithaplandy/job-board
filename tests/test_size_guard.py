@@ -63,24 +63,97 @@ def test_over_size_ceiling_false(monkeypatch):
 
 # --- run() halts when over ceiling -----------------------------------------
 
-class _GuardConn:
-    """A connection whose cursor must never be touched once the guard trips.
+class _GuardResult:
+    """Minimal cursor-shaped result for ``conn.execute(...).fetchone()`` (the
+    advisory-lock acquire). ``locked=True`` so run() proceeds past the lock."""
 
-    rollback() is allowed because _run_prune calls it when prune itself raises
-    (e.g. when prune_jobs is not monkeypatched and cursor() fires).
+    def __init__(self, row):
+        self._row = row
+
+    def fetchone(self):
+        return self._row
+
+
+class _GuardCursor:
+    """A no-op recording cursor. When over the ceiling, the ONLY cursor work run()
+    is allowed to do is the single poll_runs accounting row (start_run/finish_run)
+    and prune; this records the SQL it sees but performs no real DB work so the
+    expensive poll body cannot silently succeed against a live table."""
+
+    def __init__(self, queries):
+        self._queries = queries
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, query, params=None):
+        self._queries.append(query)
+
+    @property
+    def rowcount(self):
+        return 0  # prune's batched sweeps see 0 rows -> stop after one pass
+
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+
+class _GuardConn:
+    """Connection double for the over-ceiling short-circuit.
+
+    A7 (advisory lock) and A9 (over-ceiling accounting) changed what run() does
+    BEFORE it decides to skip the poll, so this double now permits exactly those
+    cheap interactions and nothing more:
+
+      * ``execute()`` — the advisory-lock acquire (returns ``locked=True``);
+      * ``cursor()`` — the single poll_runs accounting row (start_run/finish_run)
+        and prune, via a no-op recording cursor;
+      * ``commit()`` / ``rollback()`` / ``close()``.
+
+    The double records every SQL string that flows through it (``queries``) so a
+    test can assert the accounting row was written. The guard's REAL purpose —
+    that the expensive per-company poll/upsert work is skipped — is enforced by
+    the tests monkeypatching ``sync_seed``/``active_companies`` to blow up if the
+    poll body is ever entered (a no-op cursor alone would let it silently pass).
     """
 
     def __init__(self):
         self.closed = False
+        self.queries: list[str] = []
+
+    def execute(self, query, params=None):
+        # run() acquires the advisory lock via conn.execute(...).fetchone()["locked"].
+        self.queries.append(query)
+        return _GuardResult({"locked": True})
+
+    def cursor(self):
+        return _GuardCursor(self.queries)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
 
     def close(self):
         self.closed = True
 
-    def rollback(self):
-        pass  # prune failure path: safe no-op
 
-    def cursor(self):  # pragma: no cover - asserts the guard short-circuited
-        raise AssertionError("DB touched despite being over the size ceiling")
+def _forbid_poll_body(monkeypatch):
+    """Make the expensive poll body fail loudly if it is ever entered.
+
+    ``sync_seed`` and ``active_companies`` are the gateways into the per-company
+    poll/upsert work; over the ceiling neither must be called. This keeps the
+    guard meaningful even though the double now permits the accounting cursor."""
+    def _boom(*a, **k):
+        raise AssertionError("expensive poll work ran despite being over the size ceiling")
+    monkeypatch.setattr(job_discovery_run.db, "sync_seed", _boom)
+    monkeypatch.setattr(job_discovery_run.db, "active_companies", _boom)
 
 
 def test_job_discovery_run_skips_when_over_ceiling(monkeypatch):
@@ -88,14 +161,20 @@ def test_job_discovery_run_skips_when_over_ceiling(monkeypatch):
     monkeypatch.setattr(job_discovery_run, "load_targets", lambda: [])
     monkeypatch.setattr(job_discovery_run.db, "connect", lambda dsn=None: conn)
     monkeypatch.setattr(job_discovery_run.db, "over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
+    _forbid_poll_body(monkeypatch)
     started = {"called": False}
     monkeypatch.setattr(job_discovery_run.db, "start_run",
                         lambda c: started.__setitem__("called", True) or 1)
 
     job_discovery_run.run()
 
-    assert started["called"] is False   # never started a poll run
-    assert conn.closed is True          # connection still cleaned up
+    # New contract (A9): the guard records ONE poll_runs accounting row instead of
+    # silently skipping, so operators can see the ceiling fired.
+    assert started["called"] is True                       # start_run was called
+    assert any("poll_runs" in q for q in conn.queries)     # finish_run wrote the row
+    # New contract (A7): the advisory lock is acquired before the ceiling check.
+    assert any("pg_try_advisory_lock" in q for q in conn.queries)
+    assert conn.closed is True                             # connection still cleaned up
 
 
 def test_job_discovery_run_prunes_when_over_ceiling(monkeypatch):
@@ -108,6 +187,7 @@ def test_job_discovery_run_prunes_when_over_ceiling(monkeypatch):
     monkeypatch.setattr(job_discovery_run, "load_targets", lambda: [])
     monkeypatch.setattr(job_discovery_run.db, "connect", lambda dsn=None: conn)
     monkeypatch.setattr(job_discovery_run.db, "over_size_ceiling", lambda c: (True, 6500.0, 6000.0))
+    _forbid_poll_body(monkeypatch)
     started = {"called": False}
     monkeypatch.setattr(job_discovery_run.db, "start_run",
                         lambda c: started.__setitem__("called", True) or 1)
@@ -123,7 +203,7 @@ def test_job_discovery_run_prunes_when_over_ceiling(monkeypatch):
     job_discovery_run.run()
 
     assert prune_calls["n"] == 1       # prune still ran despite ceiling breach
-    assert started["called"] is False   # poll was still skipped
+    assert started["called"] is True   # accounting row still written (A9)
     assert conn.closed is True          # connection still cleaned up
 
 

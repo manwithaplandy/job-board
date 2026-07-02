@@ -25,5 +25,5 @@ def fetch_ashby(token: str) -> list[Posting]:
     url = f"https://api.ashbyhq.com/posting-api/job-board/{token}"
     data = get_json(url)
     if "jobs" not in data:
-        raise ValueError(f"ashby response missing 'jobs' key")
+        raise ValueError("ashby response missing 'jobs' key")
     return parse_ashby(data)

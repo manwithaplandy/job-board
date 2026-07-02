@@ -93,7 +93,7 @@ def fetch_workable(token: str) -> list[Posting]:
     # falsely close a still-open posting).
     payload = get_json(_WIDGET_URL.format(account=token))
     if "jobs" not in payload:
-        raise ValueError(f"workable response missing 'jobs' key")
+        raise ValueError("workable response missing 'jobs' key")
     postings: list[Posting] = []
     for job in payload.get("jobs") or []:
         try:

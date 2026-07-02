@@ -310,7 +310,7 @@ def _page_walk(
             break  # short page -> end of results
         page = _post_jobs(cxs, applied_facets, offset)
         if "jobPostings" not in page:
-            raise ValueError(f"workday response missing 'jobPostings' key")
+            raise ValueError("workday response missing 'jobPostings' key")
 
 
 def _crawl(
@@ -334,7 +334,7 @@ def _crawl(
     """
     first = _post_jobs(cxs, applied_facets, 0)
     if "jobPostings" not in first:
-        raise ValueError(f"workday response missing 'jobPostings' key")
+        raise ValueError("workday response missing 'jobPostings' key")
     total = first.get("total") or 0
     # Total-flap fallback: total=0 but the page has items → Workday is reporting a
     # stale/flapped total. Use the wrap-guarded _page_walk (which never relies on
@@ -349,7 +349,7 @@ def _crawl(
         while offset < total:
             page = _post_jobs(cxs, applied_facets, offset)
             if "jobPostings" not in page:
-                raise ValueError(f"workday response missing 'jobPostings' key")
+                raise ValueError("workday response missing 'jobPostings' key")
             items = page.get("jobPostings") or []
             if not items:
                 break
@@ -396,7 +396,7 @@ def fetch_workday(token: str) -> Iterator[Posting]:
     # page 1 of the unfaceted walk (so a small tenant costs no extra call).
     first = _post_jobs(cxs, {}, 0)
     if "jobPostings" not in first:
-        raise ValueError(f"workday response missing 'jobPostings' key")
+        raise ValueError("workday response missing 'jobPostings' key")
     facets = first.get("facets")
     true_total = _true_total(facets, first.get("total"))
     partition = _facet_values(facets, _PARTITION_FACET)

@@ -92,7 +92,7 @@ def fetch_smartrecruiters(token: str) -> list[Posting]:
     while True:
         page = get_json(f"{base}?limit={_PAGE_LIMIT}&offset={offset}")
         if "content" not in page:
-            raise ValueError(f"smartrecruiters response missing 'content' key")
+            raise ValueError("smartrecruiters response missing 'content' key")
         content = page.get("content") or []
         for item in content:
             pid = item.get("id")

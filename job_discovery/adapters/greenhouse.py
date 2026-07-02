@@ -27,5 +27,5 @@ def fetch_greenhouse(token: str) -> list[Posting]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
     data = get_json(url)
     if "jobs" not in data:
-        raise ValueError(f"greenhouse response missing 'jobs' key")
+        raise ValueError("greenhouse response missing 'jobs' key")
     return parse_greenhouse(data)

@@ -111,6 +111,9 @@ export async function callOpenRouterStructured<T>(args: {
       usageDetails: json.usage
         ? { input: json.usage.prompt_tokens ?? 0, output: json.usage.completion_tokens ?? 0 }
         : undefined,
+      // usage: { include: true } (above) opts into OpenRouter cost accounting;
+      // record it on the span so Langfuse shows real spend, not a model estimate.
+      costDetails: json.usage?.cost != null ? { total: json.usage.cost } : undefined,
     });
     return parsed;
   } catch (e) {

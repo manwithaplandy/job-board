@@ -4,6 +4,7 @@ import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import { renderResumePdf } from "@/lib/rolefit/resumePdf";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
+import { Button } from "@/components/ui/Button";
 
 // Build plain-text résumé from TailoredResume — mirrors composeResumeText in reference
 function composeResumeText(data: TailoredResume): string {
@@ -178,26 +179,9 @@ export function ResumePanel({
               </div>
             )}
           </div>
-          <button
-            onClick={onGenerate}
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              fontWeight: 700,
-              fontSize: "14px",
-              color: "#fff",
-              background: "#3b6fd4",
-              border: "none",
-              borderRadius: "11px",
-              padding: "12px 20px",
-              cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-            }}
-          >
+          <Button variant="primary" onClick={onGenerate} style={{ flex: "0 0 auto" }}>
             <span style={{ fontSize: "15px" }}>✦</span>Generate résumé
-          </button>
+          </Button>
         </div>
       )}
 
@@ -395,26 +379,9 @@ export function ResumePanel({
               </div>
             )}
           </div>
-          <button
-            onClick={onGenerate}
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              fontWeight: 700,
-              fontSize: "14px",
-              color: "#fff",
-              background: "#3b6fd4",
-              border: "none",
-              borderRadius: "11px",
-              padding: "12px 20px",
-              cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-            }}
-          >
+          <Button variant="primary" onClick={onGenerate} style={{ flex: "0 0 auto" }}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
     </div>

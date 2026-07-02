@@ -10,6 +10,7 @@ import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
+import { Button } from "@/components/ui/Button";
 
 // Plain-text cover letter — mirrors composeResumeText in ResumePanel.
 function composeCoverLetterText(data: TailoredCoverLetter): string {
@@ -271,29 +272,15 @@ export function ApplicationPanel({
           </button>
         )}
         {isAuthed && (
-          <button
+          <Button
+            variant="primary"
             onClick={onPrepare}
             disabled={preparing}
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              fontWeight: 700,
-              fontSize: "14px",
-              color: "#fff",
-              background: "#3b6fd4",
-              border: "none",
-              borderRadius: "11px",
-              padding: "12px 20px",
-              cursor: preparing ? "not-allowed" : "pointer",
-              opacity: preparing ? 0.7 : 1,
-              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-            }}
+            style={{ flex: "0 0 auto" }}
           >
             <span style={{ fontSize: "15px" }}>✦</span>
             {preparing ? "Preparing…" : prepared ? "Re-prepare" : "Prepare application"}
-          </button>
+          </Button>
         )}
         {applyHref && (
           <a
@@ -366,26 +353,9 @@ export function ApplicationPanel({
                 A focused letter that ties your background to this role.
               </div>
             </div>
-            <button
-              onClick={onGenerateCover}
-              style={{
-                flex: "0 0 auto",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                fontWeight: 700,
-                fontSize: "14px",
-                color: "#fff",
-                background: "#3b6fd4",
-                border: "none",
-                borderRadius: "11px",
-                padding: "12px 20px",
-                cursor: "pointer",
-                boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-              }}
-            >
+            <Button variant="primary" onClick={onGenerateCover} style={{ flex: "0 0 auto" }}>
               <span style={{ fontSize: "15px" }}>✦</span>Generate cover letter
-            </button>
+            </Button>
           </div>
         )}
 
@@ -577,26 +547,9 @@ export function ApplicationPanel({
                 </div>
               )}
             </div>
-            <button
-              onClick={onGenerateCover}
-              style={{
-                flex: "0 0 auto",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                fontWeight: 700,
-                fontSize: "14px",
-                color: "#fff",
-                background: "#3b6fd4",
-                border: "none",
-                borderRadius: "11px",
-                padding: "12px 20px",
-                cursor: "pointer",
-                boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-              }}
-            >
+            <Button variant="primary" onClick={onGenerateCover} style={{ flex: "0 0 auto" }}>
               Retry
-            </button>
+            </Button>
           </div>
         )}
       </div>

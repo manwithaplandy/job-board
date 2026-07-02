@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { Button } from "@/components/ui/Button";
 
 export interface ProfileModalProps {
   open: boolean;
@@ -380,40 +381,26 @@ export function ProfileModal({
                   {saveError}
                 </p>
               )}
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={handleClose}
-                style={{
-                  fontWeight: 700,
-                  fontSize: "13.5px",
-                  color: "#5b6472",
-                  background: "#fff",
-                  border: "1px solid #dfe3ea",
-                  borderRadius: "10px",
-                  padding: "10px 16px",
-                  cursor: "pointer",
-                }}
+                style={{ borderRadius: "10px", padding: "10px 16px", fontSize: "13.5px" }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
+                variant="primary"
                 disabled={isPending}
                 style={{
-                  fontWeight: 700,
-                  fontSize: "13.5px",
-                  color: "#fff",
-                  background: "#3b6fd4",
-                  border: "none",
                   borderRadius: "10px",
                   padding: "10px 20px",
-                  cursor: isPending ? "not-allowed" : "pointer",
+                  fontSize: "13.5px",
                   boxShadow: "0 3px 10px rgba(59,111,212,.26)",
-                  opacity: isPending ? 0.7 : 1,
                 }}
               >
                 {isPending ? "Saving…" : "Save profile"}
-              </button>
+              </Button>
             </div>
           </form>
         )}

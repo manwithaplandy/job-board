@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { saveBoardFilters } from "@/lib/queries";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -135,23 +136,18 @@ export default async function LoginPage({
               {error}
             </p>
           )}
-          <button
-            type="submit"
+          <SubmitButton
+            pendingLabel="Signing in…"
             style={{
-              fontWeight: 700,
-              fontSize: "13.5px",
-              color: "#fff",
-              background: "#3b6fd4",
-              border: "none",
               borderRadius: "10px",
               padding: "11px 20px",
-              cursor: "pointer",
+              fontSize: "13.5px",
               boxShadow: "0 3px 10px rgba(59,111,212,.26)",
               marginTop: "4px",
             }}
           >
             Sign in
-          </button>
+          </SubmitButton>
         </form>
       </div>
     </main>

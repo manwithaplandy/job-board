@@ -1,4 +1,5 @@
 import type { OperatorSignals } from "@/lib/types";
+import { Button } from "@/components/ui/Button";
 
 export interface HeaderProps {
   search: string;
@@ -20,9 +21,6 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
   // "Set up profile" when authed but no profile yet.
   const profileBtnLabel = !isAuthed ? "Sign in" : hasProfile ? "Edit profile" : "Set up profile";
   const profileBtnIcon = !isAuthed ? "→" : hasProfile ? "✎" : "+";
-  const profileBtnColor = "#ffffff";
-  const profileBtnBg = "#3b6fd4";
-  const profileBtnBorder = "#3b6fd4";
 
   return (
     <div
@@ -186,25 +184,19 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
         )}
 
         {/* Profile button */}
-        <button
+        <Button
+          variant="primary"
           onClick={onOpenProfile}
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            fontWeight: 700,
             fontSize: "13px",
-            color: profileBtnColor,
-            background: profileBtnBg,
-            border: `1px solid ${profileBtnBorder}`,
-            borderRadius: "11px",
             padding: "9px 14px",
-            cursor: "pointer",
+            border: "1px solid #3b6fd4",
+            boxShadow: "none",
           }}
         >
           <span style={{ fontSize: "13px" }}>{profileBtnIcon}</span>
           <span>{profileBtnLabel}</span>
-        </button>
+        </Button>
       </div>
     </div>
   );

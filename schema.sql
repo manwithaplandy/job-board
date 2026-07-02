@@ -143,6 +143,9 @@ CREATE TABLE company_reviews (
   industry                TEXT,
   industry_subcategory    TEXT,
   tech_tags               JSONB NOT NULL DEFAULT '[]'::jsonb,
+  -- Array of {category, note}: category is one of RED_FLAG_CATEGORIES
+  -- (company_discovery/schemas.py); note is optional free text (required for
+  -- category='other'). Backfilled by company_discovery/reclassify.py.
   red_flags               JSONB NOT NULL DEFAULT '[]'::jsonb,
   human_override          BOOLEAN NOT NULL DEFAULT FALSE,
   override_verdict        TEXT CHECK (override_verdict IN ('include','exclude')),

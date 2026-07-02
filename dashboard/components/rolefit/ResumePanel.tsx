@@ -4,23 +4,8 @@ import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import { renderResumePdf } from "@/lib/rolefit/resumePdf";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
+import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { Button } from "@/components/ui/Button";
-
-// Build plain-text résumé from TailoredResume — mirrors composeResumeText in reference
-function composeResumeText(data: TailoredResume): string {
-  let t = `${data.name}\n${data.headline}\n`;
-  if (data.contact) t += `${data.contact}\n`;
-  t += `\nSUMMARY\n${data.summary}\n\nCORE SKILLS\n${data.skills.join(", ")}\n\nEXPERIENCE\n`;
-  data.experience.forEach((exp) => {
-    t += `${exp.role}, ${exp.company} (${exp.dates})\n`;
-    exp.bullets.forEach((b) => { t += `  - ${b}\n`; });
-    t += "\n";
-  });
-  t += "EDUCATION\n";
-  data.education.forEach((entry) => { t += `${entry}\n`; });
-  if (data.certifications.length) t += `Certifications: ${data.certifications.join(" · ")}\n`;
-  return t;
-}
 
 function legacyCopy(text: string) {
   try {
@@ -415,4 +400,5 @@ export function ResumePanel({
 }
 
 // Re-export for use in RolefitBoard copy handler
-export { composeResumeText, legacyCopy };
+export { legacyCopy };
+export { composeResumeText } from "@/lib/rolefit/resumeText";

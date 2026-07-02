@@ -3,22 +3,34 @@ import asyncio
 import pytest
 
 from reviewer.run import ReviewResult, review_batch, review_one
-from reviewer.schemas import Stage1Result, Stage2Result
+from reviewer.schemas import Stage1Decision, Stage1Result, Stage2Result
 
 
 class StubClient:
-    """Drives review_one without network. Behavior keyed off the title."""
+    """Drives review_one/review_batch without network. Behavior keyed off the title."""
 
     def __init__(self):
         self.model_stage1 = "m1"
         self.model_stage2 = "m2"
         self.stage2_calls = []
+        self.stage1_batch_calls = 0
 
     async def stage1(self, *, profile_block, title, company, location):
         if title == "BOOM1":
             raise RuntimeError("stage1 down")
         decision = "reject" if title == "Forklift Operator" else "pass"
         return Stage1Result(decision=decision, reason="r")
+
+    async def stage1_batch(self, *, profile_block, jobs):
+        self.stage1_batch_calls += 1
+        out = []
+        for j in jobs:
+            title = j["title"]
+            if title.startswith("MISSING"):
+                continue  # omit → no per-id decision → retryable error
+            decision = "reject" if title == "Forklift Operator" else "pass"
+            out.append(Stage1Decision(job_id=j["id"], decision=decision, reason="r"))
+        return out
 
     async def stage2(self, *, profile_block, title, company, location, jd):
         self.stage2_calls.append(jd)
@@ -90,15 +102,49 @@ def test_stage2_error_isolated_keeps_stage1():
 
 
 def test_batch_continues_past_one_failure():
+    """Batched stage-1 gate + per-job stage 2: a stage-2 error and a missing gate
+    decision are isolated; other jobs still complete."""
     client = StubClient()
-    cands = [_cand("BOOM1"), _cand("SRE"), _cand("Forklift Operator")]
+    cands = [_cand("BOOM2"), _cand("SRE"), _cand("Forklift Operator"), _cand("MISSING-1")]
     results, halted = asyncio.run(review_batch(cands, "P", client, concurrency=2))
     assert not halted
-    assert len(results) == 3
+    assert len(results) == 4
     by_title = {r.job_id.split(":")[-1]: r for r in results}
-    assert by_title["BOOM1"].error is not None
+    # stage-2 error isolated onto one job; stage-1 signal preserved
+    assert by_title["BOOM2"].stage1_decision == "pass"
+    assert by_title["BOOM2"].error is not None and "stage2 down" in by_title["BOOM2"].error
     assert by_title["SRE"].verdict == "approve"
     assert by_title["Forklift Operator"].stage1_decision == "reject"
+    # A missing per-id gate decision becomes a retryable error, not a fabricated verdict
+    assert by_title["MISSING-1"].error is not None
+    assert by_title["MISSING-1"].verdict is None
+
+
+def test_review_batch_gates_via_stage1_batch():
+    """45 candidates are screened in ONE batched stage-1 call (batch cap 50);
+    stage 2 runs only for the passes."""
+    client = StubClient()
+    cands = ([_cand(f"Eng{i}") for i in range(43)]
+             + [_cand("Forklift Operator"), _cand("SRE")])
+    results, halted = asyncio.run(review_batch(cands, "P", client, concurrency=5))
+    assert not halted
+    assert client.stage1_batch_calls == 1, "45 candidates fit one batch of 50"
+    # 44 pass (43 Eng + SRE) → stage 2 ran 44 times; the forklift reject skips stage 2
+    assert len(client.stage2_calls) == 44
+    by_title = {r.job_id.split(":")[-1]: r for r in results}
+    assert by_title["Forklift Operator"].stage1_decision == "reject"
+    assert by_title["Eng0"].verdict == "approve"
+
+
+def test_missing_stage1_decision_is_error():
+    """A candidate absent from the batched stage-1 response becomes a retryable error."""
+    client = StubClient()
+    results, halted = asyncio.run(
+        review_batch([_cand("MISSING-solo")], "P", client, concurrency=1))
+    assert not halted and len(results) == 1
+    r = results[0]
+    assert r.error is not None and r.verdict is None
+    assert client.stage2_calls == []  # never reached stage 2
 
 
 def test_as_row_maps_all_columns():
@@ -172,6 +218,10 @@ class CreditsBoomClient:
         self.calls += 1
         raise _Status402("insufficient credits")
 
+    async def stage1_batch(self, *, profile_block, jobs):
+        self.calls += 1
+        raise _Status402("insufficient credits")
+
     async def stage2(self, **_):  # pragma: no cover
         raise AssertionError("stage2 should never be called after halt")
 
@@ -204,8 +254,10 @@ def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
         cid = cur.fetchone()["id"]
+    # Title starts with MISSING → StubClient.stage1_batch omits it → the run layer
+    # records a retryable error row (stage1_decision NULL) without aborting the batch.
     poller_db.upsert_job(conn, cid, "lever", "acme",
-                         Posting(external_id="boom", title="BOOM1", url="u",
+                         Posting(external_id="boom", title="MISSING-boom", url="u",
                                  raw={"descriptionPlain": "jd"}))
     poller_db.upsert_job(conn, cid, "lever", "acme",
                          Posting(external_id="good", title="SRE", url="u2",

@@ -73,23 +73,19 @@ class ReviewResult:
         return row
 
 
-async def _review_one_inner(candidate: dict, profile_block: str, client) -> ReviewResult:
-    res = ReviewResult(job_id=candidate["id"])
-    try:
-        s1 = await client.stage1(
-            profile_block=profile_block, title=candidate["title"],
-            company=candidate["company_name"], location=candidate.get("location"),
-        )
-        res.model_stage1 = client.model_stage1
-        res.stage1_decision = s1.decision
-        res.stage1_reason = s1.reason
-        if s1.decision == "reject":
-            return res
+async def _stage2_inner(candidate: dict, profile_block: str, client,
+                        res: ReviewResult) -> ReviewResult:
+    """Run stage 2 for a candidate that already passed stage 1; mutate and return res.
 
+    A missing JD defers stage 2 (verdict/error stay None) so the job is re-selected
+    once its description is refilled. Per-job errors are isolated onto res.error; a
+    402 propagates as OutOfCreditsError so the batch can halt.
+    """
+    try:
         jd = candidate.get("description")
         if not jd:
             log.info("no JD for %s; deferring stage-2", candidate["id"])
-            return res  # caller treats None verdict as "skip persist" for the review row
+            return res  # verdict/error None → the persist filter drops this row
 
         s2 = await client.stage2(
             profile_block=profile_block, title=candidate["title"],
@@ -135,53 +131,132 @@ async def _review_one_inner(candidate: dict, profile_block: str, client) -> Revi
     return res
 
 
-async def review_one(candidate: dict, profile_block: str, client,
-                     *, user_id: str | None = None, run_id=None) -> ReviewResult:
+async def _review_one_inner(candidate: dict, profile_block: str, client) -> ReviewResult:
+    res = ReviewResult(job_id=candidate["id"])
+    try:
+        s1 = await client.stage1(
+            profile_block=profile_block, title=candidate["title"],
+            company=candidate["company_name"], location=candidate.get("location"),
+        )
+        res.model_stage1 = client.model_stage1
+        res.stage1_decision = s1.decision
+        res.stage1_reason = s1.reason
+    except OutOfCreditsError:
+        raise
+    except Exception as exc:  # per-job isolation (spec §3)
+        if _is_out_of_credits(exc):
+            raise OutOfCreditsError(str(exc)) from exc
+        res.error = f"{type(exc).__name__}: {exc}"
+        log.warning("review failed for %s: %s", candidate["id"], res.error)
+        return res
+    if s1.decision == "reject":
+        return res
+    return await _stage2_inner(candidate, profile_block, client, res)
+
+
+async def _traced_review(candidate: dict, inner, *, user_id: str | None = None,
+                         run_id=None) -> ReviewResult:
+    """Wrap an async ReviewResult producer in a per-job 'job-review' span."""
     lf = tracing.get_langfuse()
     if lf is None:
-        return await _review_one_inner(candidate, profile_block, client)
+        return await inner()
     with tracing.identity(user_id=user_id, session_id=run_id, tags=["reviewer"]):
         with lf.start_as_current_observation(
             as_type="span", name="job-review",
             input={"job_id": candidate["id"], "title": candidate.get("title")},
         ) as span:
-            res = await _review_one_inner(candidate, profile_block, client)
-            metadata = {
-                "job_id": res.job_id, "stage1_decision": res.stage1_decision,
-                "verdict": res.verdict, "fit_score": res.fit_score,
-                "error": res.error,
-            }
-            span.update(output={"verdict": res.verdict, "fit_score": res.fit_score},
-                        metadata=metadata)
+            res = await inner()
+            span.update(
+                output={"verdict": res.verdict, "fit_score": res.fit_score},
+                metadata={
+                    "job_id": res.job_id, "stage1_decision": res.stage1_decision,
+                    "verdict": res.verdict, "fit_score": res.fit_score,
+                    "error": res.error,
+                },
+            )
             return res
+
+
+async def review_one(candidate: dict, profile_block: str, client,
+                     *, user_id: str | None = None, run_id=None) -> ReviewResult:
+    return await _traced_review(
+        candidate,
+        lambda: _review_one_inner(candidate, profile_block, client),
+        user_id=user_id, run_id=run_id,
+    )
 
 
 async def review_batch(candidates: list[dict], profile_block: str, client,
                        concurrency: int, *, user_id: str | None = None,
                        run_id=None) -> tuple[list[ReviewResult], bool]:
-    """Return (results, halted).
+    """Gate candidates through a batched stage-1 call, then run stage 2 for passes.
 
-    Skipped jobs (due to halt) are excluded from results so they stay retryable.
-    halted=True means a 402 was encountered and remaining candidates were skipped.
+    Returns (results, halted). Never-attempted jobs stay retryable: a 402 halt
+    skips them entirely (no row), a whole-batch stage-1 failure and a per-id
+    missing decision each yield a retryable error row. halted=True means a 402 was
+    encountered and remaining candidates were skipped.
     """
-    sem = asyncio.Semaphore(concurrency)
     halt = asyncio.Event()
+    results: list[ReviewResult] = []
+    passed: list[tuple[dict, ReviewResult]] = []
 
-    async def _guarded(c: dict) -> ReviewResult | None:
+    for start in range(0, len(candidates), config.STAGE1_BATCH_SIZE):
+        if halt.is_set():
+            break
+        batch = candidates[start:start + config.STAGE1_BATCH_SIZE]
+        try:
+            decisions = await client.stage1_batch(profile_block=profile_block, jobs=batch)
+        except OutOfCreditsError:
+            halt.set()
+            break
+        except Exception as exc:
+            if _is_out_of_credits(exc):
+                halt.set()
+                break
+            # Whole-batch failure: every job stays retryable via its error row.
+            log.warning("stage1_batch failed for %s job(s): %s", len(batch), exc)
+            for c in batch:
+                results.append(ReviewResult(
+                    job_id=c["id"], model_stage1=client.model_stage1,
+                    error=f"stage1_batch {type(exc).__name__}: {exc}"))
+            continue
+        by_decision = {d.job_id: d for d in decisions}
+        for c in batch:
+            d = by_decision.get(c["id"])
+            if d is None:  # missing per-id decision → retryable error (spec B6/B1)
+                results.append(ReviewResult(
+                    job_id=c["id"], model_stage1=client.model_stage1,
+                    error="stage1_batch returned no decision"))
+                continue
+            res = ReviewResult(
+                job_id=c["id"], model_stage1=client.model_stage1,
+                stage1_decision=d.decision, stage1_reason=d.reason)
+            if d.decision == "reject":
+                results.append(res)
+            else:
+                passed.append((c, res))
+
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _run_stage2(candidate: dict, res: ReviewResult) -> ReviewResult | None:
         if halt.is_set():
             return None  # skipped: stay retryable (no row written)
         async with sem:
             if halt.is_set():
                 return None
             try:
-                return await review_one(c, profile_block, client,
-                                        user_id=user_id, run_id=run_id)
+                return await _traced_review(
+                    candidate,
+                    lambda: _stage2_inner(candidate, profile_block, client, res),
+                    user_id=user_id, run_id=run_id,
+                )
             except OutOfCreditsError:
                 halt.set()
                 return None
 
-    raw = await asyncio.gather(*[_guarded(c) for c in candidates])
-    return [r for r in raw if r is not None], halt.is_set()
+    stage2 = await asyncio.gather(*[_run_stage2(c, r) for c, r in passed])
+    results.extend(r for r in stage2 if r is not None)
+    return results, halt.is_set()
 
 
 def _review_user(conn, profile: dict) -> None:

@@ -64,6 +64,20 @@ describe("generateCoverLetter", () => {
     const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(noSignature) } }] });
     await expect(generateCoverLetter({ ...args, fetchImpl: f })).rejects.toThrow();
   });
+
+  test("throws when greeting/closing/signature are empty strings, not just missing", async () => {
+    const emptyGreeting = { ...LETTER, greeting: "" };
+    const f1 = fakeFetch({ choices: [{ message: { content: JSON.stringify(emptyGreeting) } }] });
+    await expect(generateCoverLetter({ ...args, fetchImpl: f1 })).rejects.toThrow("missing required fields");
+
+    const emptyClosing = { ...LETTER, closing: "" };
+    const f2 = fakeFetch({ choices: [{ message: { content: JSON.stringify(emptyClosing) } }] });
+    await expect(generateCoverLetter({ ...args, fetchImpl: f2 })).rejects.toThrow("missing required fields");
+
+    const emptySignature = { ...LETTER, signature: "" };
+    const f3 = fakeFetch({ choices: [{ message: { content: JSON.stringify(emptySignature) } }] });
+    await expect(generateCoverLetter({ ...args, fetchImpl: f3 })).rejects.toThrow("missing required fields");
+  });
 });
 
 test("DEFAULT_COVER_MODEL is claude haiku", () => {

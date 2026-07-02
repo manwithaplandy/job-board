@@ -35,7 +35,9 @@ export async function generateCoverLetter(args: {
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
       const parsed = parseTailoredCoverLetter(raw);
-      if (!parsed) throw new Error("OpenRouter cover letter missing required fields");
+      if (!parsed || !parsed.greeting || !parsed.closing || !parsed.signature) {
+        throw new Error("OpenRouter cover letter missing required fields");
+      }
       return parsed;
     },
   });

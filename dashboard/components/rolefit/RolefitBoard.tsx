@@ -349,7 +349,13 @@ export function RolefitBoard({
         next.delete(jobId);
         return next;
       });
-      startReject(() => { void unrejectJob(jobId, priorVerdict); });
+      startReject(() => {
+        void unrejectJob(jobId, priorVerdict).catch(() => {
+          // Server still has the rejection — re-hide the card and say so.
+          setRejectedIds((prev) => new Set(prev).add(jobId));
+          showActionError("Couldn’t undo the rejection. Please try again.");
+        });
+      });
     } else {
       const { jobId, prior } = toast;
       setPackages((p) => {
@@ -358,11 +364,15 @@ export function RolefitBoard({
         else delete next[jobId];
         return next;
       });
-      startApply(() => { void unmarkApplied(jobId); });
+      startApply(() => {
+        void unmarkApplied(jobId).catch(() => {
+          showActionError("Couldn’t undo. Please try again.");
+        });
+      });
     }
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(null);
-  }, [toast, unrejectJob, unmarkApplied]);
+  }, [toast, unrejectJob, unmarkApplied, showActionError]);
 
   // Optimistically apply a saved reviewer correction to the board card + detail pane —
   // formToCorrection(form) already returns snake_case JobRow field names, so spreading

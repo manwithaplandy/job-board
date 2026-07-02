@@ -27,6 +27,9 @@ export function ProfileModal({
   const [isDirty, setIsDirty] = useState(false);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  // The element the pointer went down on. Overlay-dismiss requires BOTH mousedown and
+  // click to land on the overlay, so a text drag that ends on the backdrop can't dismiss.
+  const mouseDownTargetRef = useRef<EventTarget | null>(null);
 
   // Save and restore focus
   useEffect(() => {
@@ -51,6 +54,34 @@ export function ProfileModal({
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open, isDirty]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus trap — keep Tab within the dialog while it's open.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusables = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === root)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open]);
 
   if (!open) return null;
 
@@ -86,8 +117,12 @@ export function ProfileModal({
 
   return (
     <div
+      onMouseDown={(e) => { mouseDownTargetRef.current = e.target; }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
+        // Dismiss only when BOTH the mousedown and click landed on the overlay itself.
+        if (e.target === e.currentTarget && mouseDownTargetRef.current === e.currentTarget) {
+          handleClose();
+        }
       }}
       style={{
         position: "fixed",

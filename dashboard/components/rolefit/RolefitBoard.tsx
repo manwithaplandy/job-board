@@ -831,6 +831,7 @@ export function RolefitBoard({
               onClearFilters={clearFilters}
               view={view}
               onBackToAll={() => setView("all")}
+              hasUnfilteredJobs={jobs.length > 0}
               scrollParentRef={isNarrow ? undefined : listScrollRef}
             />
           </div>

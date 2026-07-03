@@ -13,6 +13,9 @@ export interface JobListProps {
   onClearFilters: () => void;
   view?: "all" | "applied" | "rejected";
   onBackToAll?: () => void;
+  // Whether the board's "all" pool has any jobs before search/facet filtering. Lets the
+  // empty state distinguish a pipeline with zero roles from a filter that matched none.
+  hasUnfilteredJobs: boolean;
   // The board's scroll container. When provided the list virtualizes against it; when
   // absent (narrow single-pane layout uses natural page scroll) it renders in full.
   scrollParentRef?: RefObject<HTMLDivElement | null>;
@@ -93,6 +96,7 @@ export function JobList({
   onClearFilters,
   view = "all",
   onBackToAll,
+  hasUnfilteredJobs,
   scrollParentRef,
 }: JobListProps) {
   if (jobs.length === 0) {
@@ -111,6 +115,22 @@ export function JobList({
               Back to all roles
             </button>
           )}
+        </div>
+      );
+    }
+    if (!hasUnfilteredJobs) {
+      return (
+        <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
+            No roles yet
+          </div>
+          <div style={{ fontSize: "13px", marginTop: "6px" }}>
+            The poller runs every couple of hours. Check{" "}
+            <a href="/analytics" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+              pipeline health
+            </a>{" "}
+            if this persists.
+          </div>
         </div>
       );
     }

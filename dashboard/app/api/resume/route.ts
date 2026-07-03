@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "résumé generation not configured" }, { status: 500 });
 
-  const { resumeText, pdfBytes } = await getResumeSource(profile);
+  const { resumeText } = getResumeSource(profile);
 
   const run = async () => {
     try {
@@ -35,7 +35,6 @@ export async function POST(req: Request) {
       const generate = async (): Promise<{ resume: TailoredResume; checks: ResumeChecks }> =>
         generateResume({
           resumeText,
-          pdfBytes,
           job: { title: job.title, company: job.company_name, description: job.description },
           model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
           apiKey,

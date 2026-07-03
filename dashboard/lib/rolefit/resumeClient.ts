@@ -6,7 +6,7 @@ import {
   type TailoredResume,
   type TailoredContent,
 } from "@/lib/rolefit/resumeSchema";
-import { parseProfile, yearsOfExperience } from "@/lib/rolefit/parseProfile";
+import { parseProfileText, yearsOfExperience } from "@/lib/rolefit/parseProfile";
 import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
 import { resumeChecks, type ResumeChecks } from "@/lib/rolefit/resumeChecks";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
@@ -15,7 +15,6 @@ export const DEFAULT_RESUME_MODEL = "anthropic/claude-haiku-4.5";
 
 export async function generateResume(args: {
   resumeText: string;
-  pdfBytes?: Uint8Array | null;
   job: { title: string; company: string; description: string | null };
   model: string;
   apiKey: string;
@@ -23,7 +22,7 @@ export async function generateResume(args: {
 }): Promise<{ resume: TailoredResume; checks: ResumeChecks }> {
   // Deterministically extract the fixed fields; the LLM only tailors the rest,
   // and the OpenRouter transport (+ Langfuse generation span) is the shared helper.
-  const profile = await parseProfile({ pdfBytes: args.pdfBytes ?? null, text: args.resumeText });
+  const profile = parseProfileText(args.resumeText);
   const tenureYears = yearsOfExperience(profile, Date.now());
   const { system, user } = buildResumePrompt({ profile, resumeText: args.resumeText, job: args.job, tenureYears });
   const resume = await callOpenRouterStructured<TailoredResume>({

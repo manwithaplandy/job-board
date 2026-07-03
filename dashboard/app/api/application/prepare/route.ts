@@ -41,8 +41,8 @@ export async function POST(req: Request) {
   if (!apiKey) return Response.json({ error: "application preparation not configured" }, { status: 500 });
 
   const answers = applicationAnswersFromProfile(profile);
-  // Résumé plaintext + (best-effort) uploaded PDF bytes, via the shared helper.
-  const { resumeText, pdfBytes } = await getResumeSource(profile);
+  // Résumé plaintext via the shared helper.
+  const { resumeText } = getResumeSource(profile);
 
   // Greenhouse-only side-quest: fetch the posting's real question schema, then
   // prefill the answerable (non-file) questions. It depends only on profile/job
@@ -92,7 +92,6 @@ export async function POST(req: Request) {
       (async () => {
         const genArgs = {
           resumeText,
-          pdfBytes,
           job: { title: job.title, company: job.company_name, description: job.description },
           model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
           apiKey,

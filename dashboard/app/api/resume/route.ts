@@ -1,12 +1,10 @@
-import { after } from "next/server";
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserId } from "@/lib/auth";
 import { getProfile, getJobForResume, upsertApplicationPackage } from "@/lib/queries";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
-import { tracingEnabled } from "@/lib/observability";
-import { langfuseSpanProcessor } from "@/instrumentation";
+import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { ResumeChecks } from "@/lib/rolefit/resumeChecks";
 
@@ -78,6 +76,7 @@ export async function POST(req: Request) {
         prefilledAnswers: null,
         applyUrl: null,
         resumeTraceId: traceId,
+        profileVersion: profile.profile_version,
       });
       return Response.json({ package: pkg });
     } catch (e) {
@@ -91,8 +90,9 @@ export async function POST(req: Request) {
 
   if (tracingEnabled()) {
     const res = await propagateAttributes({ userId, sessionId: jobId }, run);
-    const processor = langfuseSpanProcessor;
-    if (processor) after(async () => { await processor.forceFlush(); });
+    // Flush inline while the invocation is still alive — a post-response after()
+    // callback can lose the race against Vercel freezing the instance.
+    await flushLangfuseTraces();
     return res;
   }
   return await run();

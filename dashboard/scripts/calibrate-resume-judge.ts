@@ -3,6 +3,7 @@
 //   node --experimental-strip-types scripts/calibrate-resume-judge.ts --sync   → re-push resume_scores → resume-golden
 // Requires LANGFUSE_* (+ DATABASE_URL) in the environment (.env.local).
 import { LangfuseClient } from "@langfuse/client";
+import { resolveLangfuseHost } from "../lib/langfuseHost.ts";
 import { sql } from "../lib/db.ts";
 import { buildResumeGoldenItem } from "../lib/rolefit/resumeScore.ts";
 import { upsertResumeGoldenItem } from "../lib/resumeGoldenDataset.ts";
@@ -54,7 +55,7 @@ function client(): LangfuseClient {
   return new LangfuseClient({
     publicKey: process.env.LANGFUSE_PUBLIC_KEY,
     secretKey: process.env.LANGFUSE_SECRET_KEY,
-    baseUrl: process.env.LANGFUSE_HOST,
+    baseUrl: resolveLangfuseHost(),
   });
 }
 

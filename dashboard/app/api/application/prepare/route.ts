@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserId } from "@/lib/auth";
 import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
@@ -11,8 +10,7 @@ import { fetchGreenhouseQuestions, type GreenhouseQuestions } from "@/lib/rolefi
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
-import { tracingEnabled } from "@/lib/observability";
-import { langfuseSpanProcessor } from "@/instrumentation";
+import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 
@@ -155,6 +153,7 @@ export async function POST(req: Request) {
       prefilledAnswers: gh.prefilledAnswers,
       applyUrl: applyUrl(job.ats, job.url),
       resumeTraceId,
+      profileVersion: profile.profile_version,
     });
     // Per-leg status so the client can surface which parts of a partially
     // failed prepare need a retry (the package persists whatever succeeded).
@@ -171,8 +170,11 @@ export async function POST(req: Request) {
   try {
     if (tracingEnabled()) {
       const res = await propagateAttributes({ userId, sessionId: jobId }, run);
-      const processor = langfuseSpanProcessor;
-      if (processor) after(async () => { await processor.forceFlush(); });
+      // Flush inline while the invocation is still alive — a post-response after()
+      // callback can lose the race against Vercel freezing the instance.
+      // flushLangfuseTraces swallows its own errors, so a trace-export failure
+      // can't reach the outer 502 branch: the generation already succeeded.
+      await flushLangfuseTraces();
       return res;
     }
     return await run();

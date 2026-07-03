@@ -1,9 +1,11 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile } from "@/lib/queries";
 import { extractPdfText } from "@/lib/pdf";
+import { resolveResumeFilePath } from "@/lib/resumeFilePath";
 
 // Résumé-only save from the board's profile modal. Preserves model choices and
 // instructions the user set on /profile (the modal doesn't expose them).
@@ -11,8 +13,9 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
   const userId = await requireUserId();
   const existing = await getProfile(userId);
 
-  let resumeText = String(formData.get("resume_text") ?? "").trim() || existing?.resume_text || null;
-  let resumeFilePath = existing?.resume_file_path ?? null;
+  const submittedText = String(formData.get("resume_text") ?? "").trim();
+  let resumeText = submittedText || existing?.resume_text || null;
+  let freshUploadPath: string | null = null;
 
   const file = formData.get("resume_pdf");
   if (file instanceof File && file.size > 0) {
@@ -22,10 +25,19 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
     const { error } = await supabase.storage.from("resumes")
       .upload(path, bytes, { contentType: file.type || "application/pdf", upsert: true });
     if (error) throw new Error(`resume upload failed: ${error.message}`);
-    resumeFilePath = path;
+    freshUploadPath = path;
     const extracted = await extractPdfText(bytes);
     if (extracted) resumeText = extracted;
   }
+
+  // Replacing the pasted text (with no fresh upload this submit) drops the stale
+  // PDF so generation stops parsing it instead of the new text.
+  const resumeFilePath = resolveResumeFilePath({
+    submittedText,
+    existingText: existing?.resume_text ?? null,
+    existingPath: existing?.resume_file_path ?? null,
+    freshUploadPath,
+  });
 
   await upsertProfile(userId, {
     resumeText,
@@ -52,4 +64,5 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
     screeningAnswers: existing?.screening_answers ?? {},
     modelCover: existing?.model_cover ?? null,
   });
+  revalidatePath("/");
 }

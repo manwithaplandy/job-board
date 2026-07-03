@@ -30,6 +30,10 @@ export function ProfileModal({
   // The element the pointer went down on. Overlay-dismiss requires BOTH mousedown and
   // click to land on the overlay, so a text drag that ends on the backdrop can't dismiss.
   const mouseDownTargetRef = useRef<EventTarget | null>(null);
+  // The (always-mounted) file input, so editing the pasted text can clear a
+  // not-yet-saved file selection — otherwise a hidden Upload-tab pick would still
+  // submit and silently override the text on save.
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Save and restore focus
   useEffect(() => {
@@ -283,14 +287,21 @@ export function ProfileModal({
                 </button>
               </div>
 
-              {/* Paste tab */}
-              {pasteActive && (
-                <>
+              {/* Paste tab — kept mounted so switching to Upload never drops typed text */}
+              <div style={{ display: pasteActive ? "block" : "none" }}>
                   <textarea
                     className="rf-focusable"
                     name="resume_text"
                     defaultValue={resumeText}
-                    onChange={() => setIsDirty(true)}
+                    onChange={() => {
+                      setIsDirty(true);
+                      // Editing the text supersedes a not-yet-saved uploaded file:
+                      // clear the (hidden) selection so it can't win on save.
+                      if (uploadName) {
+                        setUploadName("");
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }
+                    }}
                     placeholder="Paste your résumé or a few lines about your experience, skills, and roles…"
                     style={{
                       width: "100%",
@@ -318,12 +329,10 @@ export function ProfileModal({
                     Tip: start with your name on the first line. We&apos;ll detect skills
                     automatically.
                   </div>
-                </>
-              )}
+              </div>
 
-              {/* Upload tab */}
-              {!pasteActive && (
-                <>
+              {/* Upload tab — kept mounted alongside Paste */}
+              <div style={{ display: pasteActive ? "none" : "block" }}>
                   <label
                     htmlFor="rf-file"
                     style={{
@@ -376,6 +385,7 @@ export function ProfileModal({
                   </label>
                   <input
                     id="rf-file"
+                    ref={fileInputRef}
                     type="file"
                     name="resume_pdf"
                     accept=".pdf,application/pdf"
@@ -385,8 +395,7 @@ export function ProfileModal({
                     }}
                     style={{ display: "none" }}
                   />
-                </>
-              )}
+              </div>
             </div>
 
             {/* Footer */}

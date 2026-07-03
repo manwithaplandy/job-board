@@ -348,6 +348,7 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
     greenhouseQuestions: parseField("greenhouse_questions", row.greenhouse_questions, parseGreenhouseQuestionsJsonb),
     prefilledAnswers: parseField("prefilled_answers", row.prefilled_answers, parsePrefilledAnswers),
     applyUrl: (row.apply_url as string | null) ?? null,
+    profileVersion: (row.profile_version as string | null) ?? null,
     preparedAt: iso(row.prepared_at),
     appliedAt: row.applied_at != null ? iso(row.applied_at) : null,
   };
@@ -370,7 +371,8 @@ export const BARE_MARKER_PREDICATE = sql`
 export async function getApplicationPackages(userId: string): Promise<ApplicationPackage[]> {
   const rows = await sql`
     SELECT job_id, status, resume_json, cover_letter_json, answers_snapshot,
-           greenhouse_questions, prefilled_answers, apply_url, prepared_at, applied_at
+           greenhouse_questions, prefilled_answers, apply_url, profile_version,
+           prepared_at, applied_at
     FROM application_packages
     WHERE user_id = ${userId}::uuid
   `;
@@ -380,6 +382,13 @@ export async function getApplicationPackages(userId: string): Promise<Applicatio
 // Persist (or refresh) a prepared package. Re-preparing upserts the generated
 // content in place; status / applied_at are deliberately left untouched so a
 // previously "applied" package is never silently downgraded.
+//
+// Preserve-on-NULL: each generation route sends ONLY the artifact it produced and
+// NULL for the rest. A NULL means "I didn't regenerate this", not "clear it" — so the
+// ON CONFLICT clause COALESCEs to the stored value rather than overwriting with NULL.
+// Without this, generating a cover letter alone nulled a persisted résumé (and
+// regenerating a résumé nulled a persisted cover letter). A full "Prepare" still
+// replaces everything because it sends non-NULL values for every column it owns.
 export async function upsertApplicationPackage(
   userId: string,
   jobId: string,
@@ -391,6 +400,7 @@ export async function upsertApplicationPackage(
     prefilledAnswers: PrefilledAnswer[] | null;
     applyUrl: string | null;
     resumeTraceId?: string | null;
+    profileVersion?: string | null;
   },
 ): Promise<ApplicationPackage> {
   // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
@@ -398,23 +408,34 @@ export async function upsertApplicationPackage(
   const rows = await sql`
     INSERT INTO application_packages
       (user_id, job_id, resume_json, cover_letter_json, answers_snapshot,
-       greenhouse_questions, prefilled_answers, apply_url, resume_trace_id, status, prepared_at)
+       greenhouse_questions, prefilled_answers, apply_url, resume_trace_id,
+       profile_version, status, prepared_at)
     VALUES (${userId}::uuid, ${jobId},
             ${j(data.resume)}::jsonb, ${j(data.coverLetter)}::jsonb,
             ${j(data.answersSnapshot)}::jsonb, ${j(data.greenhouseQuestions)}::jsonb,
             ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
-            'prepared', now())
+            ${data.profileVersion ?? null}, 'prepared', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
-      resume_json          = EXCLUDED.resume_json,
-      cover_letter_json    = EXCLUDED.cover_letter_json,
-      answers_snapshot     = EXCLUDED.answers_snapshot,
-      greenhouse_questions = EXCLUDED.greenhouse_questions,
-      prefilled_answers    = EXCLUDED.prefilled_answers,
-      apply_url            = EXCLUDED.apply_url,
-      resume_trace_id      = EXCLUDED.resume_trace_id,
+      resume_json          = COALESCE(EXCLUDED.resume_json, application_packages.resume_json),
+      cover_letter_json    = COALESCE(EXCLUDED.cover_letter_json, application_packages.cover_letter_json),
+      answers_snapshot     = COALESCE(EXCLUDED.answers_snapshot, application_packages.answers_snapshot),
+      greenhouse_questions = COALESCE(EXCLUDED.greenhouse_questions, application_packages.greenhouse_questions),
+      prefilled_answers    = COALESCE(EXCLUDED.prefilled_answers, application_packages.prefilled_answers),
+      apply_url            = COALESCE(EXCLUDED.apply_url, application_packages.apply_url),
+      -- resume_trace_id and profile_version describe the résumé specifically, so they
+      -- move in lockstep with resume_json: refreshed only when a new résumé is written,
+      -- preserved (alongside the preserved résumé) otherwise. This keeps the résumé's
+      -- "Outdated — regenerate" badge honest when only a cover letter is generated.
+      resume_trace_id      = CASE WHEN EXCLUDED.resume_json IS NOT NULL
+                                  THEN EXCLUDED.resume_trace_id
+                                  ELSE application_packages.resume_trace_id END,
+      profile_version      = CASE WHEN EXCLUDED.resume_json IS NOT NULL
+                                  THEN EXCLUDED.profile_version
+                                  ELSE application_packages.profile_version END,
       prepared_at          = now()
     RETURNING job_id, status, resume_json, cover_letter_json, answers_snapshot,
-              greenhouse_questions, prefilled_answers, apply_url, prepared_at, applied_at
+              greenhouse_questions, prefilled_answers, apply_url, profile_version,
+              prepared_at, applied_at
   `;
   return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);
 }

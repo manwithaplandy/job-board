@@ -1,10 +1,8 @@
-import { after } from "next/server";
 import { propagateAttributes } from "@langfuse/tracing";
 import { getUserId } from "@/lib/auth";
 import { getProfile, getJobForCoverLetter, upsertApplicationPackage } from "@/lib/queries";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
-import { tracingEnabled } from "@/lib/observability";
-import { langfuseSpanProcessor } from "@/instrumentation";
+import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -52,6 +50,9 @@ export async function POST(req: Request) {
         greenhouseQuestions: null,
         prefilledAnswers: null,
         applyUrl: null,
+        // No résumé generated here, so no résumé provenance to record. upsert's
+        // ON CONFLICT preserves the stored résumé + its profile_version untouched.
+        profileVersion: null,
       });
       return Response.json({ package: pkg });
     } catch (e) {
@@ -65,8 +66,9 @@ export async function POST(req: Request) {
 
   if (tracingEnabled()) {
     const res = await propagateAttributes({ userId, sessionId: jobId }, run);
-    const processor = langfuseSpanProcessor;
-    if (processor) after(async () => { await processor.forceFlush(); });
+    // Flush inline while the invocation is still alive — a post-response after()
+    // callback can lose the race against Vercel freezing the instance.
+    await flushLangfuseTraces();
     return res;
   }
   return await run();

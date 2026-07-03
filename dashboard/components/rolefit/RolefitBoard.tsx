@@ -6,6 +6,7 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
+import { isResumeStale } from "@/lib/resumeStale";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
 import { selectionAfterRemoval, stepSelection } from "@/lib/rolefit/selection";
@@ -47,6 +48,10 @@ export interface RolefitBoardProps {
   operator?: OperatorSignals;
   hasProfile: boolean;
   resumeText: string;
+  // Live profiles.profile_version — a package whose stored profileVersion differs
+  // was generated from an older résumé/instructions and is flagged stale. null for
+  // anon or a profile-less viewer (never stale).
+  currentProfileVersion: string | null;
   // Saved application packages (Phase 3) — the board seeds résumé/cover-letter +
   // Greenhouse Q/A state from these so reopening a role loads instead of regenerating.
   initialPackages: ApplicationPackage[];
@@ -87,6 +92,7 @@ export function RolefitBoard({
   operator,
   hasProfile,
   resumeText,
+  currentProfileVersion,
   initialPackages,
   initialRejected,
 }: RolefitBoardProps) {
@@ -668,6 +674,20 @@ export function RolefitBoard({
     setGenerationInFlight(null);
   }, []);
 
+  // A shown résumé is stale when its package was generated from a different
+  // profile_version than the live one. Regenerating (handleGenerate) writes the
+  // fresh version into `packages`, which clears the flag. Rows with a null stored
+  // version (pre-column) are treated as provenance-unknown and never flagged.
+  const resumeStaleFor = useCallback(
+    (jobId: string): boolean =>
+      isResumeStale({
+        hasResume: Boolean(genData[jobId]),
+        packageProfileVersion: packages[jobId]?.profileVersion ?? null,
+        currentProfileVersion,
+      }),
+    [packages, genData, currentProfileVersion],
+  );
+
   // Résumé generation. D7 contract: /api/resume persists server-side and returns the full
   // { package }. Standalone Generate always persists now (no client persist call, no
   // "only if a package exists" gate — the server creates/updates the row).
@@ -822,6 +842,7 @@ export function RolefitBoard({
           greenhouseQuestions: null,
           prefilledAnswers: null,
           applyUrl: null,
+          profileVersion: null,
           preparedAt: appliedAt,
           appliedAt,
         };
@@ -1030,6 +1051,7 @@ export function RolefitBoard({
                     onCancelGeneration={handleCancelGeneration}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
                     pkg={packages[selectedJobWithDetail.id]}
+                    resumeStale={resumeStaleFor(selectedJobWithDetail.id)}
                     onMarkApplied={handleMarkApplied}
                     onOpenProfile={() => setProfileOpen(true)}
                     onReject={handleReject}

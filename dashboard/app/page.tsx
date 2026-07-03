@@ -88,6 +88,7 @@ export default async function Page({
         operator={operator}
         hasProfile={hasProfile}
         resumeText={resumeText}
+        currentProfileVersion={profile?.profile_version ?? null}
         initialPackages={applicationPackages}
         initialRejected={rejectedJobs}
       />
@@ -111,6 +112,7 @@ export default async function Page({
         operator={undefined}
         hasProfile={false}
         resumeText=""
+        currentProfileVersion={null}
         initialPackages={[]}
         initialRejected={[]}
       />

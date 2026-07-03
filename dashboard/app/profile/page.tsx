@@ -8,6 +8,7 @@ import { ProfileFormShell, type ProfileSaveState } from "@/components/ProfileFor
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile, getDistinctLocations } from "@/lib/queries";
 import { extractPdfText } from "@/lib/pdf";
+import { resolveResumeFilePath } from "@/lib/resumeFilePath";
 import {
   getStructuredModels, CURATED_MODELS, DEFAULT_MODEL_ID, validateModelId,
 } from "@/lib/openrouter";
@@ -52,11 +53,12 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
     const userId = await requireUserId();
     const existing = await getProfile(userId);
     const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
-    let resumeText = (String(formData.get("resume_text") ?? "")).trim() || existing?.resume_text || null;
-    // Preserve the previously-uploaded PDF: a file input is empty on every save
-    // that doesn't re-pick the file, so defaulting to null here would wipe the
-    // stored path. Only a fresh upload below replaces it.
-    let resumeFilePath: string | null = existing?.resume_file_path ?? null;
+    const submittedText = (String(formData.get("resume_text") ?? "")).trim();
+    let resumeText = submittedText || existing?.resume_text || null;
+    // Which uploaded PDF (if any) survives this save is decided after the upload
+    // branch below by resolveResumeFilePath: an empty/unchanged text keeps the
+    // stored PDF, a genuine text replacement drops it, a fresh upload wins.
+    let freshUploadPath: string | null = null;
 
     const catalogIds = (await getStructuredModels()).map((m) => m.id);
     // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
@@ -98,10 +100,16 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
         .from("resumes")
         .upload(path, bytes, { contentType: "application/pdf", upsert: true });
       if (error) return { error: `resume upload failed: ${error.message}` };
-      resumeFilePath = path;
+      freshUploadPath = path;
       const extracted = await extractPdfText(bytes);
       if (extracted) resumeText = extracted; // paste-text is the fallback when extraction is poor
     }
+    const resumeFilePath = resolveResumeFilePath({
+      submittedText,
+      existingText: existing?.resume_text ?? null,
+      existingPath: existing?.resume_file_path ?? null,
+      freshUploadPath,
+    });
 
     await upsertProfile(userId, {
       resumeText, instructions, resumeFilePath,

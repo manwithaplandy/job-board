@@ -79,6 +79,8 @@ export interface JobDetailProps {
   prepareStatus?: PrepareLegStatus | null;
   // Persisted package for the selected job (Phase 3) — undefined until prepared.
   pkg?: ApplicationPackage;
+  // True when the shown tailored résumé was generated from an older profile_version.
+  resumeStale: boolean;
   onMarkApplied: (job: JobRow) => void;
   onOpenProfile: () => void;
   onReject?: (job: JobRow) => void;
@@ -114,6 +116,7 @@ export function JobDetail({
   onCancelGeneration,
   prepareStatus,
   pkg,
+  resumeStale,
   onMarkApplied,
   onOpenProfile,
   onReject,
@@ -602,6 +605,7 @@ export function JobDetail({
             resumeState={genState}
             resumeData={gd}
             resumeError={genErrorMsg}
+            resumeStale={resumeStale}
             onGenerateResume={() => onGenerate(job)}
             onRegenerateResume={() => onGenerate(job)}
             onCopyResume={() => { if (gd) onCopy(job, gd); }}

@@ -32,6 +32,8 @@ export interface ResumePanelProps {
   state: string | undefined;
   data: TailoredResume | undefined;
   error?: string;
+  /** True when the shown résumé was generated from an older profile version. */
+  stale?: boolean;
   onGenerate: () => void;
   onRegenerate: () => void;
   /** Parent manages copiedId; call this to trigger the copy + label flip */
@@ -50,6 +52,7 @@ export function ResumePanel({
   state,
   data,
   error,
+  stale,
   onGenerate,
   onRegenerate,
   onCopy,
@@ -247,6 +250,22 @@ export function ResumePanel({
             <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
               Résumé ready — tailored to {job.company_name}
             </div>
+            {stale && (
+              <span
+                style={{
+                  marginLeft: "auto",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "#9a6b1e",
+                  background: "#fdf3e0",
+                  border: "1px solid #f3dfb5",
+                  borderRadius: "6px",
+                  padding: "3px 8px",
+                }}
+              >
+                Outdated — regenerate
+              </span>
+            )}
           </div>
           <div
             style={{

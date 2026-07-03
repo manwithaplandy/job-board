@@ -80,10 +80,10 @@ CREATE TABLE profiles (
   model_cover       TEXT,                     -- OpenRouter model id; NULL = default
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  is_owner         BOOLEAN NOT NULL DEFAULT FALSE  -- exactly one row may be TRUE (enforced by one_board_owner index)
+  -- Optional per-user override of the env daily review cap (reviewer/config.py
+  -- DAILY_REVIEW_CAP_DEFAULT). NULL = use the env default.
+  daily_review_cap INT
 );
--- Prevents any second profile row from claiming board ownership.
-CREATE UNIQUE INDEX one_board_owner ON profiles ((TRUE)) WHERE is_owner;
 
 -- one current verdict per (user, job); re-review upserts in place
 CREATE TABLE job_reviews (
@@ -183,7 +183,8 @@ CREATE TABLE review_corrections (
 -- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.
 CREATE INDEX idx_review_corrections_job ON review_corrections (job_id);
 
--- accounting, mirrors poll_runs
+-- accounting, mirrors poll_runs. user_id attributes a run to the user it reviewed
+-- (multi-tenant); NULL for legacy rows written before the column existed.
 CREATE TABLE review_runs (
   id            SERIAL PRIMARY KEY,
   started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -193,7 +194,8 @@ CREATE TABLE review_runs (
   approved      INT,
   denied        INT,
   errors        INT,
-  notes         TEXT
+  notes         TEXT,
+  user_id       UUID
 );
 CREATE INDEX idx_review_runs_started_at ON review_runs (started_at DESC);
 
@@ -285,6 +287,39 @@ CREATE TABLE resume_scores (
 );
 CREATE INDEX idx_resume_scores_user ON resume_scores (user_id);
 
+-- Multi-tenant foundation (see migrations/2026-07-03-multitenant-foundation.sql).
+-- Invite-gated signup: invite_codes + invite_redemptions are the server-side source
+-- of truth for "this account was invited" (user_metadata is client-settable and must
+-- NOT be trusted).
+CREATE TABLE invite_codes (
+  code       TEXT PRIMARY KEY,
+  note       TEXT,
+  max_uses   INT NOT NULL DEFAULT 1,
+  uses       INT NOT NULL DEFAULT 0 CHECK (uses >= 0 AND uses <= max_uses),
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One redemption per email — the trusted proof an account was invited.
+CREATE TABLE invite_redemptions (
+  email       TEXT NOT NULL,
+  code        TEXT NOT NULL REFERENCES invite_codes(code),
+  user_id     UUID,
+  redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (email)
+);
+
+-- Per-user, per-day usage counters. kind='review' backs the reviewer's rolling
+-- daily budget; generation kinds arrive in Phase 1. "Reset at midnight" falls out
+-- of the (user_id, day) key — no cron.
+CREATE TABLE usage_counters (
+  user_id UUID NOT NULL,
+  day     DATE NOT NULL,
+  kind    TEXT NOT NULL,
+  n       INT  NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day, kind)
+);
+
 -- Applied-migrations ledger. Record each migration with:
 --   INSERT INTO schema_migrations (filename) VALUES ('<file>');
 -- when applied. Every new migration must be idempotent, transactional where
@@ -327,3 +362,9 @@ ALTER TABLE review_corrections   ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON review_corrections   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE schema_migrations    ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON schema_migrations    FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE invite_codes         ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON invite_codes         FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE invite_redemptions   ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON invite_redemptions   FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE usage_counters       ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON usage_counters       FOR ALL USING (false) WITH CHECK (false);

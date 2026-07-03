@@ -21,14 +21,33 @@ beforeEach(() => {
 });
 
 describe("getJobReviewDetail", () => {
-  test("joins jobs and selects the full JD + apply url alongside review fields", async () => {
+  test("drives FROM jobs and selects the full JD + apply url alongside review fields", async () => {
     rows.push({ reasoning: null, about: null, red_flags: null, benefits: null, requirements: null, description: null, url: null });
-    await getJobReviewDetail("greenhouse:acme:123");
+    await getJobReviewDetail("greenhouse:acme:123", "user-1");
     expect(calls).toHaveLength(1);
     const text = calls[0].strings.join("?");
-    // Full JD + apply link come from the jobs table, joined onto the review row.
-    expect(text).toMatch(/JOIN\s+jobs\s+j\b/i);
+    // The query is driven FROM jobs so the JD + apply link always return, even for a
+    // pending or anonymous viewer; the review tables are LEFT JOINed on.
+    expect(text).toMatch(/FROM\s+jobs\s+j\b/i);
+    expect(text).toMatch(/LEFT JOIN\s+job_reviews\s+r\b/i);
     expect(text).toMatch(/j\.description/);
     expect(text).toMatch(/j\.url/);
+  });
+
+  test("binds the passed viewer userId (viewer-scoped, not a board-owner subquery)", async () => {
+    rows.push({ reasoning: null, description: null, url: null });
+    await getJobReviewDetail("greenhouse:acme:123", "viewer-42");
+    const { strings, values } = calls[0];
+    // The review + corrections joins each bind the viewer's id, and there is no
+    // is_owner subquery in the SQL text.
+    expect(values).toContain("viewer-42");
+    expect(strings.join(" ")).not.toMatch(/is_owner/i);
+  });
+
+  test("anonymous viewer (null userId) still issues the job-only query", async () => {
+    rows.push({ reasoning: null, description: "jd", url: "https://x" });
+    await getJobReviewDetail("greenhouse:acme:123", null);
+    const { values } = calls[0];
+    expect(values).toContain(null);
   });
 });

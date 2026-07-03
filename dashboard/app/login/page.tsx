@@ -151,6 +151,22 @@ export default async function LoginPage({
             Sign in
           </SubmitButton>
         </form>
+        <div
+          style={{
+            marginTop: "16px",
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: "12.5px",
+            color: "#6b7480",
+          }}
+        >
+          <a href="/signup" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+            Create account
+          </a>
+          <a href="/reset-password" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+            Forgot password?
+          </a>
+        </div>
       </div>
     </main>
   );

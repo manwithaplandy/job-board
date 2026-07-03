@@ -60,7 +60,7 @@ DATABASE_URL="postgresql://…" ANTHROPIC_API_KEY="sk-…" .venv/bin/python -m r
 | `REVIEW_MODEL_STAGE1` | `claude-haiku-4-5` | Model used for the gate (title-only) pass. |
 | `REVIEW_MODEL_STAGE2` | `claude-haiku-4-5` | Model used for the full JD pass. |
 | `REVIEW_CONCURRENCY` | `5` | Max concurrent Anthropic requests per run. |
-| `REVIEW_MAX_JOBS_PER_RUN` | `200` | Cap on jobs reviewed in a single run. |
+| `REVIEW_DAILY_CAP_DEFAULT` | `400` | Per-user, per-day ceiling on jobs entering review (a hard cost cap regardless of run cadence, pool size, or profile edits). A profile's `daily_review_cap` column overrides this per-user. Spend is tracked in `usage_counters` and rolls over at UTC midnight. |
 
 **No-op conditions:** the review phase exits immediately (no API calls, no DB
 writes) when `ANTHROPIC_API_KEY` is unset or when no active user profile exists

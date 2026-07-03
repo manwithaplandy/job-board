@@ -19,8 +19,6 @@ ALTER TABLE review_corrections ADD COLUMN IF NOT EXISTS
   resume_text_snapshot TEXT;
 ALTER TABLE review_corrections ADD COLUMN IF NOT EXISTS
   instructions_snapshot TEXT;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS
-  is_owner BOOLEAN NOT NULL DEFAULT FALSE;
 """
 
 

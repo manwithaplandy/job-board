@@ -262,21 +262,32 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
 def _review_user(conn, profile: dict) -> None:
     user_id = str(profile["user_id"])
     pv = profile["profile_version"]
-    run_id = db.start_review_run(conn)
+    run_id = db.start_review_run(conn, user_id)
     conn.commit()
 
     counts = {"reviewed": 0, "gate_rejected": 0, "approved": 0, "denied": 0, "errors": 0}
     notes = None
     try:
+        # Per-user rolling daily budget: the cap minus what's already been spent
+        # today (UTC). A per-profile daily_review_cap overrides the env default.
+        cap = profile.get("daily_review_cap") or config.DAILY_REVIEW_CAP_DEFAULT
+        remaining = max(0, cap - db.get_daily_spend(conn, user_id))
+        if remaining == 0:
+            # Budget exhausted — skip the user entirely: zero candidates selected,
+            # zero LLM calls. The run row still closes so the skip is auditable.
+            notes = "daily cap exhausted"
+            log.info("daily cap %s exhausted for %s; skipping", cap, user_id)
+            return
+
         candidates, total = db.select_candidates(
-            conn, user_id, pv, config.MAX_JOBS_PER_RUN,
+            conn, user_id, pv, remaining,
             preferred_locations=profile.get("preferred_locations"),
         )
         overflow = total - len(candidates)
         if overflow > 0:
             notes = f"overflow: {overflow} job(s) deferred to next run"
-            log.info("review overflow: %s job(s) over cap %s, deferred",
-                     overflow, config.MAX_JOBS_PER_RUN)
+            log.info("review overflow: %s job(s) over remaining budget %s, deferred",
+                     overflow, remaining)
 
         profile_block = build_profile_block(profile["resume_text"], profile["instructions"])
         client = ReviewClient(
@@ -313,6 +324,14 @@ def _review_user(conn, profile: dict) -> None:
                 continue
             rows_to_persist.append(r.as_row(user_id=user_id, profile_version=pv))
         _persist_rows(conn, rows_to_persist, config.PERSIST_CHUNK_SIZE)
+
+        # Charge the daily budget for jobs that actually consumed LLM budget: any
+        # result carrying a stage-1 decision (gate-reject, stage-2-complete, or
+        # JD-deferred). Error-only rows (stage1_batch transport failures leave
+        # stage1_decision NULL) are excluded so an outage can't burn a day's budget.
+        # Committed together with finish_review_run in the finally's single commit.
+        spent = sum(1 for r in results if r.stage1_decision is not None)
+        db.add_daily_spend(conn, user_id, spent)
     except Exception:
         conn.rollback()
         notes = (f"{notes}; " if notes else "") + "review phase errored; see logs"

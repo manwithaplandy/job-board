@@ -122,6 +122,170 @@ def test_cost_recorded_from_usage(monkeypatch):
         schema=Stage1Result, name="test", metadata={},
     ))
     assert recorded.get("cost_details") == {"total": 0.0123}
+    # A real positive usage.cost is trusted as-is (source='usage'); no fallback fetch.
+    assert recorded["metadata"]["cost_source"] == "usage"
+
+
+def test_positive_cost_skips_fallback(monkeypatch):
+    """(a) usage.cost > 0 → recorded from usage, source='usage', NO generation fetch."""
+    from observability import llm as obs_llm
+    from reviewer.schemas import Stage1Result
+
+    recorded = {}
+    fetched = {"called": False}
+
+    async def _spy(_id):
+        fetched["called"] = True
+        return 9.9
+
+    monkeypatch.setattr(obs_llm, "_confirm_generation_cost", _spy)
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): recorded.update(kw)
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    usage = types.SimpleNamespace(prompt_tokens=100, completion_tokens=20, cost=1.5e-05)
+
+    class _C:
+        async def parse(self, **kwargs):
+            msg = types.SimpleNamespace(
+                parsed=Stage1Result(decision="pass", reason="r"), refusal=None)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=msg)], usage=usage,
+                id="gen-1", model="deepseek/deepseek-v4-flash")
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_C())))
+    asyncio.run(obs_llm.traced_structured_call(
+        fake, model="m", messages=[{"role": "user", "content": "hi"}],
+        schema=Stage1Result, name="t", metadata={}))
+    assert fetched["called"] is False
+    assert recorded["cost_details"] == {"total": 1.5e-05}
+    assert recorded["metadata"]["cost_source"] == "usage"
+    assert recorded["metadata"]["served_model"] == "deepseek/deepseek-v4-flash"
+
+
+def test_zero_cost_confirmed_via_generation_api(monkeypatch):
+    """(b) usage.cost == 0 → fallback fetched; its total_cost recorded, source='generation_api'."""
+    from observability import llm as obs_llm
+    from reviewer.schemas import Stage1Result
+
+    recorded = {}
+    seen = {}
+
+    async def _confirm(generation_id):
+        seen["id"] = generation_id
+        return 4.2e-06
+
+    monkeypatch.setattr(obs_llm, "_confirm_generation_cost", _confirm)
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): recorded.update(kw)
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    usage = types.SimpleNamespace(prompt_tokens=100, completion_tokens=20, cost=0)
+
+    class _C:
+        async def parse(self, **kwargs):
+            msg = types.SimpleNamespace(
+                parsed=Stage1Result(decision="pass", reason="r"), refusal=None)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=msg)], usage=usage,
+                id="gen-zero", model="m")
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_C())))
+    asyncio.run(obs_llm.traced_structured_call(
+        fake, model="m", messages=[{"role": "user", "content": "hi"}],
+        schema=Stage1Result, name="t", metadata={}))
+    assert seen["id"] == "gen-zero"
+    assert recorded["cost_details"] == {"total": 4.2e-06}
+    assert recorded["metadata"]["cost_source"] == "generation_api"
+
+
+def test_unconfirmable_cost_records_no_cost_details(monkeypatch):
+    """(c) fallback exhausts retries → NO cost_details written, source='unknown' (never an assumed 0)."""
+    from observability import llm as obs_llm
+    from reviewer.schemas import Stage1Result
+
+    recorded = {}
+
+    async def _confirm(_id):
+        return None
+
+    monkeypatch.setattr(obs_llm, "_confirm_generation_cost", _confirm)
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): recorded.update(kw)
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    usage = types.SimpleNamespace(prompt_tokens=100, completion_tokens=20, cost=None)
+
+    class _C:
+        async def parse(self, **kwargs):
+            msg = types.SimpleNamespace(
+                parsed=Stage1Result(decision="pass", reason="r"), refusal=None)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=msg)], usage=usage, id="gen-x", model="m")
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_C())))
+    asyncio.run(obs_llm.traced_structured_call(
+        fake, model="m", messages=[{"role": "user", "content": "hi"}],
+        schema=Stage1Result, name="t", metadata={}))
+    assert recorded["cost_details"] is None
+    assert recorded["metadata"]["cost_source"] == "unknown"
+
+
+def test_cached_tokens_recorded_in_usage_details(monkeypatch):
+    """(d) usage.prompt_tokens_details.cached_tokens lands in usage_details.input_cached."""
+    from observability import llm as obs_llm
+    from reviewer.schemas import Stage1Result
+
+    recorded = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): recorded.update(kw)
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    usage = types.SimpleNamespace(
+        prompt_tokens=868, completion_tokens=38, cost=1.2e-05,
+        prompt_tokens_details=types.SimpleNamespace(cached_tokens=800))
+
+    class _C:
+        async def parse(self, **kwargs):
+            msg = types.SimpleNamespace(
+                parsed=Stage1Result(decision="pass", reason="r"), refusal=None)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=msg)], usage=usage, id="g", model="m")
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_C())))
+    asyncio.run(obs_llm.traced_structured_call(
+        fake, model="m", messages=[{"role": "user", "content": "hi"}],
+        schema=Stage1Result, name="t", metadata={}))
+    assert recorded["usage_details"]["input_cached"] == 800
+    assert recorded["usage_details"]["input_tokens"] == 868
 
 
 def test_both_clients_share_helper(monkeypatch):

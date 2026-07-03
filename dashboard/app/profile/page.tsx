@@ -73,6 +73,11 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
     const preferredLocations = parsePreferredLocations(
       String(formData.get("preferred_locations") ?? ""),
     );
+    // Mandatory location filter (spec's #1 cost lever): enforced on edit too, so a
+    // user can't onboard with a location and then clear it back to an unbounded pool.
+    if (preferredLocations.length === 0) {
+      return { error: "Pick at least one location to include — this is required." };
+    }
 
     // Reusable application answers. jsonb columns are stored as objects (NOT NULL).
     const links = {

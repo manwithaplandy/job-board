@@ -303,6 +303,7 @@ def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
                     )
                 )],
                 usage=usage,
+                id="gen-cost", model="deepseek/deepseek-v4-flash",
             )
 
     client = types.SimpleNamespace(
@@ -311,4 +312,6 @@ def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
     rc = ReviewClient(client=client, model_stage1="m1", model_stage2="m2")
     asyncio.run(rc.stage1(profile_block="P", title="T", company="C", location=None))
 
+    # A real positive usage.cost is trusted verbatim and stamped source='usage'.
     assert events["update"]["cost_details"] == {"total": 1.23e-05}
+    assert events["update"]["metadata"]["cost_source"] == "usage"

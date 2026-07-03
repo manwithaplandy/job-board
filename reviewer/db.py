@@ -37,9 +37,46 @@ def load_profiles(conn) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT user_id, resume_text, instructions, profile_version, "
-            "model_stage1, model_stage2, preferred_locations FROM profiles"
+            "model_stage1, model_stage2, preferred_locations, daily_review_cap "
+            "FROM profiles"
         )
         return cur.fetchall()
+
+
+# The single UTC clock for the daily budget. Reading and writing spend both derive
+# the day from the DB's now() so there is no client/server skew and no cron: the
+# (user_id, day, kind) key rolls over on its own at UTC midnight.
+_UTC_DAY_SQL = "(now() AT TIME ZONE 'utc')::date"
+
+
+def get_daily_spend(conn, user_id: str, kind: str = "review") -> int:
+    """Jobs already charged to this user's budget today (UTC). 0 when none."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT COALESCE(n, 0)::int AS n FROM usage_counters "
+            f"WHERE user_id = %(uid)s AND kind = %(kind)s AND day = {_UTC_DAY_SQL}",
+            {"uid": _uuid(user_id), "kind": kind},
+        )
+        row = cur.fetchone()
+    return row["n"] if row else 0
+
+
+def add_daily_spend(conn, user_id: str, n: int, kind: str = "review") -> None:
+    """Charge n jobs to this user's daily budget (UTC day, upserted in place).
+
+    Committed by the caller in the same transaction as the persisted review rows,
+    so spend and rows move together.
+    """
+    if n <= 0:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO usage_counters (user_id, day, kind, n) "
+            f"VALUES (%(uid)s, {_UTC_DAY_SQL}, %(kind)s, %(n)s) "
+            f"ON CONFLICT (user_id, day, kind) "
+            f"DO UPDATE SET n = usage_counters.n + EXCLUDED.n",
+            {"uid": _uuid(user_id), "kind": kind, "n": n},
+        )
 
 
 def select_candidates(
@@ -129,9 +166,12 @@ def recent_stage2_reviews(conn, limit: int) -> list[dict]:
         return cur.fetchall()
 
 
-def start_review_run(conn) -> int:
+def start_review_run(conn, user_id: str | None = None) -> int:
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO review_runs (started_at) VALUES (now()) RETURNING id")
+        cur.execute(
+            "INSERT INTO review_runs (started_at, user_id) VALUES (now(), %s) RETURNING id",
+            (_uuid(user_id) if user_id is not None else None,),
+        )
         return cur.fetchone()["id"]
 
 

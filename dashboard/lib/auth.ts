@@ -15,3 +15,13 @@ export async function requireUserId(): Promise<string> {
   if (!userId) redirect("/login");
   return userId;
 }
+
+// The viewer's id AND email from the locally-verified JWT claims, in one call.
+// email is needed to check invite_redemptions (the server-side "invited" marker).
+export async function getUserClaims(): Promise<{ id: string; email: string | null } | null> {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  const sub = data?.claims?.sub as string | undefined;
+  if (!sub) return null;
+  return { id: sub, email: (data?.claims?.email as string | undefined) ?? null };
+}

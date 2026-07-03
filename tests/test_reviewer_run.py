@@ -428,3 +428,152 @@ def test_review_user_commits_earlier_chunks_on_midbatch_failure(conn, monkeypatc
     failed_id = seen[2]
     assert failed_id not in persisted, "the row that raised must not be persisted"
     assert len(persisted) == 4, "the other four rows (incl. the first chunk) survive"
+
+
+# --- Per-user daily review budget: cap + usage_counters spend (spec subsystem D) ---
+
+USER_A = "44444444-4444-4444-4444-444444444444"
+USER_B = "55555555-5555-5555-5555-555555555555"
+
+
+def _seed_company(conn):
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        return cur.fetchone()["id"]
+
+
+def _seed_reviewable_job(conn, cid, ext, *, location="Remote", remote=True):
+    # Title 'SRE' passes StubClient's gate and reaches an approve verdict.
+    poller_db.upsert_job(conn, cid, "lever", "acme",
+                         Posting(external_id=ext, title="SRE", url="u",
+                                 location=location, remote=remote,
+                                 raw={"descriptionPlain": "jd"}))
+
+
+def _insert_profile(conn, user_id, *, cap=None, locations=None):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, "
+            " profile_version, preferred_locations, daily_review_cap) "
+            "VALUES (%s, 'r', 'i', 'v1', %s, %s)",
+            (user_id, locations or [], cap),
+        )
+    conn.commit()
+
+
+def _run_review_all(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    import reviewer.run as run_module
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+    run_module.review_all(conn)
+
+
+@requires_db
+def test_daily_cap_limits_reviews_and_carries_across_runs(conn, monkeypatch):
+    """Cap bounds a single run; spend persists so a second same-UTC-day run shrinks."""
+    cid = _seed_company(conn)
+    for i in range(3):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=2)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 2, "cap=2 limits the first run to 2 reviews"
+    assert rdb.get_daily_spend(conn, USER) == 2
+
+    # Second run same UTC day: remaining budget is 0 → user skipped, note written.
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 2, "no further reviews once the daily budget is spent"
+        cur.execute("SELECT notes FROM review_runs WHERE user_id = %s ORDER BY id DESC LIMIT 1",
+                    (USER,))
+        assert cur.fetchone()["notes"] == "daily cap exhausted"
+
+
+@requires_db
+def test_daily_cap_exhausted_makes_zero_llm_calls(conn, monkeypatch):
+    """A user whose budget is pre-spent is skipped entirely: no candidates, no reviews."""
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, cap=5)
+    rdb.add_daily_spend(conn, USER, 5)  # pre-exhaust today's budget
+    conn.commit()
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 0
+        cur.execute("SELECT notes FROM review_runs WHERE user_id = %s ORDER BY id DESC LIMIT 1",
+                    (USER,))
+        assert cur.fetchone()["notes"] == "daily cap exhausted"
+
+
+@requires_db
+def test_two_users_different_caps_drain_independently(conn, monkeypatch):
+    """Each user's daily cap applies to their own review count in one pass."""
+    cid = _seed_company(conn)
+    for i in range(4):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER_A, cap=1)
+    _insert_profile(conn, USER_B, cap=3)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER_A,))
+        assert cur.fetchone()["n"] == 1
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER_B,))
+        assert cur.fetchone()["n"] == 3
+    assert rdb.get_daily_spend(conn, USER_A) == 1
+    assert rdb.get_daily_spend(conn, USER_B) == 3
+
+
+@requires_db
+def test_null_cap_falls_back_to_env_default(conn, monkeypatch):
+    """A profile with a NULL daily_review_cap uses config.DAILY_REVIEW_CAP_DEFAULT."""
+    from reviewer import config
+    monkeypatch.setattr(config, "DAILY_REVIEW_CAP_DEFAULT", 1)
+    cid = _seed_company(conn)
+    for i in range(3):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=None)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 1, "NULL cap → env default of 1 applied"
+
+
+@requires_db
+def test_multi_user_disjoint_location_scoped_reviews_in_one_pass(conn, monkeypatch):
+    """T7 proof: two profiles with different locations + caps → disjoint, correctly
+    scoped job_reviews for both, each location pre-filter + budget applied
+    independently, two review_runs rows with distinct user_id."""
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "nyc", location="New York, NY", remote=False)
+    _seed_reviewable_job(conn, cid, "sf", location="San Francisco, CA", remote=False)
+    _seed_reviewable_job(conn, cid, "rem", location="Remote", remote=True)
+    _insert_profile(conn, USER_A, cap=10, locations=["New York, NY"])
+    _insert_profile(conn, USER_B, cap=10, locations=["San Francisco, CA"])
+
+    _run_review_all(conn, monkeypatch)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT job_id FROM job_reviews WHERE user_id = %s", (USER_A,))
+        a_jobs = {r["job_id"] for r in cur.fetchall()}
+        cur.execute("SELECT job_id FROM job_reviews WHERE user_id = %s", (USER_B,))
+        b_jobs = {r["job_id"] for r in cur.fetchall()}
+        cur.execute("SELECT DISTINCT user_id FROM review_runs WHERE user_id IS NOT NULL")
+        run_users = {str(r["user_id"]) for r in cur.fetchall()}
+
+    # Each user sees only their location + remote; the other metro is filtered out.
+    assert a_jobs == {"lever:acme:nyc", "lever:acme:rem"}
+    assert b_jobs == {"lever:acme:sf", "lever:acme:rem"}
+    # A user's board carries none of the other's metro-specific rows.
+    assert "lever:acme:sf" not in a_jobs
+    assert "lever:acme:nyc" not in b_jobs
+    # One attributable run row per user.
+    assert run_users == {USER_A, USER_B}

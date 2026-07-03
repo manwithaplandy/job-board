@@ -37,7 +37,6 @@ const isAbort = (e: unknown) => e instanceof Error && e.name === "AbortError";
 export interface RolefitBoardProps {
   jobs: JobRow[];
   nowIso: string;
-  isOperator: boolean;
   isAuthed: boolean;
   initialFilters: BoardFilterState;
   saveResume: (fd: FormData) => Promise<void>;
@@ -81,7 +80,6 @@ function useIsNarrow() {
 export function RolefitBoard({
   jobs,
   nowIso,
-  isOperator: _isOperator,
   isAuthed,
   initialFilters,
   saveResume,

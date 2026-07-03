@@ -53,9 +53,9 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
 export async function getJobs(
   f: Filters,
   userId: string | null,
-  ownerLocations: string[] = [],
+  viewerLocations: string[] = [],
 ): Promise<ReviewedJobRow[]> {
-  const { text, values } = buildJobsQuery(f, userId, ownerLocations);
+  const { text, values } = buildJobsQuery(f, userId, viewerLocations);
   const rows = await sql.unsafe(text, values as never[]);
   return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
 }
@@ -68,32 +68,16 @@ export async function getJobs(
 // the (huge) set of AI denies is excluded. Only called on the authed path.
 export async function getRejectedJobs(
   userId: string,
-  ownerLocations: string[] = [],
+  viewerLocations: string[] = [],
 ): Promise<ReviewedJobRow[]> {
   const f: Filters = {
     companies: [], include: [], exclude: [], remoteOnly: false,
     status: "open", verdict: "deny",
     experience: "", industry: "", subcategory: "", location: "",
   };
-  const { text, values } = buildJobsQuery(f, userId, ownerLocations, { humanOverrideOnly: true });
+  const { text, values } = buildJobsQuery(f, userId, viewerLocations, { humanOverrideOnly: true });
   const rows = await sql.unsafe(text, values as never[]);
   return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
-}
-
-export async function getBoardOwnerId(): Promise<string | null> {
-  // Single-tenant: the one operator whose verdicts the public board shows.
-  const rows = await sql`SELECT user_id FROM profiles WHERE is_owner LIMIT 1`;
-  return (rows[0]?.user_id as string | undefined) ?? null;
-}
-
-export async function getBoardOwner(): Promise<{ id: string | null; locations: string[] }> {
-  // Single-tenant: the board owner's id AND location include-list come from the
-  // same is_owner profile row. One query instead of two separate SELECTs.
-  const rows = await sql`
-    SELECT user_id, preferred_locations FROM profiles WHERE is_owner LIMIT 1
-  `;
-  const row = rows[0] as { user_id?: string; preferred_locations?: string[] } | undefined;
-  return { id: row?.user_id ?? null, locations: row?.preferred_locations ?? [] };
 }
 
 // postgres.js delivers jsonb columns as parsed JS values; normalize a detail row
@@ -116,12 +100,16 @@ function toJobReviewDetail(row: Record<string, unknown>): JobReviewDetail {
   };
 }
 
-export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail | null> {
-  // Heavy, detail-only fields for one job, scoped to the board owner's review
-  // (the same owner the list LEFT JOINs). Resolved in one round-trip via the
-  // owner subquery. Fetched lazily on job-open so the board list stays lean.
-  // j.description (full JD plaintext) and j.url (apply link) ride along here too
-  // — both were dropped from the list payload for the same payload-size reason.
+export async function getJobReviewDetail(
+  jobId: string,
+  userId: string | null,
+): Promise<JobReviewDetail | null> {
+  // Heavy, detail-only fields for one job, scoped to the VIEWER's own review.
+  // Driven FROM jobs so j.description (full JD plaintext) + j.url (apply link)
+  // always come back — even for a pending job the viewer hasn't been reviewed for,
+  // and for an anonymous viewer (userId=null → the review joins match nothing, so
+  // every review field is null and only the job-only fields are populated). Fetched
+  // lazily on job-open so the board list stays lean.
   const rows = await sql`
     SELECT
       COALESCE(rc.reasoning, r.reasoning) AS reasoning,
@@ -136,12 +124,12 @@ export async function getJobReviewDetail(jobId: string): Promise<JobReviewDetail
       COALESCE(rc.confidence, r.confidence) AS confidence,
       rc.note,
       (rc.job_id IS NOT NULL) AS corrected
-    FROM job_reviews r
-    JOIN jobs j ON j.id = r.job_id
+    FROM jobs j
+    LEFT JOIN job_reviews r
+      ON r.job_id = j.id AND r.user_id = ${userId}::uuid
     LEFT JOIN review_corrections rc
-      ON rc.job_id = r.job_id AND rc.user_id = r.user_id
-    WHERE r.job_id = ${jobId}
-      AND r.user_id = (SELECT user_id FROM profiles WHERE is_owner LIMIT 1)
+      ON rc.job_id = j.id AND rc.user_id = ${userId}::uuid
+    WHERE j.id = ${jobId}
   `;
   const row = rows[0] as Record<string, unknown> | undefined;
   return row ? toJobReviewDetail(row) : null;
@@ -230,10 +218,9 @@ export async function saveBoardFilters(
   userId: string,
   filters: BoardFilterState,
 ): Promise<void> {
-  // UPDATE-only and intentionally does NOT touch updated_at: getBoardOwnerId()
-  // resolves the single-tenant board owner by is_owner flag, and
-  // profile_version is NOT NULL with no default — so we must not INSERT a row
-  // or bump updated_at when persisting a viewer's filters.
+  // UPDATE-only and intentionally does NOT touch updated_at: profile_version is
+  // NOT NULL with no default, so we must not INSERT a row or bump updated_at when
+  // persisting a viewer's filters (a filter change is not a profile edit).
   await sql`
     UPDATE profiles
     SET board_filters = ${JSON.stringify(filters)}::jsonb

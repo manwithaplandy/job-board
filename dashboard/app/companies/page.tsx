@@ -1,6 +1,7 @@
 // dashboard/app/companies/page.tsx
 import type { Metadata } from "next";
-import { getBoardOwnerId, getCompanyReviews, getCompanyVerdictCounts, getDiscoveryState }
+import { requireUserId } from "@/lib/auth";
+import { getCompanyReviews, getCompanyVerdictCounts, getDiscoveryState }
   from "@/lib/queries";
 import { setCompanyOverride, refreshCompanyDiscoveryStatus } from "@/app/actions/companies";
 import { CompanyList } from "@/components/companies/CompanyList";
@@ -25,22 +26,9 @@ export default async function CompaniesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const userId = await getBoardOwnerId();
-  if (!userId) {
-    return (
-      <>
-        <SlimHeader current="companies" />
-        <main style={pageStyle}>
-        <div style={cardStyle}>
-          <h1 style={{ margin: "0 0 0", fontSize: "22px", fontWeight: 800 }}>Companies</h1>
-          <p style={{ margin: 0, fontSize: "13px", color: "#8a93a3" }}>
-            Set up a profile with company preferences to start discovering companies.
-          </p>
-        </div>
-        </main>
-      </>
-    );
-  }
+  // Viewer-scoped: the companies board shows the signed-in user's own
+  // company_reviews. Anonymous visitors are redirected to /login.
+  const userId = await requireUserId();
 
   const sp = await searchParams;
   const rawBucket = sp.bucket;

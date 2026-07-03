@@ -31,12 +31,18 @@ consistent.
 - **Delivery:** one branch (`worktree-vivid-wishing-teapot`). Phases are **review/iteration
   units, not deploy units** — everything merges together at the end.
 - **Styling direction:** standardize on the **existing inline-style `ui/*` primitives**
-  (`Button`, `Panel`, `Chip` — all already exist in `dashboard/components/ui/`). This is
-  NOT a Tailwind migration; it migrates hand-rolled inline styles onto the primitives and
-  converts the two Tailwind-class stragglers (`ModelPicker`, `LocationPicker`) to match.
+  (`Button`, `Panel`, `Chip` — all already exist in `dashboard/components/ui/`). Migrate
+  hand-rolled inline styles onto the primitives, convert the two Tailwind-class stragglers
+  (`ModelPicker`, `LocationPicker`), and then **remove Tailwind entirely** — the codebase
+  ends on a single styling system.
 - **Keyboard scheme:** navigation + search only. No destructive/action keys.
 - **New CTAs written during any phase use `ui/Button`/`ui/Panel`/`ui/Chip` from the start**,
   so the Phase 4 consolidation sweep stays small.
+- **Cleanup is in scope (boy-scout rule).** Within any file a phase touches, opportunistic
+  cleanup is expected — remove dead code and unused imports, delete stale comments, collapse
+  near-miss token drift (the 9/10/11px radii, near-miss grays) onto the primitives' values.
+  The goal is to leave the codebase cleaner and avoid tech debt. The bound: cleanup stays
+  within touched files/modules; no wholesale rewrite of unrelated subsystems.
 
 ## Phase plan
 
@@ -105,8 +111,19 @@ the acceptance bar.
 - Migrate recurring pill patterns → **`ui/Chip`**: "Rejected · you", "✓ Applied", the Greenhouse badge.
 - Convert **`ModelPicker`** and **`LocationPicker`** off Tailwind classes onto the inline-style
   primitives for uniformity.
-- Leave the empty Tailwind build config (`tailwind.config.ts`) untouched. Removing the Tailwind
-  dependency entirely is an **optional follow-up, out of scope**.
+- **Remove Tailwind entirely** (nothing depends on it once the two components above are converted):
+  - Delete the three `@tailwind base/components/utilities` directives from `app/globals.css:1-3`;
+    **preserve the rest of that file** (box-sizing reset, body font, `rf-spin` keyframe,
+    `rf-scroll` scrollbar styles, the `@media (max-width:760px)` rule).
+  - Drop the `tailwindcss` plugin from `postcss.config.mjs` (**keep `autoprefixer`** — it is
+    independent of Tailwind).
+  - Delete `tailwind.config.ts` and remove `tailwindcss` from `package.json` devDependencies
+    (keep `postcss`/`autoprefixer`).
+  - **Risk to watch:** dropping the Tailwind `base` layer (preflight) removes its default
+    resets. The app already ships its own reset and styles everything with inline styles, so
+    impact should be minimal, but the Phase 4 review + preview click-through must check for
+    preflight-provided defaults leaking through (default `button` border, heading/list
+    margins). `next build` must pass.
 
 ## Resolved either/or decisions
 
@@ -149,7 +166,8 @@ Recorded here so the plan writer does not re-derive them:
 
 ## Out of scope
 
-- Removing the Tailwind dependency / build config (optional follow-up).
-- Non-PDF résumé extraction (.doc/.docx/.txt).
+- Non-PDF résumé extraction (.doc/.docx/.txt) — finding #11 is fixed by restricting to PDF.
 - Keyboard **action** keys (`r`/`a`) — navigation + search only, by decision.
-- Any refactor not in service of a listed finding or the consolidation sweep.
+
+Note: general cleanup is explicitly **in** scope (see the boy-scout-rule decision above);
+only wholesale rewrites of subsystems unrelated to a listed finding stay out.

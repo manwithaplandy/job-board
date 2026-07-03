@@ -41,10 +41,14 @@ export function CompanyList({
               textDecoration: "none", cursor: "pointer", fontWeight: 700, fontSize: "13px",
               padding: "8px 16px", borderRadius: "8px",
               background: active ? "#fff" : "transparent",
-              color: active ? "#1f2430" : "#6b7480",
+              // Inactive tabs sit on the #eef1f5 tab bar, where #6b7480 is only 4.18:1 —
+              // below AA for 13px text. Use the darker #5b6472 (5.28:1) there; the active
+              // tab keeps its dark label on white. The count matches the label so they
+              // don't split contrast on the inactive tab.
+              color: active ? "#1f2430" : "#5b6472",
               boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
             }}>
-              {t.label} <span style={{ color: "#6b7480" }}>{t.n}</span>
+              {t.label} <span style={{ color: active ? "#6b7480" : "#5b6472" }}>{t.n}</span>
             </a>
           );
         })}

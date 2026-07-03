@@ -501,6 +501,26 @@ export function RolefitBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
+  // Companion to the effect above for the case it can't see: rejecting (or un-rejecting) a
+  // card whose control is NOT the current selection — the keyboard-reachable hover-× on a
+  // non-selected list card (revealed on :focus-within), or the Undo on its toast — unmounts
+  // the focused button WITHOUT changing selectedId, so the [selectedId] effect never fires
+  // and focus silently drops to <body> (the next Tab then restarts at the top of the page).
+  // Watch the reject set and, when a change leaves focus stranded on <body>, return it to
+  // the detail container. Skip the initial mount so a fresh load isn't disturbed, and act
+  // only when focus actually fell to body so it never steals focus from an input / menu /
+  // toast the user is interacting with.
+  const firstRejectFocusRun = useRef(true);
+  useEffect(() => {
+    if (firstRejectFocusRun.current) {
+      firstRejectFocusRun.current = false;
+      return;
+    }
+    if (document.activeElement === document.body) {
+      detailRef.current?.focus({ preventScroll: true });
+    }
+  }, [rejectedIds]);
+
   const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;
     setRejectedIds((prev) => new Set(prev).add(job.id));

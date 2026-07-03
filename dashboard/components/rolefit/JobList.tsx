@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { JobRow } from "@/lib/types";
@@ -78,12 +78,25 @@ function VirtualJobList({
     getItemKey: (index) => jobs[index].id,
   });
 
-  // Keyboard nav / deep-link seed sets scrollToId; bring that card into view. The `jobs`
-  // dep re-runs it once the seeded id's row exists (e.g. deep link set before data loaded).
+  // Keyboard nav / deep-link seed sets scrollToId; bring that card into view. Only scroll
+  // when the TARGET actually changes (or first appears): any OTHER list-identity change —
+  // rejecting a non-selected card via its hover-×, a search keystroke, a facet toggle —
+  // would otherwise re-run scrollToIndex on the unchanged selection and yank the pane back
+  // to the card the user deliberately scrolled away from. `lastScrolledRef` gates that; the
+  // `jobs` dep then only serves the deep-link case where the id wasn't in the list yet
+  // (scroll once its row appears).
+  const lastScrolledRef = useRef<string | null>(null);
   useEffect(() => {
-    if (scrollToId == null) return;
+    if (scrollToId == null) {
+      lastScrolledRef.current = null;
+      return;
+    }
+    if (scrollToId === lastScrolledRef.current) return;
     const i = jobs.findIndex((j) => j.id === scrollToId);
-    if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
+    if (i >= 0) {
+      virtualizer.scrollToIndex(i, { align: "auto" });
+      lastScrolledRef.current = scrollToId;
+    }
   }, [scrollToId, jobs, virtualizer]);
 
   return (
@@ -126,15 +139,31 @@ export function JobList({
   onReject,
 }: JobListProps) {
   if (jobs.length === 0) {
-    // Applied/Rejected buckets aren't "filtered out" — they're just empty. Say so, and
-    // offer a route back to the full board instead of an irrelevant "Clear filters".
     if (view !== "all") {
+      // The bucket is non-empty (viewPoolCount > 0) but an active search/facet filter
+      // matched none — show the same "No roles match your filters" + Clear-filters state as
+      // the all-view. Telling a user with e.g. 5 applied roles that they've applied to none,
+      // with only a "Back to all roles" escape, hides that their filter is the cause.
+      if (viewPoolCount > 0) {
+        return (
+          <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
+              No roles match your filters
+            </div>
+            <Button variant="ghost" onClick={onClearFilters} style={pillBtnStyle}>
+              Clear filters
+            </Button>
+          </div>
+        );
+      }
+      // Empty bucket (viewPoolCount === 0): it isn't "filtered out", it's genuinely empty.
+      // Say so, and offer a route back to the full board instead of a no-op "Clear filters".
       const msg =
         view === "applied"
           ? "You haven't marked any roles as applied yet."
           : "You haven't rejected any roles yet.";
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
+        <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>{msg}</div>
           {onBackToAll && (
             <Button variant="ghost" onClick={onBackToAll} style={pillBtnStyle}>
@@ -146,7 +175,7 @@ export function JobList({
     }
     if (!hasUnfilteredJobs) {
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
+        <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
             No roles yet
           </div>
@@ -164,7 +193,7 @@ export function JobList({
     // reason filters can't fix, so offer no (no-op) Clear-filters CTA.
     if (viewPoolCount === 0) {
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
+        <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
             All caught up
           </div>
@@ -175,7 +204,7 @@ export function JobList({
       );
     }
     return (
-      <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
+      <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
         <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
           No roles match your filters
         </div>

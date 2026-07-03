@@ -30,7 +30,7 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect }: 
   const rawArrangement = job.work_arrangement ?? (job.remote === true ? "remote" : null);
   const remoteLabel = rawArrangement
     ? rawArrangement.charAt(0).toUpperCase() + rawArrangement.slice(1)
-    : "—";
+    : null;
   const companyLine = `${job.company_name} · ${job.location ?? ""}`;
   const logoBg = logoColor(job.company_name);
 
@@ -139,7 +139,7 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect }: 
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
           {payLabel && <Chip>{payLabel}</Chip>}
-          <Chip>{remoteLabel}</Chip>
+          {remoteLabel && <Chip>{remoteLabel}</Chip>}
           {job.role_category && <Chip>{job.role_category}</Chip>}
         </div>
       </div>

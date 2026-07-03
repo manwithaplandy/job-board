@@ -943,6 +943,7 @@ export function RolefitBoard({
         >
           {toast && (
             <div
+              role="status"
               style={{
                 display: "flex",
                 alignItems: "center",

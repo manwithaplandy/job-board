@@ -155,13 +155,15 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
               }}
               title={`Job Discovery health: ${operator.health}`}
             />
-            {/* Unreviewed count */}
+            {/* Unreviewed count — links to pipeline health */}
             {operator.unreviewed > 0 && (
-              <span>{operator.unreviewed} unreviewed</span>
+              <a
+                href="/analytics"
+                style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}
+              >
+                {operator.unreviewed} unreviewed
+              </a>
             )}
-            <span style={{ fontSize: "11px", fontWeight: 700, color: "#6b7585" }}>
-              {operator.health}
-            </span>
           </div>
         )}
 

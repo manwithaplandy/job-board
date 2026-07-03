@@ -153,6 +153,7 @@ export async function POST(req: Request) {
       prefilledAnswers: gh.prefilledAnswers,
       applyUrl: applyUrl(job.ats, job.url),
       resumeTraceId,
+      profileVersion: profile.profile_version,
     });
     // Per-leg status so the client can surface which parts of a partially
     // failed prepare need a retry (the package persists whatever succeeded).

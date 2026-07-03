@@ -76,6 +76,7 @@ export async function POST(req: Request) {
         prefilledAnswers: null,
         applyUrl: null,
         resumeTraceId: traceId,
+        profileVersion: profile.profile_version,
       });
       return Response.json({ package: pkg });
     } catch (e) {

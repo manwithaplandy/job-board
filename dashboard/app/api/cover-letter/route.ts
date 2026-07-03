@@ -50,6 +50,7 @@ export async function POST(req: Request) {
         greenhouseQuestions: null,
         prefilledAnswers: null,
         applyUrl: null,
+        profileVersion: profile.profile_version,
       });
       return Response.json({ package: pkg });
     } catch (e) {

@@ -139,7 +139,8 @@ export function JobDetail({
   const initials = initialsOf(job.company_name);
   const payLabel = fmtPay(job);
   const rawArrangement = job.work_arrangement;
-  const arrangement = rawArrangement
+  // Exclude the literal "unknown" taxonomy value from the meta line (matches JobCard).
+  const arrangement = rawArrangement && rawArrangement !== "unknown"
     ? rawArrangement.charAt(0).toUpperCase() + rawArrangement.slice(1)
     : null;
   const metaLine = [job.company_name, job.location, arrangement]

@@ -1,9 +1,11 @@
+import type { Metadata } from "next";
 import { unstable_cache } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { getPipelineSnapshot, getRunSeries } from "@/lib/metrics";
 import { PipelineDashboard } from "@/components/analytics/PipelineDashboard";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Analytics · Rolefit" };
 
 // This dashboard fans out ~29 aggregate queries (incl. full/large scans of the large
 // jobs table) per render. Recomputing that on every request overwhelmed the DB and the

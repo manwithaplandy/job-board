@@ -1,4 +1,5 @@
 // dashboard/app/companies/page.tsx
+import type { Metadata } from "next";
 import { getBoardOwnerId, getCompanyReviews, getCompanyVerdictCounts, getDiscoveryState }
   from "@/lib/queries";
 import { setCompanyOverride, refreshCompanyDiscoveryStatus } from "@/app/actions/companies";
@@ -6,6 +7,7 @@ import { CompanyList } from "@/components/companies/CompanyList";
 import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Companies · Rolefit" };
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh", background: "#f4f6fa", color: "#1f2430", padding: "40px 20px 64px",

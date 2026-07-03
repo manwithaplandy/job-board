@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
@@ -17,6 +18,7 @@ import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Profile · Rolefit" };
 
 // getDistinctLocations() seq-scans ~115k open jobs (~100ms + cross-region RTT)
 // on every profile load, but the distinct-location option set changes slowly.

@@ -86,6 +86,7 @@ export default async function LoginPage({
               className="rf-focusable"
               name="email"
               type="email"
+              autoComplete="email"
               required
               placeholder="you@example.com"
               style={{
@@ -112,6 +113,7 @@ export default async function LoginPage({
               className="rf-focusable"
               name="password"
               type="password"
+              autoComplete="current-password"
               required
               placeholder="••••••••"
               style={{

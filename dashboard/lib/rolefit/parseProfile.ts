@@ -406,6 +406,35 @@ export function parsePdfItems(items: PdfItem[]): ParsedProfile {
   return { name, contact, educationEntries: eduEntries, certifications, experience };
 }
 
+export interface ProseSection {
+  heading: string;
+  lines: string[];
+}
+
+/** Headings whose bodies are already captured as structured fields. */
+const STRUCTURED_HEADING_RE = /experience|employment|work history|education|academ|cert/i;
+
+/**
+ * parsePdfItems + the leftover "prose" sections (Summary, Skills, Projects, …)
+ * that the structured parse discards. Used only by the upload→markdown serializer
+ * so nothing on the page is lost; generation still consumes `profile`.
+ */
+export function parsePdfItemsWithProse(items: PdfItem[]): { profile: ParsedProfile; prose: ProseSection[] } {
+  const profile = parsePdfItems(items);
+  const clean = items.filter((i) => i.str && i.str.trim() !== "");
+  const lines = buildLines(clean);
+  const headingLines = lines.filter((l) => isHeadingLine(l.text));
+  const prose: ProseSection[] = [];
+  for (const h of headingLines) {
+    if (STRUCTURED_HEADING_RE.test(h.text)) continue;
+    const below = headingLines.filter((x) => x.y < h.y).map((x) => x.y);
+    const endY = below.length ? Math.max(...below) : -Infinity;
+    const body = lines.filter((l) => l.y < h.y && l.y > endY).map((l) => l.text.trim()).filter(Boolean);
+    if (body.length) prose.push({ heading: h.text.trim(), lines: body });
+  }
+  return { profile, prose };
+}
+
 // ----------------------------------------------------------------------------
 // Text fallback (PURE) — for pasted, flattened résumés
 // ----------------------------------------------------------------------------

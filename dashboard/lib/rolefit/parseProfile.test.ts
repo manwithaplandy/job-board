@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import {
   extractPdfItems,
   parsePdfItems,
+  parsePdfItemsWithProse,
   parseProfile,
   parseProfileText,
   yearsOfExperience,
@@ -374,5 +375,36 @@ describe("extractPdfItems + parseProfile on the real PDF", () => {
     expect(profile.name.length).toBeGreaterThan(0);
     expect(profile.experience.length).toBeGreaterThanOrEqual(1);
     expect(profile.experience[0].sourceBullets.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("parsePdfItemsWithProse — prose capture", () => {
+  // Minimal single-column PdfItem set: name, a SUMMARY heading + body, and an
+  // EXPERIENCE heading (structured, must NOT appear in prose). y descends down
+  // the page; x constant; one font.
+  const line = (str: string, y: number): PdfItem => ({ str, x: 72, y, size: 11, font: "F0", width: str.length * 5 });
+  const items: PdfItem[] = [
+    line("Jordan Casey", 720),
+    line("jordan@example.com", 705),
+    line("Summary", 680),
+    line("Seasoned engineer with a decade in AI infrastructure.", 665),
+    line("Experience", 640),
+    line("January 2020 - Present", 625),
+    line("Acme Corp", 610),
+    line("Staff Engineer", 595),
+    line("● Shipped the platform", 580),
+  ];
+
+  test("captures the Summary section as prose, excludes Experience", () => {
+    const { prose } = parsePdfItemsWithProse(items);
+    const summary = prose.find((p) => /summary/i.test(p.heading));
+    expect(summary?.lines.join(" ")).toContain("Seasoned engineer");
+    expect(prose.some((p) => /experience/i.test(p.heading))).toBe(false);
+  });
+
+  test("still returns the structured profile unchanged", () => {
+    const { profile } = parsePdfItemsWithProse(items);
+    expect(profile.name).toBe("Jordan Casey");
+    expect(profile.experience[0].company).toBe("Acme Corp");
   });
 });

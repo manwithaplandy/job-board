@@ -120,6 +120,8 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
         </svg>
         <input
           ref={searchRef}
+          type="search"
+          aria-label="Search roles"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search roles, companies, locations…"

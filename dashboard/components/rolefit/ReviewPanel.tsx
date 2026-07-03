@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { JobRow } from "@/lib/types";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { saveReviewCorrection } from "@/app/actions/corrections";
+import { Button } from "@/components/ui/Button";
 import {
   VERDICTS, EXPERIENCE_MATCH, INDUSTRIES, SUBCATEGORIES_BY_INDUSTRY,
   ROLE_CATEGORIES, SENIORITY, WORK_ARRANGEMENT, CONFIDENCE, taxonomyLabel,
@@ -167,10 +168,10 @@ export function ReviewPanel({
       {isAuthed && (
         <div style={{ marginTop: 12 }}>
           {!editing ? (
-            <button type="button" onClick={() => { setForm(initialForm(job)); setEditing(true); }}
-              style={{ fontWeight: 700, fontSize: 12.5, color: "#3b6fd4", background: "#fff", border: "1px solid #d7e0f2", borderRadius: 9, padding: "7px 14px", cursor: "pointer" }}>
+            <Button variant="secondary" onClick={() => { setForm(initialForm(job)); setEditing(true); }}
+              style={{ fontSize: "12.5px", color: "#3b6fd4", border: "1px solid #d7e0f2", borderRadius: "9px", padding: "7px 14px" }}>
               {job.corrected ? "Edit correction" : "Correct job details"}
-            </button>
+            </Button>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12, border: "1px solid #e3e7ee", borderRadius: 12, padding: 16, marginBottom: 8 }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
@@ -202,14 +203,14 @@ export function ReviewPanel({
                   style={{ padding: 8, borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13 }} />
               </label>
               <div style={{ display: "flex", gap: 10 }}>
-                <button type="button" onClick={onSave} disabled={saving}
-                  style={{ fontWeight: 700, fontSize: 12.5, color: "#fff", background: "#3b6fd4", border: "1px solid #3b6fd4", borderRadius: 9, padding: "7px 16px", cursor: "pointer" }}>
+                <Button variant="primary" onClick={onSave} disabled={saving}
+                  style={{ fontSize: "12.5px", border: "1px solid #3b6fd4", borderRadius: "9px", padding: "7px 16px", boxShadow: "none" }}>
                   {saving ? "Saving…" : "Save correction"}
-                </button>
-                <button type="button" onClick={() => setEditing(false)} disabled={saving}
-                  style={{ fontWeight: 700, fontSize: 12.5, color: "#5b6472", background: "#fff", border: "1px solid #d7dce5", borderRadius: 9, padding: "7px 16px", cursor: "pointer" }}>
+                </Button>
+                <Button variant="secondary" onClick={() => setEditing(false)} disabled={saving}
+                  style={{ fontSize: "12.5px", border: "1px solid #d7dce5", borderRadius: "9px", padding: "7px 16px" }}>
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           )}

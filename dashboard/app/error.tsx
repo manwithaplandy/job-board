@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@/components/ui/Button";
+
 export default function ErrorPage({
   error: _error,
   reset,
@@ -38,23 +40,14 @@ export default function ErrorPage({
         >
           An unexpected error occurred. Please try again.
         </div>
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="sm"
           onClick={reset}
-          style={{
-            fontWeight: 700,
-            fontSize: "13.5px",
-            color: "#fff",
-            background: "#3b6fd4",
-            border: "none",
-            borderRadius: "10px",
-            padding: "10px 20px",
-            cursor: "pointer",
-            boxShadow: "0 3px 10px rgba(59,111,212,.26)",
-          }}
+          style={{ padding: "10px 20px", boxShadow: "0 3px 10px rgba(59,111,212,.26)" }}
         >
           Try again
-        </button>
+        </Button>
       </div>
     </main>
   );

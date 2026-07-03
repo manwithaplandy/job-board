@@ -5,6 +5,7 @@ import type { RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { JobRow } from "@/lib/types";
 import { JobCard } from "./JobCard";
+import { Button } from "@/components/ui/Button";
 
 export interface JobListProps {
   jobs: JobRow[];
@@ -131,9 +132,9 @@ export function JobList({
         <div style={{ padding: "60px 30px", textAlign: "center", color: "#6b7480" }}>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>{msg}</div>
           {onBackToAll && (
-            <button type="button" onClick={onBackToAll} style={pillBtnStyle}>
+            <Button variant="ghost" onClick={onBackToAll} style={pillBtnStyle}>
               Back to all roles
-            </button>
+            </Button>
           )}
         </div>
       );
@@ -159,9 +160,9 @@ export function JobList({
         <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
           No roles match your filters
         </div>
-        <button type="button" onClick={onClearFilters} style={pillBtnStyle}>
+        <Button variant="ghost" onClick={onClearFilters} style={pillBtnStyle}>
           Clear filters
-        </button>
+        </Button>
       </div>
     );
   }

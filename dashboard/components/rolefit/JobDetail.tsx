@@ -10,6 +10,7 @@ import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
 import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
 import { ReviewPanel } from "./ReviewPanel";
+import { Button } from "@/components/ui/Button";
 
 // Generic "Apply" link → the job's ATS posting. Opens a new tab; rel guards the
 // opener. Now only the fallback for not-yet-reviewed roles (which have no
@@ -382,22 +383,19 @@ export function JobDetail({
             </span>
           )}
           {isAuthed && isRejected && onUnreject && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={() => onUnreject(job)}
               style={{
-                fontWeight: 700,
                 fontSize: "12.5px",
                 color: "#2f7d54",
-                background: "#fff",
                 border: "1px solid #cfe6d8",
                 borderRadius: "9px",
                 padding: "7px 16px",
-                cursor: "pointer",
               }}
             >
               Un-reject
-            </button>
+            </Button>
           )}
           {applied && (
             <span
@@ -416,42 +414,36 @@ export function JobDetail({
             >
               ✓ Applied · you
               {onUnapply && (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
                   onClick={() => onUnapply(job)}
                   style={{
                     fontWeight: 800,
                     fontSize: "11px",
                     color: "#2f7d54",
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
                     padding: 0,
                     textDecoration: "underline",
                   }}
                 >
                   Undo
-                </button>
+                </Button>
               )}
             </span>
           )}
           {isAuthed && job.verdict === "approve" && !applied && !isRejected && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={() => onReject?.(job)}
               style={{
-                fontWeight: 700,
                 fontSize: "12.5px",
                 color: "#a05f5f",
-                background: "#fff",
                 border: "1px solid #e2c9c9",
                 borderRadius: "9px",
                 padding: "7px 16px",
-                cursor: "pointer",
               }}
             >
               Reject
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -608,9 +600,9 @@ export function JobDetail({
                 Couldn&apos;t load full job details.
               </div>
               {onRetryDetail && (
-                <button type="button" onClick={onRetryDetail} style={{ fontWeight: 700, fontSize: "13px", color: "#3b6fd4", background: "#eef3fc", border: "1px solid #d8e2f6", borderRadius: "9px", padding: "7px 14px", cursor: "pointer" }}>
+                <Button variant="ghost" onClick={onRetryDetail} style={{ fontSize: "13px", background: "#eef3fc", border: "1px solid #d8e2f6", borderRadius: "9px", padding: "7px 14px" }}>
                   Retry
-                </button>
+                </Button>
               )}
             </div>
           )}

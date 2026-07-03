@@ -2,8 +2,7 @@ import { propagateAttributes } from "@langfuse/tracing";
 import { getUserId } from "@/lib/auth";
 import { getProfile, getJobForCoverLetter, upsertApplicationPackage } from "@/lib/queries";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
-import { tracingEnabled } from "@/lib/observability";
-import { langfuseSpanProcessor } from "@/instrumentation";
+import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -65,10 +64,8 @@ export async function POST(req: Request) {
   if (tracingEnabled()) {
     const res = await propagateAttributes({ userId, sessionId: jobId }, run);
     // Flush inline while the invocation is still alive — a post-response after()
-    // callback can lose the race against Vercel freezing the instance. Best-effort:
-    // a trace-export failure must never fail the user's generation.
-    try { await langfuseSpanProcessor?.forceFlush(); }
-    catch (e) { console.error("langfuse flush failed", e); }
+    // callback can lose the race against Vercel freezing the instance.
+    await flushLangfuseTraces();
     return res;
   }
   return await run();

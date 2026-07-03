@@ -10,8 +10,7 @@ import { fetchGreenhouseQuestions, type GreenhouseQuestions } from "@/lib/rolefi
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
-import { tracingEnabled } from "@/lib/observability";
-import { langfuseSpanProcessor } from "@/instrumentation";
+import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 
@@ -171,11 +170,10 @@ export async function POST(req: Request) {
     if (tracingEnabled()) {
       const res = await propagateAttributes({ userId, sessionId: jobId }, run);
       // Flush inline while the invocation is still alive — a post-response after()
-      // callback can lose the race against Vercel freezing the instance. The inner
-      // try/catch keeps a flush error off the outer 502 branch: the generation
-      // already succeeded, so a trace-export failure must never fail it.
-      try { await langfuseSpanProcessor?.forceFlush(); }
-      catch (e) { console.error("langfuse flush failed", e); }
+      // callback can lose the race against Vercel freezing the instance.
+      // flushLangfuseTraces swallows its own errors, so a trace-export failure
+      // can't reach the outer 502 branch: the generation already succeeded.
+      await flushLangfuseTraces();
       return res;
     }
     return await run();

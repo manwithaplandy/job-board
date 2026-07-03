@@ -3,8 +3,9 @@
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { resolveLangfuseHost } from "./lib/langfuseHost.ts";
+import { setLangfuseSpanProcessor } from "./lib/observability.ts";
 
-export const langfuseSpanProcessor: LangfuseSpanProcessor | undefined =
+const langfuseSpanProcessor: LangfuseSpanProcessor | undefined =
   process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY
     ? new LangfuseSpanProcessor({
         publicKey: process.env.LANGFUSE_PUBLIC_KEY,
@@ -24,4 +25,7 @@ export const langfuseSpanProcessor: LangfuseSpanProcessor | undefined =
 
 if (langfuseSpanProcessor) {
   new NodeSDK({ spanProcessors: [langfuseSpanProcessor] }).start();
+  // Publish on globalThis so route handlers flush THIS instance (the one the
+  // NodeSDK feeds spans to) at request time — see lib/observability.ts.
+  setLangfuseSpanProcessor(langfuseSpanProcessor);
 }

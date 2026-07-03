@@ -139,6 +139,11 @@ describe("yearsOfExperience", () => {
     expect(yearsOfExperience(withDates("2018 – 2021"), nowMs)).toBe(8);
   });
 
+  test("parses an abbreviated-month start (markdown résumés use 'Jun 2024')", () => {
+    // Jun 2024 → July 3 2026 is ~2.1 years → floored to 2.
+    expect(yearsOfExperience(withDates("Jun 2024 – Present"), Date.UTC(2026, 6, 3))).toBe(2);
+  });
+
   test("returns null when there is no experience", () => {
     const empty: ParsedProfile = {
       name: "",
@@ -240,6 +245,112 @@ describe("parseProfileText fallback", () => {
       certifications: [],
       experience: [],
     });
+  });
+});
+
+describe("parseProfileText — markdown résumé", () => {
+  // A markdown résumé: name is an `#` H1, sections are `##`, companies are `###`
+  // with a "— City, ST" suffix, roles are `####` with the date range INLINE
+  // (`· Jun 2024 – Present ·`), and body copy uses `**bold**` / `*italic*`.
+  // Structurally identical to a real pasted résumé; content is fiction (no PII).
+  const MD = [
+    "# Jordan Casey",
+    "",
+    "jordan.casey@example.com | 555-013-4827 | Phoenix, AZ | linkedin.com/in/jordancasey",
+    "",
+    "## Professional Summary",
+    "",
+    "Lead AI/ML Engineer specializing in production generative-AI systems.",
+    "",
+    "## Technical Skills",
+    "",
+    "- **Languages:** Python, TypeScript, SQL",
+    "",
+    "## Experience",
+    "",
+    "### Northwind Systems — San Diego, CA",
+    "",
+    "#### Lead AI/ML Engineer · Jun 2024 – Present · Hybrid",
+    "",
+    "*Drive AI innovation across the enterprise.*",
+    "",
+    "**Flagship Products & Business Impact**",
+    "",
+    "- Avoided an estimated **$15M/yr** in licensing by shipping an in-house AI assistant.",
+    "- Achieved **4x workflow efficiency** for 10,000+ users with a RAG platform.",
+    "",
+    "#### System Administrator · Feb 2023 – Jun 2024 · On-site",
+    "",
+    "- Migrated the enterprise MDM stack to the cloud.",
+    "",
+    "### Brightpath Retail — San Diego, CA",
+    "",
+    "#### IT Strategic Analyst (Systems Administrator) · Oct 2021 – Feb 2023",
+    "",
+    "- Reduced onboarding time by **90%** via automated provisioning.",
+    "",
+    "## Certifications",
+    "",
+    "- **Microsoft Certified:** Azure AI Engineer Associate",
+    "- AWS Certified: Solutions Architect – Associate",
+    "",
+    "## Education",
+    "",
+    "- **M.S., Computer Science** — Georgia Institute of Technology · Expected 2029",
+    "- **B.A., Psychology** — University of California, Santa Barbara",
+  ].join("\n");
+
+  const p = parseProfileText(MD);
+
+  test("strips the leading markdown heading from the name", () => {
+    expect(p.name).toBe("Jordan Casey");
+  });
+
+  test("extracts the contact line verbatim, including the correct city", () => {
+    expect(p.contact).toBe(
+      "jordan.casey@example.com | 555-013-4827 | Phoenix, AZ | linkedin.com/in/jordancasey",
+    );
+  });
+
+  test("parses every role from inline dates + ### company headings, in order", () => {
+    expect(
+      p.experience.map((r) => ({ role: r.role, company: r.company, dates: r.dates })),
+    ).toEqual([
+      { role: "Lead AI/ML Engineer", company: "Northwind Systems", dates: "Jun 2024 – Present" },
+      { role: "System Administrator", company: "Northwind Systems", dates: "Feb 2023 – Jun 2024" },
+      {
+        role: "IT Strategic Analyst (Systems Administrator)",
+        company: "Brightpath Retail",
+        dates: "Oct 2021 – Feb 2023",
+      },
+    ]);
+  });
+
+  test("attaches each role's bullets, stripped of markdown emphasis", () => {
+    expect(p.experience[0].sourceBullets).toEqual([
+      "Avoided an estimated $15M/yr in licensing by shipping an in-house AI assistant.",
+      "Achieved 4x workflow efficiency for 10,000+ users with a RAG platform.",
+    ]);
+    expect(p.experience[1].sourceBullets).toEqual([
+      "Migrated the enterprise MDM stack to the cloud.",
+    ]);
+  });
+
+  test("does not mistake bold subsection headers or italic summaries for bullets", () => {
+    const allBullets = p.experience.flatMap((r) => r.sourceBullets);
+    expect(allBullets.some((b) => /Flagship Products/i.test(b))).toBe(false);
+    expect(allBullets.some((b) => /Drive AI innovation/i.test(b))).toBe(false);
+  });
+
+  test("cleans markdown bullets and emphasis from education and certifications", () => {
+    expect(p.educationEntries).toEqual([
+      "M.S., Computer Science — Georgia Institute of Technology · Expected 2029",
+      "B.A., Psychology — University of California, Santa Barbara",
+    ]);
+    expect(p.certifications).toEqual([
+      "Microsoft Certified: Azure AI Engineer Associate",
+      "AWS Certified: Solutions Architect – Associate",
+    ]);
   });
 });
 

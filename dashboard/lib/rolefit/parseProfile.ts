@@ -61,6 +61,12 @@ const DATE_RANGE_RE = new RegExp(
   `^\\s*(${DATE_TOKEN})\\s*(?:[-–—]|to)\\s*(${DATE_END})\\.?\\s*$`,
   "i",
 );
+// Same range, but matched ANYWHERE in a line — markdown role headings carry the
+// dates inline (e.g. "Lead Engineer · Jun 2024 – Present · Hybrid").
+const DATE_RANGE_INLINE_RE = new RegExp(
+  `(${DATE_TOKEN})\\s*(?:[-–—]|to)\\s*(${DATE_END})`,
+  "i",
+);
 
 const TITLE_RE =
   /\b(engineer|developer|analyst|manager|consultant|lead|architect|scientist|administrator|designer|director|specialist|intern|associate|founder|owner|coordinator|technician|programmer|advisor|principal|head|officer|president)\b/i;
@@ -187,14 +193,18 @@ function findContact(lines: Line[]): string {
   return "";
 }
 
+/** Format a matched (start, end) pair, normalizing whitespace and "Present". */
+function formatDateRange(startRaw: string, endRaw: string): string {
+  const start = startRaw.replace(/\s+/g, " ").trim();
+  let end = endRaw.replace(/\s+/g, " ").trim();
+  if (/^(present|current|now|ongoing|today)$/i.test(end)) end = "Present";
+  return `${start} – ${end}`;
+}
+
 /** Normalize a date-range line, or null if the line is not a date range. */
 function normalizeDates(text: string): string | null {
   const m = text.match(DATE_RANGE_RE);
-  if (!m) return null;
-  const start = m[1].replace(/\s+/g, " ").trim();
-  let end = m[2].replace(/\s+/g, " ").trim();
-  if (/^(present|current|now|ongoing|today)$/i.test(end)) end = "Present";
-  return `${start} – ${end}`;
+  return m ? formatDateRange(m[1], m[2]) : null;
 }
 
 function isBulletText(text: string): boolean {
@@ -400,8 +410,123 @@ export function parsePdfItems(items: PdfItem[]): ParsedProfile {
 // Text fallback (PURE) — for pasted, flattened résumés
 // ----------------------------------------------------------------------------
 
+// ----------------------------------------------------------------------------
+// Markdown résumés (PURE) — pasted from a markdown source
+// ----------------------------------------------------------------------------
+//
+// A markdown résumé is MORE structured than flattened text: the name is an `#`
+// H1, sections are `##`, employers are `###` headings (often "Company — City,
+// ST"), and each role is a `####` heading carrying its date range INLINE
+// (e.g. "Lead Engineer · Jun 2024 – Present · Hybrid"). Body copy uses
+// `**bold**`/`*italic*`, and `*italic*` role blurbs / `**bold**` subsection
+// labels sit between the role heading and its bullets. The flattened-text parser
+// (date-on-its-own-line) can't see any of this, so markdown gets its own path.
+
+/** Strip markdown heading markers, bold/italic emphasis, and inline code. */
+function stripMd(s: string): string {
+  return s
+    .replace(/^\s*#{1,6}\s+/, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .trim();
+}
+
+/** Employer from a `###` heading: text before a " — City, ST" / ", City, ST" tail. */
+function companyFromHeading(headingText: string): string {
+  const t = stripMd(headingText);
+  const beforeDash = t.split(/\s+[—–]\s+/)[0];
+  return stripCompany(beforeDash).trim();
+}
+
+/** Title + dates from a `####` heading with an inline date range. */
+function roleDatesFromHeading(headingText: string): { role: string; dates: string } {
+  const t = stripMd(headingText);
+  const m = t.match(DATE_RANGE_INLINE_RE);
+  if (m && m.index !== undefined) {
+    const role = t.slice(0, m.index).replace(/[·•|,\s\-–—]+$/, "").trim();
+    return { role, dates: formatDateRange(m[1], m[2]) };
+  }
+  return { role: t.replace(/\s*·.*$/, "").trim(), dates: "" };
+}
+
+function parseMarkdownExperience(lines: string[]): ParsedRole[] {
+  const roles: ParsedRole[] = [];
+  let company = "";
+  let cur: ParsedRole | null = null;
+  for (const l of lines) {
+    if (/^####\s+/.test(l)) {
+      const { role, dates } = roleDatesFromHeading(l);
+      cur = { role, company, dates, sourceBullets: [] };
+      roles.push(cur);
+    } else if (/^###\s+/.test(l)) {
+      company = companyFromHeading(l);
+    } else if (cur && isBulletText(l)) {
+      cur.sourceBullets.push(stripBullet(stripMd(l)));
+    }
+    // Non-bullet body (italic blurbs, bold subsection labels) is intentionally
+    // dropped — only `###`/`####` headings and real bullets carry structure.
+  }
+  return roles;
+}
+
+function parseMarkdownProfile(text: string): ParsedProfile {
+  const lines = text
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (lines.length === 0) return emptyProfile();
+
+  const name = stripMd(lines[0]);
+  let contact = "";
+  for (let i = 1; i < Math.min(lines.length, 6); i++) {
+    if (CONTACT_RE.test(lines[i])) {
+      contact = stripMd(lines[i]);
+      break;
+    }
+  }
+
+  // Group body lines under their `##` section heading (`###`/`####` stay inside).
+  interface Section {
+    heading: string;
+    lines: string[];
+  }
+  const sections: Section[] = [];
+  let cur: Section | null = null;
+  for (const l of lines) {
+    if (/^##\s+/.test(l) && !/^###/.test(l)) {
+      cur = { heading: stripMd(l), lines: [] };
+      sections.push(cur);
+    } else if (cur) {
+      cur.lines.push(l);
+    }
+  }
+
+  const experience = parseMarkdownExperience(
+    sections.find((s) => /experience|employment|work history/i.test(s.heading))?.lines ?? [],
+  );
+
+  const listItems = (match: RegExp): string[] => {
+    const sec = sections.find(
+      (s) => match.test(s.heading) && !/experience|employment|work history/i.test(s.heading),
+    );
+    return (sec?.lines ?? []).map((l) => stripBullet(stripMd(l))).filter(Boolean);
+  };
+
+  return {
+    name,
+    contact,
+    educationEntries: listItems(/education|academ/i),
+    certifications: listItems(/cert/i),
+    experience,
+  };
+}
+
 export function parseProfileText(text: string | null): ParsedProfile {
   if (!text) return emptyProfile();
+  // A markdown résumé (`# Name`, `## Sections`) parses by heading structure, not
+  // the flattened date-on-its-own-line heuristics below.
+  if (/^#{1,6}\s/m.test(text)) return parseMarkdownProfile(text);
   const lines = text
     .split(/\r?\n/)
     .map((s) => s.trim())
@@ -505,9 +630,11 @@ export function parseProfileText(text: string | null): ParsedProfile {
 // Tenure (PURE) — floored years since the most-recent role began
 // ----------------------------------------------------------------------------
 
-const FULL_MONTHS: Record<string, number> = {
-  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+// Keyed by 3-letter lowercase prefix so both full ("February") and abbreviated
+// ("Feb", "Sept") month names resolve — markdown résumés tend to abbreviate.
+const MONTH_INDEX_BY_PREFIX: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
 };
 
 const MS_PER_YEAR = 365.25 * 24 * 3600 * 1000;
@@ -528,9 +655,9 @@ export function yearsOfExperience(profile: ParsedProfile, nowMs: number): number
   const start = dates.split(/[-–—]|\bto\b/i)[0]?.trim() ?? "";
 
   let startMs: number | null = null;
-  const monthYear = start.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  const monthYear = start.match(/^([A-Za-z]+)\.?\s+(\d{4})$/);
   if (monthYear) {
-    const month = FULL_MONTHS[monthYear[1].toLowerCase()];
+    const month = MONTH_INDEX_BY_PREFIX[monthYear[1].toLowerCase().slice(0, 3)];
     if (month !== undefined) startMs = Date.UTC(Number(monthYear[2]), month, 1);
   } else {
     const yearOnly = start.match(/^(\d{4})$/);

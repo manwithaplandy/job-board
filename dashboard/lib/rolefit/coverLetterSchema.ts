@@ -1,4 +1,8 @@
-import { ENGLISH_ONLY_INSTRUCTION, untrustedJobDescriptionBlock } from "@/lib/rolefit/promptPolicy";
+import {
+  ENGLISH_ONLY_INSTRUCTION,
+  NO_FABRICATION_INSTRUCTION,
+  untrustedJobDescriptionBlock,
+} from "@/lib/rolefit/promptPolicy";
 
 export interface TailoredCoverLetter {
   greeting: string;       // e.g. "Dear Hiring Manager,"
@@ -46,15 +50,36 @@ export function buildCoverLetterPrompt(args: {
   const system =
     "You are a professional cover-letter writer. Write a concise, specific, and " +
     "genuine cover letter that connects the candidate's real experience to the " +
-    "target role and the company's mission. Never invent employers, titles, dates, " +
-    "metrics, or credentials the candidate does not have. Address the role's stated " +
-    "requirements; do not enumerate the candidate's gaps as weaknesses — instead lean " +
-    "on transferable strengths. Keep it to 3-4 short body paragraphs. Return only the " +
-    "structured cover letter.\n\n" +
+    "target role and the company's mission. Specific beats generic: the letter's " +
+    "strength comes from concrete, REAL details drawn from the candidate's " +
+    "background — never from boilerplate, and never from invention.\n\n" +
+    "GROUND RULES — never violate:\n" +
+    `- ${NO_FABRICATION_INSTRUCTION}\n` +
+    "- Never invent employers, titles, dates, degrees, certifications, metrics, " +
+    "projects, or anecdotes. Name a technology, tool, or method only if the " +
+    "background shows the candidate used it — never echo one from the posting " +
+    "that the background does not support.\n" +
+    "- The key requirements are each marked MET or NOT MET against the " +
+    "candidate's background. Claim — or imply — that the candidate satisfies a " +
+    "requirement ONLY if it is marked MET. Do not enumerate NOT MET requirements " +
+    "or gaps as weaknesses; lean on adjacent, transferable strengths the " +
+    "background genuinely supports.\n" +
+    "- Never claim industry or domain experience the background does not show. " +
+    "Genuine interest in the company's domain is welcome — expressed as " +
+    "interest, not experience.\n" +
+    "- Enthusiasm and motivation are yours to write freely — they need no " +
+    "evidence — but every specific factual claim (a technology, metric, " +
+    "project, employer, domain, or requirement met) must trace to the " +
+    "background.\n" +
+    '- Address the greeting generically (e.g. "Dear Hiring Manager,") unless ' +
+    "the posting names a contact, and sign with the candidate's real name " +
+    "exactly as supplied — never an invented one.\n\n" +
+    "Keep it to 3-4 short body paragraphs. Return only the structured cover " +
+    "letter.\n\n" +
     ENGLISH_ONLY_INSTRUCTION;
 
   const reqLines = args.job.requirements.length
-    ? args.job.requirements.map((r) => `- ${r.text}`).join("\n")
+    ? args.job.requirements.map((r) => `- [${r.met ? "MET" : "NOT MET"}] ${r.text}`).join("\n")
     : "(none provided)";
   const gapsBlock = args.job.skillGaps.length
     ? `\nKNOWN GAPS (do not highlight; emphasize transferable strengths instead):\n` +
@@ -75,7 +100,7 @@ export function buildCoverLetterPrompt(args: {
     (args.candidateName ? `CANDIDATE NAME: ${args.candidateName}\n` : "") +
     `\n${untrustedJobDescriptionBlock(args.job.description)}\n` +
     `\nABOUT THE COMPANY:\n${args.job.about ?? "(none provided)"}\n` +
-    `\nKEY REQUIREMENTS:\n${reqLines}\n` +
+    `\nKEY REQUIREMENTS (assessed against the candidate's background — only claim those marked MET):\n${reqLines}\n` +
     gapsBlock +
     notesBlock +
     focusBlock +

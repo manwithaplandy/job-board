@@ -21,9 +21,13 @@ class RedFlag(BaseModel):
 
 
 class CompanyReviewResult(BaseModel):
+    # `reasoning` is declared BEFORE `verdict` on purpose: with OpenAI JSON
+    # structured output the model emits fields in declaration order, so it must
+    # reason first and derive the verdict from that reasoning (rather than
+    # snap-deciding `verdict` and then rationalising a different conclusion).
+    reasoning: str = ""
     verdict: Literal["include", "exclude", "unknown"]
     confidence: Literal["low", "medium", "high"] = "low"
-    reasoning: str = ""
     industry: Industry | None = None
     industry_subcategory: Subcategory | None = None
     tech_tags: list[str] = Field(default_factory=list)

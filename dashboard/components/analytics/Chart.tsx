@@ -40,7 +40,11 @@ export function BarsCard(
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
           <CartesianGrid stroke="#f0f2f6" vertical={false} />
-          <XAxis dataKey={xKey} tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} tickFormatter={formatDateTick} />
+          {/* type="category" is explicit on purpose: recharts 3 dropped XAxis defaultProps, so the
+              implicit category/band scale the bar-positioning path relied on is no longer applied —
+              without it, weekly/90-day series (mostly-zero buckets) render bars on a wrong band scale
+              (spike lands ~a month early). See lib/trend.test.ts for the (correct) binning it feeds. */}
+          <XAxis dataKey={xKey} type="category" tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} tickFormatter={formatDateTick} />
           <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
           <Tooltip contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid #e7eaf0" }} />
           <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -61,7 +65,7 @@ export function LinesCard(
       <ResponsiveContainer width="100%" height={240}>
         <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
           <CartesianGrid stroke="#f0f2f6" vertical={false} />
-          <XAxis dataKey={xKey} tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} tickFormatter={formatDateTick} />
+          <XAxis dataKey={xKey} type="category" tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} tickFormatter={formatDateTick} />
           <YAxis
             tick={AXIS} tickLine={false} axisLine={false}
             domain={percent ? [0, 1] : undefined}

@@ -30,10 +30,12 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
   const initials = initialsOf(job.company_name);
   const payLabel = fmtPay(job);
   const rawArrangement = job.work_arrangement ?? (job.remote === true ? "remote" : null);
-  const remoteLabel = rawArrangement
+  // "unknown" is a real taxonomy value (lib/rolefit/taxonomy.ts) — don't surface it as a
+  // literal "Unknown" pill; omit the chip instead (the render already guards on truthiness).
+  const remoteLabel = rawArrangement && rawArrangement !== "unknown"
     ? rawArrangement.charAt(0).toUpperCase() + rawArrangement.slice(1)
     : null;
-  const companyLine = `${job.company_name} · ${job.location ?? ""}`;
+  const companyLine = [job.company_name, job.location].filter(Boolean).join(" · ");
   const logoBg = logoColor(job.company_name);
 
   const cardBg = selected ? "#ffffff" : c.tint;

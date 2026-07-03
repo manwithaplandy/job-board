@@ -34,7 +34,11 @@ export function CompanyCard({
         </span>
       </div>
       {company.reasoning && (
-        <div style={{ fontSize: "12.5px", color: "#5b6472", marginTop: "8px", lineHeight: 1.5 }}>
+        <div style={{
+          fontSize: "12.5px", color: "#5b6472", marginTop: "8px", lineHeight: 1.5,
+          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+        }}>
           {company.reasoning}
         </div>
       )}

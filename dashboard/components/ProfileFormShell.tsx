@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 // A failed save returns { error } instead of throwing, so the form stays mounted with the
@@ -39,11 +39,26 @@ export function ProfileFormShell({
   const pendingRef = useRef(false);
   pendingRef.current = isPending;
 
+  // Reactive mirror of the dirty check so the sticky bar can show an "Unsaved changes" cue.
+  const [dirty, setDirty] = useState(false);
+
   useEffect(() => {
     if (formRef.current && pristineRef.current === null) {
       pristineRef.current = serializeForm(formRef.current);
     }
   }, []);
+
+  // Live dirty check. The form is uncontrolled and the model/location pickers write to HIDDEN
+  // inputs via setState (no bubbling native input event), so poll on a light interval in addition
+  // to onInput — same serializeForm() the beforeunload guard uses. A save-in-flight is never dirty.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const form = formRef.current;
+      if (!form || pristineRef.current === null) return;
+      setDirty(!isPending && serializeForm(form) !== pristineRef.current);
+    }, 400);
+    return () => clearInterval(id);
+  }, [isPending]);
 
   // Warn before leaving (reload, tab close, or a full-page nav from the slim header) while
   // there are unsaved edits — the profile form has no autosave. Dirtiness is computed from
@@ -63,7 +78,15 @@ export function ProfileFormShell({
   }, []);
 
   return (
-    <form ref={formRef} action={formAction} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+    <form
+      ref={formRef}
+      action={formAction}
+      onInput={() => {
+        const form = formRef.current;
+        if (form && pristineRef.current !== null) setDirty(serializeForm(form) !== pristineRef.current);
+      }}
+      style={{ display: "flex", flexDirection: "column", gap: "20px" }}
+    >
       {children}
       {state?.error && (
         <p role="alert" style={{ margin: 0, fontSize: "13px", fontWeight: 600, color: "#b25a36" }}>
@@ -102,7 +125,14 @@ export function ProfileFormShell({
         >
           {isPending ? "Saving…" : "Save"}
         </button>
-        {lastSaved}
+        {dirty && !isPending ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", fontSize: "12px", fontWeight: 600, color: "#b25a36" }}>
+            <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#e0a03a", flexShrink: 0 }} />
+            Unsaved changes
+          </span>
+        ) : (
+          lastSaved
+        )}
       </div>
     </form>
   );

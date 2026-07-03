@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
-import { BARE_MARKER_PREDICATE } from "@/lib/queries";
+import { BARE_MARKER_PREDICATE, companyNameSearchFragment } from "@/lib/queries";
 
 // Guards the parity contract the queries layer relies on: the version persisted
 // by upsertProfile is exactly sha256(company_instructions) and matches Python.
@@ -39,5 +39,37 @@ describe("BARE_MARKER_PREDICATE (un-apply marker semantics)", () => {
 
   it("binds no parameters (static predicate, injection-safe)", () => {
     expect(frag.args ?? []).toHaveLength(0);
+  });
+});
+
+// The companies name filter runs SERVER-side (over all rows), so it must build an ILIKE
+// fragment that binds the term as a parameter — never interpolate it — and stay inert when empty.
+describe("companyNameSearchFragment (server-side name search)", () => {
+  const introspect = (search?: string) =>
+    companyNameSearchFragment(search) as unknown as { strings: string[]; args: unknown[] };
+
+  it("is inert (empty text, no params) for undefined/empty/whitespace — identical to no search", () => {
+    for (const s of [undefined, "", "   "]) {
+      const f = introspect(s);
+      expect(f.strings.join("").trim()).toBe("");
+      expect(f.args ?? []).toHaveLength(0);
+    }
+  });
+
+  it("emits ILIKE and binds the wrapped term as a parameter (injection-safe)", () => {
+    const f = introspect("vanta");
+    expect(f.strings.join(" ").toLowerCase()).toContain("ilike");
+    expect(f.args).toEqual(["%vanta%"]);
+  });
+
+  it("trims the term before wrapping", () => {
+    expect(introspect("  zapier  ").args).toEqual(["%zapier%"]);
+  });
+
+  it("keeps injection payloads inside the bound value, not the SQL text", () => {
+    const evil = "x'; DROP TABLE companies; --";
+    const f = introspect(evil);
+    expect(f.args).toEqual([`%${evil}%`]);
+    expect(f.strings.join(" ").toLowerCase()).not.toContain("drop table");
   });
 });

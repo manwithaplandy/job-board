@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { type ComponentProps } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";

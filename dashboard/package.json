@@ -10,30 +10,31 @@
   },
   "dependencies": {
     "@langfuse/client": "^5.9.1",
-    "@langfuse/otel": "^5.9.0",
-    "@langfuse/tracing": "^5.9.0",
-    "@opentelemetry/sdk-node": "^0.219.0",
+    "@langfuse/otel": "^5.9.1",
+    "@langfuse/tracing": "^5.9.1",
+    "@opentelemetry/sdk-node": "^0.220.0",
     "@supabase/ssr": "^0.12.0",
-    "@supabase/supabase-js": "^2.108.2",
+    "@supabase/supabase-js": "^2.110.0",
     "@tanstack/react-virtual": "^3.14.5",
     "jspdf": "^4.2.1",
-    "next": "15.5.19",
+    "next": "16.2.10",
     "postgres": "^3.4.5",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
-    "recharts": "^2.15.4",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "recharts": "^3.9.1",
     "unpdf": "^1.6.2"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
-    "@types/node": "^20",
+    "@types/node": "^26.1.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.20",
-    "jsdom": "^25.0.1",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.49",
-    "typescript": "^5",
-    "vitest": "^2.1.8"
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.9"
   }
 }

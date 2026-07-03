@@ -663,13 +663,18 @@ export function FilterBar({
 
       <div style={{ flex: 1 }} />
 
-      {/* Result count */}
+      {/* Result count — fixed, right-aligned slot so its width is constant regardless of the
+          digit counts. Toggling Applied/Rejected changes totalInView (e.g. "247 of 6382" →
+          "3 of 12"); without a reserved width that shifted the flex-wrap point and made the
+          Sort control jump between rows. 128px comfortably fits "6382 of 6382 roles". */}
       <div
         style={{
           fontSize: "12.5px",
           color: "#6b7480",
           fontWeight: 700,
           whiteSpace: "nowrap",
+          minWidth: "128px",
+          textAlign: "right",
         }}
       >
         {visibleCount} of {totalInView} roles

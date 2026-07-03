@@ -230,7 +230,9 @@ def test_screen_prompt_defines_neutral_case():
     from company_discovery.llm import _INSTRUCTIONS
     # The specific neutral rule added by B8: when known but preferences neither
     # clearly match nor clearly violate, return 'include' with low confidence.
-    assert "0.4" in _INSTRUCTIONS, "neutral-company rule must reference confidence <= 0.4"
+    # `confidence` is a low/medium/high enum, so the rule uses the enum value.
+    assert 'confidence="low"' in _INSTRUCTIONS, \
+        "neutral-company rule must return 'include' with low confidence"
 
 
 def test_build_evaluators_scores_all_fields():

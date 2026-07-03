@@ -48,12 +48,15 @@ export default async function CompaniesPage({
     ? (rawBucket as Bucket)
     : "include";
 
+  const rawQ = sp.q;
+  const search = (Array.isArray(rawQ) ? rawQ[0] : rawQ ?? "").trim();
+
   const [companies, counts, state]: [
     CompanyReviewRow[],
     { include: number; exclude: number; unknown: number },
     DiscoveryStateRow,
   ] = await Promise.all([
-    getCompanyReviews(userId, bucket),
+    getCompanyReviews(userId, bucket, 200, search),
     getCompanyVerdictCounts(userId),
     getDiscoveryState(userId),
   ]);
@@ -78,7 +81,7 @@ export default async function CompaniesPage({
           </div>
           <CompanyList
             included={included} excluded={excluded} unknown={unknown}
-            counts={counts} state={state} activeBucket={bucket}
+            counts={counts} state={state} activeBucket={bucket} query={search}
             override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus}
           />
         </div>

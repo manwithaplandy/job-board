@@ -60,6 +60,7 @@ export function ModelPicker({
       if (open) {
         e.preventDefault();
         setOpen(false);
+        setQuery("");
         setActiveIndex(-1);
       }
     }
@@ -75,6 +76,7 @@ export function ModelPicker({
       onBlur={(e) => {
         if (!rootRef.current?.contains(e.relatedTarget as Node | null)) {
           setOpen(false);
+          setQuery("");
           setActiveIndex(-1);
         }
       }}
@@ -101,13 +103,18 @@ export function ModelPicker({
           color: "#1f2430",
           fontFamily: "inherit",
         }}
-        placeholder={placeholder}
-        value={query}
+        placeholder={`Default: ${placeholder}`}
+        // Idle (menu closed) shows the current selection as a filled value; while searching it
+        // shows the query. The hidden input above always carries `selected`, so this is purely visual.
+        value={open ? query : selected}
         onFocus={() => setOpen(true)}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIndex(-1); }}
         onKeyDown={onKeyDown}
       />
-      {selected && (
+      {/* Chip appears only while searching (menu open): idle, the input itself is the filled
+          value, so the chip would be redundant. Open, it reminds you of the current selection
+          and offers the "×" clear. */}
+      {selected && open && (
         <div style={{
           marginTop: "8px",
           display: "flex",

@@ -526,10 +526,21 @@ export async function upsertProfile(
   `;
 }
 
+/**
+ * ILIKE-name-search fragment for the companies query. A non-empty (trimmed) term binds
+ * `%term%` as a PARAMETER (postgres.js — injection-safe, never interpolated); empty/whitespace
+ * yields an inert empty fragment so behavior is identical to no search. Exported for unit tests.
+ */
+export function companyNameSearchFragment(search?: string) {
+  const term = (search ?? "").trim();
+  return term ? sql`AND c.name ILIKE ${"%" + term + "%"}` : sql``;
+}
+
 export async function getCompanyReviews(
   userId: string,
   bucket: "include" | "exclude" | "unknown",
   limit = 200,
+  search?: string,
 ): Promise<CompanyReviewRow[]> {
   const rows = await sql`
     SELECT c.id, c.name, c.ats, c.token, c.discovery_source, c.active,
@@ -547,6 +558,7 @@ export async function getCompanyReviews(
             CASE WHEN r.human_override THEN r.override_verdict ELSE r.verdict END,
             CASE WHEN c.discovery_source = 'seed' THEN 'include' ELSE 'unknown' END
           ) = ${bucket}
+      ${companyNameSearchFragment(search)}
     ORDER BY c.name
     LIMIT ${limit}
   `;

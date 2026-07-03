@@ -8,8 +8,8 @@
  * assembleResume + renderResumePdf, so edits to the parser, the prompt, or the
  * renderer are reflected here immediately.
  *
- * Run (no extra deps — Node 22 strips the types):
- *   node --experimental-strip-types --no-warnings scripts/gen-resume.ts [job] [--model M]
+ * Run (no extra deps — Node 22 strips the types; alias-loader resolves `@/`):
+ *   node --experimental-strip-types --no-warnings --import ./scripts/alias-loader.mjs scripts/gen-resume.ts [job] [--model M]
  *
  *   job      substring of a fixture filename (default: software-engineer-ii-ai)
  *   --model  override the model (default: scripts/fixtures/model.txt, then haiku)
@@ -128,7 +128,7 @@ async function main() {
   const content = json.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter returned no content");
   const tailored = JSON.parse(content) as TailoredContent;
-  const data = assembleResume(profile, tailored);
+  const data = assembleResume(profile, tailored, resumeText);
 
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const scale = renderResumePdf(doc as never, data);

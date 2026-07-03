@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { COVER_LETTER_JSON_SCHEMA, buildCoverLetterPrompt } from "@/lib/rolefit/coverLetterSchema";
-import { ENGLISH_ONLY_INSTRUCTION } from "@/lib/rolefit/promptPolicy";
+import { ENGLISH_ONLY_INSTRUCTION, NO_FABRICATION_INSTRUCTION } from "@/lib/rolefit/promptPolicy";
 
 const JOB = {
   title: "Frontend Engineer",
@@ -31,11 +31,16 @@ describe("buildCoverLetterPrompt", () => {
     expect(out.user).toContain("developer tooling");
     expect(out.user).toContain("5y React");
   });
+  test("marks each requirement's met status so unmet ones are never claimed", () => {
+    expect(out.user).toContain("[MET] 5y React");
+    expect(out.user).toContain("[NOT MET] GraphQL");
+  });
   test("threads candidate focus instructions", () => {
     expect(out.user).toContain("backend/infra");
   });
   test("system instructs tailoring without fabrication", () => {
     expect(out.system.toLowerCase()).toContain("never invent");
+    expect(out.system).toContain(NO_FABRICATION_INSTRUCTION);
   });
   test("system prompt mandates English output", () => {
     expect(out.system).toContain(ENGLISH_ONLY_INSTRUCTION);

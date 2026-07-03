@@ -287,6 +287,7 @@ export function ProfileModal({
               {pasteActive && (
                 <>
                   <textarea
+                    className="rf-focusable"
                     name="resume_text"
                     defaultValue={resumeText}
                     onChange={() => setIsDirty(true)}
@@ -302,7 +303,6 @@ export function ProfileModal({
                       lineHeight: 1.5,
                       color: "#1f2430",
                       resize: "vertical",
-                      outline: "none",
                       boxSizing: "border-box",
                       fontFamily: "inherit",
                     }}

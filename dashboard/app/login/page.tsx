@@ -83,6 +83,7 @@ export default async function LoginPage({
           >
             Email
             <input
+              className="rf-focusable"
               name="email"
               type="email"
               required
@@ -92,7 +93,6 @@ export default async function LoginPage({
                 borderRadius: "10px",
                 padding: "10px 13px",
                 fontSize: "13px",
-                outline: "none",
                 fontFamily: "inherit",
               }}
             />
@@ -109,6 +109,7 @@ export default async function LoginPage({
           >
             Password
             <input
+              className="rf-focusable"
               name="password"
               type="password"
               required
@@ -118,7 +119,6 @@ export default async function LoginPage({
                 borderRadius: "10px",
                 padding: "10px 13px",
                 fontSize: "13px",
-                outline: "none",
                 fontFamily: "inherit",
               }}
             />

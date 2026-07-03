@@ -115,6 +115,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           />
         </svg>
         <input
+          className="rf-focusable"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search roles, companies, skills…"
@@ -122,7 +123,6 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
             flex: 1,
             border: "none",
             background: "transparent",
-            outline: "none",
             fontSize: "13.5px",
             color: "#1f2430",
             minWidth: 0,

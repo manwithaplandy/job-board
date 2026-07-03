@@ -190,7 +190,6 @@ const inputStyle: React.CSSProperties = {
   fontSize: "13px",
   lineHeight: 1.5,
   color: "#1f2430",
-  outline: "none",
   boxSizing: "border-box",
   fontFamily: "inherit",
   background: "#fff",
@@ -275,6 +274,7 @@ export default async function ProfilePage() {
           <label style={fieldStyle}>
             <span style={labelTextStyle}>Résumé text</span>
             <textarea
+              className="rf-focusable"
               name="resume_text"
               rows={12}
               defaultValue={profile?.resume_text ?? ""}
@@ -285,6 +285,7 @@ export default async function ProfilePage() {
           <label style={fieldStyle}>
             <span style={labelTextStyle}>Instructions (focus / avoid)</span>
             <textarea
+              className="rf-focusable"
               name="instructions"
               rows={4}
               defaultValue={profile?.instructions ?? ""}
@@ -299,6 +300,7 @@ export default async function ProfilePage() {
               Which companies to surface or skip — used by company discovery.
             </span>
             <textarea
+              className="rf-focusable"
               name="company_instructions"
               rows={4}
               defaultValue={profile?.company_instructions ?? ""}
@@ -318,48 +320,48 @@ export default async function ProfilePage() {
             <div style={detailsRowStyle}>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Full name</span>
-                <input name="full_name" defaultValue={profile?.full_name ?? ""}
+                <input className="rf-focusable" name="full_name" defaultValue={profile?.full_name ?? ""}
                   placeholder="Jane Doe" style={inputStyle} />
               </label>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Location</span>
-                <input name="location" defaultValue={profile?.location ?? ""}
+                <input className="rf-focusable" name="location" defaultValue={profile?.location ?? ""}
                   placeholder="San Francisco, CA" style={inputStyle} />
               </label>
             </div>
             <div style={detailsRowStyle}>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Email</span>
-                <input name="email" type="email" defaultValue={profile?.email ?? ""}
+                <input className="rf-focusable" name="email" type="email" defaultValue={profile?.email ?? ""}
                   placeholder="jane@example.com" style={inputStyle} />
               </label>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Phone</span>
-                <input name="phone" defaultValue={profile?.phone ?? ""}
+                <input className="rf-focusable" name="phone" defaultValue={profile?.phone ?? ""}
                   placeholder="+1 555 123 4567" style={inputStyle} />
               </label>
             </div>
             <div style={detailsRowStyle}>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>LinkedIn</span>
-                <input name="link_linkedin" defaultValue={profile?.links?.linkedin ?? ""}
+                <input className="rf-focusable" name="link_linkedin" defaultValue={profile?.links?.linkedin ?? ""}
                   placeholder="linkedin.com/in/…" style={inputStyle} />
               </label>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>GitHub</span>
-                <input name="link_github" defaultValue={profile?.links?.github ?? ""}
+                <input className="rf-focusable" name="link_github" defaultValue={profile?.links?.github ?? ""}
                   placeholder="github.com/…" style={inputStyle} />
               </label>
             </div>
             <label style={fieldStyle}>
               <span style={labelTextStyle}>Portfolio / website</span>
-              <input name="link_portfolio" defaultValue={profile?.links?.portfolio ?? ""}
+              <input className="rf-focusable" name="link_portfolio" defaultValue={profile?.links?.portfolio ?? ""}
                 placeholder="https://…" style={inputStyle} />
             </label>
             <div style={detailsRowStyle}>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Authorized to work?</span>
-                <select name="work_authorized" defaultValue={triDefault(profile?.work_authorized)}
+                <select className="rf-focusable" name="work_authorized" defaultValue={triDefault(profile?.work_authorized)}
                   style={selectStyle}>
                   <option value="">Prefer not to say</option>
                   <option value="yes">Yes</option>
@@ -368,7 +370,7 @@ export default async function ProfilePage() {
               </label>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Need sponsorship?</span>
-                <select name="needs_sponsorship" defaultValue={triDefault(profile?.needs_sponsorship)}
+                <select className="rf-focusable" name="needs_sponsorship" defaultValue={triDefault(profile?.needs_sponsorship)}
                   style={selectStyle}>
                   <option value="">Prefer not to say</option>
                   <option value="yes">Yes</option>
@@ -379,20 +381,20 @@ export default async function ProfilePage() {
             <div style={detailsRowStyle}>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Notice period</span>
-                <input name="screen_notice_period"
+                <input className="rf-focusable" name="screen_notice_period"
                   defaultValue={profile?.screening_answers?.notice_period ?? ""}
                   placeholder="2 weeks" style={inputStyle} />
               </label>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Salary expectation</span>
-                <input name="screen_salary_expectation"
+                <input className="rf-focusable" name="screen_salary_expectation"
                   defaultValue={profile?.screening_answers?.salary_expectation ?? ""}
                   placeholder="$180k–$210k" style={inputStyle} />
               </label>
             </div>
             <label style={fieldStyle}>
               <span style={labelTextStyle}>Open to relocation?</span>
-              <input name="screen_relocation"
+              <input className="rf-focusable" name="screen_relocation"
                 defaultValue={profile?.screening_answers?.relocation ?? ""}
                 placeholder="e.g. Open to relocation for the right role" style={inputStyle} />
             </label>
@@ -401,24 +403,24 @@ export default async function ProfilePage() {
             <div style={detailsRowStyle}>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Gender</span>
-                <input name="eeo_gender" defaultValue={profile?.eeo_gender ?? ""}
+                <input className="rf-focusable" name="eeo_gender" defaultValue={profile?.eeo_gender ?? ""}
                   placeholder="Prefer not to say" style={inputStyle} />
               </label>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Race / ethnicity</span>
-                <input name="eeo_race" defaultValue={profile?.eeo_race ?? ""}
+                <input className="rf-focusable" name="eeo_race" defaultValue={profile?.eeo_race ?? ""}
                   placeholder="Prefer not to say" style={inputStyle} />
               </label>
             </div>
             <div style={detailsRowStyle}>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Veteran status</span>
-                <input name="eeo_veteran" defaultValue={profile?.eeo_veteran ?? ""}
+                <input className="rf-focusable" name="eeo_veteran" defaultValue={profile?.eeo_veteran ?? ""}
                   placeholder="Prefer not to say" style={inputStyle} />
               </label>
               <label style={fieldStyle}>
                 <span style={labelTextStyle}>Disability status</span>
-                <input name="eeo_disability" defaultValue={profile?.eeo_disability ?? ""}
+                <input className="rf-focusable" name="eeo_disability" defaultValue={profile?.eeo_disability ?? ""}
                   placeholder="Prefer not to say" style={inputStyle} />
               </label>
             </div>

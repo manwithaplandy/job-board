@@ -9,6 +9,7 @@ import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { profileVersion } from "@/lib/profileVersion";
 import { parseProfileLinks } from "@/lib/profileLinks";
+import { parseScreeningAnswers } from "@/lib/screeningAnswers";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import {
@@ -214,10 +215,15 @@ export async function getProfile(userId: string): Promise<ProfileRow | null> {
   const rows = await sql`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`;
   const row = rows[0] as unknown as ProfileRow | undefined;
   if (!row) return null;
-  // links is jsonb — never trust the raw read (it can arrive as a double-encoded
-  // string scalar). Route it through the total parser so a corrupt value can't
-  // propagate back into the write path or crash a render.
-  return { ...row, links: parseProfileLinks((row as { links: unknown }).links) };
+  // links and screening_answers are jsonb — never trust the raw read (either can
+  // arrive as a double-encoded string scalar). Route both through their total
+  // parsers so a corrupt value can't propagate back into the write path or crash
+  // a render.
+  return {
+    ...row,
+    links: parseProfileLinks((row as { links: unknown }).links),
+    screening_answers: parseScreeningAnswers((row as { screening_answers: unknown }).screening_answers),
+  };
 }
 
 export async function saveBoardFilters(

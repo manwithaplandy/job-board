@@ -8,6 +8,7 @@ import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
+import { selectionAfterRemoval } from "@/lib/rolefit/selection";
 import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
@@ -304,6 +305,10 @@ export function RolefitBoard({
     [jobs, rejectedPool, filterState, rejectedIds, appliedSet, view],
   );
 
+  // Visible ids in render order — the input to selectionAfterRemoval so reject/apply can
+  // auto-advance to the next card instead of dumping to the placeholder (#2).
+  const visibleIds = useMemo(() => visible.map((j) => j.id), [visible]);
+
   // The active view's pool size BEFORE search/facet filtering — same view partition as
   // `visible`, minus `applyFilters`. This is the "N of M" counter's denominator so the
   // Rejected/Applied views read against their own totals, not the all-jobs total (#13).
@@ -422,7 +427,7 @@ export function RolefitBoard({
   const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;
     setRejectedIds((prev) => new Set(prev).add(job.id));
-    setSelectedId((prev) => (prev === job.id ? null : prev));
+    setSelectedId((prev) => (prev === job.id ? selectionAfterRemoval(visibleIds, job.id) : prev));
     setToast({ kind: "reject", jobId: job.id, priorVerdict });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 5000);
@@ -437,7 +442,7 @@ export function RolefitBoard({
       setToast(null);
       showActionError("Couldn't save rejection — try again.");
     }
-  }, [rejectJob, showActionError]);
+  }, [rejectJob, showActionError, visibleIds]);
 
   const handleUndo = useCallback(() => {
     if (!toast) return;
@@ -703,7 +708,7 @@ export function RolefitBoard({
           appliedAt,
         };
     setPackages((p) => ({ ...p, [job.id]: optimistic }));
-    setSelectedId((prev) => (prev === job.id ? null : prev));
+    setSelectedId((prev) => (prev === job.id ? selectionAfterRemoval(visibleIds, job.id) : prev));
     startApply(() => {
       void markApplied(job.id).catch(() => {
         setPackages((p) => {
@@ -722,7 +727,7 @@ export function RolefitBoard({
     setToast({ kind: "apply", jobId: job.id, prior });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 5000);
-  }, [packages, markApplied, showActionError]);
+  }, [packages, markApplied, showActionError, visibleIds]);
 
   // Un-mark applied from the Applied view (no toast — immediate). Deletes a bare
   // marker; reverts a real prepared package to status='prepared'. Rolls back on error.

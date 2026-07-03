@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
 import { CompanyCard } from "@/components/companies/CompanyCard";
 import { CreditBanner } from "@/components/companies/CreditBanner";
@@ -18,7 +19,10 @@ export function CompanyList({
   override: (companyId: number, verdict: "include" | "exclude") => Promise<void>;
   refresh: () => Promise<void>;
 }) {
+  const [query, setQuery] = useState("");
   const rows = activeBucket === "include" ? included : activeBucket === "exclude" ? excluded : unknown;
+  const q = query.trim().toLowerCase();
+  const filtered = q ? rows.filter((c) => c.name.toLowerCase().includes(q)) : rows;
   const tabs: { key: Bucket; label: string; n: number }[] = [
     { key: "include", label: "Included", n: counts.include },
     { key: "exclude", label: "Excluded", n: counts.exclude },
@@ -45,9 +49,23 @@ export function CompanyList({
           );
         })}
       </div>
-      {rows.length === 0
-        ? <div style={{ fontSize: "13px", color: "#9aa3b0", padding: "20px 0" }}>No companies here yet.</div>
-        : rows.map((c) => <CompanyCard key={c.id} company={c} override={override} />)}
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Filter by company name…"
+        className="rf-focusable"
+        style={{
+          display: "block", width: "100%", maxWidth: "320px", marginBottom: "16px",
+          padding: "8px 12px", fontSize: "13px", color: "#1f2430", background: "#fff",
+          border: "1px solid #dce1e8", borderRadius: "8px", outline: "none",
+        }}
+      />
+      {filtered.length === 0
+        ? <div style={{ fontSize: "13px", color: "#9aa3b0", padding: "20px 0" }}>
+            {q ? "No companies match your filter." : "No companies here yet."}
+          </div>
+        : filtered.map((c) => <CompanyCard key={c.id} company={c} override={override} />)}
     </div>
   );
 }

@@ -31,6 +31,7 @@ const baseRow = (over: Record<string, unknown>): Record<string, unknown> => ({
   apply_url: null,
   prepared_at: new Date("2026-07-02T20:40:54.000Z"),
   applied_at: null,
+  profile_version: null,
   ...over,
 });
 
@@ -69,5 +70,12 @@ describe("toApplicationPackage", () => {
     expect(pkg.status).toBe("applied");
     expect(pkg.applyUrl).toBe("https://x");
     expect(pkg.appliedAt).toBe("2026-07-02T21:00:00.000Z");
+  });
+
+  test("maps profile_version scalar (null and populated)", () => {
+    expect(toApplicationPackage(baseRow({})).profileVersion).toBeNull();
+    expect(
+      toApplicationPackage(baseRow({ profile_version: "abc123" })).profileVersion,
+    ).toBe("abc123");
   });
 });

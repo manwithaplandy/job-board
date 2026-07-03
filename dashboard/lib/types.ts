@@ -203,6 +203,10 @@ export interface ApplicationPackage {
   greenhouseQuestions: GreenhouseQuestions | null;
   prefilledAnswers: PrefilledAnswer[] | null;
   applyUrl: string | null;
+  // sha256(resume_text + '\0' + instructions) at generation time; null for rows
+  // written before this column existed. Compared to the live profile_version to
+  // flag a tailored résumé as stale.
+  profileVersion: string | null;
   preparedAt: string;
   appliedAt: string | null;
 }

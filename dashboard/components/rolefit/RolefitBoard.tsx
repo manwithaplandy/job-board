@@ -691,6 +691,7 @@ export function RolefitBoard({
           greenhouseQuestions: null,
           prefilledAnswers: null,
           applyUrl: null,
+          profileVersion: null,
           preparedAt: appliedAt,
           appliedAt,
         };

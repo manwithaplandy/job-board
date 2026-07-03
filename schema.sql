@@ -259,6 +259,7 @@ CREATE TABLE application_packages (
   prefilled_answers    JSONB,                 -- [{ question, answer }] mapped by the LLM (NULL = none)
   apply_url            TEXT,
   resume_trace_id      TEXT,
+  profile_version      TEXT,                  -- profiles.profile_version at generation time (NULL = pre-column row)
   status               TEXT NOT NULL DEFAULT 'prepared'
                          CHECK (status IN ('prepared','applied')),
   prepared_at          TIMESTAMPTZ NOT NULL DEFAULT now(),

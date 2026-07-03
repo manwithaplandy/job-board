@@ -348,6 +348,7 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
     greenhouseQuestions: parseField("greenhouse_questions", row.greenhouse_questions, parseGreenhouseQuestionsJsonb),
     prefilledAnswers: parseField("prefilled_answers", row.prefilled_answers, parsePrefilledAnswers),
     applyUrl: (row.apply_url as string | null) ?? null,
+    profileVersion: (row.profile_version as string | null) ?? null,
     preparedAt: iso(row.prepared_at),
     appliedAt: row.applied_at != null ? iso(row.applied_at) : null,
   };
@@ -370,7 +371,8 @@ export const BARE_MARKER_PREDICATE = sql`
 export async function getApplicationPackages(userId: string): Promise<ApplicationPackage[]> {
   const rows = await sql`
     SELECT job_id, status, resume_json, cover_letter_json, answers_snapshot,
-           greenhouse_questions, prefilled_answers, apply_url, prepared_at, applied_at
+           greenhouse_questions, prefilled_answers, apply_url, profile_version,
+           prepared_at, applied_at
     FROM application_packages
     WHERE user_id = ${userId}::uuid
   `;
@@ -391,6 +393,7 @@ export async function upsertApplicationPackage(
     prefilledAnswers: PrefilledAnswer[] | null;
     applyUrl: string | null;
     resumeTraceId?: string | null;
+    profileVersion?: string | null;
   },
 ): Promise<ApplicationPackage> {
   // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
@@ -398,12 +401,13 @@ export async function upsertApplicationPackage(
   const rows = await sql`
     INSERT INTO application_packages
       (user_id, job_id, resume_json, cover_letter_json, answers_snapshot,
-       greenhouse_questions, prefilled_answers, apply_url, resume_trace_id, status, prepared_at)
+       greenhouse_questions, prefilled_answers, apply_url, resume_trace_id,
+       profile_version, status, prepared_at)
     VALUES (${userId}::uuid, ${jobId},
             ${j(data.resume)}::jsonb, ${j(data.coverLetter)}::jsonb,
             ${j(data.answersSnapshot)}::jsonb, ${j(data.greenhouseQuestions)}::jsonb,
             ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
-            'prepared', now())
+            ${data.profileVersion ?? null}, 'prepared', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       resume_json          = EXCLUDED.resume_json,
       cover_letter_json    = EXCLUDED.cover_letter_json,
@@ -412,9 +416,11 @@ export async function upsertApplicationPackage(
       prefilled_answers    = EXCLUDED.prefilled_answers,
       apply_url            = EXCLUDED.apply_url,
       resume_trace_id      = EXCLUDED.resume_trace_id,
+      profile_version      = EXCLUDED.profile_version,
       prepared_at          = now()
     RETURNING job_id, status, resume_json, cover_letter_json, answers_snapshot,
-              greenhouse_questions, prefilled_answers, apply_url, prepared_at, applied_at
+              greenhouse_questions, prefilled_answers, apply_url, profile_version,
+              prepared_at, applied_at
   `;
   return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);
 }

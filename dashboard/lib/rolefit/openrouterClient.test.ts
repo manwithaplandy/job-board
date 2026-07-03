@@ -117,6 +117,35 @@ describe("transport hardening", () => {
     expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
   });
 
+  // A stalled OpenRouter backend returns 0 tokens after the full timeout, so
+  // AbortSignal.timeout REJECTS the fetch (it doesn't resolve with a 5xx). That
+  // thrown timeout must get the same one retry as a 429/5xx — a fresh backend
+  // usually responds. Regression guard for the production incident where three
+  // consecutive resume regenerations each timed out with zero auto-retry.
+  test("retries once when the first attempt throws a timeout, then succeeds", async () => {
+    let call = 0;
+    const f = vi.fn(async () => {
+      call++;
+      if (call === 1) {
+        throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+      }
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) }, finish_reason: "stop" }] }) };
+    }) as unknown as typeof fetch;
+    const result = await callOpenRouterStructured({ ...baseArgs, fetchImpl: f, parse: (r) => r as { ok: number } });
+    expect(result).toEqual({ ok: 1 });
+    expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
+  });
+
+  test("caps at two attempts when the timeout keeps firing", async () => {
+    const f = vi.fn(async () => {
+      throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    }) as unknown as typeof fetch;
+    await expect(
+      callOpenRouterStructured({ ...baseArgs, fetchImpl: f, parse: (r) => r }),
+    ).rejects.toThrow(/aborted due to timeout/);
+    expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
+  });
+
   test("labels max_tokens truncation distinctly", async () => {
     const f = vi.fn(async () => ({
       ok: true, status: 200,

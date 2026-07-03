@@ -10,6 +10,15 @@ import { tracingEnabled } from "@/lib/observability";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+// Per-attempt fetch timeout. We retry once on a stall, so two attempts plus the
+// back-off must fit inside the calling route's `maxDuration` (120s for
+// /api/resume): 2 × 55s + 2s ≈ 112s, leaving headroom. A healthy
+// `deepseek-*-flash` response returns in a few seconds; a 55s wait only ever
+// hits a stalled backend, which the retry routes around.
+const PER_ATTEMPT_TIMEOUT_MS = 55_000;
+// Total attempts (1 original + 1 retry). Keep ≥2-attempt cost within maxDuration.
+const MAX_ATTEMPTS = 2;
+
 /** Extract error body text safely — handles fakes without a text() method. */
 async function errText(res: Response): Promise<string> {
   try {
@@ -65,30 +74,44 @@ export async function callOpenRouterStructured<T>(args: {
         "X-Title": "job-board",
       },
       body,
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(PER_ATTEMPT_TIMEOUT_MS),
     }) as Promise<Response>;
 
-  try {
-    let res = await doPost();
-
-    // Retry once on 429 or 5xx.
-    if (!res.ok && (res.status === 429 || res.status >= 500)) {
-      await errText(res); // consume the body so the connection is freed
-      await new Promise((r) => setTimeout(r, args.retryDelayMs ?? 2000));
-      const res2 = await doPost();
-      if (!res2.ok) {
-        const txt2 = await errText(res2);
-        throw new Error(
-          `OpenRouter ${args.label} request failed: ${res2.status}${txt2 ? " " + txt2 : ""}`,
-        );
+  const retryDelay = args.retryDelayMs ?? 2000;
+  // One retry within the route's time budget, covering BOTH failure shapes of a
+  // flaky OpenRouter backend: a thrown timeout/abort/network error (the stalled
+  // backend that returns 0 tokens after the full timeout — this REJECTS the
+  // fetch, so the old status-only check missed it) and a resolved 429/5xx. A
+  // fresh backend usually answers the retry. Response processing (JSON/parse)
+  // stays outside this loop so a bad payload is never re-fetched.
+  const fetchOk = async (): Promise<Response> => {
+    for (let attempt = 1; ; attempt++) {
+      let r: Response;
+      try {
+        r = await doPost();
+      } catch (err) {
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise((res) => setTimeout(res, retryDelay));
+          continue;
+        }
+        throw err; // out of attempts — propagate (outer catch marks the span ERROR)
       }
-      res = res2;
-    } else if (!res.ok) {
-      const txt = await errText(res);
+      if (r.ok) return r;
+      if ((r.status === 429 || r.status >= 500) && attempt < MAX_ATTEMPTS) {
+        await errText(r); // consume the body so the connection is freed
+        await new Promise((res) => setTimeout(res, retryDelay));
+        continue;
+      }
+      // Non-retryable status (e.g. 400/402), or the final attempt failed.
+      const txt = await errText(r);
       throw new Error(
-        `OpenRouter ${args.label} request failed: ${res.status}${txt ? " " + txt : ""}`,
+        `OpenRouter ${args.label} request failed: ${r.status}${txt ? " " + txt : ""}`,
       );
     }
+  };
+
+  try {
+    const res = await fetchOk();
 
     const json = (await (res as unknown as { json: () => Promise<unknown> }).json()) as {
       choices?: { message?: { content?: string }; finish_reason?: string }[];

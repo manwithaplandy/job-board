@@ -41,3 +41,10 @@ input, button, textarea { font-family: inherit; }
   border-color: #3b6fd4;
   box-shadow: 0 0 0 3px rgba(59,111,212,.18);
 }
+
+/* The board-search input is borderless/transparent, so its focus ring belongs on
+   the rounded pill wrapper — matches the bordered inputs' border+ring treatment. */
+.rf-search:focus-within {
+  border-color: #3b6fd4;
+  box-shadow: 0 0 0 3px rgba(59,111,212,.18);
+}

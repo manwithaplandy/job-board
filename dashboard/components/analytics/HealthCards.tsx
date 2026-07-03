@@ -48,12 +48,12 @@ function Card({
         <span style={{ fontSize: "13.5px", fontWeight: 800, color: "#161d29" }}>{name}</span>
         <span style={{ marginLeft: "auto", fontSize: "11.5px", color: "#7a8494" }}>{when}</span>
       </div>
-      <div style={{ fontSize: "11px", color: "#9aa3b0", marginBottom: "4px" }}>{scheduleLine}</div>
+      <div style={{ fontSize: "11px", color: "#7a8494", marginBottom: "4px" }}>{scheduleLine}</div>
       {banner && (
         <div style={{ margin: "8px 0", padding: "7px 10px", background: "#fdf3e6", border: "1px solid #f3d9ad",
           borderRadius: "9px", color: "#8a5a12", fontSize: "11.5px", fontWeight: 600 }}>{banner}</div>
       )}
-      <div style={{ fontSize: "11px", color: "#9aa3b0", marginTop: "10px", marginBottom: "4px", fontWeight: 600 }}>
+      <div style={{ fontSize: "11px", color: "#7a8494", marginTop: "10px", marginBottom: "4px", fontWeight: 600 }}>
         Last successful run
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 14px" }}>
@@ -64,7 +64,7 @@ function Card({
           </div>
         ))}
       </div>
-      <div style={{ fontSize: "11px", color: "#9aa3b0", marginTop: "10px" }}>{totals}</div>
+      <div style={{ fontSize: "11px", color: "#7a8494", marginTop: "10px" }}>{totals}</div>
     </div>
   );
 }

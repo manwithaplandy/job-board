@@ -82,6 +82,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
 
       {/* Search */}
       <div
+        className="rf-search"
         style={{
           flex: 1,
           maxWidth: "460px",
@@ -115,7 +116,6 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           />
         </svg>
         <input
-          className="rf-focusable"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search roles, companies, skills…"

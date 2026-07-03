@@ -4,6 +4,7 @@ import { getBoardOwnerId, getCompanyReviews, getCompanyVerdictCounts, getDiscove
   from "@/lib/queries";
 import { setCompanyOverride, refreshCompanyDiscoveryStatus } from "@/app/actions/companies";
 import { CompanyList } from "@/components/companies/CompanyList";
+import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,24 +61,26 @@ export default async function CompaniesPage({
   const unknown = bucket === "unknown" ? companies : [];
 
   return (
-    <main style={pageStyle}>
-      <div style={cardStyle}>
-        <a href="/" style={{ fontSize: "12.5px", fontWeight: 600, color: "#5b6472", textDecoration: "none" }}>← Back to board</a>
-        <h1 style={{ margin: "16px 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29" }}>
-          Companies
-        </h1>
-        <div style={{ fontSize: "13px", fontWeight: 500, color: "#8a93a3", marginBottom: "22px" }}>
-          AI-classified against your company preferences. Override any decision — it sticks.{" "}
-          <a href="/profile" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
-            Edit preferences →
-          </a>
+    <>
+      <SlimHeader current="companies" />
+      <main style={pageStyle}>
+        <div style={cardStyle}>
+          <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29" }}>
+            Companies
+          </h1>
+          <div style={{ fontSize: "13px", fontWeight: 500, color: "#8a93a3", marginBottom: "22px" }}>
+            AI-classified against your company preferences. Override any decision — it sticks.{" "}
+            <a href="/profile" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+              Edit preferences →
+            </a>
+          </div>
+          <CompanyList
+            included={included} excluded={excluded} unknown={unknown}
+            counts={counts} state={state} activeBucket={bucket}
+            override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus}
+          />
         </div>
-        <CompanyList
-          included={included} excluded={excluded} unknown={unknown}
-          counts={counts} state={state} activeBucket={bucket}
-          override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus}
-        />
-      </div>
-    </main>
+      </main>
+    </>
   );
 }

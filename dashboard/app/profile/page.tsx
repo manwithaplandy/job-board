@@ -13,6 +13,7 @@ import {
 } from "@/lib/openrouter";
 import { ModelPicker } from "@/components/ModelPicker";
 import { LocationPicker } from "@/components/LocationPicker";
+import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
@@ -152,14 +153,8 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 12px 40px rgba(15,22,35,.08)",
   padding: "30px 32px 32px",
 };
-const backLinkStyle: React.CSSProperties = {
-  fontSize: "12.5px",
-  fontWeight: 600,
-  color: "#5b6472",
-  textDecoration: "none",
-};
 const titleStyle: React.CSSProperties = {
-  margin: "16px 0 4px",
+  margin: "0 0 4px",
   fontSize: "22px",
   fontWeight: 800,
   letterSpacing: "-.4px",
@@ -244,9 +239,10 @@ export default async function ProfilePage() {
   const hdrs = await headers();
   const returnTo = internalPathFromReferer(hdrs.get("referer"), hdrs.get("host") ?? "");
   return (
+    <>
+    <SlimHeader current="profile" />
     <main style={pageStyle}>
       <div style={cardStyle}>
-        <a href="/" style={backLinkStyle}>← Back</a>
         <h1 style={titleStyle}>Profile</h1>
         <div style={subtitleStyle}>
           Advanced settings — résumé, review models, and location preferences.
@@ -457,5 +453,6 @@ export default async function ProfilePage() {
         </ProfileFormShell>
       </div>
     </main>
+    </>
   );
 }

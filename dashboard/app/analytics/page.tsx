@@ -3,6 +3,7 @@ import { unstable_cache } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { getPipelineSnapshot, getRunSeries } from "@/lib/metrics";
 import { PipelineDashboard } from "@/components/analytics/PipelineDashboard";
+import { SlimHeader } from "@/components/rolefit/SlimHeader";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Analytics · Rolefit" };
@@ -40,5 +41,10 @@ export default async function AnalyticsPage() {
   // the two cached groups — and keeping them sequential guarantees no concurrent fan-out.
   const snapshot = await cachedSnapshot(userId);
   const series = await cachedRunSeries();
-  return <PipelineDashboard snapshot={snapshot} series={series} nowIso={new Date().toISOString()} />;
+  return (
+    <>
+      <SlimHeader current="analytics" />
+      <PipelineDashboard snapshot={snapshot} series={series} nowIso={new Date().toISOString()} />
+    </>
+  );
 }

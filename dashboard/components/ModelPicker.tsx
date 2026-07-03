@@ -27,7 +27,7 @@ export function ModelPicker({
         id={inputId}
         type="text"
         className="mt-2 rounded-[10px] border border-[#e3e7ee] px-3 py-[11px] text-[13px] text-[#1f2430] outline-none placeholder:text-[#9aa3b0] focus:border-[#3b6fd4]"
-        placeholder={selected || placeholder}
+        placeholder={placeholder}
         value={query}
         aria-expanded={open}
         onFocus={() => setOpen(true)}
@@ -35,13 +35,14 @@ export function ModelPicker({
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {selected && (
-        <span className="mt-2 text-[11.5px] text-[#6b7480]">
-          selected: {selected}{" "}
-          <button type="button" className="font-semibold text-[#3b6fd4] underline"
+        <div className="mt-2 flex items-center gap-1.5 self-start rounded-[8px] bg-[#eef3fc] px-2.5 py-1 text-[12px] font-semibold text-[#3b6fd4]">
+          <span>{selected}</span>
+          <button type="button" aria-label="Clear model (use default)"
+            className="text-[#6f97dd] hover:text-[#3b6fd4]"
             onClick={() => setSelected("")}>
-            clear (use default)
+            ×
           </button>
-        </span>
+        </div>
       )}
       {open && results.length > 0 && (
         <ul role="listbox" className="mt-2 max-h-56 overflow-auto rounded-[10px] border border-[#e3e7ee] bg-white text-[13px] shadow-[0_8px_24px_rgba(15,22,35,.1)]">

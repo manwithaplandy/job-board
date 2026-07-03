@@ -199,6 +199,27 @@ export function ApplicationPanel({
     cursor: "pointer",
   };
 
+  // The external Apply link must be an <a>, so it can't be a <Button>; instead it mirrors
+  // <Button>'s md tokens (primary/secondary). Prepare leads as the primary CTA until the
+  // package is prepared; then Apply takes primary emphasis and Prepare drops to secondary (#10).
+  const applyLinkStyle: React.CSSProperties = {
+    flex: "0 0 auto",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontFamily: "inherit",
+    fontWeight: 700,
+    fontSize: "14px",
+    borderRadius: "11px",
+    padding: "12px 20px",
+    cursor: "pointer",
+    textDecoration: "none",
+    ...(prepared
+      ? { background: "#3b6fd4", color: "#fff", border: "none", boxShadow: "0 4px 12px rgba(59,111,212,.28)" }
+      : { background: "#fff", color: "#5b6472", border: "1px solid #dfe3ea" }),
+  };
+
   // Per-leg failures from the last prepare. Résumé + cover retry their own endpoints;
   // there's no answers-only route, so "answers" retries the whole prepare.
   const failedLegs: { key: string; label: string; onRetry: () => void }[] = [];
@@ -275,7 +296,7 @@ export function ApplicationPanel({
         )}
         {isAuthed && (
           <Button
-            variant="secondary"
+            variant={prepared ? "secondary" : "primary"}
             onClick={onPrepare}
             disabled={preparing || generating}
             style={{ flex: "0 0 auto" }}
@@ -289,22 +310,7 @@ export function ApplicationPanel({
             href={applyHref}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "7px",
-              fontWeight: 700,
-              fontSize: "14px",
-              color: "#fff",
-              background: "#3b6fd4",
-              border: "1px solid #3b6fd4",
-              borderRadius: "11px",
-              padding: "12px 18px",
-              cursor: "pointer",
-              textDecoration: "none",
-              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
-            }}
+            style={applyLinkStyle}
           >
             Apply on {atsLabel}<span style={{ fontSize: "15px" }}>→</span>
           </a>

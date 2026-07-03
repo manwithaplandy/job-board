@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type LocationOption = { location: string; count: number };
 
@@ -18,7 +18,13 @@ export function LocationPicker({
   const [selected, setSelected] = useState<string[]>(defaultValue);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  // Roving keyboard-active option index into `results` (-1 = none). Reset on every query
+  // change so it can never point past the freshly filtered list.
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const rootRef = useRef<HTMLDivElement>(null);
   const inputId = `location-picker-${name}`;
+  const listboxId = `${inputId}-listbox`;
+  const optionId = (i: number) => `${inputId}-opt-${i}`;
 
   const selectedSet = new Set(selected);
   const q = query.trim().toLowerCase();
@@ -27,16 +33,59 @@ export function LocationPicker({
     .filter((o) => !q || o.location.toLowerCase().includes(q))
     .slice(0, 50);
 
+  // Keep the keyboard-active option scrolled into view as arrows move it.
+  useEffect(() => {
+    if (!open || activeIndex < 0) return;
+    document.getElementById(optionId(activeIndex))?.scrollIntoView({ block: "nearest" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, open]);
+
   const add = (loc: string) => {
     setSelected((prev) => (prev.includes(loc) ? prev : [...prev, loc]));
     setQuery("");
     setOpen(false);
+    setActiveIndex(-1);
   };
   const remove = (loc: string) =>
     setSelected((prev) => prev.filter((l) => l !== loc));
 
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!open) { setOpen(true); setActiveIndex(0); return; }
+      setActiveIndex((i) => Math.min(i + 1, results.length - 1));
+    } else if (e.key === "ArrowUp") {
+      if (!open) return;
+      e.preventDefault();
+      setActiveIndex((i) => (i <= 0 ? 0 : i - 1));
+    } else if (e.key === "Enter") {
+      if (open && activeIndex >= 0 && activeIndex < results.length) {
+        e.preventDefault();
+        add(results[activeIndex].location);
+      }
+    } else if (e.key === "Escape") {
+      if (open) {
+        e.preventDefault();
+        setOpen(false);
+        setActiveIndex(-1);
+      }
+    }
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
+    <div
+      ref={rootRef}
+      style={{ display: "flex", flexDirection: "column" }}
+      // Close only when focus leaves the whole component — not on the 150ms timeout the
+      // keyboard path can't survive (Tabbing to an option unmounts it mid-timer). A click
+      // on an option keeps focus inside rootRef, so the list stays up until onClick closes it.
+      onBlur={(e) => {
+        if (!rootRef.current?.contains(e.relatedTarget as Node | null)) {
+          setOpen(false);
+          setActiveIndex(-1);
+        }
+      }}
+    >
       <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "#5b6472" }}>
         Locations to include (blank = all; remote always included)
       </label>
@@ -90,6 +139,11 @@ export function LocationPicker({
         id={inputId}
         type="text"
         className="rf-focusable rf-picker-input"
+        role="combobox"
+        aria-controls={listboxId}
+        aria-expanded={open}
+        aria-autocomplete="list"
+        aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         style={{
           marginTop: "8px",
           borderRadius: "10px",
@@ -101,13 +155,12 @@ export function LocationPicker({
         }}
         placeholder="Type to filter locations…"
         value={query}
-        aria-expanded={open}
         onFocus={() => setOpen(true)}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIndex(-1); }}
+        onKeyDown={onKeyDown}
       />
       {open && results.length > 0 && (
-        <ul role="listbox" style={{
+        <ul id={listboxId} role="listbox" style={{
           margin: 0,
           marginTop: "8px",
           padding: 0,
@@ -120,10 +173,11 @@ export function LocationPicker({
           fontSize: "13px",
           boxShadow: "0 8px 24px rgba(15,22,35,.1)",
         }}>
-          {results.map((o) => (
-            <li key={o.location} role="option" aria-selected={false}>
+          {results.map((o, idx) => (
+            <li key={o.location} id={optionId(idx)} role="option" aria-selected={false}>
               <button
                 type="button"
+                tabIndex={-1}
                 className="rf-picker-option"
                 style={{
                   display: "flex",
@@ -137,6 +191,7 @@ export function LocationPicker({
                   fontSize: "inherit",
                   lineHeight: "inherit",
                   color: "inherit",
+                  background: idx === activeIndex ? "#eef3fc" : undefined,
                 }}
                 onClick={() => add(o.location)}
               >

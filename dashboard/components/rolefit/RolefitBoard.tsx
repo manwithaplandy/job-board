@@ -477,11 +477,19 @@ export function RolefitBoard({
 
   const handleSelect = useCallback((id: string) => {
     setSelectedId(id);
+  }, []);
+
+  // Reset the detail pane (and, on the narrow single-pane layout, the window) to the top
+  // whenever the selection changes. Keyed on the selection — not folded into handleSelect —
+  // so keyboard nav (j/k/arrows) and the reject/apply auto-advance also open the next role
+  // at the top, not at the previous role's scroll offset (e.g. after a bottom-of-pane "Mark
+  // as applied" or a deep-scrolled reject). `isNarrow` is read but intentionally NOT a dep:
+  // a viewport resize shouldn't scroll the pane — only a selection change should.
+  useEffect(() => {
     if (detailRef.current) detailRef.current.scrollTop = 0;
-    // On the single-pane narrow layout the detail replaces the list in the page
-    // flow, so reset the window scroll to open it at the top.
-    if (isNarrow) window.scrollTo(0, 0);
-  }, [isNarrow]);
+    if (isNarrow && selectedId) window.scrollTo(0, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;

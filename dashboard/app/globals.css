@@ -37,18 +37,21 @@ input::placeholder, textarea::placeholder { color: #9aa3b0; opacity: 1; }
   }
 }
 
-/* Visible keyboard focus for inline-styled inputs (replaces removed outlines). */
+/* Visible keyboard focus for inline-styled inputs (replaces removed outlines).
+   The blue rides the box-shadow, NOT border-color: every consumer sets its `border`
+   as an inline shorthand, which outranks an author stylesheet's `border-color` here —
+   so a border-color declaration would be dead CSS. A 1px solid-blue inner ring plus a
+   4px translucent halo reproduces the border+ring treatment over any inline border. */
 .rf-focusable:focus-visible {
   outline: none;
-  border-color: #3b6fd4;
-  box-shadow: 0 0 0 3px rgba(59,111,212,.18);
+  box-shadow: 0 0 0 1px #3b6fd4, 0 0 0 4px rgba(59,111,212,.18);
 }
 
-/* The board-search input is borderless/transparent, so its focus ring belongs on
-   the rounded pill wrapper — matches the bordered inputs' border+ring treatment. */
+/* The board-search input is borderless/transparent, so its focus ring belongs on the
+   rounded pill wrapper. Same reasoning as .rf-focusable: the pill's border is inline, so
+   the focus color rides the box-shadow to survive the inline-style specificity. */
 .rf-search:focus-within {
-  border-color: #3b6fd4;
-  box-shadow: 0 0 0 3px rgba(59,111,212,.18);
+  box-shadow: 0 0 0 1px #3b6fd4, 0 0 0 4px rgba(59,111,212,.18);
 }
 
 /* Hover-revealed reject × on job cards (#14). Inline styles can't express a parent's

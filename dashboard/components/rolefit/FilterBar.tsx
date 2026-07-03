@@ -90,6 +90,20 @@ function FilterMenu({
     opts[sel >= 0 ? sel : 0]?.focus();
   }, [open]);
 
+  // When a radio-style menu (Pay/Match/Sort) closes on selection, the Enter/Space/click
+  // unmounts the focused option and focus falls to <body> — the next Tab would restart at
+  // the top of the page. Return focus to the trigger. Escape already refocuses it, and Tab
+  // moves focus to the next control, so in both of those cases activeElement is off <body>
+  // and this no-ops — it fires only for the selection-close case.
+  const prevOpen = useRef(open);
+  useEffect(() => {
+    const wasOpen = prevOpen.current;
+    prevOpen.current = open;
+    if (wasOpen && !open && document.activeElement === document.body) {
+      triggerRef.current?.focus();
+    }
+  }, [open]);
+
   const onListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const opts = optionEls(listRef.current);
     if (opts.length === 0) return;

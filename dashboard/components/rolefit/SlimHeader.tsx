@@ -14,7 +14,7 @@ const NAV: { key: NavKey; href: string; label: string }[] = [
 
 export function SlimHeader({ current }: { current?: NavKey }) {
   return (
-    <div
+    <header
       style={{
         display: "flex",
         alignItems: "center",
@@ -63,7 +63,7 @@ export function SlimHeader({ current }: { current?: NavKey }) {
       </a>
 
       {/* Cross-page nav — the current page is marked (filled pill), others are plain links */}
-      <div style={{ display: "flex", alignItems: "center", gap: "4px", marginLeft: "auto" }}>
+      <nav aria-label="Pages" style={{ display: "flex", alignItems: "center", gap: "4px", marginLeft: "auto" }}>
         {NAV.map((n) => {
           const active = current === n.key;
           return (
@@ -85,7 +85,7 @@ export function SlimHeader({ current }: { current?: NavKey }) {
             </a>
           );
         })}
-      </div>
-    </div>
+      </nav>
+    </header>
   );
 }

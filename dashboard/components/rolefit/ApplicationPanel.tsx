@@ -68,6 +68,9 @@ export interface ApplicationPanelProps {
   status: "prepared" | "applied" | null;
   appliedAt: string | null;
   onMarkApplied: () => void;
+  // Session-rejected: "Mark as applied" is withheld so one click can't create the invalid
+  // applied+rejected state the board's reject gating guards against (un-reject first).
+  isRejected?: boolean;
 }
 
 export function ApplicationPanel({
@@ -96,6 +99,7 @@ export function ApplicationPanel({
   status,
   appliedAt,
   onMarkApplied,
+  isRejected,
 }: ApplicationPanelProps) {
   // Ephemeral "Copied!" feedback for the cover letter + per-field answers.
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -271,7 +275,7 @@ export function ApplicationPanel({
             ✓ Applied{appliedDate ? ` · ${appliedDate}` : ""}
           </Chip>
         )}
-        {isAuthed && !applied && (
+        {isAuthed && !applied && !isRejected && (
           <button
             onClick={onMarkApplied}
             style={{

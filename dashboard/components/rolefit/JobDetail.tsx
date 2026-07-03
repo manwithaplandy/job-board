@@ -622,6 +622,7 @@ export function JobDetail({
             status={pkg?.status ?? null}
             appliedAt={pkg?.appliedAt ?? null}
             onMarkApplied={() => onMarkApplied(job)}
+            isRejected={isRejected}
           />
 
         </>

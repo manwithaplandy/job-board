@@ -227,7 +227,7 @@ const modelsLegendStyle: React.CSSProperties = {
 const lastSavedStyle: React.CSSProperties = {
   fontSize: "12px",
   fontWeight: 500,
-  color: "#9aa3b0",
+  color: "#6b7480",
 };
 
 export default async function ProfilePage() {

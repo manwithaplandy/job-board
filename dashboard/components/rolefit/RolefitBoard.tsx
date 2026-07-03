@@ -334,8 +334,10 @@ export function RolefitBoard({
           el.tagName === "SELECT" ||
           el.isContentEditable);
       // `/` focuses search — but stay inert while typing OR while the profile modal / a
-      // filter menu is open, so it can't steal focus out of an aria-modal dialog.
-      if (e.key === "/" && !typing && !profileOpen && !openMenu) {
+      // filter menu is open, so it can't steal focus out of an aria-modal dialog. Ignore
+      // modified presses (Cmd+/ / Ctrl+/ / Alt+/) so browser/OS shortcuts aren't hijacked.
+      if (e.key === "/" && !typing && !profileOpen && !openMenu
+          && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         searchRef.current?.focus();
         return;
@@ -488,6 +490,14 @@ export function RolefitBoard({
   useEffect(() => {
     if (detailRef.current) detailRef.current.scrollTop = 0;
     if (isNarrow && selectedId) window.scrollTo(0, 0);
+    // Keyboard reject/mark-applied auto-advance remounts JobDetail (its DetailErrorBoundary
+    // key changes) and unmounts the card hover-×, so focus can silently drop to <body> and
+    // the next Tab restarts at the top of the page. Return it to the detail container —
+    // mirroring FilterBar's selection-close focus-return. Only when focus actually fell to
+    // <body>, so we never steal it from an input/menu the user is interacting with.
+    if (selectedId && document.activeElement === document.body) {
+      detailRef.current?.focus({ preventScroll: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
@@ -921,6 +931,7 @@ export function RolefitBoard({
               view={view}
               onBackToAll={() => setView("all")}
               hasUnfilteredJobs={jobs.length > 0}
+              viewPoolCount={totalInView}
               scrollParentRef={isNarrow ? undefined : listScrollRef}
               scrollToId={selectedId}
               // The hover-× is a triage affordance — only the "all" view is the triage
@@ -936,8 +947,11 @@ export function RolefitBoard({
         {(!isNarrow || selectedId) && (
           <div
             ref={detailRef}
+            // Programmatically focusable (not in the Tab order) so the selection-change
+            // effect can return focus here after an auto-advance remount (see above).
+            tabIndex={-1}
             className={isNarrow ? undefined : "rf-scroll"}
-            style={{ flex: 1, overflowY: isNarrow ? undefined : "auto", background: "#fff", minWidth: 0 }}
+            style={{ flex: 1, overflowY: isNarrow ? undefined : "auto", background: "#fff", minWidth: 0, outline: "none" }}
           >
             {selectedJobWithDetail ? (
               <>
@@ -1015,23 +1029,25 @@ export function RolefitBoard({
         )}
       </div>
 
-      {(toast || actionError) && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "24px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-            zIndex: 50,
-            alignItems: "center",
-          }}
-        >
-          {toast && (
+      {/* Live regions are ALWAYS mounted (empty when idle) so a screen reader observes them
+          before their content changes — a region added to the DOM together with its content
+          is not reliably announced. Only the inner pill toggles. The outer wrapper collapses
+          to 0×0 when both are empty, so it never intercepts pointer events. */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: "24px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          display: "flex",
+          flexDirection: "column",
+          zIndex: 50,
+          alignItems: "center",
+        }}
+      >
+        <div role="status">
+          {toast ? (
             <div
-              role="status"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1063,14 +1079,17 @@ export function RolefitBoard({
                 Undo
               </button>
             </div>
-          )}
-          {actionError && (
+          ) : null}
+        </div>
+        <div role="alert">
+          {actionError ? (
             <div
-              role="alert"
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: "16px",
+                // Keep the 8px gap from the toast above only when both are showing.
+                marginTop: toast ? "8px" : 0,
                 background: "#7a2e22",
                 color: "#fff",
                 borderRadius: "12px",
@@ -1098,9 +1117,9 @@ export function RolefitBoard({
                 Dismiss
               </button>
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      </div>
       <ProfileModal
         open={profileOpen}
         isAuthed={isAuthed}

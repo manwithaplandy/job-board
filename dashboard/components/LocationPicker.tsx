@@ -52,16 +52,19 @@ export function LocationPicker({
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (!open) { setOpen(true); setActiveIndex(0); return; }
+      if (!open) { setOpen(true); setActiveIndex(results.length ? 0 : -1); return; }
       setActiveIndex((i) => Math.min(i + 1, results.length - 1));
     } else if (e.key === "ArrowUp") {
       if (!open) return;
       e.preventDefault();
       setActiveIndex((i) => (i <= 0 ? 0 : i - 1));
     } else if (e.key === "Enter") {
-      if (open && activeIndex >= 0 && activeIndex < results.length) {
+      // Enter in an OPEN combobox must never fall through to implicit form submission
+      // (which would save the whole profile mid-edit). Commit the highlighted option if
+      // one is active; otherwise swallow the key and do nothing.
+      if (open) {
         e.preventDefault();
-        add(results[activeIndex].location);
+        if (activeIndex >= 0 && activeIndex < results.length) add(results[activeIndex].location);
       }
     } else if (e.key === "Escape") {
       if (open) {
@@ -138,10 +141,12 @@ export function LocationPicker({
       <input
         id={inputId}
         type="text"
-        className="rf-focusable rf-picker-input"
+        className="rf-focusable"
         role="combobox"
-        aria-controls={listboxId}
-        aria-expanded={open}
+        // Only reference the listbox while it's actually rendered (open with results) —
+        // aria-controls/activedescendant pointing at an absent element confuses AT.
+        aria-controls={open && results.length > 0 ? listboxId : undefined}
+        aria-expanded={open && results.length > 0}
         aria-autocomplete="list"
         aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         style={{
@@ -196,7 +201,7 @@ export function LocationPicker({
                 onClick={() => add(o.location)}
               >
                 <span style={{ color: "#1f2430" }}>{o.location}</span>
-                <span style={{ color: "#9aa3b0" }}>{o.count}</span>
+                <span style={{ color: "#6b7480" }}>{o.count}</span>
               </button>
             </li>
           ))}

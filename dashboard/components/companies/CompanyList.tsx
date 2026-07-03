@@ -37,14 +37,14 @@ export function CompanyList({
         {tabs.map((t) => {
           const active = activeBucket === t.key;
           return (
-            <a key={t.key} href={`?bucket=${t.key}`} style={{
+            <a key={t.key} href={`?bucket=${t.key}`} aria-current={active ? "page" : undefined} style={{
               textDecoration: "none", cursor: "pointer", fontWeight: 700, fontSize: "13px",
               padding: "8px 16px", borderRadius: "8px",
               background: active ? "#fff" : "transparent",
               color: active ? "#1f2430" : "#6b7480",
               boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
             }}>
-              {t.label} <span style={{ color: "#9aa3b0" }}>{t.n}</span>
+              {t.label} <span style={{ color: "#6b7480" }}>{t.n}</span>
             </a>
           );
         })}
@@ -63,7 +63,7 @@ export function CompanyList({
         }}
       />
       {filtered.length === 0
-        ? <div style={{ fontSize: "13px", color: "#9aa3b0", padding: "20px 0" }}>
+        ? <div style={{ fontSize: "13px", color: "#6b7480", padding: "20px 0" }}>
             {q ? "No companies match your filter." : "No companies here yet."}
           </div>
         : filtered.map((c) => <CompanyCard key={c.id} company={c} override={override} />)}

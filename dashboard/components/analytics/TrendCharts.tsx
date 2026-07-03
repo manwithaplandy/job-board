@@ -13,9 +13,12 @@ const COLORS = {
   slate: "#7a8699", violet: "#7c6cd4",
 };
 
-// Two-up on wide screens, single-column on narrow (mirrors BreakdownsSection).
+// Two-up on wide screens, single-column on narrow. The track minimum is raised to ~460px
+// (min(100%, …) so a narrow container still collapses to one column) specifically so three
+// columns can't fit in the ~1040px analytics container — a third ~336px column left these
+// 4-series bar charts + legends cramped.
 const GRID: React.CSSProperties = {
-  display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px",
+  display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 460px), 1fr))", gap: "16px",
 };
 
 function Toggle<T extends string | number>(

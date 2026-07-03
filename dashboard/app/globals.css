@@ -61,6 +61,7 @@ input::placeholder, textarea::placeholder { color: #9aa3b0; opacity: 1; }
    reject the job instead of opening it. */
 .rf-card-reject { opacity: 0; pointer-events: none; transition: opacity .12s; }
 .rf-card:hover > .rf-card-reject,
+.rf-card:focus-within > .rf-card-reject,
 .rf-card-reject:focus-visible { opacity: 1; pointer-events: auto; }
 
 /* ModelPicker / LocationPicker menus: pseudo-states inline styles can't express

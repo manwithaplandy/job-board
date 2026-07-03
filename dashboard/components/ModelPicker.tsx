@@ -42,16 +42,19 @@ export function ModelPicker({
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (!open) { setOpen(true); setActiveIndex(0); return; }
+      if (!open) { setOpen(true); setActiveIndex(results.length ? 0 : -1); return; }
       setActiveIndex((i) => Math.min(i + 1, results.length - 1));
     } else if (e.key === "ArrowUp") {
       if (!open) return;
       e.preventDefault();
       setActiveIndex((i) => (i <= 0 ? 0 : i - 1));
     } else if (e.key === "Enter") {
-      if (open && activeIndex >= 0 && activeIndex < results.length) {
+      // Enter in an OPEN combobox must never fall through to implicit form submission
+      // (which would save the whole profile mid-edit). Commit the highlighted option if
+      // one is active; otherwise swallow the key and do nothing.
+      if (open) {
         e.preventDefault();
-        choose(results[activeIndex]);
+        if (activeIndex >= 0 && activeIndex < results.length) choose(results[activeIndex]);
       }
     } else if (e.key === "Escape") {
       if (open) {
@@ -81,10 +84,12 @@ export function ModelPicker({
       <input
         id={inputId}
         type="text"
-        className="rf-focusable rf-picker-input"
+        className="rf-focusable"
         role="combobox"
-        aria-controls={listboxId}
-        aria-expanded={open}
+        // Only reference the listbox while it's actually rendered (open with results) —
+        // aria-controls/activedescendant pointing at an absent element confuses AT.
+        aria-controls={open && results.length > 0 ? listboxId : undefined}
+        aria-expanded={open && results.length > 0}
         aria-autocomplete="list"
         aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         style={{
@@ -173,7 +178,7 @@ export function ModelPicker({
                 onClick={() => choose(m)}
               >
                 <span style={{ color: "#1f2430" }}>{m.name}</span>{" "}
-                <span style={{ color: "#9aa3b0" }}>{m.id}</span>
+                <span style={{ color: "#6b7480" }}>{m.id}</span>
               </button>
             </li>
           ))}

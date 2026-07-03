@@ -601,7 +601,8 @@ export function FilterBar({
                   padding: "5px 11px",
                   borderRadius: "7px",
                   background: on ? "#ffffff" : "transparent",
-                  color: on ? "#1b2330" : "#6b7480",
+                  // Inactive label sits on the #eef1f5 track, where #6b7480 is only 4.18:1; #5b6472 (5.28:1) clears AA.
+                  color: on ? "#1b2330" : "#5b6472",
                   boxShadow: on ? "0 1px 3px rgba(20,28,40,.12)" : "none",
                 }}
               >

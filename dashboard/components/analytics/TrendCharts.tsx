@@ -33,7 +33,8 @@ function Toggle<T extends string | number>(
           <button key={String(o.v)} onClick={() => onChange(o.v)} style={{
             border: "none", cursor: "pointer", fontWeight: 700, fontSize: "12.5px", padding: "6px 14px",
             borderRadius: "7px", background: active ? "#fff" : "transparent",
-            color: active ? "#1f2430" : "#6b7480", boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
+            // Inactive label sits on the #eef1f5 track, where #6b7480 is only 4.18:1; #5b6472 (5.28:1) clears AA.
+            color: active ? "#1f2430" : "#5b6472", boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
           }}>{o.label}</button>
         );
       })}

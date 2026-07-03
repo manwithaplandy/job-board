@@ -168,33 +168,6 @@ export function ApplicationPanel({
     );
   };
 
-  const copyBtnStyle: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "7px",
-    fontWeight: 700,
-    fontSize: "13.5px",
-    color: "#5b6472",
-    background: "#fff",
-    border: "1px solid #dfe3ea",
-    borderRadius: "10px",
-    padding: "10px 15px",
-    cursor: "pointer",
-  };
-  const primaryBtnStyle: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "8px",
-    fontWeight: 700,
-    fontSize: "13.5px",
-    color: "#fff",
-    background: "#3b6fd4",
-    border: "none",
-    borderRadius: "10px",
-    padding: "10px 17px",
-    cursor: "pointer",
-    boxShadow: "0 3px 10px rgba(59,111,212,.26)",
-  };
   const cancelBtnStyle: React.CSSProperties = {
     flex: "0 0 auto",
     fontWeight: 700,
@@ -554,12 +527,13 @@ export function ApplicationPanel({
               </div>
             </div>
             <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
-              <button onClick={handleCoverDownload} style={primaryBtnStyle}>
+              <Button variant="primary" size="sm" onClick={handleCoverDownload} style={{ boxShadow: "0 3px 10px rgba(59,111,212,.26)" }}>
                 <span>⤓</span>Download PDF
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => flashCopied("cover", composeCoverLetterText(coverData))}
-                style={copyBtnStyle}
               >
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
                   <rect x="5.2" y="5.2" width="8.6" height="8.6" rx="2" stroke="currentColor" strokeWidth="1.6" />
@@ -571,14 +545,15 @@ export function ApplicationPanel({
                   />
                 </svg>
                 <span aria-live="polite">{copiedKey === "cover" ? "Copied!" : "Copy text"}</span>
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={onRegenerateCover}
                 disabled={generating}
-                style={{ ...copyBtnStyle, ...(generating ? { opacity: 0.6, cursor: "not-allowed" } : {}) }}
               >
                 <span>↻</span>Regenerate
-              </button>
+              </Button>
             </div>
           </div>
         )}

@@ -7,8 +7,14 @@ body {
   text-rendering: optimizeLegibility;
   background: #f4f6fa;
   color: #1f2430;
+  /* Restores the base line-height Tailwind preflight set on `html` (dropped with
+     @tailwind base); explicit per-element line-heights still override it. */
+  line-height: 1.5;
 }
 input, button, textarea, select { font-family: inherit; }
+/* Restores Tailwind preflight's placeholder normalization (dropped with @tailwind base):
+   app-wide light-gray placeholder + opacity:1 for Firefox parity. */
+input::placeholder, textarea::placeholder { color: #9aa3b0; opacity: 1; }
 
 @keyframes rf-spin { to { transform: rotate(360deg); } }
 
@@ -55,10 +61,10 @@ input, button, textarea, select { font-family: inherit; }
 .rf-card-reject:focus-visible { opacity: 1; pointer-events: auto; }
 
 /* ModelPicker / LocationPicker menus: pseudo-states inline styles can't express
-   (placeholder color + option/clear hover), preserved through the Tailwind removal —
-   same rationale as .rf-focusable / .rf-card-reject above. Base bg/color live here too
-   so the :hover rule isn't shadowed by an inline value and survives preflight removal. */
-.rf-picker-input::placeholder { color: #9aa3b0; }
+   (option/clear hover), preserved through the Tailwind removal — same rationale as
+   .rf-focusable / .rf-card-reject above. Base bg/color live here too so the :hover
+   rule isn't shadowed by an inline value and survives preflight removal. The picker
+   inputs' placeholder color now comes from the global input::placeholder rule above. */
 .rf-picker-option { background: transparent; }
 .rf-picker-option:hover { background: #eef3fc; }
 .rf-picker-clear { color: #6f97dd; }

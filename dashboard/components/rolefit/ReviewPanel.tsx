@@ -6,7 +6,7 @@ import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { saveReviewCorrection } from "@/app/actions/corrections";
 import {
   VERDICTS, EXPERIENCE_MATCH, INDUSTRIES, SUBCATEGORIES_BY_INDUSTRY,
-  ROLE_CATEGORIES, SENIORITY, WORK_ARRANGEMENT, CONFIDENCE,
+  ROLE_CATEGORIES, SENIORITY, WORK_ARRANGEMENT, CONFIDENCE, taxonomyLabel,
 } from "@/lib/rolefit/taxonomy";
 
 function initialForm(job: JobRow): CorrectionForm {
@@ -86,7 +86,7 @@ export function ReviewPanel({
         style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13 }}
       >
         <option value="">—</option>
-        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+        {opts.map((o) => <option key={o} value={o}>{taxonomyLabel(o)}</option>)}
       </select>
     </label>
   );

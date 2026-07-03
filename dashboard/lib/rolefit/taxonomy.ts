@@ -47,3 +47,77 @@ export const WORK_ARRANGEMENT = ["remote", "hybrid", "onsite", "unknown"] as con
 export const EXPERIENCE_MATCH = ["step_down", "match", "reach", "far_reach"] as const;
 export const CONFIDENCE = ["low", "medium", "high"] as const;
 export const VERDICTS = ["approve", "deny"] as const;
+
+// Human-readable labels for the enum tokens rendered in the correction editor's
+// selects (finding #26 — raw tokens like "step_down"/"software_internet" read badly).
+// The token stays the persisted value; the label is display-only. Any token not listed
+// falls back to the raw token via `taxonomyLabel` (e.g. the already-Title-Cased
+// ROLE_CATEGORIES), so an unexpected value never blanks. Same pattern as ats.ts.
+export const TAXONOMY_LABELS: Record<string, string> = {
+  // Verdict
+  approve: "Approve",
+  deny: "Deny",
+  // Experience match
+  step_down: "Step down",
+  match: "Match",
+  reach: "Reach",
+  far_reach: "Far reach",
+  // Confidence
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  // Seniority
+  junior: "Junior",
+  mid: "Mid",
+  senior: "Senior",
+  staff: "Staff",
+  principal: "Principal",
+  lead: "Lead",
+  manager: "Manager",
+  // Work arrangement
+  remote: "Remote",
+  hybrid: "Hybrid",
+  onsite: "Onsite",
+  // "unknown" is shared by seniority + work arrangement
+  unknown: "Unknown",
+  // Industries
+  software_internet: "Software & Internet",
+  fintech_finance: "Fintech & Finance",
+  healthcare_life_sciences: "Healthcare & Life Sciences",
+  commerce_consumer: "Commerce & Consumer",
+  industrial_hardware: "Industrial & Hardware",
+  public_education: "Public Sector & Education",
+  services_other: "Services & Other",
+  // Subcategories
+  devtools_platforms: "Devtools & Platforms",
+  cloud_infrastructure: "Cloud Infrastructure",
+  cybersecurity: "Cybersecurity",
+  data_ml_ai: "Data, ML & AI",
+  devops_observability_sre: "DevOps, Observability & SRE",
+  saas_productivity: "SaaS & Productivity",
+  consumer_social_media: "Consumer & Social Media",
+  ecommerce_marketplace_tech: "E-commerce & Marketplace Tech",
+  gaming: "Gaming",
+  fintech_payments_crypto: "Fintech, Payments & Crypto",
+  banking_trading_inhouse: "Banking & Trading (in-house)",
+  insurance_insurtech: "Insurance & Insurtech",
+  health_tech_digital_health: "Health Tech & Digital Health",
+  provider_hospital_inhouse: "Provider & Hospital (in-house)",
+  biotech_pharma_software: "Biotech & Pharma Software",
+  medical_devices: "Medical Devices",
+  retail_ecommerce_inhouse: "Retail & E-commerce (in-house)",
+  logistics_supply_chain: "Logistics & Supply Chain",
+  travel_hospitality: "Travel & Hospitality",
+  manufacturing_industrial_software: "Manufacturing & Industrial Software",
+  iot_embedded_robotics: "IoT, Embedded & Robotics",
+  automotive_aerospace_defense: "Automotive, Aerospace & Defense",
+  energy_climate_cleantech: "Energy, Climate & Cleantech",
+  government_govtech: "Government & GovTech",
+  education_edtech: "Education & EdTech",
+  nonprofit_ngo: "Nonprofit & NGO",
+  consulting_agency_staffing: "Consulting, Agency & Staffing",
+  telecom_networking: "Telecom & Networking",
+  other_unclear: "Other / Unclear",
+};
+
+export const taxonomyLabel = (token: string): string => TAXONOMY_LABELS[token] ?? token;

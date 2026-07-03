@@ -54,6 +54,7 @@ export function CompanyList({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Filter by company name…"
+        aria-label="Filter by company name"
         className="rf-focusable"
         style={{
           display: "block", width: "100%", maxWidth: "320px", marginBottom: "16px",

@@ -31,8 +31,8 @@ export default async function CompaniesPage({
       <main style={pageStyle}>
         <div style={cardStyle}>
           <a href="/" style={{ fontSize: "12.5px", fontWeight: 600, color: "#5b6472", textDecoration: "none" }}>← Back</a>
-          <h1 style={{ marginTop: "16px", fontSize: "22px", fontWeight: 800 }}>Companies</h1>
-          <p style={{ fontSize: "13px", color: "#8a93a3" }}>
+          <h1 style={{ margin: "16px 0 0", fontSize: "22px", fontWeight: 800 }}>Companies</h1>
+          <p style={{ margin: 0, fontSize: "13px", color: "#8a93a3" }}>
             Set up a profile with company preferences to start discovering companies.
           </p>
         </div>

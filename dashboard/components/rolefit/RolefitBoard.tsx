@@ -6,6 +6,7 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
+import { isResumeStale } from "@/lib/resumeStale";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
 import { Header } from "./Header";
@@ -546,16 +547,13 @@ export function RolefitBoard({
   // profile_version than the live one. Regenerating (handleGenerate) writes the
   // fresh version into `packages`, which clears the flag. Rows with a null stored
   // version (pre-column) are treated as provenance-unknown and never flagged.
-  const isResumeStale = useCallback(
-    (jobId: string): boolean => {
-      const p = packages[jobId];
-      return Boolean(
-        genData[jobId] &&
-          p?.profileVersion &&
-          currentProfileVersion &&
-          p.profileVersion !== currentProfileVersion,
-      );
-    },
+  const resumeStaleFor = useCallback(
+    (jobId: string): boolean =>
+      isResumeStale({
+        hasResume: Boolean(genData[jobId]),
+        packageProfileVersion: packages[jobId]?.profileVersion ?? null,
+        currentProfileVersion,
+      }),
     [packages, genData, currentProfileVersion],
   );
 
@@ -910,7 +908,7 @@ export function RolefitBoard({
                     onCancelGeneration={handleCancelGeneration}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
                     pkg={packages[selectedJobWithDetail.id]}
-                    resumeStale={isResumeStale(selectedJobWithDetail.id)}
+                    resumeStale={resumeStaleFor(selectedJobWithDetail.id)}
                     onMarkApplied={handleMarkApplied}
                     onOpenProfile={() => setProfileOpen(true)}
                     onReject={handleReject}

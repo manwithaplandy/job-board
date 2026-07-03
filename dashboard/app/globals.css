@@ -57,3 +57,13 @@ input, button, textarea { font-family: inherit; }
 .rf-card-reject { opacity: 0; pointer-events: none; transition: opacity .12s; }
 .rf-card:hover > .rf-card-reject,
 .rf-card-reject:focus-visible { opacity: 1; pointer-events: auto; }
+
+/* ModelPicker / LocationPicker menus: pseudo-states inline styles can't express
+   (placeholder color + option/clear hover), preserved through the Tailwind removal —
+   same rationale as .rf-focusable / .rf-card-reject above. Base bg/color live here too
+   so the :hover rule isn't shadowed by an inline value and survives preflight removal. */
+.rf-picker-input::placeholder { color: #9aa3b0; }
+.rf-picker-option { background: transparent; }
+.rf-picker-option:hover { background: #eef3fc; }
+.rf-picker-clear { color: #6f97dd; }
+.rf-picker-clear:hover { color: #3b6fd4; }

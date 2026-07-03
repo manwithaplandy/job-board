@@ -208,11 +208,13 @@ export function ReviewPanel({
               </div>
             </div>
           )}
-          {toast && (
-            <div role="status" aria-live="polite" style={{ fontSize: 12, color: "#5b6472", marginTop: 6 }}>
-              {toast}
-            </div>
-          )}
+          {/* Live region is ALWAYS mounted (empty when idle) so a screen reader observes it
+              before its content changes — a region added to the DOM together with its content
+              is not reliably announced (mirrors the board toasts). Only the text toggles; the
+              top margin collapses to 0 when empty so an idle region adds no visible gap. */}
+          <div role="status" aria-live="polite" style={{ fontSize: 12, color: "#5b6472", marginTop: toast ? 6 : 0 }}>
+            {toast}
+          </div>
         </div>
       )}
 

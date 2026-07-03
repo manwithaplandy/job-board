@@ -207,6 +207,20 @@ export function RolefitBoard({
     actionErrorTimerRef.current = setTimeout(() => setActionError(null), 5000);
   }, []);
 
+  // Shared focus-return: many actions unmount the control the user just activated — a card
+  // hover-×, a toast's Undo, the error banner's Dismiss, the detail action-row buttons — and
+  // React then drops focus to <body>, so the next Tab restarts at the top of the page. Return
+  // it to the (programmatically focusable) detail container, but ONLY when focus actually fell
+  // to <body>, so we never steal it from an input / menu / toast the user is still using.
+  // Called from the post-commit effects below (not the click handlers: at click time the
+  // control still has focus, so the body-check hasn't tripped yet — only after React unmounts
+  // it does focus land on <body>).
+  const returnFocusIfStranded = useCallback(() => {
+    if (document.activeElement === document.body) {
+      detailRef.current?.focus({ preventScroll: true });
+    }
+  }, []);
+
   // Outside-click closes open dropdown — port of reference componentDidMount doc listener
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -493,33 +507,32 @@ export function RolefitBoard({
     // Keyboard reject/mark-applied auto-advance remounts JobDetail (its DetailErrorBoundary
     // key changes) and unmounts the card hover-×, so focus can silently drop to <body> and
     // the next Tab restarts at the top of the page. Return it to the detail container —
-    // mirroring FilterBar's selection-close focus-return. Only when focus actually fell to
-    // <body>, so we never steal it from an input/menu the user is interacting with.
-    if (selectedId && document.activeElement === document.body) {
-      detailRef.current?.focus({ preventScroll: true });
-    }
+    // mirroring FilterBar's selection-close focus-return. No `selectedId &&` guard: marking
+    // the LAST visible job applied auto-advances the selection to null, and on wide layouts
+    // the pane still renders (the "Select a role" placeholder) so the container is focusable.
+    returnFocusIfStranded();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  // Companion to the effect above for the case it can't see: rejecting (or un-rejecting) a
-  // card whose control is NOT the current selection — the keyboard-reachable hover-× on a
-  // non-selected list card (revealed on :focus-within), or the Undo on its toast — unmounts
-  // the focused button WITHOUT changing selectedId, so the [selectedId] effect never fires
-  // and focus silently drops to <body> (the next Tab then restarts at the top of the page).
-  // Watch the reject set and, when a change leaves focus stranded on <body>, return it to
-  // the detail container. Skip the initial mount so a fresh load isn't disturbed, and act
-  // only when focus actually fell to body so it never steals focus from an input / menu /
-  // toast the user is interacting with.
-  const firstRejectFocusRun = useRef(true);
+  // Companion to the effect above for the unmounts it can't see — actions that unmount the
+  // focused control WITHOUT changing selectedId, so the [selectedId] effect never fires and
+  // focus silently drops to <body> (the next Tab then restarts at the top of the page):
+  //   • rejectedIds — the keyboard-reachable hover-× on a non-selected list card (revealed on
+  //     :focus-within) or its toast's Undo; un-reject from the Rejected view.
+  //   • packages    — un-apply from the detail action row / Applied chip (handleUnapply), and
+  //     the apply toast's Undo (handleUndo's apply branch mutates only packages + toast).
+  //   • toast       — a toast expiring on its 5s timer while its Undo button holds focus.
+  //   • actionError — the error banner's Dismiss (or its own timeout) unmounting that button.
+  // Watch all four; the helper's activeElement===body guard makes running on every such change
+  // safe. Skip the initial mount so a fresh load isn't disturbed.
+  const firstFocusReturnRun = useRef(true);
   useEffect(() => {
-    if (firstRejectFocusRun.current) {
-      firstRejectFocusRun.current = false;
+    if (firstFocusReturnRun.current) {
+      firstFocusReturnRun.current = false;
       return;
     }
-    if (document.activeElement === document.body) {
-      detailRef.current?.focus({ preventScroll: true });
-    }
-  }, [rejectedIds]);
+    returnFocusIfStranded();
+  }, [rejectedIds, packages, toast, actionError, returnFocusIfStranded]);
 
   const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;

@@ -71,5 +71,5 @@ input::placeholder, textarea::placeholder { color: #9aa3b0; opacity: 1; }
    inputs' placeholder color now comes from the global input::placeholder rule above. */
 .rf-picker-option { background: transparent; }
 .rf-picker-option:hover { background: #eef3fc; }
-.rf-picker-clear { color: #6f97dd; }
-.rf-picker-clear:hover { color: #3b6fd4; }
+.rf-picker-clear { color: #3b6fd4; }
+.rf-picker-clear:hover { color: #2f57a8; }

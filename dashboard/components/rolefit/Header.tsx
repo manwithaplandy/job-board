@@ -122,6 +122,9 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           style={{
             flex: 1,
             border: "none",
+            // Focus is shown on the .rf-search pill wrapper (:focus-within); suppress the
+            // input's own native outline so it doesn't draw a sharp rectangle inside the pill.
+            outline: "none",
             background: "transparent",
             fontSize: "13.5px",
             color: "#1f2430",
@@ -143,8 +146,12 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
               fontWeight: 500,
             }}
           >
-            {/* Run-health dot */}
+            {/* Run-health dot — color is decorative, so carry the health word as a
+                text alternative for AT (the dot is non-interactive; title alone is
+                unreachable by keyboard/screen readers). */}
             <span
+              role="img"
+              aria-label={`Job Discovery health: ${operator.health}`}
               style={{
                 display: "inline-block",
                 width: "8px",

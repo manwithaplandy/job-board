@@ -344,7 +344,7 @@ export function FilterBar({
             <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#2b333f" }}>
               {cat}
             </span>
-            <span style={{ fontSize: "11.5px", color: "#7a8494", fontWeight: 700 }}>
+            <span style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 700 }}>
               {count}
             </span>
           </button>
@@ -485,7 +485,7 @@ export function FilterBar({
             <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#2b333f" }}>
               {loc}
             </span>
-            <span style={{ fontSize: "11.5px", color: "#7a8494", fontWeight: 700 }}>
+            <span style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 700 }}>
               {count}
             </span>
           </button>
@@ -542,7 +542,7 @@ export function FilterBar({
             <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#2b333f" }}>
               {label}
             </span>
-            <span style={{ fontSize: "11.5px", color: "#7a8494", fontWeight: 700 }}>
+            <span style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 700 }}>
               {count}
             </span>
           </button>

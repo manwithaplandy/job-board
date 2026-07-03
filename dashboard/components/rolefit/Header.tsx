@@ -122,7 +122,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           ref={searchRef}
           value={search}
           onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search roles, companies, skills…"
+          placeholder="Search roles, companies, locations…"
           style={{
             flex: 1,
             border: "none",

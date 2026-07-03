@@ -32,7 +32,7 @@ export function applyFilters(jobs: JobRow[], st: BoardFilterState): JobRow[] {
   const q = st.search.trim().toLowerCase();
   return jobs.filter((j) => {
     if (q) {
-      const hay = `${j.title} ${j.company_name} ${j.role_category ?? ""} ${(j.skill_gaps ?? []).join(" ")}`.toLowerCase();
+      const hay = `${j.title} ${j.company_name} ${j.location ?? ""} ${j.role_category ?? ""} ${(j.skill_gaps ?? []).join(" ")}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     if (st.cats.length && !(j.role_category && st.cats.includes(j.role_category))) return false;

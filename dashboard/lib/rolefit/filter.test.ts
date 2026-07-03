@@ -25,6 +25,13 @@ describe("applyFilters", () => {
     const jobs = [job({ id: "a", title: "SRE" }), job({ id: "b", title: "Designer", role_category: "Frontend", skill_gaps: [] })];
     expect(applyFilters(jobs, { ...ST, search: "sre" }).map((j) => j.id)).toEqual(["a"]);
   });
+  test("search matches location", () => {
+    const jobs = [
+      job({ id: "a", title: "Engineer", company_name: "Acme", location: "Berlin, DE", role_category: null, skill_gaps: [] }),
+      job({ id: "b", title: "Engineer", company_name: "Acme", location: "Remote (US)", role_category: null, skill_gaps: [] }),
+    ];
+    expect(applyFilters(jobs, { ...ST, search: "berlin" }).map((j) => j.id)).toEqual(["a"]);
+  });
   test("minFit excludes lower scores", () => {
     const jobs = [job({ id: "a", fit_score: 90 }), job({ id: "b", fit_score: 60 })];
     expect(applyFilters(jobs, { ...ST, minFit: 75 }).map((j) => j.id)).toEqual(["a"]);

@@ -359,7 +359,7 @@ export function ProfileModal({
                       Choose a PDF
                     </div>
                     <div style={{ fontSize: "12px", color: "#6b7480", fontWeight: 500 }}>
-                      PDF, DOC or TXT — up to 5MB
+                      PDF — up to 5MB
                     </div>
                     {uploadName && (
                       <div
@@ -378,7 +378,7 @@ export function ProfileModal({
                     id="rf-file"
                     type="file"
                     name="resume_pdf"
-                    accept=".pdf,.txt,.doc,.docx"
+                    accept=".pdf,application/pdf"
                     onChange={(e) => {
                       setUploadName(e.target.files?.[0]?.name ?? "");
                       setIsDirty(true);

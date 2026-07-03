@@ -85,6 +85,10 @@ export interface JobDetailProps {
   isRejected?: boolean;
   onUnreject?: (job: JobRow) => void;
   onCorrected?: (jobId: string, form: CorrectionForm) => void;
+  // Signalled true while the inline correction editor is open (mirrors ReviewPanel's local
+  // `editing`); the board suppresses global keyboard nav so it can't remount this pane and
+  // discard the unsaved correction.
+  onCorrectionEditingChange?: (editing: boolean) => void;
   detailState?: { status: "loading" } | { status: "error" } | { status: "done"; detail: JobReviewDetail } | undefined;
   onRetryDetail?: () => void;
 }
@@ -115,6 +119,7 @@ export function JobDetail({
   isRejected,
   onUnreject,
   onCorrected,
+  onCorrectionEditingChange,
   detailState,
   onRetryDetail,
 }: JobDetailProps) {
@@ -477,7 +482,7 @@ export function JobDetail({
       {/* ── REVIEWED content ── */}
       {hasReview && (
         <>
-          <ReviewPanel job={job} isAuthed={isAuthed} onCorrected={onCorrected} />
+          <ReviewPanel job={job} isAuthed={isAuthed} onCorrected={onCorrected} onEditingChange={onCorrectionEditingChange} />
 
           {/* ── Requirements ── */}
           {reqs.length > 0 && (

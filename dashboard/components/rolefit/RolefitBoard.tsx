@@ -107,6 +107,11 @@ export function RolefitBoard({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [view, setView] = useState<"all" | "applied" | "rejected">("all");
+  // True while the inline ReviewPanel correction editor is open with in-progress edits.
+  // Lifted here (mirroring profileOpen) and fed to the keydown guard so the global j/k/
+  // Arrow/Esc nav can't remount/unmount the detail pane — and silently discard the
+  // unsaved correction — out from under the editor. ReviewPanel signals it.
+  const [correctionEditing, setCorrectionEditing] = useState(false);
 
   // Manual-rejection state: hidden ids + the pending Undo toast. Seeded from the server's
   // rejected jobs (prior-session rejects) so the Rejected view survives a reload; live
@@ -336,8 +341,16 @@ export function RolefitBoard({
         return;
       }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-      // Suppress while a modal/menu is open so their own keys/focus win.
-      if (profileOpen || openMenu) return;
+      // A FilterMenu owns its own Arrow/Home/End/Escape keys (open, roving focus, dismiss).
+      // When the keystroke starts inside one, stay out of its way — otherwise Arrow-to-open
+      // on a trigger ALSO fires board j/k nav on the same press, because this handler's
+      // `openMenu` closure is still the stale pre-open `null` (the menu opens on the state
+      // update this same event schedules). Read the DOM target, not the async state.
+      if (el?.closest("[data-menuroot]")) return;
+      // Suppress while a modal / filter menu / inline-correction editor is open so their own
+      // keys and focus win — and so nav/deselect can't remount the detail pane out from under
+      // an unsaved correction.
+      if (profileOpen || openMenu || correctionEditing) return;
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedId((id) => stepSelection(visibleIds, id, 1));
@@ -350,7 +363,7 @@ export function RolefitBoard({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [visibleIds, profileOpen, openMenu]);
+  }, [visibleIds, profileOpen, openMenu, correctionEditing]);
 
   // The active view's pool size BEFORE search/facet filtering — same view partition as
   // `visible`, minus `applyFilters`. This is the "N of M" counter's denominator so the
@@ -902,7 +915,11 @@ export function RolefitBoard({
               hasUnfilteredJobs={jobs.length > 0}
               scrollParentRef={isNarrow ? undefined : listScrollRef}
               scrollToId={selectedId}
-              onReject={handleRejectById}
+              // The hover-× is a triage affordance — only the "all" view is the triage
+              // queue. Withholding it in Applied/Rejected prevents rejecting an
+              // already-applied job (leaving it applied+rejected) or re-rejecting a
+              // rejected one; those views carry their own detail-pane actions instead.
+              onReject={view === "all" ? handleRejectById : undefined}
             />
           </div>
         )}
@@ -965,6 +982,7 @@ export function RolefitBoard({
                     isRejected={rejectedIds.has(selectedJobWithDetail.id)}
                     onUnreject={handleUnreject}
                     onCorrected={handleCorrected}
+                    onCorrectionEditingChange={setCorrectionEditing}
                     detailState={details[selectedJobWithDetail.id]}
                     onRetryDetail={handleRetryDetail}
                   />

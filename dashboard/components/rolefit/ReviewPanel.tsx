@@ -41,10 +41,14 @@ export function ReviewPanel({
   job,
   isAuthed,
   onCorrected,
+  onEditingChange,
 }: {
   job: JobRow;
   isAuthed: boolean;
   onCorrected?: (jobId: string, form: CorrectionForm) => void;
+  // Notifies the board when the inline editor opens/closes so it can suppress global
+  // keyboard nav — nav would remount this pane and silently drop the unsaved correction.
+  onEditingChange?: (editing: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<CorrectionForm>(() => initialForm(job));
@@ -52,6 +56,15 @@ export function ReviewPanel({
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
+  // Mirror `editing` up to the board, and — critically — reset it to false on unmount so a
+  // mouse-driven job change (which remounts this panel while editing) can't leave the board
+  // stuck suppressing nav forever.
+  useEffect(() => {
+    onEditingChange?.(editing);
+    return () => {
+      if (editing) onEditingChange?.(false);
+    };
+  }, [editing, onEditingChange]);
 
   function set<K extends keyof CorrectionForm>(k: K, v: CorrectionForm[K]) {
     setForm((f) => ({ ...f, [k]: v }));

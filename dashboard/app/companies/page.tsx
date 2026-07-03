@@ -72,7 +72,7 @@ export default async function CompaniesPage({
         </div>
         <CompanyList
           included={included} excluded={excluded} unknown={unknown}
-          counts={counts} state={state}
+          counts={counts} state={state} activeBucket={bucket}
           override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus}
         />
       </div>

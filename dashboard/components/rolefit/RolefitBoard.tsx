@@ -57,7 +57,11 @@ export interface RolefitBoardProps {
 }
 
 function useIsNarrow() {
-  const [narrow, setNarrow] = useState(false);
+  // Seed from matchMedia so mobile's first client paint doesn't render the desktop
+  // layout then snap (SSR-guarded — the initializer returns false on the server).
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 760px)").matches : false,
+  );
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 760px)");
     setNarrow(mq.matches);
@@ -455,7 +459,10 @@ export function RolefitBoard({
   const handleSelect = useCallback((id: string) => {
     setSelectedId(id);
     if (detailRef.current) detailRef.current.scrollTop = 0;
-  }, []);
+    // On the single-pane narrow layout the detail replaces the list in the page
+    // flow, so reset the window scroll to open it at the top.
+    if (isNarrow) window.scrollTo(0, 0);
+  }, [isNarrow]);
 
   const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;

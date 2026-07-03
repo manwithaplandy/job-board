@@ -8,6 +8,7 @@ import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { profileVersion } from "@/lib/profileVersion";
+import { parseProfileLinks } from "@/lib/profileLinks";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import {
@@ -211,7 +212,12 @@ export async function getLatestPollRun(): Promise<PollRunRow | null> {
 export async function getProfile(userId: string): Promise<ProfileRow | null> {
   // ::uuid — postgres.js binds the JS string as text; the uuid column needs the cast.
   const rows = await sql`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`;
-  return (rows[0] as unknown as ProfileRow) ?? null;
+  const row = rows[0] as unknown as ProfileRow | undefined;
+  if (!row) return null;
+  // links is jsonb — never trust the raw read (it can arrive as a double-encoded
+  // string scalar). Route it through the total parser so a corrupt value can't
+  // propagate back into the write path or crash a render.
+  return { ...row, links: parseProfileLinks((row as { links: unknown }).links) };
 }
 
 export async function saveBoardFilters(

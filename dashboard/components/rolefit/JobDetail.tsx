@@ -495,58 +495,7 @@ export function JobDetail({
       {/* ── REVIEWED content ── */}
       {hasReview && (
         <>
-          {/* Application panel — résumé + cover letter + apply */}
-          <ApplicationPanel
-            job={job}
-            isAuthed={isAuthed}
-            resumeState={genState}
-            resumeData={gd}
-            resumeError={genErrorMsg}
-            onGenerateResume={() => onGenerate(job)}
-            onRegenerateResume={() => onGenerate(job)}
-            onCopyResume={() => { if (gd) onCopy(job, gd); }}
-            resumeCopyLabel={copyLabel}
-            usingSample={false}
-            onOpenProfile={onOpenProfile}
-            coverState={coverState}
-            coverData={coverGd}
-            coverError={coverErrorMsg}
-            onGenerateCover={() => onGenerateCover(job)}
-            onRegenerateCover={() => onGenerateCover(job)}
-            onPrepare={() => onPrepare(job)}
-            generating={generating}
-            onCancelGeneration={onCancelGeneration}
-            prepareStatus={prepareStatus}
-            greenhouseQuestions={pkg?.greenhouseQuestions ?? null}
-            prefilledAnswers={pkg?.prefilledAnswers ?? null}
-            status={pkg?.status ?? null}
-            appliedAt={pkg?.appliedAt ?? null}
-            onMarkApplied={() => onMarkApplied(job)}
-          />
-
           <ReviewPanel job={job} isAuthed={isAuthed} onCorrected={onCorrected} />
-
-          {/* Detail-fetch loading shimmer */}
-          {detailState?.status === "loading" && (
-            <div style={{ marginTop: "24px" }}>
-              {[120, 80, 60].map((h, i) => (
-                <div key={i} style={{ height: h, background: "#eef1f5", borderRadius: 8, marginTop: 12 }} />
-              ))}
-            </div>
-          )}
-          {/* Detail-fetch error */}
-          {detailState?.status === "error" && (
-            <div style={{ marginTop: "24px", padding: "16px 20px", border: "1px solid #e3e7ee", borderRadius: "12px", background: "#fdf6f5", display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{ flex: 1, fontSize: "13.5px", color: "#b25a36", fontWeight: 600 }}>
-                Couldn&apos;t load full job details.
-              </div>
-              {onRetryDetail && (
-                <button type="button" onClick={onRetryDetail} style={{ fontWeight: 700, fontSize: "13px", color: "#3b6fd4", background: "#eef3fc", border: "1px solid #d8e2f6", borderRadius: "9px", padding: "7px 14px", cursor: "pointer" }}>
-                  Retry
-                </button>
-              )}
-            </div>
-          )}
 
           {/* ── Requirements ── */}
           {reqs.length > 0 && (
@@ -656,6 +605,57 @@ export function JobDetail({
               </p>
             </div>
           )}
+
+          {/* Detail-fetch loading shimmer */}
+          {detailState?.status === "loading" && (
+            <div style={{ marginTop: "24px" }}>
+              {[120, 80, 60].map((h, i) => (
+                <div key={i} style={{ height: h, background: "#eef1f5", borderRadius: 8, marginTop: 12 }} />
+              ))}
+            </div>
+          )}
+          {/* Detail-fetch error */}
+          {detailState?.status === "error" && (
+            <div style={{ marginTop: "24px", padding: "16px 20px", border: "1px solid #e3e7ee", borderRadius: "12px", background: "#fdf6f5", display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ flex: 1, fontSize: "13.5px", color: "#b25a36", fontWeight: 600 }}>
+                Couldn&apos;t load full job details.
+              </div>
+              {onRetryDetail && (
+                <button type="button" onClick={onRetryDetail} style={{ fontWeight: 700, fontSize: "13px", color: "#3b6fd4", background: "#eef3fc", border: "1px solid #d8e2f6", borderRadius: "9px", padding: "7px 14px", cursor: "pointer" }}>
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Application panel — résumé + cover letter + apply */}
+          <ApplicationPanel
+            job={job}
+            isAuthed={isAuthed}
+            resumeState={genState}
+            resumeData={gd}
+            resumeError={genErrorMsg}
+            onGenerateResume={() => onGenerate(job)}
+            onRegenerateResume={() => onGenerate(job)}
+            onCopyResume={() => { if (gd) onCopy(job, gd); }}
+            resumeCopyLabel={copyLabel}
+            usingSample={false}
+            onOpenProfile={onOpenProfile}
+            coverState={coverState}
+            coverData={coverGd}
+            coverError={coverErrorMsg}
+            onGenerateCover={() => onGenerateCover(job)}
+            onRegenerateCover={() => onGenerateCover(job)}
+            onPrepare={() => onPrepare(job)}
+            generating={generating}
+            onCancelGeneration={onCancelGeneration}
+            prepareStatus={prepareStatus}
+            greenhouseQuestions={pkg?.greenhouseQuestions ?? null}
+            prefilledAnswers={pkg?.prefilledAnswers ?? null}
+            status={pkg?.status ?? null}
+            appliedAt={pkg?.appliedAt ?? null}
+            onMarkApplied={() => onMarkApplied(job)}
+          />
 
         </>
       )}

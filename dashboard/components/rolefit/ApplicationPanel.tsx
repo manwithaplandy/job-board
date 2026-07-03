@@ -41,6 +41,7 @@ export interface ApplicationPanelProps {
   resumeState: string | undefined;
   resumeData: TailoredResume | undefined;
   resumeError?: string;
+  resumeStale: boolean;
   onGenerateResume: () => void;
   onRegenerateResume: () => void;
   onCopyResume: () => void;
@@ -74,6 +75,7 @@ export function ApplicationPanel({
   resumeState,
   resumeData,
   resumeError,
+  resumeStale,
   onGenerateResume,
   onRegenerateResume,
   onCopyResume,
@@ -359,6 +361,7 @@ export function ApplicationPanel({
         state={resumeState}
         data={resumeData}
         error={resumeError}
+        stale={resumeStale}
         onGenerate={onGenerateResume}
         onRegenerate={onRegenerateResume}
         onCopy={onCopyResume}

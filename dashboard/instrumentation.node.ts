@@ -13,6 +13,12 @@ export const langfuseSpanProcessor: LangfuseSpanProcessor | undefined =
         // empty LANGFUSE_HOST slipped through and broke trace export (wrong
         // region default, too). resolveLangfuseHost handles both.
         baseUrl: resolveLangfuseHost(),
+        // Export on span .end() (SimpleSpanProcessor) instead of the default 5s
+        // batch timer. On Vercel a fast (non-timeout) generation returns and the
+        // instance freezes before the batch timer fires, dropping the span — so
+        // successful traces 404'd while slow (timeout) ones survived. "immediate"
+        // is the library's prescribed mode for short-lived serverless functions.
+        exportMode: "immediate",
       })
     : undefined;
 

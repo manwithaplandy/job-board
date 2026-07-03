@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserId } from "@/lib/auth";
 import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
@@ -171,8 +170,12 @@ export async function POST(req: Request) {
   try {
     if (tracingEnabled()) {
       const res = await propagateAttributes({ userId, sessionId: jobId }, run);
-      const processor = langfuseSpanProcessor;
-      if (processor) after(async () => { await processor.forceFlush(); });
+      // Flush inline while the invocation is still alive — a post-response after()
+      // callback can lose the race against Vercel freezing the instance. The inner
+      // try/catch keeps a flush error off the outer 502 branch: the generation
+      // already succeeded, so a trace-export failure must never fail it.
+      try { await langfuseSpanProcessor?.forceFlush(); }
+      catch (e) { console.error("langfuse flush failed", e); }
       return res;
     }
     return await run();

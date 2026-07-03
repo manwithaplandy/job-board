@@ -9,18 +9,26 @@ export function ResumeUploadField({ textareaId }: { textareaId: string }) {
     setStatus("Extracting…");
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch("/api/resume/extract", { method: "POST", body });
-    if (!res.ok) {
+    try {
+      const res = await fetch("/api/resume/extract", { method: "POST", body });
+      if (!res.ok) {
+        setStatus("Couldn't read that file — paste your résumé text below instead.");
+        return;
+      }
+      const { markdown } = (await res.json()) as { markdown: string };
+      if (typeof markdown !== "string") {
+        setStatus("Couldn't read that file — paste your résumé text below instead.");
+        return;
+      }
+      const ta = document.getElementById(textareaId) as HTMLTextAreaElement | null;
+      if (ta) {
+        ta.value = markdown;
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      setStatus("Extracted — review the text below, then Save.");
+    } catch {
       setStatus("Couldn't read that file — paste your résumé text below instead.");
-      return;
     }
-    const { markdown } = (await res.json()) as { markdown: string };
-    const ta = document.getElementById(textareaId) as HTMLTextAreaElement | null;
-    if (ta) {
-      ta.value = markdown;
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    setStatus("Extracted — review the text below, then Save.");
   }
   return (
     <>

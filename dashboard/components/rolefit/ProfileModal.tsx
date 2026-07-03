@@ -406,6 +406,10 @@ export function ProfileModal({
                         const res = await fetch("/api/resume/extract", { method: "POST", body });
                         if (!res.ok) { setExtractStatus("Couldn't read that file — paste your résumé text instead."); return; }
                         const { markdown } = (await res.json()) as { markdown: string };
+                        if (typeof markdown !== "string") {
+                          setExtractStatus("Couldn't read that file — paste your résumé text instead.");
+                          return;
+                        }
                         // Fill the paste box directly (no dispatched change event) so the paste
                         // onChange doesn't fire and clear this just-selected file (kept for archival).
                         if (textareaRef.current) textareaRef.current.value = markdown;

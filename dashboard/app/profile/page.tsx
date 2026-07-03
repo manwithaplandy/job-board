@@ -179,7 +179,7 @@ const labelTextStyle: React.CSSProperties = {
 const hintStyle: React.CSSProperties = {
   fontSize: "11.5px",
   fontWeight: 500,
-  color: "#9aa3b0",
+  color: "#7a8494",
   marginBottom: "8px",
 };
 const inputStyle: React.CSSProperties = {

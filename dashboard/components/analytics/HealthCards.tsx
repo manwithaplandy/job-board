@@ -46,7 +46,7 @@ function Card({
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
         <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: DOT[status] }} title={status} />
         <span style={{ fontSize: "13.5px", fontWeight: 800, color: "#161d29" }}>{name}</span>
-        <span style={{ marginLeft: "auto", fontSize: "11.5px", color: "#9aa3b0" }}>{when}</span>
+        <span style={{ marginLeft: "auto", fontSize: "11.5px", color: "#7a8494" }}>{when}</span>
       </div>
       <div style={{ fontSize: "11px", color: "#9aa3b0", marginBottom: "4px" }}>{scheduleLine}</div>
       {banner && (

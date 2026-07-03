@@ -25,8 +25,7 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
   return (
     <main style={{ minHeight: "100vh", background: "#f4f6fa", color: "#1f2430", padding: "32px 20px 64px" }}>
       <div style={{ maxWidth: "1040px", margin: "0 auto" }}>
-        <a href="/" style={{ fontSize: "12.5px", fontWeight: 600, color: "#5b6472", textDecoration: "none" }}>← Back to board</a>
-        <h1 style={{ margin: "14px 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29" }}>
+        <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29" }}>
           Pipeline analytics
         </h1>
         <div style={{ fontSize: "13px", color: "#6b7480", marginBottom: "18px" }}>

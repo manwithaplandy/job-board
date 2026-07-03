@@ -4,15 +4,16 @@ import path from "node:path";
 export default defineConfig({
   resolve: { alias: { "@": path.resolve(__dirname, ".") } },
   // Automatic JSX runtime so .test.tsx files don't need to import React (matches
-  // Next.js's build) — esbuild's default classic runtime would ReferenceError.
+  // Next.js's build). vite is pinned to ^7 (see package.json) to keep esbuild — which
+  // honors this — as the default transformer: vite 8's default Oxc/Rolldown transformer
+  // ignores esbuild.jsx and fails on JSX in tests (RolldownError: Unexpected JSX).
   esbuild: { jsx: "automatic" },
   test: {
-    // Node is the default (fast) env for the lib logic suite; component tests
-    // (.test.tsx under components/) opt into jsdom via environmentMatchGlobs so
-    // only they pay for a DOM.
+    // Node is the default (fast) env for the lib logic suite; the one component
+    // test (.test.tsx under components/) opts into jsdom via a `// @vitest-environment
+    // jsdom` docblock at the top of the file — vitest 4 removed environmentMatchGlobs.
     environment: "node",
     include: ["lib/**/*.test.ts", "components/**/*.test.tsx"],
-    environmentMatchGlobs: [["**/*.test.tsx", "jsdom"]],
     env: { DATABASE_URL: "postgresql://test:test@localhost:5432/test" },
   },
 });

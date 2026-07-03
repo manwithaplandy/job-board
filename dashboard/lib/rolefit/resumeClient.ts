@@ -41,7 +41,7 @@ export async function generateResume(args: {
       if (!tailored.headlineFocus || !Array.isArray(tailored.experience)) {
         throw new Error("OpenRouter résumé missing required fields");
       }
-      const resume = assembleResume(profile, tailored);
+      const resume = assembleResume(profile, tailored, args.resumeText);
       if (!parseTailoredResume(resume)) {
         throw new Error("assembled résumé failed shape validation");
       }

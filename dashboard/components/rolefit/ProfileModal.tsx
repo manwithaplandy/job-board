@@ -401,6 +401,12 @@ export function ProfileModal({
             >
               <a
                 href="/profile"
+                onClick={(e) => {
+                  // Gate navigation behind the same dirty check as Cancel/Escape/backdrop.
+                  if (isDirty && !window.confirm("You have unsaved changes. Close anyway?")) {
+                    e.preventDefault();
+                  }
+                }}
                 style={{
                   fontSize: "12.5px",
                   color: "#6b7480",

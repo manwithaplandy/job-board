@@ -13,6 +13,13 @@ def test_version_is_sha256_of_instructions():
     assert compute_company_profile_version(None) == hashlib.sha256(b"").hexdigest()
 
 
+def test_reasoning_declared_before_verdict():
+    # Field declaration order drives the emit order under OpenAI structured
+    # output: the model must reason BEFORE it commits to a verdict.
+    fields = list(CompanyReviewResult.model_fields)
+    assert fields.index("reasoning") < fields.index("verdict")
+
+
 def test_result_parses_with_defaults():
     r = CompanyReviewResult.model_validate({"verdict": "unknown"})
     assert r.verdict == "unknown"

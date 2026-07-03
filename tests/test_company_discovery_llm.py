@@ -168,6 +168,24 @@ def test_instructions_ask_for_empty_list_when_none():
     assert "[]" in _INSTRUCTIONS
 
 
+def test_instructions_reasoning_forbids_deliberation_and_caps_length():
+    lower = _INSTRUCTIONS.lower()
+    # Reasoning must be a single, capped sentence with no chain-of-thought.
+    assert "single" in lower
+    assert "200" in _INSTRUCTIONS
+    assert "deliberation" in lower
+    assert "self-correction" in lower
+    # Verdict must be derived from / match the reasoning conclusion.
+    assert "derived from" in lower
+    assert "match its conclusion" in lower
+
+
+def test_instructions_use_confidence_enum_not_float():
+    # The old text said "confidence <= 0.4"; confidence is a low/medium/high enum.
+    assert "<= 0.4" not in _INSTRUCTIONS
+    assert 'confidence="low"' in _INSTRUCTIONS
+
+
 def test_review_forwards_openrouter_cost_as_cost_details(monkeypatch):
     """OpenRouter returns the actual USD cost on resp.usage.cost; Langfuse has no
     price entry for OpenRouter-prefixed model slugs, so without forwarding this

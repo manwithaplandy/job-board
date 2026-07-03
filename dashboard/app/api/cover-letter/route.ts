@@ -50,7 +50,9 @@ export async function POST(req: Request) {
         greenhouseQuestions: null,
         prefilledAnswers: null,
         applyUrl: null,
-        profileVersion: profile.profile_version,
+        // No résumé generated here, so no résumé provenance to record. upsert's
+        // ON CONFLICT preserves the stored résumé + its profile_version untouched.
+        profileVersion: null,
       });
       return Response.json({ package: pkg });
     } catch (e) {

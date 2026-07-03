@@ -19,6 +19,10 @@ export interface JobListProps {
   // The board's scroll container. When provided the list virtualizes against it; when
   // absent (narrow single-pane layout uses natural page scroll) it renders in full.
   scrollParentRef?: RefObject<HTMLDivElement | null>;
+  // When this changes, the virtualized list scrolls that id into view — backs keyboard
+  // nav's scroll-into-view (#3) and the deep-linked ?job= seed (#5). No-op in the
+  // non-virtualized narrow list (page scroll is handled separately).
+  scrollToId?: string | null;
 }
 
 const pillBtnStyle = {
@@ -42,11 +46,13 @@ function VirtualJobList({
   selectedId,
   onSelect,
   scrollParentRef,
+  scrollToId,
 }: {
   jobs: JobRow[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   scrollParentRef: RefObject<HTMLDivElement | null>;
+  scrollToId?: string | null;
 }) {
   // The scroll element is an ancestor (the board's list pane), whose ref attaches after
   // this child's layout effect — so getScrollElement() is null on the first commit. Force
@@ -62,6 +68,14 @@ function VirtualJobList({
     overscan: 6,
     getItemKey: (index) => jobs[index].id,
   });
+
+  // Keyboard nav / deep-link seed sets scrollToId; bring that card into view. The `jobs`
+  // dep re-runs it once the seeded id's row exists (e.g. deep link set before data loaded).
+  useEffect(() => {
+    if (scrollToId == null) return;
+    const i = jobs.findIndex((j) => j.id === scrollToId);
+    if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
+  }, [scrollToId, jobs, virtualizer]);
 
   return (
     <div role="list" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
@@ -98,6 +112,7 @@ export function JobList({
   onBackToAll,
   hasUnfilteredJobs,
   scrollParentRef,
+  scrollToId,
 }: JobListProps) {
   if (jobs.length === 0) {
     // Applied/Rejected buckets aren't "filtered out" — they're just empty. Say so, and
@@ -153,6 +168,7 @@ export function JobList({
         selectedId={selectedId}
         onSelect={onSelect}
         scrollParentRef={scrollParentRef}
+        scrollToId={scrollToId}
       />
     );
   }

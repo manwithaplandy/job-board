@@ -8,7 +8,7 @@ import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
-import { selectionAfterRemoval } from "@/lib/rolefit/selection";
+import { selectionAfterRemoval, stepSelection } from "@/lib/rolefit/selection";
 import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
@@ -181,6 +181,7 @@ export function RolefitBoard({
   // Refs
   const detailRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup timers on unmount
@@ -308,6 +309,38 @@ export function RolefitBoard({
   // Visible ids in render order — the input to selectionAfterRemoval so reject/apply can
   // auto-advance to the next card instead of dumping to the placeholder (#2).
   const visibleIds = useMemo(() => visible.map((j) => j.id), [visible]);
+
+  // Board keyboard nav — navigation + search only, no action keys (#3). `/` focuses the
+  // search input; j/↓ and k/↑ step the selection (which JobList scrolls into view via
+  // scrollToId, #5); Esc clears it. Inert while typing or when the profile modal / a
+  // filter menu is open. Declared after `visibleIds` so the deps read the current list.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el != null &&
+        (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if (e.key === "/" && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Suppress while a modal/menu is open so their own keys/focus win.
+      if (profileOpen || openMenu) return;
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedId((id) => stepSelection(visibleIds, id, 1));
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedId((id) => stepSelection(visibleIds, id, -1));
+      } else if (e.key === "Escape") {
+        setSelectedId(null);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [visibleIds, profileOpen, openMenu]);
 
   // The active view's pool size BEFORE search/facet filtering — same view partition as
   // `visible`, minus `applyFilters`. This is the "N of M" counter's denominator so the
@@ -784,6 +817,7 @@ export function RolefitBoard({
       <Header
         search={search}
         onSearch={setSearch}
+        searchRef={searchRef}
         isAuthed={isAuthed}
         hasProfile={hasProfile}
         operator={operator}
@@ -846,6 +880,7 @@ export function RolefitBoard({
               onBackToAll={() => setView("all")}
               hasUnfilteredJobs={jobs.length > 0}
               scrollParentRef={isNarrow ? undefined : listScrollRef}
+              scrollToId={selectedId}
             />
           </div>
         )}

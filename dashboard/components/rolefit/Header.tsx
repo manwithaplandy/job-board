@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import type { OperatorSignals } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 
@@ -8,6 +9,8 @@ export interface HeaderProps {
   hasProfile: boolean;
   operator?: OperatorSignals;
   onOpenProfile: () => void;
+  // Board keyboard nav focuses this input on `/`.
+  searchRef?: RefObject<HTMLInputElement | null>;
 }
 
 const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
@@ -16,7 +19,7 @@ const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
   stale: "#9aa3b0",
 };
 
-export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpenProfile }: HeaderProps) {
+export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpenProfile, searchRef }: HeaderProps) {
   // "Sign in" when anonymous; "Edit profile" when authed with a saved profile;
   // "Set up profile" when authed but no profile yet.
   const profileBtnLabel = !isAuthed ? "Sign in" : hasProfile ? "Edit profile" : "Set up profile";
@@ -116,6 +119,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           />
         </svg>
         <input
+          ref={searchRef}
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search roles, companies, skills…"

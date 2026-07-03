@@ -13,6 +13,11 @@ const COLORS = {
   slate: "#7a8699", violet: "#7c6cd4",
 };
 
+// Two-up on wide screens, single-column on narrow (mirrors BreakdownsSection).
+const GRID: React.CSSProperties = {
+  display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px",
+};
+
 function Toggle<T extends string | number>(
   { value, onChange, options }:
   { value: T; onChange: (v: T) => void; options: { v: T; label: string }[] },
@@ -104,36 +109,40 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
       </div>
 
       <div style={{ fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: "4px 0 10px" }}>VOLUME</div>
-      <BarsCard title="Jobs found vs closed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
-        bars={[{ key: "new_jobs", name: "New", color: COLORS.green }, { key: "closed_jobs", name: "Closed", color: COLORS.red }]} />
-      <BarsCard title="Job Discovery — companies ok vs failed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
-        bars={[{ key: "companies_ok", name: "OK", color: COLORS.blue }, { key: "companies_failed", name: "Failed", color: COLORS.red }]} />
-      <BarsCard title="Review outcomes" data={review as unknown as Array<Record<string, string | number | null>>} xKey="day"
-        bars={[{ key: "approved", name: "Approved", color: COLORS.green }, { key: "denied", name: "Denied", color: COLORS.red },
-               { key: "gate_rejected", name: "Gate-rejected", color: COLORS.amber }, { key: "errors", name: "Errors", color: COLORS.slate }]} />
-      <BarsCard title="Company Discovery outcomes" data={companyDiscovery as unknown as Array<Record<string, string | number | null>>} xKey="day"
-        bars={[{ key: "included", name: "Included", color: COLORS.green }, { key: "excluded", name: "Excluded", color: COLORS.red },
-               { key: "unknown", name: "Unknown", color: COLORS.slate }, { key: "errors", name: "Errors", color: COLORS.amber }]} />
+      <div style={GRID}>
+        <BarsCard title="Jobs found vs closed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
+          bars={[{ key: "new_jobs", name: "New", color: COLORS.green }, { key: "closed_jobs", name: "Closed", color: COLORS.red }]} />
+        <BarsCard title="Job Discovery — companies ok vs failed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
+          bars={[{ key: "companies_ok", name: "OK", color: COLORS.blue }, { key: "companies_failed", name: "Failed", color: COLORS.red }]} />
+        <BarsCard title="Review outcomes" data={review as unknown as Array<Record<string, string | number | null>>} xKey="day"
+          bars={[{ key: "approved", name: "Approved", color: COLORS.green }, { key: "denied", name: "Denied", color: COLORS.red },
+                 { key: "gate_rejected", name: "Gate-rejected", color: COLORS.amber }, { key: "errors", name: "Errors", color: COLORS.slate }]} />
+        <BarsCard title="Company Discovery outcomes" data={companyDiscovery as unknown as Array<Record<string, string | number | null>>} xKey="day"
+          bars={[{ key: "included", name: "Included", color: COLORS.green }, { key: "excluded", name: "Excluded", color: COLORS.red },
+                 { key: "unknown", name: "Unknown", color: COLORS.slate }, { key: "errors", name: "Errors", color: COLORS.amber }]} />
+      </div>
 
       <div style={{ fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: "18px 0 10px" }}>RATES &amp; OPERATIONS</div>
-      <LinesCard title="Review rates" data={reviewDerived} xKey="day" percent
-        lines={[{ key: "approval_rate", name: "Approval", color: COLORS.green }, { key: "gate_rate", name: "Gate-reject", color: COLORS.amber }]} />
-      <LinesCard title="Company Discovery inclusion rate" data={companyDiscoveryDerived} xKey="day" percent
-        lines={[{ key: "inclusion_rate", name: "Inclusion", color: COLORS.blue }]} />
-      <LinesCard title="Job Discovery failure rate" data={pollDerived} xKey="day" percent
-        lines={[{ key: "failure_rate", name: "Failure", color: COLORS.red }]} />
-      <BarsCard title="Net job growth (new − closed)" data={pollDerived} xKey="day"
-        bars={[{ key: "net_growth", name: "Net", color: COLORS.blue }]} />
-      <LinesCard title="Company Discovery backlog" data={companyDiscoveryDerived} xKey="day"
-        lines={[{ key: "backlog", name: "Backlog", color: COLORS.violet }]} />
-      <BarsCard title="Run cadence (runs per period)" data={ops} xKey="day"
-        bars={[{ key: "poll_runs", name: "Job Discovery", color: COLORS.blue }, { key: "review_runs", name: "Reviewer", color: COLORS.green },
-               { key: "discovery_runs", name: "Company Discovery", color: COLORS.violet }]} />
-      <LinesCard title="Avg run latency (seconds)" data={ops} xKey="day"
-        lines={[{ key: "poll_latency", name: "Job Discovery", color: COLORS.blue }, { key: "review_latency", name: "Reviewer", color: COLORS.green },
-                { key: "discovery_latency", name: "Company Discovery", color: COLORS.violet }]} />
-      <BarsCard title="Credit-halt frequency" data={companyDiscoveryDerived} xKey="day"
-        bars={[{ key: "halt_count", name: "Halts", color: COLORS.amber }]} />
+      <div style={GRID}>
+        <LinesCard title="Review rates" data={reviewDerived} xKey="day" percent
+          lines={[{ key: "approval_rate", name: "Approval", color: COLORS.green }, { key: "gate_rate", name: "Gate-reject", color: COLORS.amber }]} />
+        <LinesCard title="Company Discovery inclusion rate" data={companyDiscoveryDerived} xKey="day" percent
+          lines={[{ key: "inclusion_rate", name: "Inclusion", color: COLORS.blue }]} />
+        <LinesCard title="Job Discovery failure rate" data={pollDerived} xKey="day" percent
+          lines={[{ key: "failure_rate", name: "Failure", color: COLORS.red }]} />
+        <BarsCard title="Net job growth (new − closed)" data={pollDerived} xKey="day"
+          bars={[{ key: "net_growth", name: "Net", color: COLORS.blue }]} />
+        <LinesCard title="Company Discovery backlog" data={companyDiscoveryDerived} xKey="day"
+          lines={[{ key: "backlog", name: "Backlog", color: COLORS.violet }]} />
+        <BarsCard title="Run cadence (runs per period)" data={ops} xKey="day"
+          bars={[{ key: "poll_runs", name: "Job Discovery", color: COLORS.blue }, { key: "review_runs", name: "Reviewer", color: COLORS.green },
+                 { key: "discovery_runs", name: "Company Discovery", color: COLORS.violet }]} />
+        <LinesCard title="Avg run latency (seconds)" data={ops} xKey="day"
+          lines={[{ key: "poll_latency", name: "Job Discovery", color: COLORS.blue }, { key: "review_latency", name: "Reviewer", color: COLORS.green },
+                  { key: "discovery_latency", name: "Company Discovery", color: COLORS.violet }]} />
+        <BarsCard title="Credit-halt frequency" data={companyDiscoveryDerived} xKey="day"
+          bars={[{ key: "halt_count", name: "Halts", color: COLORS.amber }]} />
+      </div>
     </div>
   );
 }

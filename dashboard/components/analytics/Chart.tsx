@@ -18,6 +18,14 @@ const TITLE: React.CSSProperties = {
 const EMPTY: React.CSSProperties = { fontSize: "12.5px", color: "#9aa3b0", padding: "28px 0" };
 const AXIS = { fontSize: 11, fill: "#6b7480" } as const;
 
+// Render ISO date ticks (e.g. "2026-06-05") as "M/D"; leave non-date categories
+// (SimpleBarCard's string labels) untouched.
+function formatDateTick(value: string | number): string {
+  const s = String(value);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  return m ? `${Number(m[2])}/${Number(m[3])}` : s;
+}
+
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return <div style={CARD}><div style={TITLE}>{title}</div>{children}</div>;
 }
@@ -32,7 +40,7 @@ export function BarsCard(
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
           <CartesianGrid stroke="#f0f2f6" vertical={false} />
-          <XAxis dataKey={xKey} tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} />
+          <XAxis dataKey={xKey} tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} tickFormatter={formatDateTick} />
           <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
           <Tooltip contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid #e7eaf0" }} />
           <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -53,7 +61,7 @@ export function LinesCard(
       <ResponsiveContainer width="100%" height={240}>
         <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
           <CartesianGrid stroke="#f0f2f6" vertical={false} />
-          <XAxis dataKey={xKey} tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} />
+          <XAxis dataKey={xKey} tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} tickFormatter={formatDateTick} />
           <YAxis
             tick={AXIS} tickLine={false} axisLine={false}
             domain={percent ? [0, 1] : undefined}

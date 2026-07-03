@@ -22,6 +22,7 @@ export function ProfileModal({
 }: ProfileModalProps) {
   const [profileTab, setProfileTab] = useState<"paste" | "upload">("paste");
   const [uploadName, setUploadName] = useState("");
+  const [extractStatus, setExtractStatus] = useState<string>("");
   const [isPending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -34,6 +35,9 @@ export function ProfileModal({
   // not-yet-saved file selection — otherwise a hidden Upload-tab pick would still
   // submit and silently override the text on save.
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The paste textarea, so an upload can fill it with the extracted markdown for
+  // the user to review before saving (resume_text is the source of truth).
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Save and restore focus
   useEffect(() => {
@@ -290,6 +294,7 @@ export function ProfileModal({
               {/* Paste tab — kept mounted so switching to Upload never drops typed text */}
               <div style={{ display: pasteActive ? "block" : "none" }}>
                   <textarea
+                    ref={textareaRef}
                     className="rf-focusable"
                     name="resume_text"
                     defaultValue={resumeText}
@@ -389,12 +394,41 @@ export function ProfileModal({
                     type="file"
                     name="resume_pdf"
                     accept=".pdf,application/pdf"
-                    onChange={(e) => {
-                      setUploadName(e.target.files?.[0]?.name ?? "");
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      setUploadName(file?.name ?? "");
                       setIsDirty(true);
+                      if (!file) return;
+                      setExtractStatus("Extracting…");
+                      try {
+                        const body = new FormData();
+                        body.append("file", file);
+                        const res = await fetch("/api/resume/extract", { method: "POST", body });
+                        if (!res.ok) { setExtractStatus("Couldn't read that file — paste your résumé text instead."); return; }
+                        const { markdown } = (await res.json()) as { markdown: string };
+                        // Fill the paste box directly (no dispatched change event) so the paste
+                        // onChange doesn't fire and clear this just-selected file (kept for archival).
+                        if (textareaRef.current) textareaRef.current.value = markdown;
+                        setProfileTab("paste");
+                        setExtractStatus("Extracted — review the text, then Save.");
+                      } catch {
+                        setExtractStatus("Couldn't read that file — paste your résumé text instead.");
+                      }
                     }}
                     style={{ display: "none" }}
                   />
+                  {extractStatus && (
+                    <div
+                      style={{
+                        fontSize: "11.5px",
+                        color: "#6b7480",
+                        marginTop: "8px",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {extractStatus}
+                    </div>
+                  )}
               </div>
             </div>
 

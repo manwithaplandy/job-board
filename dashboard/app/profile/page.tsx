@@ -7,8 +7,6 @@ import { internalPathFromReferer } from "@/lib/paths";
 import { ProfileFormShell, type ProfileSaveState } from "@/components/ProfileFormShell";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile, getDistinctLocations } from "@/lib/queries";
-import { extractPdfText } from "@/lib/pdf";
-import { resolveResumeFilePath } from "@/lib/resumeFilePath";
 import {
   getStructuredModels, CURATED_MODELS, DEFAULT_MODEL_ID, validateModelId,
 } from "@/lib/openrouter";
@@ -18,6 +16,7 @@ import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
+import { ResumeUploadField } from "@/components/rolefit/ResumeUploadField";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Profile · Rolefit" };
@@ -54,11 +53,7 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
     const existing = await getProfile(userId);
     const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
     const submittedText = (String(formData.get("resume_text") ?? "")).trim();
-    let resumeText = submittedText || existing?.resume_text || null;
-    // Which uploaded PDF (if any) survives this save is decided after the upload
-    // branch below by resolveResumeFilePath: an empty/unchanged text keeps the
-    // stored PDF, a genuine text replacement drops it, a fresh upload wins.
-    let freshUploadPath: string | null = null;
+    const resumeText = submittedText || existing?.resume_text || null;
 
     const catalogIds = (await getStructuredModels()).map((m) => m.id);
     // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
@@ -91,6 +86,10 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
       relocation: trimOrNull(formData.get("screen_relocation")),
     };
 
+    // The uploaded file is archived only — the client already extracted it into
+    // the résumé textarea and that reviewed text (resume_text) is the single
+    // source generation reads. Save no longer re-extracts or resolves a path.
+    let resumeFilePath = existing?.resume_file_path ?? null;
     const file = formData.get("resume_pdf");
     if (file instanceof File && file.size > 0) {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -98,18 +97,10 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
       const supabase = await createClient();
       const { error } = await supabase.storage
         .from("resumes")
-        .upload(path, bytes, { contentType: "application/pdf", upsert: true });
+        .upload(path, bytes, { contentType: file.type || "application/pdf", upsert: true });
       if (error) return { error: `resume upload failed: ${error.message}` };
-      freshUploadPath = path;
-      const extracted = await extractPdfText(bytes);
-      if (extracted) resumeText = extracted; // paste-text is the fallback when extraction is poor
+      resumeFilePath = path; // archival only — generation reads resume_text
     }
-    const resumeFilePath = resolveResumeFilePath({
-      submittedText,
-      existingText: existing?.resume_text ?? null,
-      existingPath: existing?.resume_file_path ?? null,
-      freshUploadPath,
-    });
 
     await upsertProfile(userId, {
       resumeText, instructions, resumeFilePath,
@@ -268,18 +259,14 @@ export default async function ProfilePage() {
           <input type="hidden" name="return_to" value={returnTo} />
           <label style={fieldStyle}>
             <span style={labelTextStyle}>Résumé PDF</span>
-            <span style={hintStyle}>Optional — overrides pasted text when it extracts cleanly.</span>
-            <input
-              name="resume_pdf"
-              type="file"
-              accept="application/pdf"
-              style={{ fontSize: "13px", color: "#5b6472" }}
-            />
+            <span style={hintStyle}>Optional — extracts into the résumé text below for you to review before saving.</span>
+            <ResumeUploadField textareaId="profile-resume-text" />
           </label>
 
           <label style={fieldStyle}>
             <span style={labelTextStyle}>Résumé text</span>
             <textarea
+              id="profile-resume-text"
               className="rf-focusable"
               name="resume_text"
               rows={12}

@@ -283,9 +283,8 @@ export function ProfileModal({
                 </button>
               </div>
 
-              {/* Paste tab */}
-              {pasteActive && (
-                <>
+              {/* Paste tab — kept mounted so switching to Upload never drops typed text */}
+              <div style={{ display: pasteActive ? "block" : "none" }}>
                   <textarea
                     name="resume_text"
                     defaultValue={resumeText}
@@ -318,12 +317,10 @@ export function ProfileModal({
                     Tip: start with your name on the first line. We&apos;ll detect skills
                     automatically.
                   </div>
-                </>
-              )}
+              </div>
 
-              {/* Upload tab */}
-              {!pasteActive && (
-                <>
+              {/* Upload tab — kept mounted alongside Paste */}
+              <div style={{ display: pasteActive ? "none" : "block" }}>
                   <label
                     htmlFor="rf-file"
                     style={{
@@ -385,8 +382,7 @@ export function ProfileModal({
                     }}
                     style={{ display: "none" }}
                   />
-                </>
-              )}
+              </div>
             </div>
 
             {/* Footer */}

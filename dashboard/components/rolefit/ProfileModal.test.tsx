@@ -60,35 +60,40 @@ describe("ProfileModal (M1: editing text clears a not-yet-saved file)", () => {
     return file;
   };
 
+  // NOTE ON COVERAGE: the fix does two things when text is edited after a file is
+  // picked — (a) clears `uploadName` (the visible chip) and (b) resets the file
+  // input's value so its bytes aren't submitted. Only (a) is observable in jsdom:
+  // jsdom's FormData emits an empty File for a file input no matter what, and it
+  // does not emulate `value="" clears .files`, so (b) — the byte-level drop — is
+  // NOT unit-testable here and is verified by the live browser smoke instead. These
+  // tests therefore guard (a), the user-visible supersede signal.
+
   test("choosing a file shows the filename chip", () => {
     const { fileInput } = renderModal();
     pickFile(fileInput());
     expect(screen.getByText(/resume\.pdf/)).not.toBeNull();
-    expect(fileInput().files?.length).toBe(1);
   });
 
-  test("editing the pasted text clears the pending file selection", () => {
+  test("editing the text after picking a file removes the chip (text supersedes the file)", () => {
     const { textarea, fileInput } = renderModal();
     pickFile(fileInput());
-    expect(fileInput().files?.length).toBe(1);
+    expect(screen.getByText(/resume\.pdf/)).not.toBeNull(); // chip present before editing
 
     fireEvent.change(textarea(), { target: { value: "typed after picking a file" } });
 
-    // The filename chip is gone (uploadName state cleared). jsdom doesn't emulate
-    // the real-browser "value='' clears .files" behavior, so the file actually
-    // dropping from the submission is asserted at the FormData level in the next test.
+    // uploadName was cleared → the "✓ resume.pdf" chip is gone. If the fix's
+    // setUploadName("") were removed, this assertion would fail.
     expect(screen.queryByText(/resume\.pdf/)).toBeNull();
   });
 
-  test("after editing text, submit carries the text and no file", async () => {
+  test("the pick → edit-text → save path still submits the typed text", async () => {
     const { textarea, fileInput, saveResume } = renderModal();
     pickFile(fileInput());
     fireEvent.change(textarea(), { target: { value: "text wins" } });
     fireEvent.click(screen.getByRole("button", { name: /save profile/i }));
     await waitFor(() => expect(saveResume).toHaveBeenCalledTimes(1));
-    const fd = saveResume.mock.calls[0][0];
-    expect(fd.get("resume_text")).toBe("text wins");
-    const pdf = fd.get("resume_pdf") as File;
-    expect(pdf.size).toBe(0); // empty file input → no bytes submitted
+    // The typed text is submitted; whether the file's bytes are excluded is a
+    // real-browser behavior (see coverage note above), smoke-verified separately.
+    expect(saveResume.mock.calls[0][0].get("resume_text")).toBe("text wins");
   });
 });

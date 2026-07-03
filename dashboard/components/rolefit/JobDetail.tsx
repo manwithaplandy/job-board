@@ -11,6 +11,7 @@ import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import { Button } from "@/components/ui/Button";
+import { Chip } from "@/components/ui/Chip";
 
 // Generic "Apply" link → the job's ATS posting. Opens a new tab; rel guards the
 // opener. Now only the fallback for not-yet-reviewed roles (which have no
@@ -368,19 +369,14 @@ export function JobDetail({
           }}
         >
           {(job.human_override || isRejected) && (
-            <span
-              style={{
-                fontSize: "11.5px",
-                fontWeight: 700,
-                color: "#a05f5f",
-                background: "#f8eded",
-                border: "1px solid #ecd6d6",
-                borderRadius: "20px",
-                padding: "4px 11px",
-              }}
+            <Chip
+              color="#a05f5f"
+              bg="#f8eded"
+              border="#ecd6d6"
+              style={{ fontSize: "11.5px", fontWeight: 700, borderRadius: "20px", padding: "4px 11px" }}
             >
               Rejected · you
-            </span>
+            </Chip>
           )}
           {isAuthed && isRejected && onUnreject && (
             <Button
@@ -398,19 +394,11 @@ export function JobDetail({
             </Button>
           )}
           {applied && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                fontSize: "11.5px",
-                fontWeight: 700,
-                color: "#2f7d54",
-                background: "#e3f1e9",
-                border: "1px solid #cfe6d8",
-                borderRadius: "20px",
-                padding: "4px 11px",
-              }}
+            <Chip
+              color="#2f7d54"
+              bg="#e3f1e9"
+              border="#cfe6d8"
+              style={{ gap: "8px", fontSize: "11.5px", fontWeight: 700, borderRadius: "20px", padding: "4px 11px" }}
             >
               ✓ Applied · you
               {onUnapply && (
@@ -428,7 +416,7 @@ export function JobDetail({
                   Undo
                 </Button>
               )}
-            </span>
+            </Chip>
           )}
           {isAuthed && job.verdict === "approve" && !applied && !isRejected && (
             <Button

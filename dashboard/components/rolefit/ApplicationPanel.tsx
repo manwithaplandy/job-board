@@ -13,6 +13,7 @@ import { ResumePanel, legacyCopy } from "./ResumePanel";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
+import { Chip } from "@/components/ui/Chip";
 import type { PrepareLegStatus } from "./RolefitBoard";
 
 // Plain-text cover letter — mirrors composeResumeText in ResumePanel.
@@ -254,23 +255,21 @@ export function ApplicationPanel({
           </div>
         </div>
         {applied && (
-          <span
+          <Chip
+            color="#2f7d54"
+            bg="#e3f1e9"
+            border="#cfe6d8"
             style={{
               flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
               gap: "7px",
               fontWeight: 700,
               fontSize: "12.5px",
-              color: "#2f7d54",
-              background: "#e3f1e9",
-              border: "1px solid #cfe6d8",
               borderRadius: "20px",
               padding: "7px 14px",
             }}
           >
             ✓ Applied{appliedDate ? ` · ${appliedDate}` : ""}
-          </span>
+          </Chip>
         )}
         {isAuthed && !applied && (
           <button
@@ -614,21 +613,21 @@ export function ApplicationPanel({
             <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
               Application questions
             </div>
-            <span
+            <Chip
+              color="#2f7d54"
+              bg="#e3f1e9"
+              border="#cfe6d8"
               style={{
                 fontSize: "10.5px",
                 fontWeight: 800,
                 letterSpacing: ".4px",
                 textTransform: "uppercase",
-                color: "#2f7d54",
-                background: "#e3f1e9",
-                border: "1px solid #cfe6d8",
                 borderRadius: "6px",
                 padding: "3px 8px",
               }}
             >
               Greenhouse
-            </span>
+            </Chip>
             <div style={{ flex: 1 }} />
             <div style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 600 }}>
               Pulled from this posting

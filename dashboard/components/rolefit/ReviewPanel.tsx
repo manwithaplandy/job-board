@@ -5,6 +5,7 @@ import type { JobRow } from "@/lib/types";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { saveReviewCorrection } from "@/app/actions/corrections";
 import { Button } from "@/components/ui/Button";
+import { Panel } from "@/components/ui/Panel";
 import {
   VERDICTS, EXPERIENCE_MATCH, INDUSTRIES, SUBCATEGORIES_BY_INDUSTRY,
   ROLE_CATEGORIES, SENIORITY, WORK_ARRANGEMENT, CONFIDENCE, taxonomyLabel,
@@ -133,14 +134,7 @@ export function ReviewPanel({
   const skillGaps = job.skill_gaps ?? [];
 
   return (
-    <div
-      style={{
-        marginTop: "18px",
-        border: "1px solid #e3e7ee",
-        borderRadius: "16px",
-        padding: "19px 20px",
-      }}
-    >
+    <Panel style={{ marginTop: "18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
         <span
           style={{
@@ -371,6 +365,6 @@ export function ReviewPanel({
           )}
         </div>
       )}
-    </div>
+    </Panel>
   );
 }

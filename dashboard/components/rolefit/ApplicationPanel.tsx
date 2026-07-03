@@ -12,6 +12,7 @@ import { atsLabel as atsLabelOf } from "@/lib/rolefit/ats";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
+import { Panel } from "@/components/ui/Panel";
 import type { PrepareLegStatus } from "./RolefitBoard";
 
 // Plain-text cover letter — mirrors composeResumeText in ResumePanel.
@@ -232,14 +233,12 @@ export function ApplicationPanel({
   return (
     <div style={{ marginTop: "24px" }}>
       {/* ── Header: title + prepare + apply ── */}
-      <div
+      <Panel
         style={{
           display: "flex",
           alignItems: "center",
           gap: "16px",
           flexWrap: "wrap",
-          border: "1px solid #e3e7ee",
-          borderRadius: "16px",
           padding: "17px 19px",
           background: "#f7f9fc",
         }}
@@ -315,7 +314,7 @@ export function ApplicationPanel({
             Apply on {atsLabel}<span style={{ fontSize: "15px" }}>→</span>
           </a>
         )}
-      </div>
+      </Panel>
 
       {/* Per-leg prepare failures — retry only the parts that failed (résumé / cover hit
           their own endpoints; answers re-runs Prepare, as there's no answers-only route). */}
@@ -376,14 +375,7 @@ export function ApplicationPanel({
       />
 
       {/* ── Cover letter ── */}
-      <div
-        style={{
-          marginTop: "18px",
-          border: "1px solid #e3e7ee",
-          borderRadius: "16px",
-          overflow: "hidden",
-        }}
-      >
+      <Panel style={{ marginTop: "18px", padding: 0, overflow: "hidden" }}>
         {/* Idle (authed) */}
         {isAuthed && coverIdle && (
           <div
@@ -613,18 +605,11 @@ export function ApplicationPanel({
             </Button>
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* ── Greenhouse application questions (this posting's real form) ── */}
       {isAuthed && hasGreenhouse && (
-        <div
-          style={{
-            marginTop: "18px",
-            border: "1px solid #e3e7ee",
-            borderRadius: "16px",
-            padding: "17px 19px",
-          }}
-        >
+        <Panel style={{ marginTop: "18px", padding: "17px 19px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
             <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
               Application questions
@@ -749,7 +734,7 @@ export function ApplicationPanel({
               </div>
             ))}
           </div>
-        </div>
+        </Panel>
       )}
     </div>
   );

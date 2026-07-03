@@ -6,6 +6,7 @@ import { renderResumePdf } from "@/lib/rolefit/resumePdf";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { Button } from "@/components/ui/Button";
+import { Panel } from "@/components/ui/Panel";
 import { ResumeScorePanel } from "@/components/rolefit/ResumeScorePanel";
 
 function legacyCopy(text: string) {
@@ -72,14 +73,7 @@ export function ResumePanel({
   };
 
   return (
-    <div
-      style={{
-        marginTop: "24px",
-        border: "1px solid #e3e7ee",
-        borderRadius: "16px",
-        overflow: "hidden",
-      }}
-    >
+    <Panel style={{ marginTop: "24px", padding: 0, overflow: "hidden" }}>
       {/* ── Anon: sign-in prompt ── */}
       {isAuthed === false && isIdle && (
         <div
@@ -397,7 +391,7 @@ export function ResumePanel({
           </Button>
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
 

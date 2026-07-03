@@ -21,9 +21,11 @@ export interface JobCardProps {
   job: JobRow;
   selected: boolean;
   onSelect: (id: string) => void;
+  // Hover/focus-revealed reject × on the card (#14). Absent → no × is rendered.
+  onReject?: (id: string) => void;
 }
 
-export const JobCard = React.memo(function JobCard({ job, selected, onSelect }: JobCardProps) {
+export const JobCard = React.memo(function JobCard({ job, selected, onSelect, onReject }: JobCardProps) {
   const c = fitColor(job.fit_score ?? 0);
   const initials = initialsOf(job.company_name);
   const payLabel = fmtPay(job);
@@ -41,108 +43,140 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect }: 
     : "0 1px 2px rgba(20,28,40,.045)";
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(job.id)}
-      aria-pressed={selected}
-      style={{
-        position: "relative",
-        display: "flex",
-        gap: "12px",
-        margin: "0 13px 9px",
-        padding: "13px 14px 14px 8px",
-        borderRadius: "14px",
-        cursor: "pointer",
-        background: cardBg,
-        border: cardBorder,
-        boxShadow: cardShadow,
-        textAlign: "left",
-        width: "calc(100% - 26px)",
-        font: "inherit",
-        color: "inherit",
-      }}
-    >
-      {/* Accent bar */}
-      <div
+    <div className="rf-card" style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => onSelect(job.id)}
+        aria-pressed={selected}
         style={{
-          position: "absolute",
-          left: 0,
-          top: "9px",
-          bottom: "9px",
-          width: "4px",
-          borderRadius: "4px",
-          background: c.strong,
-        }}
-      />
-      {/* Logo */}
-      <div
-        style={{
-          flex: "0 0 40px",
-          height: "40px",
-          borderRadius: "10px",
-          background: logoBg,
-          color: "#fff",
+          position: "relative",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontWeight: 800,
-          fontSize: "14px",
-          letterSpacing: ".3px",
-          marginLeft: "6px",
+          gap: "12px",
+          margin: "0 13px 9px",
+          padding: "13px 14px 14px 8px",
+          borderRadius: "14px",
+          cursor: "pointer",
+          background: cardBg,
+          border: cardBorder,
+          boxShadow: cardShadow,
+          textAlign: "left",
+          width: "calc(100% - 26px)",
+          font: "inherit",
+          color: "inherit",
         }}
       >
-        {initials}
-      </div>
-      {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+        {/* Accent bar */}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: "9px",
+            bottom: "9px",
+            width: "4px",
+            borderRadius: "4px",
+            background: c.strong,
+          }}
+        />
+        {/* Logo */}
+        <div
+          style={{
+            flex: "0 0 40px",
+            height: "40px",
+            borderRadius: "10px",
+            background: logoBg,
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: 800,
+            fontSize: "14px",
+            letterSpacing: ".3px",
+            marginLeft: "6px",
+          }}
+        >
+          {initials}
+        </div>
+        {/* Content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: "14.5px",
+                color: "#1b2330",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                flex: 1,
+              }}
+            >
+              {job.title}
+            </div>
+            <div
+              style={{
+                flex: "0 0 auto",
+                fontWeight: 800,
+                fontSize: "11.5px",
+                padding: "3px 9px",
+                borderRadius: "20px",
+                background: c.strong,
+                color: c.textOn,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {job.fit_score ?? "—"}
+            </div>
+          </div>
           <div
             style={{
-              fontWeight: 700,
-              fontSize: "14.5px",
-              color: "#1b2330",
+              fontSize: "12.5px",
+              color: "#5b6472",
+              marginTop: "3px",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
-              flex: 1,
+              fontWeight: 500,
             }}
           >
-            {job.title}
+            {companyLine}
           </div>
-          <div
-            style={{
-              flex: "0 0 auto",
-              fontWeight: 800,
-              fontSize: "11.5px",
-              padding: "3px 9px",
-              borderRadius: "20px",
-              background: c.strong,
-              color: c.textOn,
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            {job.fit_score ?? "—"}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+            {payLabel && <Chip>{payLabel}</Chip>}
+            {remoteLabel && <Chip>{remoteLabel}</Chip>}
+            {job.role_category && <Chip>{job.role_category}</Chip>}
           </div>
         </div>
-        <div
+      </button>
+      {onReject && (
+        <button
+          type="button"
+          aria-label={`Reject ${job.title}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onReject(job.id);
+          }}
+          className="rf-card-reject"
           style={{
-            fontSize: "12.5px",
+            position: "absolute",
+            top: "10px",
+            right: "18px",
+            zIndex: 1,
+            width: "22px",
+            height: "22px",
+            borderRadius: "6px",
+            border: "none",
+            background: "rgba(20,28,40,.06)",
             color: "#5b6472",
-            marginTop: "3px",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            fontWeight: 500,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "14px",
           }}
         >
-          {companyLine}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
-          {payLabel && <Chip>{payLabel}</Chip>}
-          {remoteLabel && <Chip>{remoteLabel}</Chip>}
-          {job.role_category && <Chip>{job.role_category}</Chip>}
-        </div>
-      </div>
-    </button>
+          ×
+        </button>
+      )}
+    </div>
   );
 });

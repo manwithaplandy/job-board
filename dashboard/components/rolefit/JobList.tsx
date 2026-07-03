@@ -23,6 +23,8 @@ export interface JobListProps {
   // nav's scroll-into-view (#3) and the deep-linked ?job= seed (#5). No-op in the
   // non-virtualized narrow list (page scroll is handled separately).
   scrollToId?: string | null;
+  // Hover-revealed reject × on each card (#14). Threaded to every JobCard; absent → no ×.
+  onReject?: (id: string) => void;
 }
 
 const pillBtnStyle = {
@@ -47,12 +49,14 @@ function VirtualJobList({
   onSelect,
   scrollParentRef,
   scrollToId,
+  onReject,
 }: {
   jobs: JobRow[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   scrollParentRef: RefObject<HTMLDivElement | null>;
   scrollToId?: string | null;
+  onReject?: (id: string) => void;
 }) {
   // The scroll element is an ancestor (the board's list pane), whose ref attaches after
   // this child's layout effect — so getScrollElement() is null on the first commit. Force
@@ -95,7 +99,7 @@ function VirtualJobList({
               transform: `translateY(${vi.start}px)`,
             }}
           >
-            <JobCard job={job} selected={job.id === selectedId} onSelect={onSelect} />
+            <JobCard job={job} selected={job.id === selectedId} onSelect={onSelect} onReject={onReject} />
           </div>
         );
       })}
@@ -113,6 +117,7 @@ export function JobList({
   hasUnfilteredJobs,
   scrollParentRef,
   scrollToId,
+  onReject,
 }: JobListProps) {
   if (jobs.length === 0) {
     // Applied/Rejected buckets aren't "filtered out" — they're just empty. Say so, and
@@ -169,6 +174,7 @@ export function JobList({
         onSelect={onSelect}
         scrollParentRef={scrollParentRef}
         scrollToId={scrollToId}
+        onReject={onReject}
       />
     );
   }
@@ -181,6 +187,7 @@ export function JobList({
             job={job}
             selected={job.id === selectedId}
             onSelect={onSelect}
+            onReject={onReject}
           />
         </div>
       ))}

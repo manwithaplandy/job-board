@@ -48,3 +48,9 @@ input, button, textarea { font-family: inherit; }
   border-color: #3b6fd4;
   box-shadow: 0 0 0 3px rgba(59,111,212,.18);
 }
+
+/* Hover-revealed reject × on job cards (#14). Inline styles can't express a parent's
+   :hover, so the reveal lives here; keyboard focus reveals it too. */
+.rf-card-reject { opacity: 0; transition: opacity .12s; }
+.rf-card:hover > .rf-card-reject,
+.rf-card-reject:focus-visible { opacity: 1; }

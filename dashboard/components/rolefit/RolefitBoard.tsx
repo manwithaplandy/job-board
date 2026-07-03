@@ -484,6 +484,14 @@ export function RolefitBoard({
     }
   }, [rejectJob, showActionError, visibleIds]);
 
+  // The hover-× on a card (#14) hands back only the id; resolve the row from the rejected
+  // pool (a superset of `jobs`) and route through handleReject so it shares the same
+  // optimistic-update + Undo-toast + auto-advance path as the detail-pane reject.
+  const handleRejectById = useCallback((id: string) => {
+    const job = rejectedPool.find((j) => j.id === id);
+    if (job) void handleReject(job);
+  }, [rejectedPool, handleReject]);
+
   const handleUndo = useCallback(() => {
     if (!toast) return;
     if (toast.kind === "reject") {
@@ -888,6 +896,7 @@ export function RolefitBoard({
               hasUnfilteredJobs={jobs.length > 0}
               scrollParentRef={isNarrow ? undefined : listScrollRef}
               scrollToId={selectedId}
+              onReject={handleRejectById}
             />
           </div>
         )}

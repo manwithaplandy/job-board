@@ -304,6 +304,14 @@ export function RolefitBoard({
     [jobs, rejectedPool, filterState, rejectedIds, appliedSet, view],
   );
 
+  // The active view's pool size BEFORE search/facet filtering — same view partition as
+  // `visible`, minus `applyFilters`. This is the "N of M" counter's denominator so the
+  // Rejected/Applied views read against their own totals, not the all-jobs total (#13).
+  const totalInView = useMemo(
+    () => filterByView(view === "rejected" ? rejectedPool : jobs, view, rejectedIds, appliedSet).length,
+    [jobs, rejectedPool, view, rejectedIds, appliedSet],
+  );
+
   // Display-only overlay of `corrections` on top of the filtered/sorted/bucketed
   // `visible` rows — a corrected job keeps its current position until reload (same
   // tradeoff as rejectedIds); this only refreshes what the card renders.
@@ -783,7 +791,7 @@ export function RolefitBoard({
         }}
       />
       <FilterBar
-        jobs={jobs}
+        totalInView={totalInView}
         facets={facets}
         cats={cats}
         locs={locs}

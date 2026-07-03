@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { JobRow } from "@/lib/types";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { atsLabel } from "@/lib/rolefit/ats";
 
@@ -159,7 +158,9 @@ function FilterMenu({
 }
 
 export interface FilterBarProps {
-  jobs: JobRow[];
+  // Size of the active view's pool BEFORE search/facet filtering — the counter's
+  // denominator, so Rejected/Applied read against their own totals (not the all-jobs total).
+  totalInView: number;
   // Category/location counts, memoized by the board so they aren't recomputed per render.
   facets: { categories: Record<string, number>; locations: Record<string, number>; sources: Record<string, number> };
   cats: string[];
@@ -186,7 +187,7 @@ export interface FilterBarProps {
 }
 
 export function FilterBar({
-  jobs,
+  totalInView,
   facets,
   cats,
   locs,
@@ -656,7 +657,7 @@ export function FilterBar({
           whiteSpace: "nowrap",
         }}
       >
-        {visibleCount} of {jobs.length} roles
+        {visibleCount} of {totalInView} roles
       </div>
 
       {/* Sort */}

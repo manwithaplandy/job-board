@@ -14,6 +14,7 @@ import {
 } from "@/lib/openrouter";
 import { ModelPicker } from "@/components/ModelPicker";
 import { LocationPicker } from "@/components/LocationPicker";
+import { ResumeUploadField } from "@/components/ResumeUploadField";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
@@ -269,12 +270,7 @@ export default async function ProfilePage() {
           <label style={fieldStyle}>
             <span style={labelTextStyle}>Résumé PDF</span>
             <span style={hintStyle}>Optional — overrides pasted text when it extracts cleanly.</span>
-            <input
-              name="resume_pdf"
-              type="file"
-              accept="application/pdf"
-              style={{ fontSize: "13px", color: "#5b6472" }}
-            />
+            <ResumeUploadField name="resume_pdf" accept="application/pdf" />
           </label>
 
           <label style={fieldStyle}>

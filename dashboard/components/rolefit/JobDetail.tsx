@@ -448,24 +448,6 @@ export function JobDetail({
               Reject
             </button>
           )}
-          {isAuthed && job.verdict === "approve" && !applied && !isRejected && (
-            <button
-              type="button"
-              onClick={() => onMarkApplied(job)}
-              style={{
-                fontWeight: 700,
-                fontSize: "12.5px",
-                color: "#2f7d54",
-                background: "#fff",
-                border: "1px solid #cfe6d8",
-                borderRadius: "9px",
-                padding: "7px 16px",
-                cursor: "pointer",
-              }}
-            >
-              Mark as applied
-            </button>
-          )}
         </div>
       )}
 

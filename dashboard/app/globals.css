@@ -50,7 +50,10 @@ input, button, textarea { font-family: inherit; }
 }
 
 /* Hover-revealed reject × on job cards (#14). Inline styles can't express a parent's
-   :hover, so the reveal lives here; keyboard focus reveals it too. */
-.rf-card-reject { opacity: 0; transition: opacity .12s; }
+   :hover, so the reveal lives here; keyboard focus reveals it too. `pointer-events: none`
+   on the hidden state keeps the invisible (opacity:0) × from being a tappable target on
+   touch devices, which never :hover — without it a tap near the fit-score badge would
+   reject the job instead of opening it. */
+.rf-card-reject { opacity: 0; pointer-events: none; transition: opacity .12s; }
 .rf-card:hover > .rf-card-reject,
-.rf-card-reject:focus-visible { opacity: 1; }
+.rf-card-reject:focus-visible { opacity: 1; pointer-events: auto; }

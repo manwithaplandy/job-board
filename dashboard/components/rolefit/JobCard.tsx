@@ -157,9 +157,13 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
           }}
           className="rf-card-reject"
           style={{
+            // Vertically centered on the card's right edge — the top-right corner is owned
+            // by the always-visible fit-score badge, which the × used to paint over on
+            // hover (and, pre-pointer-events fix, overlap as an invisible tap target).
             position: "absolute",
-            top: "10px",
+            top: "50%",
             right: "18px",
+            transform: "translateY(-50%)",
             zIndex: 1,
             width: "22px",
             height: "22px",

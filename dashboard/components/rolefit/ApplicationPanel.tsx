@@ -273,7 +273,7 @@ export function ApplicationPanel({
             ✓ Applied{appliedDate ? ` · ${appliedDate}` : ""}
           </span>
         )}
-        {isAuthed && prepared && !applied && (
+        {isAuthed && !applied && (
           <button
             onClick={onMarkApplied}
             style={{

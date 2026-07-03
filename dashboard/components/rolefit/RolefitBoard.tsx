@@ -57,11 +57,12 @@ export interface RolefitBoardProps {
 }
 
 function useIsNarrow() {
-  // Seed from matchMedia so mobile's first client paint doesn't render the desktop
-  // layout then snap (SSR-guarded — the initializer returns false on the server).
-  const [narrow, setNarrow] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia("(max-width: 760px)").matches : false,
-  );
+  // Seed a stable `false` so the first client render matches the SSR HTML (the board is
+  // server-rendered), then resolve the real value in the effect below. Reading matchMedia
+  // in the initializer would make mobile's hydration pass diverge from the server render —
+  // a structural mismatch (the detail-pane branch differs) that forces a full client
+  // re-render, reintroducing the very flash it aimed to avoid.
+  const [narrow, setNarrow] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 760px)");
     setNarrow(mq.matches);
@@ -323,8 +324,13 @@ export function RolefitBoard({
       const el = e.target as HTMLElement | null;
       const typing =
         el != null &&
-        (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
-      if (e.key === "/" && !typing) {
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable);
+      // `/` focuses search — but stay inert while typing OR while the profile modal / a
+      // filter menu is open, so it can't steal focus out of an aria-modal dialog.
+      if (e.key === "/" && !typing && !profileOpen && !openMenu) {
         e.preventDefault();
         searchRef.current?.focus();
         return;

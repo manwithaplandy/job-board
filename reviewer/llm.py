@@ -1,6 +1,12 @@
 import os
 
-from observability.llm import OutOfCreditsError, _is_out_of_credits, traced_structured_call
+from observability.llm import (
+    # Re-exported (redundant alias) so reviewer.run can import the exception and
+    # 402-detector from this domain module rather than reaching into observability.
+    OutOfCreditsError as OutOfCreditsError,
+    _is_out_of_credits as _is_out_of_credits,
+    traced_structured_call,
+)
 from reviewer.schemas import (
     ENGLISH_ONLY_INSTRUCTION, TAXONOMY_TEXT, UNTRUSTED_JD_GUARD,
     Stage1BatchResult, Stage1Decision, Stage1Result, Stage2Result,

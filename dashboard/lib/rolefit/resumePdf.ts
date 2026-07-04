@@ -141,7 +141,7 @@ export function renderResumePdf(doc: ResumePdfDoc, data: TailoredResume): number
     y += 8 * s + extra;
 
     section("Experience");
-    data.experience.forEach((exp, idx) => {
+    data.experience.forEach((exp) => {
       if (draw) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10.8 * s);

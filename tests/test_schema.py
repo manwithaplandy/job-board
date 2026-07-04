@@ -56,7 +56,8 @@ def test_jobs_has_description_column(conn):
 
 @requires_db
 def test_stage1_decision_check_constraint(conn):
-    import psycopg, pytest
+    import psycopg
+    import pytest
     # seed a company + job so the job_reviews FK is satisfiable
     with conn.cursor() as cur:
         cur.execute(

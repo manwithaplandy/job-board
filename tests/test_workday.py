@@ -604,7 +604,6 @@ def test_fetch_workday_returns_iterator_not_list(monkeypatch):
     discard each posting before the next one is fetched, keeping peak memory at
     O(1) postings rather than O(N).
     """
-    import types
 
     page = {"total": 1, "jobPostings": [
         {"externalPath": "/job/a/JR-1", "title": "A"},

@@ -67,7 +67,7 @@ export async function saveReviewCorrection(
         ${row.pay_currency}, ${row.pay_period}, ${row.headcount},
         ${tx.json(row.red_flags)}, ${tx.json(row.skill_gaps)},
         ${tx.json(row.benefits)}, ${tx.json(row.requirements)},
-        ${tx.json((s.model_snapshot ?? {}) as any)}, ${form.note}, now(),
+        ${tx.json((s.model_snapshot ?? {}) as Parameters<typeof tx.json>[0])}, ${form.note}, now(),
         ${s.description}, ${s.resume_text}, ${s.instructions}
       )
       ON CONFLICT (user_id, job_id) DO UPDATE SET

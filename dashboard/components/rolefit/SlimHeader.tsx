@@ -8,6 +8,7 @@
 // Async server component: it reads the viewer's email (locally-verified JWT) for the menu.
 // Safe on every caller — all four subpages are authed, force-dynamic server pages.
 
+import Link from "next/link";
 import { getUserClaims } from "@/lib/auth";
 import { AccountMenu } from "./AccountMenu";
 
@@ -32,7 +33,7 @@ export async function SlimHeader({ current }: { current?: NavKey }) {
       }}
     >
       {/* Logo + brand → back to the board */}
-      <a
+      <Link
         href="/"
         style={{
           display: "flex",
@@ -67,7 +68,7 @@ export async function SlimHeader({ current }: { current?: NavKey }) {
         <div style={{ fontWeight: 800, fontSize: "18.5px", letterSpacing: "-.4px", color: "#1b2330" }}>
           Rolefit
         </div>
-      </a>
+      </Link>
 
       {/* Cross-page nav — the current page is marked (filled pill), others are plain links */}
       <nav aria-label="Pages" style={{ display: "flex", alignItems: "center", gap: "4px", marginLeft: "auto" }}>

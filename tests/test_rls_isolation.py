@@ -94,7 +94,7 @@ def test_select_of_other_tenant_rows_returns_zero(conn):
 
 @requires_db
 def test_update_delete_of_other_tenant_rows_affects_zero(conn):
-    cid = _seed_two_users(conn)
+    _cid = _seed_two_users(conn)
     # UPDATE/DELETE targeting B's rows affect 0 rows (RLS filters them out).
     with as_user(conn, A) as c:
         with c.cursor() as cur:

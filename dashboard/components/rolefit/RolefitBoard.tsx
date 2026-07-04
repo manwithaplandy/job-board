@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
 import { ReviewNowPanel } from "@/components/rolefit/ReviewNowPanel";
@@ -64,21 +64,27 @@ export interface RolefitBoardProps {
   initialRejected: JobRow[];
 }
 
+const NARROW_QUERY = "(max-width: 760px)";
+
+function subscribeNarrow(onChange: () => void) {
+  const mq = window.matchMedia(NARROW_QUERY);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
 function useIsNarrow() {
-  // Seed a stable `false` so the first client render matches the SSR HTML (the board is
-  // server-rendered), then resolve the real value in the effect below. Reading matchMedia
-  // in the initializer would make mobile's hydration pass diverge from the server render —
-  // a structural mismatch (the detail-pane branch differs) that forces a full client
-  // re-render, reintroducing the very flash it aimed to avoid.
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 760px)");
-    setNarrow(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setNarrow(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-  return narrow;
+  // Read matchMedia through useSyncExternalStore. getServerSnapshot returns a stable
+  // `false`, so the first client render matches the SSR HTML (the board is server-rendered);
+  // reading the real value in the initializer would make mobile's hydration pass diverge
+  // from the server render — a structural mismatch (the detail-pane branch differs) that
+  // forces a full client re-render, reintroducing the very flash it aimed to avoid. The
+  // real viewport value resolves right after hydration, and `change` events re-render —
+  // all without a setState-in-effect that would cascade renders.
+  return useSyncExternalStore(
+    subscribeNarrow,
+    () => window.matchMedia(NARROW_QUERY).matches, // client snapshot
+    () => false, // server snapshot — SSR has no viewport
+  );
 }
 
 export function RolefitBoard({

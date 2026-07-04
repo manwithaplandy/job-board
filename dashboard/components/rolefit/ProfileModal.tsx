@@ -39,6 +39,17 @@ export function ProfileModal({
   // the user to review before saving (resume_text is the source of truth).
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Declared before the effects that reference it (the Escape handler) so it's never
+  // read in its temporal dead zone.
+  const handleClose = () => {
+    if (isDirty) {
+      if (!window.confirm("You have unsaved changes. Close anyway?")) return;
+    }
+    setSaveError(null);
+    setIsDirty(false);
+    onClose();
+  };
+
   // Save and restore focus
   useEffect(() => {
     if (open) {
@@ -92,15 +103,6 @@ export function ProfileModal({
   }, [open]);
 
   if (!open) return null;
-
-  const handleClose = () => {
-    if (isDirty) {
-      if (!window.confirm("You have unsaved changes. Close anyway?")) return;
-    }
-    setSaveError(null);
-    setIsDirty(false);
-    onClose();
-  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

@@ -1,8 +1,7 @@
 import asyncio
 
-import pytest
 
-from reviewer.run import ReviewResult, review_batch, review_one
+from reviewer.run import review_batch, review_one
 from reviewer.schemas import Stage1Decision, Stage1Result, Stage2Result
 
 
@@ -193,15 +192,12 @@ def test_review_one_traces_when_enabled_and_sampled(monkeypatch):
 
 
 import os
-import uuid
 
-import pytest
 
 from job_discovery import db as poller_db
 from job_discovery.models import Posting
 from reviewer import db as rdb
 from reviewer import entitlements
-from reviewer.llm import OutOfCreditsError
 from tests.conftest import requires_db
 
 

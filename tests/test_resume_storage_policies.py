@@ -74,6 +74,16 @@ CREATE TABLE IF NOT EXISTS storage.objects (
 
 GRANT USAGE ON SCHEMA storage, auth TO authenticated, anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO authenticated, anon;
+
+-- Supabase ships storage.objects with RLS already ENABLED; the migration relies
+-- on that and deliberately does NOT enable it (see the migration's own NOTE). On
+-- the local Supabase test DB the real table already has RLS on, so the CREATE
+-- TABLE above is a no-op and this ALTER is an idempotent no-op. On a bare-Postgres
+-- test DB (e.g. CI's fresh service container) the freshly-created mock table has
+-- RLS OFF, so without this the policies exist but never enforce and the isolation
+-- probes give false passes. Enabling it here makes the mock a faithful Supabase
+-- equivalent so the RLS proof runs identically everywhere.
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 """
 
 

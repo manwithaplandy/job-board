@@ -1,4 +1,3 @@
-import pytest
 
 from reviewer.scoring import (
     DENY_CAP, compute_fit,

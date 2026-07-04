@@ -11,6 +11,7 @@ railway.reviewer-worker.json. Backend job → keeps the service role (direct con
 """
 import logging
 import signal
+import sys
 import time
 
 from job_discovery import db as jdb
@@ -77,6 +78,28 @@ def process_one(conn) -> bool:
     return True
 
 
+def reconnect(conn):
+    """Close a (possibly dead) connection and return a fresh one.
+
+    MAJOR-2: the loop below holds ONE connection for the process lifetime. psycopg3 does
+    not auto-reconnect, so a single dropped connection (pooler recycle, DB failover, idle
+    timeout) turns every subsequent cycle into an exception on a dead connection — the
+    loop would spin forever without exiting, so Railway's ON_FAILURE restart never fires
+    and the queue silently stalls. On a cycle error we close the dead connection and open
+    a fresh one so the worker self-heals. If the reconnect ITSELF fails (DB genuinely
+    down), exit nonzero so Railway restarts the whole service rather than hot-spinning.
+    """
+    try:
+        conn.close()
+    except Exception:
+        pass
+    try:
+        return jdb.connect()
+    except Exception:
+        log.exception("worker DB reconnect failed; exiting nonzero for a Railway restart")
+        sys.exit(1)
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -97,9 +120,12 @@ def main() -> None:
             try:
                 handled = process_one(conn)
             except Exception:
-                # A failure in claim/recover itself (e.g. a dropped connection) must
-                # not kill the loop.
-                log.exception("worker cycle error")
+                # A failure in claim/recover itself (e.g. a dropped connection) must not
+                # kill the loop — but it must also not leave us spinning on a dead
+                # psycopg3 connection. Reconnect (or exit for a Railway restart) so the
+                # worker recovers instead of wedging forever (MAJOR-2).
+                log.exception("worker cycle error; reconnecting")
+                conn = reconnect(conn)
                 handled = False
             if not handled:
                 # Idle: sleep in 1s slices so SIGTERM is honored promptly.

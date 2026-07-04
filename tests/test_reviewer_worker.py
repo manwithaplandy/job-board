@@ -1,6 +1,7 @@
 import uuid
 
 import psycopg
+import pytest
 from psycopg.rows import dict_row
 
 from reviewer import db as rdb
@@ -138,3 +139,70 @@ def test_process_one_exhausted_budget_completes_done(conn):
 @requires_db
 def test_process_one_empty_queue_returns_false(conn):
     assert worker.process_one(conn) is False
+
+
+# ── MAJOR-2: connection resilience ────────────────────────────────────────────
+@requires_db
+def test_reconnect_closes_old_and_returns_usable_connection(conn, monkeypatch):
+    # jdb.connect() reads DATABASE_URL; the test cluster is on TEST_DATABASE_URL, so
+    # point the reconnect at the same test DSN the `conn` fixture uses.
+    monkeypatch.setattr(worker.jdb, "connect",
+                        lambda: psycopg.connect(TEST_DSN, row_factory=dict_row))
+    fresh = worker.reconnect(conn)
+    try:
+        assert conn.closed  # the dead connection was closed
+        with fresh.cursor() as cur:
+            cur.execute("SELECT 1 AS ok")
+            assert cur.fetchone()["ok"] == 1  # the new one works
+    finally:
+        fresh.close()
+
+
+def test_reconnect_exits_nonzero_when_connect_fails(monkeypatch):
+    """If the DB is genuinely down, reconnect exits nonzero so Railway restarts the
+    service (rather than the loop hot-spinning on a dead connection forever)."""
+    class _DummyConn:
+        def close(self):
+            pass
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(worker.jdb, "connect", _boom)
+    with pytest.raises(SystemExit) as exc:
+        worker.reconnect(_DummyConn())
+    assert exc.value.code == 1
+
+
+def test_main_loop_reconnects_after_a_cycle_error(monkeypatch):
+    """A dropped-connection cycle error triggers a reconnect and the loop continues,
+    instead of wedging on the dead connection. process_one raises once (transient
+    disconnect), then a clean exit stops the loop."""
+    connects = {"n": 0}
+
+    class _FakeConn:
+        def close(self):
+            pass
+
+    def _fake_connect():
+        connects["n"] += 1
+        return _FakeConn()
+
+    calls = {"n": 0}
+
+    def _fake_process_one(_conn):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("connection dropped")  # → except branch → reconnect
+        raise SystemExit(0)  # 2nd cycle: stop the loop (BaseException escapes the loop)
+
+    monkeypatch.setattr(worker.jdb, "connect", _fake_connect)
+    monkeypatch.setattr(worker, "process_one", _fake_process_one)
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_POLL_SECONDS", 0)
+    monkeypatch.setattr(worker.config, "has_api_key", lambda: True)
+
+    with pytest.raises(SystemExit):
+        worker.main()
+
+    assert calls["n"] == 2           # cycle ran again AFTER the error (didn't wedge)
+    assert connects["n"] == 2        # initial connect + one reconnect

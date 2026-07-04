@@ -30,7 +30,7 @@ INSERT INTO subscriptions (
 ON CONFLICT (user_id) DO UPDATE SET
   stripe_customer_id     = COALESCE(EXCLUDED.stripe_customer_id, subscriptions.stripe_customer_id),
   stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, subscriptions.stripe_subscription_id),
-  plan                   = COALESCE(EXCLUDED.plan, subscriptions.plan),
+  plan                   = EXCLUDED.plan,
   status                 = EXCLUDED.status,
   current_period_end     = COALESCE(EXCLUDED.current_period_end, subscriptions.current_period_end),
   cancel_at_period_end   = EXCLUDED.cancel_at_period_end,
@@ -76,6 +76,12 @@ def _status(conn, user_id):
         return cur.fetchone()["status"]
 
 
+def _plan(conn, user_id):
+    with conn.cursor() as cur:
+        cur.execute("SELECT plan FROM subscriptions WHERE user_id = %s", (str(user_id),))
+        return cur.fetchone()["plan"]
+
+
 @requires_db
 def test_same_second_stale_update_cannot_reactivate_canceled(conn):
     """ATTACK: deleted (canceled, T) lands, then a stale updated (active) generated in
@@ -115,6 +121,21 @@ def test_duplicate_cancel_redelivery_is_idempotent(conn):
     _upsert(conn, uid, status="canceled", event_at=T)
     _upsert(conn, uid, status="canceled", event_at=T)
     assert _status(conn, uid) == "canceled"
+
+
+@requires_db
+def test_unknown_price_nulls_the_plan_verbatim(conn):
+    """PLAN IS AUTHORITATIVE, NOT COALESCED (upsertSubscription): a plan switch to a
+    price we don't sell arrives with plan=NULL, and a fresher event must take
+    EXCLUDED.plan VERBATIM so the stored plan becomes NULL (user gated). COALESCE-ing it
+    back to the stored plan would leave the user entitled to Pro after switching to an
+    unrecognized price — this guards that the parity SQL uses `plan = EXCLUDED.plan`."""
+    uid = uuid.uuid4()
+    _upsert(conn, uid, status="active", event_at=T, plan="pro")
+    assert _plan(conn, uid) == "pro"
+    # A strictly-later event on a price outside our catalog → plan NULL.
+    _upsert(conn, uid, status="active", event_at=T_NEXT, plan=None)
+    assert _plan(conn, uid) is None
 
 
 @requires_db

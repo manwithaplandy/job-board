@@ -63,7 +63,12 @@ void _assertExportCoversEveryTable;
 export async function listResumeFiles(userId: string, expiresIn = 300): Promise<ResumeFileRef[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.storage.from("resumes").list(userId, { limit: 1000 });
-  if (error) throw new Error(`résumé-file listing failed: ${error.message}`);
+  // Log the storage internals server-side; throw a GENERIC error so the raw message
+  // (host/bucket/network detail) never reaches the downloaded JSON (minor 7 / T5).
+  if (error) {
+    console.error("account export: résumé-file listing failed", error);
+    throw new Error("résumé-file listing failed");
+  }
   if (!data) return [];
   const files = data.filter((o) => o.name && o.id !== null); // drop folder placeholders
   const refs: ResumeFileRef[] = [];
@@ -146,14 +151,16 @@ export async function buildAccountExport(
   const [rows, invites, filesResult] = await Promise.all([
     collectUserRows(userId),
     collectInviteRedemptions(userId),
-    // Capture a storage failure as a marker rather than swallowing it to [] — an empty
-    // list must mean "no files", not "we couldn't read them".
+    // Capture a storage failure as a GENERIC marker rather than swallowing it to [] — an
+    // empty list must mean "no files", not "we couldn't read them". The full error is
+    // logged server-side; the marker shipped in the export is a fixed string, never the
+    // raw storage message (minor 7 / T5).
     resumeFiles(userId)
       .then((files) => ({ files, error: null as string | null }))
-      .catch((e) => ({
-        files: [] as ResumeFileRef[],
-        error: e instanceof Error ? e.message : String(e),
-      })),
+      .catch((e) => {
+        console.error("account export: résumé files could not be listed", e);
+        return { files: [] as ResumeFileRef[], error: "résumé files could not be listed" };
+      }),
   ]);
   return {
     exported_at: new Date().toISOString(),

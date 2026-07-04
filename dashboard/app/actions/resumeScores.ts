@@ -1,17 +1,22 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, getUserClaims } from "@/lib/auth";
+import { isAdmin } from "@/lib/admin";
 import { withUserSql } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { formToScoreRow, buildResumeGoldenItem, type ResumeScoreForm } from "@/lib/rolefit/resumeScore";
 import { upsertResumeGoldenItem } from "@/lib/resumeGoldenDataset";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
 
-// Persist a human résumé score (grounding + JD-relevance, 1–5) and push it to the
-// LangFuse `resume-golden` dataset. DB commits first, so a LangFuse failure never
-// loses the score — it returns langfuseSynced=false and is reconciled by
+// Persist a human résumé score (grounding + JD-relevance, 1–5) and — for ADMINS only —
+// push it to the SHARED LangFuse `resume-golden` dataset. DB commits first, so a LangFuse
+// failure never loses the score — it returns langfuseSynced=false and is reconciled by
 // `node scripts/calibrate-resume-judge.ts --sync`.
+//
+// TENANT EVAL-POISONING (minor 8): resume-golden is a SHARED eval asset; unvalidated
+// tenant input must not poison it, so the golden push is gated to isAdmin. A normal
+// user's score still persists (the DB row below) — it just never reaches the dataset.
 export async function saveResumeScore(
   jobId: string,
   form: ResumeScoreForm,
@@ -60,21 +65,25 @@ export async function saveResumeScore(
     return s;
   });
 
+  // Admin-only push to the shared golden dataset (minor 8). Non-admins: DB row persisted
+  // above, nothing to reconcile → langfuseSynced stays true.
   let langfuseSynced = true;
-  try {
-    await upsertResumeGoldenItem(
-      buildResumeGoldenItem({
-        userId, jobId,
-        input: {
-          title: src.title, company: src.company_name, description: src.description,
-          background: src.resume_text, model: src.model_resume,
-        },
-        form, traceId: src.resume_trace_id, model: src.model_resume, scoredAt,
-      }),
-    );
-  } catch (e) {
-    console.error("resume-golden dataset upsert failed", e);
-    langfuseSynced = false;
+  if (isAdmin(await getUserClaims())) {
+    try {
+      await upsertResumeGoldenItem(
+        buildResumeGoldenItem({
+          userId, jobId,
+          input: {
+            title: src.title, company: src.company_name, description: src.description,
+            background: src.resume_text, model: src.model_resume,
+          },
+          form, traceId: src.resume_trace_id, model: src.model_resume, scoredAt,
+        }),
+      );
+    } catch (e) {
+      console.error("resume-golden dataset upsert failed", e);
+      langfuseSynced = false;
+    }
   }
 
   revalidatePath("/");

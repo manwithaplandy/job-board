@@ -567,6 +567,14 @@ GRANT SELECT ON jobs, companies, job_reviews, review_corrections TO anon;
 -- Tier settings: shared operator config read by the dashboard (withAnonSql) + reviewer.
 GRANT SELECT ON tier_settings TO anon, authenticated;
 
+-- Default-privilege deny (mirrors migrations/2026-07-05-default-privileges-revoke.sql,
+-- finding minor 6): the REVOKE above only touches tables that exist NOW. Strip the
+-- default anon/authenticated grant for FUTURE tables + sequences too, so a new table
+-- starts deny-by-default and its creating migration must explicitly grant the intended
+-- subset (the safe direction). Owner (postgres/service role) bypasses grants + RLS.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES    FROM anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;
+
 -- Storage RLS (résumé bucket) is NOT represented here: the `storage` schema is
 -- Supabase-managed and does not exist in the plain-Postgres test DB this file
 -- builds. Per-prefix tenant isolation for `storage.objects` (bucket `resumes`,

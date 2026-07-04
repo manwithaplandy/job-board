@@ -11,7 +11,7 @@ import uuid
 import psycopg
 import pytest
 
-from tests.conftest import as_user, requires_db
+from tests.conftest import SCHEMA_SQL, as_user, requires_db
 
 A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -464,3 +464,81 @@ def test_every_user_scoped_table_has_rls_enabled_and_expected_policy_set(conn):
                     assert "app_user_id" in predicate, (
                         f"{tbl}.{r['policyname']} is not owner-scoped via app_user_id(): {predicate!r}"
                     )
+
+
+# ── Systemic GRANT-contract guard (MINOR-6) ──────────────────────────────────
+# RLS filters WHICH rows a role touches; the TABLE/COLUMN privilege is a separate, OUTER
+# gate. B-COST was rooted in Supabase's default handing writes to `authenticated` on
+# service-write tables. The RLS guard above proves policies; THIS proves the grant layer:
+# the live anon/authenticated table privileges must EXACTLY equal the allowlist (so a
+# deny-all/service-write table can't leak a write, and a new table can't slip in granted).
+# Privilege sets are frozensets of the SQL privilege_type strings; profiles' INSERT/UPDATE
+# are COLUMN-level (not in role_table_grants), so its table-level set is {SELECT, DELETE}.
+_R = frozenset  # (anon_privs, authenticated_privs)
+EXPECTED_GRANTS = {
+    "jobs":                 (_R({"SELECT"}), _R({"SELECT"})),
+    "companies":            (_R({"SELECT"}), _R({"SELECT"})),
+    "poll_runs":            (_R(), _R({"SELECT"})),
+    "discovery_runs":       (_R(), _R({"SELECT"})),
+    "discovery_state":      (_R(), _R({"SELECT"})),
+    "review_runs":          (_R(), _R({"SELECT"})),
+    "job_reviews":          (_R({"SELECT"}), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "review_corrections":   (_R({"SELECT"}), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "company_reviews":      (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "application_packages": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "resume_scores":        (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "usage_counters":       (_R(), _R({"SELECT"})),               # SELECT-only (B-COST)
+    "profiles":             (_R(), _R({"SELECT", "DELETE"})),     # INSERT/UPDATE are column-level
+    "subscriptions":        (_R(), _R({"SELECT"})),               # webhook writes; owner reads
+    "review_requests":      (_R(), _R({"SELECT", "INSERT"})),     # owner enqueues; worker updates
+    "tier_settings":        (_R({"SELECT"}), _R({"SELECT"})),
+    # Everything else (invite_codes, invite_redemptions, schema_migrations,
+    # account_deletions, openrouter_usage_snapshots) gets NO anon/authenticated grant.
+}
+
+
+@requires_db
+def test_grant_contract_matches_the_allowlist(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT c.relname AS tbl FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r'"
+        )
+        all_tables = {r["tbl"] for r in cur.fetchall()}
+        cur.execute(
+            "SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants "
+            "WHERE table_schema = 'public' AND grantee IN ('anon','authenticated')"
+        )
+        got: dict[str, dict[str, set]] = {}
+        for r in cur.fetchall():
+            got.setdefault(r["table_name"], {}).setdefault(r["grantee"], set()).add(r["privilege_type"])
+
+    assert all_tables, "no public tables discovered — schema.sql failed to load?"
+    for tbl in sorted(all_tables):
+        anon_expected, auth_expected = EXPECTED_GRANTS.get(tbl, (_R(), _R()))
+        anon_got = frozenset(got.get(tbl, {}).get("anon", set()))
+        auth_got = frozenset(got.get(tbl, {}).get("authenticated", set()))
+        assert anon_got == anon_expected, f"{tbl}: anon grants {set(anon_got)} != {set(anon_expected)}"
+        assert auth_got == auth_expected, (
+            f"{tbl}: authenticated grants {set(auth_got)} != {set(auth_expected)}"
+        )
+
+
+@requires_db
+def test_future_tables_are_deny_by_default(conn):
+    """ALTER DEFAULT PRIVILEGES (minor 6): a NEWLY created public table must start with NO
+    anon/authenticated privileges, so a future service-write / deny-all table can't ship
+    writable-by-authenticated with RLS as the only gate (the B-COST root cause). The
+    schema.sql mirror is asserted too, since on plain Postgres the probe passes trivially
+    (there is no Supabase default to counter) — the source check is what guards the mirror."""
+    assert "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES" in SCHEMA_SQL
+    assert "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES" in SCHEMA_SQL
+    with conn.cursor() as cur:
+        cur.execute("CREATE TABLE public._defpriv_probe (id int)")
+        cur.execute(
+            "SELECT count(*)::int AS n FROM information_schema.role_table_grants "
+            "WHERE table_name = '_defpriv_probe' AND grantee IN ('anon','authenticated')"
+        )
+        n = cur.fetchone()["n"]
+        cur.execute("DROP TABLE public._defpriv_probe")
+    assert n == 0, "a new table re-acquired anon/authenticated grants — default-privilege deny missing"

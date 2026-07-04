@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const admin = vi.hoisted(() => ({ isAdmin: true }));
+const upsertDatasetItem = vi.hoisted(() => vi.fn(async () => {}));
+
 const calls: { strings: readonly string[]; values: unknown[] }[] = [];
 const rows = [{ title: "Eng", company_name: "Acme", location: null, ats: "greenhouse",
                description: "jd text", resume_text: "my resume", instructions: null,
@@ -18,13 +21,21 @@ vi.mock("@/lib/db", () => {
   );
   return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
 });
-vi.mock("@/lib/auth", () => ({ requireUserId: async () => "user-uuid" }));
+vi.mock("@/lib/auth", () => ({
+  requireUserId: async () => "user-uuid",
+  getUserClaims: async () => ({ id: "user-uuid", email: "a@x.com" }),
+}));
+vi.mock("@/lib/admin", () => ({ isAdmin: () => admin.isAdmin }));
 vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: async () => {} }));
-vi.mock("@/lib/langfuseDataset", () => ({ upsertDatasetItem: async () => {} }));
+vi.mock("@/lib/langfuseDataset", () => ({ upsertDatasetItem }));
 
 import { saveReviewCorrection } from "@/app/actions/corrections";
 
-beforeEach(() => { calls.length = 0; });
+beforeEach(() => {
+  calls.length = 0;
+  upsertDatasetItem.mockClear();
+  admin.isAdmin = true;
+});
 
 const baseForm = {
   verdict: "approve" as const, experienceMatch: "match", industry: "software_internet",
@@ -56,5 +67,24 @@ describe("saveReviewCorrection snapshots", () => {
       (v) => typeof v === "string" && /\d{4}-\d{2}-\d{2}T/.test(v),
     );
     expect(hasDateInValues).toBe(false);
+  });
+});
+
+describe("saveReviewCorrection golden-dataset gate (minor 8)", () => {
+  it("an admin pushes the correction to the shared reviewer-golden dataset", async () => {
+    admin.isAdmin = true;
+    const res = await saveReviewCorrection("greenhouse:acme:1", baseForm);
+    expect(upsertDatasetItem).toHaveBeenCalledOnce();
+    expect(res).toEqual({ ok: true, langfuseSynced: true });
+  });
+
+  it("a NON-admin persists the correction but never pushes to the shared dataset", async () => {
+    admin.isAdmin = false;
+    const res = await saveReviewCorrection("greenhouse:acme:1", baseForm);
+    // The DB overlay row still wrote (its correction applies to their own board)…
+    expect(calls.some((c) => c.strings.join("").includes("review_corrections"))).toBe(true);
+    // …but nothing reached the shared golden dataset, and there is nothing to reconcile.
+    expect(upsertDatasetItem).not.toHaveBeenCalled();
+    expect(res).toEqual({ ok: true, langfuseSynced: true });
   });
 });

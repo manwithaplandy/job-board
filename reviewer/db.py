@@ -118,10 +118,17 @@ def try_lock_user_review(conn, user_id: str) -> bool:
     concurrent run skips the user (its budget is covered by the lock holder) instead of
     blocking the whole cron loop behind a slow LLM batch. Release with unlock_user_review
     AFTER the spend/finish commit, so the next run reads the committed spend.
+
+    KEY WIDTH (minor 10): use hashtextextended(key, 0) → bigint (64-bit), NOT hashtext
+    → int4 (32-bit). A 32-bit lock space collides across users at ~77k users (birthday
+    bound); a collision would make one user's review spuriously SKIP because an unrelated
+    user holds the "same" lock. hashtext is not usable here — pg_try_advisory_lock takes
+    either two int4s or one bigint, and hashtext's int4 would land in the 2×int4 overload,
+    keeping the 32-bit space. hashtextextended's bigint uses the single-key 64-bit overload.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT pg_try_advisory_lock(hashtext(%(k)s)) AS locked",
+            "SELECT pg_try_advisory_lock(hashtextextended(%(k)s, 0)) AS locked",
             {"k": _review_lock_key(user_id)},
         )
         return bool(cur.fetchone()["locked"])
@@ -131,7 +138,7 @@ def unlock_user_review(conn, user_id: str) -> None:
     """Release the per-user review lock taken by try_lock_user_review (M-TOCTOU)."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT pg_advisory_unlock(hashtext(%(k)s))",
+            "SELECT pg_advisory_unlock(hashtextextended(%(k)s, 0))",
             {"k": _review_lock_key(user_id)},
         )
 

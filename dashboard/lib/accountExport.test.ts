@@ -110,15 +110,21 @@ describe("buildAccountExport", () => {
     expect(out.resume_files_error).toBeNull();
   });
 
-  test("a storage failure is surfaced as resume_files_error, not swallowed to []", async () => {
+  test("a storage failure is a GENERIC marker (raw error not leaked) — minor 7", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const out = await buildAccountExport("user-a", "a@x.com", async () => {
-      throw new Error("storage down");
+      throw new Error("storage down: host=db.internal bucket=resumes");
     });
     // The rest of the export still succeeds…
     expect(out).toHaveProperty("profiles");
     expect(out.job_reviews.length).toBeGreaterThan(0);
-    // …but the résumé-file failure is recorded, not disguised as an empty list.
+    // …but the résumé-file failure is recorded as a fixed generic marker, not disguised
+    // as an empty list AND not leaking the raw storage internals into the download.
     expect(out.resume_files).toEqual([]);
-    expect(out.resume_files_error).toContain("storage down");
+    expect(out.resume_files_error).toBe("résumé files could not be listed");
+    expect(out.resume_files_error).not.toContain("host=");
+    // The full error is still logged server-side for incident triage.
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });

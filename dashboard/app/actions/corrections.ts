@@ -1,16 +1,22 @@
 "use server";
 
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, getUserClaims } from "@/lib/auth";
+import { isAdmin } from "@/lib/admin";
 import { withUserSql } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { formToCorrection, buildDatasetItem } from "@/lib/rolefit/correction";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { upsertDatasetItem } from "@/lib/langfuseDataset";
 
-// Persist a human correction (overlay; never mutates job_reviews) and push it to
-// the LangFuse golden dataset. DB commits first, so a LangFuse failure never
-// loses the correction — it returns langfuseSynced=false and is reconciled by
-// `python -m reviewer.experiments sync`.
+// Persist a human correction (overlay; never mutates job_reviews) and — for ADMINS only
+// — push it to the SHARED LangFuse reviewer-golden dataset. DB commits first, so a
+// LangFuse failure never loses the correction — it returns langfuseSynced=false and is
+// reconciled by `python -m reviewer.experiments sync`.
+//
+// TENANT EVAL-POISONING (minor 8): the reviewer-golden dataset is a SHARED eval asset
+// (every tenant would write to it). Unvalidated tenant input must not poison it, so the
+// golden push is gated to isAdmin — a normal user's correction still persists and
+// overlays THEIR OWN board (the DB row below), it just never reaches the shared dataset.
 export async function saveReviewCorrection(
   jobId: string,
   form: CorrectionForm,
@@ -85,22 +91,26 @@ export async function saveReviewCorrection(
     return s;
   });
 
+  // Admin-only push to the shared golden dataset (minor 8). Non-admins: DB row persisted
+  // above, nothing to reconcile → langfuseSynced stays true.
   let langfuseSynced = true;
-  try {
-    await upsertDatasetItem(
-      buildDatasetItem({
-        userId, jobId,
-        input: {
-          title: src.title, company_name: src.company_name, location: src.location,
-          ats: src.ats, description: src.description,
-          resume_text: src.resume_text, instructions: src.instructions,
-        },
-        row, note: form.note, correctedAt,
-      }),
-    );
-  } catch (e) {
-    console.error("langfuse dataset upsert failed", e);
-    langfuseSynced = false;
+  if (isAdmin(await getUserClaims())) {
+    try {
+      await upsertDatasetItem(
+        buildDatasetItem({
+          userId, jobId,
+          input: {
+            title: src.title, company_name: src.company_name, location: src.location,
+            ats: src.ats, description: src.description,
+            resume_text: src.resume_text, instructions: src.instructions,
+          },
+          row, note: form.note, correctedAt,
+        }),
+      );
+    } catch (e) {
+      console.error("langfuse dataset upsert failed", e);
+      langfuseSynced = false;
+    }
   }
 
   return { ok: true, langfuseSynced };

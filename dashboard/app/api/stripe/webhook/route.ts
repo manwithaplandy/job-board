@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { getStripe, subscriptionPeriodEnd, subscriptionPlan } from "@/lib/stripe";
 import { serviceSql } from "@/lib/db";
 import { upsertSubscription } from "@/lib/subscriptions";
+import { isAccountDeleted } from "@/lib/tombstone";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,15 @@ async function upsertFromSubscription(
   if (!userId) {
     console.warn("stripe webhook: could not resolve user_id for subscription", sub.id);
     return; // ack; nothing to persist
+  }
+  // M-RESURRECT-1: account deletion cancels the Stripe subscription, whose
+  // customer.subscription.deleted (and any late .updated) event still carries the
+  // erased user's metadata user_id. Re-INSERTing the subscriptions row here would
+  // resurrect a mirror row for an account that no longer exists. Ack-and-skip any
+  // event whose resolved user is tombstoned (a cheap EXISTS on account_deletions).
+  if (await isAccountDeleted(userId)) {
+    console.warn("stripe webhook: skipping write for deleted account", userId, sub.id);
+    return; // ack; the account was erased — never resurrect its subscription mirror
   }
   await upsertSubscription(serviceSql, {
     userId,

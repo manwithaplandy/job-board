@@ -81,6 +81,24 @@ def load_profile(conn, user_id: str) -> dict | None:
         return cur.fetchone()
 
 
+def user_deleted(conn, user_id: str) -> bool:
+    """True if `user_id` has an account_deletions tombstone — the account was erased.
+
+    M-RESURRECT-2: an account can be deleted WHILE a review run is in flight (the
+    profile was loaded before the erasure cascade, and the reviewer does slow LLM work
+    in between). The reviewer re-checks this at its write boundary so it never re-INSERTs
+    job_reviews / usage_counters rows for a just-deleted user (recreated PII). A cheap
+    EXISTS, mirroring the dashboard's lib/tombstone.ts gate keyed on the same table.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS(SELECT 1 FROM account_deletions WHERE user_id = %s) AS deleted",
+            (_uuid(user_id),),
+        )
+        row = cur.fetchone()
+    return bool(row and row["deleted"])
+
+
 # The single UTC clock for the daily budget. Reading and writing spend both derive
 # the day from the DB's now() so there is no client/server skew and no cron: the
 # (user_id, day, kind) key rolls over on its own at UTC midnight.

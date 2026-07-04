@@ -688,6 +688,32 @@ def test_standard_non_entitled_premium_falls_back_to_cheap(conn, monkeypatch):
 
 
 @requires_db
+def test_deleted_user_midrun_skips_all_writes(conn, monkeypatch):
+    """M-RESURRECT-2: if the account is erased while a run is in flight (tombstone
+    present at the write boundary), the reviewer persists NO job_reviews and charges NO
+    daily spend — it must not resurrect PII or usage rows for a deleted user."""
+    cid = _seed_company(conn)
+    for i in range(3):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=5)
+    # Simulate the erasure landing mid-run: the profile was loaded, then the deletion
+    # cascade wrote the account_deletions tombstone before the reviewer's final writes.
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO account_deletions (user_id) VALUES (%s)", (USER,))
+    conn.commit()
+
+    _run_review_all(conn, monkeypatch)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 0, "no verdicts written for a tombstoned user"
+        cur.execute("SELECT notes FROM review_runs ORDER BY id DESC LIMIT 1")
+        assert cur.fetchone()["notes"] == "account deleted mid-run; skipped writes"
+    # No daily budget charged either.
+    assert rdb.get_daily_spend(conn, USER) == 0
+
+
+@requires_db
 def test_multi_user_disjoint_location_scoped_reviews_in_one_pass(conn, monkeypatch):
     """T7 proof: two profiles with different locations + caps → disjoint, correctly
     scoped job_reviews for both, each location pre-filter + budget applied

@@ -12,6 +12,7 @@ const stripeState = vi.hoisted(() => ({
 const dbState = vi.hoisted(() => ({
   serviceCalls: [] as { strings: readonly string[]; values: unknown[] }[],
   userRows: [] as unknown[],
+  deleted: false, // account_deletions tombstone flag returned by the EXISTS probe
 }));
 
 vi.mock("@/lib/stripe", async (importOriginal) => {
@@ -34,6 +35,10 @@ vi.mock("@/lib/stripe", async (importOriginal) => {
 vi.mock("@/lib/db", () => {
   const serviceSql = (strings: readonly string[], ...values: unknown[]) => {
     dbState.serviceCalls.push({ strings, values });
+    // The shared tombstone probe (lib/tombstone.ts) — resolve the EXISTS to dbState.deleted.
+    if (strings.join("").includes("account_deletions")) {
+      return Promise.resolve([{ deleted: dbState.deleted }]);
+    }
     return Promise.resolve([]);
   };
   const tx = () => Promise.resolve(dbState.userRows);
@@ -60,6 +65,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   dbState.serviceCalls.length = 0;
   dbState.userRows.length = 0;
+  dbState.deleted = false;
   stripeState.throwOnConstruct = false;
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
   process.env.STRIPE_SECRET_KEY = "sk_test";
@@ -124,6 +130,18 @@ describe("stripe webhook", () => {
     const res = await POST(req("{}"));
     expect(res.status).toBe(200);
     expect(dbState.serviceCalls.some((c) => c.strings.join("").includes("INSERT INTO subscriptions"))).toBe(true);
+  });
+
+  test("acks-and-skips the upsert for a tombstoned (deleted) user (M-RESURRECT-1)", async () => {
+    dbState.deleted = true; // account_deletions has a row for this user_id
+    stripeState.event = {
+      type: "customer.subscription.deleted",
+      data: { object: subObject() },
+    };
+    const res = await POST(req("{}"));
+    expect(res.status).toBe(200); // still ack so Stripe stops retrying
+    // The subscription mirror is NOT re-INSERTed for the erased account.
+    expect(dbState.serviceCalls.some((c) => c.strings.join("").includes("INSERT INTO subscriptions"))).toBe(false);
   });
 
   test("unknown event type is acked with 200 and writes nothing", async () => {

@@ -552,6 +552,19 @@ def test_start_review_run_stamps_user_id(conn):
 
 
 @requires_db
+def test_user_deleted_reflects_account_deletions_tombstone(conn):
+    """user_deleted is the reviewer's erasure gate (M-RESURRECT-2): False until an
+    account_deletions tombstone exists for the user, then True."""
+    assert rdb.user_deleted(conn, USER) is False
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO account_deletions (user_id) VALUES (%s)", (USER,))
+    conn.commit()
+    assert rdb.user_deleted(conn, USER) is True
+    # Scoped to the argument — another user is unaffected.
+    assert rdb.user_deleted(conn, USER_B) is False
+
+
+@requires_db
 def test_select_candidates_orders_newest_first(conn):
     """Locked spec decision: candidates drain newest-first (first_seen_at DESC)."""
     poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])

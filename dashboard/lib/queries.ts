@@ -12,6 +12,7 @@ import { profileVersion } from "@/lib/profileVersion";
 import { parseProfileLinks } from "@/lib/profileLinks";
 import { parseScreeningAnswers } from "@/lib/screeningAnswers";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
+import { isAccountDeleted } from "@/lib/tombstone";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import {
   parseTailoredResume,
@@ -504,6 +505,11 @@ export async function upsertProfile(
     modelCover: string | null;
   },
 ): Promise<void> {
+  // M-RESURRECT-2: a deleted user's JWT stays valid ≤1h after the erasure cascade, so
+  // a still-authenticated session (onboarding, /profile save, résumé save) could
+  // re-INSERT the profiles row and resurrect PII. Refuse to write for a tombstoned
+  // user — the write becomes a silent no-op (cheap EXISTS on account_deletions).
+  if (await isAccountDeleted(userId)) return;
   // profile_version intentionally excludes the model choice, preferred locations,
   // AND the application answers — none must invalidate existing verdicts (spec §4).
   const version = profileVersion(data.resumeText, data.instructions);

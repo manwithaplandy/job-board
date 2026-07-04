@@ -341,6 +341,17 @@ def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
             notes = (f"{notes}; " if notes else "") + "halted: out of credits"
             log.warning("review halted (no credits) for %s", user_id)
 
+        # M-RESURRECT-2: the account can be erased mid-run (profile loaded before the
+        # deletion cascade; the LLM work above is slow). Re-check the tombstone at the
+        # write boundary — BEFORE persisting job_reviews or charging usage_counters — so
+        # a purge that landed during this run isn't undone by recreated PII / spend rows.
+        # Covers BOTH the cron (review_all) and the on-demand worker, since both funnel
+        # their writes through here. Cheap EXISTS; the run row still closes below.
+        if db.user_deleted(conn, user_id):
+            notes = "account deleted mid-run; skipped writes"
+            log.info("account %s deleted mid-run; skipping writes", user_id)
+            return
+
         rows_to_persist = []
         for r in results:
             if r.error:

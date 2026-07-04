@@ -463,8 +463,12 @@ END
 $$;
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 
+-- search_path pinned (mirrors migrations/2026-07-05-app-user-id-search-path.sql): this
+-- SECURITY-critical RLS resolver touches only pg_catalog built-ins, so pinning it to
+-- pg_catalog fixes the function_search_path_mutable advisor while leaving behaviour
+-- identical.
 CREATE OR REPLACE FUNCTION public.app_user_id() RETURNS uuid
-LANGUAGE plpgsql STABLE AS $$
+LANGUAGE plpgsql STABLE SET search_path = pg_catalog AS $$
 DECLARE
   claims text;
   sub    text;

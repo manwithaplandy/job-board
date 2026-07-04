@@ -55,7 +55,12 @@ BEGIN
         ON CONFLICT (id) DO UPDATE SET public = false;
     END IF;
 
-    ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+    -- NOTE: do NOT `ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY` here. On
+    -- Supabase that table is owned by supabase_storage_admin, not postgres, so the ALTER
+    -- fails with 42501 (must be owner) and rolls back this ENTIRE migration. RLS is
+    -- already enabled on storage.objects by default, so the statement was a pure no-op
+    -- that only ever served to abort the apply (rehearsal-confirmed). The policies below
+    -- are what actually enforce per-prefix isolation and CAN be created as postgres.
 
     -- authenticated: full CRUD, but ONLY within its own <uid>/ prefix.
     EXECUTE 'DROP POLICY IF EXISTS resumes_owner_select ON storage.objects';

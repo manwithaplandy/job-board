@@ -9,6 +9,7 @@ import { enqueueReviewRequest } from "@/lib/reviewRequests";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { validateOnboarding, hasErrors, type OnboardingErrors } from "@/lib/onboarding";
 import { safeErrorMessage } from "@/lib/safeError";
+import { resumeObjectPath } from "@/lib/resumeStorage";
 
 export type OnboardingState = { errors: OnboardingErrors } | null;
 
@@ -46,7 +47,7 @@ export async function completeOnboarding(
     const file = formData.get("resume_pdf");
     if (file instanceof File && file.size > 0) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const path = `${claims.id}/${Date.now()}-${file.name}`;
+      const path = resumeObjectPath(claims.id, file.name);
       const supabase = await createClient();
       const { error } = await supabase.storage
         .from("resumes")

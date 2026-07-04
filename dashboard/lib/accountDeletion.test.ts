@@ -15,6 +15,10 @@ const s = vi.hoisted(() => ({
   subRow: [{ stripe_subscription_id: "sub_1" as string | null, status: "active" as string | null }],
   authError: null as { status?: number; message?: string } | null,
   storageListError: false,
+  storageRemoveError: false,
+  storageObjects: [] as string[],
+  removedPaths: [] as string[],
+  listOffsets: [] as number[],
   stripeCalledWith: [] as (string | null)[],
 }));
 
@@ -48,12 +52,20 @@ vi.mock("@/lib/supabase/admin", () => ({
   getSupabaseAdmin: () => ({
     storage: {
       from: () => ({
-        list: async () => {
-          s.order.push("storage");
+        list: async (_prefix: string, opts?: { limit?: number; offset?: number }) => {
+          const offset = opts?.offset ?? 0;
+          const limit = opts?.limit ?? 100;
+          if (offset === 0) s.order.push("storage"); // once per sweep, not once per page
+          s.listOffsets.push(offset);
           if (s.storageListError) return { data: null, error: { message: "list failed" } };
-          return { data: [], error: null };
+          const page = s.storageObjects.slice(offset, offset + limit).map((name) => ({ name }));
+          return { data: page, error: null };
         },
-        remove: async () => ({ error: null }),
+        remove: async (paths: string[]) => {
+          s.removedPaths.push(...paths);
+          if (s.storageRemoveError) return { error: { message: "remove failed" } };
+          return { error: null };
+        },
       }),
     },
     auth: {
@@ -72,6 +84,7 @@ const {
   cancelStripeForUser,
 } = await import("@/lib/accountDeletion");
 const { cancelSubscriptionIfPresent } = await import("@/lib/stripe");
+const { sanitizeUploadFilename, resumeObjectPath } = await import("@/lib/resumeStorage");
 
 beforeEach(() => {
   s.order = [];
@@ -79,6 +92,10 @@ beforeEach(() => {
   s.subRow = [{ stripe_subscription_id: "sub_1", status: "active" }];
   s.authError = null;
   s.storageListError = false;
+  s.storageRemoveError = false;
+  s.storageObjects = [];
+  s.removedPaths = [];
+  s.listOffsets = [];
   s.stripeCalledWith = [];
   vi.mocked(cancelSubscriptionIfPresent).mockClear();
 });
@@ -186,15 +203,77 @@ describe("already-gone tolerance", () => {
     await expect(deleteAuthUser("user-a")).rejects.toBeTruthy();
   });
 
-  test("deleteStorageObjects tolerates a list error (nothing to remove)", async () => {
-    s.storageListError = true;
-    await expect(deleteStorageObjects("user-a")).resolves.toBeUndefined();
-  });
-
   test("a retry converges: deleteAccount succeeds with no subscription + already-deleted auth user", async () => {
     s.subRow = [{ stripe_subscription_id: null, status: null }];
     s.authError = { status: 404, message: "not found" };
     await expect(deleteAccount("user-a", "a@x.com")).resolves.toBeUndefined();
     expect(s.order).toEqual(["stripe", "db", "storage", "auth"]);
+  });
+});
+
+// ── Fail-closed résumé sweep (M-STORAGE-DELETE) ──────────────────────────────
+describe("deleteStorageObjects", () => {
+  test("removes every listed object under {userId}/", async () => {
+    s.storageObjects = ["123-a.pdf", "456-b.pdf"];
+    await deleteStorageObjects("user-a");
+    expect(s.removedPaths).toEqual(["user-a/123-a.pdf", "user-a/456-b.pdf"]);
+  });
+
+  test("empty bucket → no remove call (already gone)", async () => {
+    s.storageObjects = [];
+    await deleteStorageObjects("user-a");
+    expect(s.removedPaths).toEqual([]);
+  });
+
+  test("THROWS on a list error — must not report success while PDFs may survive", async () => {
+    s.storageListError = true;
+    await expect(deleteStorageObjects("user-a")).rejects.toThrow(/storage list failed/);
+  });
+
+  test("THROWS on a remove error so the idempotent cascade retries", async () => {
+    s.storageObjects = ["123-a.pdf"];
+    s.storageRemoveError = true;
+    await expect(deleteStorageObjects("user-a")).rejects.toThrow(/storage remove failed/);
+  });
+
+  test("a remove failure fails the whole cascade (no false 'deleted')", async () => {
+    s.storageObjects = ["123-a.pdf"];
+    s.storageRemoveError = true;
+    await expect(deleteAccount("user-a", "a@x.com")).rejects.toThrow(/storage remove failed/);
+    // Order proves it threw AT storage — auth (step 4) never ran.
+    expect(s.order).toEqual(["stripe", "db", "storage"]);
+  });
+
+  test("paginates the list — enumerates every page, not just the first 100", async () => {
+    s.storageObjects = Array.from({ length: 250 }, (_, i) => `f${i}.pdf`);
+    await deleteStorageObjects("user-a");
+    expect(s.removedPaths).toHaveLength(250);
+    // offset 200 returns 50 (< page size) → last page, loop stops without a 4th request
+    expect(s.listOffsets).toEqual([0, 100, 200]);
+  });
+});
+
+// ── Filename hardening (M-STORAGE-DELETE evasion) ────────────────────────────
+describe("sanitizeUploadFilename", () => {
+  test("strips a '/' so a crafted name can't nest an object past the sweep", () => {
+    expect(sanitizeUploadFilename("a/b/evil.pdf")).toBe("evil.pdf");
+    expect(sanitizeUploadFilename("a\\b\\evil.pdf")).toBe("evil.pdf");
+    expect(sanitizeUploadFilename("../../etc/passwd")).toBe("passwd");
+    for (const out of ["a/b.pdf", "x\\y.pdf", "../z"].map(sanitizeUploadFilename)) {
+      expect(out).not.toMatch(/[/\\]/);
+    }
+  });
+
+  test("keeps an ordinary filename and never yields an empty key", () => {
+    expect(sanitizeUploadFilename("resume.pdf")).toBe("resume.pdf");
+    expect(sanitizeUploadFilename("/")).toBe("resume.pdf");
+    expect(sanitizeUploadFilename("")).toBe("resume.pdf");
+  });
+
+  test("resumeObjectPath yields a flat, sweep-enumerable key", () => {
+    const p = resumeObjectPath("user-a", "sub/dir/cv.pdf");
+    expect(p).toMatch(/^user-a\/\d+-cv\.pdf$/);
+    // exactly one '/' separating the userId prefix from the flat object name
+    expect(p.split("/")).toHaveLength(2);
   });
 });

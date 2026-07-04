@@ -75,19 +75,34 @@ export async function deleteUserRowsTx(userId: string, email: string | null): Pr
   });
 }
 
-/** Step 3: remove every object under resumes/{userId}/ (tolerates none / errors). */
+/** Page size for the résumé-object sweep — `list` returns at most this many per call. */
+const STORAGE_LIST_PAGE = 100;
+
+/**
+ * Step 3: remove every object under resumes/{userId}/. FAIL-CLOSED (M-STORAGE-DELETE):
+ * a list OR remove error THROWS rather than being swallowed, because the cascade reports
+ * success only when every step returns. Swallowing here would report a "successful"
+ * erasure while the user's résumé PDFs survived. The cascade is ordered and idempotent,
+ * so throwing lets the caller retry and converge. The listing is paginated (no unbounded
+ * single page), and every object key is a direct child of `{userId}/` because uploads go
+ * through `resumeObjectPath`, which strips path separators from the filename (so a
+ * crafted `foo/bar.pdf` name can't nest an object beyond this non-recursive sweep).
+ */
 export async function deleteStorageObjects(userId: string): Promise<void> {
-  const admin = getSupabaseAdmin();
-  const { data, error } = await admin.storage.from("resumes").list(userId, { limit: 1000 });
-  if (error || !data || data.length === 0) return; // nothing to remove / already gone
-  const paths = data.filter((o) => o.name).map((o) => `${userId}/${o.name}`);
-  if (paths.length === 0) return;
-  const { error: rmError } = await admin.storage.from("resumes").remove(paths);
-  if (rmError) {
-    // Tolerate: log and continue so a storage hiccup doesn't strand the deletion. The
-    // objects are orphaned at worst (no user row references them anymore).
-    console.error("account deletion: storage remove failed", rmError);
+  const bucket = getSupabaseAdmin().storage.from("resumes");
+  const paths: string[] = [];
+  for (let offset = 0; ; offset += STORAGE_LIST_PAGE) {
+    const { data, error } = await bucket.list(userId, { limit: STORAGE_LIST_PAGE, offset });
+    if (error) throw new Error(`account deletion: storage list failed: ${error.message}`);
+    if (!data || data.length === 0) break;
+    for (const o of data) if (o.name) paths.push(`${userId}/${o.name}`);
+    if (data.length < STORAGE_LIST_PAGE) break; // last (partial) page
   }
+  if (paths.length === 0) return; // nothing to remove / already gone
+  const { error: rmError } = await bucket.remove(paths);
+  // FAIL-CLOSED: do NOT swallow. If we can't confirm the PDFs are gone, the deletion has
+  // NOT succeeded — throw so the ordered, idempotent cascade is retried.
+  if (rmError) throw new Error(`account deletion: storage remove failed: ${rmError.message}`);
 }
 
 /** Step 4: delete the auth.users record (tolerates already-deleted / not-found). */

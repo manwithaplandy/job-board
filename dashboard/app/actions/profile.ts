@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile } from "@/lib/queries";
 import { isAccountDeleted } from "@/lib/tombstone";
 import { safeErrorMessage } from "@/lib/safeError";
+import { resumeObjectPath } from "@/lib/resumeStorage";
 
 // Résumé-only save from the board's profile modal. Preserves model choices and
 // instructions the user set on /profile (the modal doesn't expose them).
@@ -27,7 +28,7 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
   const file = formData.get("resume_pdf");
   if (file instanceof File && file.size > 0) {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const path = `${userId}/${Date.now()}-${file.name}`;
+    const path = resumeObjectPath(userId, file.name);
     const supabase = await createClient();
     const { error } = await supabase.storage
       .from("resumes")

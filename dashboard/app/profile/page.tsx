@@ -17,6 +17,7 @@ import { LocationPicker } from "@/components/LocationPicker";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { safeErrorMessage } from "@/lib/safeError";
+import { resumeObjectPath } from "@/lib/resumeStorage";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
 import { ResumeUploadField } from "@/components/rolefit/ResumeUploadField";
@@ -116,7 +117,7 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
     const file = formData.get("resume_pdf");
     if (file instanceof File && file.size > 0) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const path = `${userId}/${Date.now()}-${file.name}`;
+      const path = resumeObjectPath(userId, file.name);
       const supabase = await createClient();
       const { error } = await supabase.storage
         .from("resumes")

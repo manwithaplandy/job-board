@@ -83,7 +83,7 @@ export default async function BillingPage() {
 
   return (
     <>
-      <SlimHeader current="profile" />
+      <SlimHeader current="billing" />
       <main style={pageStyle}>
         <div style={wrapStyle}>
           <div style={cardStyle}>

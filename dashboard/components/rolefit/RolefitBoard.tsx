@@ -48,6 +48,8 @@ export interface RolefitBoardProps {
   unmarkApplied: (jobId: string) => Promise<void>;
   operator?: OperatorSignals;
   hasProfile: boolean;
+  // The viewer's email for the account-menu trigger/label; null for the anon board.
+  viewerEmail: string | null;
   resumeText: string;
   // Live profiles.profile_version — a package whose stored profileVersion differs
   // was generated from an older résumé/instructions and is flagged stale. null for
@@ -91,6 +93,7 @@ export function RolefitBoard({
   unmarkApplied,
   operator,
   hasProfile,
+  viewerEmail,
   resumeText,
   currentProfileVersion,
   initialPackages,
@@ -928,6 +931,8 @@ export function RolefitBoard({
         isAuthed={isAuthed}
         hasProfile={hasProfile}
         operator={operator}
+        viewerEmail={viewerEmail}
+        isNarrow={isNarrow}
         onOpenProfile={() => {
           if (isAuthed) {
             setProfileOpen(true);

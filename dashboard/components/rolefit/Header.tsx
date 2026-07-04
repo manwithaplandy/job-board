@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import type { OperatorSignals } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
+import { AccountMenu } from "./AccountMenu";
 
 export interface HeaderProps {
   search: string;
@@ -8,6 +9,11 @@ export interface HeaderProps {
   isAuthed: boolean;
   hasProfile: boolean;
   operator?: OperatorSignals;
+  // The viewer's email for the account menu; null for the anon board (no menu shown).
+  viewerEmail: string | null;
+  // ≤760px: collapse the flat content nav + operator signals + badge into the account
+  // menu so the header fits. Defaults false so the component stays usable standalone.
+  isNarrow?: boolean;
   onOpenProfile: () => void;
   // Board keyboard nav focuses this input on `/`.
   searchRef?: RefObject<HTMLInputElement | null>;
@@ -19,7 +25,7 @@ const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
   stale: "#9aa3b0",
 };
 
-export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpenProfile, searchRef }: HeaderProps) {
+export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewerEmail, isNarrow = false, onOpenProfile, searchRef }: HeaderProps) {
   // "Sign in" when anonymous; "Résumé" when authed with a saved profile (this button opens
   // the résumé-only modal — the new "Profile" link handles full settings); "Set up profile"
   // when authed but no profile yet.
@@ -68,20 +74,22 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
         >
           Rolefit
         </div>
-        <div
-          style={{
-            fontSize: "10px",
-            fontWeight: 800,
-            color: "#3b6fd4",
-            background: "#eef3fc",
-            border: "1px solid #d8e2f6",
-            borderRadius: "20px",
-            padding: "3px 8px",
-            letterSpacing: ".5px",
-          }}
-        >
-          AI-REVIEWED
-        </div>
+        {!isNarrow && (
+          <div
+            style={{
+              fontSize: "10px",
+              fontWeight: 800,
+              color: "#3b6fd4",
+              background: "#eef3fc",
+              border: "1px solid #d8e2f6",
+              borderRadius: "20px",
+              padding: "3px 8px",
+              letterSpacing: ".5px",
+            }}
+          >
+            AI-REVIEWED
+          </div>
+        )}
       </div>
 
       {/* Search */}
@@ -142,7 +150,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
 
       {/* Right cluster: operator signals (authed only) + profile button */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: "0 0 auto" }}>
-        {operator && (
+        {operator && !isNarrow && (
           <div
             style={{
               display: "flex",
@@ -184,7 +192,9 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           </div>
         )}
 
-        {isAuthed && (
+        {/* Content nav — top-level on desktop; folds into the account menu (includeNav)
+            at narrow widths so the header fits. */}
+        {isAuthed && !isNarrow && (
           <a href="/analytics" style={{
             fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
             textDecoration: "none", padding: "9px 6px",
@@ -193,7 +203,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           </a>
         )}
 
-        {isAuthed && (
+        {isAuthed && !isNarrow && (
           <a href="/companies" style={{
             fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
             textDecoration: "none", padding: "9px 6px",
@@ -202,29 +212,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           </a>
         )}
 
-        {isAuthed && (
-          <a href="/profile" style={{
-            fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
-            textDecoration: "none", padding: "9px 6px",
-          }}>
-            Profile
-          </a>
-        )}
-
-        {/* Sign out — a real same-origin form POST so sec-fetch-site is "same-origin" and
-            clears the /auth/signout CSRF guard. Authed-only; the anonymous board's CTA is
-            "Sign in" (the profile button below). */}
-        {isAuthed && (
-          <form method="post" action="/auth/signout" style={{ margin: 0 }}>
-            <Button type="submit" variant="ghost" style={{
-              fontWeight: 700, fontSize: "13px", color: "#3b6fd4", padding: "9px 6px",
-            }}>
-              Sign out
-            </Button>
-          </form>
-        )}
-
-        {/* Profile button */}
+        {/* Résumé button — the board's primary action */}
         <Button
           variant="primary"
           onClick={onOpenProfile}
@@ -238,6 +226,11 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           <span style={{ fontSize: "13px" }}>{profileBtnIcon}</span>
           <span>{profileBtnLabel}</span>
         </Button>
+
+        {/* Account menu (Profile / Billing / Sign out; +Analytics/Companies when narrow) —
+            far-corner resident. Authed-only; the anonymous board's CTA is the "Sign in"
+            button above. */}
+        {isAuthed && <AccountMenu email={viewerEmail} includeNav={isNarrow} />}
       </div>
     </div>
   );

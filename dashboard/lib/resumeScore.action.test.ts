@@ -6,6 +6,7 @@ vi.mock("@/lib/db", () => {
   return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
 });
 vi.mock("@/lib/auth", () => ({ requireUserId: vi.fn(async () => "u1") }));
+vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: async () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const upsertMock = vi.fn(async () => undefined);
 vi.mock("@/lib/resumeGoldenDataset", () => ({ upsertResumeGoldenItem: (...a: unknown[]) => (upsertMock as unknown as (...args: unknown[]) => unknown)(...a) }));

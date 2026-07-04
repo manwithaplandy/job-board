@@ -2,6 +2,7 @@
 
 import { requireUserId } from "@/lib/auth";
 import { withUserSql } from "@/lib/db";
+import { assertNotDeleted } from "@/lib/tombstone";
 
 // Manual reject. Mirrors an AI deny: flips the operator's review row to
 // verdict='deny' and marks it human_override so it is distinguishable and sticky
@@ -10,6 +11,7 @@ import { withUserSql } from "@/lib/db";
 // was never reviewed. profile_version='' matches the company-override convention.
 export async function rejectJob(jobId: string): Promise<void> {
   const userId = await requireUserId();
+  await assertNotDeleted(userId); // no resurrecting an erased account's rows via a stale JWT
   await withUserSql(userId, (tx) => tx`
     INSERT INTO job_reviews
       (user_id, job_id, profile_version, verdict, human_override, reviewed_at)
@@ -28,6 +30,7 @@ export async function unrejectJob(
   priorVerdict: string | null,
 ): Promise<void> {
   const userId = await requireUserId();
+  await assertNotDeleted(userId);
   await withUserSql(userId, (tx) => tx`
     UPDATE job_reviews
        SET verdict = ${priorVerdict}, human_override = FALSE, reviewed_at = now()

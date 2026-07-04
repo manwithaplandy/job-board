@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile } from "@/lib/queries";
-import { isAccountDeleted } from "@/lib/tombstone";
+import { assertNotDeleted } from "@/lib/tombstone";
 import { safeErrorMessage } from "@/lib/safeError";
 import { resumeObjectPath } from "@/lib/resumeStorage";
 
@@ -15,7 +15,7 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
   // M-RESURRECT-2: a deleted user's JWT stays valid ≤1h. upsertProfile refuses the DB
   // write for a tombstoned user, but this action also uploads a résumé PDF to storage
   // BEFORE that write — bail out here so an erased account can't re-create a stored PDF.
-  if (await isAccountDeleted(userId)) return;
+  await assertNotDeleted(userId);
   const existing = await getProfile(userId);
 
   const submittedText = String(formData.get("resume_text") ?? "").trim();

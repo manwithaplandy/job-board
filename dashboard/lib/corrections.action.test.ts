@@ -19,6 +19,7 @@ vi.mock("@/lib/db", () => {
   return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
 });
 vi.mock("@/lib/auth", () => ({ requireUserId: async () => "user-uuid" }));
+vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: async () => {} }));
 vi.mock("@/lib/langfuseDataset", () => ({ upsertDatasetItem: async () => {} }));
 
 import { saveReviewCorrection } from "@/app/actions/corrections";

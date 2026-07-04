@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { withUserSql } from "@/lib/db";
+import { assertNotDeleted } from "@/lib/tombstone";
 import { formToScoreRow, buildResumeGoldenItem, type ResumeScoreForm } from "@/lib/rolefit/resumeScore";
 import { upsertResumeGoldenItem } from "@/lib/resumeGoldenDataset";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
@@ -16,6 +17,7 @@ export async function saveResumeScore(
   form: ResumeScoreForm,
 ): Promise<{ ok: true; langfuseSynced: boolean }> {
   const userId = await requireUserId();
+  await assertNotDeleted(userId); // no resurrecting an erased account's score via a stale JWT
   const row = formToScoreRow(form);
 
   const scoredAt = new Date().toISOString();

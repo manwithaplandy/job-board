@@ -17,6 +17,7 @@ import { LocationPicker } from "@/components/LocationPicker";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { safeErrorMessage } from "@/lib/safeError";
+import { assertNotDeleted } from "@/lib/tombstone";
 import { resumeObjectPath } from "@/lib/resumeStorage";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
@@ -59,6 +60,11 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
     const claims = await getUserClaims();
     if (!claims) redirect("/login");
     const userId = claims.id;
+    // M-RESURRECT: a deleted user's JWT stays valid ≤1h. This full-form save uploads a
+    // résumé PDF to storage before upsertProfile, so guard here (like the board modal's
+    // saveProfileResume) — an erased account must not re-create stored data via a stale
+    // JWT. Throws → caught below → surfaced as a generic form error.
+    await assertNotDeleted(userId);
     const existing = await getProfile(userId);
     const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
     const submittedText = (String(formData.get("resume_text") ?? "")).trim();

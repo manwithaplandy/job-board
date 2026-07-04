@@ -22,6 +22,8 @@ vi.mock("@/lib/auth", () => ({
   requireUserId: mocks.requireUserId,
 }));
 
+vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: async () => {} }));
+
 vi.mock("@/lib/db", () => ({
   // withUserSql drops into a transaction; the mock invokes the callback with the
   // recording `sql` fn so the actions' tx queries are captured.

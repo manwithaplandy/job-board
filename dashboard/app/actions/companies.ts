@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import { withUserSql, serviceSql } from "@/lib/db";
+import { assertNotDeleted } from "@/lib/tombstone";
 import { getOpenRouterCredits } from "@/lib/openrouter";
 
 // Sticky per-user company override. Upserts the override onto the viewer's
@@ -20,6 +21,7 @@ export async function setCompanyOverride(
   verdict: "include" | "exclude",
 ): Promise<void> {
   const userId = await requireUserId();
+  await assertNotDeleted(userId); // no resurrecting an erased account's override via a stale JWT
   await withUserSql(userId, (tx) => tx`
     INSERT INTO company_reviews
       (user_id, company_id, company_profile_version, human_override, override_verdict, reviewed_at)

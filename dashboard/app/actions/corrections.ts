@@ -2,6 +2,7 @@
 
 import { requireUserId } from "@/lib/auth";
 import { withUserSql } from "@/lib/db";
+import { assertNotDeleted } from "@/lib/tombstone";
 import { formToCorrection, buildDatasetItem } from "@/lib/rolefit/correction";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { upsertDatasetItem } from "@/lib/langfuseDataset";
@@ -15,6 +16,7 @@ export async function saveReviewCorrection(
   form: CorrectionForm,
 ): Promise<{ ok: true; langfuseSynced: boolean }> {
   const userId = await requireUserId();
+  await assertNotDeleted(userId); // no resurrecting an erased account's correction via a stale JWT
   const row = formToCorrection(form);
 
   // Read inputs + persist the correction under the viewer's RLS context, in one

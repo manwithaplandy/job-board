@@ -2,6 +2,7 @@
 
 import { requireUserId } from "@/lib/auth";
 import { withUserSql } from "@/lib/db";
+import { assertNotDeleted } from "@/lib/tombstone";
 import { bareMarkerPredicate } from "@/lib/queries";
 
 // Mark a job applied. Upsert so a one-click "Mark as applied" works even when the
@@ -10,6 +11,7 @@ import { bareMarkerPredicate } from "@/lib/queries";
 // Idempotent: applied_at is stamped once (COALESCE keeps the first transition).
 export async function markApplicationApplied(jobId: string): Promise<void> {
   const userId = await requireUserId();
+  await assertNotDeleted(userId); // no resurrecting an erased account's rows via a stale JWT
   await withUserSql(userId, (tx) => tx`
     INSERT INTO application_packages (user_id, job_id, status, applied_at)
     VALUES (${userId}::uuid, ${jobId}, 'applied', now())
@@ -26,6 +28,7 @@ export async function markApplicationApplied(jobId: string): Promise<void> {
 // rows is ever added, this won't accidentally delete them.
 export async function unmarkApplicationApplied(jobId: string): Promise<void> {
   const userId = await requireUserId();
+  await assertNotDeleted(userId);
   // withUserSql already wraps this in a single transaction, so the DELETE + UPDATE
   // stay atomic under the authenticated role (RLS scopes both to the viewer's rows).
   await withUserSql(userId, async (tx) => {

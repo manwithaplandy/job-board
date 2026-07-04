@@ -62,3 +62,95 @@ def test_fully_entity_escaped_html_is_decoded():
     assert "<" not in out and "&lt;" not in out
     assert "About" in out
     assert "A & B" in out
+
+
+# ── workable / smartrecruiters / workday extractors + fallbacks ───────────────
+# Only lever/ashby/greenhouse were covered above. These three ATSes feed the
+# reviewer pipeline too; an extractor regression silently ships empty JDs.
+
+
+def test_extract_workable_joins_three_parts_in_order():
+    raw = {
+        "description": "<p>About the role</p>",
+        "requirements": "<ul><li>5y Python</li></ul>",
+        "benefits": "<p>Health &amp; dental</p>",
+    }
+    out = extract_description("workable", raw)
+    assert out is not None
+    # Order preserved: description, then requirements, then benefits.
+    assert out.index("About the role") < out.index("5y Python") < out.index("Health & dental")
+    # Parts are separated by a blank line.
+    assert "\n\n" in out
+    assert "<" not in out
+
+
+def test_extract_workable_skips_missing_and_empty_keys():
+    raw = {"description": "<p>Only this</p>", "requirements": "", "benefits": None}
+    out = extract_description("workable", raw)
+    assert out == "Only this"
+
+
+def test_extract_workable_all_empty_returns_none():
+    assert extract_description("workable", {"description": "", "requirements": "", "benefits": ""}) is None
+    assert extract_description("workable", {}) is None
+
+
+def test_extract_smartrecruiters_composes_titled_sections_in_order():
+    raw = {
+        "jobAd": {
+            "sections": {
+                "companyDescription": {"title": "About Us", "text": "<p>We are Acme</p>"},
+                "jobDescription": {"title": "The Role", "text": "<p>Build things</p>"},
+                "qualifications": {"title": "You Have", "text": "<p>Skills &amp; grit</p>"},
+                "additionalInformation": {"title": "Perks", "text": "<p>Remote</p>"},
+            }
+        }
+    }
+    out = extract_description("smartrecruiters", raw)
+    assert out is not None
+    # Fixed key order, each section rendered as "title\nbody".
+    assert out.index("About Us") < out.index("The Role") < out.index("You Have") < out.index("Perks")
+    assert "About Us\nWe are Acme" in out
+    # Entity-escaped HTML in section text is decoded.
+    assert "Skills & grit" in out
+
+
+def test_extract_smartrecruiters_skips_empty_sections():
+    raw = {
+        "jobAd": {
+            "sections": {
+                "companyDescription": {"title": "", "text": ""},
+                "jobDescription": {"title": "The Role", "text": "<p>Build</p>"},
+            }
+        }
+    }
+    out = extract_description("smartrecruiters", raw)
+    assert out == "The Role\nBuild"
+
+
+def test_extract_smartrecruiters_missing_jobad_or_sections_returns_none():
+    assert extract_description("smartrecruiters", {}) is None
+    assert extract_description("smartrecruiters", {"jobAd": {}}) is None
+    assert extract_description("smartrecruiters", {"jobAd": {"sections": {}}}) is None
+
+
+def test_extract_workday_pulls_nested_job_description():
+    raw = {"jobPostingInfo": {"jobDescription": "<p>Hello &amp; welcome</p>"}}
+    assert extract_description("workday", raw) == "Hello & welcome"
+
+
+def test_extract_workday_missing_or_empty_returns_none():
+    assert extract_description("workday", {}) is None
+    assert extract_description("workday", {"jobPostingInfo": {}}) is None
+    assert extract_description("workday", {"jobPostingInfo": {"jobDescription": ""}}) is None
+
+
+def test_extract_unknown_ats_returns_none():
+    assert extract_description("bamboohr", {"content": "x", "descriptionPlain": "y"}) is None
+
+
+def test_extract_falsy_raw_returns_none_for_every_ats():
+    # The `if not raw` guard: an empty/None-ish payload short-circuits to None
+    # regardless of the ats, so a blank raw never reaches an extractor.
+    for ats in ("lever", "ashby", "greenhouse", "workable", "smartrecruiters", "workday", "unknown"):
+        assert extract_description(ats, {}) is None

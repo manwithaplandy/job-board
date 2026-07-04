@@ -4,6 +4,8 @@
 // board Header's logo + link tokens so the surfaces read as one app; the current page is
 // marked with a filled pill.
 
+import { Button } from "@/components/ui/Button";
+
 type NavKey = "analytics" | "companies" | "profile";
 
 const NAV: { key: NavKey; href: string; label: string }[] = [
@@ -86,6 +88,19 @@ export function SlimHeader({ current }: { current?: NavKey }) {
           );
         })}
       </nav>
+
+      {/* Sign out — a real same-origin form POST so sec-fetch-site is "same-origin" and
+          clears the /auth/signout CSRF guard (a programmatic fetch would 403). SlimHeader
+          only renders on authed subpages, so no isAuthed condition is needed here. */}
+      <form method="post" action="/auth/signout" style={{ margin: 0 }}>
+        <Button
+          type="submit"
+          variant="ghost"
+          style={{ fontWeight: 700, fontSize: "13px", padding: "9px 12px", borderRadius: "9px" }}
+        >
+          Sign out
+        </Button>
+      </form>
     </header>
   );
 }

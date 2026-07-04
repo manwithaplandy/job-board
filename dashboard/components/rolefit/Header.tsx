@@ -198,6 +198,28 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
           </a>
         )}
 
+        {isAuthed && (
+          <a href="/profile" style={{
+            fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
+            textDecoration: "none", padding: "9px 6px",
+          }}>
+            Profile
+          </a>
+        )}
+
+        {/* Sign out — a real same-origin form POST so sec-fetch-site is "same-origin" and
+            clears the /auth/signout CSRF guard. Authed-only; the anonymous board's CTA is
+            "Sign in" (the profile button below). */}
+        {isAuthed && (
+          <form method="post" action="/auth/signout" style={{ margin: 0 }}>
+            <Button type="submit" variant="ghost" style={{
+              fontWeight: 700, fontSize: "13px", color: "#3b6fd4", padding: "9px 6px",
+            }}>
+              Sign out
+            </Button>
+          </form>
+        )}
+
         {/* Profile button */}
         <Button
           variant="primary"

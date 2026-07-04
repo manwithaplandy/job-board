@@ -246,6 +246,30 @@ def test_402_halts_batch_without_writing_skipped_rows():
     assert "lever:acme:SRE" not in ids
     assert "lever:acme:DataEng" not in ids
 
+
+def test_review_batch_aborts_when_user_deleted_midrun(monkeypatch):
+    """A mid-run deletion stops the batch issuing further LLM calls: once deleted_check
+    flips True, no further stage-1 chunk is screened and stage 2 never runs. Remaining
+    jobs stay retryable (no rows) — the caller skips writes at its tombstone boundary."""
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+    client = StubClient()
+    cands = [_cand(f"SRE{i}") for i in range(6)]  # 3 chunks of 2
+
+    checks = {"n": 0}
+
+    def deleted_check():
+        checks["n"] += 1
+        return checks["n"] > 1  # False for chunk 0, True from chunk 1 on → abort
+
+    results, halted = asyncio.run(review_batch(
+        cands, "P", client, concurrency=2, deleted_check=deleted_check))
+
+    assert halted, "a mid-run deletion sets the halt flag"
+    assert client.stage1_batch_calls == 1, "only the first chunk is screened before the abort"
+    assert client.stage2_calls == [], "stage 2 never runs once the user is deleted"
+
+
 USER = "22222222-2222-2222-2222-222222222222"
 
 
@@ -711,6 +735,51 @@ def test_deleted_user_midrun_skips_all_writes(conn, monkeypatch):
         assert cur.fetchone()["notes"] == "account deleted mid-run; skipped writes"
     # No daily budget charged either.
     assert rdb.get_daily_spend(conn, USER) == 0
+
+
+@requires_db
+def test_review_user_aborts_llm_calls_when_deleted_midrun(conn, monkeypatch):
+    """The account is tombstoned WHILE the batch runs (deletion lands after stage-1
+    screening): the reviewer stops issuing LLM calls (stage 2 never runs), persists no
+    reviews, charges no daily spend, and records the deletion note — NOT a credits-halt
+    note. This is the wasted-spend fix: without the mid-run check the worker would issue
+    all ≤cap stage-2 calls only for the tombstone guard to discard their results."""
+    cid = _seed_company(conn)
+    for i in range(3):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=5)
+
+    import reviewer.run as run_module
+
+    # user_deleted returns False on the first poll (the stage-1 chunk proceeds) then True,
+    # simulating the erasure landing mid-run just before the stage-2 fan-out.
+    checks = {"n": 0}
+
+    def flipping(_conn, _uid):
+        checks["n"] += 1
+        return checks["n"] > 1
+
+    monkeypatch.setattr(run_module.db, "user_deleted", flipping)
+
+    made = []
+
+    def _factory(**kw):
+        made.append(StubClient(**kw))
+        return made[-1]
+
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(run_module, "ReviewClient", _factory)
+    run_module.review_all(conn)
+
+    assert made and made[0].stage2_calls == [], "no stage-2 LLM calls issued after the deletion"
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 0, "no reviews persisted for a deleted user"
+        cur.execute("SELECT notes FROM review_runs WHERE user_id = %s ORDER BY id DESC LIMIT 1",
+                    (USER,))
+        assert cur.fetchone()["notes"] == "account deleted mid-run; skipped writes"
+    assert rdb.get_daily_spend(conn, USER) == 0, "no daily spend charged for an aborted run"
 
 
 @requires_db

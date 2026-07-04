@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { filterModels, type ORModel } from "@/lib/openrouter";
 
 export function ModelPicker({
-  label, name, models, curated, defaultValue, placeholder,
+  label, name, models, curated, defaultValue, placeholder, hint,
 }: {
   label: string;
   name: string;
@@ -12,6 +12,7 @@ export function ModelPicker({
   curated: string[];
   defaultValue: string | null;
   placeholder: string;
+  hint?: string;
 }) {
   const [selected, setSelected] = useState(defaultValue ?? "");
   const [query, setQuery] = useState("");
@@ -82,6 +83,9 @@ export function ModelPicker({
       }}
     >
       <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "#5b6472" }}>{label}</label>
+      {hint && (
+        <span style={{ fontSize: "11.5px", fontWeight: 500, color: "#6b7480", marginTop: "3px" }}>{hint}</span>
+      )}
       <input type="hidden" name={name} value={selected} />
       <input
         id={inputId}

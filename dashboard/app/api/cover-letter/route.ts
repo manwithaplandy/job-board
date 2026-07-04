@@ -1,6 +1,7 @@
 import { propagateAttributes } from "@langfuse/tracing";
-import { getUserId } from "@/lib/auth";
+import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForCoverLetter, upsertApplicationPackage } from "@/lib/queries";
+import { reserveGenerations, refundGenerations } from "@/lib/usage";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 
@@ -10,8 +11,9 @@ export const maxDuration = 120;
 export async function POST(req: Request) {
   // Mirrors /api/resume: a fetch() POST wants a clean 401 JSON, not requireUserId's
   // redirect to /login (which the client would receive as HTML).
-  const userId = await getUserId();
-  if (!userId) return Response.json({ error: "sign in to generate a cover letter" }, { status: 401 });
+  const claims = await getUserClaims();
+  if (!claims) return Response.json({ error: "sign in to generate a cover letter" }, { status: 401 });
+  const userId = claims.id;
 
   const { jobId } = (await req.json().catch(() => ({}))) as { jobId?: string };
   if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
@@ -24,6 +26,13 @@ export async function POST(req: Request) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "cover letter generation not configured" }, { status: 500 });
+
+  // Tier gate: no plan → 402, exhausted → 429. reserveGenerations ATOMICALLY charges the
+  // slot up front (avoids check-then-charge TOCTOU); the catch refunds on failure so a
+  // failed generation never burns allowance. After the 404/422/500 validation so we
+  // never charge a request that can't generate.
+  const gate = await reserveGenerations(userId, claims.email, ["cover"]);
+  if (!gate.ok) return Response.json({ error: gate.error }, { status: gate.status });
 
   const run = async () => {
     try {
@@ -54,8 +63,11 @@ export async function POST(req: Request) {
         // ON CONFLICT preserves the stored résumé + its profile_version untouched.
         profileVersion: null,
       });
+      // The slot was reserved (charged) up front; a success keeps it.
       return Response.json({ package: pkg });
     } catch (e) {
+      // Reserved-but-failed: refund so a failed generation never burns allowance.
+      await refundGenerations(userId, ["cover"]);
       const msg = e instanceof Error ? e.message : "";
       if (msg.includes("truncated")) return Response.json({ error: "Cover letter generation truncated — try again with a shorter résumé." }, { status: 502 });
       if (msg.includes("429") || msg.includes("rate")) return Response.json({ error: "Rate limited — try again in a moment." }, { status: 429 });

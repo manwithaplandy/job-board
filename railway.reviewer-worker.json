@@ -1,0 +1,18 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "watchPatterns": [
+      "reviewer/**",
+      "job_discovery/**",
+      "observability/**",
+      "requirements.txt",
+      "pyproject.toml",
+      "railway.reviewer-worker.json",
+      "schema.sql"
+    ]
+  },
+  "deploy": {
+    "startCommand": "python -m reviewer.worker",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}

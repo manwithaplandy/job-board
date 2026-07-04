@@ -35,7 +35,10 @@ def test_load_profiles(conn):
     assert profiles == [
         {"user_id": uuid.UUID(USER), "resume_text": "r", "instructions": "i",
          "profile_version": "v1", "model_stage1": None, "model_stage2": None,
-         "preferred_locations": []}
+         "preferred_locations": [], "daily_review_cap": None,
+         # Phase 1: LEFT JOIN subscriptions (none here) + the invite-proof flag.
+         "sub_plan": None, "sub_status": None, "sub_current_period_end": None,
+         "invited": False}
     ]
 
 
@@ -486,3 +489,125 @@ def test_golden_corrections_joins_inputs(conn):
     assert r["verdict"] == "approve"
     assert r["industry_subcategory"] == "devtools_platforms"
     assert r["skills_score"] == 80
+
+
+# --- Per-user daily review budget (usage_counters, spec subsystem D) ---
+
+USER_B = "33333333-3333-3333-3333-333333333333"
+
+
+@requires_db
+def test_daily_spend_starts_at_zero_and_accumulates(conn):
+    """get_daily_spend is 0 before any spend; add_daily_spend accumulates in place."""
+    assert rdb.get_daily_spend(conn, USER) == 0
+    rdb.add_daily_spend(conn, USER, 5)
+    rdb.add_daily_spend(conn, USER, 3)
+    conn.commit()
+    assert rdb.get_daily_spend(conn, USER) == 8
+
+
+@requires_db
+def test_add_daily_spend_ignores_nonpositive(conn):
+    """A zero/negative charge is a no-op (never writes a counter row)."""
+    rdb.add_daily_spend(conn, USER, 0)
+    rdb.add_daily_spend(conn, USER, -4)
+    conn.commit()
+    assert rdb.get_daily_spend(conn, USER) == 0
+
+
+@requires_db
+def test_daily_spend_is_per_user(conn):
+    """Two users' budgets are independent — one's spend never bleeds into the other."""
+    rdb.add_daily_spend(conn, USER, 7)
+    rdb.add_daily_spend(conn, USER_B, 2)
+    conn.commit()
+    assert rdb.get_daily_spend(conn, USER) == 7
+    assert rdb.get_daily_spend(conn, USER_B) == 2
+
+
+@requires_db
+def test_daily_spend_scoped_to_today_utc(conn):
+    """Spend recorded on a prior UTC day does not count toward today's budget."""
+    rdb.add_daily_spend(conn, USER, 9)
+    conn.commit()
+    # Backdate the counter to yesterday: today's spend must read 0 again.
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE usage_counters SET day = day - INTERVAL '1 day' "
+            "WHERE user_id = %s AND kind = 'review'",
+            (USER,),
+        )
+    conn.commit()
+    assert rdb.get_daily_spend(conn, USER) == 0
+
+
+@requires_db
+def test_start_review_run_stamps_user_id(conn):
+    """A run started for a user records that user_id so per-user runs are distinguishable."""
+    rid = rdb.start_review_run(conn, USER)
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT user_id FROM review_runs WHERE id = %s", (rid,))
+        assert str(cur.fetchone()["user_id"]) == USER
+
+
+@requires_db
+def test_review_lock_is_mutually_exclusive_across_sessions(conn):
+    """M-TOCTOU: the per-user review lock serializes spend across sessions (the cron
+    reviewer vs. the on-demand worker each hold their own connection). A second session
+    cannot acquire the lock while the first holds it, but can once it is released."""
+    import os
+
+    import psycopg
+    from psycopg.rows import dict_row
+
+    other = psycopg.connect(os.environ["TEST_DATABASE_URL"], row_factory=dict_row)
+    try:
+        # First session (this test's conn) takes the lock.
+        assert rdb.try_lock_user_review(conn, USER) is True
+        # A concurrent session is locked out (non-blocking → False, not a hang).
+        assert rdb.try_lock_user_review(other, USER) is False
+        # A different user is independent — no false contention.
+        assert rdb.try_lock_user_review(other, USER_B) is True
+        rdb.unlock_user_review(other, USER_B)
+        # Once the holder releases, the concurrent session can acquire it.
+        rdb.unlock_user_review(conn, USER)
+        assert rdb.try_lock_user_review(other, USER) is True
+        rdb.unlock_user_review(other, USER)
+    finally:
+        other.close()
+
+
+@requires_db
+def test_user_deleted_reflects_account_deletions_tombstone(conn):
+    """user_deleted is the reviewer's erasure gate (M-RESURRECT-2): False until an
+    account_deletions tombstone exists for the user, then True."""
+    assert rdb.user_deleted(conn, USER) is False
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO account_deletions (user_id) VALUES (%s)", (USER,))
+    conn.commit()
+    assert rdb.user_deleted(conn, USER) is True
+    # Scoped to the argument — another user is unaffected.
+    assert rdb.user_deleted(conn, USER_B) is False
+
+
+@requires_db
+def test_select_candidates_orders_newest_first(conn):
+    """Locked spec decision: candidates drain newest-first (first_seen_at DESC)."""
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
+    poller_db.upsert_job(conn, cid, "lever", "acme",
+                         Posting(external_id="old", title="Old", url="u",
+                                 raw={"descriptionPlain": "jd"}))
+    poller_db.upsert_job(conn, cid, "lever", "acme",
+                         Posting(external_id="new", title="New", url="u",
+                                 raw={"descriptionPlain": "jd"}))
+    # Force a deterministic ordering by first_seen_at.
+    with conn.cursor() as cur:
+        cur.execute("UPDATE jobs SET first_seen_at = now() - INTERVAL '1 day' "
+                    "WHERE id = 'lever:acme:old'")
+    conn.commit()
+    rows, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert [r["id"] for r in rows] == ["lever:acme:new", "lever:acme:old"]

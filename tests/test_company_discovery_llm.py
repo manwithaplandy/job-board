@@ -120,6 +120,7 @@ def test_review_creates_generation_when_tracing_enabled(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
 
     class _LF:
         def start_as_current_observation(self, **kw):
@@ -198,6 +199,7 @@ def test_review_forwards_openrouter_cost_as_cost_details(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
 
     class _LF:
         def start_as_current_observation(self, **kw):

@@ -9,7 +9,7 @@ import { CreditBanner } from "@/components/companies/CreditBanner";
 type Bucket = "include" | "exclude" | "unknown";
 
 export function CompanyList({
-  included, excluded, unknown, counts, state, activeBucket, override, refresh, query,
+  included, excluded, unknown, counts, state, activeBucket, override, refresh, canRefresh, query,
 }: {
   included: CompanyReviewRow[];
   excluded: CompanyReviewRow[];
@@ -19,6 +19,9 @@ export function CompanyList({
   activeBucket: Bucket;
   override: (companyId: number, verdict: "include" | "exclude") => Promise<void>;
   refresh: () => Promise<void>;
+  // Whether the viewer may trigger the SHARED discovery-resume (admins only — the
+  // server action enforces this; this just hides the button from non-admins).
+  canRefresh: boolean;
   // Server-provided seed: the current ?q= term already applied to `rows` by the query.
   query: string;
 }) {
@@ -52,7 +55,7 @@ export function CompanyList({
 
   return (
     <div>
-      <CreditBanner state={state} refresh={refresh} />
+      <CreditBanner state={state} refresh={refresh} canRefresh={canRefresh} />
       <div style={{ display: "inline-flex", background: "#eef1f5", borderRadius: "10px",
         padding: "3px", marginBottom: "16px" }}>
         {tabs.map((t) => {

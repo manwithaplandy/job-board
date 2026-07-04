@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
+import { useRouter } from "next/navigation";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
+import { ReviewNowPanel } from "@/components/rolefit/ReviewNowPanel";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
@@ -37,7 +39,6 @@ const isAbort = (e: unknown) => e instanceof Error && e.name === "AbortError";
 export interface RolefitBoardProps {
   jobs: JobRow[];
   nowIso: string;
-  isOperator: boolean;
   isAuthed: boolean;
   initialFilters: BoardFilterState;
   saveResume: (fd: FormData) => Promise<void>;
@@ -81,7 +82,6 @@ function useIsNarrow() {
 export function RolefitBoard({
   jobs,
   nowIso,
-  isOperator: _isOperator,
   isAuthed,
   initialFilters,
   saveResume,
@@ -97,6 +97,7 @@ export function RolefitBoard({
   initialRejected,
 }: RolefitBoardProps) {
   const isNarrow = useIsNarrow();
+  const router = useRouter();
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
   const [search, setSearch] = useState(initialFilters.search);
   const deferredSearch = useDeferredValue(search);
@@ -960,6 +961,15 @@ export function RolefitBoard({
         onSetPayMin={handleSetPayMin}
         onSetSort={handleSetSort}
       />
+
+      {/* First-run / in-progress: mounted while there are unreviewed roles so the panel
+          can keep a compact progress strip visible WHILE a review runs, even after the
+          first matches land (T6). It self-hides when idle on a populated board, shows the
+          full "being built" CTA on an empty board, and refreshes the board when a request
+          settles. Benign pending state → neutral status card, not a warning banner. */}
+      {isAuthed && (operator?.unreviewed ?? 0) > 0 && (
+        <ReviewNowPanel firstRun={jobs.length === 0} onSettled={() => router.refresh()} />
+      )}
 
       {/* Split pane — left: job list; right: detail */}
       <div style={{ flex: 1, display: "flex", minHeight: isNarrow ? undefined : 0 }}>

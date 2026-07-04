@@ -177,14 +177,15 @@ export function JobList({
       return (
         <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
-            No roles yet
+            Your board is being built
           </div>
           <div style={{ fontSize: "13px", marginTop: "6px" }}>
-            The poller runs every couple of hours. Check{" "}
+            Scored roles land here as they&apos;re reviewed. Use{" "}
+            <strong>Review my board now</strong> above to start, or check{" "}
             <a href="/analytics" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
               pipeline health
             </a>{" "}
-            if this persists.
+            if it stays empty.
           </div>
         </div>
       );

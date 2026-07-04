@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   upsertProfile: vi.fn(async (_userId: string, _data: any) => {}),
   revalidatePath: vi.fn(),
   createClient: vi.fn(),
+  assertNotDeleted: vi.fn(async (_userId: string) => {}),
 }));
 
 vi.mock("@/lib/auth", () => ({ requireUserId: mocks.requireUserId }));
@@ -15,6 +16,7 @@ vi.mock("@/lib/queries", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
+vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: mocks.assertNotDeleted }));
 
 const existingProfile = {
   resume_text: "OLD EXTRACTED TEXT",
@@ -32,6 +34,7 @@ describe("saveProfileResume", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getProfile.mockResolvedValue(existingProfile);
+    mocks.assertNotDeleted.mockResolvedValue(undefined);
   });
 
   test("pasting new text (no file) stores the text and revalidates", async () => {
@@ -54,5 +57,17 @@ describe("saveProfileResume", () => {
 
     const [, arg] = mocks.upsertProfile.mock.calls[0];
     expect(arg.resumeFilePath).toBe("u1/old.pdf");
+  });
+
+  test("a tombstoned (deleted) user throws before any write — no storage upload, no upsert (M-RESURRECT-2)", async () => {
+    mocks.assertNotDeleted.mockRejectedValue(new Error("account has been deleted"));
+    const { saveProfileResume } = await import("@/app/actions/profile");
+
+    // The shared guard throws (fail-loud); a stale-JWT session must not resurrect the
+    // profile or a stored résumé, and the throw stops before getProfile/upload/upsert.
+    await expect(saveProfileResume(fd({ resume_text: "STALE JWT WRITE" }))).rejects.toThrow(/deleted/);
+    expect(mocks.createClient).not.toHaveBeenCalled(); // no storage client → no upload
+    expect(mocks.upsertProfile).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

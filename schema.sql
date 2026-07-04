@@ -80,10 +80,10 @@ CREATE TABLE profiles (
   model_cover       TEXT,                     -- OpenRouter model id; NULL = default
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  is_owner         BOOLEAN NOT NULL DEFAULT FALSE  -- exactly one row may be TRUE (enforced by one_board_owner index)
+  -- Optional per-user override of the env daily review cap (reviewer/config.py
+  -- DAILY_REVIEW_CAP_DEFAULT). NULL = use the env default.
+  daily_review_cap INT
 );
--- Prevents any second profile row from claiming board ownership.
-CREATE UNIQUE INDEX one_board_owner ON profiles ((TRUE)) WHERE is_owner;
 
 -- one current verdict per (user, job); re-review upserts in place
 CREATE TABLE job_reviews (
@@ -183,7 +183,8 @@ CREATE TABLE review_corrections (
 -- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.
 CREATE INDEX idx_review_corrections_job ON review_corrections (job_id);
 
--- accounting, mirrors poll_runs
+-- accounting, mirrors poll_runs. user_id attributes a run to the user it reviewed
+-- (multi-tenant); NULL for legacy rows written before the column existed.
 CREATE TABLE review_runs (
   id            SERIAL PRIMARY KEY,
   started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -193,7 +194,8 @@ CREATE TABLE review_runs (
   approved      INT,
   denied        INT,
   errors        INT,
-  notes         TEXT
+  notes         TEXT,
+  user_id       UUID
 );
 CREATE INDEX idx_review_runs_started_at ON review_runs (started_at DESC);
 
@@ -285,6 +287,102 @@ CREATE TABLE resume_scores (
 );
 CREATE INDEX idx_resume_scores_user ON resume_scores (user_id);
 
+-- Multi-tenant foundation (see migrations/2026-07-03-multitenant-foundation.sql).
+-- Invite-gated signup: invite_codes + invite_redemptions are the server-side source
+-- of truth for "this account was invited" (user_metadata is client-settable and must
+-- NOT be trusted).
+CREATE TABLE invite_codes (
+  code       TEXT PRIMARY KEY,
+  note       TEXT,
+  max_uses   INT NOT NULL DEFAULT 1,
+  uses       INT NOT NULL DEFAULT 0 CHECK (uses >= 0 AND uses <= max_uses),
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One redemption per email — the trusted proof an account was invited.
+CREATE TABLE invite_redemptions (
+  email       TEXT NOT NULL,
+  code        TEXT NOT NULL REFERENCES invite_codes(code),
+  user_id     UUID,
+  redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (email)
+);
+
+-- Per-user, per-day usage counters. kind='review' backs the reviewer's rolling
+-- daily budget; generation kinds arrive in Phase 1. "Reset at midnight" falls out
+-- of the (user_id, day) key — no cron.
+CREATE TABLE usage_counters (
+  user_id UUID NOT NULL,
+  day     DATE NOT NULL,
+  kind    TEXT NOT NULL,
+  n       INT  NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day, kind)
+);
+
+-- Billing (see migrations/2026-07-03-billing-review-requests.sql). Local mirror of
+-- Stripe truth, keyed by user_id; the Stripe webhook (service role) is the sole
+-- writer. No FK to auth.users (house convention, see profiles).
+CREATE TABLE subscriptions (
+  user_id                UUID PRIMARY KEY,
+  stripe_customer_id     TEXT UNIQUE,
+  stripe_subscription_id TEXT,
+  plan                   TEXT CHECK (plan IN ('standard','pro')),
+  status                 TEXT NOT NULL,             -- raw Stripe status string
+  current_period_end     TIMESTAMPTZ,
+  cancel_at_period_end   BOOLEAN NOT NULL DEFAULT FALSE,
+  last_event_at          TIMESTAMPTZ,               -- Stripe event.created watermark (M-WEBHOOK-ORDER)
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- On-demand "review my board now" queue, shared by the dashboard (enqueue) and the
+-- reviewer worker (claim + status transition). One active request per user.
+CREATE TABLE review_requests (
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      UUID NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending','running','done','failed')),
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at   TIMESTAMPTZ,
+  finished_at  TIMESTAMPTZ,
+  notes        TEXT
+);
+CREATE UNIQUE INDEX one_active_review_request
+  ON review_requests (user_id) WHERE status IN ('pending','running');
+CREATE INDEX idx_review_requests_pending
+  ON review_requests (requested_at) WHERE status = 'pending';
+
+-- DB-overridable tier settings (see migrations/2026-07-04-tier-settings.sql). ONE
+-- jsonb config row per plan that OVERLAYS the compiled entitlement/price defaults
+-- field-by-field (dashboard/lib/tierConfig.ts, reviewer.db.load_tier_settings) so
+-- caps/allowances/prices are tunable WITHOUT a redeploy. Shared operator policy (not
+-- per-user); empty by default = use the compiled defaults everywhere.
+CREATE TABLE tier_settings (
+  plan       TEXT PRIMARY KEY CHECK (plan IN ('standard','pro')),
+  config     JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Account-deletion erasure ledger (see migrations/2026-07-04-account-deletions.sql).
+-- One row per deleted account, keyed by user_id, with a HASH of the email (never
+-- plaintext) as tamper-evident proof of erasure. Written by the deletion cascade
+-- (dashboard/lib/accountDeletion.ts) via the service role; users never read it.
+CREATE TABLE account_deletions (
+  user_id    UUID PRIMARY KEY,
+  email_hash TEXT,
+  deleted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- OpenRouter spend-alert snapshots (see migrations/2026-07-04-openrouter-usage-snapshots.sql).
+-- observability.spend_alert (Railway cron) records total_usage/total_credits here and
+-- differences the trailing-24h window to compute burn. Service-role only.
+CREATE TABLE openrouter_usage_snapshots (
+  taken_at      TIMESTAMPTZ PRIMARY KEY DEFAULT now(),
+  total_usage   NUMERIC NOT NULL,
+  total_credits NUMERIC
+);
+
 -- Applied-migrations ledger. Record each migration with:
 --   INSERT INTO schema_migrations (filename) VALUES ('<file>');
 -- when applied. Every new migration must be idempotent, transactional where
@@ -327,3 +425,164 @@ ALTER TABLE review_corrections   ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON review_corrections   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE schema_migrations    ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON schema_migrations    FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE invite_codes         ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON invite_codes         FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE invite_redemptions   ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON invite_redemptions   FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE usage_counters       ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON usage_counters       FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE subscriptions        ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON subscriptions        FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE review_requests      ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON review_requests      FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE tier_settings        ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON tier_settings        FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE account_deletions    ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON account_deletions    FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE openrouter_usage_snapshots ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON openrouter_usage_snapshots FOR ALL USING (false) WITH CHECK (false);
+
+-- ── Phase-1 tenant isolation (mirrors migrations/2026-07-03-rls-tenant-isolation.sql
+-- + the per-user policies of 2026-07-03-billing-review-requests.sql) ────────────
+-- Real per-user RLS with teeth. The dashboard drops into the `authenticated` role
+-- per-transaction (SET LOCAL ROLE + request.jwt.claims); public.app_user_id() reads
+-- the JWT `sub` out of that GUC. The privileged `postgres`/service role OWNS these
+-- tables and bypasses RLS, so the reviewer, pollers, discovery, the Stripe webhook,
+-- and the invite path are unaffected. The deny-all policies above OR harmlessly with
+-- these permissive ones. Roles are DO-guarded so schema.sql loads on plain Postgres
+-- (the test DB), where the roles survive DROP SCHEMA public CASCADE (cluster-level).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+END
+$$;
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+
+-- search_path pinned (mirrors migrations/2026-07-05-app-user-id-search-path.sql): this
+-- SECURITY-critical RLS resolver touches only pg_catalog built-ins, so pinning it to
+-- pg_catalog fixes the function_search_path_mutable advisor while leaving behaviour
+-- identical.
+CREATE OR REPLACE FUNCTION public.app_user_id() RETURNS uuid
+LANGUAGE plpgsql STABLE SET search_path = pg_catalog AS $$
+DECLARE
+  claims text;
+  sub    text;
+BEGIN
+  claims := current_setting('request.jwt.claims', true);
+  IF claims IS NULL OR claims = '' THEN
+    RETURN NULL;
+  END IF;
+  sub := (claims::json ->> 'sub');
+  IF sub IS NULL OR sub = '' THEN
+    RETURN NULL;
+  END IF;
+  RETURN sub::uuid;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
+END;
+$$;
+
+-- Owner policies (SELECT/INSERT/UPDATE/DELETE own rows only).
+CREATE POLICY owner_access ON profiles FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON job_reviews FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON review_corrections FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON company_reviews FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON application_packages FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON resume_scores FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON usage_counters FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+
+-- Shared-read policies (global corpus + pipeline accounting).
+CREATE POLICY shared_read ON jobs      FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY shared_read ON companies FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY shared_read ON poll_runs       FOR SELECT TO authenticated USING (true);
+CREATE POLICY shared_read ON discovery_runs  FOR SELECT TO authenticated USING (true);
+CREATE POLICY shared_read ON discovery_state FOR SELECT TO authenticated USING (true);
+CREATE POLICY owner_or_legacy_read ON review_runs FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()) OR user_id IS NULL);
+
+-- Billing per-user policies (webhook/worker keep the service role).
+CREATE POLICY owner_read ON subscriptions FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_read ON review_requests FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_insert ON review_requests FOR INSERT TO authenticated
+  WITH CHECK (user_id = (SELECT public.app_user_id()));
+
+-- Tier settings: shared operator policy (not per-user). Writes are service-role only.
+CREATE POLICY shared_read ON tier_settings FOR SELECT TO anon, authenticated USING (true);
+
+-- Grants (table privilege is the outer gate; RLS filters within — a granted table
+-- with no matching policy returns zero rows, not permission-denied). This block is a
+-- positive ALLOWLIST: it first strips every default anon/authenticated privilege
+-- (Supabase grants full arwdDxt by default) so a slipped RLS policy is not the only
+-- gate, then re-grants exactly what each role needs. Mirrors
+-- migrations/2026-07-04-cost-cap-hardening.sql (finding B-COST).
+REVOKE ALL ON ALL TABLES    IN SCHEMA public FROM anon, authenticated;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+
+GRANT SELECT ON jobs, companies, poll_runs, discovery_runs, discovery_state, review_runs
+  TO authenticated;
+-- Owner-scoped CRUD (usage_counters excluded — SELECT-only for users; writes are
+-- service-role only, so a user cannot zero their own review/generation counters).
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  job_reviews, review_corrections, company_reviews, application_packages, resume_scores
+  TO authenticated;
+GRANT SELECT ON usage_counters TO authenticated;
+-- profiles: full user control EXCEPT the operator-only cost lever daily_review_cap.
+-- INSERT/UPDATE are column-level over every column but daily_review_cap. (A bare
+-- REVOKE UPDATE (daily_review_cap) would NOT work: a table-level UPDATE grant is not
+-- affected by a column-level revoke — the column stays writable. So we grant only the
+-- allowed columns.) Keep this list in sync with the profiles table when a column is
+-- ADDED (new columns default to non-user-writable — the safe direction).
+GRANT SELECT, DELETE ON profiles TO authenticated;
+GRANT INSERT (user_id, resume_text, resume_file_path, instructions, model_stage1,
+              model_stage2, preferred_locations, model_resume, company_instructions,
+              company_profile_version, model_company, board_filters, full_name, email,
+              phone, links, location, work_authorized, needs_sponsorship, eeo_gender,
+              eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
+              profile_version, updated_at)
+  ON profiles TO authenticated;
+GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
+              model_stage2, preferred_locations, model_resume, company_instructions,
+              company_profile_version, model_company, board_filters, full_name, email,
+              phone, location, links, work_authorized, needs_sponsorship, eeo_gender,
+              eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
+              profile_version, updated_at)
+  ON profiles TO authenticated;
+GRANT SELECT ON subscriptions TO authenticated;
+GRANT SELECT, INSERT ON review_requests TO authenticated;
+GRANT USAGE ON SEQUENCE application_packages_id_seq TO authenticated;
+GRANT USAGE ON SEQUENCE review_requests_id_seq TO authenticated;
+-- anon reads the public board + gets SELECT (no policy → zero rows) on the two
+-- review tables getJobReviewDetail LEFT JOINs so its anon query isn't denied.
+GRANT SELECT ON jobs, companies, job_reviews, review_corrections TO anon;
+-- Tier settings: shared operator config read by the dashboard (withAnonSql) + reviewer.
+GRANT SELECT ON tier_settings TO anon, authenticated;
+
+-- Default-privilege deny (mirrors migrations/2026-07-05-default-privileges-revoke.sql,
+-- finding minor 6): the REVOKE above only touches tables that exist NOW. Strip the
+-- default anon/authenticated grant for FUTURE tables + sequences too, so a new table
+-- starts deny-by-default and its creating migration must explicitly grant the intended
+-- subset (the safe direction). Owner (postgres/service role) bypasses grants + RLS.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES    FROM anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;
+
+-- Storage RLS (résumé bucket) is NOT represented here: the `storage` schema is
+-- Supabase-managed and does not exist in the plain-Postgres test DB this file
+-- builds. Per-prefix tenant isolation for `storage.objects` (bucket `resumes`,
+-- finding B-STORAGE) lives in migrations/2026-07-04-resume-bucket-storage-policies.sql
+-- and MUST be applied to the live Supabase project + live cross-account verified
+-- (see that file's header). tests/test_resume_storage_policies.py proves the policy
+-- predicate against a faithful in-DB mock of the storage/auth schema.

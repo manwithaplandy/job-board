@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
-import { BARE_MARKER_PREDICATE, companyNameSearchFragment } from "@/lib/queries";
+import { bareMarkerPredicate, companyNameSearchFragment } from "@/lib/queries";
+// These two fragment builders take the active executor. The real serviceSql (a
+// postgres.js instance that never connects here — vitest sets a dummy DATABASE_URL)
+// builds genuine SQL fragments whose .strings/.args this suite introspects.
+import { serviceSql } from "@/lib/db";
 
 // Guards the parity contract the queries layer relies on: the version persisted
 // by upsertProfile is exactly sha256(company_instructions) and matches Python.
@@ -16,8 +20,8 @@ describe("company profile-version wiring", () => {
 
 // BARE_MARKER_PREDICATE is a static postgres.js SQL fragment; a fragment with no
 // interpolations carries its whole text in strings[0] and binds zero parameters.
-describe("BARE_MARKER_PREDICATE (un-apply marker semantics)", () => {
-  const frag = BARE_MARKER_PREDICATE as unknown as { strings: string[]; args: unknown[] };
+describe("bareMarkerPredicate (un-apply marker semantics)", () => {
+  const frag = bareMarkerPredicate(serviceSql) as unknown as { strings: string[]; args: unknown[] };
   const text = frag.strings.join(" ").replace(/\s+/g, " ").toLowerCase().trim();
 
   it("requires every content column to be NULL", () => {
@@ -46,7 +50,7 @@ describe("BARE_MARKER_PREDICATE (un-apply marker semantics)", () => {
 // fragment that binds the term as a parameter — never interpolate it — and stay inert when empty.
 describe("companyNameSearchFragment (server-side name search)", () => {
   const introspect = (search?: string) =>
-    companyNameSearchFragment(search) as unknown as { strings: string[]; args: unknown[] };
+    companyNameSearchFragment(serviceSql, search) as unknown as { strings: string[]; args: unknown[] };
 
   it("is inert (empty text, no params) for undefined/empty/whitespace — identical to no search", () => {
     for (const s of [undefined, "", "   "]) {

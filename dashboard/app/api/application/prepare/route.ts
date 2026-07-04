@@ -1,6 +1,7 @@
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
-import { getUserId } from "@/lib/auth";
+import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
+import { reserveGenerations, refundGenerations, type GenerationKind } from "@/lib/usage";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
@@ -24,8 +25,9 @@ export const maxDuration = 120;
 // not requireUserId's redirect to /login (which the client would receive as HTML).
 // Uses Promise.allSettled so a failure in one LLM leg doesn't block the others.
 export async function POST(req: Request) {
-  const userId = await getUserId();
-  if (!userId) return Response.json({ error: "sign in to prepare an application" }, { status: 401 });
+  const claims = await getUserClaims();
+  if (!claims) return Response.json({ error: "sign in to prepare an application" }, { status: 401 });
+  const userId = claims.id;
 
   const { jobId } = (await req.json().catch(() => ({}))) as { jobId?: string };
   if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
@@ -39,6 +41,14 @@ export async function POST(req: Request) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "application preparation not configured" }, { status: 500 });
+
+  // Prepare generates BOTH a résumé and a cover letter, so reserve both up front (block
+  // if EITHER is exhausted). reserveGenerations is ATOMIC (avoids check-then-charge
+  // TOCTOU) and all-or-nothing across the two kinds; a rejected leg is REFUNDED below so
+  // it never burns allowance. After the 404/422/500 validation so we never charge a
+  // request that can't generate. No plan → 402, exhausted → 429.
+  const gate = await reserveGenerations(userId, claims.email, ["resume", "cover"]);
+  if (!gate.ok) return Response.json({ error: gate.error }, { status: gate.status });
 
   const answers = applicationAnswersFromProfile(profile);
   // Résumé plaintext via the shared helper.
@@ -154,6 +164,18 @@ export async function POST(req: Request) {
       resumeTraceId,
       profileVersion: profile.profile_version,
     });
+    // Both kinds were reserved (charged) up front; REFUND any leg that rejected — a
+    // rejected leg (e.g. OpenRouter outage) persists a partial package but must never
+    // burn its kind's allowance (T9: "a failed generation never burns allowance";
+    // mirrors the sibling /api/resume + /api/cover-letter routes). Both-fulfilled refunds
+    // nothing. A whole-prepare failure throws before here and refunds both in the outer
+    // catch. Model choice (model_resume/model_cover) is intentionally NOT tier-gated —
+    // generation is 1–3% of cost (spec); the monthly counter is the abuse cap.
+    const refundKinds: GenerationKind[] = [
+      ...(resumeResult.status === "rejected" ? (["resume"] as const) : []),
+      ...(coverResult.status === "rejected" ? (["cover"] as const) : []),
+    ];
+    if (refundKinds.length) await refundGenerations(userId, refundKinds);
     // Per-leg status so the client can surface which parts of a partially
     // failed prepare need a retry (the package persists whatever succeeded).
     return Response.json({
@@ -179,7 +201,9 @@ export async function POST(req: Request) {
     return await run();
   } catch (e) {
     // Generation failures are salvaged per-leg above; this catches the upsert /
-    // infrastructure path. Never leak internal error detail to the client.
+    // infrastructure path where NOTHING persisted — refund both reserved kinds so a
+    // failed prepare never burns allowance. Never leak internal error detail to the client.
+    await refundGenerations(userId, ["resume", "cover"]);
     console.error("application prepare failed", e);
     return Response.json({ error: "Preparation failed — try again." }, { status: 502 });
   }

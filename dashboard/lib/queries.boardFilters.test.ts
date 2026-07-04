@@ -4,12 +4,13 @@ import { describe, expect, test, vi, beforeEach } from "vitest";
 const { calls } = vi.hoisted(() => ({
   calls: [] as { strings: readonly string[]; values: unknown[] }[],
 }));
-vi.mock("@/lib/db", () => ({
-  sql: (strings: readonly string[], ...values: unknown[]) => {
+vi.mock("@/lib/db", () => {
+  const tx = (strings: readonly string[], ...values: unknown[]) => {
     calls.push({ strings, values });
     return Promise.resolve([]);
-  },
-}));
+  };
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+});
 
 import { saveBoardFilters } from "@/lib/queries";
 import { DEFAULT_FILTERS } from "@/lib/rolefit/filter";

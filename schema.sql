@@ -535,3 +535,11 @@ GRANT USAGE ON SEQUENCE review_requests_id_seq TO authenticated;
 GRANT SELECT ON jobs, companies, job_reviews, review_corrections TO anon;
 -- Tier settings: shared operator config read by the dashboard (withAnonSql) + reviewer.
 GRANT SELECT ON tier_settings TO anon, authenticated;
+
+-- Storage RLS (résumé bucket) is NOT represented here: the `storage` schema is
+-- Supabase-managed and does not exist in the plain-Postgres test DB this file
+-- builds. Per-prefix tenant isolation for `storage.objects` (bucket `resumes`,
+-- finding B-STORAGE) lives in migrations/2026-07-04-resume-bucket-storage-policies.sql
+-- and MUST be applied to the live Supabase project + live cross-account verified
+-- (see that file's header). tests/test_resume_storage_policies.py proves the policy
+-- predicate against a faithful in-DB mock of the storage/auth schema.

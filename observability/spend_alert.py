@@ -188,7 +188,11 @@ def main() -> None:
         code = run_once(conn, api_key=api_key, webhook_url=webhook_url,
                         daily_limit=daily_limit, credits_floor=credits_floor)
     except Exception:
-        log.exception("spend alert run failed (no snapshot written)")
+        # NOT "(no snapshot written)": run_once inserts+commits the snapshot BEFORE it
+        # evaluates thresholds, so a failure AFTER that commit (e.g. in the differencing
+        # read) leaves a snapshot written. Only a fetch_credits failure writes none — the
+        # generic message is accurate in both cases.
+        log.exception("spend alert run failed")
         code = 1
     finally:
         conn.close()

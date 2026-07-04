@@ -3,8 +3,10 @@ reviewer/entitlements.py. Regex-extracts the model ids, per-model caps, and mont
 allowances from the TS source and asserts they equal the Python constants, so the
 two tier-truth files can never silently drift (pattern: test_taxonomy_parity.py)."""
 import re
+from datetime import timedelta
 from pathlib import Path
 
+from reviewer import entitlements as py_ent
 from reviewer.entitlements import CHEAP_MODEL, ENTITLEMENTS, PREMIUM_MODEL
 
 _TS = Path(__file__).resolve().parent.parent / "dashboard" / "lib" / "entitlements.ts"
@@ -42,6 +44,27 @@ def test_entitlement_table_parity():
     text = _TS.read_text()
     for plan in ("standard", "pro"):
         assert _plan_block(plan, text) == ENTITLEMENTS[plan], f"{plan} entitlement mismatch"
+
+
+def test_grace_window_and_trial_flag_parity():
+    """The entitlement resolver's two non-model knobs must match across TS and Python:
+    the post-period grace window (3 days) and the trial-clamp flag. A silent drift here
+    would grant/gate access on one runtime but not the other (minor 9)."""
+    text = _TS.read_text()
+
+    # Grace window: TS `GRACE_MS = 3 * 24 * 60 * 60 * 1000` == Python `_GRACE = 3 days`.
+    m = re.search(r"const GRACE_MS\s*=\s*(\d+)\s*\*\s*(\d+)\s*\*\s*(\d+)\s*\*\s*(\d+)\s*\*\s*(\d+)", text)
+    assert m, "GRACE_MS not found in entitlements.ts"
+    grace_ms = 1
+    for g in m.groups():
+        grace_ms *= int(g)
+    assert timedelta(milliseconds=grace_ms) == py_ent._GRACE == timedelta(days=3)
+
+    # Trial-clamp flag: TS `TRIAL_GRANTS_FULL_PLAN = false` == Python `_TRIAL_GRANTS_FULL_PLAN`.
+    m = re.search(r"const TRIAL_GRANTS_FULL_PLAN\s*=\s*(true|false)", text)
+    assert m, "TRIAL_GRANTS_FULL_PLAN not found in entitlements.ts"
+    ts_trial = m.group(1) == "true"
+    assert ts_trial == py_ent._TRIAL_GRANTS_FULL_PLAN is False
 
 
 # ── T1: the two DB-overlay parsers must recognize the SAME jsonb config field names ──

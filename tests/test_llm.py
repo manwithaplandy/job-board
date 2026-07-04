@@ -130,6 +130,7 @@ def test_stage1_creates_generation_when_tracing_enabled(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
 
     class _LF:
         def start_as_current_observation(self, **kw):
@@ -285,6 +286,7 @@ def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
 
     class _LF:
         def start_as_current_observation(self, **kw):
@@ -315,3 +317,63 @@ def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
     # A real positive usage.cost is trusted verbatim and stamped source='usage'.
     assert events["update"]["cost_details"] == {"total": 1.23e-05}
     assert events["update"]["metadata"]["cost_source"] == "usage"
+
+
+def test_cost_confirmation_runs_outside_the_span_latency_window(monkeypatch):
+    """minor 9: when usage.cost is 0/absent the cost is CONFIRMED via a second OpenRouter
+    round-trip. That confirm must NOT inflate the generation latency: the span is ended
+    with an explicit end_time pinned to the API-call completion, and the confirmed cost is
+    still attached before end()."""
+    from observability import tracing, llm
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            events["create"] = kw
+            return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    confirm_calls = []
+
+    async def _fake_confirm(gen_id):
+        confirm_calls.append(gen_id)
+        return 0.5
+
+    monkeypatch.setattr(llm, "_confirm_generation_cost", _fake_confirm)
+
+    # usage.cost absent (capture gap) but a generation id is present → confirm path.
+    usage = types.SimpleNamespace(prompt_tokens=10, completion_tokens=2, cost=None)
+
+    class _GapCompletions:
+        async def parse(self, **kwargs):
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(
+                    message=types.SimpleNamespace(
+                        parsed=Stage1Result(decision="pass", reason="r"), refusal=None
+                    )
+                )],
+                usage=usage, id="gen-gap", model="deepseek/deepseek-v4-flash",
+            )
+
+    client = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_GapCompletions()))
+    )
+    rc = ReviewClient(client=client, model_stage1="m1", model_stage2="m2")
+    asyncio.run(rc.stage1(profile_block="P", title="T", company="C", location=None))
+
+    # The confirm ran (against the generation id) and its cost was recorded…
+    assert confirm_calls == ["gen-gap"]
+    assert events["update"]["cost_details"] == {"total": 0.5}
+    assert events["update"]["metadata"]["cost_source"] == "generation_api"
+    # …and the span was ended with an EXPLICIT end_time (pinned to the API call, so the
+    # confirm round-trip is excluded from the recorded latency). end_on_exit=False enables this.
+    assert events["create"].get("end_on_exit") is False
+    assert events["end"].get("end_time") is not None

@@ -135,6 +135,31 @@ def test_run_once_alert_delivery_failure_exits_nonzero(conn, monkeypatch):
 
 
 @requires_db
+def test_oldest_usage_within_24h_ignores_snapshots_older_than_24h(conn):
+    """The burn baseline is the OLDEST snapshot WITHIN the trailing 24h. A snapshot 25h old
+    must be excluded from the differencing (minor 9); the 1h-old one is the true baseline."""
+    _seed_prior(conn, hours_ago=25, usage=10.0)  # OUTSIDE the window — must be ignored
+    _seed_prior(conn, hours_ago=1, usage=95.0)   # inside the window — the real baseline
+    assert spend_alert.oldest_usage_within_24h(conn) == pytest.approx(95.0)
+
+
+@requires_db
+def test_run_once_burn_excludes_snapshot_older_than_24h(conn, monkeypatch):
+    """End-to-end: with a 25h-old snapshot (usage 10) and a 1h-old one (usage 95), a
+    current usage of 100 must diff against the 1h snapshot → burn 5 (healthy), NOT against
+    the 25h snapshot → burn 90 (which would false-alarm). Guards the 24h window boundary."""
+    _seed_prior(conn, hours_ago=25, usage=10.0)
+    _seed_prior(conn, hours_ago=1, usage=95.0)
+    monkeypatch.setattr(spend_alert, "fetch_credits", lambda k: (100.0, 1000.0))
+    sent = []
+    monkeypatch.setattr(spend_alert, "send_alert", lambda url, p: sent.append(p) or True)
+    code = spend_alert.run_once(conn, api_key="k", webhook_url="http://x",
+                                daily_limit=10.0, credits_floor=20.0)
+    assert code == 0
+    assert sent == []  # burn = 100 - 95 = 5 < 10; the 25h snapshot was correctly excluded
+
+
+@requires_db
 def test_run_once_fetch_failure_writes_no_snapshot(conn, monkeypatch):
     def boom(_k):
         raise RuntimeError("openrouter down")

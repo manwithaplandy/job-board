@@ -9,6 +9,7 @@ real cost accounting via OpenRouter.
 import asyncio
 import logging
 import os
+import time
 
 import httpx
 
@@ -139,25 +140,40 @@ async def traced_structured_call(
         resp, msg = await _invoke(client, kwargs)
         return msg.parsed, getattr(resp, "usage", None)
 
+    # end_on_exit=False keeps the generation span OPEN after the `with` body so we can
+    # attach the cost below and then end() it with an EXPLICIT end_time pinned to the
+    # moment the API call returned (api_end_ns). The cost-confirmation retry loop is a
+    # SECOND OpenRouter round-trip (only on the capture-gap path) — running it after the
+    # span's timed window means it never inflates the recorded generation latency (minor 9).
     with lf.start_as_current_observation(
         as_type="generation",
         name=name,
         model=model,
         input=messages,
         metadata=metadata,
+        end_on_exit=False,
     ) as gen:
         try:
             resp, msg = await _invoke(client, kwargs)
         except Exception as exc:
             gen.update(level="ERROR", status_message=str(exc))
+            gen.end()
             raise
+        # Generation latency stops HERE — the actual model call. Everything below (cost
+        # confirmation especially) is annotation and must not count toward it.
+        api_end_ns = time.time_ns()
+
+    # try/finally guarantees the (end_on_exit=False) span is ended even if annotation
+    # raises — so moving the tail out of the `with` can never leak an unclosed span.
+    try:
         usage = getattr(resp, "usage", None)
         reported_cost = getattr(usage, "cost", None) if usage is not None else None
 
-        # Trust usage.cost only when it's a real positive number. A 0/None is the
-        # capture gap the spec flags — confirm it against OpenRouter's authoritative
-        # generation stats. A CONFIRMED 0 is signal (recorded); an ASSUMED 0 is the
-        # bug (never recorded). Unconfirmable → record NO cost, source='unknown'.
+        # Trust usage.cost only when it's a real positive number. A 0/None is the capture
+        # gap the spec flags — confirm it against OpenRouter's authoritative generation
+        # stats. A CONFIRMED 0 is signal (recorded); an ASSUMED 0 is the bug (never
+        # recorded). Unconfirmable → record NO cost, source='unknown'. This confirm runs
+        # OUTSIDE the span's timed window (the span's end_time is pinned to api_end_ns).
         if reported_cost is not None and reported_cost > 0:
             cost, cost_source = reported_cost, "usage"
         else:
@@ -181,10 +197,13 @@ async def traced_structured_call(
             output=msg.parsed.model_dump(),
             usage_details=usage_details,
             cost_details={"total": cost} if cost is not None else None,
-            # cost_source lets downstream analysis trust (or discount) each number;
-            # served model is what OpenRouter actually routed to (may differ from the
-            # requested slug), which matters for per-model cost attribution.
+            # cost_source lets downstream analysis trust (or discount) each number; served
+            # model is what OpenRouter actually routed to (may differ from the requested
+            # slug), which matters for per-model cost attribution.
             metadata={**metadata, "cost_source": cost_source,
                       "served_model": getattr(resp, "model", None)},
         )
-        return msg.parsed, usage
+    finally:
+        # Pin the end to the API-call completion so the confirm round-trip above is excluded.
+        gen.end(end_time=api_end_ns)
+    return msg.parsed, usage

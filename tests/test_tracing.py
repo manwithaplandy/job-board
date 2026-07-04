@@ -94,6 +94,7 @@ def test_cost_recorded_from_usage(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): recorded.update(kw)
+        def end(self, **kw): pass
 
     class _LF:
         def start_as_current_observation(self, **kw):
@@ -144,6 +145,7 @@ def test_positive_cost_skips_fallback(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): recorded.update(kw)
+        def end(self, **kw): pass
 
     class _LF:
         def start_as_current_observation(self, **kw): return _Gen()
@@ -188,6 +190,7 @@ def test_zero_cost_confirmed_via_generation_api(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): recorded.update(kw)
+        def end(self, **kw): pass
 
     class _LF:
         def start_as_current_observation(self, **kw): return _Gen()
@@ -229,6 +232,7 @@ def test_unconfirmable_cost_records_no_cost_details(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): recorded.update(kw)
+        def end(self, **kw): pass
 
     class _LF:
         def start_as_current_observation(self, **kw): return _Gen()
@@ -263,6 +267,7 @@ def test_cached_tokens_recorded_in_usage_details(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): recorded.update(kw)
+        def end(self, **kw): pass
 
     class _LF:
         def start_as_current_observation(self, **kw): return _Gen()
@@ -362,8 +367,10 @@ def test_extra_body_and_max_tokens_forwarded(monkeypatch):
 
 
 def test_span_wraps_awaited_api_call(monkeypatch):
-    """The generation span is entered BEFORE the API call and exited AFTER it,
-    so recorded latency reflects the call rather than ~0."""
+    """The generation span is entered BEFORE the API call so recorded latency reflects the
+    call rather than ~0. With end_on_exit=False (minor 9) the span is finalized by an
+    EXPLICIT end() AFTER the with-body — pinned to the API-call completion — and the
+    output/cost update lands just before that end()."""
     from observability import llm as obs_llm
     from reviewer.schemas import Stage1Result
 
@@ -373,6 +380,7 @@ def test_span_wraps_awaited_api_call(monkeypatch):
         def __enter__(self): order.append("enter"); return self
         def __exit__(self, *a): order.append("exit"); return False
         def update(self, **kw): order.append("update")
+        def end(self, **kw): order.append("end")
 
     class _LF:
         def start_as_current_observation(self, **kw): return _Gen()
@@ -393,8 +401,13 @@ def test_span_wraps_awaited_api_call(monkeypatch):
         fake, model="m", messages=[{"role": "user", "content": "hi"}],
         schema=Stage1Result, name="t", metadata={},
     ))
+    # The API call is awaited INSIDE the with-body (between enter and exit), so latency
+    # spans the call…
     assert order.index("enter") < order.index("call") < order.index("exit")
-    assert order[-1] == "exit"  # span closes only after the call resolves
+    # …and the span is finalized after the body: update (output/cost) then an explicit,
+    # end_time-pinned end() — the last thing to run.
+    assert order.index("exit") < order.index("update") < order.index("end")
+    assert order[-1] == "end"
 
 
 def test_error_recorded_inside_span(monkeypatch):
@@ -409,6 +422,7 @@ def test_error_recorded_inside_span(monkeypatch):
         def __enter__(self): entered.append(True); return self
         def __exit__(self, *a): return False
         def update(self, **kw): recorded.update(kw)
+        def end(self, **kw): pass
 
     class _LF:
         def start_as_current_observation(self, **kw): return _Gen()

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireUserId: vi.fn(async () => "u1"),
   getProfile: vi.fn(),
-  upsertProfile: vi.fn(async (_userId: string, _data: any) => {}),
+  upsertProfile: vi.fn(async (_userId: string, _data: Parameters<typeof import("@/lib/queries").upsertProfile>[1]) => {}),
   revalidatePath: vi.fn(),
   createClient: vi.fn(),
   assertNotDeleted: vi.fn(async (_userId: string) => {}),

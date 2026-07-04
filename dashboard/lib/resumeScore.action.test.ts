@@ -4,7 +4,7 @@ const admin = vi.hoisted(() => ({ isAdmin: true }));
 
 const sqlMock = vi.fn();
 vi.mock("@/lib/db", () => {
-  const tx = Object.assign((...a: any[]) => sqlMock.apply(null, a), { json: (v: unknown) => v });
+  const tx = Object.assign((...a: unknown[]) => sqlMock(...a), { json: (v: unknown) => v });
   return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
 });
 vi.mock("@/lib/auth", () => ({

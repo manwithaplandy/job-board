@@ -14,7 +14,6 @@ export function tracingEnabled(): boolean {
 // the flush is a silent no-op. globalThis is the one slot shared across every
 // bundle in the process, so publish the instance there and read it back here.
 declare global {
-  // eslint-disable-next-line no-var
   var __langfuseSpanProcessor: LangfuseSpanProcessor | undefined;
 }
 

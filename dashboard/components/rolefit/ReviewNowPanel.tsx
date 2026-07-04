@@ -69,9 +69,13 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
     }
   }, []);
 
-  // Initial status load.
+  // Initial status load. Wrapped in an inline async IIFE so the awaited fetch (not a
+  // synchronous setState) is what runs in the effect body — poll only setState()s after
+  // its `await fetch`, so this never cascades a render.
   useEffect(() => {
-    void poll();
+    void (async () => {
+      await poll();
+    })();
   }, [poll]);
 
   // Poll every ~10s WHILE a request is active; stop when it settles.

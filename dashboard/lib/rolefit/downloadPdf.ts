@@ -1,4 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function downloadPdf(
   filename: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

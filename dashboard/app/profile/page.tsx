@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { getViewerPlan } from "@/lib/subscriptions";
-import { resolveStage2Model, CHEAP_MODEL, PREMIUM_MODEL, type Plan } from "@/lib/entitlements";
+import { resolveStage2Model, CHEAP_MODEL, PREMIUM_MODEL } from "@/lib/entitlements";
 import { internalPathFromReferer } from "@/lib/paths";
 import { ProfileFormShell, type ProfileSaveState } from "@/components/ProfileFormShell";
 import { createClient } from "@/lib/supabase/server";

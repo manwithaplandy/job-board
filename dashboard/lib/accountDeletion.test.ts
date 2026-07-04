@@ -12,7 +12,13 @@ import {
 const s = vi.hoisted(() => ({
   order: [] as string[],
   txSql: [] as string[],
-  subRow: [{ stripe_subscription_id: "sub_1" as string | null, status: "active" as string | null }],
+  subRow: [
+    {
+      stripe_subscription_id: "sub_1" as string | null,
+      stripe_customer_id: "cus_1" as string | null,
+      status: "active" as string | null,
+    },
+  ],
   authError: null as { status?: number; message?: string } | null,
   storageListError: false,
   storageRemoveError: false,
@@ -20,6 +26,7 @@ const s = vi.hoisted(() => ({
   removedPaths: [] as string[],
   listOffsets: [] as number[],
   stripeCalledWith: [] as (string | null)[],
+  stripeCustomerDeletedWith: [] as (string | null)[],
 }));
 
 vi.mock("@/lib/db", () => {
@@ -45,6 +52,9 @@ vi.mock("@/lib/stripe", () => ({
   cancelSubscriptionIfPresent: vi.fn(async (id: string | null | undefined) => {
     s.order.push("stripe");
     s.stripeCalledWith.push(id ?? null);
+  }),
+  deleteCustomerIfPresent: vi.fn(async (id: string | null | undefined) => {
+    s.stripeCustomerDeletedWith.push(id ?? null);
   }),
 }));
 
@@ -83,13 +93,13 @@ const {
   deleteAccount, deleteAuthUser, deleteStorageObjects, deleteUserRowsTx, hashEmail,
   cancelStripeForUser,
 } = await import("@/lib/accountDeletion");
-const { cancelSubscriptionIfPresent } = await import("@/lib/stripe");
+const { cancelSubscriptionIfPresent, deleteCustomerIfPresent } = await import("@/lib/stripe");
 const { sanitizeUploadFilename, resumeObjectPath } = await import("@/lib/resumeStorage");
 
 beforeEach(() => {
   s.order = [];
   s.txSql = [];
-  s.subRow = [{ stripe_subscription_id: "sub_1", status: "active" }];
+  s.subRow = [{ stripe_subscription_id: "sub_1", stripe_customer_id: "cus_1", status: "active" }];
   s.authError = null;
   s.storageListError = false;
   s.storageRemoveError = false;
@@ -97,7 +107,9 @@ beforeEach(() => {
   s.removedPaths = [];
   s.listOffsets = [];
   s.stripeCalledWith = [];
+  s.stripeCustomerDeletedWith = [];
   vi.mocked(cancelSubscriptionIfPresent).mockClear();
+  vi.mocked(deleteCustomerIfPresent).mockClear();
 });
 
 // ── Schema drift guard (T3 acceptance) ────────────────────────────────────────
@@ -171,23 +183,40 @@ describe("deleteUserRowsTx", () => {
 
 // ── Stripe already-gone tolerance (T3 fix) ───────────────────────────────────
 describe("cancelStripeForUser", () => {
-  test("skips the Stripe API call when the mirror already says canceled", async () => {
-    s.subRow = [{ stripe_subscription_id: "sub_1", status: "canceled" }];
+  test("skips the cancel API call when the mirror already says canceled", async () => {
+    s.subRow = [{ stripe_subscription_id: "sub_1", stripe_customer_id: "cus_1", status: "canceled" }];
     await cancelStripeForUser("user-a");
     // The mirror keeps canceled subs (id intact) — we must NOT double-cancel.
     expect(cancelSubscriptionIfPresent).not.toHaveBeenCalled();
+    // …but the PII customer is NOT gone just because the sub is canceled — delete it.
+    expect(s.stripeCustomerDeletedWith).toEqual(["cus_1"]);
   });
 
   test("cancels when the subscription is still active", async () => {
-    s.subRow = [{ stripe_subscription_id: "sub_1", status: "active" }];
+    s.subRow = [{ stripe_subscription_id: "sub_1", stripe_customer_id: "cus_1", status: "active" }];
     await cancelStripeForUser("user-a");
     expect(s.stripeCalledWith).toEqual(["sub_1"]);
   });
 
-  test("no subscription row → passes null (no-op)", async () => {
+  test("M-STRIPE-CUSTOMER: deletes the Stripe customer (erases email/name PII)", async () => {
+    s.subRow = [{ stripe_subscription_id: "sub_1", stripe_customer_id: "cus_1", status: "active" }];
+    await cancelStripeForUser("user-a");
+    // Deleting the customer happens BEFORE step 2 destroys the only id→customer mapping.
+    expect(s.stripeCustomerDeletedWith).toEqual(["cus_1"]);
+  });
+
+  test("no subscription row → passes null to both (no-op)", async () => {
     s.subRow = [];
     await cancelStripeForUser("user-a");
     expect(s.stripeCalledWith).toEqual([null]);
+    expect(s.stripeCustomerDeletedWith).toEqual([null]);
+  });
+
+  test("a canceled sub with no customer id → still a clean no-op", async () => {
+    s.subRow = [{ stripe_subscription_id: "sub_1", stripe_customer_id: null, status: "canceled" }];
+    await cancelStripeForUser("user-a");
+    expect(cancelSubscriptionIfPresent).not.toHaveBeenCalled();
+    expect(s.stripeCustomerDeletedWith).toEqual([null]);
   });
 });
 
@@ -204,7 +233,7 @@ describe("already-gone tolerance", () => {
   });
 
   test("a retry converges: deleteAccount succeeds with no subscription + already-deleted auth user", async () => {
-    s.subRow = [{ stripe_subscription_id: null, status: null }];
+    s.subRow = [{ stripe_subscription_id: null, stripe_customer_id: null, status: null }];
     s.authError = { status: 404, message: "not found" };
     await expect(deleteAccount("user-a", "a@x.com")).resolves.toBeUndefined();
     expect(s.order).toEqual(["stripe", "db", "storage", "auth"]);

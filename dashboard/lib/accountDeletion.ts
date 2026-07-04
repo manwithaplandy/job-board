@@ -9,14 +9,15 @@ import { createHash } from "node:crypto";
 // arbitrary id — so the RLS bypass can never be steered at another tenant.
 // ─────────────────────────────────────────────────────────────────────────────
 import { serviceSql } from "@/lib/db";
-import { cancelSubscriptionIfPresent } from "@/lib/stripe";
+import { cancelSubscriptionIfPresent, deleteCustomerIfPresent } from "@/lib/stripe";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { USER_DELETE_TABLES } from "@/lib/userScopedTables";
 
 // Ordered account-deletion cascade (T3, spec subsystem E). user_id is NOT FK'd to
 // auth.users, so deletion is deliberate and ordered. Each step is idempotent /
 // "already-gone"-tolerant so a retry after a partial failure converges:
-//   1. cancel any active Stripe subscription
+//   1. cancel any active Stripe subscription AND delete the Stripe customer (erase the
+//      email/name PII Stripe holds), before step 2 destroys the only id→customer mapping
 //   2. one DB transaction: delete every user-scoped row + anonymize review_runs +
 //      insert the erasure ledger row
 //   3. remove every storage object under resumes/{userId}/
@@ -35,17 +36,31 @@ export function hashEmail(email: string | null | undefined): string | null {
 // deleted specially (by user_id OR email); the generic loop handles the rest.
 const _LOOP_DELETE_TABLES = USER_DELETE_TABLES.filter((t) => t !== "invite_redemptions");
 
-/** Step 1: cancel the user's Stripe subscription if present (tolerates already-gone). */
+/**
+ * Step 1: cancel the user's Stripe subscription AND delete the Stripe customer (both
+ * tolerate already-gone). M-STRIPE-CUSTOMER — we must delete the Customer object here,
+ * BEFORE step 2 destroys the subscriptions row that holds the only stripe_customer_id
+ * mapping; otherwise the customer's email/name/history is orphaned in Stripe with no way
+ * left to reach it. Deleting the customer also cancels its subscriptions Stripe-side, so
+ * the explicit cancel is belt-and-suspenders (and keeps the webhook-mirror short-circuit).
+ * Both calls are idempotent, so a retry after a partial failure converges.
+ */
 export async function cancelStripeForUser(userId: string): Promise<void> {
-  const rows = await serviceSql<{ stripe_subscription_id: string | null; status: string | null }[]>`
-    SELECT stripe_subscription_id, status FROM subscriptions WHERE user_id = ${userId}::uuid
+  const rows = await serviceSql<
+    { stripe_subscription_id: string | null; stripe_customer_id: string | null; status: string | null }[]
+  >`
+    SELECT stripe_subscription_id, stripe_customer_id, status
+    FROM subscriptions WHERE user_id = ${userId}::uuid
   `;
   const row = rows[0];
   // The webhook mirror keeps canceled subscriptions (id intact, status='canceled'), so
-  // a lapsed subscriber's row still has an id. Skip the API call entirely when the
-  // mirror already says canceled — no double-cancel, no error to swallow.
-  if (row?.status === "canceled") return;
-  await cancelSubscriptionIfPresent(row?.stripe_subscription_id ?? null);
+  // a lapsed subscriber's row still has an id. Skip the cancel API call when the mirror
+  // already says canceled — no double-cancel, no error to swallow — but STILL delete the
+  // customer below (a canceled subscription does not mean the PII customer is gone).
+  if (row?.status !== "canceled") {
+    await cancelSubscriptionIfPresent(row?.stripe_subscription_id ?? null);
+  }
+  await deleteCustomerIfPresent(row?.stripe_customer_id ?? null);
 }
 
 /**

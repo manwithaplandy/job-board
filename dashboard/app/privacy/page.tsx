@@ -100,8 +100,10 @@ export default function PrivacyPage() {
           <a href="/profile" style={linkStyle}>profile page</a>. You can also permanently{" "}
           <strong>delete your account</strong> from the same page: deletion removes your
           profile, reviews, generated application packages, and archived résumé files from our
-          storage, and cancels any active subscription. Deletion is irreversible. Note that
-          LLM traces already sent to LangFuse and data at third-party model providers are
+          storage, cancels any active subscription, and deletes your customer record (email,
+          name, saved payment methods) from Stripe. Deletion is irreversible. Note that Stripe
+          retains its own charge and invoice records for tax and accounting compliance, and
+          that LLM traces already sent to LangFuse and data at third-party model providers are
           governed by those providers&rsquo; retention policies.
         </p>
 

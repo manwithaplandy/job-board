@@ -76,3 +76,31 @@ export async function cancelSubscriptionIfPresent(
     throw e;
   }
 }
+
+/**
+ * Delete a Stripe Customer, tolerating "already gone" (T3 deletion step 1,
+ * M-STRIPE-CUSTOMER). Account deletion is an ERASURE cascade, so we do not merely cancel
+ * the subscription and orphan the customer — we delete the Customer object itself, which
+ * removes the email/name/address PII profile Stripe holds and detaches saved payment
+ * methods. (Stripe retains only its own charge/invoice accounting records, on its side,
+ * for the merchant's tax compliance — deleting the Customer does not and cannot erase
+ * those, and the privacy policy discloses that third-party retention.)
+ *
+ * A null/blank id is a no-op. A "resource_missing" error (the customer id no longer
+ * exists — e.g. a retry after a partial failure, or a customer deleted out of band) is
+ * swallowed so the ordered, idempotent cascade converges. Any other error propagates so
+ * the caller can abort before deleting DB rows. Deleting a customer also cancels its
+ * subscriptions Stripe-side, so this is safe to run after cancelSubscriptionIfPresent.
+ */
+export async function deleteCustomerIfPresent(
+  stripeCustomerId: string | null | undefined,
+): Promise<void> {
+  if (!stripeCustomerId) return;
+  try {
+    await getStripe().customers.del(stripeCustomerId);
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === "resource_missing") return; // id gone — idempotent
+    throw e;
+  }
+}

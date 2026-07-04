@@ -92,7 +92,11 @@ describe("stripe webhook", () => {
   });
 
   test("customer.subscription.updated maps price→plan, status, period, cancel flag", async () => {
-    stripeState.event = { type: "customer.subscription.updated", data: { object: subObject() } };
+    stripeState.event = {
+      type: "customer.subscription.updated",
+      created: 1_700_000_000,
+      data: { object: subObject() },
+    };
     const res = await POST(req("{}"));
     expect(res.status).toBe(200);
     // The only serviceSql call is the upsert INSERT; assert the bound values.
@@ -106,11 +110,66 @@ describe("stripe webhook", () => {
     expect(v[4]).toBe("active"); // status
     expect(v[5]).toBeInstanceOf(Date); // current_period_end
     expect(v[6]).toBe(false); // cancel_at_period_end
+    // last_event_at = the Stripe event.created (unix seconds → ms Date) watermark.
+    expect(v[7]).toBeInstanceOf(Date);
+    expect((v[7] as Date).getTime()).toBe(1_700_000_000 * 1000);
+  });
+
+  // M-WEBHOOK-ORDER — a stale customer.subscription.updated delivered AFTER the delete
+  // must not flip canceled→active. Stripe gives no ordering guarantee; the upsert carries
+  // a monotonic guard keyed on event.created so the DB drops the older event.
+  test("out-of-order delivery: upsert carries the monotonic event.created guard", async () => {
+    // The cancellation (deleted) event, generated at T=200.
+    stripeState.event = {
+      type: "customer.subscription.deleted",
+      created: 200,
+      data: { object: subObject({ status: "active" }) },
+    };
+    await POST(req("{}"));
+    // A STALE updated event (generated at T=100, before the cancel) delivered afterward.
+    stripeState.event = {
+      type: "customer.subscription.updated",
+      created: 100,
+      data: { object: subObject({ status: "active" }) },
+    };
+    await POST(req("{}"));
+
+    const inserts = dbState.serviceCalls.filter((c) =>
+      c.strings.join("").includes("INSERT INTO subscriptions"),
+    );
+    expect(inserts).toHaveLength(2);
+    // Both upserts must emit the monotonic WHERE guard so Postgres skips the older event
+    // (COALESCE(null) → -infinity lets a legacy/first event through).
+    for (const ins of inserts) {
+      const sql = ins.strings.join("");
+      expect(sql).toContain("ON CONFLICT (user_id) DO UPDATE");
+      expect(sql).toContain("last_event_at");
+      expect(sql).toContain(">=");
+      expect(sql).toContain("-infinity");
+      // Same-second tie-break: event.created has 1s resolution, so a stale updated in
+      // the SAME second as the cancel carries an EQUAL watermark that `>=` alone would
+      // re-apply. The extra predicate keeps a canceled row canceled on an exact tie.
+      expect(sql).toContain("subscriptions.status = 'canceled'");
+      expect(sql).toContain("EXCLUDED.status <> 'canceled'");
+      expect(sql).toContain("EXCLUDED.last_event_at = subscriptions.last_event_at");
+    }
+    // The cancel bound the newer watermark (200s); the stale updated bound the older
+    // one (100s) → the DB guard drops it, so canceled status survives.
+    const canceledWatermark = inserts[0].values[7] as Date;
+    const staleWatermark = inserts[1].values[7] as Date;
+    expect(canceledWatermark.getTime()).toBe(200_000);
+    expect(staleWatermark.getTime()).toBe(100_000);
+    expect(staleWatermark.getTime()).toBeLessThan(canceledWatermark.getTime());
+    // The stale event maps status=active; only the DB WHERE (asserted above) stops it
+    // overwriting the cancel — the mirror is never mutated in application code.
+    expect(inserts[0].values[4]).toBe("canceled");
+    expect(inserts[1].values[4]).toBe("active");
   });
 
   test("customer.subscription.deleted forces status=canceled (never deletes the row)", async () => {
     stripeState.event = {
       type: "customer.subscription.deleted",
+      created: 1_700_000_100,
       data: { object: subObject({ status: "active" }) },
     };
     const res = await POST(req("{}"));
@@ -125,6 +184,7 @@ describe("stripe webhook", () => {
     stripeState.retrieved = subObject();
     stripeState.event = {
       type: "checkout.session.completed",
+      created: 1_700_000_200,
       data: { object: { subscription: "sub_123", metadata: { user_id: "user-1" } } },
     };
     const res = await POST(req("{}"));
@@ -136,6 +196,7 @@ describe("stripe webhook", () => {
     dbState.deleted = true; // account_deletions has a row for this user_id
     stripeState.event = {
       type: "customer.subscription.deleted",
+      created: 1_700_000_300,
       data: { object: subObject() },
     };
     const res = await POST(req("{}"));

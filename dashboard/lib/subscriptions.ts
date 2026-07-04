@@ -45,6 +45,27 @@ export async function getViewerPlan(userId: string, email: string | null): Promi
  * webhook route supplies serviceSql — this file stays off the service-role allowlist).
  * Keyed by user_id; idempotent, so duplicate/out-of-order webhook deliveries are safe.
  * subscription.deleted maps to status='canceled' and NEVER deletes the row.
+ *
+ * M-WEBHOOK-ORDER — MONOTONIC GUARD: Stripe does not guarantee delivery order, so a
+ * customer.subscription.updated generated BEFORE a cancellation can arrive AFTER the
+ * customer.subscription.deleted and would otherwise flip status canceled→active (unpaid
+ * access). `eventCreatedAt` is the Stripe event's own `created` timestamp; the ON CONFLICT
+ * DO UPDATE only fires when the incoming event is NOT older than the last one applied
+ * (`EXCLUDED.last_event_at >= subscriptions.last_event_at`). A stale event becomes a no-op;
+ * a re-delivered duplicate (equal timestamp) still applies (`>=`, harmless — same values).
+ * Legacy rows have last_event_at IS NULL, treated as -infinity so the first event lands.
+ *
+ * SAME-SECOND TIE-BREAK: event.created has 1-SECOND resolution, so an updated event
+ * generated in the SAME second as the cancel (first delivery failed, retried after the
+ * deleted) carries an EQUAL watermark and `>=` alone would re-apply it, flipping
+ * canceled→active. A canceled subscription id is terminal in Stripe (reactivation is a
+ * NEW subscription whose events carry a strictly-later `created`), so on an exact tie the
+ * cancel WINS: the second predicate blocks the update when the stored row is already
+ * canceled, the incoming event is not a cancel, AND the watermarks are exactly equal.
+ * This is directional — the reverse (updated then deleted at the same second) still lands
+ * the cancel (EXCLUDED.status = 'canceled' fails the guard), and a duplicate cancel
+ * redelivery is still idempotent. `>` is NOT usable instead: it would drop an in-order
+ * same-second cancellation, which is strictly worse.
  */
 export async function upsertSubscription(
   tx: Sql | TransactionSql,
@@ -56,15 +77,17 @@ export async function upsertSubscription(
     status: string;
     currentPeriodEnd: Date | null;
     cancelAtPeriodEnd: boolean;
+    eventCreatedAt: Date;
   },
 ): Promise<void> {
   await tx`
     INSERT INTO subscriptions (
       user_id, stripe_customer_id, stripe_subscription_id, plan, status,
-      current_period_end, cancel_at_period_end, updated_at
+      current_period_end, cancel_at_period_end, last_event_at, updated_at
     ) VALUES (
       ${row.userId}::uuid, ${row.stripeCustomerId}, ${row.stripeSubscriptionId},
-      ${row.plan}, ${row.status}, ${row.currentPeriodEnd}, ${row.cancelAtPeriodEnd}, now()
+      ${row.plan}, ${row.status}, ${row.currentPeriodEnd}, ${row.cancelAtPeriodEnd},
+      ${row.eventCreatedAt}, now()
     )
     ON CONFLICT (user_id) DO UPDATE SET
       stripe_customer_id     = COALESCE(EXCLUDED.stripe_customer_id, subscriptions.stripe_customer_id),
@@ -73,6 +96,14 @@ export async function upsertSubscription(
       status                 = EXCLUDED.status,
       current_period_end     = COALESCE(EXCLUDED.current_period_end, subscriptions.current_period_end),
       cancel_at_period_end   = EXCLUDED.cancel_at_period_end,
+      last_event_at          = EXCLUDED.last_event_at,
       updated_at             = now()
+    WHERE EXCLUDED.last_event_at
+        >= COALESCE(subscriptions.last_event_at, '-infinity'::timestamptz)
+      AND NOT (
+        subscriptions.status = 'canceled'
+        AND EXCLUDED.status <> 'canceled'
+        AND EXCLUDED.last_event_at = subscriptions.last_event_at
+      )
   `;
 }

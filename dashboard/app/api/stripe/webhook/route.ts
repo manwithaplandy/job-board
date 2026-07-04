@@ -66,10 +66,13 @@ async function resolveUserId(
 
 // Map a Stripe Subscription onto our mirror and upsert it. `deletedStatus` forces
 // status='canceled' on the subscription.deleted event (the object's own status may
-// still read 'active' at deletion time).
+// still read 'active' at deletion time). `eventCreatedAt` is the source event's
+// `created` timestamp — the monotonic watermark upsertSubscription uses to drop a
+// stale out-of-order delivery (M-WEBHOOK-ORDER).
 async function upsertFromSubscription(
   stripe: Stripe,
   sub: Stripe.Subscription,
+  eventCreatedAt: Date,
   deletedStatus?: "canceled",
 ): Promise<void> {
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id ?? null;
@@ -95,11 +98,14 @@ async function upsertFromSubscription(
     status: deletedStatus ?? sub.status,
     currentPeriodEnd: subscriptionPeriodEnd(sub),
     cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+    eventCreatedAt,
   });
 }
 
 async function handleEvent(event: Stripe.Event): Promise<void> {
   const stripe = getStripe();
+  // Stripe event.created is unix SECONDS; the monotonic watermark for M-WEBHOOK-ORDER.
+  const eventCreatedAt = new Date(event.created * 1000);
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -113,16 +119,21 @@ async function handleEvent(event: Stripe.Event): Promise<void> {
       if (!sub.metadata?.user_id && session.metadata?.user_id) {
         sub.metadata = { ...sub.metadata, user_id: session.metadata.user_id };
       }
-      await upsertFromSubscription(stripe, sub);
+      await upsertFromSubscription(stripe, sub, eventCreatedAt);
       return;
     }
     case "customer.subscription.created":
     case "customer.subscription.updated": {
-      await upsertFromSubscription(stripe, event.data.object as Stripe.Subscription);
+      await upsertFromSubscription(stripe, event.data.object as Stripe.Subscription, eventCreatedAt);
       return;
     }
     case "customer.subscription.deleted": {
-      await upsertFromSubscription(stripe, event.data.object as Stripe.Subscription, "canceled");
+      await upsertFromSubscription(
+        stripe,
+        event.data.object as Stripe.Subscription,
+        eventCreatedAt,
+        "canceled",
+      );
       return;
     }
     // Any other event type is intentionally a no-op 200 ack.

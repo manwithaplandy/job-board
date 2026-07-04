@@ -331,6 +331,7 @@ CREATE TABLE subscriptions (
   status                 TEXT NOT NULL,             -- raw Stripe status string
   current_period_end     TIMESTAMPTZ,
   cancel_at_period_end   BOOLEAN NOT NULL DEFAULT FALSE,
+  last_event_at          TIMESTAMPTZ,               -- Stripe event.created watermark (M-WEBHOOK-ORDER)
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );

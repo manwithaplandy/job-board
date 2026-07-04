@@ -187,8 +187,8 @@ export async function reviewStatsWith(tx: TransactionSql, userId: string): Promi
     FROM jobs j
     LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
     WHERE j.closed_at IS NULL
-      AND (j.remote IS TRUE OR j.location = ANY(
-            (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid)))
+      AND (j.remote IS TRUE OR j.location = ANY(COALESCE(
+            (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid), '{}'::text[])))
   `;
   const row = rows[0] as Record<string, unknown> | undefined;
   return row ? toReviewStats(row) : { unreviewed: 0, reviewed: 0, errors: 0 };

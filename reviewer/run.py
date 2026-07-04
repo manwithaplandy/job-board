@@ -270,7 +270,22 @@ def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
 
     counts = {"reviewed": 0, "gate_rejected": 0, "approved": 0, "denied": 0, "errors": 0}
     notes = None
+    locked = False
     try:
+        # M-TOCTOU: serialize per-user review spend across the cron reviewer (review_all)
+        # and the on-demand worker. Without this, both can read spend=0, each select up
+        # to the cap, and each spend up to the cap → up to 2x the per-user daily budget on
+        # the operator's LLM balance. A non-blocking per-user advisory lock lets only one
+        # run review a user at a time; a concurrent run skips (the holder covers its
+        # budget) rather than blocking the whole cron loop behind a slow LLM batch. The
+        # lock is released in the finally, AFTER the spend/finish commit, so the next run
+        # reads the committed spend. Covers BOTH entry points since both funnel here.
+        locked = db.try_lock_user_review(conn, user_id)
+        if not locked:
+            notes = "review already in progress; skipped"
+            log.info("review already in progress for %s; skipping", user_id)
+            return
+
         # Tier gate (spec subsystem C/D). Resolve the user's plan from their
         # subscription mirror + invite proof (loaded by db.load_profiles). No plan →
         # skip entirely: zero candidate selection, zero LLM calls.
@@ -389,6 +404,11 @@ def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
     finally:
         db.finish_review_run(conn, run_id, notes=notes, **counts)
         conn.commit()
+        # Release AFTER the commit above so any concurrent run that now acquires the
+        # lock reads this run's committed daily spend (M-TOCTOU). No-op if we never
+        # acquired it (a concurrent run already held it → this call skipped).
+        if locked:
+            db.unlock_user_review(conn, user_id)
     log.info("review complete for %s: %s", user_id, counts)
 
 

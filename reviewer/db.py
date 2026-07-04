@@ -99,6 +99,43 @@ def user_deleted(conn, user_id: str) -> bool:
     return bool(row and row["deleted"])
 
 
+# Namespaced key for the per-user review advisory lock (M-TOCTOU). Session-scoped so
+# it survives _review_user's intermediate commits (start_review_run, _persist_rows'
+# per-chunk commits); it must be explicitly released with unlock_user_review.
+def _review_lock_key(user_id: str) -> str:
+    return f"reviewer:review:{user_id}"
+
+
+def try_lock_user_review(conn, user_id: str) -> bool:
+    """Try to take the per-user review lock; True if acquired, False if held elsewhere.
+
+    M-TOCTOU: the cron reviewer (run.review_all) and the on-demand worker can both run
+    for the SAME user at once. Each reads spend, computes remaining = cap - spend, and
+    selects up to `remaining` candidates — so two concurrent runs can each read spend=0
+    and each spend up to the cap, charging the operator's LLM balance up to 2x the daily
+    budget. This SESSION-level advisory lock serializes per-user review spend: only one
+    run reviews a given user at a time. It is non-blocking (pg_try_advisory_lock) — a
+    concurrent run skips the user (its budget is covered by the lock holder) instead of
+    blocking the whole cron loop behind a slow LLM batch. Release with unlock_user_review
+    AFTER the spend/finish commit, so the next run reads the committed spend.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_try_advisory_lock(hashtext(%(k)s)) AS locked",
+            {"k": _review_lock_key(user_id)},
+        )
+        return bool(cur.fetchone()["locked"])
+
+
+def unlock_user_review(conn, user_id: str) -> None:
+    """Release the per-user review lock taken by try_lock_user_review (M-TOCTOU)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_advisory_unlock(hashtext(%(k)s))",
+            {"k": _review_lock_key(user_id)},
+        )
+
+
 # The single UTC clock for the daily budget. Reading and writing spend both derive
 # the day from the DB's now() so there is no client/server skew and no cron: the
 # (user_id, day, kind) key rolls over on its own at UTC midnight.

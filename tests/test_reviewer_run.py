@@ -714,6 +714,48 @@ def test_deleted_user_midrun_skips_all_writes(conn, monkeypatch):
 
 
 @requires_db
+def test_concurrent_run_skips_user_and_spends_nothing(conn, monkeypatch):
+    """M-TOCTOU: while another run holds the per-user review lock, a concurrent
+    review_all must SKIP the user — zero candidates selected, zero LLM calls, zero
+    daily spend — so the two runs can't each spend up to the cap (2x the budget). The
+    run row closes with an auditable note. When the lock is released, the user reviews
+    normally on the next run."""
+    import psycopg
+    from psycopg.rows import dict_row
+
+    cid = _seed_company(conn)
+    for i in range(3):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=3)
+
+    # A second session (the "other" run — e.g. the on-demand worker) holds the lock,
+    # simulating an in-flight review of the same user during this cron pass.
+    holder = psycopg.connect(os.environ["TEST_DATABASE_URL"], row_factory=dict_row)
+    try:
+        assert rdb.try_lock_user_review(holder, USER) is True
+
+        _run_review_all(conn, monkeypatch)
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+            assert cur.fetchone()["n"] == 0, "locked-out run must not review any job"
+            cur.execute("SELECT notes FROM review_runs WHERE user_id = %s ORDER BY id DESC LIMIT 1",
+                        (USER,))
+            assert cur.fetchone()["notes"] == "review already in progress; skipped"
+        assert rdb.get_daily_spend(conn, USER) == 0, "locked-out run charges no budget"
+
+        # Release: the next pass acquires the lock and reviews normally (bounded by cap).
+        rdb.unlock_user_review(holder, USER)
+    finally:
+        holder.close()
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 3, "once the lock is free the user reviews up to cap"
+    assert rdb.get_daily_spend(conn, USER) == 3
+
+
+@requires_db
 def test_multi_user_disjoint_location_scoped_reviews_in_one_pass(conn, monkeypatch):
     """T7 proof: two profiles with different locations + caps → disjoint, correctly
     scoped job_reviews for both, each location pre-filter + budget applied

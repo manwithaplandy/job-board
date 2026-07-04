@@ -552,6 +552,33 @@ def test_start_review_run_stamps_user_id(conn):
 
 
 @requires_db
+def test_review_lock_is_mutually_exclusive_across_sessions(conn):
+    """M-TOCTOU: the per-user review lock serializes spend across sessions (the cron
+    reviewer vs. the on-demand worker each hold their own connection). A second session
+    cannot acquire the lock while the first holds it, but can once it is released."""
+    import os
+
+    import psycopg
+    from psycopg.rows import dict_row
+
+    other = psycopg.connect(os.environ["TEST_DATABASE_URL"], row_factory=dict_row)
+    try:
+        # First session (this test's conn) takes the lock.
+        assert rdb.try_lock_user_review(conn, USER) is True
+        # A concurrent session is locked out (non-blocking → False, not a hang).
+        assert rdb.try_lock_user_review(other, USER) is False
+        # A different user is independent — no false contention.
+        assert rdb.try_lock_user_review(other, USER_B) is True
+        rdb.unlock_user_review(other, USER_B)
+        # Once the holder releases, the concurrent session can acquire it.
+        rdb.unlock_user_review(conn, USER)
+        assert rdb.try_lock_user_review(other, USER) is True
+        rdb.unlock_user_review(other, USER)
+    finally:
+        other.close()
+
+
+@requires_db
 def test_user_deleted_reflects_account_deletions_tombstone(conn):
     """user_deleted is the reviewer's erasure gate (M-RESURRECT-2): False until an
     account_deletions tombstone exists for the user, then True."""

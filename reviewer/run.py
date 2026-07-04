@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from observability import tracing
@@ -188,13 +189,21 @@ async def review_one(candidate: dict, profile_block: str, client,
 
 async def review_batch(candidates: list[dict], profile_block: str, client,
                        concurrency: int, *, user_id: str | None = None,
-                       run_id=None) -> tuple[list[ReviewResult], bool]:
+                       run_id=None,
+                       deleted_check: Callable[[], bool] | None = None,
+                       ) -> tuple[list[ReviewResult], bool]:
     """Gate candidates through a batched stage-1 call, then run stage 2 for passes.
 
     Returns (results, halted). Never-attempted jobs stay retryable: a 402 halt
     skips them entirely (no row), a whole-batch stage-1 failure and a per-id
     missing decision each yield a retryable error row. halted=True means a 402 was
     encountered and remaining candidates were skipped.
+
+    deleted_check, when supplied, is a cheap predicate polled ONCE per stage-1 chunk
+    (and once before the stage-2 fan-out) — not once per row. If it returns True the
+    user was deleted mid-run, so the batch halts early: no further LLM calls are issued
+    and remaining jobs stay retryable (no rows). The caller re-checks the tombstone at
+    its write boundary and skips all writes.
     """
     halt = asyncio.Event()
     results: list[ReviewResult] = []
@@ -202,6 +211,10 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
 
     for start in range(0, len(candidates), config.STAGE1_BATCH_SIZE):
         if halt.is_set():
+            break
+        if deleted_check is not None and deleted_check():
+            log.info("user deleted mid-run; aborting stage-1 gate before further LLM calls")
+            halt.set()
             break
         batch = candidates[start:start + config.STAGE1_BATCH_SIZE]
         try:
@@ -235,6 +248,12 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
                 results.append(res)
             else:
                 passed.append((c, res))
+
+    # One more check before the (expensive) stage-2 fan-out: if the user was deleted
+    # while stage 1 ran, skip stage 2 entirely rather than issue its LLM calls.
+    if deleted_check is not None and not halt.is_set() and deleted_check():
+        log.info("user deleted mid-run; skipping stage-2 for %s passed job(s)", len(passed))
+        halt.set()
 
     sem = asyncio.Semaphore(concurrency)
 
@@ -351,21 +370,27 @@ def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
         results, halted = asyncio.run(review_batch(
             candidates, profile_block, client, config.CONCURRENCY,
             user_id=user_id, run_id=run_id,
+            # Cheap per-chunk poll so a mid-run deletion stops issuing LLM calls instead
+            # of grinding all ≤cap jobs whose writes the tombstone guard then discards.
+            deleted_check=lambda: db.user_deleted(conn, user_id),
         ))
-        if halted:
-            notes = (f"{notes}; " if notes else "") + "halted: out of credits"
-            log.warning("review halted (no credits) for %s", user_id)
 
         # M-RESURRECT-2: the account can be erased mid-run (profile loaded before the
         # deletion cascade; the LLM work above is slow). Re-check the tombstone at the
         # write boundary — BEFORE persisting job_reviews or charging usage_counters — so
         # a purge that landed during this run isn't undone by recreated PII / spend rows.
         # Covers BOTH the cron (review_all) and the on-demand worker, since both funnel
-        # their writes through here. Cheap EXISTS; the run row still closes below.
+        # their writes through here. Checked BEFORE the credits-halt note so a
+        # deletion-aborted run (which also sets halt) isn't mislabeled "out of credits".
+        # Cheap EXISTS; the run row still closes below.
         if db.user_deleted(conn, user_id):
             notes = "account deleted mid-run; skipped writes"
             log.info("account %s deleted mid-run; skipping writes", user_id)
             return
+
+        if halted:
+            notes = (f"{notes}; " if notes else "") + "halted: out of credits"
+            log.warning("review halted (no credits) for %s", user_id)
 
         rows_to_persist = []
         for r in results:

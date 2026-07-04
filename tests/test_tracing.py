@@ -377,8 +377,12 @@ def test_span_wraps_awaited_api_call(monkeypatch):
     order = []
 
     class _Gen:
-        def __enter__(self): order.append("enter"); return self
-        def __exit__(self, *a): order.append("exit"); return False
+        def __enter__(self):
+            order.append("enter")
+            return self
+        def __exit__(self, *a):
+            order.append("exit")
+            return False
         def update(self, **kw): order.append("update")
         def end(self, **kw): order.append("end")
 
@@ -419,7 +423,9 @@ def test_error_recorded_inside_span(monkeypatch):
     entered = []
 
     class _Gen:
-        def __enter__(self): entered.append(True); return self
+        def __enter__(self):
+            entered.append(True)
+            return self
         def __exit__(self, *a): return False
         def update(self, **kw): recorded.update(kw)
         def end(self, **kw): pass

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from company_discovery.dataset import Candidate, load_candidates
+from company_discovery.dataset import load_candidates
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "company_discovery"
 

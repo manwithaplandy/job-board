@@ -345,7 +345,7 @@ def test_review_phase_exception_rolls_back(conn, monkeypatch):
             prune_exceptions.append(e)
             raise
 
-    original_prune = prune_module.prune_jobs
+    _original_prune = prune_module.prune_jobs
     monkeypatch.setattr(prune_module, "prune_jobs", catching_prune)
 
     run_module.run()  # must not raise

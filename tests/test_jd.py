@@ -1,4 +1,3 @@
-import pytest
 
 from job_discovery.jd import extract_description, html_to_text
 

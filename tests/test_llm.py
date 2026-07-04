@@ -165,7 +165,7 @@ def test_system_prompt_mandates_english_output():
 
 def test_prompt_contains_anchors_and_guard():
     """Stage-2 system prompt must contain score anchors, UNTRUSTED guard, and comp definition."""
-    from reviewer.llm import _STAGE2_INSTRUCTIONS, _STAGE1_INSTRUCTIONS
+    from reviewer.llm import _STAGE2_INSTRUCTIONS
     # Score anchor for skills_score
     assert "90-100" in _STAGE2_INSTRUCTIONS
     # Separate comp definition

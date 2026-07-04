@@ -1,5 +1,4 @@
 # tests/test_discovery_db.py
-import uuid
 
 from company_discovery import db
 from company_discovery.dataset import Candidate

@@ -10,7 +10,6 @@ from reviewer.experiments import sync_golden_dataset
 
 def test_run_experiment_iterates_items(monkeypatch):
     """Wiring test: stub the v4 DatasetClient.run_experiment to verify task+evaluator flow."""
-    import contextlib
 
     from observability import tracing
     from reviewer import experiments
@@ -201,7 +200,6 @@ def test_experiment_bypasses_stage1():
         def flush(self): pass
         def start_as_current_observation(self, **kw): return _Span()
 
-    from observability import tracing
     import contextlib
     # We need a monkeypatch-like approach; use direct attribute setting
     original = tracing.get_langfuse

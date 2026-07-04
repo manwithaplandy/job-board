@@ -13,7 +13,6 @@ if you change one, change both (the mock test guards the TS side).
 import datetime
 import uuid
 
-import pytest
 from tests.conftest import requires_db
 
 # Mirror of upsertSubscription (dashboard/lib/subscriptions.ts). Params:

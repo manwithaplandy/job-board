@@ -7,7 +7,7 @@ import {
 } from "@/lib/queries";
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
-import { getUserId } from "@/lib/auth";
+import { getUserClaims } from "@/lib/auth";
 import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import {
@@ -25,7 +25,8 @@ export default async function Page({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const viewerId = await getUserId();
+  const claims = await getUserClaims();
+  const viewerId = claims?.id ?? null;
   await searchParams; // filters now client-side; keep the param contract
   const filters = parseFilters({}, { include: DEFAULT_INCLUDE_KEYWORDS });
 
@@ -62,6 +63,7 @@ export default async function Page({
         STALE_HEALTH_HOURS,
       ),
       unreviewed: reviewStats.unreviewed,
+      reviewed: reviewStats.reviewed,
     };
     const initialFilters = parseBoardFilters(profile.board_filters);
     return (
@@ -77,6 +79,7 @@ export default async function Page({
         unmarkApplied={unmarkApplicationApplied}
         operator={operator}
         hasProfile
+        viewerEmail={claims!.email}
         resumeText={profile.resume_text ?? ""}
         currentProfileVersion={profile.profile_version}
         initialPackages={packages}
@@ -102,6 +105,7 @@ export default async function Page({
       unmarkApplied={unmarkApplicationApplied}
       operator={undefined}
       hasProfile={false}
+      viewerEmail={null}
       resumeText=""
       currentProfileVersion={null}
       initialPackages={[]}

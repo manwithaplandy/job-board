@@ -123,6 +123,7 @@ async function getFunnel(
              count(*) FILTER (WHERE closed_at IS NOT NULL)::int AS closed
       FROM jobs
     `;
+  // Scoped to the viewer's review pool — keep in lockstep with reviewStatsWith (lib/queries.ts).
   const reviewAggRows = await tx`
       SELECT count(*) FILTER (WHERE r.job_id IS NOT NULL)::int AS reviewed,
              count(*) FILTER (WHERE r.stage1_decision = 'reject')::int AS gate_rejected,
@@ -132,6 +133,8 @@ async function getFunnel(
       FROM jobs j
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.closed_at IS NULL
+        AND (j.remote IS TRUE OR j.location = ANY(
+              (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid)))
     `;
   const appliedAggRows = await tx`
       SELECT count(*)::int AS applied

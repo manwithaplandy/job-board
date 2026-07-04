@@ -147,7 +147,7 @@ export function ProfileModal({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={hasProfile ? "Edit profile" : "Set up profile"}
+        aria-label={hasProfile ? "Résumé" : "Set up profile"}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -171,7 +171,7 @@ export function ProfileModal({
         >
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: "16px", color: "#161d29" }}>
-              {hasProfile ? "Edit profile" : "Set up profile"}
+              {hasProfile ? "Résumé" : "Set up profile"}
             </div>
             <div
               style={{

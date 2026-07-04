@@ -180,8 +180,8 @@ export function JobList({
             Your board is being built
           </div>
           <div style={{ fontSize: "13px", marginTop: "6px" }}>
-            Scored roles land here as they&apos;re reviewed. Use{" "}
-            <strong>Review my board now</strong> above to start, or check{" "}
+            Scored roles land here as they&apos;re reviewed — the card above shows progress
+            or lets you start a review. Check{" "}
             <a href="/analytics" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
               pipeline health
             </a>{" "}

@@ -8,5 +8,7 @@ export async function POST(request: Request) {
 
   const supabase = await createClient();
   await supabase.auth.signOut();
-  return NextResponse.redirect(new URL("/login", request.url));
+  // 303 (not the default 307) so the browser GETs /login instead of re-POSTing it —
+  // same pattern as app/auth/confirm/route.ts.
+  return NextResponse.redirect(new URL("/login", request.url), 303);
 }

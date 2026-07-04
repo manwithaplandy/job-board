@@ -28,6 +28,10 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
     if (!error) return Response.redirect(new URL(next, origin), 303);
   }
-  const msg = encodeURIComponent("That link is invalid or has expired. Please try again.");
+  // Re-clicking the same dead link fails identically, so point users at the recovery flow,
+  // which mints a fresh link (verifyOtp on a recovery token also confirms the email).
+  const msg = encodeURIComponent(
+    "That link is invalid or has expired. Use ‘Forgot password?’ on the sign-in page to email yourself a fresh link.",
+  );
   return Response.redirect(new URL(`/login?error=${msg}`, origin), 303);
 }

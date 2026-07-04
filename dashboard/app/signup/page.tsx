@@ -76,6 +76,9 @@ export default async function SignupPage({
             Invite code
             <input className="rf-focusable" name="invite_code" required
               placeholder="Your invite code" style={inputStyle} />
+            <span style={{ fontSize: "11.5px", fontWeight: 500, lineHeight: 1.5, color: "#8b94a3" }}>
+              Rolefit is in invite-only beta — an invite code is required.
+            </span>
           </label>
           {error && (
             <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "#b25a36", fontWeight: 600 }}>

@@ -53,12 +53,13 @@ export function OnboardingForm({
       </label>
 
       <div style={fieldStyle}>
-        <span style={labelTextStyle}>Locations to include (required)</span>
-        <span style={hintStyle}>
+        {/* The LocationPicker renders the single visible label ("Locations to include …");
+            the cost-bounding rationale sits below it as helper text. */}
+        <LocationPicker name="preferred_locations" options={locationOptions} defaultValue={[]} />
+        <span style={{ ...hintStyle, marginTop: "8px", marginBottom: 0 }}>
           Your board only reviews jobs in these locations (plus remote). This is required —
           it keeps your board focused and your review costs bounded.
         </span>
-        <LocationPicker name="preferred_locations" options={locationOptions} defaultValue={[]} />
         {errors.locations && <p role="alert" style={errStyle}>{errors.locations}</p>}
       </div>
 

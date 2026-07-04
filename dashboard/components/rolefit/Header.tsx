@@ -20,9 +20,10 @@ const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
 };
 
 export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpenProfile, searchRef }: HeaderProps) {
-  // "Sign in" when anonymous; "Edit profile" when authed with a saved profile;
-  // "Set up profile" when authed but no profile yet.
-  const profileBtnLabel = !isAuthed ? "Sign in" : hasProfile ? "Edit profile" : "Set up profile";
+  // "Sign in" when anonymous; "Résumé" when authed with a saved profile (this button opens
+  // the résumé-only modal — the new "Profile" link handles full settings); "Set up profile"
+  // when authed but no profile yet.
+  const profileBtnLabel = !isAuthed ? "Sign in" : hasProfile ? "Résumé" : "Set up profile";
   const profileBtnIcon = !isAuthed ? "→" : hasProfile ? "✎" : "+";
 
   return (
@@ -168,8 +169,11 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, onOpe
               }}
               title={`Job Discovery health: ${operator.health}`}
             />
-            {/* Unreviewed count — links to pipeline health */}
-            {operator.unreviewed > 0 && (
+            {/* Unreviewed count — links to pipeline health. Hidden until the viewer's first
+                review lands (reviewed > 0): on a brand-new account the count is the whole
+                location-scoped pool, which is just alarming noise next to an empty board
+                (ReviewNowPanel already communicates the first-run state). */}
+            {operator.unreviewed > 0 && operator.reviewed > 0 && (
               <a
                 href="/analytics"
                 style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}

@@ -164,23 +164,34 @@ export async function getLatestReviewRun(userId: string): Promise<ReviewRunRow |
 function toReviewStats(row: Record<string, unknown>): ReviewStats {
   return {
     unreviewed: (row.unreviewed as number) ?? 0,
+    reviewed: (row.reviewed as number) ?? 0,
     errors: (row.errors as number) ?? 0,
   };
 }
 
 // Executor-taking impl so the /analytics fan-out (metrics.ts) can run this within
 // its single withUserSql transaction instead of opening a nested one.
+//
+// The pool is scoped to the viewer's review pool — open jobs that are remote OR in their
+// preferred locations — mirroring lib/jobsQuery.ts:64 exactly (the reviewer only ever
+// scores that pool, so counting the whole ~114k corpus overstated "unreviewed"). Empty
+// preferred_locations → only remote jobs counted (locations are mandatory, so a non-issue).
+// `reviewed` is the same pool's reviewed side; the header uses it to stay hidden until the
+// viewer's first review lands (see components/rolefit/Header.tsx).
 export async function reviewStatsWith(tx: TransactionSql, userId: string): Promise<ReviewStats> {
   const rows = await tx`
     SELECT
-      (count(*) FILTER (WHERE r.job_id IS NULL))::int      AS unreviewed,
-      (count(*) FILTER (WHERE r.error IS NOT NULL))::int    AS errors
+      (count(*) FILTER (WHERE r.job_id IS NULL))::int       AS unreviewed,
+      (count(*) FILTER (WHERE r.job_id IS NOT NULL))::int    AS reviewed,
+      (count(*) FILTER (WHERE r.error IS NOT NULL))::int     AS errors
     FROM jobs j
     LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
     WHERE j.closed_at IS NULL
+      AND (j.remote IS TRUE OR j.location = ANY(
+            (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid)))
   `;
   const row = rows[0] as Record<string, unknown> | undefined;
-  return row ? toReviewStats(row) : { unreviewed: 0, errors: 0 };
+  return row ? toReviewStats(row) : { unreviewed: 0, reviewed: 0, errors: 0 };
 }
 
 export function getReviewStats(userId: string): Promise<ReviewStats> {

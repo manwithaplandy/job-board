@@ -213,6 +213,8 @@ export interface ApplicationPackage {
 
 export interface ReviewStats {
   unreviewed: number;
+  /** Reviewed side of the same pool — 0 until the viewer's first review lands. */
+  reviewed: number;
   errors: number;
 }
 
@@ -220,6 +222,8 @@ export interface ReviewStats {
 export interface OperatorSignals {
   health: "ok" | "warn" | "stale";
   unreviewed: number;
+  /** Reviews the viewer has landed in their pool; the header hides "N unreviewed" while 0. */
+  reviewed: number;
 }
 
 export interface CompanyReviewRow {

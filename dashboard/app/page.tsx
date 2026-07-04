@@ -62,6 +62,7 @@ export default async function Page({
         STALE_HEALTH_HOURS,
       ),
       unreviewed: reviewStats.unreviewed,
+      reviewed: reviewStats.reviewed,
     };
     const initialFilters = parseBoardFilters(profile.board_filters);
     return (

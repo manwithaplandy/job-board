@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const auth = vi.hoisted(() => ({ getUserClaims: vi.fn() }));
 vi.mock("@/lib/auth", () => auth);
 
-const subs = vi.hoisted(() => ({ getSubscription: vi.fn() }));
+const subs = vi.hoisted(() => ({ getSubscription: vi.fn(), persistCheckoutCustomer: vi.fn() }));
 vi.mock("@/lib/subscriptions", () => subs);
 
 const stripeState = vi.hoisted(() => ({
@@ -42,6 +42,7 @@ const req = (body: unknown) =>
 beforeEach(() => {
   auth.getUserClaims.mockReset();
   subs.getSubscription.mockReset();
+  subs.persistCheckoutCustomer.mockReset();
   stripeState.created.length = 0;
   stripeState.customersCreated.length = 0;
 });
@@ -79,18 +80,28 @@ describe("POST /api/stripe/checkout", () => {
     expect(res.status).toBe(200);
     expect(stripeState.created).toHaveLength(1);
     expect(stripeState.customersCreated).toHaveLength(0); // reused cus_1, no new customer
+    // Reused an existing customer → nothing new to persist.
+    expect(subs.persistCheckoutCustomer).not.toHaveBeenCalled();
     const session = stripeState.created[0] as { customer: string; client_reference_id: string };
     expect(session.customer).toBe("cus_1");
     expect(session.client_reference_id).toBe("u1");
   });
 
-  test("a brand-new subscriber gets a fresh customer + checkout session", async () => {
+  test("a brand-new subscriber gets a fresh customer, persists it, and sets an expiry", async () => {
     auth.getUserClaims.mockResolvedValue({ id: "u2", email: "u2@x.com" });
     subs.getSubscription.mockResolvedValue(null);
+    const before = Math.floor(Date.now() / 1000);
     const res = await POST(req({ plan: "standard" }));
     expect(res.status).toBe(200);
     expect(stripeState.customersCreated).toHaveLength(1);
     expect(stripeState.created).toHaveLength(1);
+    // minor 3(a): the new Stripe customer id is persisted at creation so the erasure
+    // cascade can reach it and a re-checkout dedupes.
+    expect(subs.persistCheckoutCustomer).toHaveBeenCalledWith("u2", "cus_new");
+    // minor 3(b): the session carries a ~30min expiry (safely above Stripe's 30min floor).
+    const session = stripeState.created[0] as { expires_at?: number };
+    expect(session.expires_at).toBeGreaterThanOrEqual(before + 30 * 60);
+    expect(session.expires_at).toBeLessThanOrEqual(before + 35 * 60);
     const body = (await res.json()) as { url: string };
     expect(body.url).toBe("https://checkout.stripe/session");
   });

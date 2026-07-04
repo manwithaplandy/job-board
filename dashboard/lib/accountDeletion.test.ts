@@ -91,7 +91,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 
 const {
   deleteAccount, deleteAuthUser, deleteStorageObjects, deleteUserRowsTx, hashEmail,
-  cancelStripeForUser,
+  cancelStripeForUser, writeTombstone,
 } = await import("@/lib/accountDeletion");
 const { cancelSubscriptionIfPresent, deleteCustomerIfPresent } = await import("@/lib/stripe");
 const { sanitizeUploadFilename, resumeObjectPath } = await import("@/lib/resumeStorage");
@@ -169,9 +169,24 @@ describe("hashEmail", () => {
 
 // ── Ordered cascade ─────────────────────────────────────────────────────────
 describe("deleteAccount ordering", () => {
-  test("runs stripe → db → storage → auth in that exact order", async () => {
+  test("writes the tombstone (db) FIRST, then stripe → db → storage → auth (minor 2)", async () => {
     await deleteAccount("user-a", "a@x.com");
-    expect(s.order).toEqual(["stripe", "db", "storage", "auth"]);
+    // The leading "db" is writeTombstone's own transaction, committed BEFORE the Stripe
+    // cancel can fire a webhook that would otherwise re-insert a mirror row mid-cascade.
+    expect(s.order).toEqual(["db", "stripe", "db", "storage", "auth"]);
+  });
+
+  test("writeTombstone inserts the ledger idempotently in its own transaction", async () => {
+    await writeTombstone("user-a", "a@x.com");
+    expect(s.order).toEqual(["db"]); // one standalone transaction
+    const joined = s.txSql.join("\n");
+    expect(joined).toMatch(/INSERT INTO account_deletions[\s\S]*ON CONFLICT \(user_id\) DO NOTHING/);
+  });
+
+  test("writeTombstone FAILS CLOSED without the HMAC secret (no ledger row written)", async () => {
+    vi.stubEnv("ACCOUNT_DELETION_HASH_SECRET", "");
+    await expect(writeTombstone("user-a", "a@x.com")).rejects.toThrow(/ACCOUNT_DELETION_HASH_SECRET/);
+    expect(s.order).toEqual([]); // threw before opening the transaction
   });
 });
 
@@ -249,7 +264,7 @@ describe("already-gone tolerance", () => {
     s.subRow = [{ stripe_subscription_id: null, stripe_customer_id: null, status: null }];
     s.authError = { status: 404, message: "not found" };
     await expect(deleteAccount("user-a", "a@x.com")).resolves.toBeUndefined();
-    expect(s.order).toEqual(["stripe", "db", "storage", "auth"]);
+    expect(s.order).toEqual(["db", "stripe", "db", "storage", "auth"]);
   });
 });
 
@@ -283,7 +298,7 @@ describe("deleteStorageObjects", () => {
     s.storageRemoveError = true;
     await expect(deleteAccount("user-a", "a@x.com")).rejects.toThrow(/storage remove failed/);
     // Order proves it threw AT storage — auth (step 4) never ran.
-    expect(s.order).toEqual(["stripe", "db", "storage"]);
+    expect(s.order).toEqual(["db", "stripe", "db", "storage"]);
   });
 
   test("paginates the list — enumerates every page, not just the first 100", async () => {

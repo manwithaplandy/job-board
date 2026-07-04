@@ -1,4 +1,4 @@
-import { serviceSql, withUserSql } from "@/lib/db";
+import { serviceSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { getViewerPlan } from "@/lib/subscriptions";
 import { monthlyAllowance, PLAN_LABEL, type Plan } from "@/lib/entitlements";
@@ -15,9 +15,10 @@ import { loadTierConfig } from "@/lib/tierConfig";
 // grant block in schema.sql + migrations/2026-07-04-cost-cap-hardening.sql), so they
 // cannot PATCH/DELETE their own counter to reset the monthly allowance or the daily
 // review budget via the Supabase Data API. serviceSql bypasses RLS but always sets the
-// row's user_id explicitly, so the charge lands on the right tenant. Budget READS stay
-// on withUserSql (RLS-scoped). This is the sole justification for importing serviceSql
-// here — see lib/serviceRoleAllowlist.test.ts.
+// row's user_id explicitly, so the charge lands on the right tenant. The atomic reserve
+// (finding minor 4) reads spend in the SAME service-role transaction as the charge,
+// under a per-(user,kind) advisory lock, so check-then-charge can't race. This is the
+// sole justification for importing serviceSql here — see lib/serviceRoleAllowlist.test.ts.
 
 export type GenerationKind = "resume" | "cover";
 
@@ -61,13 +62,28 @@ export type AllowanceGate =
   | { ok: true; plan: Plan }
   | { ok: false; status: 402 | 429; error: string };
 
+// Advisory-lock key for the per-(user,kind) reserve critical section. hashtextextended
+// (64-bit) not hashtext (32-bit) so distinct users can't collide onto the same lock.
+const reserveLockKey = (userId: string, kind: GenerationKind) => `usage:${userId}:${kind}`;
+
 /**
- * Gate a generation BEFORE any LLM call. Resolves the viewer's plan (null → 402
- * subscribe), then checks each requested kind's monthly spend against the tier
- * allowance (exhausted → 429 naming used/limit and the tier). Reads under the
- * viewer's RLS context.
+ * ATOMIC reserve-before-generate (finding minor 4 — TOCTOU). The old
+ * check-then-charge (read spend → generate → increment) let N parallel requests each
+ * read spend < limit and each proceed, overshooting the monthly cap. This instead
+ * charges the slot UP FRONT inside one service-role transaction that:
+ *   1. takes a per-(user,kind) transaction-scoped advisory lock, so concurrent reserves
+ *      for the same user+kind serialize;
+ *   2. re-reads month-to-date spend UNDER the lock and, only if still < limit, charges +1.
+ * All-or-nothing across kinds: if ANY requested kind is exhausted, nothing is charged
+ * (the transaction commits having only held locks). The caller REFUNDS on a failed
+ * generation (refundGenerations), preserving "a failed generation never burns allowance".
+ *
+ * WRITES run as the service role (serviceSql) — users are SELECT-only on usage_counters
+ * (B-COST), so the reserve can't be self-zeroed via the Data API. Reads happen in the
+ * same transaction (service role, scoped by explicit user_id); the atomicity the lock
+ * provides is why the read no longer needs the viewer's RLS role.
  */
-export async function checkGenerationAllowance(
+export async function reserveGenerations(
   userId: string,
   email: string | null,
   kinds: GenerationKind[],
@@ -78,7 +94,12 @@ export async function checkGenerationAllowance(
   }
   // DB-overlaid allowances (T1): tunable without a redeploy via tier_settings.
   const { entitlements } = await loadTierConfig();
-  return withUserSql(userId, async (tx) => {
+  return serviceSql.begin(async (tx) => {
+    // Lock every requested kind first, then check ALL under the locks before charging any
+    // — so a dual-kind reserve is all-or-nothing and never charges a partially-exhausted set.
+    for (const kind of kinds) {
+      await tx.unsafe(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [reserveLockKey(userId, kind)]);
+    }
     for (const kind of kinds) {
       const used = await monthlyGenerationSpend(tx, userId, kind);
       const limit = monthlyAllowance(plan, kind, entitlements);
@@ -90,16 +111,23 @@ export async function checkGenerationAllowance(
         };
       }
     }
+    for (const kind of kinds) await chargeGeneration(tx, userId, kind);
     return { ok: true as const, plan };
   });
 }
 
 /**
- * Charge the given kinds (each +1) after a successful generation+persist. Runs on the
- * service role (serviceSql), NOT the user's `authenticated` role — users have
- * SELECT-only on usage_counters, so the counter can only ever be incremented by the
- * server, never zeroed by a user's own Data-API write (finding B-COST).
+ * Refund reserved slots (each −1 on today's UTC row) when a generation the caller
+ * reserved for fails to produce+persist — so a failed generation never burns allowance
+ * (T9), while the reserve above stays atomic. GREATEST(n-1,0) guards against underflow.
+ * Service role (users are SELECT-only on usage_counters, B-COST).
  */
-export async function chargeGenerations(userId: string, kinds: GenerationKind[]): Promise<void> {
-  for (const kind of kinds) await chargeGeneration(serviceSql, userId, kind);
+export async function refundGenerations(userId: string, kinds: GenerationKind[]): Promise<void> {
+  for (const kind of kinds) {
+    await serviceSql.unsafe(
+      `UPDATE usage_counters SET n = GREATEST(n - 1, 0)
+       WHERE user_id = $1::uuid AND day = (now() AT TIME ZONE 'utc')::date AND kind = $2`,
+      [userId, kind],
+    );
+  }
 }

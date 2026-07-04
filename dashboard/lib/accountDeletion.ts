@@ -16,10 +16,12 @@ import { USER_DELETE_TABLES } from "@/lib/userScopedTables";
 // Ordered account-deletion cascade (T3, spec subsystem E). user_id is NOT FK'd to
 // auth.users, so deletion is deliberate and ordered. Each step is idempotent /
 // "already-gone"-tolerant so a retry after a partial failure converges:
+//   0. write the erasure tombstone in its OWN transaction FIRST (minor 2), so a Stripe
+//      webhook fired by step 1's cancel can't re-insert a mirror row mid-cascade
 //   1. cancel any active Stripe subscription AND delete the Stripe customer (erase the
 //      email/name PII Stripe holds), before step 2 destroys the only id→customer mapping
 //   2. one DB transaction: delete every user-scoped row + anonymize review_runs +
-//      insert the erasure ledger row
+//      re-insert the erasure ledger row idempotently
 //   3. remove every storage object under resumes/{userId}/
 //   4. delete the auth.users record (service-role admin)
 // (signOut + redirect happen in the calling server action, after this returns.)
@@ -48,6 +50,29 @@ export function hashEmail(email: string | null | undefined): string | null {
 // invite_redemptions is keyed by email and only later back-fills user_id, so it is
 // deleted specially (by user_id OR email); the generic loop handles the rest.
 const _LOOP_DELETE_TABLES = USER_DELETE_TABLES.filter((t) => t !== "invite_redemptions");
+
+/**
+ * Step 0 (minor 2): write the erasure tombstone in its OWN transaction, BEFORE anything
+ * else in the cascade. Step 1 cancels the Stripe subscription, which fires
+ * customer.subscription.deleted/.updated webhooks carrying the user's metadata — those
+ * land on the webhook route, which now short-circuits on the tombstone. Writing the
+ * tombstone first (its own committed transaction) closes the race where a webhook
+ * arrives mid-cascade — after the cancel but before deleteUserRowsTx commits the ledger
+ * — and re-inserts a subscriptions mirror row for the account we're erasing. hashEmail
+ * FAILS CLOSED on a missing secret, so a config error aborts here before any row is
+ * touched. deleteUserRowsTx still writes the ledger idempotently (ON CONFLICT DO NOTHING)
+ * so this and that converge.
+ */
+export async function writeTombstone(userId: string, email: string | null): Promise<void> {
+  const emailHash = hashEmail(email);
+  await serviceSql.begin(async (tx) => {
+    await tx.unsafe(
+      `INSERT INTO account_deletions (user_id, email_hash) VALUES ($1::uuid, $2)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId, emailHash],
+    );
+  });
+}
 
 /**
  * Step 1: cancel the user's Stripe subscription AND delete the Stripe customer (both
@@ -151,6 +176,7 @@ export async function deleteAuthUser(userId: string): Promise<void> {
  * a target from untrusted input. Ordered so a retry after any partial failure converges.
  */
 export async function deleteAccount(userId: string, email: string | null): Promise<void> {
+  await writeTombstone(userId, email); // BEFORE the Stripe cancel — see writeTombstone
   await cancelStripeForUser(userId);
   await deleteUserRowsTx(userId, email);
   await deleteStorageObjects(userId);

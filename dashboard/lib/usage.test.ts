@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const state = vi.hoisted(() => ({
   plan: null as string | null,
   spendQueue: [] as number[], // successive monthlyGenerationSpend results
-  unsafeCalls: [] as { text: string; params: unknown[]; via?: "user" | "service" }[],
+  unsafeCalls: [] as { text: string; params: unknown[]; via?: "service" }[],
 }));
 
 vi.mock("@/lib/subscriptions", () => ({
@@ -11,28 +11,27 @@ vi.mock("@/lib/subscriptions", () => ({
 }));
 
 vi.mock("@/lib/db", () => {
-  const executor = (via: "user" | "service") => ({
-    unsafe: (text: string, params: unknown[]) => {
-      state.unsafeCalls.push({ text, params, via });
-      if (/SELECT COALESCE\(SUM\(n\)/.test(text)) {
-        const n = state.spendQueue.length ? state.spendQueue.shift()! : 0;
-        return Promise.resolve([{ n }]);
-      }
-      return Promise.resolve([]);
-    },
-  });
-  // serviceSql is used DIRECTLY (not via a callback) by chargeGenerations — it's the
-  // top-level executor whose `.unsafe` runs the INSERT (service role: users are
-  // SELECT-only on usage_counters, B-COST). Budget reads still go through withUserSql.
-  // Two distinct recorders so a test can assert which role each query ran under.
+  // Every write/read in the reserve path runs on the service role: reads (SUM) return
+  // the next queued spend, everything else (advisory lock, INSERT, refund UPDATE) → [].
+  const exec = (text: string, params: unknown[]) => {
+    state.unsafeCalls.push({ text, params, via: "service" });
+    if (/SELECT COALESCE\(SUM\(n\)/.test(text)) {
+      const n = state.spendQueue.length ? state.spendQueue.shift()! : 0;
+      return Promise.resolve([{ n }]);
+    }
+    return Promise.resolve([]);
+  };
+  const tx = { unsafe: exec };
+  // reserveGenerations runs inside serviceSql.begin (one transaction); refundGenerations
+  // calls serviceSql.unsafe directly. tierConfig's withAnonSql is intentionally absent —
+  // loadTierConfig degrades to the compiled ENTITLEMENTS defaults, which these caps use.
   return {
-    withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(executor("user")),
-    serviceSql: executor("service"),
+    serviceSql: { unsafe: exec, begin: async (cb: (t: typeof tx) => unknown) => cb(tx) },
   };
 });
 
 import {
-  checkGenerationAllowance, chargeGenerations, monthlyGenerationSpend, chargeGeneration,
+  reserveGenerations, refundGenerations, monthlyGenerationSpend, chargeGeneration,
 } from "@/lib/usage";
 
 beforeEach(() => {
@@ -41,24 +40,29 @@ beforeEach(() => {
   state.unsafeCalls.length = 0;
 });
 
-describe("checkGenerationAllowance", () => {
-  test("null plan → 402 subscribe", async () => {
+const inserts = () => state.unsafeCalls.filter((c) => c.text.includes("INSERT INTO usage_counters"));
+const locks = () => state.unsafeCalls.filter((c) => /pg_advisory_xact_lock/.test(c.text));
+
+describe("reserveGenerations (atomic reserve, minor 4)", () => {
+  test("null plan → 402 subscribe, nothing charged", async () => {
     state.plan = null;
-    const r = await checkGenerationAllowance("u", "e@x.com", ["resume"]);
+    const r = await reserveGenerations("u", "e@x.com", ["resume"]);
     expect(r).toEqual({ ok: false, status: 402, error: expect.stringContaining("Subscribe") });
+    expect(inserts()).toHaveLength(0);
   });
 
-  test("29/30 on Standard → allowed", async () => {
+  test("29/30 on Standard → allowed and the slot is charged", async () => {
     state.plan = "standard";
     state.spendQueue = [29];
-    const r = await checkGenerationAllowance("u", "e@x.com", ["resume"]);
+    const r = await reserveGenerations("u", "e@x.com", ["resume"]);
     expect(r).toEqual({ ok: true, plan: "standard" });
+    expect(inserts()).toHaveLength(1); // reserved up front
   });
 
-  test("30/30 on Standard → 429 naming used/limit and tier", async () => {
+  test("30/30 on Standard → 429 naming used/limit and tier, and NOTHING charged", async () => {
     state.plan = "standard";
     state.spendQueue = [30];
-    const r = await checkGenerationAllowance("u", "e@x.com", ["resume"]);
+    const r = await reserveGenerations("u", "e@x.com", ["resume"]);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.status).toBe(429);
@@ -66,12 +70,14 @@ describe("checkGenerationAllowance", () => {
       expect(r.error).toContain("Standard");
       expect(r.error).toContain("résumé");
     }
+    // The atomicity guarantee: an exhausted reserve charges NO slot.
+    expect(inserts()).toHaveLength(0);
   });
 
-  test("prepare dual-kind blocks if EITHER is exhausted", async () => {
+  test("dual-kind is all-or-nothing: EITHER exhausted → 429 and NEITHER charged", async () => {
     state.plan = "pro";
     state.spendQueue = [10, 100]; // resume ok (10/100), cover exhausted (100/100)
-    const r = await checkGenerationAllowance("u", "e@x.com", ["resume", "cover"]);
+    const r = await reserveGenerations("u", "e@x.com", ["resume", "cover"]);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.status).toBe(429);
@@ -79,65 +85,77 @@ describe("checkGenerationAllowance", () => {
       expect(r.error).toContain("100/100");
       expect(r.error).toContain("Pro");
     }
+    expect(inserts()).toHaveLength(0); // resume was NOT charged despite being under limit
   });
 
-  test("pro allows premium-tier volumes", async () => {
+  test("pro under both caps → charges BOTH kinds", async () => {
     state.plan = "pro";
     state.spendQueue = [50, 50];
-    const r = await checkGenerationAllowance("u", "e@x.com", ["resume", "cover"]);
+    const r = await reserveGenerations("u", "e@x.com", ["resume", "cover"]);
     expect(r).toEqual({ ok: true, plan: "pro" });
+    expect(inserts().map((c) => c.params[1])).toEqual(["resume", "cover"]);
+  });
+
+  test("takes a per-(user,kind) advisory lock (hashtextextended, 64-bit) before checking", async () => {
+    state.plan = "standard";
+    state.spendQueue = [0];
+    await reserveGenerations("u", "e@x.com", ["resume"]);
+    const l = locks();
+    expect(l).toHaveLength(1);
+    expect(l[0].text).toContain("hashtextextended");
+    expect(l[0].params).toEqual(["usage:u:resume"]);
+  });
+
+  test("reserve reads + charges on the SERVICE role (B-COST — never the user's role)", async () => {
+    state.plan = "standard";
+    state.spendQueue = [0];
+    await reserveGenerations("u", "e@x.com", ["resume"]);
+    expect(state.unsafeCalls.every((c) => c.via === "service")).toBe(true);
   });
 });
 
-describe("SQL shape", () => {
+describe("refundGenerations", () => {
+  test("decrements today's UTC row per kind, floored at 0", async () => {
+    await refundGenerations("u", ["resume", "cover"]);
+    const updates = state.unsafeCalls.filter((c) => c.text.includes("UPDATE usage_counters"));
+    expect(updates).toHaveLength(2);
+    for (const u of updates) {
+      expect(u.text).toContain("GREATEST(n - 1, 0)");
+      expect(u.text).toContain("(now() AT TIME ZONE 'utc')::date");
+    }
+    expect(updates.map((c) => c.params[1])).toEqual(["resume", "cover"]);
+  });
+});
+
+describe("SQL shape (helpers)", () => {
   test("monthlyGenerationSpend sums over the current UTC month only", async () => {
+    const localCalls: { text: string; params: unknown[] }[] = [];
     const tx = {
       unsafe: (text: string, params: unknown[]) => {
-        state.unsafeCalls.push({ text, params });
+        localCalls.push({ text, params });
         return Promise.resolve([{ n: 3 }]);
       },
     };
     const n = await monthlyGenerationSpend(tx as never, "u", "resume");
     expect(n).toBe(3);
-    const call = state.unsafeCalls.at(-1)!;
-    // Month-rollover correctness: last month's rows are excluded by the >= month-start
-    // clause, keyed on the same UTC clock the reviewer uses.
+    const call = localCalls.at(-1)!;
     expect(call.text).toContain("date_trunc('month'");
     expect(call.text).toContain("AT TIME ZONE 'utc'");
     expect(call.params).toEqual(["u", "resume"]);
   });
 
   test("chargeGeneration upserts +1 on today's UTC row", async () => {
+    const localCalls: { text: string; params: unknown[] }[] = [];
     const tx = {
       unsafe: (text: string, params: unknown[]) => {
-        state.unsafeCalls.push({ text, params });
+        localCalls.push({ text, params });
         return Promise.resolve([]);
       },
     };
     await chargeGeneration(tx as never, "u", "cover");
-    const call = state.unsafeCalls.at(-1)!;
+    const call = localCalls.at(-1)!;
     expect(call.text).toContain("INSERT INTO usage_counters");
     expect(call.text).toContain("n = usage_counters.n + 1");
     expect(call.params).toEqual(["u", "cover"]);
-  });
-
-  test("chargeGenerations charges each kind once, on the SERVICE role (B-COST)", async () => {
-    await chargeGenerations("u", ["resume", "cover"]);
-    const inserts = state.unsafeCalls.filter((c) => c.text.includes("INSERT INTO usage_counters"));
-    expect(inserts).toHaveLength(2);
-    expect(inserts.map((c) => c.params[1])).toEqual(["resume", "cover"]);
-    // The write must NOT run under the user's `authenticated` role — users have
-    // SELECT-only on usage_counters, so a charge routed through withUserSql would be a
-    // regression that re-opens the self-zero bypass.
-    expect(inserts.every((c) => c.via === "service")).toBe(true);
-  });
-
-  test("checkGenerationAllowance READS budget under the user's RLS role", async () => {
-    state.plan = "standard";
-    state.spendQueue = [1];
-    await checkGenerationAllowance("u", "e@x.com", ["resume"]);
-    const reads = state.unsafeCalls.filter((c) => /SELECT COALESCE\(SUM\(n\)/.test(c.text));
-    expect(reads.length).toBeGreaterThan(0);
-    expect(reads.every((c) => c.via === "user")).toBe(true);
   });
 });

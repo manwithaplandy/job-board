@@ -1,10 +1,21 @@
-import { withUserSql } from "@/lib/db";
+// ─────────────────────────────────────────────────────────────────────────────
+// serviceSql JUSTIFICATION (RLS-bypass allowlist — lib/serviceRoleAllowlist.test.ts):
+// subscriptions is service-write-only (no authenticated write policy). The Stripe
+// webhook is the authoritative writer of subscription STATE; persistCheckoutCustomer
+// (minor 3) additionally writes ONLY the stripe_customer_id at checkout-creation time so
+// the erasure cascade can reach the Stripe customer and a re-checkout dedupes — it never
+// touches plan/status/last_event_at, so the webhook stays authoritative. Both write the
+// caller's OWN user_id (no cross-tenant surface). getSubscription READS stay on RLS.
+// ─────────────────────────────────────────────────────────────────────────────
+import { serviceSql, withUserSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { resolvePlan, type Plan } from "@/lib/entitlements";
 import { isInvitedUser } from "@/lib/invites";
 
 // The local mirror of Stripe truth (subsystem C). The Stripe webhook is the SOLE
-// writer (service role); everything else reads the viewer's own row under RLS.
+// writer of subscription STATE (service role); everything else reads the viewer's own
+// row under RLS. persistCheckoutCustomer is the one exception — it fills in only the
+// stripe_customer_id at checkout time (see its doc).
 export interface SubscriptionRow {
   user_id: string;
   stripe_customer_id: string | null;
@@ -38,6 +49,30 @@ export async function getViewerPlan(userId: string, email: string | null): Promi
     email ? isInvitedUser(email) : Promise.resolve(false),
   ]);
   return resolvePlan(sub, invited);
+}
+
+/**
+ * Persist the Stripe customer id created during a Checkout Session, at customer-CREATION
+ * time (minor 3). Without this, a user who abandons checkout leaves an orphaned Stripe
+ * customer with no id→customer mapping in our DB, so the erasure cascade
+ * (cancelStripeForUser) can never delete it AND a second checkout would mint a DUPLICATE
+ * customer. We write ONLY the customer id: ON CONFLICT keeps any existing customer id and
+ * NEVER touches plan/status/last_event_at, so the webhook stays the authoritative writer
+ * of subscription state and its monotonic watermark (M-WEBHOOK-ORDER) is untouched. The
+ * placeholder status 'incomplete' entitles nothing (resolvePlan → null) until a real
+ * subscription event lands. Service role: subscriptions has no authenticated write policy.
+ */
+export async function persistCheckoutCustomer(
+  userId: string,
+  stripeCustomerId: string,
+): Promise<void> {
+  await serviceSql`
+    INSERT INTO subscriptions (user_id, stripe_customer_id, status)
+    VALUES (${userId}::uuid, ${stripeCustomerId}, 'incomplete')
+    ON CONFLICT (user_id) DO UPDATE SET
+      stripe_customer_id = COALESCE(subscriptions.stripe_customer_id, EXCLUDED.stripe_customer_id),
+      updated_at = now()
+  `;
 }
 
 /**

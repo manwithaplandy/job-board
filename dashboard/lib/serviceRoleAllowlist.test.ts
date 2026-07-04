@@ -22,6 +22,7 @@ const ALLOWLIST = [
   "lib/tenantMetrics.ts", // T8: legitimately cross-tenant admin monitoring; imported only by the isAdmin-gated /admin/tenants page
   "lib/usage.ts", // B-COST: usage_counters WRITES must run as service role (users are SELECT-only), so generation charges can't be self-zeroed via the Data API
   "lib/tombstone.ts", // M-RESURRECT: reads the service-role-only account_deletions tombstone (deny-all to authenticated) so write-back paths can refuse to resurrect an erased user
+  "lib/subscriptions.ts", // minor 3: persistCheckoutCustomer writes only the stripe_customer_id into the service-write-only subscriptions mirror at checkout time (webhook stays authoritative for state)
 ].sort();
 
 const ROOT = path.resolve(__dirname, "..");

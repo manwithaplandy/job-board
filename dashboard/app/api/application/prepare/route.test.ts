@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-// Route-level test for /api/application/prepare's allowance-charging discipline (T9):
-// the prepare route runs its résumé + cover-letter LLM legs under Promise.allSettled
-// and persists whatever succeeded, so it must charge ONLY the kinds whose leg
-// fulfilled — a rejected leg (e.g. OpenRouter outage) never burns its allowance, and a
-// double failure charges nothing. Everything below the route is mocked; tracing is off
-// so run() executes inline.
+// Route-level test for /api/application/prepare's allowance discipline (T9, minor 4):
+// the route RESERVES (charges) both kinds atomically up front, runs its résumé +
+// cover-letter LLM legs under Promise.allSettled, persists whatever succeeded, and
+// REFUNDS only the kinds whose leg rejected — a rejected leg (e.g. OpenRouter outage)
+// never burns its allowance, both-succeed refunds nothing, both-fail refunds both.
+// Everything below the route is mocked; tracing is off so run() executes inline.
 
 const state = vi.hoisted(() => ({
   resumeRejects: false,
   coverRejects: false,
-  chargeCalls: [] as string[][],
+  refundCalls: [] as string[][],
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -43,9 +43,9 @@ vi.mock("@/lib/queries", () => ({
 }));
 
 vi.mock("@/lib/usage", () => ({
-  checkGenerationAllowance: vi.fn(async () => ({ ok: true, plan: "pro" })),
-  chargeGenerations: vi.fn(async (_userId: string, kinds: string[]) => {
-    state.chargeCalls.push(kinds);
+  reserveGenerations: vi.fn(async () => ({ ok: true, plan: "pro" })),
+  refundGenerations: vi.fn(async (_userId: string, kinds: string[]) => {
+    state.refundCalls.push(kinds);
   }),
 }));
 
@@ -115,39 +115,39 @@ const req = () =>
 beforeEach(() => {
   state.resumeRejects = false;
   state.coverRejects = false;
-  state.chargeCalls.length = 0;
+  state.refundCalls.length = 0;
   process.env.OPENROUTER_API_KEY = "test-key"; // route 500s without it, before any leg runs
 });
 
-describe("prepare allowance charging", () => {
-  test("both legs succeed → charges resume + cover", async () => {
+describe("prepare allowance reserve/refund", () => {
+  test("both legs succeed → refunds nothing (both reserved slots kept)", async () => {
     const res = await POST(req());
     expect(res.status).toBe(200);
-    expect(state.chargeCalls).toEqual([["resume", "cover"]]);
+    expect(state.refundCalls).toEqual([]);
   });
 
-  test("résumé leg fails → charges only cover", async () => {
+  test("résumé leg fails → refunds only résumé", async () => {
     state.resumeRejects = true;
     const res = await POST(req());
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status.resume).toBe("failed");
     expect(body.status.coverLetter).toBe("ok");
-    expect(state.chargeCalls).toEqual([["cover"]]);
+    expect(state.refundCalls).toEqual([["resume"]]);
   });
 
-  test("cover leg fails → charges only resume", async () => {
+  test("cover leg fails → refunds only cover", async () => {
     state.coverRejects = true;
     const res = await POST(req());
     expect(res.status).toBe(200);
-    expect(state.chargeCalls).toEqual([["resume"]]);
+    expect(state.refundCalls).toEqual([["cover"]]);
   });
 
-  test("both legs fail → charges nothing", async () => {
+  test("both legs fail → refunds both", async () => {
     state.resumeRejects = true;
     state.coverRejects = true;
     const res = await POST(req());
     expect(res.status).toBe(200);
-    expect(state.chargeCalls).toEqual([]);
+    expect(state.refundCalls).toEqual([["resume", "cover"]]);
   });
 });

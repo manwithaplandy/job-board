@@ -1,6 +1,6 @@
 import { getUserClaims } from "@/lib/auth";
 import { getStripe, planToPrice } from "@/lib/stripe";
-import { getSubscription } from "@/lib/subscriptions";
+import { getSubscription, persistCheckoutCustomer } from "@/lib/subscriptions";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +43,11 @@ export async function POST(req: Request) {
       metadata: { user_id: claims.id },
     });
     customerId = customer.id;
+    // Persist the new customer id NOW (minor 3): if the user abandons checkout no webhook
+    // fires, so without this the erasure cascade couldn't reach the orphaned Stripe
+    // customer and a re-checkout would mint a duplicate. Writes only the id (webhook
+    // still owns plan/status).
+    await persistCheckoutCustomer(claims.id, customerId);
   }
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? new URL(req.url).origin;
@@ -56,6 +61,10 @@ export async function POST(req: Request) {
     // customer.subscription.* event.
     metadata: { user_id: claims.id },
     subscription_data: { metadata: { user_id: claims.id } },
+    // Expire the session ~30min out (minor 3) so an abandoned checkout doesn't leave a
+    // stale payable session lingering for Stripe's 24h default. 31min stays safely above
+    // Stripe's 30-minute floor after request/clock skew.
+    expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
     success_url: `${siteUrl}/billing?status=success`,
     cancel_url: `${siteUrl}/billing`,
   });

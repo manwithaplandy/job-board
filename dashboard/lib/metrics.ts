@@ -104,6 +104,36 @@ export interface JobFunnel {
 }
 export interface FunnelCounts { companies: CompanyFunnel; jobs: JobFunnel }
 
+export interface ReviewAgg {
+  reviewed: number; gate_rejected: number; approved: number; denied: number; manual_rejected: number;
+}
+
+// Executor-taking impl (mirrors reviewStatsWith / companyVerdictCountsWith) so the
+// /analytics funnel runs it within its single withUserSql tx; exported so the real-DB
+// regression test (lib/queries.locationScoping.db.test.ts) can drive the ACTUAL query.
+// Scoped to the viewer's review pool — open jobs that are remote OR in preferred_locations
+// — kept in LOCKSTEP with reviewStatsWith (lib/queries.ts). The preferred_locations
+// subquery MUST be COALESCE'd to an empty array so `= ANY(...)` receives an array
+// EXPRESSION (array form); the bare subquery form `= ANY((SELECT ...))` compares text
+// against whole text[] rows → Postgres 42883 (operator does not exist: text = text[]),
+// a plan-time error that 500'd every authenticated render (fixed in b0a2689).
+export async function reviewAggWith(tx: TransactionSql, userId: string): Promise<ReviewAgg> {
+  const rows = await tx`
+      SELECT count(*) FILTER (WHERE r.job_id IS NOT NULL)::int AS reviewed,
+             count(*) FILTER (WHERE r.stage1_decision = 'reject')::int AS gate_rejected,
+             count(*) FILTER (WHERE r.verdict = 'approve')::int AS approved,
+             count(*) FILTER (WHERE r.verdict = 'deny')::int AS denied,
+             count(*) FILTER (WHERE r.verdict = 'deny' AND r.human_override)::int AS manual_rejected
+      FROM jobs j
+      LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
+      WHERE j.closed_at IS NULL
+        AND (j.remote IS TRUE OR j.location = ANY(COALESCE(
+              (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid), '{}'::text[])))
+    `;
+  return (rows[0] as unknown as ReviewAgg)
+    ?? { reviewed: 0, gate_rejected: 0, approved: 0, denied: 0, manual_rejected: 0 };
+}
+
 async function getFunnel(
   tx: TransactionSql,
   userId: string,
@@ -124,18 +154,7 @@ async function getFunnel(
       FROM jobs
     `;
   // Scoped to the viewer's review pool — keep in lockstep with reviewStatsWith (lib/queries.ts).
-  const reviewAggRows = await tx`
-      SELECT count(*) FILTER (WHERE r.job_id IS NOT NULL)::int AS reviewed,
-             count(*) FILTER (WHERE r.stage1_decision = 'reject')::int AS gate_rejected,
-             count(*) FILTER (WHERE r.verdict = 'approve')::int AS approved,
-             count(*) FILTER (WHERE r.verdict = 'deny')::int AS denied,
-             count(*) FILTER (WHERE r.verdict = 'deny' AND r.human_override)::int AS manual_rejected
-      FROM jobs j
-      LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
-      WHERE j.closed_at IS NULL
-        AND (j.remote IS TRUE OR j.location = ANY(COALESCE(
-              (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid), '{}'::text[])))
-    `;
+  const rv = await reviewAggWith(tx, userId);
   const appliedAggRows = await tx`
       SELECT count(*)::int AS applied
       FROM application_packages
@@ -146,7 +165,6 @@ async function getFunnel(
 
   const c = companyAggRows[0] as unknown as { tracked: number; active: number; discovery_sourced: number; reviewed: number };
   const j = jobAggRows[0] as unknown as { ever_seen: number; open: number; closed: number };
-  const rv = reviewAggRows[0] as unknown as { reviewed: number; gate_rejected: number; approved: number; denied: number; manual_rejected: number };
   const ap = appliedAggRows[0] as unknown as { applied: number };
 
   return {

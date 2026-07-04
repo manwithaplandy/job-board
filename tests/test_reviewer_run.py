@@ -580,6 +580,39 @@ def test_null_cap_uses_tier_entitlement_cap(conn, monkeypatch):
 
 
 @requires_db
+def test_profile_cap_override_cannot_raise_above_tier_cap(conn, monkeypatch):
+    """Cost integrity (B-COST): a daily_review_cap override may only LOWER the tier
+    cap, never raise it. Patch the tier cap to 1, set an inflated override of 100 (as if
+    a user forced it up via a direct write), and prove the run is still clamped to 1."""
+    monkeypatch.setattr(entitlements, "daily_review_cap", lambda plan, model, ent=None: 1)
+    cid = _seed_company(conn)
+    for i in range(3):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=100)  # override well above the tier cap of 1
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 1, "override=100 clamped down to tier cap 1"
+
+
+@requires_db
+def test_profile_cap_override_still_lowers_below_tier_cap(conn, monkeypatch):
+    """The override remains an effective operator lever DOWNWARD: with the tier cap at
+    5 and an override of 2, the run is bounded by the lower override."""
+    monkeypatch.setattr(entitlements, "daily_review_cap", lambda plan, model, ent=None: 5)
+    cid = _seed_company(conn)
+    for i in range(4):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=2)  # override below the tier cap of 5
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 2, "override=2 lowers the effective cap below tier 5"
+
+
+@requires_db
 def test_no_subscription_user_is_skipped(conn, monkeypatch):
     """No plan (no subscription, not invited) → skipped, 'no active subscription' note."""
     cid = _seed_company(conn)

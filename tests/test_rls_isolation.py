@@ -118,10 +118,11 @@ def test_update_delete_of_other_tenant_rows_affects_zero(conn):
 def test_insert_with_foreign_user_id_fails_with_check(conn):
     _seed_two_users(conn)
     # Each attempt to write a row owned by B must trip the WITH CHECK (42501).
+    # (usage_counters is not here: it is SELECT-only for authenticated, so a write is
+    # denied by the missing table privilege — see test_usage_counters_is_select_only.)
     for table, cols, vals in [
         ("profiles", "(user_id, profile_version)", "(%s, 'v2')"),
         ("job_reviews", "(user_id, job_id, profile_version)", "(%s, 'lever:acme:1', 'v2')"),
-        ("usage_counters", "(user_id, day, kind, n)", "(%s, now()::date, 'resume', 1)"),
     ]:
         with as_user(conn, A) as c:
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -136,13 +137,121 @@ def test_owner_full_crud_on_own_rows_succeeds(conn):
         with c.cursor() as cur:
             cur.execute("UPDATE profiles SET resume_text = 'mine' WHERE user_id = %s", (A,))
             assert cur.rowcount == 1
-            cur.execute(
-                "INSERT INTO usage_counters (user_id, day, kind, n) VALUES (%s, now()::date, 'cover', 2)",
-                (A,),
-            )
+            cur.execute("UPDATE job_reviews SET verdict = 'deny' WHERE user_id = %s", (A,))
             assert cur.rowcount == 1
             cur.execute("DELETE FROM resume_scores WHERE user_id = %s AND job_id = 'lever:acme:1'", (A,))
             assert cur.rowcount == 1
+
+
+@requires_db
+def test_usage_counters_is_select_only_for_authenticated(conn):
+    """Cost integrity (B-COST): a user may READ their own usage_counters (remaining
+    budget) but must NOT write them — no INSERT/UPDATE/DELETE privilege — so they can't
+    zero their daily review spend or monthly generation allowance via the Data API.
+    Writes come only from the service role (reviewer/worker + dashboard chargeGenerations
+    on serviceSql). Each write is denied at the GRANT layer (InsufficientPrivilege)."""
+    _seed_two_users(conn)  # each user has a usage_counters row (kind='review', n=5)
+    # SELECT of own counter works.
+    with as_user(conn, A) as c:
+        with c.cursor() as cur:
+            cur.execute("SELECT n FROM usage_counters WHERE user_id = %s", (A,))
+            assert cur.fetchone()["n"] == 5
+    # Every write to their OWN counter is denied (missing table privilege). One
+    # error-raising statement per as_user block (it aborts the transaction).
+    with as_user(conn, A) as c:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with c.cursor() as cur:
+                cur.execute("UPDATE usage_counters SET n = 0 WHERE user_id = %s", (A,))
+    with as_user(conn, A) as c:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with c.cursor() as cur:
+                cur.execute("DELETE FROM usage_counters WHERE user_id = %s", (A,))
+    with as_user(conn, A) as c:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with c.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO usage_counters (user_id, day, kind, n) "
+                    "VALUES (%s, now()::date, 'resume', 0)",
+                    (A,),
+                )
+    # The service role (session default) still writes freely.
+    with conn.cursor() as cur:
+        cur.execute("UPDATE usage_counters SET n = 0 WHERE user_id = %s", (A,))
+        assert cur.rowcount == 1
+
+
+C = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+
+@requires_db
+def test_daily_review_cap_is_not_user_writable(conn):
+    """Cost integrity (B-COST): profiles.daily_review_cap is operator-only. A user keeps
+    full control of the rest of their profile (resume_text, model_*, …) but cannot raise
+    their own review budget by writing daily_review_cap — neither via UPDATE nor by
+    smuggling it into an INSERT. Column-level grants enforce this at the privilege layer;
+    the service role (which the reviewer/admin use) is unaffected."""
+    _seed_two_users(conn)
+    # A user CAN update ordinary columns of their own profile.
+    with as_user(conn, A) as c:
+        with c.cursor() as cur:
+            cur.execute("UPDATE profiles SET resume_text = 'mine', model_stage2 = 'x' WHERE user_id = %s", (A,))
+            assert cur.rowcount == 1
+    # But UPDATE of daily_review_cap is denied (no column UPDATE privilege).
+    with as_user(conn, A) as c:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with c.cursor() as cur:
+                cur.execute("UPDATE profiles SET daily_review_cap = 100000 WHERE user_id = %s", (A,))
+    # A brand-new user (C, no seeded profile) CAN insert their profile row...
+    with as_user(conn, C) as c:
+        with c.cursor() as cur:
+            cur.execute(
+                "INSERT INTO profiles (user_id, resume_text, profile_version) VALUES (%s, 'r', 'v1')",
+                (C,),
+            )
+            assert cur.rowcount == 1
+    # ...but NOT with daily_review_cap set (no column INSERT privilege on that column).
+    with as_user(conn, C) as c:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with c.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO profiles (user_id, profile_version, daily_review_cap) "
+                    "VALUES (%s, 'v1', 100000)",
+                    (C,),
+                )
+    # The service role sets the operator override freely.
+    with conn.cursor() as cur:
+        cur.execute("UPDATE profiles SET daily_review_cap = 3 WHERE user_id = %s", (A,))
+        assert cur.rowcount == 1
+        cur.execute("SELECT daily_review_cap FROM profiles WHERE user_id = %s", (A,))
+        assert cur.fetchone()["daily_review_cap"] == 3
+
+
+@requires_db
+def test_service_write_only_tables_deny_authenticated_dml(conn):
+    """Systemic guard (B-COST root cause): the blanket REVOKE strips Supabase's default
+    anon/authenticated DML on service-write / deny-all tables, so RLS is not the only
+    gate. A user can READ their subscription + review_requests but cannot forge or edit
+    them, and cannot touch the invite / ledger tables at all."""
+    _seed_two_users(conn)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO subscriptions (user_id, status, plan) VALUES (%s, 'active', 'pro')", (A,))
+    conn.commit()
+    # subscriptions: owner SELECT ok, but no self-upgrade (no INSERT/UPDATE privilege).
+    with as_user(conn, A) as c:
+        with c.cursor() as cur:
+            cur.execute("SELECT plan FROM subscriptions WHERE user_id = %s", (A,))
+            assert cur.fetchone()["plan"] == "pro"
+    with as_user(conn, A) as c:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with c.cursor() as cur:
+                cur.execute("UPDATE subscriptions SET plan = 'pro' WHERE user_id = %s", (A,))
+    # review_requests: owner may INSERT (enqueue) but not UPDATE (worker-only) — covered
+    # in test_billing_tables_are_owner_scoped; here assert the deny-all tables are sealed.
+    for table in ("invite_codes", "invite_redemptions", "schema_migrations", "account_deletions"):
+        with as_user(conn, A) as c:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                with c.cursor() as cur:
+                    cur.execute(f"SELECT * FROM {table}")
 
 
 @requires_db

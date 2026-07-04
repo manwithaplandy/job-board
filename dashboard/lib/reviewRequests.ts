@@ -100,7 +100,15 @@ export async function remainingDailyBudget(userId: string, plan: Plan | null): P
     `;
     const p = prow[0] as { model_stage2: string | null; daily_review_cap: number | null } | undefined;
     const model = resolveStage2Model(plan, p?.model_stage2 ?? null, entitlements);
-    const cap = p?.daily_review_cap ?? dailyReviewCap(plan, model, entitlements);
+    // Cost integrity (finding B-COST): the per-profile daily_review_cap override may
+    // only LOWER the tier cap, never raise it — mirror the discipline resolveStage2Model
+    // already applies to the model. daily_review_cap is operator-only at the DB layer
+    // (users have no UPDATE privilege on that column), so this is defense in depth
+    // against any path that could still write it. The reviewer applies the identical
+    // clamp (reviewer/run.py).
+    const tierCap = dailyReviewCap(plan, model, entitlements);
+    const override = p?.daily_review_cap ?? null;
+    const cap = override != null ? Math.min(override, tierCap) : tierCap;
     const srow = await tx.unsafe(
       `SELECT COALESCE(n, 0)::int AS n FROM usage_counters
        WHERE user_id = $1::uuid AND kind = 'review' AND day = (now() AT TIME ZONE 'utc')::date`,

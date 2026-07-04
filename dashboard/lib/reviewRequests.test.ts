@@ -76,10 +76,19 @@ describe("remainingDailyBudget", () => {
     expect(await remainingDailyBudget("u", "standard")).toBe(20);
   });
 
-  test("honors a per-profile daily_review_cap override", async () => {
+  test("honors a per-profile daily_review_cap override (below tier → lowers)", async () => {
     state.rowQueue.push([{ model_stage2: null, daily_review_cap: 50 }]);
     tx.unsafe = () => Promise.resolve([{ n: 10 }]);
+    // pro cheap tier cap = 1000; override 50 < 1000 → effective cap 50 → 50 - 10 = 40.
     expect(await remainingDailyBudget("u", "pro")).toBe(40);
+  });
+
+  test("clamps an override ABOVE the tier cap down to the tier cap (B-COST)", async () => {
+    // A user who forced daily_review_cap up to 100000 (e.g. via a direct write) must
+    // NOT get a budget beyond their tier: standard cheap cap = 400, spend 0 → 400.
+    state.rowQueue.push([{ model_stage2: null, daily_review_cap: 100000 }]);
+    tx.unsafe = () => Promise.resolve([{ n: 0 }]);
+    expect(await remainingDailyBudget("u", "standard")).toBe(400);
   });
 
   test("spent beyond cap floors at 0", async () => {

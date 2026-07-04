@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const state = vi.hoisted(() => ({
   plan: null as string | null,
   spendQueue: [] as number[], // successive monthlyGenerationSpend results
-  unsafeCalls: [] as { text: string; params: unknown[] }[],
+  unsafeCalls: [] as { text: string; params: unknown[]; via?: "user" | "service" }[],
 }));
 
 vi.mock("@/lib/subscriptions", () => ({
@@ -11,17 +11,24 @@ vi.mock("@/lib/subscriptions", () => ({
 }));
 
 vi.mock("@/lib/db", () => {
-  const tx = {
+  const executor = (via: "user" | "service") => ({
     unsafe: (text: string, params: unknown[]) => {
-      state.unsafeCalls.push({ text, params });
+      state.unsafeCalls.push({ text, params, via });
       if (/SELECT COALESCE\(SUM\(n\)/.test(text)) {
         const n = state.spendQueue.length ? state.spendQueue.shift()! : 0;
         return Promise.resolve([{ n }]);
       }
       return Promise.resolve([]);
     },
+  });
+  // serviceSql is used DIRECTLY (not via a callback) by chargeGenerations — it's the
+  // top-level executor whose `.unsafe` runs the INSERT (service role: users are
+  // SELECT-only on usage_counters, B-COST). Budget reads still go through withUserSql.
+  // Two distinct recorders so a test can assert which role each query ran under.
+  return {
+    withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(executor("user")),
+    serviceSql: executor("service"),
   };
-  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
 });
 
 import {
@@ -114,10 +121,23 @@ describe("SQL shape", () => {
     expect(call.params).toEqual(["u", "cover"]);
   });
 
-  test("chargeGenerations charges each kind once", async () => {
+  test("chargeGenerations charges each kind once, on the SERVICE role (B-COST)", async () => {
     await chargeGenerations("u", ["resume", "cover"]);
     const inserts = state.unsafeCalls.filter((c) => c.text.includes("INSERT INTO usage_counters"));
     expect(inserts).toHaveLength(2);
     expect(inserts.map((c) => c.params[1])).toEqual(["resume", "cover"]);
+    // The write must NOT run under the user's `authenticated` role — users have
+    // SELECT-only on usage_counters, so a charge routed through withUserSql would be a
+    // regression that re-opens the self-zero bypass.
+    expect(inserts.every((c) => c.via === "service")).toBe(true);
+  });
+
+  test("checkGenerationAllowance READS budget under the user's RLS role", async () => {
+    state.plan = "standard";
+    state.spendQueue = [1];
+    await checkGenerationAllowance("u", "e@x.com", ["resume"]);
+    const reads = state.unsafeCalls.filter((c) => /SELECT COALESCE\(SUM\(n\)/.test(c.text));
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((c) => c.via === "user")).toBe(true);
   });
 });

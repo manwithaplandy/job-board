@@ -20,6 +20,7 @@ const ALLOWLIST = [
   "app/api/stripe/webhook/route.ts", // Stripe posts anonymously; sole writer of the subscriptions mirror
   "lib/accountDeletion.ts", // T3: cross-tenant erasure cascade + service-role-only account_deletions ledger; invoked only with the caller's own verified id
   "lib/tenantMetrics.ts", // T8: legitimately cross-tenant admin monitoring; imported only by the isAdmin-gated /admin/tenants page
+  "lib/usage.ts", // B-COST: usage_counters WRITES must run as service role (users are SELECT-only), so generation charges can't be self-zeroed via the Data API
 ].sort();
 
 const ROOT = path.resolve(__dirname, "..");

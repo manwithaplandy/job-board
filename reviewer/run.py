@@ -299,12 +299,17 @@ def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
         resolved_stage2 = entitlements.resolve_stage2_model(plan, profile.get("model_stage2"), ent)
 
         # Per-user rolling daily budget: the per-model cap minus what's already been
-        # spent today (UTC). A per-profile daily_review_cap is an admin override; else
-        # the tier's per-model cap. config.DAILY_REVIEW_CAP_DEFAULT is only a last-resort
-        # fallback (a resolved plan always yields a positive entitlement cap).
-        cap = (profile.get("daily_review_cap")
-               or entitlements.daily_review_cap(plan, resolved_stage2, ent)
-               or config.DAILY_REVIEW_CAP_DEFAULT)
+        # spent today (UTC). The tier's per-model cap is the ceiling; a per-profile
+        # daily_review_cap is an operator override that may only LOWER it, never raise
+        # it (cost integrity, finding B-COST — the same clamp lives in the dashboard's
+        # reviewRequests.ts). daily_review_cap is operator-only at the DB layer (users
+        # have no UPDATE privilege on that column), so this is defense in depth against
+        # any path that could still write it. config.DAILY_REVIEW_CAP_DEFAULT is only a
+        # last-resort fallback (a resolved plan always yields a positive entitlement cap).
+        tier_cap = (entitlements.daily_review_cap(plan, resolved_stage2, ent)
+                    or config.DAILY_REVIEW_CAP_DEFAULT)
+        override = profile.get("daily_review_cap")
+        cap = min(override, tier_cap) if override is not None else tier_cap
         remaining = max(0, cap - db.get_daily_spend(conn, user_id))
         if remaining == 0:
             # Budget exhausted — skip the user entirely: zero candidates selected,

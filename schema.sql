@@ -519,13 +519,43 @@ CREATE POLICY owner_insert ON review_requests FOR INSERT TO authenticated
 CREATE POLICY shared_read ON tier_settings FOR SELECT TO anon, authenticated USING (true);
 
 -- Grants (table privilege is the outer gate; RLS filters within — a granted table
--- with no matching policy returns zero rows, not permission-denied).
+-- with no matching policy returns zero rows, not permission-denied). This block is a
+-- positive ALLOWLIST: it first strips every default anon/authenticated privilege
+-- (Supabase grants full arwdDxt by default) so a slipped RLS policy is not the only
+-- gate, then re-grants exactly what each role needs. Mirrors
+-- migrations/2026-07-04-cost-cap-hardening.sql (finding B-COST).
+REVOKE ALL ON ALL TABLES    IN SCHEMA public FROM anon, authenticated;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+
 GRANT SELECT ON jobs, companies, poll_runs, discovery_runs, discovery_state, review_runs
   TO authenticated;
+-- Owner-scoped CRUD (usage_counters excluded — SELECT-only for users; writes are
+-- service-role only, so a user cannot zero their own review/generation counters).
 GRANT SELECT, INSERT, UPDATE, DELETE ON
-  profiles, job_reviews, review_corrections, company_reviews,
-  application_packages, resume_scores, usage_counters
+  job_reviews, review_corrections, company_reviews, application_packages, resume_scores
   TO authenticated;
+GRANT SELECT ON usage_counters TO authenticated;
+-- profiles: full user control EXCEPT the operator-only cost lever daily_review_cap.
+-- INSERT/UPDATE are column-level over every column but daily_review_cap. (A bare
+-- REVOKE UPDATE (daily_review_cap) would NOT work: a table-level UPDATE grant is not
+-- affected by a column-level revoke — the column stays writable. So we grant only the
+-- allowed columns.) Keep this list in sync with the profiles table when a column is
+-- ADDED (new columns default to non-user-writable — the safe direction).
+GRANT SELECT, DELETE ON profiles TO authenticated;
+GRANT INSERT (user_id, resume_text, resume_file_path, instructions, model_stage1,
+              model_stage2, preferred_locations, model_resume, company_instructions,
+              company_profile_version, model_company, board_filters, full_name, email,
+              phone, links, location, work_authorized, needs_sponsorship, eeo_gender,
+              eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
+              profile_version, updated_at)
+  ON profiles TO authenticated;
+GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
+              model_stage2, preferred_locations, model_resume, company_instructions,
+              company_profile_version, model_company, board_filters, full_name, email,
+              phone, location, links, work_authorized, needs_sponsorship, eeo_gender,
+              eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
+              profile_version, updated_at)
+  ON profiles TO authenticated;
 GRANT SELECT ON subscriptions TO authenticated;
 GRANT SELECT, INSERT ON review_requests TO authenticated;
 GRANT USAGE ON SEQUENCE application_packages_id_seq TO authenticated;

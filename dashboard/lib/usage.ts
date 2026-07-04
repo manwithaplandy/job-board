@@ -1,4 +1,4 @@
-import { withUserSql } from "@/lib/db";
+import { serviceSql, withUserSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { getViewerPlan } from "@/lib/subscriptions";
 import { monthlyAllowance, PLAN_LABEL, type Plan } from "@/lib/entitlements";
@@ -9,6 +9,15 @@ import { loadTierConfig } from "@/lib/tierConfig";
 // the current UTC month, matching the reviewer's UTC-day convention (reviewer/db.py).
 // Cheap by design — the counter is an abuse cap, not a margin lever (generation is
 // 1–3% of cost).
+//
+// COST INTEGRITY (finding B-COST): usage_counters WRITES run as the service role
+// (serviceSql), never as `authenticated`. Users have SELECT-only on the table (see the
+// grant block in schema.sql + migrations/2026-07-04-cost-cap-hardening.sql), so they
+// cannot PATCH/DELETE their own counter to reset the monthly allowance or the daily
+// review budget via the Supabase Data API. serviceSql bypasses RLS but always sets the
+// row's user_id explicitly, so the charge lands on the right tenant. Budget READS stay
+// on withUserSql (RLS-scoped). This is the sole justification for importing serviceSql
+// here — see lib/serviceRoleAllowlist.test.ts.
 
 export type GenerationKind = "resume" | "cover";
 
@@ -85,9 +94,12 @@ export async function checkGenerationAllowance(
   });
 }
 
-/** Charge the given kinds (each +1) after a successful generation+persist. */
+/**
+ * Charge the given kinds (each +1) after a successful generation+persist. Runs on the
+ * service role (serviceSql), NOT the user's `authenticated` role — users have
+ * SELECT-only on usage_counters, so the counter can only ever be incremented by the
+ * server, never zeroed by a user's own Data-API write (finding B-COST).
+ */
 export async function chargeGenerations(userId: string, kinds: GenerationKind[]): Promise<void> {
-  await withUserSql(userId, async (tx) => {
-    for (const kind of kinds) await chargeGeneration(tx, userId, kind);
-  });
+  for (const kind of kinds) await chargeGeneration(serviceSql, userId, kind);
 }

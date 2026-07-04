@@ -166,6 +166,30 @@ describe("stripe webhook", () => {
     expect(inserts[1].values[4]).toBe("active");
   });
 
+  // A plan switch to a price OUTSIDE our catalog maps to plan=null; the upsert must take
+  // that verbatim (plan = EXCLUDED.plan, NOT COALESCE) so the user is gated rather than
+  // silently retaining their old (e.g. Pro) entitlement.
+  test("unrecognized price → plan=null bound, and the upsert does not COALESCE plan", async () => {
+    stripeState.event = {
+      type: "customer.subscription.updated",
+      created: 1_700_000_400,
+      data: {
+        object: subObject({
+          items: { data: [{ price: { id: "price_not_ours" }, current_period_end: 1_800_000_000 }] },
+        }),
+      },
+    };
+    const res = await POST(req("{}"));
+    expect(res.status).toBe(200);
+    const insert = dbState.serviceCalls.find((c) => c.strings.join("").includes("INSERT INTO subscriptions"));
+    // An unrecognized price → subscriptionPlan → null.
+    expect(insert!.values[3]).toBeNull();
+    const sql = insert!.strings.join("");
+    // plan is authoritative from the current price, never coalesced back to the stale plan.
+    expect(sql).toContain("plan                   = EXCLUDED.plan");
+    expect(sql).not.toMatch(/plan\s*=\s*COALESCE/);
+  });
+
   test("customer.subscription.deleted forces status=canceled (never deletes the row)", async () => {
     stripeState.event = {
       type: "customer.subscription.deleted",

@@ -45,6 +45,15 @@ export const PLAN_LABEL: Record<Plan, string> = { standard: "Standard", pro: "Pr
 // renewal-retry doesn't briefly strand a paying user.
 const GRACE_MS = 3 * 24 * 60 * 60 * 1000;
 
+// TRIALING and PREMIUM (defense-in-depth): we do NOT configure Stripe trials today
+// (no trial_period_days on any price), so a `trialing` subscription is not expected
+// from our own checkout. It means an in-good-standing but UNPAID subscription; we let
+// it entitle at Standard so a legitimate future trial keeps working, but clamp it
+// BELOW Pro so a zero-cost trial can never unlock Pro's premium-model daily budget —
+// the real cost lever. Flip this to true ONLY when a paid-trial product deliberately
+// grants full-plan access during the trial window. Mirrored in entitlements.py.
+const TRIAL_GRANTS_FULL_PLAN = false;
+
 /** Which entitlement slot a concrete OpenRouter model id maps to (null = neither). */
 export function modelSlot(model: string | null | undefined): ModelSlot | null {
   if (model === PREMIUM_MODEL) return "premium";
@@ -82,6 +91,11 @@ export function resolvePlan(
         ? sub.current_period_end
         : new Date(sub.current_period_end);
     if (!Number.isNaN(cpe.getTime()) && cpe.getTime() + GRACE_MS > now.getTime()) {
+      // Clamp a trialing subscription below Pro (see TRIAL_GRANTS_FULL_PLAN): an unpaid
+      // trial entitles at most to Standard so it can't unlock the premium-model budget.
+      if (sub.status === "trialing" && !TRIAL_GRANTS_FULL_PLAN && sub.plan === "pro") {
+        return "standard";
+      }
       return sub.plan;
     }
   }

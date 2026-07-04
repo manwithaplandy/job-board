@@ -20,10 +20,22 @@ describe("resolvePlan", () => {
     ).toBe("pro");
   });
 
-  test("trialing counts as active", () => {
+  test("trialing standard entitles at standard", () => {
     expect(
       resolvePlan({ plan: "standard", status: "trialing", current_period_end: future(5) }, false, NOW),
     ).toBe("standard");
+  });
+
+  test("trialing pro is CLAMPED to standard — an unpaid trial can't unlock premium", () => {
+    expect(
+      resolvePlan({ plan: "pro", status: "trialing", current_period_end: future(5) }, false, NOW),
+    ).toBe("standard");
+  });
+
+  test("active pro (paid) still gets the full plan", () => {
+    expect(
+      resolvePlan({ plan: "pro", status: "active", current_period_end: future(5) }, false, NOW),
+    ).toBe("pro");
   });
 
   test("expired but within 3-day grace still resolves", () => {

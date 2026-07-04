@@ -1,6 +1,7 @@
 // dashboard/app/companies/page.tsx
 import type { Metadata } from "next";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, getUserClaims } from "@/lib/auth";
+import { isAdmin } from "@/lib/admin";
 import { getCompanyReviews, getCompanyVerdictCounts, getDiscoveryState }
   from "@/lib/queries";
 import { setCompanyOverride, refreshCompanyDiscoveryStatus } from "@/app/actions/companies";
@@ -29,6 +30,8 @@ export default async function CompaniesPage({
   // Viewer-scoped: the companies board shows the signed-in user's own
   // company_reviews. Anonymous visitors are redirected to /login.
   const userId = await requireUserId();
+  // Only admins may trigger the shared discovery-resume (unhalt); gate the button.
+  const admin = isAdmin(await getUserClaims());
 
   const sp = await searchParams;
   const rawBucket = sp.bucket;
@@ -75,7 +78,7 @@ export default async function CompaniesPage({
             <CompanyList
               included={included} excluded={excluded} unknown={unknown}
               counts={counts} state={state} activeBucket={bucket} query={search}
-              override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus}
+              override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus} canRefresh={admin}
             />
           ) : (
             <div style={{

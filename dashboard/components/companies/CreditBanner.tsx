@@ -5,8 +5,8 @@ import type { DiscoveryStateRow } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 
 export function CreditBanner({
-  state, refresh,
-}: { state: DiscoveryStateRow; refresh: () => Promise<void> }) {
+  state, refresh, canRefresh,
+}: { state: DiscoveryStateRow; refresh: () => Promise<void>; canRefresh: boolean }) {
   const [pending, start] = useTransition();
   if (!state.halted_no_credits) return null;
   return (
@@ -19,17 +19,21 @@ export function CreditBanner({
       <span>⚠️ Company scan paused — OpenRouter out of credits.
         {state.backlog > 0 ? ` ${state.backlog.toLocaleString()} companies still pending.` : ""}
       </span>
-      <Button
-        variant="primary"
-        onClick={() => start(async () => { await refresh(); })}
-        disabled={pending}
-        style={{
-          marginLeft: "auto", borderRadius: "9px", padding: "8px 14px",
-          fontSize: "12.5px", boxShadow: "none",
-        }}
-      >
-        {pending ? "Refreshing…" : "Refresh"}
-      </Button>
+      {/* Only admins may unhalt the SHARED discovery pipeline (the server action gates
+          this too); non-admins just see the informational paused notice. */}
+      {canRefresh && (
+        <Button
+          variant="primary"
+          onClick={() => start(async () => { await refresh(); })}
+          disabled={pending}
+          style={{
+            marginLeft: "auto", borderRadius: "9px", padding: "8px 14px",
+            fontSize: "12.5px", boxShadow: "none",
+          }}
+        >
+          {pending ? "Refreshing…" : "Refresh"}
+        </Button>
+      )}
     </div>
   );
 }

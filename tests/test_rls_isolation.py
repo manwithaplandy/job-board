@@ -359,3 +359,108 @@ def test_local_config_does_not_bleed_after_transaction(conn):
         assert cur.fetchone()["n"] == 2  # both users visible again
         cur.execute("SELECT current_setting('request.jwt.claims', true) AS c")
         assert cur.fetchone()["c"] in (None, "")
+
+
+# ── Systemic RLS/policy guard (MINORS-GUARD) ──────────────────────────────────
+# The DB — not app code — is the last line of tenant isolation, so the invariant is not
+# "these specific queries deny cross-tenant access" (the tests above) but "EVERY table
+# that stores a user_id is RLS-enabled AND carries the exact policy set the multi-tenant
+# design requires." Driven off the LIVE catalog so a NEW user-scoped table shipped with
+# RLS off / unclassified, or a policy dropped or widened to anon, fails RIGHT HERE.
+#
+# The contract mirrors the RLS migrations (2026-06-26-rls-deny-all-policies,
+# 2026-07-03-rls-tenant-isolation, 2026-07-03-billing-review-requests): each table has a
+# permissive deny-all `no_anon_access` (FOR ALL, role {public}) PLUS its owner/shared
+# policies scoped to `authenticated`. Permissive policies OR together, so for anon the
+# effective set is just the deny-all; for authenticated it is deny-all OR the owner rule.
+# policyname -> (cmd, frozenset(roles)).
+_DENY = ("ALL", frozenset({"public"}))
+_OWNER_ALL = {
+    "no_anon_access": _DENY,
+    "owner_access": ("ALL", frozenset({"authenticated"})),
+}
+EXPECTED_RLS = {
+    # Full owner CRUD (owner_access FOR ALL, USING/WITH CHECK = app_user_id()).
+    "profiles": _OWNER_ALL,
+    "job_reviews": _OWNER_ALL,
+    "review_corrections": _OWNER_ALL,
+    "company_reviews": _OWNER_ALL,
+    "application_packages": _OWNER_ALL,
+    "resume_scores": _OWNER_ALL,
+    "usage_counters": _OWNER_ALL,
+    # Stripe mirror: owner may READ, never write (webhook/service role writes).
+    "subscriptions": {
+        "no_anon_access": _DENY,
+        "owner_read": ("SELECT", frozenset({"authenticated"})),
+    },
+    # On-demand queue: owner reads + enqueues; only the worker transitions status.
+    "review_requests": {
+        "no_anon_access": _DENY,
+        "owner_read": ("SELECT", frozenset({"authenticated"})),
+        "owner_insert": ("INSERT", frozenset({"authenticated"})),
+    },
+    # Pipeline accounting: owner (or legacy NULL) may read; no owner write.
+    "review_runs": {
+        "no_anon_access": _DENY,
+        "owner_or_legacy_read": ("SELECT", frozenset({"authenticated"})),
+    },
+    # Service-role-only (no authenticated policy at all): deny-all is the whole contract.
+    "invite_redemptions": {"no_anon_access": _DENY},
+    "account_deletions": {"no_anon_access": _DENY},
+}
+
+# Policies whose USING/WITH CHECK must be owner-scoped through app_user_id() — a guard so
+# an owner_* policy can't be silently rewritten to a `true` (all-rows) predicate.
+_OWNER_SCOPED = {"owner_access", "owner_read", "owner_insert", "owner_or_legacy_read"}
+
+
+@requires_db
+def test_every_user_scoped_table_has_rls_enabled_and_expected_policy_set(conn):
+    with conn.cursor() as cur:
+        # Discover every base table storing a user_id, with its RLS flag.
+        cur.execute(
+            """
+            SELECT c.relname AS tbl, c.relrowsecurity AS rls
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind = 'r'
+              AND EXISTS (
+                SELECT 1 FROM pg_attribute a
+                WHERE a.attrelid = c.oid AND a.attname = 'user_id'
+                  AND a.attnum > 0 AND NOT a.attisdropped
+              )
+            ORDER BY c.relname
+            """
+        )
+        user_tables = {r["tbl"]: r["rls"] for r in cur.fetchall()}
+
+    assert user_tables, "no user-scoped tables discovered — schema.sql failed to load?"
+
+    # (1) Systemic: every user_id table has RLS ON and a declared contract. A new one
+    # that slips in RLS-off or unclassified fails one of these — before it can leak.
+    for tbl, rls in sorted(user_tables.items()):
+        assert rls is True, f"{tbl} stores user_id but RLS is DISABLED"
+        assert tbl in EXPECTED_RLS, (
+            f"{tbl} stores user_id but has no declared RLS contract — add it to "
+            f"EXPECTED_RLS (and the deletion/export lists) before shipping"
+        )
+
+    # (2) And the live policy set for each must be EXACTLY the declared contract, with
+    # every owner_* policy still scoped to app_user_id() (not widened to all rows).
+    with conn.cursor() as cur:
+        for tbl, expected in sorted(EXPECTED_RLS.items()):
+            assert tbl in user_tables, f"{tbl} lost its user_id column"
+            cur.execute(
+                "SELECT policyname, cmd, roles, qual, with_check FROM pg_policies "
+                "WHERE schemaname = 'public' AND tablename = %s",
+                (tbl,),
+            )
+            rows = cur.fetchall()
+            got = {r["policyname"]: (r["cmd"], frozenset(r["roles"])) for r in rows}
+            assert got == expected, f"{tbl} RLS policy set drifted: {got} != {expected}"
+            for r in rows:
+                if r["policyname"] in _OWNER_SCOPED:
+                    predicate = f"{r['qual'] or ''} {r['with_check'] or ''}"
+                    assert "app_user_id" in predicate, (
+                        f"{tbl}.{r['policyname']} is not owner-scoped via app_user_id(): {predicate!r}"
+                    )

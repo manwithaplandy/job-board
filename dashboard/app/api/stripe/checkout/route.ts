@@ -4,6 +4,11 @@ import { getSubscription } from "@/lib/subscriptions";
 
 export const dynamic = "force-dynamic";
 
+// Stripe statuses under which a subscription is still live (being billed, or still
+// entitling within grace) — a customer in any of these must NOT open a second checkout.
+// canceled / incomplete_expired are terminal, so those users may re-subscribe.
+const LIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "past_due", "unpaid"]);
+
 // Start a subscription Checkout Session for the signed-in user. NOT public (a
 // stranger must not be able to open a checkout) — anon → 401. Reuses the stored
 // Stripe customer when present so a user never accumulates duplicate customers.
@@ -20,6 +25,17 @@ export async function POST(req: Request) {
 
   const stripe = getStripe();
   const sub = await getSubscription(claims.id);
+  // Block opening a SECOND subscription for a customer who already has a live one:
+  // Stripe would happily create a duplicate subscription (double-billing) on a fresh
+  // checkout. A user changing plans goes through the billing portal (plan switch), not
+  // a new checkout. Canceled/lapsed rows fall through so a former subscriber can
+  // re-subscribe. LIVE = the statuses Stripe is still billing (or would entitle).
+  if (sub && LIVE_SUBSCRIPTION_STATUSES.has(sub.status)) {
+    return Response.json(
+      { error: "you already have an active subscription; manage it from billing" },
+      { status: 409 },
+    );
+  }
   let customerId = sub?.stripe_customer_id ?? undefined;
   if (!customerId) {
     const customer = await stripe.customers.create({

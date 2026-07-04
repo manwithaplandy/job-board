@@ -36,6 +36,11 @@ export interface AccountExport {
   invite_redemptions: unknown[];
   review_runs: unknown[];
   resume_files: ResumeFileRef[];
+  // Non-null when the résumé-object listing FAILED (storage error / down). Distinguishes
+  // "this account has no archived files" (error null, resume_files []) from "we could not
+  // read them" (error set) so a swallowed storage fault can't masquerade as an empty,
+  // complete export. The user can retry or contact us instead of silently losing files.
+  resume_files_error: string | null;
 }
 
 // Compile-time guarantee that AccountExport carries a key for EVERY classified table.
@@ -51,12 +56,15 @@ void _assertExportCoversEveryTable;
 /**
  * List the caller's archived résumé objects (resumes/{userId}/…) as time-limited signed
  * URLs. Scoped to the caller's own prefix, so it can never enumerate another user's
- * files. No uploads → empty array (never an error).
+ * files. No uploads → empty array. A storage LIST error THROWS (was: silently []) so
+ * buildAccountExport can record it as resume_files_error instead of shipping an export
+ * that looks complete but is missing files.
  */
 export async function listResumeFiles(userId: string, expiresIn = 300): Promise<ResumeFileRef[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.storage.from("resumes").list(userId, { limit: 1000 });
-  if (error || !data) return [];
+  if (error) throw new Error(`résumé-file listing failed: ${error.message}`);
+  if (!data) return [];
   const files = data.filter((o) => o.name && o.id !== null); // drop folder placeholders
   const refs: ResumeFileRef[] = [];
   for (const f of files) {
@@ -67,7 +75,7 @@ export async function listResumeFiles(userId: string, expiresIn = 300): Promise<
   return refs;
 }
 
-async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "invite_redemptions">> {
+async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions">> {
   return withUserSql(userId, async (tx) => {
     const [
       profiles, jobReviews, reviewCorrections, companyReviews,
@@ -135,10 +143,17 @@ export async function buildAccountExport(
   email: string | null,
   resumeFiles: (uid: string) => Promise<ResumeFileRef[]> = listResumeFiles,
 ): Promise<AccountExport> {
-  const [rows, invites, files] = await Promise.all([
+  const [rows, invites, filesResult] = await Promise.all([
     collectUserRows(userId),
     collectInviteRedemptions(userId),
-    resumeFiles(userId).catch(() => [] as ResumeFileRef[]),
+    // Capture a storage failure as a marker rather than swallowing it to [] — an empty
+    // list must mean "no files", not "we couldn't read them".
+    resumeFiles(userId)
+      .then((files) => ({ files, error: null as string | null }))
+      .catch((e) => ({
+        files: [] as ResumeFileRef[],
+        error: e instanceof Error ? e.message : String(e),
+      })),
   ]);
   return {
     exported_at: new Date().toISOString(),
@@ -146,6 +161,7 @@ export async function buildAccountExport(
     email,
     ...rows,
     invite_redemptions: invites,
-    resume_files: files,
+    resume_files: filesResult.files,
+    resume_files_error: filesResult.error,
   };
 }

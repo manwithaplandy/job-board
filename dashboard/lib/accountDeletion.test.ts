@@ -97,6 +97,9 @@ const { cancelSubscriptionIfPresent, deleteCustomerIfPresent } = await import("@
 const { sanitizeUploadFilename, resumeObjectPath } = await import("@/lib/resumeStorage");
 
 beforeEach(() => {
+  // hashEmail HMACs with this secret and FAILS CLOSED without it — set a deterministic
+  // test key so the deletion/ledger paths run (individual tests unset it to prove the guard).
+  vi.stubEnv("ACCOUNT_DELETION_HASH_SECRET", "test-hmac-secret");
   s.order = [];
   s.txSql = [];
   s.subRow = [{ stripe_subscription_id: "sub_1", stripe_customer_id: "cus_1", status: "active" }];
@@ -142,15 +145,25 @@ describe("user_id table drift guard", () => {
 
 // ── hashEmail ─────────────────────────────────────────────────────────────────
 describe("hashEmail", () => {
-  test("hashes lowercased email; never returns plaintext", () => {
+  test("keyed HMAC of the lowercased email; never returns plaintext", () => {
     const h = hashEmail("Jane@Example.COM");
     expect(h).toMatch(/^[0-9a-f]{64}$/);
     expect(h).toBe(hashEmail("jane@example.com"));
     expect(h).not.toContain("jane");
   });
-  test("null/empty → null", () => {
+  test("HMAC key changes the digest — not a bare SHA-256", () => {
+    const a = hashEmail("jane@example.com");
+    vi.stubEnv("ACCOUNT_DELETION_HASH_SECRET", "a-different-secret");
+    const b = hashEmail("jane@example.com");
+    expect(a).not.toBe(b); // same email, different key ⇒ different digest
+  });
+  test("null/empty → null (before the secret is even needed)", () => {
     expect(hashEmail(null)).toBeNull();
     expect(hashEmail("  ")).toBeNull();
+  });
+  test("FAILS CLOSED when the HMAC secret is unset", () => {
+    vi.stubEnv("ACCOUNT_DELETION_HASH_SECRET", "");
+    expect(() => hashEmail("jane@example.com")).toThrow(/ACCOUNT_DELETION_HASH_SECRET/);
   });
 });
 

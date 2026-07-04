@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, getUserClaims } from "@/lib/auth";
+import { isAdmin } from "@/lib/admin";
 import { withUserSql, serviceSql } from "@/lib/db";
 import { getOpenRouterCredits } from "@/lib/openrouter";
 
@@ -36,8 +37,15 @@ export async function setCompanyOverride(
 // is a GLOBAL singleton for the shared company-discovery pipeline — it has no user_id
 // and no authenticated write policy by design. Clearing the credit halt is a shared
 // operator control, not tenant data, so it runs via serviceSql.
+//
+// ADMIN-ONLY: this mutates the SHARED, poller-wide discovery pipeline (unhalt + request a
+// resume), so it must NOT be triggerable by any signed-in tenant — one user could
+// otherwise drive everyone's OpenRouter spend. Gated to ADMIN_EMAILS (lib/admin) against
+// the verified JWT email; a non-admin gets a thrown error, not a redirect. (Assumes
+// Supabase email-confirmation stays ON — see the launch checklist note.)
 export async function refreshCompanyDiscoveryStatus(): Promise<void> {
-  await requireUserId();
+  const claims = await getUserClaims();
+  if (!isAdmin(claims)) throw new Error("not authorized");
   const remaining = await getOpenRouterCredits();
   const hasCredits = remaining === null ? false : remaining > 0;
   await serviceSql`

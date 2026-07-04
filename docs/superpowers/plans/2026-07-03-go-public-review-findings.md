@@ -56,3 +56,20 @@ No cross-tenant read/write of PII; `WITH CHECK` blocks `user_id` reassignment; `
 - Codify + **live-verify** the résumé-bucket storage policies from a second account (B-STORAGE).
 - Stripe test-mode: real out-of-order + deletion-race verification (M-WEBHOOK-ORDER, M-RESURRECT-1).
 - Ensure Supabase email-confirmation ON + "disable public signups" (minor m4).
+
+## MINORS-GUARD — manual / live steps (code landed; these gate deploy)
+- **Set `ACCOUNT_DELETION_HASH_SECRET` in Vercel (all envs).** `hashEmail` now HMACs the
+  erasure-ledger email with this secret and **fails closed** (throws) if it is unset —
+  account deletion will error until the env is present. Use a long random value; treat it
+  as stable (rotating it re-anonymizes past `account_deletions.email_hash` rows, which is
+  acceptable for a proof-of-deletion ledger). No remote DB change needed.
+- **Admin gating assumes Supabase email-confirmation stays ON.** `isAdmin` (and thus the
+  now-admin-gated `refreshCompanyDiscoveryStatus` + `/admin/*`) trusts the **verified JWT
+  email**. With email-confirmation OFF a stranger could sign up under an admin's address
+  (unverified) and inherit admin. Keep email-confirmation ON as a hard pre-deploy gate;
+  re-audit every `isAdmin` call if it is ever turned off.
+- **Systemic RLS guard is a test, not live infra.** `test_every_user_scoped_table_has_rls
+  _enabled_and_expected_policy_set` (tests/test_rls_isolation.py) runs against the
+  throwaway test DB from schema.sql; it needs no remote change, but any NEW user-scoped
+  table must be classified in its `EXPECTED_RLS` map (mirroring the migrations) or it
+  fails — that is the intended drift alarm.

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 // ─────────────────────────────────────────────────────────────────────────────
 // serviceSql JUSTIFICATION (RLS-bypass allowlist — lib/serviceRoleAllowlist.test.ts):
 // Account deletion is a cross-tenant, cross-table ERASURE cascade. It must DELETE rows
@@ -24,12 +24,25 @@ import { USER_DELETE_TABLES } from "@/lib/userScopedTables";
 //   4. delete the auth.users record (service-role admin)
 // (signOut + redirect happen in the calling server action, after this returns.)
 
-/** SHA-256 of the lowercased email — the erasure ledger stores this, never plaintext. */
+/**
+ * Keyed (HMAC-SHA256) hash of the lowercased email — the erasure ledger stores THIS,
+ * never plaintext. HMAC with a server-held secret (not a bare SHA-256): the email space
+ * is small and guessable, so an unsalted digest is trivially reversible by hashing a
+ * dictionary of candidate addresses. Keyed with a secret an attacker who reads the
+ * account_deletions ledger cannot tell which addresses it covers. The secret lives in
+ * ACCOUNT_DELETION_HASH_SECRET (a stable deploy-time env; rotating it re-anonymizes past
+ * hashes, acceptable for a proof-of-deletion ledger). FAIL CLOSED: a missing secret
+ * THROWS rather than silently degrading to an unsalted hash — deletion is a rare,
+ * explicitly-invoked op and hashEmail runs at the very start of the DB step, so a config
+ * error aborts before any row is touched. Read at call time so tests can stub the env.
+ */
 export function hashEmail(email: string | null | undefined): string | null {
   if (!email) return null;
   const e = email.trim().toLowerCase();
   if (!e) return null;
-  return createHash("sha256").update(e).digest("hex");
+  const secret = process.env.ACCOUNT_DELETION_HASH_SECRET;
+  if (!secret) throw new Error("ACCOUNT_DELETION_HASH_SECRET is not set");
+  return createHmac("sha256", secret).update(e).digest("hex");
 }
 
 // invite_redemptions is keyed by email and only later back-fills user_id, so it is

@@ -20,6 +20,12 @@ ENTITLEMENTS = {
 # 3-day grace past current_period_end (webhook lag / renewal retry). Mirrors GRACE_MS.
 _GRACE = timedelta(days=3)
 
+# Mirrors TRIAL_GRANTS_FULL_PLAN in entitlements.ts. Trials are not configured today
+# (no Stripe trial_period_days); a `trialing` subscription entitles at most to Standard
+# so a zero-cost trial can never unlock Pro's premium-model daily budget. Flip to True
+# only when a paid-trial product deliberately grants full-plan access during the trial.
+_TRIAL_GRANTS_FULL_PLAN = False
+
 
 def _pos_int(v):
     """A positive int (caps/allowances) or None. Rejects bool, float, str, <=0.
@@ -100,6 +106,10 @@ def resolve_plan(sub, invited, now=None):
         cpe = sub.get("current_period_end")
         if status in ("active", "trialing") and plan in ("standard", "pro") and cpe is not None:
             if cpe + _GRACE > now:
+                # Clamp a trialing subscription below Pro (see _TRIAL_GRANTS_FULL_PLAN):
+                # an unpaid trial entitles at most to Standard, never the premium budget.
+                if status == "trialing" and not _TRIAL_GRANTS_FULL_PLAN and plan == "pro":
+                    return "standard"
                 return plan
     if invited:
         return "standard"

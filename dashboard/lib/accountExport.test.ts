@@ -103,9 +103,22 @@ describe("buildAccountExport", () => {
     expect(out.subscriptions).toBeNull();
   });
 
-  test("résumé files come from the injected resolver", async () => {
+  test("résumé files come from the injected resolver; no error marker on success", async () => {
     const files = [{ path: "user-a/r.pdf", signedUrl: "https://signed/x" }];
     const out = await buildAccountExport("user-a", "a@x.com", async () => files);
     expect(out.resume_files).toEqual(files);
+    expect(out.resume_files_error).toBeNull();
+  });
+
+  test("a storage failure is surfaced as resume_files_error, not swallowed to []", async () => {
+    const out = await buildAccountExport("user-a", "a@x.com", async () => {
+      throw new Error("storage down");
+    });
+    // The rest of the export still succeeds…
+    expect(out).toHaveProperty("profiles");
+    expect(out.job_reviews.length).toBeGreaterThan(0);
+    // …but the résumé-file failure is recorded, not disguised as an empty list.
+    expect(out.resume_files).toEqual([]);
+    expect(out.resume_files_error).toContain("storage down");
   });
 });

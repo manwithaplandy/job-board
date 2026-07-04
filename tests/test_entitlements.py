@@ -31,6 +31,13 @@ def test_resolve_plan_trialing():
     assert resolve_plan(_sub("standard", "trialing", 5), False, NOW) == "standard"
 
 
+def test_resolve_plan_trialing_pro_clamped_to_standard():
+    # An unpaid trial must NOT unlock Pro's premium-model budget (mirrors entitlements.ts).
+    assert resolve_plan(_sub("pro", "trialing", 5), False, NOW) == "standard"
+    # A paid (active) Pro still gets the full plan.
+    assert resolve_plan(_sub("pro", "active", 5), False, NOW) == "pro"
+
+
 def test_resolve_plan_within_grace():
     assert resolve_plan(_sub("pro", "active", -2), False, NOW) == "pro"
 

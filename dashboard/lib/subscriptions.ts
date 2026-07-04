@@ -55,6 +55,15 @@ export async function getViewerPlan(userId: string, email: string | null): Promi
  * a re-delivered duplicate (equal timestamp) still applies (`>=`, harmless — same values).
  * Legacy rows have last_event_at IS NULL, treated as -infinity so the first event lands.
  *
+ * PLAN IS AUTHORITATIVE, NOT COALESCED: `plan` is derived from the subscription's
+ * CURRENT price on every event (subscriptionPlan → priceToPlan), so EXCLUDED.plan is
+ * null ONLY when the subscription sits on a price we don't sell (a plan switch to an
+ * unrecognized price, or no line item). COALESCE-ing it back to the stored plan would
+ * leave a user entitled to Pro after they switched to a price outside our catalog; we
+ * instead take EXCLUDED.plan verbatim so an unknown price gates the user (plan → null →
+ * resolvePlan returns null). The monotonic guard below still drops stale/out-of-order
+ * events entirely, so this only ever applies a fresher truth.
+ *
  * SAME-SECOND TIE-BREAK: event.created has 1-SECOND resolution, so an updated event
  * generated in the SAME second as the cancel (first delivery failed, retried after the
  * deleted) carries an EQUAL watermark and `>=` alone would re-apply it, flipping
@@ -92,7 +101,7 @@ export async function upsertSubscription(
     ON CONFLICT (user_id) DO UPDATE SET
       stripe_customer_id     = COALESCE(EXCLUDED.stripe_customer_id, subscriptions.stripe_customer_id),
       stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, subscriptions.stripe_subscription_id),
-      plan                   = COALESCE(EXCLUDED.plan, subscriptions.plan),
+      plan                   = EXCLUDED.plan,
       status                 = EXCLUDED.status,
       current_period_end     = COALESCE(EXCLUDED.current_period_end, subscriptions.current_period_end),
       cancel_at_period_end   = EXCLUDED.cancel_at_period_end,

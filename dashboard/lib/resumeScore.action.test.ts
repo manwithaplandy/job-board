@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const sqlMock = vi.fn();
-vi.mock("@/lib/db", () => ({ sql: Object.assign((...a: any[]) => sqlMock.apply(null, a), { json: (v: unknown) => v }) }));
+vi.mock("@/lib/db", () => {
+  const tx = Object.assign((...a: any[]) => sqlMock.apply(null, a), { json: (v: unknown) => v });
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+});
 vi.mock("@/lib/auth", () => ({ requireUserId: vi.fn(async () => "u1") }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const upsertMock = vi.fn(async () => undefined);

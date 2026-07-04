@@ -5,24 +5,19 @@ const rows = [{ title: "Eng", company_name: "Acme", location: null, ats: "greenh
                description: "jd text", resume_text: "my resume", instructions: null,
                model_snapshot: {} }];
 
-vi.mock("@/lib/db", () => ({
-  sql: Object.assign(
+vi.mock("@/lib/db", () => {
+  // The recording tx: the first call (SELECT inputs) resolves to `rows`; the INSERT's
+  // result is ignored by the action, so returning `rows` again is harmless. `.json`
+  // is used to bind jsonb columns.
+  const tx = Object.assign(
     (strings: readonly string[], ...values: unknown[]) => {
       calls.push({ strings, values });
       return Promise.resolve(rows);
     },
-    {
-      json: (v: unknown) => v,
-      begin: async (fn: (tx: (strings: readonly string[], ...values: unknown[]) => Promise<unknown[]>) => Promise<unknown>) => {
-        const tx = (strings: readonly string[], ...values: unknown[]) => {
-          calls.push({ strings, values });
-          return Promise.resolve([]);
-        };
-        return fn(tx);
-      },
-    },
-  ),
-}));
+    { json: (v: unknown) => v },
+  );
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+});
 vi.mock("@/lib/auth", () => ({ requireUserId: async () => "user-uuid" }));
 vi.mock("@/lib/langfuseDataset", () => ({ upsertDatasetItem: async () => {} }));
 

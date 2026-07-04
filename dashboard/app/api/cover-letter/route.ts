@@ -1,6 +1,7 @@
 import { propagateAttributes } from "@langfuse/tracing";
-import { getUserId } from "@/lib/auth";
+import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForCoverLetter, upsertApplicationPackage } from "@/lib/queries";
+import { checkGenerationAllowance, chargeGenerations } from "@/lib/usage";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 
@@ -10,11 +11,16 @@ export const maxDuration = 120;
 export async function POST(req: Request) {
   // Mirrors /api/resume: a fetch() POST wants a clean 401 JSON, not requireUserId's
   // redirect to /login (which the client would receive as HTML).
-  const userId = await getUserId();
-  if (!userId) return Response.json({ error: "sign in to generate a cover letter" }, { status: 401 });
+  const claims = await getUserClaims();
+  if (!claims) return Response.json({ error: "sign in to generate a cover letter" }, { status: 401 });
+  const userId = claims.id;
 
   const { jobId } = (await req.json().catch(() => ({}))) as { jobId?: string };
   if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
+
+  // Tier gate BEFORE any LLM call: no plan → 402, monthly allowance exhausted → 429.
+  const gate = await checkGenerationAllowance(userId, claims.email, ["cover"]);
+  if (!gate.ok) return Response.json({ error: gate.error }, { status: gate.status });
 
   const [profile, job] = await Promise.all([getProfile(userId), getJobForCoverLetter(jobId, userId)]);
   if (!profile?.resume_text) {
@@ -54,6 +60,8 @@ export async function POST(req: Request) {
         // ON CONFLICT preserves the stored résumé + its profile_version untouched.
         profileVersion: null,
       });
+      // Charge only after a successful generation+persist.
+      await chargeGenerations(userId, ["cover"]);
       return Response.json({ package: pkg });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";

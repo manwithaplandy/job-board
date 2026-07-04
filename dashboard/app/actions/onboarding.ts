@@ -5,6 +5,7 @@ import { getUserClaims } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile } from "@/lib/queries";
 import { isInvitedUser, linkInviteRedemption } from "@/lib/invites";
+import { enqueueReviewRequest } from "@/lib/reviewRequests";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { validateOnboarding, hasErrors, type OnboardingErrors } from "@/lib/onboarding";
 
@@ -68,6 +69,15 @@ export async function completeOnboarding(
     });
     // Back-fill the invite redemption with the now-known user id.
     if (email) await linkInviteRedemption(email, claims.id);
+
+    // Kick off an immediate first-run review so the new account doesn't stare at an
+    // empty board until the next cron. Best-effort: onboarding must not fail if the
+    // enqueue does (the cron reviewer will still populate the board).
+    try {
+      await enqueueReviewRequest(claims.id);
+    } catch (e) {
+      console.error("onboarding review-request enqueue failed", e);
+    }
   } catch (e) {
     // Re-throw Next control-flow (redirect); surface anything else inline.
     unstable_rethrow(e);

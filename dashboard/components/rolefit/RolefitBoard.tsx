@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
+import { ReviewNowPanel } from "@/components/rolefit/ReviewNowPanel";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
@@ -958,6 +959,11 @@ export function RolefitBoard({
         onSetPayMin={handleSetPayMin}
         onSetSort={handleSetSort}
       />
+
+      {/* First-run: authed board with jobs waiting but none reviewed yet → offer an
+          on-demand review. Benign pending state, so no warning banner (the panel is a
+          neutral status card). */}
+      {isAuthed && jobs.length === 0 && (operator?.unreviewed ?? 0) > 0 && <ReviewNowPanel />}
 
       {/* Split pane — left: job list; right: detail */}
       <div style={{ flex: 1, display: "flex", minHeight: isNarrow ? undefined : 0 }}>

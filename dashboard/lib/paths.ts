@@ -10,9 +10,15 @@
 // Note "/reset-password" also matches "/reset-password/update" (the prefix rule).
 // That page is reachable while logged out, but it enforces a valid recovery
 // SESSION itself before allowing a password change, so exposing the path is safe.
+//
+// "/api/stripe/webhook" must be public: Stripe posts to it ANONYMOUSLY (no session/
+// JWT). Without the allowlist the auth proxy 307s the anonymous POST to /login and
+// the webhook never runs (memory: anon-callable API routes need a public-path entry).
+// It authenticates itself by the Stripe signature. The checkout/portal routes are
+// deliberately NOT here — they require a signed-in user.
 const PUBLIC_PREFIXES = [
   "/", "/login", "/signup", "/auth", "/reset-password",
-  "/api/board-filters", "/api/jobs",
+  "/api/board-filters", "/api/jobs", "/api/stripe/webhook",
 ];
 
 export function isPublicPath(pathname: string): boolean {

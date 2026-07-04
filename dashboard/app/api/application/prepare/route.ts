@@ -1,6 +1,7 @@
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
-import { getUserId } from "@/lib/auth";
+import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
+import { checkGenerationAllowance, chargeGenerations, type GenerationKind } from "@/lib/usage";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
@@ -24,11 +25,17 @@ export const maxDuration = 120;
 // not requireUserId's redirect to /login (which the client would receive as HTML).
 // Uses Promise.allSettled so a failure in one LLM leg doesn't block the others.
 export async function POST(req: Request) {
-  const userId = await getUserId();
-  if (!userId) return Response.json({ error: "sign in to prepare an application" }, { status: 401 });
+  const claims = await getUserClaims();
+  if (!claims) return Response.json({ error: "sign in to prepare an application" }, { status: 401 });
+  const userId = claims.id;
 
   const { jobId } = (await req.json().catch(() => ({}))) as { jobId?: string };
   if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
+
+  // Prepare generates BOTH a résumé and a cover letter, so gate both up front (block
+  // if EITHER is exhausted) BEFORE any LLM call. No plan → 402, exhausted → 429.
+  const gate = await checkGenerationAllowance(userId, claims.email, ["resume", "cover"]);
+  if (!gate.ok) return Response.json({ error: gate.error }, { status: gate.status });
 
   const profile = await getProfile(userId);
   if (!profile?.resume_text) {
@@ -154,6 +161,18 @@ export async function POST(req: Request) {
       resumeTraceId,
       profileVersion: profile.profile_version,
     });
+    // Charge only the allowances whose LLM leg actually fulfilled — a rejected leg
+    // (e.g. OpenRouter outage) persists a partial package but must never burn its
+    // kind's allowance (T9: "a failed generation never burns allowance"; mirrors the
+    // sibling /api/resume + /api/cover-letter routes). Both-failed charges nothing.
+    // A whole-prepare failure throws before here and is caught → 502. Model choice
+    // (model_resume/model_cover) is intentionally NOT tier-gated — generation is 1–3%
+    // of cost (spec); the monthly counter is the abuse cap, not a margin lever.
+    const chargeKinds: GenerationKind[] = [
+      ...(resumeResult.status === "fulfilled" ? (["resume"] as const) : []),
+      ...(coverResult.status === "fulfilled" ? (["cover"] as const) : []),
+    ];
+    if (chargeKinds.length) await chargeGenerations(userId, chargeKinds);
     // Per-leg status so the client can surface which parts of a partially
     // failed prepare need a retry (the package persists whatever succeeded).
     return Response.json({

@@ -43,7 +43,7 @@ export default async function Page({
     const [jobs, authed] = await Promise.all([
       jobsP,
       dbLimit<unknown>([
-        () => getLatestPollRun(),
+        () => getLatestPollRun(viewerId),
         () => getReviewStats(viewerId),
         () => getApplicationPackages(viewerId),
         () => getRejectedJobs(viewerId, viewerLocations),

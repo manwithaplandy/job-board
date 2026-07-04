@@ -1,4 +1,6 @@
+import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,30 @@ def apply_clane_ddl(conn) -> None:
     conn.commit()
 
 requires_db = pytest.mark.skipif(TEST_DSN is None, reason="TEST_DATABASE_URL not set")
+
+
+@contextmanager
+def as_user(conn, user_id):
+    """Run the enclosed queries as the `authenticated` Postgres role scoped to
+    `user_id`, exactly mirroring the dashboard's withUserSql: inside a transaction
+    it does `SET LOCAL ROLE authenticated` + `set_config('request.jwt.claims', …,
+    is_local=true)` so public.app_user_id() resolves to this user and RLS policies
+    apply (the role is non-owner, so it does NOT bypass RLS).
+
+    Both settings are transaction-LOCAL, so the `conn.rollback()` on exit resets the
+    role + GUC back to the session default — nothing bleeds onto the pooled
+    connection. Seed data as the superuser (and commit) BEFORE entering this block;
+    a statement that trips an RLS WITH CHECK aborts the transaction, so keep one
+    error-expecting operation per `with as_user(...)` block.
+    """
+    claims = json.dumps({"sub": str(user_id), "role": "authenticated"})
+    with conn.cursor() as cur:
+        cur.execute("SET LOCAL ROLE authenticated")
+        cur.execute("SELECT set_config('request.jwt.claims', %s, true)", (claims,))
+    try:
+        yield conn
+    finally:
+        conn.rollback()
 
 
 @pytest.fixture(autouse=True)

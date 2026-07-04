@@ -23,11 +23,13 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/db", () => ({
-  sql: mocks.sql,
+  // withUserSql drops into a transaction; the mock invokes the callback with the
+  // recording `sql` fn so the actions' tx queries are captured.
+  withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(mocks.sql),
 }));
 
 vi.mock("@/lib/queries", () => ({
-  BARE_MARKER_PREDICATE: {},
+  bareMarkerPredicate: () => "",
 }));
 
 describe("application package server actions", () => {

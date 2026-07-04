@@ -9,13 +9,17 @@ def _int_env(name: str, default: int) -> int:
 
 
 CONCURRENCY = _int_env("REVIEW_CONCURRENCY", 5)
-# Per-user, per-day ceiling on jobs entering review — a hard cost cap regardless of
-# pool size, edit frequency, or run cadence (spec subsystem D). 400 = the spec's
-# Standard-tier figure; per-tier entitlements land in Phase 1. A profile's
-# daily_review_cap column overrides this per-user (NULL = use this default).
+# Last-resort fallback for the per-user daily review cap. As of Phase 1 the cap is
+# TIER-SOURCED: reviewer.entitlements.daily_review_cap(plan, model) (spec subsystem
+# C/D), with an optional profiles.daily_review_cap admin override. This env default is
+# only reached in the degenerate case where a resolved plan somehow yields a 0 cap; a
+# user with no plan is skipped entirely, never falling back to this. 400 = Standard.
 DAILY_REVIEW_CAP_DEFAULT = _int_env("REVIEW_DAILY_CAP_DEFAULT", 400)
 STAGE1_BATCH_SIZE = _int_env("REVIEW_STAGE1_BATCH", 50)
 PERSIST_CHUNK_SIZE = _int_env("REVIEW_PERSIST_CHUNK", 20)
+# On-demand review worker (reviewer.worker): seconds to sleep when the
+# review_requests queue is empty before polling again.
+REVIEW_WORKER_POLL_SECONDS = _int_env("REVIEW_WORKER_POLL_SECONDS", 15)
 
 
 def has_api_key() -> bool:

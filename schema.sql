@@ -320,6 +320,38 @@ CREATE TABLE usage_counters (
   PRIMARY KEY (user_id, day, kind)
 );
 
+-- Billing (see migrations/2026-07-03-billing-review-requests.sql). Local mirror of
+-- Stripe truth, keyed by user_id; the Stripe webhook (service role) is the sole
+-- writer. No FK to auth.users (house convention, see profiles).
+CREATE TABLE subscriptions (
+  user_id                UUID PRIMARY KEY,
+  stripe_customer_id     TEXT UNIQUE,
+  stripe_subscription_id TEXT,
+  plan                   TEXT CHECK (plan IN ('standard','pro')),
+  status                 TEXT NOT NULL,             -- raw Stripe status string
+  current_period_end     TIMESTAMPTZ,
+  cancel_at_period_end   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- On-demand "review my board now" queue, shared by the dashboard (enqueue) and the
+-- reviewer worker (claim + status transition). One active request per user.
+CREATE TABLE review_requests (
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      UUID NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending','running','done','failed')),
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at   TIMESTAMPTZ,
+  finished_at  TIMESTAMPTZ,
+  notes        TEXT
+);
+CREATE UNIQUE INDEX one_active_review_request
+  ON review_requests (user_id) WHERE status IN ('pending','running');
+CREATE INDEX idx_review_requests_pending
+  ON review_requests (requested_at) WHERE status = 'pending';
+
 -- Applied-migrations ledger. Record each migration with:
 --   INSERT INTO schema_migrations (filename) VALUES ('<file>');
 -- when applied. Every new migration must be idempotent, transactional where
@@ -368,3 +400,97 @@ ALTER TABLE invite_redemptions   ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON invite_redemptions   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE usage_counters       ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON usage_counters       FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE subscriptions        ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON subscriptions        FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE review_requests      ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON review_requests      FOR ALL USING (false) WITH CHECK (false);
+
+-- ── Phase-1 tenant isolation (mirrors migrations/2026-07-03-rls-tenant-isolation.sql
+-- + the per-user policies of 2026-07-03-billing-review-requests.sql) ────────────
+-- Real per-user RLS with teeth. The dashboard drops into the `authenticated` role
+-- per-transaction (SET LOCAL ROLE + request.jwt.claims); public.app_user_id() reads
+-- the JWT `sub` out of that GUC. The privileged `postgres`/service role OWNS these
+-- tables and bypasses RLS, so the reviewer, pollers, discovery, the Stripe webhook,
+-- and the invite path are unaffected. The deny-all policies above OR harmlessly with
+-- these permissive ones. Roles are DO-guarded so schema.sql loads on plain Postgres
+-- (the test DB), where the roles survive DROP SCHEMA public CASCADE (cluster-level).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+END
+$$;
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.app_user_id() RETURNS uuid
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  claims text;
+  sub    text;
+BEGIN
+  claims := current_setting('request.jwt.claims', true);
+  IF claims IS NULL OR claims = '' THEN
+    RETURN NULL;
+  END IF;
+  sub := (claims::json ->> 'sub');
+  IF sub IS NULL OR sub = '' THEN
+    RETURN NULL;
+  END IF;
+  RETURN sub::uuid;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
+END;
+$$;
+
+-- Owner policies (SELECT/INSERT/UPDATE/DELETE own rows only).
+CREATE POLICY owner_access ON profiles FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON job_reviews FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON review_corrections FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON company_reviews FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON application_packages FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON resume_scores FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON usage_counters FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+
+-- Shared-read policies (global corpus + pipeline accounting).
+CREATE POLICY shared_read ON jobs      FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY shared_read ON companies FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY shared_read ON poll_runs       FOR SELECT TO authenticated USING (true);
+CREATE POLICY shared_read ON discovery_runs  FOR SELECT TO authenticated USING (true);
+CREATE POLICY shared_read ON discovery_state FOR SELECT TO authenticated USING (true);
+CREATE POLICY owner_or_legacy_read ON review_runs FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()) OR user_id IS NULL);
+
+-- Billing per-user policies (webhook/worker keep the service role).
+CREATE POLICY owner_read ON subscriptions FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_read ON review_requests FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_insert ON review_requests FOR INSERT TO authenticated
+  WITH CHECK (user_id = (SELECT public.app_user_id()));
+
+-- Grants (table privilege is the outer gate; RLS filters within — a granted table
+-- with no matching policy returns zero rows, not permission-denied).
+GRANT SELECT ON jobs, companies, poll_runs, discovery_runs, discovery_state, review_runs
+  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  profiles, job_reviews, review_corrections, company_reviews,
+  application_packages, resume_scores, usage_counters
+  TO authenticated;
+GRANT SELECT ON subscriptions TO authenticated;
+GRANT SELECT, INSERT ON review_requests TO authenticated;
+GRANT USAGE ON SEQUENCE application_packages_id_seq TO authenticated;
+GRANT USAGE ON SEQUENCE review_requests_id_seq TO authenticated;
+-- anon reads the public board + gets SELECT (no policy → zero rows) on the two
+-- review tables getJobReviewDetail LEFT JOINs so its anon query isn't denied.
+GRANT SELECT ON jobs, companies, job_reviews, review_corrections TO anon;

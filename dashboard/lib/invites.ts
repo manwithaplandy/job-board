@@ -1,6 +1,13 @@
-import { sql } from "@/lib/db";
+import { serviceSql } from "@/lib/db";
 
 // Invite-code gating for public signup (Phase 0 — invite-only beta).
+//
+// SERVICE-ROLE JUSTIFICATION (this file is on the serviceRoleAllowlist): redemption
+// runs at SIGNUP, before an auth session/JWT exists, so there is no authenticated
+// user context to drop into — and invite_codes/invite_redemptions have no
+// authenticated RLS policy or grant by design. It therefore uses serviceSql (the
+// privileged, RLS-bypassing pool). Correctness rests on the atomic UPDATE…RETURNING
+// guard below, not on RLS.
 //
 // TRUST MODEL (read before touching this):
 //   GoTrue public signups remain ENABLED, so a stranger CAN create an account by
@@ -38,7 +45,7 @@ export async function redeemInvite(code: string, email: string): Promise<RedeemR
   if (!c) return { ok: false, reason: "Enter your invite code." };
   if (!e) return { ok: false, reason: "Enter your email." };
   try {
-    const consumed = await sql.begin(async (tx) => {
+    const consumed = await serviceSql.begin(async (tx) => {
       const rows = await tx`
         UPDATE invite_codes
         SET uses = uses + 1
@@ -76,7 +83,7 @@ export async function releaseInvite(code: string, email: string): Promise<void> 
   const c = code.trim();
   const e = normalizeEmail(email);
   try {
-    await sql.begin(async (tx) => {
+    await serviceSql.begin(async (tx) => {
       const del = await tx`
         DELETE FROM invite_redemptions WHERE email = ${e} AND code = ${c} RETURNING code
       `;
@@ -93,7 +100,7 @@ export async function releaseInvite(code: string, email: string): Promise<void> 
 export async function isInvitedUser(email: string): Promise<boolean> {
   const e = normalizeEmail(email);
   if (!e) return false;
-  const rows = await sql`
+  const rows = await serviceSql`
     SELECT 1 FROM invite_redemptions WHERE email = ${e} LIMIT 1
   `;
   return rows.length > 0;
@@ -105,7 +112,7 @@ export async function isInvitedUser(email: string): Promise<boolean> {
  */
 export async function linkInviteRedemption(email: string, userId: string): Promise<void> {
   const e = normalizeEmail(email);
-  await sql`
+  await serviceSql`
     UPDATE invite_redemptions
     SET user_id = ${userId}::uuid
     WHERE email = ${e} AND user_id IS NULL

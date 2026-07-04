@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, getUserClaims } from "@/lib/auth";
+import { getViewerPlan } from "@/lib/subscriptions";
+import { resolveStage2Model, CHEAP_MODEL, PREMIUM_MODEL, type Plan } from "@/lib/entitlements";
 import { internalPathFromReferer } from "@/lib/paths";
 import { ProfileFormShell, type ProfileSaveState } from "@/components/ProfileFormShell";
 import { createClient } from "@/lib/supabase/server";
@@ -24,10 +26,12 @@ export const metadata: Metadata = { title: "Profile · Rolefit" };
 // getDistinctLocations() seq-scans ~115k open jobs (~100ms + cross-region RTT)
 // on every profile load, but the distinct-location option set changes slowly.
 // Cache it across requests so the page doesn't pay that scan each time; the
-// LocationPicker options being a few minutes stale is harmless. No user arg —
-// the option set is global.
+// LocationPicker options being a few minutes stale is harmless. The userId arg
+// is only there so the read runs under the viewer's authenticated RLS context
+// (jobs is shared-read, so the result is identical for every user — the per-user
+// cache entries are just redundant copies of the same global option set).
 const cachedDistinctLocations = unstable_cache(
-  () => getDistinctLocations(),
+  (userId: string) => getDistinctLocations(userId),
   ["profile-distinct-locations"],
   { revalidate: 600 },
 );
@@ -49,7 +53,9 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
   // else falls back to the board. Computed after a successful save, used post-try.
   let returnTo = "/";
   try {
-    const userId = await requireUserId();
+    const claims = await getUserClaims();
+    if (!claims) redirect("/login");
+    const userId = claims.id;
     const existing = await getProfile(userId);
     const instructions = (String(formData.get("instructions") ?? "")).trim() || null;
     const submittedText = (String(formData.get("resume_text") ?? "")).trim();
@@ -57,18 +63,28 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
 
     const catalogIds = (await getStructuredModels()).map((m) => m.id);
     // An empty/missing value coerces to "" which validateModelId treats as "use default" (null).
-    const s1 = validateModelId(String(formData.get("model_stage1") ?? ""), catalogIds);
     const s2 = validateModelId(String(formData.get("model_stage2") ?? ""), catalogIds);
     const r = validateModelId(String(formData.get("model_resume") ?? ""), catalogIds);
     const companyInstructions =
       (String(formData.get("company_instructions") ?? "")).trim() || null;
     const mc = validateModelId(String(formData.get("model_company") ?? ""), catalogIds);
     const cl = validateModelId(String(formData.get("model_cover") ?? ""), catalogIds);
-    if (!s1.ok) return { error: s1.reason };
     if (!s2.ok) return { error: s2.reason };
     if (!r.ok) return { error: r.reason };
     if (!mc.ok) return { error: mc.reason };
     if (!cl.ok) return { error: cl.reason };
+
+    // Tier-gate the stage-2 review model: it must be one the viewer's plan entitles
+    // (Standard/comped → cheap only; Pro → cheap or premium). This mirrors the
+    // reviewer's hard fallback (T8) so a user never saves a model that would be
+    // silently ignored at review time. Empty (= default cheap gate) always passes.
+    // model_stage1 is NOT read — the reviewer forces the cheap gate regardless, so it
+    // is no longer a user knob (the picker was removed from the form below).
+    const plan = await getViewerPlan(userId, claims.email);
+    if (s2.value && resolveStage2Model(plan, s2.value) !== s2.value) {
+      const name = s2.value === PREMIUM_MODEL ? "Haiku 4.5" : s2.value;
+      return { error: `${name} requires the Pro plan.` };
+    }
 
     const preferredLocations = parsePreferredLocations(
       String(formData.get("preferred_locations") ?? ""),
@@ -109,7 +125,9 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
 
     await upsertProfile(userId, {
       resumeText, instructions, resumeFilePath,
-      modelStage1: s1.value, modelStage2: s2.value,
+      // Stage-1 is always the cheap gate (reviewer forces it), so persist null — no
+      // user knob. Stage-2 is tier-gated above.
+      modelStage1: null, modelStage2: s2.value,
       preferredLocations, modelResume: r.value,
       companyInstructions, modelCompany: mc.value,
       fullName: trimOrNull(formData.get("full_name")),
@@ -236,9 +254,15 @@ const lastSavedStyle: React.CSSProperties = {
 
 export default async function ProfilePage() {
   const userId = await requireUserId();
-  const [profile, models, locations] = await Promise.all([
-    getProfile(userId), getStructuredModels(), cachedDistinctLocations(),
+  const claims = await getUserClaims();
+  const [profile, models, locations, plan] = await Promise.all([
+    getProfile(userId), getStructuredModels(), cachedDistinctLocations(userId),
+    getViewerPlan(userId, claims?.email ?? null),
   ]);
+  const isPro = plan === "pro";
+  const stage2Hint = isPro
+    ? "Cheap gate is always used for stage 1. Stage 2: DeepSeek (cheap) or Haiku 4.5 (premium)."
+    : "Cheap gate is always used for stage 1. Stage 2 is DeepSeek (cheap) — Haiku 4.5 requires Pro.";
   // Capture where the user came from now — the save POST's referer will be /profile.
   const hdrs = await headers();
   const returnTo = internalPathFromReferer(hdrs.get("referer"), hdrs.get("host") ?? "");
@@ -249,7 +273,10 @@ export default async function ProfilePage() {
       <div style={cardStyle}>
         <h1 style={titleStyle}>Profile</h1>
         <div style={subtitleStyle}>
-          Advanced settings — résumé, review models, and location preferences.
+          Advanced settings — résumé, review models, and location preferences.{" "}
+          <a href="/billing" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+            Billing &amp; plan →
+          </a>
         </div>
 
         <ProfileFormShell
@@ -426,16 +453,21 @@ export default async function ProfilePage() {
 
           <div style={modelsCardStyle}>
             <div style={modelsLegendStyle}>
-              Review models (leave blank to use the default: {DEFAULT_MODEL_ID})
+              Review models (leave blank to use the default: {CHEAP_MODEL})
+            </div>
+            {/* Stage 1 is the always-on cheap gate (the reviewer forces it), so it is
+                no longer a user-selectable knob — shown read-only for transparency. */}
+            <div style={fieldStyle}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "#5b6472" }}>
+                Stage 1 — title/company gate
+              </span>
+              <span style={hintStyle}>Always the cheap model ({CHEAP_MODEL}) — not configurable.</span>
             </div>
             <ModelPicker
-              label="Stage 1 — cheap title/company gate"
-              name="model_stage1" models={models} curated={CURATED_MODELS}
-              defaultValue={profile?.model_stage1 ?? null} placeholder={DEFAULT_MODEL_ID} />
-            <ModelPicker
-              label="Stage 2 — full job-description review"
+              label={`Stage 2 — full job-description review${isPro ? "" : " (Standard: cheap only)"}`}
               name="model_stage2" models={models} curated={CURATED_MODELS}
-              defaultValue={profile?.model_stage2 ?? null} placeholder={DEFAULT_MODEL_ID} />
+              defaultValue={profile?.model_stage2 ?? null} placeholder={CHEAP_MODEL}
+              hint={stage2Hint} />
             <ModelPicker
               label="Résumé generation model"
               name="model_resume" models={models} curated={CURATED_MODELS}

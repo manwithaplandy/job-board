@@ -19,10 +19,10 @@ vi.mock("@/lib/db", () => {
   sql.begin = async (cb) => cb(sql);
   sql.__calls = calls;
   sql.__queue = queue;
-  return { sql };
+  return { serviceSql: sql };
 });
 
-import { sql } from "@/lib/db";
+import { serviceSql as sql } from "@/lib/db";
 import { redeemInvite, isInvitedUser } from "@/lib/invites";
 
 const calls = (sql as unknown as { __calls: { strings: readonly string[]; values: unknown[] }[] }).__calls;

@@ -33,14 +33,33 @@ def _uuid(v) -> uuid.UUID:
     return v if isinstance(v, uuid.UUID) else uuid.UUID(str(v))
 
 
+_PROFILE_COLUMNS = """
+    p.user_id, p.resume_text, p.instructions, p.profile_version,
+    p.model_stage1, p.model_stage2, p.preferred_locations, p.daily_review_cap,
+    s.plan AS sub_plan, s.status AS sub_status,
+    s.current_period_end AS sub_current_period_end,
+    EXISTS(SELECT 1 FROM invite_redemptions ir WHERE ir.user_id = p.user_id) AS invited
+"""
+# LEFT JOIN the subscription mirror + compute the server-side invite proof so
+# run._review_user can resolve each user's tier entitlement (plan → model + daily cap).
+_LOAD_PROFILES_SQL = f"""
+    SELECT {_PROFILE_COLUMNS}
+    FROM profiles p
+    LEFT JOIN subscriptions s ON s.user_id = p.user_id
+"""
+
+
 def load_profiles(conn) -> list[dict]:
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT user_id, resume_text, instructions, profile_version, "
-            "model_stage1, model_stage2, preferred_locations, daily_review_cap "
-            "FROM profiles"
-        )
+        cur.execute(_LOAD_PROFILES_SQL)
         return cur.fetchall()
+
+
+def load_profile(conn, user_id: str) -> dict | None:
+    """Same shape as load_profiles but for a single user (the on-demand worker)."""
+    with conn.cursor() as cur:
+        cur.execute(_LOAD_PROFILES_SQL + " WHERE p.user_id = %s", (_uuid(user_id),))
+        return cur.fetchone()
 
 
 # The single UTC clock for the daily budget. Reading and writing spend both derive
@@ -192,6 +211,52 @@ def finish_review_run(conn, run_id: int, *, reviewed: int, gate_rejected: int,
             """,
             (reviewed, gate_rejected, approved, denied, errors, notes, run_id),
         )
+
+
+# ── On-demand review queue (reviewer.worker consumes review_requests) ─────────
+
+def claim_next_review_request(conn) -> dict | None:
+    """Atomically claim the oldest pending request → status='running'. FOR UPDATE SKIP
+    LOCKED lets multiple workers run without ever grabbing the same row. Returns the
+    claimed {id, user_id} or None when the queue is empty. Caller commits."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE review_requests SET status = 'running', started_at = now()
+            WHERE id = (
+              SELECT id FROM review_requests WHERE status = 'pending'
+              ORDER BY requested_at
+              FOR UPDATE SKIP LOCKED LIMIT 1
+            )
+            RETURNING id, user_id
+            """
+        )
+        return cur.fetchone()
+
+
+def finish_review_request(conn, req_id: int, status: str, notes: str | None = None) -> None:
+    """Transition a claimed request to a terminal status ('done' | 'failed'). Caller commits."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE review_requests SET status = %s, finished_at = now(), notes = %s WHERE id = %s",
+            (status, notes, req_id),
+        )
+
+
+def recover_stale_review_requests(conn, minutes: int = 30) -> int:
+    """Fail requests stuck 'running' longer than `minutes` so a crashed worker can't
+    wedge a user's only active slot (the partial unique index counts 'running').
+    Returns the number recovered. Caller commits."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE review_requests SET status = 'failed', finished_at = now(),
+                   notes = 'worker timeout — re-request'
+            WHERE status = 'running' AND started_at < now() - make_interval(mins => %s)
+            """,
+            (minutes,),
+        )
+        return cur.rowcount
 
 
 def golden_corrections(conn) -> list[dict]:

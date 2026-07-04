@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
-import { sql } from "@/lib/db";
+import { withUserSql } from "@/lib/db";
 import { formToScoreRow, buildResumeGoldenItem, type ResumeScoreForm } from "@/lib/rolefit/resumeScore";
 import { upsertResumeGoldenItem } from "@/lib/resumeGoldenDataset";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
@@ -18,41 +18,45 @@ export async function saveResumeScore(
   const userId = await requireUserId();
   const row = formToScoreRow(form);
 
-  // Snapshot the exact résumé scored + capture the trace id and generation inputs.
-  const rows = await sql`
-    SELECT ap.resume_json, ap.resume_trace_id,
-           j.title, c.name AS company_name, j.description,
-           p.resume_text, p.model_resume
-    FROM application_packages ap
-    JOIN jobs j       ON j.id = ap.job_id
-    JOIN companies c  ON c.id = j.company_id
-    LEFT JOIN profiles p ON p.user_id = ${userId}::uuid
-    WHERE ap.user_id = ${userId}::uuid AND ap.job_id = ${jobId}
-  `;
-  const src = rows[0] as
-    | {
-        resume_json: unknown; resume_trace_id: string | null;
-        title: string; company_name: string; description: string | null;
-        resume_text: string | null; model_resume: string | null;
-      }
-    | undefined;
-  if (!src) throw new Error(`no résumé generated for job ${jobId}`);
-
   const scoredAt = new Date().toISOString();
-  await sql`
-    INSERT INTO resume_scores (
-      user_id, job_id, grounding, jd_relevance, comment,
-      resume_trace_id, resume_snapshot, model, scored_at
-    ) VALUES (
-      ${userId}::uuid, ${jobId}, ${row.grounding}, ${row.jd_relevance}, ${row.comment},
-      ${src.resume_trace_id}, ${JSON.stringify(parseTailoredResume(src.resume_json) ?? {})}::jsonb, ${src.model_resume}, now()
-    )
-    ON CONFLICT (user_id, job_id) DO UPDATE SET
-      grounding = EXCLUDED.grounding, jd_relevance = EXCLUDED.jd_relevance,
-      comment = EXCLUDED.comment, resume_trace_id = EXCLUDED.resume_trace_id,
-      resume_snapshot = EXCLUDED.resume_snapshot, model = EXCLUDED.model,
-      scored_at = now()
-  `;
+  // Snapshot the exact résumé scored + persist, under the viewer's RLS context in
+  // one transaction. Returns the source row for the (post-commit) LangFuse sync.
+  const src = await withUserSql(userId, async (tx) => {
+    const rows = await tx`
+      SELECT ap.resume_json, ap.resume_trace_id,
+             j.title, c.name AS company_name, j.description,
+             p.resume_text, p.model_resume
+      FROM application_packages ap
+      JOIN jobs j       ON j.id = ap.job_id
+      JOIN companies c  ON c.id = j.company_id
+      LEFT JOIN profiles p ON p.user_id = ${userId}::uuid
+      WHERE ap.user_id = ${userId}::uuid AND ap.job_id = ${jobId}
+    `;
+    const s = rows[0] as
+      | {
+          resume_json: unknown; resume_trace_id: string | null;
+          title: string; company_name: string; description: string | null;
+          resume_text: string | null; model_resume: string | null;
+        }
+      | undefined;
+    if (!s) throw new Error(`no résumé generated for job ${jobId}`);
+
+    await tx`
+      INSERT INTO resume_scores (
+        user_id, job_id, grounding, jd_relevance, comment,
+        resume_trace_id, resume_snapshot, model, scored_at
+      ) VALUES (
+        ${userId}::uuid, ${jobId}, ${row.grounding}, ${row.jd_relevance}, ${row.comment},
+        ${s.resume_trace_id}, ${JSON.stringify(parseTailoredResume(s.resume_json) ?? {})}::jsonb, ${s.model_resume}, now()
+      )
+      ON CONFLICT (user_id, job_id) DO UPDATE SET
+        grounding = EXCLUDED.grounding, jd_relevance = EXCLUDED.jd_relevance,
+        comment = EXCLUDED.comment, resume_trace_id = EXCLUDED.resume_trace_id,
+        resume_snapshot = EXCLUDED.resume_snapshot, model = EXCLUDED.model,
+        scored_at = now()
+    `;
+    return s;
+  });
 
   let langfuseSynced = true;
   try {

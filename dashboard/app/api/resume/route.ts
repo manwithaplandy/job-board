@@ -1,6 +1,7 @@
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
-import { getUserId } from "@/lib/auth";
+import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForResume, upsertApplicationPackage } from "@/lib/queries";
+import { checkGenerationAllowance, chargeGenerations } from "@/lib/usage";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
@@ -12,13 +13,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 export async function POST(req: Request) {
-  const userId = await getUserId();
-  if (!userId) return Response.json({ error: "sign in to generate a résumé" }, { status: 401 });
+  const claims = await getUserClaims();
+  if (!claims) return Response.json({ error: "sign in to generate a résumé" }, { status: 401 });
+  const userId = claims.id;
 
   const { jobId } = (await req.json().catch(() => ({}))) as { jobId?: string };
   if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
 
-  const [profile, job] = await Promise.all([getProfile(userId), getJobForResume(jobId)]);
+  // Tier gate BEFORE any LLM call: no plan → 402, monthly allowance exhausted → 429.
+  const gate = await checkGenerationAllowance(userId, claims.email, ["resume"]);
+  if (!gate.ok) return Response.json({ error: gate.error }, { status: gate.status });
+
+  const [profile, job] = await Promise.all([getProfile(userId), getJobForResume(jobId, userId)]);
   if (!profile?.resume_text) {
     return Response.json({ error: "set up your profile résumé first" }, { status: 422 });
   }
@@ -77,6 +83,9 @@ export async function POST(req: Request) {
         resumeTraceId: traceId,
         profileVersion: profile.profile_version,
       });
+      // Charge only after a successful generation+persist — a failed generation
+      // (caught below) never burns allowance.
+      await chargeGenerations(userId, ["resume"]);
       return Response.json({ package: pkg });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";

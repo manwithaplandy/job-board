@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass, field
 
 from observability import tracing
-from reviewer import config, db, scoring
+from reviewer import config, db, entitlements, scoring
 from reviewer.llm import OutOfCreditsError, ReviewClient, _is_out_of_credits, build_profile_block
 
 log = logging.getLogger("reviewer")
@@ -268,9 +268,40 @@ def _review_user(conn, profile: dict) -> None:
     counts = {"reviewed": 0, "gate_rejected": 0, "approved": 0, "denied": 0, "errors": 0}
     notes = None
     try:
-        # Per-user rolling daily budget: the cap minus what's already been spent
-        # today (UTC). A per-profile daily_review_cap overrides the env default.
-        cap = profile.get("daily_review_cap") or config.DAILY_REVIEW_CAP_DEFAULT
+        # Tier gate (spec subsystem C/D). Resolve the user's plan from their
+        # subscription mirror + invite proof (loaded by db.load_profiles). No plan →
+        # skip entirely: zero candidate selection, zero LLM calls.
+        sub = {
+            "plan": profile.get("sub_plan"),
+            "status": profile.get("sub_status"),
+            "current_period_end": profile.get("sub_current_period_end"),
+        }
+        plan = entitlements.resolve_plan(sub, bool(profile.get("invited")))
+        if plan is None:
+            notes = "no active subscription"
+            log.info("no active subscription for %s; skipping", user_id)
+            return
+
+        # Mandatory location filter (spec's #1 cost lever). Phase-0 onboarding already
+        # requires it, but this closes the pre-Phase-0 / direct-write hole: an empty or
+        # NULL preferred_locations means an unbounded pool, so skip with zero LLM calls.
+        if not (profile.get("preferred_locations") or []):
+            notes = "location filter required"
+            log.info("no location filter for %s; skipping", user_id)
+            return
+
+        # Cheap gate ALWAYS (spec model-policy decision): stage 1 is forced to the cheap
+        # model regardless of profiles.model_stage1. Stage 2 is the tier-entitled model
+        # (premium only if the plan grants it, else cheap).
+        resolved_stage2 = entitlements.resolve_stage2_model(plan, profile.get("model_stage2"))
+
+        # Per-user rolling daily budget: the per-model cap minus what's already been
+        # spent today (UTC). A per-profile daily_review_cap is an admin override; else
+        # the tier's per-model cap. config.DAILY_REVIEW_CAP_DEFAULT is only a last-resort
+        # fallback (a resolved plan always yields a positive entitlement cap).
+        cap = (profile.get("daily_review_cap")
+               or entitlements.daily_review_cap(plan, resolved_stage2)
+               or config.DAILY_REVIEW_CAP_DEFAULT)
         remaining = max(0, cap - db.get_daily_spend(conn, user_id))
         if remaining == 0:
             # Budget exhausted — skip the user entirely: zero candidates selected,
@@ -291,8 +322,8 @@ def _review_user(conn, profile: dict) -> None:
 
         profile_block = build_profile_block(profile["resume_text"], profile["instructions"])
         client = ReviewClient(
-            model_stage1=profile.get("model_stage1"),
-            model_stage2=profile.get("model_stage2"),
+            model_stage1=entitlements.CHEAP_MODEL,   # cheap gate always (see above)
+            model_stage2=resolved_stage2,
         )
         results, halted = asyncio.run(review_batch(
             candidates, profile_block, client, config.CONCURRENCY,

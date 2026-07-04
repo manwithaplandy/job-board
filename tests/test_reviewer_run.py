@@ -9,9 +9,11 @@ from reviewer.schemas import Stage1Decision, Stage1Result, Stage2Result
 class StubClient:
     """Drives review_one/review_batch without network. Behavior keyed off the title."""
 
-    def __init__(self):
-        self.model_stage1 = "m1"
-        self.model_stage2 = "m2"
+    def __init__(self, *, model_stage1="m1", model_stage2="m2", **_kw):
+        # Capture the resolved models the reviewer passes so tests can assert the
+        # cheap-gate-always + tier-entitled-stage-2 policy landed on the client.
+        self.model_stage1 = model_stage1
+        self.model_stage2 = model_stage2
         self.stage2_calls = []
         self.stage1_batch_calls = 0
 
@@ -198,6 +200,7 @@ import pytest
 from job_discovery import db as poller_db
 from job_discovery.models import Posting
 from reviewer import db as rdb
+from reviewer import entitlements
 from reviewer.llm import OutOfCreditsError
 from tests.conftest import requires_db
 
@@ -258,20 +261,21 @@ def test_review_all_persists_stage1_error_without_aborting(conn, monkeypatch):
     # records a retryable error row (stage1_decision NULL) without aborting the batch.
     poller_db.upsert_job(conn, cid, "lever", "acme",
                          Posting(external_id="boom", title="MISSING-boom", url="u",
-                                 raw={"descriptionPlain": "jd"}))
+                                 remote=True, raw={"descriptionPlain": "jd"}))
     poller_db.upsert_job(conn, cid, "lever", "acme",
                          Posting(external_id="good", title="SRE", url="u2",
-                                 raw={"descriptionPlain": "jd"}))
+                                 remote=True, raw={"descriptionPlain": "jd"}))
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
-            "VALUES (%s, 'r', 'i', 'v1')",
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version, "
+            " preferred_locations) VALUES (%s, 'r', 'i', 'v1', ARRAY['Remote'])",
             (USER,),
         )
     conn.commit()
 
+    _entitle(conn, USER)
     import reviewer.run as run_module
-    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient(**kw))
     run_module.review_all(conn)
 
     with conn.cursor() as cur:
@@ -311,17 +315,18 @@ def test_review_all_writes_verdicts_and_run(conn, monkeypatch):
         cid = cur.fetchone()["id"]
     poller_db.upsert_job(conn, cid, "lever", "acme",
                          Posting(external_id="1", title="SRE", url="u",
-                                 raw={"descriptionPlain": "jd"}))
+                                 remote=True, raw={"descriptionPlain": "jd"}))
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
-            "VALUES (%s, 'r', 'i', 'v1')",
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version, "
+            " preferred_locations) VALUES (%s, 'r', 'i', 'v1', ARRAY['Remote'])",
             (USER,),
         )
     conn.commit()
 
+    _entitle(conn, USER)
     import reviewer.run as run_module
-    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient(**kw))
     run_module.review_all(conn)
 
     with conn.cursor() as cur:
@@ -353,17 +358,18 @@ def test_review_all_defers_jd_less_job_and_reselects(conn, monkeypatch):
         cid = cur.fetchone()["id"]
     # raw={} → extract_description returns None → JD-less job.
     poller_db.upsert_job(conn, cid, "lever", "acme",
-                         Posting(external_id="nojd", title="SRE", url="u", raw={}))
+                         Posting(external_id="nojd", title="SRE", url="u", remote=True, raw={}))
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
-            "VALUES (%s, 'r', 'i', 'v1')",
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version, "
+            " preferred_locations) VALUES (%s, 'r', 'i', 'v1', ARRAY['Remote'])",
             (USER,),
         )
     conn.commit()
 
+    _entitle(conn, USER)
     import reviewer.run as run_module
-    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient(**kw))
     run_module.review_all(conn)
 
     with conn.cursor() as cur:
@@ -397,17 +403,18 @@ def test_review_user_commits_earlier_chunks_on_midbatch_failure(conn, monkeypatc
     for i in range(5):
         poller_db.upsert_job(conn, cid, "lever", "acme",
                              Posting(external_id=f"e{i}", title=f"Eng{i}", url="u",
-                                     raw={"descriptionPlain": "jd"}))
+                                     remote=True, raw={"descriptionPlain": "jd"}))
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
-            "VALUES (%s, 'r', 'i', 'v1')",
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version, "
+            " preferred_locations) VALUES (%s, 'r', 'i', 'v1', ARRAY['Remote'])",
             (USER,),
         )
     conn.commit()
 
     import reviewer.run as run_module
-    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient(**kw))
+    _entitle(conn, USER)
 
     seen = []
     original = rdb.upsert_review
@@ -451,22 +458,46 @@ def _seed_reviewable_job(conn, cid, ext, *, location="Remote", remote=True):
                                  raw={"descriptionPlain": "jd"}))
 
 
-def _insert_profile(conn, user_id, *, cap=None, locations=None):
+def _entitle(conn, user_id, *, plan="standard", status="active", invited=False):
+    """Give a user an active subscription (or a comped invite) so the reviewer's tier
+    gate resolves a plan. Phase 1: a user with no plan is skipped entirely."""
+    with conn.cursor() as cur:
+        if invited:
+            cur.execute("INSERT INTO invite_codes (code, max_uses, uses) VALUES ('SEED', 999, 1) "
+                        "ON CONFLICT (code) DO NOTHING")
+            cur.execute("INSERT INTO invite_redemptions (email, code, user_id) VALUES (%s, 'SEED', %s) "
+                        "ON CONFLICT (email) DO NOTHING", (f"{user_id}@x.com", user_id))
+        else:
+            cur.execute(
+                "INSERT INTO subscriptions (user_id, status, plan, current_period_end) "
+                "VALUES (%s, %s, %s, now() + interval '30 days') "
+                "ON CONFLICT (user_id) DO UPDATE SET status = EXCLUDED.status, "
+                "plan = EXCLUDED.plan, current_period_end = EXCLUDED.current_period_end",
+                (user_id, status, plan))
+    conn.commit()
+
+
+def _insert_profile(conn, user_id, *, cap=None, locations=None, model_stage2=None,
+                    plan="standard", invited=False):
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO profiles (user_id, resume_text, instructions, "
-            " profile_version, preferred_locations, daily_review_cap) "
-            "VALUES (%s, 'r', 'i', 'v1', %s, %s)",
-            (user_id, locations or [], cap),
+            " profile_version, preferred_locations, daily_review_cap, model_stage2) "
+            "VALUES (%s, 'r', 'i', 'v1', %s, %s, %s)",
+            # Default to a non-empty location filter (mandatory in Phase 1). Remote
+            # jobs pass any filter, so ['Remote'] keeps the remote fixtures reviewable.
+            (user_id, locations if locations is not None else ["Remote"], cap, model_stage2),
         )
     conn.commit()
+    if plan is not None or invited:
+        _entitle(conn, user_id, plan=plan or "standard", invited=invited)
 
 
 def _run_review_all(conn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     import reviewer.run as run_module
-    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient())
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: StubClient(**kw))
     run_module.review_all(conn)
 
 
@@ -532,19 +563,95 @@ def test_two_users_different_caps_drain_independently(conn, monkeypatch):
 
 
 @requires_db
-def test_null_cap_falls_back_to_env_default(conn, monkeypatch):
-    """A profile with a NULL daily_review_cap uses config.DAILY_REVIEW_CAP_DEFAULT."""
-    from reviewer import config
-    monkeypatch.setattr(config, "DAILY_REVIEW_CAP_DEFAULT", 1)
+def test_null_cap_uses_tier_entitlement_cap(conn, monkeypatch):
+    """A NULL daily_review_cap now derives from the TIER (entitlements.daily_review_cap),
+    not the env default. Patch the entitlement cap to 1 to prove the reviewer sources
+    the cap from there."""
+    monkeypatch.setattr(entitlements, "daily_review_cap", lambda plan, model: 1)
     cid = _seed_company(conn)
     for i in range(3):
         _seed_reviewable_job(conn, cid, f"j{i}")
-    _insert_profile(conn, USER, cap=None)
+    _insert_profile(conn, USER, cap=None)  # plan='standard', no override → tier cap
 
     _run_review_all(conn, monkeypatch)
     with conn.cursor() as cur:
         cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
-        assert cur.fetchone()["n"] == 1, "NULL cap → env default of 1 applied"
+        assert cur.fetchone()["n"] == 1, "NULL cap → tier entitlement cap (patched to 1)"
+
+
+@requires_db
+def test_no_subscription_user_is_skipped(conn, monkeypatch):
+    """No plan (no subscription, not invited) → skipped, 'no active subscription' note."""
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, plan=None)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 0
+        cur.execute("SELECT notes FROM review_runs WHERE user_id = %s ORDER BY id DESC LIMIT 1", (USER,))
+        assert cur.fetchone()["notes"] == "no active subscription"
+
+
+@requires_db
+def test_comped_invited_user_reviewed_at_standard(conn, monkeypatch):
+    """An invited (comped) user with no subscription is reviewed at Standard (cheap)."""
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, plan=None, invited=True)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT model_stage1, model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
+        row = cur.fetchone()
+        assert row is not None, "comped invitee should be reviewed"
+        assert row["model_stage1"] == entitlements.CHEAP_MODEL
+        assert row["model_stage2"] == entitlements.CHEAP_MODEL
+
+
+@requires_db
+def test_empty_locations_skipped(conn, monkeypatch):
+    """A plan'd user with an empty location filter is skipped (mandatory filter)."""
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, locations=[])
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 0
+        cur.execute("SELECT notes FROM review_runs WHERE user_id = %s ORDER BY id DESC LIMIT 1", (USER,))
+        assert cur.fetchone()["notes"] == "location filter required"
+
+
+@requires_db
+def test_pro_premium_stage2_and_cheap_gate_always(conn, monkeypatch):
+    """A Pro user who requests the premium stage-2 model gets it; stage 1 is always the
+    cheap gate regardless of any stored model_stage1."""
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, plan="pro", model_stage2=entitlements.PREMIUM_MODEL)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT model_stage1, model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
+        row = cur.fetchone()
+        assert row["model_stage1"] == entitlements.CHEAP_MODEL
+        assert row["model_stage2"] == entitlements.PREMIUM_MODEL
+
+
+@requires_db
+def test_standard_non_entitled_premium_falls_back_to_cheap(conn, monkeypatch):
+    """A Standard user who requests the premium model has stage 2 fall back to cheap."""
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, plan="standard", model_stage2=entitlements.PREMIUM_MODEL)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["model_stage2"] == entitlements.CHEAP_MODEL
 
 
 @requires_db

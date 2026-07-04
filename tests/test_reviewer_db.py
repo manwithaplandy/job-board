@@ -35,7 +35,10 @@ def test_load_profiles(conn):
     assert profiles == [
         {"user_id": uuid.UUID(USER), "resume_text": "r", "instructions": "i",
          "profile_version": "v1", "model_stage1": None, "model_stage2": None,
-         "preferred_locations": [], "daily_review_cap": None}
+         "preferred_locations": [], "daily_review_cap": None,
+         # Phase 1: LEFT JOIN subscriptions (none here) + the invite-proof flag.
+         "sub_plan": None, "sub_status": None, "sub_current_period_end": None,
+         "invited": False}
     ]
 
 

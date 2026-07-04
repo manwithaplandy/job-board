@@ -22,7 +22,7 @@ export default async function OnboardingPage() {
   const existing = await getProfile(userId);
   if (existing) redirect("/");
 
-  const locations = await getDistinctLocations();
+  const locations = await getDistinctLocations(userId);
   return (
     <main style={pageStyle}>
       <div style={cardStyle}>

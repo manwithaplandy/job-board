@@ -1,8 +1,8 @@
 "use server";
 
 import { requireUserId } from "@/lib/auth";
-import { sql } from "@/lib/db";
-import { BARE_MARKER_PREDICATE } from "@/lib/queries";
+import { withUserSql } from "@/lib/db";
+import { bareMarkerPredicate } from "@/lib/queries";
 
 // Mark a job applied. Upsert so a one-click "Mark as applied" works even when the
 // user never prepared a package (a content-less marker row); the Prepare-panel
@@ -10,13 +10,13 @@ import { BARE_MARKER_PREDICATE } from "@/lib/queries";
 // Idempotent: applied_at is stamped once (COALESCE keeps the first transition).
 export async function markApplicationApplied(jobId: string): Promise<void> {
   const userId = await requireUserId();
-  await sql`
+  await withUserSql(userId, (tx) => tx`
     INSERT INTO application_packages (user_id, job_id, status, applied_at)
     VALUES (${userId}::uuid, ${jobId}, 'applied', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       status     = 'applied',
       applied_at = COALESCE(application_packages.applied_at, now())
-  `;
+  `);
 }
 
 // Undo "mark applied". A content-less marker row (created by the one-click path) is
@@ -26,11 +26,13 @@ export async function markApplicationApplied(jobId: string): Promise<void> {
 // rows is ever added, this won't accidentally delete them.
 export async function unmarkApplicationApplied(jobId: string): Promise<void> {
   const userId = await requireUserId();
-  await sql.begin(async (tx) => {
+  // withUserSql already wraps this in a single transaction, so the DELETE + UPDATE
+  // stay atomic under the authenticated role (RLS scopes both to the viewer's rows).
+  await withUserSql(userId, async (tx) => {
     await tx`
       DELETE FROM application_packages
        WHERE user_id = ${userId}::uuid AND job_id = ${jobId}
-         AND ${BARE_MARKER_PREDICATE}
+         AND ${bareMarkerPredicate(tx)}
     `;
     await tx`
       UPDATE application_packages

@@ -1,17 +1,21 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 
-// Capture every tagged-template call made through the db `sql` helper, and let
-// each test stage the row the query resolves to.
+// Capture every tagged-template call made through the withUserSql/withAnonSql
+// executor `tx`, and let each test stage the row the query resolves to.
 const { calls, rows } = vi.hoisted(() => ({
   calls: [] as { strings: readonly string[]; values: unknown[] }[],
   rows: [] as unknown[],
 }));
-vi.mock("@/lib/db", () => ({
-  sql: (strings: readonly string[], ...values: unknown[]) => {
+vi.mock("@/lib/db", () => {
+  const tx = (strings: readonly string[], ...values: unknown[]) => {
     calls.push({ strings, values });
     return Promise.resolve(rows);
-  },
-}));
+  };
+  return {
+    withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx),
+    withAnonSql: (fn: (t: unknown) => unknown) => fn(tx),
+  };
+});
 
 import { getJobReviewDetail } from "@/lib/queries";
 

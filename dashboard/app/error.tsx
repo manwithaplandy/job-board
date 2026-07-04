@@ -1,14 +1,19 @@
 "use client";
 
 import { Button } from "@/components/ui/Button";
+import { SupportLink } from "@/components/SupportLink";
 
 export default function ErrorPage({
-  error: _error,
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // NEVER render error.message — it can carry internals (T5). Next provides a `digest`
+  // (a hash of the server error) that correlates to the full server-side log, so the
+  // user can report an incident without us leaking anything.
+  const digest = error.digest;
   return (
     <main
       style={{
@@ -48,6 +53,17 @@ export default function ErrorPage({
         >
           Try again
         </Button>
+        {digest && (
+          <div style={{ fontSize: "11px", color: "#8b94a3", marginTop: "18px", fontWeight: 500 }}>
+            Reference: <code>{digest}</code>
+          </div>
+        )}
+        <div style={{ fontSize: "12px", color: "#6b7480", marginTop: "10px", fontWeight: 500 }}>
+          <SupportLink
+            label="Contact support"
+            subject={digest ? `Error report (ref ${digest})` : "Error report"}
+          />
+        </div>
       </div>
     </main>
   );

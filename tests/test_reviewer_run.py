@@ -567,7 +567,7 @@ def test_null_cap_uses_tier_entitlement_cap(conn, monkeypatch):
     """A NULL daily_review_cap now derives from the TIER (entitlements.daily_review_cap),
     not the env default. Patch the entitlement cap to 1 to prove the reviewer sources
     the cap from there."""
-    monkeypatch.setattr(entitlements, "daily_review_cap", lambda plan, model: 1)
+    monkeypatch.setattr(entitlements, "daily_review_cap", lambda plan, model, ent=None: 1)
     cid = _seed_company(conn)
     for i in range(3):
         _seed_reviewable_job(conn, cid, f"j{i}")

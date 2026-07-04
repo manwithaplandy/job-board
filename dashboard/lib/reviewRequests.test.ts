@@ -25,7 +25,9 @@ vi.mock("@/lib/db", () => ({
   withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx),
 }));
 
-import { enqueueReviewRequest, getLatestReviewRequest, remainingDailyBudget } from "@/lib/reviewRequests";
+import {
+  enqueueReviewRequest, getLatestReviewRequest, remainingDailyBudget, reviewsChargedToday,
+} from "@/lib/reviewRequests";
 
 beforeEach(() => {
   state.calls.length = 0;
@@ -84,5 +86,16 @@ describe("remainingDailyBudget", () => {
     state.rowQueue.push([{ model_stage2: null, daily_review_cap: null }]);
     tx.unsafe = () => Promise.resolve([{ n: 999 }]);
     expect(await remainingDailyBudget("u", "standard")).toBe(0);
+  });
+});
+
+describe("reviewsChargedToday", () => {
+  test("returns today's review usage count (progress figure)", async () => {
+    tx.unsafe = () => Promise.resolve([{ n: 42 }]);
+    expect(await reviewsChargedToday("u")).toBe(42);
+  });
+  test("no counter row → 0", async () => {
+    tx.unsafe = () => Promise.resolve([]);
+    expect(await reviewsChargedToday("u")).toBe(0);
   });
 });

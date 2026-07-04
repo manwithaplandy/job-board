@@ -21,6 +21,57 @@ ENTITLEMENTS = {
 _GRACE = timedelta(days=3)
 
 
+def _pos_int(v):
+    """A positive int (caps/allowances) or None. Rejects bool, float, str, <=0.
+
+    bool is an int subclass in Python, so exclude it explicitly.
+    """
+    if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+        return None
+    return v
+
+
+def overlay_entitlements(rows):
+    """Overlay DB tier_settings onto the compiled ENTITLEMENTS, field-by-field (T1).
+
+    `rows` is an iterable of mappings {plan, config} where config is the jsonb value
+    (a dict, or anything for a malformed row). Mirrors dashboard/lib/tierConfig.ts:
+    every bad/absent field keeps the compiled default; never raises. A DB row may only
+    override slots the compiled default already grants (it cannot invent a premium slot
+    for Standard). Returns a fresh entitlements map (the compiled one is never mutated).
+    """
+    out = {plan: {"stage2_models": dict(ENTITLEMENTS[plan]["stage2_models"]),
+                  "monthly_resume": ENTITLEMENTS[plan]["monthly_resume"],
+                  "monthly_cover": ENTITLEMENTS[plan]["monthly_cover"]}
+           for plan in ENTITLEMENTS}
+    by_plan = {}
+    for r in rows or []:
+        try:
+            by_plan[r["plan"]] = r["config"]
+        except (KeyError, TypeError):
+            continue
+    for plan in out:
+        cfg = by_plan.get(plan)
+        if not isinstance(cfg, dict):
+            continue
+        s2 = cfg.get("stage2Models")
+        if isinstance(s2, dict):
+            for slot in list(out[plan]["stage2_models"].keys()):
+                if slot in s2:
+                    cap = _pos_int(s2[slot])
+                    if cap is not None:
+                        out[plan]["stage2_models"][slot] = cap
+        if "monthlyResume" in cfg:
+            n = _pos_int(cfg["monthlyResume"])
+            if n is not None:
+                out[plan]["monthly_resume"] = n
+        if "monthlyCover" in cfg:
+            n = _pos_int(cfg["monthlyCover"])
+            if n is not None:
+                out[plan]["monthly_cover"] = n
+    return out
+
+
 def model_slot(model):
     """Entitlement slot for a concrete OpenRouter model id (None = neither)."""
     if model == PREMIUM_MODEL:
@@ -55,21 +106,24 @@ def resolve_plan(sub, invited, now=None):
     return None
 
 
-def resolve_stage2_model(plan, requested_model):
+def resolve_stage2_model(plan, requested_model, ent=None):
     """The entitled stage-2 model: the requested one if the plan grants its slot,
-    else CHEAP_MODEL."""
+    else CHEAP_MODEL. `ent` overrides the compiled ENTITLEMENTS map (T1 overlay)."""
+    ent = ent if ent is not None else ENTITLEMENTS
     if plan:
         slot = model_slot(requested_model)
-        if slot and ENTITLEMENTS[plan]["stage2_models"].get(slot) is not None:
+        if slot and ent[plan]["stage2_models"].get(slot) is not None:
             return requested_model
     return CHEAP_MODEL
 
 
-def daily_review_cap(plan, model):
-    """Per-user, per-day review cap for (plan, resolved stage-2 model). None -> 0."""
+def daily_review_cap(plan, model, ent=None):
+    """Per-user, per-day review cap for (plan, resolved stage-2 model). None -> 0.
+    `ent` overrides the compiled ENTITLEMENTS map (T1 overlay)."""
     if not plan:
         return 0
-    caps = ENTITLEMENTS[plan]["stage2_models"]
+    ent = ent if ent is not None else ENTITLEMENTS
+    caps = ent[plan]["stage2_models"]
     slot = model_slot(model) or "cheap"
     cap = caps.get(slot)
     if cap is None:
@@ -77,9 +131,11 @@ def daily_review_cap(plan, model):
     return cap
 
 
-def monthly_allowance(plan, kind):
-    """Monthly generation allowance for kind in ('resume','cover'). None -> 0."""
+def monthly_allowance(plan, kind, ent=None):
+    """Monthly generation allowance for kind in ('resume','cover'). None -> 0.
+    `ent` overrides the compiled ENTITLEMENTS map (T1 overlay)."""
     if not plan:
         return 0
-    ent = ENTITLEMENTS[plan]
-    return ent["monthly_resume"] if kind == "resume" else ent["monthly_cover"]
+    ent = ent if ent is not None else ENTITLEMENTS
+    e = ent[plan]
+    return e["monthly_resume"] if kind == "resume" else e["monthly_cover"]

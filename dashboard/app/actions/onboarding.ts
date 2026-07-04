@@ -8,6 +8,7 @@ import { isInvitedUser, linkInviteRedemption } from "@/lib/invites";
 import { enqueueReviewRequest } from "@/lib/reviewRequests";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { validateOnboarding, hasErrors, type OnboardingErrors } from "@/lib/onboarding";
+import { safeErrorMessage } from "@/lib/safeError";
 
 export type OnboardingState = { errors: OnboardingErrors } | null;
 
@@ -50,7 +51,9 @@ export async function completeOnboarding(
       const { error } = await supabase.storage
         .from("resumes")
         .upload(path, bytes, { contentType: file.type || "application/pdf", upsert: true });
-      if (error) return { errors: { form: `Résumé upload failed: ${error.message}` } };
+      if (error) {
+        return { errors: { form: safeErrorMessage("onboarding.resume-upload", error, "Résumé upload failed. Please try again.") } };
+      }
       resumeFilePath = path;
     }
 
@@ -79,9 +82,10 @@ export async function completeOnboarding(
       console.error("onboarding review-request enqueue failed", e);
     }
   } catch (e) {
-    // Re-throw Next control-flow (redirect); surface anything else inline.
+    // Re-throw Next control-flow (redirect); log + genericize anything else (T5 — the
+    // raw message can carry DB/storage internals).
     unstable_rethrow(e);
-    return { errors: { form: (e as Error).message || "Something went wrong. Please try again." } };
+    return { errors: { form: safeErrorMessage("onboarding", e) } };
   }
   redirect("/");
 }

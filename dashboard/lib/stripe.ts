@@ -46,3 +46,33 @@ export function subscriptionPeriodEnd(sub: Stripe.Subscription): Date | null {
 export function subscriptionPlan(sub: Stripe.Subscription): Plan | null {
   return priceToPlan(sub.items?.data?.[0]?.price?.id);
 }
+
+/**
+ * Cancel a Stripe subscription immediately, tolerating "already gone" (T3 deletion
+ * step 1). A null/blank id is a no-op. Two flavours of "already gone" are swallowed so
+ * a retry after partial failure — and, crucially, the common lapsed/canceled-subscriber
+ * case — converges instead of aborting the whole account deletion:
+ *   • a "resource_missing" error (the subscription id no longer exists), and
+ *   • an invalid_request_error whose message says the subscription is already canceled.
+ * Our webhook mirror deliberately KEEPS canceled subscriptions (customer.subscription
+ * .deleted → status='canceled' with the id intact), so a canceled subscriber's row
+ * still carries a real id and double-cancel returns the latter, NOT resource_missing.
+ * Any other Stripe error propagates so the caller can abort before deleting DB rows.
+ */
+export async function cancelSubscriptionIfPresent(
+  stripeSubscriptionId: string | null | undefined,
+): Promise<void> {
+  if (!stripeSubscriptionId) return;
+  try {
+    await getStripe().subscriptions.cancel(stripeSubscriptionId);
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === "resource_missing") return; // id gone — idempotent
+    const type = (e as { type?: string }).type;
+    const message = (e as { message?: string }).message ?? "";
+    // Double-cancel of an already-canceled subscription: not resource_missing, but a
+    // non-retryable "already canceled" — treat as already-gone so deletion proceeds.
+    if (type === "invalid_request_error" && /cancel(l)?ed/i.test(message)) return;
+    throw e;
+  }
+}

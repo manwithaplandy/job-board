@@ -18,6 +18,8 @@ const ALLOWLIST = [
   "lib/invites.ts", // pre-auth signup redemption (no JWT/session yet)
   "app/actions/companies.ts", // global discovery_state refresh (shared operator control)
   "app/api/stripe/webhook/route.ts", // Stripe posts anonymously; sole writer of the subscriptions mirror
+  "lib/accountDeletion.ts", // T3: cross-tenant erasure cascade + service-role-only account_deletions ledger; invoked only with the caller's own verified id
+  "lib/tenantMetrics.ts", // T8: legitimately cross-tenant admin monitoring; imported only by the isAdmin-gated /admin/tenants page
 ].sort();
 
 const ROOT = path.resolve(__dirname, "..");

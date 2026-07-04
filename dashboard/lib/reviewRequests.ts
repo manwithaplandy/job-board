@@ -1,5 +1,6 @@
 import { withUserSql } from "@/lib/db";
 import { resolveStage2Model, dailyReviewCap, type Plan } from "@/lib/entitlements";
+import { loadTierConfig } from "@/lib/tierConfig";
 
 // The dashboard ↔ reviewer-worker contract for on-demand "review my board now"
 // (spec F core). Precedent: discovery_state.resume_requested_at. The partial unique
@@ -69,19 +70,37 @@ export async function enqueueReviewRequest(
 }
 
 /**
+ * Reviews charged to this user today (UTC) — the reviewer's kind='review' usage counter.
+ * Used as the first-run progress figure ("N roles scored so far") the panel renders
+ * while an on-demand review is running. 0 when none yet.
+ */
+export async function reviewsChargedToday(userId: string): Promise<number> {
+  return withUserSql(userId, async (tx) => {
+    const rows = await tx.unsafe(
+      `SELECT COALESCE(n, 0)::int AS n FROM usage_counters
+       WHERE user_id = $1::uuid AND kind = 'review' AND day = (now() AT TIME ZONE 'utc')::date`,
+      [userId],
+    );
+    return ((rows[0] as unknown as { n: number } | undefined)?.n) ?? 0;
+  });
+}
+
+/**
  * The user's remaining daily review budget: their per-model daily cap (profile
  * override, else the tier cap for their resolved stage-2 model) minus today's 'review'
  * spend (UTC). 0 when they have no plan. Mirrors the reviewer's cap computation (T8).
  */
 export async function remainingDailyBudget(userId: string, plan: Plan | null): Promise<number> {
   if (!plan) return 0;
+  // DB-overlaid caps (T1): tunable without a redeploy via tier_settings.
+  const { entitlements } = await loadTierConfig();
   return withUserSql(userId, async (tx) => {
     const prow = await tx`
       SELECT model_stage2, daily_review_cap FROM profiles WHERE user_id = ${userId}::uuid
     `;
     const p = prow[0] as { model_stage2: string | null; daily_review_cap: number | null } | undefined;
-    const model = resolveStage2Model(plan, p?.model_stage2 ?? null);
-    const cap = p?.daily_review_cap ?? dailyReviewCap(plan, model);
+    const model = resolveStage2Model(plan, p?.model_stage2 ?? null, entitlements);
+    const cap = p?.daily_review_cap ?? dailyReviewCap(plan, model, entitlements);
     const srow = await tx.unsafe(
       `SELECT COALESCE(n, 0)::int AS n FROM usage_counters
        WHERE user_id = $1::uuid AND kind = 'review' AND day = (now() AT TIME ZONE 'utc')::date`,

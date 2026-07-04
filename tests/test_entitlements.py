@@ -1,14 +1,20 @@
 from datetime import datetime, timedelta, timezone
 
+from psycopg.types.json import Json
+
+from reviewer import db as reviewer_db
 from reviewer.entitlements import (
     CHEAP_MODEL,
+    ENTITLEMENTS,
     PREMIUM_MODEL,
     daily_review_cap,
     model_slot,
     monthly_allowance,
+    overlay_entitlements,
     resolve_plan,
     resolve_stage2_model,
 )
+from tests.conftest import requires_db
 
 NOW = datetime(2026, 7, 3, tzinfo=timezone.utc)
 
@@ -84,3 +90,70 @@ def test_model_slot():
     assert model_slot(PREMIUM_MODEL) == "premium"
     assert model_slot("x") is None
     assert model_slot(None) is None
+
+
+# ── T1: DB-overridable tier config (overlay_entitlements + load_tier_settings) ──
+
+def test_overlay_empty_is_defaults():
+    assert overlay_entitlements([]) == ENTITLEMENTS
+
+
+def test_overlay_valid_override_changes_cap():
+    ent = overlay_entitlements([{"plan": "standard", "config": {"stage2Models": {"cheap": 650}}}])
+    assert ent["standard"]["stage2_models"]["cheap"] == 650
+    # Enforcement path honors the overlay.
+    assert daily_review_cap("standard", CHEAP_MODEL, ent) == 650
+    # Other plan/fields untouched, compiled map never mutated.
+    assert ent["pro"]["stage2_models"]["cheap"] == 1000
+    assert ENTITLEMENTS["standard"]["stage2_models"]["cheap"] == 400
+
+
+def test_overlay_override_allowances_and_premium():
+    ent = overlay_entitlements([
+        {"plan": "pro", "config": {"stage2Models": {"premium": 250}, "monthlyResume": 200}},
+    ])
+    assert ent["pro"]["stage2_models"]["premium"] == 250
+    assert ent["pro"]["monthly_resume"] == 200
+    assert ent["pro"]["monthly_cover"] == 100  # untouched default
+
+
+def test_overlay_malformed_falls_back_field_by_field():
+    # String scalar config, negative/zero/fractional caps, and unknown keys all fall
+    # back to the compiled defaults without raising.
+    ent = overlay_entitlements([
+        {"plan": "standard", "config": "not-an-object"},
+        {"plan": "pro", "config": {
+            "stage2Models": {"cheap": -5, "premium": 0},
+            "monthlyResume": 3.5,
+            "monthlyCover": True,     # bool is not a valid int here
+            "bogusKey": 999,
+        }},
+    ])
+    assert ent == ENTITLEMENTS
+
+
+def test_overlay_cannot_invent_standard_premium_slot():
+    ent = overlay_entitlements([{"plan": "standard", "config": {"stage2Models": {"premium": 100}}}])
+    assert "premium" not in ent["standard"]["stage2_models"]
+
+
+@requires_db
+def test_load_tier_settings_override_and_fallback(conn):
+    # Valid override row → enforced cap changes.
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tier_settings (plan, config) VALUES (%s, %s)",
+            ("standard", Json({"stage2Models": {"cheap": 650}, "monthlyResume": 45})),
+        )
+    conn.commit()
+    ent = reviewer_db.load_tier_settings(conn)
+    assert daily_review_cap("standard", CHEAP_MODEL, ent) == 650
+    assert monthly_allowance("standard", "resume", ent) == 45
+
+    # Malformed row → field-by-field fallback to compiled defaults.
+    with conn.cursor() as cur:
+        cur.execute("UPDATE tier_settings SET config = %s WHERE plan = %s",
+                    (Json({"stage2Models": {"cheap": -1}}), "standard"))
+    conn.commit()
+    ent2 = reviewer_db.load_tier_settings(conn)
+    assert daily_review_cap("standard", CHEAP_MODEL, ent2) == 400

@@ -139,5 +139,21 @@ start `python -m reviewer.worker`.
   (`BEGIN/COMMIT`), and mirrored into `schema.sql`. `CREATE INDEX CONCURRENTLY` statements
   cannot run inside a transaction — keep them outside `BEGIN/COMMIT` and run them individually.
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
+- **OpenRouter spend alert** → Railway **cron** service (`railway.spend-alert.json`, hourly
+  `0 * * * *`), root `/`, start `python -m observability.spend_alert`. It snapshots
+  OpenRouter usage/credits into `openrouter_usage_snapshots`, computes the trailing-24h
+  burn, and POSTs to `ALERT_WEBHOOK_URL` when the 24h burn exceeds `SPEND_ALERT_DAILY_USD`
+  (default $10) or remaining credits fall below `SPEND_ALERT_CREDITS_FLOOR_USD` (default
+  $20). If a threshold trips but the webhook is unset or the POST fails, it exits nonzero
+  so the cron surfaces the failure (never a silent pass). This is the backstop *behind*
+  the per-user daily caps and the `OutOfCreditsError` hard halt — not a replacement.
 
 Pushes to `main` auto-deploy the affected component.
+
+## Ops runbooks
+
+- **Backup & restore:** [`docs/runbooks/backup-restore.md`](docs/runbooks/backup-restore.md)
+  — verified Supabase backup posture for prod `fdhspmavadgucktetzoi`, the restore
+  procedure + post-restore checklist (schema-migration audit, Stripe re-sync, stuck
+  review-request cleanup, worker restart), the not-restorable list (storage objects,
+  LangFuse traces), and the RPO/RTO the current setup provides.

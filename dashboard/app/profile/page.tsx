@@ -16,9 +16,11 @@ import { ModelPicker } from "@/components/ModelPicker";
 import { LocationPicker } from "@/components/LocationPicker";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
+import { safeErrorMessage } from "@/lib/safeError";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
 import { ResumeUploadField } from "@/components/rolefit/ResumeUploadField";
+import { DangerZone } from "@/components/account/DangerZone";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Profile · Rolefit" };
@@ -119,7 +121,7 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
       const { error } = await supabase.storage
         .from("resumes")
         .upload(path, bytes, { contentType: file.type || "application/pdf", upsert: true });
-      if (error) return { error: `resume upload failed: ${error.message}` };
+      if (error) return { error: safeErrorMessage("profile.resume-upload", error, "Résumé upload failed. Please try again.") };
       resumeFilePath = path; // archival only — generation reads resume_text
     }
 
@@ -154,7 +156,7 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
     // Re-throw Next control-flow (redirect/notFound, e.g. an expired session in
     // requireUserId); surface everything else inline so the form stays mounted.
     unstable_rethrow(e);
-    return { error: (e as Error).message || "Save failed. Please try again." };
+    return { error: safeErrorMessage("profile.save", e, "Save failed. Please try again.") };
   }
   redirect(returnTo);
 }
@@ -483,6 +485,8 @@ export default async function ProfilePage() {
           </div>
 
         </ProfileFormShell>
+
+        <DangerZone />
       </div>
     </main>
     </>

@@ -22,7 +22,9 @@ export interface Entitlement {
   monthlyCover: number;
 }
 
-export const ENTITLEMENTS: Record<Plan, Entitlement> = {
+export type EntitlementMap = Record<Plan, Entitlement>;
+
+export const ENTITLEMENTS: EntitlementMap = {
   standard: { stage2Models: { cheap: 400 }, monthlyResume: 30, monthlyCover: 30 },
   pro: { stage2Models: { cheap: 1000, premium: 100 }, monthlyResume: 100, monthlyCover: 100 },
 };
@@ -30,6 +32,12 @@ export const ENTITLEMENTS: Record<Plan, Entitlement> = {
 // Display-only monthly price (USD), spec "Pricing & tiers". Dashboard billing UI reads
 // this so the price is never hardcoded in JSX; the reviewer doesn't need it, so it is
 // intentionally TS-only (not mirrored in entitlements.py / the parity test).
+//
+// NOTE (T1): these are the COMPILE-TIME DEFAULTS. Money-gating call sites read the
+// DB-overlaid values via lib/tierConfig.ts loadTierConfig() instead of these constants
+// directly, so caps/allowances/prices are tunable without a redeploy. The pure functions
+// below accept an optional `ent` map (defaulting to ENTITLEMENTS) so they operate on
+// either the compiled defaults or the loaded overlay with identical semantics.
 export const PLAN_PRICE_USD: Record<Plan, number> = { standard: 5, pro: 20 };
 export const PLAN_LABEL: Record<Plan, string> = { standard: "Standard", pro: "Pro" };
 
@@ -89,25 +97,34 @@ export function resolvePlan(
 export function resolveStage2Model(
   plan: Plan | null,
   requestedModel: string | null | undefined,
+  ent: EntitlementMap = ENTITLEMENTS,
 ): string {
   if (plan) {
     const slot = modelSlot(requestedModel);
-    if (slot && ENTITLEMENTS[plan].stage2Models[slot] != null) return requestedModel!;
+    if (slot && ent[plan].stage2Models[slot] != null) return requestedModel!;
   }
   return CHEAP_MODEL;
 }
 
 /** Per-user, per-day review cap for (plan, resolved stage-2 model). null plan → 0. */
-export function dailyReviewCap(plan: Plan | null, model: string): number {
+export function dailyReviewCap(
+  plan: Plan | null,
+  model: string,
+  ent: EntitlementMap = ENTITLEMENTS,
+): number {
   if (!plan) return 0;
-  const ent = ENTITLEMENTS[plan];
+  const e = ent[plan];
   const slot = modelSlot(model) ?? "cheap";
-  return ent.stage2Models[slot] ?? ent.stage2Models.cheap ?? 0;
+  return e.stage2Models[slot] ?? e.stage2Models.cheap ?? 0;
 }
 
 /** Monthly generation allowance for a kind. null plan → 0. */
-export function monthlyAllowance(plan: Plan | null, kind: "resume" | "cover"): number {
+export function monthlyAllowance(
+  plan: Plan | null,
+  kind: "resume" | "cover",
+  ent: EntitlementMap = ENTITLEMENTS,
+): number {
   if (!plan) return 0;
-  const ent = ENTITLEMENTS[plan];
-  return kind === "resume" ? ent.monthlyResume : ent.monthlyCover;
+  const e = ent[plan];
+  return kind === "resume" ? e.monthlyResume : e.monthlyCover;
 }

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { safeAuthMessage } from "@/lib/safeError";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ async function updatePassword(formData: FormData) {
     redirect(`/login?error=${enc("Your reset link expired. Request a new one.")}`);
   }
   const { error } = await supabase.auth.updateUser({ password });
-  if (error) redirect(`/reset-password/update?error=${enc(error.message)}`);
+  if (error) redirect(`/reset-password/update?error=${enc(safeAuthMessage("reset-password", error))}`);
   redirect("/");
 }
 

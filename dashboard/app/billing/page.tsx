@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { getSubscription, getViewerPlan } from "@/lib/subscriptions";
 import {
-  ENTITLEMENTS, PLAN_PRICE_USD, PLAN_LABEL, CHEAP_MODEL, PREMIUM_MODEL, type Plan,
+  PLAN_LABEL, CHEAP_MODEL, PREMIUM_MODEL, type Plan, type EntitlementMap,
 } from "@/lib/entitlements";
+import { loadTierConfig } from "@/lib/tierConfig";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { SubscribeButton, ManageBillingButton } from "@/components/billing/BillingActions";
 
@@ -33,14 +34,21 @@ const tierCardStyle: React.CSSProperties = {
 };
 const modelName = (id: string) => (id === PREMIUM_MODEL ? "Haiku 4.5 (premium)" : id === CHEAP_MODEL ? "DeepSeek (cheap)" : id);
 
-function TierCard({ plan, currentPlan }: { plan: Plan; currentPlan: Plan | null }) {
-  const ent = ENTITLEMENTS[plan];
+function TierCard({
+  plan, currentPlan, entitlements, prices,
+}: {
+  plan: Plan;
+  currentPlan: Plan | null;
+  entitlements: EntitlementMap;
+  prices: Record<Plan, number>;
+}) {
+  const ent = entitlements[plan];
   const caps = Object.entries(ent.stage2Models) as [keyof typeof ent.stage2Models, number][];
   return (
     <div style={tierCardStyle}>
       <div style={{ fontSize: "16px", fontWeight: 800, color: "#161d29" }}>{PLAN_LABEL[plan]}</div>
       <div style={{ fontSize: "26px", fontWeight: 800, color: "#161d29", margin: "6px 0 2px" }}>
-        ${PLAN_PRICE_USD[plan]}
+        ${prices[plan]}
         <span style={{ fontSize: "13px", fontWeight: 600, color: "#6b7480" }}>/mo</span>
       </div>
       <ul style={{ margin: "12px 0 0", padding: 0, listStyle: "none", fontSize: "13px", color: "#3a4150", lineHeight: 1.9 }}>
@@ -63,9 +71,10 @@ function TierCard({ plan, currentPlan }: { plan: Plan; currentPlan: Plan | null 
 export default async function BillingPage() {
   const userId = await requireUserId();
   const claims = await getUserClaims();
-  const [sub, plan] = await Promise.all([
+  const [sub, plan, tierConfig] = await Promise.all([
     getSubscription(userId),
     getViewerPlan(userId, claims?.email ?? null),
+    loadTierConfig(),
   ]);
 
   const renewal = sub?.current_period_end
@@ -110,8 +119,10 @@ export default async function BillingPage() {
             </div>
 
             <div style={tierGridStyle}>
-              <TierCard plan="standard" currentPlan={plan} />
-              <TierCard plan="pro" currentPlan={plan} />
+              <TierCard plan="standard" currentPlan={plan}
+                entitlements={tierConfig.entitlements} prices={tierConfig.prices} />
+              <TierCard plan="pro" currentPlan={plan}
+                entitlements={tierConfig.entitlements} prices={tierConfig.prices} />
             </div>
 
             <div style={{ fontSize: "11.5px", color: "#8b94a3", marginTop: "18px", lineHeight: 1.6 }}>

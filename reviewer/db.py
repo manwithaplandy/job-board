@@ -2,6 +2,8 @@ import uuid
 
 from psycopg.types.json import Json
 
+from reviewer import entitlements as _entitlements
+
 _REVIEW_COLUMNS = (
     "user_id", "job_id", "profile_version", "stage1_decision", "stage1_reason",
     "verdict", "experience_match", "industry", "industry_subcategory",
@@ -47,6 +49,23 @@ _LOAD_PROFILES_SQL = f"""
     FROM profiles p
     LEFT JOIN subscriptions s ON s.user_id = p.user_id
 """
+
+
+def load_tier_settings(conn) -> dict:
+    """The DB-overlaid entitlements map (T1). Read ONCE per reviewer run and threaded
+    into entitlements.resolve_stage2_model / daily_review_cap so an operator can retune
+    caps/allowances via `UPDATE tier_settings` and have the NEXT run honor it — no
+    redeploy, no restart. Mirrors dashboard/lib/tierConfig.ts's overlay + fallback:
+    invalid/partial config falls back field-by-field to the compiled defaults, and a
+    read failure degrades to the compiled defaults rather than aborting the run."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT plan, config FROM tier_settings")
+            rows = cur.fetchall()
+    except Exception:
+        conn.rollback()
+        return _entitlements.overlay_entitlements([])
+    return _entitlements.overlay_entitlements(rows)
 
 
 def load_profiles(conn) -> list[dict]:

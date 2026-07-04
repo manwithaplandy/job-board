@@ -16,8 +16,12 @@
 // the webhook never runs (memory: anon-callable API routes need a public-path entry).
 // It authenticates itself by the Stripe signature. The checkout/portal routes are
 // deliberately NOT here — they require a signed-in user.
+//
+// "/terms" and "/privacy" are the legal pages strangers must be able to read while
+// logged out (they're linked from the signup consent line and the auth footers); the
+// auth proxy would otherwise 307 an anon visitor to /login (T4).
 const PUBLIC_PREFIXES = [
-  "/", "/login", "/signup", "/auth", "/reset-password",
+  "/", "/login", "/signup", "/auth", "/reset-password", "/terms", "/privacy",
   "/api/board-filters", "/api/jobs", "/api/stripe/webhook",
 ];
 

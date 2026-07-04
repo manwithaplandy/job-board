@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile, upsertProfile } from "@/lib/queries";
+import { safeErrorMessage } from "@/lib/safeError";
 
 // Résumé-only save from the board's profile modal. Preserves model choices and
 // instructions the user set on /profile (the modal doesn't expose them).
@@ -26,7 +27,9 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
     const { error } = await supabase.storage
       .from("resumes")
       .upload(path, bytes, { contentType: file.type || "application/pdf", upsert: true });
-    if (error) throw new Error(`resume upload failed: ${error.message}`);
+    // Log the storage internals server-side; throw only a generic message so the
+    // client overlay never shows storage/host details (T5).
+    if (error) throw new Error(safeErrorMessage("profile.resume-upload", error, "Résumé upload failed. Please try again."));
     resumeFilePath = path; // archival only — generation reads resume_text
   }
 

@@ -2,6 +2,7 @@ import { withUserSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { getViewerPlan } from "@/lib/subscriptions";
 import { monthlyAllowance, PLAN_LABEL, type Plan } from "@/lib/entitlements";
+import { loadTierConfig } from "@/lib/tierConfig";
 
 // Monthly generation-allowance enforcement (spec subsystem D / scope item 3). Reuses
 // the Phase-0 usage_counters table (kinds 'resume' / 'cover'); "this month" = SUM over
@@ -66,10 +67,12 @@ export async function checkGenerationAllowance(
   if (!plan) {
     return { ok: false, status: 402, error: "Subscribe to generate résumés and cover letters." };
   }
+  // DB-overlaid allowances (T1): tunable without a redeploy via tier_settings.
+  const { entitlements } = await loadTierConfig();
   return withUserSql(userId, async (tx) => {
     for (const kind of kinds) {
       const used = await monthlyGenerationSpend(tx, userId, kind);
-      const limit = monthlyAllowance(plan, kind);
+      const limit = monthlyAllowance(plan, kind, entitlements);
       if (used >= limit) {
         return {
           ok: false as const,

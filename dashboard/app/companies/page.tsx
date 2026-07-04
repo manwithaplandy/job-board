@@ -53,6 +53,10 @@ export default async function CompaniesPage({
   const excluded = bucket === "exclude" ? companies : [];
   const unknown = bucket === "unknown" ? companies : [];
 
+  // A brand-new account has no company reviews yet (T6 first-run polish). Show an
+  // explanatory empty state — not an empty table — matching the board's tone.
+  const hasAnyReviews = counts.include + counts.exclude + counts.unknown > 0;
+
   return (
     <>
       <SlimHeader current="companies" />
@@ -67,11 +71,30 @@ export default async function CompaniesPage({
               Edit preferences →
             </a>
           </div>
-          <CompanyList
-            included={included} excluded={excluded} unknown={unknown}
-            counts={counts} state={state} activeBucket={bucket} query={search}
-            override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus}
-          />
+          {hasAnyReviews || search ? (
+            <CompanyList
+              included={included} excluded={excluded} unknown={unknown}
+              counts={counts} state={state} activeBucket={bucket} query={search}
+              override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus}
+            />
+          ) : (
+            <div style={{
+              background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px",
+              padding: "40px 30px", textAlign: "center", color: "#5b6472",
+            }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
+                No companies classified yet
+              </div>
+              <div style={{ fontSize: "13px", marginTop: "6px", lineHeight: 1.6 }}>
+                As your board is reviewed, the companies behind those roles are classified
+                against your preferences and appear here. Set your{" "}
+                <a href="/profile" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+                  company preferences
+                </a>{" "}
+                to steer which ones are surfaced.
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </>

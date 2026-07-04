@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
+import { useRouter } from "next/navigation";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
 import { ReviewNowPanel } from "@/components/rolefit/ReviewNowPanel";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
@@ -96,6 +97,7 @@ export function RolefitBoard({
   initialRejected,
 }: RolefitBoardProps) {
   const isNarrow = useIsNarrow();
+  const router = useRouter();
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
   const [search, setSearch] = useState(initialFilters.search);
   const deferredSearch = useDeferredValue(search);
@@ -960,10 +962,14 @@ export function RolefitBoard({
         onSetSort={handleSetSort}
       />
 
-      {/* First-run: authed board with jobs waiting but none reviewed yet → offer an
-          on-demand review. Benign pending state, so no warning banner (the panel is a
-          neutral status card). */}
-      {isAuthed && jobs.length === 0 && (operator?.unreviewed ?? 0) > 0 && <ReviewNowPanel />}
+      {/* First-run / in-progress: mounted while there are unreviewed roles so the panel
+          can keep a compact progress strip visible WHILE a review runs, even after the
+          first matches land (T6). It self-hides when idle on a populated board, shows the
+          full "being built" CTA on an empty board, and refreshes the board when a request
+          settles. Benign pending state → neutral status card, not a warning banner. */}
+      {isAuthed && (operator?.unreviewed ?? 0) > 0 && (
+        <ReviewNowPanel firstRun={jobs.length === 0} onSettled={() => router.refresh()} />
+      )}
 
       {/* Split pane — left: job list; right: detail */}
       <div style={{ flex: 1, display: "flex", minHeight: isNarrow ? undefined : 0 }}>

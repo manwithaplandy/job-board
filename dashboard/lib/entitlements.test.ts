@@ -102,6 +102,26 @@ describe("modelSlot", () => {
   });
 });
 
+describe("optional entitlements override (T1 overlay)", () => {
+  const overlay = {
+    standard: { stage2Models: { cheap: 650 }, monthlyResume: 45, monthlyCover: 30 },
+    pro: { stage2Models: { cheap: 1000, premium: 250 }, monthlyResume: 100, monthlyCover: 100 },
+  };
+  test("dailyReviewCap honors the passed map", () => {
+    expect(dailyReviewCap("standard", CHEAP_MODEL, overlay)).toBe(650);
+    expect(dailyReviewCap("pro", PREMIUM_MODEL, overlay)).toBe(250);
+    // default arg still resolves the compiled table
+    expect(dailyReviewCap("standard", CHEAP_MODEL)).toBe(400);
+  });
+  test("monthlyAllowance honors the passed map", () => {
+    expect(monthlyAllowance("standard", "resume", overlay)).toBe(45);
+    expect(monthlyAllowance("standard", "resume")).toBe(30);
+  });
+  test("resolveStage2Model honors the passed map's slots", () => {
+    expect(resolveStage2Model("pro", PREMIUM_MODEL, overlay)).toBe(PREMIUM_MODEL);
+  });
+});
+
 describe("ENTITLEMENTS table shape", () => {
   test("standard has no premium slot; pro has both", () => {
     expect(ENTITLEMENTS.standard.stage2Models.premium).toBeUndefined();

@@ -30,6 +30,10 @@ describe("isPublicPath", () => {
     // a valid recovery session before allowing a password change.
     expect(isPublicPath("/reset-password/update")).toBe(true);
   });
+  test("legal pages are public (linked from signup consent + auth footers)", () => {
+    expect(isPublicPath("/terms")).toBe(true);
+    expect(isPublicPath("/privacy")).toBe(true);
+  });
 });
 
 describe("internalPathFromReferer", () => {

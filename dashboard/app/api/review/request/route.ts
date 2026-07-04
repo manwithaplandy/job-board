@@ -1,7 +1,7 @@
 import { getUserClaims } from "@/lib/auth";
 import { getViewerPlan } from "@/lib/subscriptions";
 import {
-  enqueueReviewRequest, getLatestReviewRequest, remainingDailyBudget,
+  enqueueReviewRequest, getLatestReviewRequest, remainingDailyBudget, reviewsChargedToday,
 } from "@/lib/reviewRequests";
 
 export const dynamic = "force-dynamic";
@@ -38,12 +38,14 @@ export async function GET() {
   const userId = claims.id;
 
   const plan = await getViewerPlan(userId, claims.email);
-  const [latest, remaining] = await Promise.all([
+  const [latest, remaining, reviewedToday] = await Promise.all([
     getLatestReviewRequest(userId),
     remainingDailyBudget(userId, plan),
+    reviewsChargedToday(userId),
   ]);
   return Response.json(
-    { status: latest?.status ?? null, remaining, plan },
+    // reviewedToday = the first-run progress figure ("N roles scored so far").
+    { status: latest?.status ?? null, remaining, plan, reviewedToday },
     { headers: { "Cache-Control": "private, no-store" } },
   );
 }

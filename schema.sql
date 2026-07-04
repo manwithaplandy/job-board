@@ -352,6 +352,36 @@ CREATE UNIQUE INDEX one_active_review_request
 CREATE INDEX idx_review_requests_pending
   ON review_requests (requested_at) WHERE status = 'pending';
 
+-- DB-overridable tier settings (see migrations/2026-07-04-tier-settings.sql). ONE
+-- jsonb config row per plan that OVERLAYS the compiled entitlement/price defaults
+-- field-by-field (dashboard/lib/tierConfig.ts, reviewer.db.load_tier_settings) so
+-- caps/allowances/prices are tunable WITHOUT a redeploy. Shared operator policy (not
+-- per-user); empty by default = use the compiled defaults everywhere.
+CREATE TABLE tier_settings (
+  plan       TEXT PRIMARY KEY CHECK (plan IN ('standard','pro')),
+  config     JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Account-deletion erasure ledger (see migrations/2026-07-04-account-deletions.sql).
+-- One row per deleted account, keyed by user_id, with a HASH of the email (never
+-- plaintext) as tamper-evident proof of erasure. Written by the deletion cascade
+-- (dashboard/lib/accountDeletion.ts) via the service role; users never read it.
+CREATE TABLE account_deletions (
+  user_id    UUID PRIMARY KEY,
+  email_hash TEXT,
+  deleted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- OpenRouter spend-alert snapshots (see migrations/2026-07-04-openrouter-usage-snapshots.sql).
+-- observability.spend_alert (Railway cron) records total_usage/total_credits here and
+-- differences the trailing-24h window to compute burn. Service-role only.
+CREATE TABLE openrouter_usage_snapshots (
+  taken_at      TIMESTAMPTZ PRIMARY KEY DEFAULT now(),
+  total_usage   NUMERIC NOT NULL,
+  total_credits NUMERIC
+);
+
 -- Applied-migrations ledger. Record each migration with:
 --   INSERT INTO schema_migrations (filename) VALUES ('<file>');
 -- when applied. Every new migration must be idempotent, transactional where
@@ -404,6 +434,12 @@ ALTER TABLE subscriptions        ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON subscriptions        FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE review_requests      ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON review_requests      FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE tier_settings        ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON tier_settings        FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE account_deletions    ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON account_deletions    FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE openrouter_usage_snapshots ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON openrouter_usage_snapshots FOR ALL USING (false) WITH CHECK (false);
 
 -- ── Phase-1 tenant isolation (mirrors migrations/2026-07-03-rls-tenant-isolation.sql
 -- + the per-user policies of 2026-07-03-billing-review-requests.sql) ────────────
@@ -479,6 +515,9 @@ CREATE POLICY owner_read ON review_requests FOR SELECT TO authenticated
 CREATE POLICY owner_insert ON review_requests FOR INSERT TO authenticated
   WITH CHECK (user_id = (SELECT public.app_user_id()));
 
+-- Tier settings: shared operator policy (not per-user). Writes are service-role only.
+CREATE POLICY shared_read ON tier_settings FOR SELECT TO anon, authenticated USING (true);
+
 -- Grants (table privilege is the outer gate; RLS filters within — a granted table
 -- with no matching policy returns zero rows, not permission-denied).
 GRANT SELECT ON jobs, companies, poll_runs, discovery_runs, discovery_state, review_runs
@@ -494,3 +533,5 @@ GRANT USAGE ON SEQUENCE review_requests_id_seq TO authenticated;
 -- anon reads the public board + gets SELECT (no policy → zero rows) on the two
 -- review tables getJobReviewDetail LEFT JOINs so its anon query isn't denied.
 GRANT SELECT ON jobs, companies, job_reviews, review_corrections TO anon;
+-- Tier settings: shared operator config read by the dashboard (withAnonSql) + reviewer.
+GRANT SELECT ON tier_settings TO anon, authenticated;

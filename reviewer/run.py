@@ -259,7 +259,10 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
     return results, halt.is_set()
 
 
-def _review_user(conn, profile: dict) -> None:
+def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
+    # `ent` is the DB-overlaid entitlements map (T1). review_all loads it once per run;
+    # the on-demand worker passes None so it is loaded per request. None → compiled
+    # defaults inside the entitlement helpers.
     user_id = str(profile["user_id"])
     pv = profile["profile_version"]
     run_id = db.start_review_run(conn, user_id)
@@ -293,14 +296,14 @@ def _review_user(conn, profile: dict) -> None:
         # Cheap gate ALWAYS (spec model-policy decision): stage 1 is forced to the cheap
         # model regardless of profiles.model_stage1. Stage 2 is the tier-entitled model
         # (premium only if the plan grants it, else cheap).
-        resolved_stage2 = entitlements.resolve_stage2_model(plan, profile.get("model_stage2"))
+        resolved_stage2 = entitlements.resolve_stage2_model(plan, profile.get("model_stage2"), ent)
 
         # Per-user rolling daily budget: the per-model cap minus what's already been
         # spent today (UTC). A per-profile daily_review_cap is an admin override; else
         # the tier's per-model cap. config.DAILY_REVIEW_CAP_DEFAULT is only a last-resort
         # fallback (a resolved plan always yields a positive entitlement cap).
         cap = (profile.get("daily_review_cap")
-               or entitlements.daily_review_cap(plan, resolved_stage2)
+               or entitlements.daily_review_cap(plan, resolved_stage2, ent)
                or config.DAILY_REVIEW_CAP_DEFAULT)
         remaining = max(0, cap - db.get_daily_spend(conn, user_id))
         if remaining == 0:
@@ -383,8 +386,12 @@ def review_all(conn) -> None:
         return
     if tracing.tracing_enabled():
         log.info("langfuse tracing on; sample_rate=%s", tracing.sample_rate())
+    # DB-overlaid tier config (T1), read ONCE per run and threaded into every user's
+    # cap/model resolution. An operator's `UPDATE tier_settings` is honored on the next
+    # run with no redeploy.
+    ent = db.load_tier_settings(conn)
     try:
         for profile in profiles:
-            _review_user(conn, profile)
+            _review_user(conn, profile, ent)
     finally:
         tracing.flush()

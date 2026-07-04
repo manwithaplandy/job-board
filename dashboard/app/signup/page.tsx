@@ -1,44 +1,8 @@
-import { redirect } from "next/navigation";
-import { headers } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
-import { redeemInvite, releaseInvite } from "@/lib/invites";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { SupportLink, supportEmail } from "@/components/SupportLink";
+import { signUp } from "@/app/actions/signup";
 
 export const dynamic = "force-dynamic";
-
-const enc = (s: string) => encodeURIComponent(s);
-
-async function signUp(formData: FormData) {
-  "use server";
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
-  const code = String(formData.get("invite_code") ?? "");
-  if (!email || !password) {
-    redirect(`/signup?error=${enc("Email and password are required.")}`);
-  }
-
-  // Redeem the invite FIRST — an invalid/exhausted/expired code fails here, before
-  // any Supabase Auth call is made (no wasted account, no email sent).
-  const redeemed = await redeemInvite(code, email);
-  if (!redeemed.ok) redirect(`/signup?error=${enc(redeemed.reason)}`);
-
-  const h = await headers();
-  const origin = `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host") ?? ""}`;
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    // The verification email links back here; /auth/confirm exchanges the token
-    // then forwards to onboarding.
-    options: { emailRedirectTo: `${origin}/auth/confirm?next=/onboarding` },
-  });
-  if (error) {
-    // Signup failed after the code was consumed — release it so the use isn't burned.
-    await releaseInvite(code, email);
-    redirect(`/signup?error=${enc(error.message)}`);
-  }
-  redirect("/signup?sent=1");
-}
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh", background: "#f4f6fa",
@@ -118,6 +82,11 @@ export default async function SignupPage({
               {error}
             </p>
           )}
+          <p style={{ margin: "2px 0 0", fontSize: "11.5px", lineHeight: 1.5, color: "#8b94a3" }}>
+            By creating an account you agree to the{" "}
+            <a href="/terms" style={linkStyle}>Terms of Service</a> and{" "}
+            <a href="/privacy" style={linkStyle}>Privacy Policy</a>.
+          </p>
           <SubmitButton
             pendingLabel="Creating account…"
             style={{
@@ -131,6 +100,17 @@ export default async function SignupPage({
         <div style={linkRowStyle}>
           Already have an account?{" "}
           <a href="/login" style={linkStyle}>Sign in</a>
+        </div>
+        <div style={{ ...linkRowStyle, marginTop: "10px", fontSize: "11.5px" }}>
+          <a href="/terms" style={linkStyle}>Terms</a>
+          {" · "}
+          <a href="/privacy" style={linkStyle}>Privacy</a>
+          {supportEmail() && (
+            <>
+              {" · "}
+              <SupportLink label="Support" />
+            </>
+          )}
         </div>
       </div>
     </main>

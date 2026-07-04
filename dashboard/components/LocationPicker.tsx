@@ -10,10 +10,15 @@ type LocationOption = { location: string; count: number };
 // string array in a hidden field — JSON, not CSV, because locations contain commas.
 export function LocationPicker({
   name, options, defaultValue,
+  // The picker owns its own visible <label> (kept associated with the input via htmlFor so
+  // it's the combobox's accessible name). Locations are mandatory everywhere the picker is
+  // used (onboarding + /profile both reject an empty selection), hence the default copy.
+  label = "Locations to include (required — remote roles are always included)",
 }: {
   name: string;
   options: LocationOption[];
   defaultValue: string[];
+  label?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(defaultValue);
   const [query, setQuery] = useState("");
@@ -90,7 +95,7 @@ export function LocationPicker({
       }}
     >
       <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "#5b6472" }}>
-        Locations to include (blank = all; remote always included)
+        {label}
       </label>
       <input type="hidden" name={name} value={JSON.stringify(selected)} />
       {selected.length > 0 && (

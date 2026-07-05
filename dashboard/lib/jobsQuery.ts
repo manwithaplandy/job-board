@@ -94,7 +94,7 @@ export function buildJobsQuery(
   // unnecessary, not filtering on them.
   const selectCols = [
     "j.id", "j.title", "j.location", "j.remote",
-    "j.first_seen_at", "j.closed_at", "c.name AS company_name",
+    "j.first_seen_at", "j.closed_at", "COALESCE(c.display_name, c.name) AS company_name",
     "c.ats",
   ];
   if (hasReviews) {

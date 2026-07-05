@@ -72,6 +72,24 @@ def test_candidates_missing_then_excluded_when_fresh(conn):
     assert [c["id"] for c in rows2] == [job_id]
 
 
+@requires_db
+def test_candidate_company_name_prefers_display_name(conn):
+    """company_name (the LLM-prompt string) uses COALESCE(display_name, name):
+    prefer the enriched display_name when set, fall back to the raw slug when NULL.
+    The NULL-fallback case is pinned by test_candidates_missing_then_excluded_when_fresh
+    (seeded name 'Acme', display_name defaults NULL -> company_name == 'Acme')."""
+    job_id = _seed_job(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE companies SET display_name = %s WHERE ats='lever' AND token='acme'",
+            ("Acme, Inc.",),
+        )
+    conn.commit()
+    cands, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert [c["id"] for c in cands] == [job_id]
+    assert cands[0]["company_name"] == "Acme, Inc."
+
+
 def _seed_loc(conn, ext, location, remote):
     job_id = _seed_job(conn, ext)
     with conn.cursor() as cur:

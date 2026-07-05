@@ -297,9 +297,9 @@ async function getDistributions(tx: TransactionSql, userId: string): Promise<Dis
         GROUP BY department ORDER BY count DESC LIMIT ${TOP_N}`,
     () => tx`SELECT CASE WHEN remote THEN 'Remote' ELSE 'On-site / hybrid' END AS label, count(*)::int AS count
         FROM jobs WHERE closed_at IS NULL GROUP BY 1 ORDER BY count DESC`,
-    () => tx`SELECT c.name AS label, count(*)::int AS count
+    () => tx`SELECT COALESCE(c.display_name, c.name) AS label, count(*)::int AS count
         FROM jobs j JOIN companies c ON c.id = j.company_id
-        WHERE j.closed_at IS NULL GROUP BY c.name ORDER BY count DESC LIMIT ${TOP_N}`,
+        WHERE j.closed_at IS NULL GROUP BY COALESCE(c.display_name, c.name) ORDER BY count DESC LIMIT ${TOP_N}`,
     () => tx`SELECT c.ats AS label, count(*)::int AS count
         FROM jobs j JOIN companies c ON c.id = j.company_id
         WHERE j.closed_at IS NULL GROUP BY c.ats ORDER BY count DESC`,

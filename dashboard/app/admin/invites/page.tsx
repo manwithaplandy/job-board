@@ -30,8 +30,11 @@ const tdStyle: React.CSSProperties = {
   borderBottom: "1px solid #f0f2f6", whiteSpace: "nowrap",
 };
 
+// UTC calendar date (YYYY-MM-DD). Deterministic on purpose: toLocaleDateString() in a
+// server component would render in the server's timezone (UTC on Vercel), and ISO is
+// unambiguous — it also matches how expiry is defined (UTC end-of-day) so the columns agree.
 function fmtDate(d: Date | null): string {
-  return d ? new Date(d).toLocaleDateString() : "—";
+  return d ? new Date(d).toISOString().slice(0, 10) : "—";
 }
 
 // Plain (non-component) helper so the Date.now() read doesn't happen directly inside a

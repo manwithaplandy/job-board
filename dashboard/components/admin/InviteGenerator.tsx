@@ -58,8 +58,12 @@ export function InviteGenerator() {
         setError(res.error);
       } else {
         setMinted(res.code);
+        // Reset the whole form so the next mint starts from defaults rather than
+        // silently inheriting the previous expiry / max-uses.
         setNote("");
         setCustomCode("");
+        setExpires("");
+        setMaxUses("1");
         router.refresh(); // re-render the server list below with the new code
       }
     } catch {
@@ -79,6 +83,7 @@ export function InviteGenerator() {
             id="invite-note"
             type="text"
             value={note}
+            maxLength={200}
             placeholder="Who is this for?"
             onChange={(e) => setNote(e.target.value)}
             style={inputStyle}

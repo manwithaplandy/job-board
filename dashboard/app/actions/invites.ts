@@ -74,7 +74,8 @@ export async function createInviteAction(
     }
   }
 
-  // Pass the trimmed note through; createInvite owns the length clamp (column invariant).
+  // Pass the trimmed note through; createInvite owns the 200-char cap (an app-chosen
+  // bound — the note column is unconstrained TEXT; the form's maxLength mirrors it).
   const note = input.note?.trim() || undefined;
 
   try {

@@ -197,8 +197,10 @@ export type CreateInviteOpts = {
  * action can surface it as user-legible copy instead of a raw PG error.
  */
 export async function createInvite(opts: CreateInviteOpts = {}): Promise<InviteCode> {
-  // Trim + clamp the note to the column's practical cap here, at the DB primitive
-  // that owns the invariant — every caller (not just the action) gets a bounded note.
+  // Trim + bound the note to an app-chosen 200-char cap here (the column is
+  // unconstrained TEXT — this is a product cap, not a DB invariant) so every caller
+  // gets a bounded note rather than re-implementing the limit. The generator's
+  // <input maxLength> mirrors it so the truncation is visible, not silent.
   const note = opts.note?.trim().slice(0, 200) || null;
   const maxUses = opts.maxUses ?? 1;
   const expiresAt = opts.expiresAt ?? null;
@@ -223,12 +225,18 @@ export async function createInvite(opts: CreateInviteOpts = {}): Promise<InviteC
   throw new Error(`Couldn't generate a unique invite code after ${MAX_GENERATION_ATTEMPTS} attempts.`);
 }
 
-/** Every invite code, newest first, for the admin list view (`uses` IS the usage count — no join needed). */
+/**
+ * Every invite code, newest first, for the admin list view (`uses` IS the usage
+ * count — no join needed). Bounded by a generous LIMIT so the page can never issue
+ * an unbounded scan; the cap sits far above any realistic invite-only-beta count.
+ * If it's ever reached, the list needs real pagination (and this bound revisited).
+ */
 export async function listInvites(): Promise<InviteCode[]> {
   const rows = (await serviceSql`
     SELECT code, note, max_uses, uses, expires_at, created_at
     FROM invite_codes
     ORDER BY created_at DESC
+    LIMIT 1000
   `) as unknown as InviteRow[];
   return rows.map(toInviteCode);
 }

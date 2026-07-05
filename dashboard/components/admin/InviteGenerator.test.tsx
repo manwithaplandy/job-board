@@ -53,6 +53,19 @@ describe("InviteGenerator", () => {
     expect(screen.getByRole("button", { name: "Copy RF-QQQQ-WWWW" })).toBeTruthy();
   });
 
+  test("defaults an empty Max uses to 1 (server rejects 0)", async () => {
+    render(<InviteGenerator />);
+    fireEvent.change(screen.getByLabelText("Max uses"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate invite" }));
+    expect(await screen.findByText("RF-QQQQ-WWWW")).toBeTruthy();
+    expect(action.createInviteAction).toHaveBeenCalledWith({
+      note: undefined,
+      maxUses: 1,
+      expiresAt: null,
+      code: undefined,
+    });
+  });
+
   test("submits a non-empty expiry date and a trimmed custom code", async () => {
     render(<InviteGenerator />);
     fireEvent.click(screen.getByRole("button", { name: "Use a custom code" }));

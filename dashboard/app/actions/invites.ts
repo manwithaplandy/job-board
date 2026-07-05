@@ -53,6 +53,8 @@ export async function createInviteAction(
     // A date-only value (YYYY-MM-DD) parses to UTC midnight; treat it as the END of
     // that day so an expiry of "today" stays valid through the whole day rather than
     // being rejected as already past.
+    // NOTE: this boundary is intentionally UTC end-of-day, so a "today" picked in a
+    // far-west timezone (still on the prior UTC date) could theoretically be rejected.
     parsed.setUTCHours(23, 59, 59, 999);
     if (parsed.getTime() <= Date.now()) {
       return { ok: false, error: "Expiry must be today or later." };

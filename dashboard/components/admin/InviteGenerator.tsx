@@ -50,7 +50,7 @@ export function InviteGenerator() {
     try {
       const res = await createInviteAction({
         note: note.trim() || undefined,
-        maxUses: Number(maxUses),
+        maxUses: Number(maxUses) || 1, // empty / 0 / NaN → default 1 (server rejects 0)
         expiresAt: expires || null,
         code: customCode.trim() || undefined,
       });

@@ -218,7 +218,7 @@ export async function createInvite(opts: CreateInviteOpts = {}): Promise<InviteC
       // else: astronomically unlucky collision — loop regenerates a fresh code
     }
   }
-  throw new Error("Couldn't generate a unique invite code after 5 attempts.");
+  throw new Error(`Couldn't generate a unique invite code after ${MAX_GENERATION_ATTEMPTS} attempts.`);
 }
 
 /** Every invite code, newest first, for the admin list view (`uses` IS the usage count — no join needed). */

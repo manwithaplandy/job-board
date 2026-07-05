@@ -194,6 +194,13 @@ export function techTagLabel(raw: string): string {
   return key.split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
+/** Reviewer-extraction charts only (approvals-by-seniority, work-arrangement): "unknown"
+ *  is the model abstaining, not a company verdict — render it as "Not specified". Keep the
+ *  bar (it's a coverage signal). Scoped helper, NOT humanizeLabel/GLOSSARY.unknown, which
+ *  must keep the company-status "Unknown" meaning (plan phase J4). */
+export const notSpecified = (bars: { label: string; count: number }[]) =>
+  bars.map((b) => (b.label.toLowerCase() === "unknown" ? { ...b, label: "Not specified" } : b));
+
 /** snake_case / lowercase enum → human Title Case, with a small override map. */
 export function humanizeLabel(raw: string): string {
   if (raw == null) return "";

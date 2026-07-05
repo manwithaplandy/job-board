@@ -7,6 +7,7 @@ import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import type { PrepareLegStatus } from "./RolefitBoard";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
+import { displayEnumLabel } from "@/lib/rolefit/taxonomy";
 import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
 import { ReviewPanel } from "./ReviewPanel";
@@ -139,10 +140,10 @@ export function JobDetail({
   const initials = initialsOf(job.company_name);
   const payLabel = fmtPay(job);
   const rawArrangement = job.work_arrangement;
-  // Exclude the literal "unknown" taxonomy value from the meta line (matches JobCard).
-  const arrangement = rawArrangement && rawArrangement !== "unknown"
-    ? rawArrangement.charAt(0).toUpperCase() + rawArrangement.slice(1)
-    : null;
+  // displayEnumLabel hides the literal "unknown" taxonomy value and Title-Cases the rest,
+  // matching JobCard (and the seniority pill below) so the treatments can't drift.
+  const arrangement = displayEnumLabel(rawArrangement);
+  const seniorityLabel = displayEnumLabel(job.seniority);
   const metaLine = [job.company_name, job.location, arrangement]
     .filter(Boolean)
     .join(" · ");
@@ -232,7 +233,7 @@ export function JobDetail({
                 {job.role_category}
               </span>
             )}
-            {job.seniority && (
+            {seniorityLabel && (
               <span
                 style={{
                   display: "inline-flex",
@@ -246,7 +247,7 @@ export function JobDetail({
                   padding: "4px 10px",
                 }}
               >
-                {job.seniority}
+                {seniorityLabel}
               </span>
             )}
             {job.headcount && (

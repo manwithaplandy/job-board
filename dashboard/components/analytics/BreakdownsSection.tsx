@@ -4,7 +4,7 @@ import type { Distributions } from "@/lib/metrics";
 import type { Bar } from "@/lib/metrics";
 import { SimpleBarCard, SimpleTableCard, HBarCard } from "@/components/analytics/Chart";
 import { redFlagCategoryLabel } from "@/lib/redFlags";
-import { humanizeLabel, companyLabel, techTagLabel } from "@/lib/analyticsLabels";
+import { humanizeLabel, companyLabel, techTagLabel, notSpecified } from "@/lib/analyticsLabels";
 
 function Group({ label, intro, children }: { label: string; intro: string; children: React.ReactNode }) {
   return (
@@ -60,9 +60,9 @@ export function BreakdownsSection({ distributions: d }: { distributions: Distrib
         <SimpleBarCard title="Fit-score distribution" data={d.fitScore} color="#22a06b" allTicks />
         <HBarCard title="Approvals by industry" data={hz(d.approvalsByIndustry)} color="#22a06b" />
         <HBarCard title="Approvals by role category" data={hz(d.approvalsByRole)} color="#22a06b" />
-        <HBarCard title="Approvals by seniority" data={hz(d.approvalsBySeniority)} color="#22a06b" />
+        <HBarCard title="Approvals by seniority" data={hz(notSpecified(d.approvalsBySeniority))} color="#22a06b" />
         <HBarCard title="Experience match" data={hz(d.experienceMatch)} color="#7c6cd4" />
-        <HBarCard title="Work arrangement" data={hz(d.workArrangement)} color="#7c6cd4" />
+        <HBarCard title="Work arrangement" data={hz(notSpecified(d.workArrangement))} color="#7c6cd4" />
       </Group>
       <Group label="COMPANIES" intro="Who is being tracked and why some were flagged.">
         <HBarCard title="Companies by ATS" data={hz(d.companiesByAts)} />

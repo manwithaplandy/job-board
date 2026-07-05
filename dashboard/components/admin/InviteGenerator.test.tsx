@@ -50,6 +50,26 @@ describe("InviteGenerator", () => {
       code: undefined,
     });
     expect(nav.refresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Copy RF-QQQQ-WWWW" })).toBeTruthy();
+  });
+
+  test("submits a non-empty expiry date and a trimmed custom code", async () => {
+    render(<InviteGenerator />);
+    fireEvent.click(screen.getByRole("button", { name: "Use a custom code" }));
+    fireEvent.change(screen.getByLabelText("Expires"), {
+      target: { value: "2026-12-31" },
+    });
+    fireEvent.change(screen.getByLabelText("Custom code"), {
+      target: { value: " TEAM-2026 " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generate invite" }));
+    expect(await screen.findByText("RF-QQQQ-WWWW")).toBeTruthy();
+    expect(action.createInviteAction).toHaveBeenCalledWith({
+      note: undefined,
+      maxUses: 1,
+      expiresAt: "2026-12-31",
+      code: "TEAM-2026",
+    });
   });
 
   test("an { ok: false } result shows the error and mints nothing", async () => {

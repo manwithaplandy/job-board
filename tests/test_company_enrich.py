@@ -199,10 +199,21 @@ def test_select_to_enrich_scope(conn):
             "('NoReview','greenhouse','noreview', FALSE, 'dataset'),"
             "('Excluded','greenhouse','excluded', FALSE, 'dataset'),"
             "('Unknowned','greenhouse','unknowned', FALSE, 'dataset'),"
-            "('Enriched','greenhouse','enriched', TRUE, 'dataset')"
+            "('Enriched','greenhouse','enriched', TRUE, 'dataset'),"
+            "('AboutOnly','lever','aboutonly', TRUE, 'dataset')"
         )
-        # Already-enriched row: display_name set -> must be skipped even though active.
-        cur.execute("UPDATE companies SET display_name='Already' WHERE token='enriched'")
+        # Already-enriched (name-bearing) row: enriched_at set -> skipped even though active.
+        cur.execute(
+            "UPDATE companies SET display_name='Already', enriched_at=now() "
+            "WHERE token='enriched'"
+        )
+        # About-only enrichment (lever/ashby JD probe): enriched_at is stamped but
+        # display_name stays NULL. Must be EXCLUDED — a display_name-based guard would
+        # wrongly re-select and re-screen it forever.
+        cur.execute(
+            "UPDATE companies SET about='we build stuff', about_source='jd_probe', "
+            "enriched_at=now() WHERE token='aboutonly'"
+        )
     conn.commit()
     ids = {}
     with conn.cursor() as cur:

@@ -50,6 +50,10 @@ def test_candidates_missing_then_excluded_when_fresh(conn):
     assert cands[0]["ats"] == "lever"
     assert cands[0]["company_name"] == "Acme"
     assert cands[0]["description"] == "jd"
+    # The SELECT now carries j.remote so the write-time work_arrangement floor can
+    # read it (plan J1). This job was seeded without a remote flag → NULL.
+    assert "remote" in cands[0]
+    assert cands[0]["remote"] is None
 
     rdb.upsert_review(conn, {
         "user_id": USER, "job_id": job_id, "profile_version": "v1",

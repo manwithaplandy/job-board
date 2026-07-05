@@ -221,7 +221,8 @@ def select_candidates(
         )
         total = cur.fetchone()["n"]
         cur.execute(
-            f"SELECT j.id, j.title, j.location, j.description, c.ats, c.name AS company_name"
+            f"SELECT j.id, j.title, j.location, j.remote, j.description,"
+            f" c.ats, c.name AS company_name"
             f" {_where} ORDER BY j.first_seen_at DESC LIMIT %(lim)s",
             params,
         )

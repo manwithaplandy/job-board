@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { CSSProperties, RefObject } from "react";
 import type { OperatorSignals } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { AccountMenu } from "./AccountMenu";
@@ -25,12 +25,22 @@ const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
   stale: "#9aa3b0",
 };
 
+// Ghost nav-anchor style shared by the desktop content nav (Analytics, Companies) and
+// the anon "Sign in" link — they read identically, so the tokens live in one place.
+const NAV_ANCHOR_STYLE: CSSProperties = {
+  fontWeight: 700,
+  fontSize: "13px",
+  color: "#3b6fd4",
+  textDecoration: "none",
+  padding: "9px 6px",
+};
+
 export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewerEmail, isNarrow = false, onOpenProfile, searchRef }: HeaderProps) {
-  // "Sign in" when anonymous; "Résumé" when authed with a saved profile (this button opens
-  // the résumé-only modal — the new "Profile" link handles full settings); "Set up profile"
-  // when authed but no profile yet.
-  const profileBtnLabel = !isAuthed ? "Sign in" : hasProfile ? "Résumé" : "Set up profile";
-  const profileBtnIcon = !isAuthed ? "→" : hasProfile ? "✎" : "+";
+  // Authed CTA label: "Résumé" when a saved profile exists (opens the résumé-only
+  // modal — the "Profile" link handles full settings); "Set up profile" otherwise.
+  // Anonymous visitors get Sign in / Sign up anchors instead (see the CTA cluster).
+  const profileBtnLabel = hasProfile ? "Résumé" : "Set up profile";
+  const profileBtnIcon = hasProfile ? "✎" : "+";
 
   return (
     <div
@@ -195,41 +205,66 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
         {/* Content nav — top-level on desktop; folds into the account menu (includeNav)
             at narrow widths so the header fits. */}
         {isAuthed && !isNarrow && (
-          <a href="/analytics" style={{
-            fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
-            textDecoration: "none", padding: "9px 6px",
-          }}>
+          <a href="/analytics" style={NAV_ANCHOR_STYLE}>
             Analytics
           </a>
         )}
 
         {isAuthed && !isNarrow && (
-          <a href="/companies" style={{
-            fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
-            textDecoration: "none", padding: "9px 6px",
-          }}>
+          <a href="/companies" style={NAV_ANCHOR_STYLE}>
             Companies
           </a>
         )}
 
-        {/* Résumé button — the board's primary action */}
-        <Button
-          variant="primary"
-          onClick={onOpenProfile}
-          style={{
-            fontSize: "13px",
-            padding: "9px 14px",
-            border: "1px solid #3b6fd4",
-            boxShadow: "none",
-          }}
-        >
-          <span style={{ fontSize: "13px" }}>{profileBtnIcon}</span>
-          <span>{profileBtnLabel}</span>
-        </Button>
+        {/* CTA cluster. Authed: the Résumé / Set-up-profile button (the board's
+            primary action). Anon: real navigation anchors — secondary "Sign in" then
+            the primary "Sign up" rightmost (most prominent). Anchors, not <Button>,
+            so middle-click/new-tab semantics work (Button renders a hardcoded
+            <button>); tokens mirror components/ui/Button.tsx primary (#3b6fd4 fill,
+            white text, the primary box-shadow) and the nav-anchor ghost style. */}
+        {isAuthed ? (
+          <Button
+            variant="primary"
+            onClick={onOpenProfile}
+            style={{
+              fontSize: "13px",
+              padding: "9px 14px",
+              border: "1px solid #3b6fd4",
+              boxShadow: "none",
+            }}
+          >
+            <span style={{ fontSize: "13px" }}>{profileBtnIcon}</span>
+            <span>{profileBtnLabel}</span>
+          </Button>
+        ) : (
+          <>
+            <a href="/login" style={NAV_ANCHOR_STYLE}>
+              Sign in
+            </a>
+            <a
+              href="/signup"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                fontWeight: 700,
+                fontSize: "13px",
+                color: "#fff",
+                background: "#3b6fd4",
+                border: "1px solid #3b6fd4",
+                borderRadius: "11px",
+                padding: "9px 14px",
+                textDecoration: "none",
+                boxShadow: "0 4px 12px rgba(59,111,212,.28)",
+              }}
+            >
+              Sign up
+            </a>
+          </>
+        )}
 
         {/* Account menu (Profile / Billing / Sign out; +Analytics/Companies when narrow) —
-            far-corner resident. Authed-only; the anonymous board's CTA is the "Sign in"
-            button above. */}
+            far-corner resident. Authed-only; the anonymous board's CTA is the
+            Sign in / Sign up anchor pair above. */}
         {isAuthed && <AccountMenu email={viewerEmail} includeNav={isNarrow} />}
       </div>
     </div>

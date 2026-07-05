@@ -45,9 +45,12 @@ describe("Header — unreviewed first-run gating", () => {
 });
 
 describe("Header — profile button label matrix", () => {
-  test("anon → 'Sign in' button and NO account menu", () => {
+  test("anon → 'Sign in' link to /login + 'Sign up' link to /signup, NO account menu", () => {
     renderHeader({ isAuthed: false, hasProfile: false, viewerEmail: null });
-    expect(screen.getByRole("button", { name: /Sign in/ })).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
+    expect(screen.getByRole("link", { name: "Sign up" }).getAttribute("href")).toBe("/signup");
+    // The anon CTA is real navigation now — no button-based CTA, no account menu.
+    expect(screen.queryByRole("button", { name: /Sign in/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /account/i })).toBeNull();
   });
 

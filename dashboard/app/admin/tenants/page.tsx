@@ -4,6 +4,7 @@ import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import { getTenantMetrics, type TenantMetric } from "@/lib/tenantMetrics";
 import { PLAN_LABEL } from "@/lib/entitlements";
+import { AdminNav } from "@/components/admin/AdminNav";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Tenants · Admin" };
@@ -74,6 +75,7 @@ export default async function AdminTenantsPage() {
   return (
     <main style={pageStyle}>
       <div style={wrapStyle}>
+        <AdminNav active="tenants" />
         <div style={cardStyle}>
           <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
             Tenants

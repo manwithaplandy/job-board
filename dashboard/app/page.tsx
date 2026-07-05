@@ -8,6 +8,7 @@ import {
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
 import { getUserClaims } from "@/lib/auth";
+import { isAdmin } from "@/lib/admin";
 import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 import {
@@ -80,6 +81,7 @@ export default async function Page({
         operator={operator}
         hasProfile
         viewerEmail={claims!.email}
+        isAdmin={isAdmin(claims)}
         resumeText={profile.resume_text ?? ""}
         currentProfileVersion={profile.profile_version}
         initialPackages={packages}
@@ -106,6 +108,7 @@ export default async function Page({
       operator={undefined}
       hasProfile={false}
       viewerEmail={null}
+      isAdmin={false}
       resumeText=""
       currentProfileVersion={null}
       initialPackages={[]}

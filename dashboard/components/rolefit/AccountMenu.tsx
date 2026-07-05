@@ -11,6 +11,11 @@ export interface AccountMenuProps {
   // SlimHeader passes the current page so the matching item carries aria-current="page"
   // (/profile and /billing no longer have a filled nav pill).
   current?: "profile" | "billing";
+  // True only for ADMIN_EMAILS viewers (computed server-side from verified claims):
+  // reveals an "Admin" link to the otherwise-unadvertised /admin console. Non-admins
+  // are never passed true, so the link never renders — and the /admin pages re-gate
+  // regardless, so this is purely a discoverability affordance, not the access control.
+  isAdmin?: boolean;
 }
 
 const POPUP_ID = "account-menu-popup";
@@ -39,7 +44,7 @@ const separatorStyle: CSSProperties = { borderTop: "1px solid #eef1f5", margin: 
 // WAI-ARIA menu-button. The trigger is an initials avatar; the popup is a role=menu whose
 // items are links + a same-origin sign-out form-POST. Sign out MUST stay a real form POST
 // (not fetch/link/action): /auth/signout has a CSRF guard that 403s programmatic POSTs.
-export function AccountMenu({ email, includeNav = false, current }: AccountMenuProps) {
+export function AccountMenu({ email, includeNav = false, current, isAdmin = false }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -243,6 +248,22 @@ export function AccountMenu({ email, includeNav = false, current }: AccountMenuP
           >
             Billing
           </a>
+
+          {/* Admin console (ADMIN_EMAILS viewers only) — the sole UI entry point to the
+              otherwise-unadvertised /admin/* pages. Lands on Tenants; its sub-nav reaches
+              Invites. The pages re-gate on isAdmin, so hiding this is UX, not security. */}
+          {isAdmin && (
+            <a
+              role="menuitem"
+              tabIndex={-1}
+              href="/admin/tenants"
+              className="rf-picker-option"
+              style={itemStyle}
+              onClick={close}
+            >
+              Admin
+            </a>
+          )}
 
           <div role="separator" style={separatorStyle} />
 

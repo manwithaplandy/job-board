@@ -11,6 +11,8 @@ export interface HeaderProps {
   operator?: OperatorSignals;
   // The viewer's email for the account menu; null for the anon board (no menu shown).
   viewerEmail: string | null;
+  // True only for ADMIN_EMAILS viewers — surfaces the Admin link in the account menu.
+  isAdmin?: boolean;
   // ≤760px: collapse the flat content nav + operator signals + badge into the account
   // menu so the header fits. Defaults false so the component stays usable standalone.
   isNarrow?: boolean;
@@ -35,7 +37,7 @@ const NAV_ANCHOR_STYLE: CSSProperties = {
   padding: "9px 6px",
 };
 
-export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewerEmail, isNarrow = false, onOpenProfile, searchRef }: HeaderProps) {
+export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewerEmail, isAdmin = false, isNarrow = false, onOpenProfile, searchRef }: HeaderProps) {
   // Authed CTA label: "Résumé" when a saved profile exists (opens the résumé-only
   // modal — the "Profile" link handles full settings); "Set up profile" otherwise.
   // Anonymous visitors get Sign in / Sign up anchors instead (see the CTA cluster).
@@ -265,7 +267,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
         {/* Account menu (Profile / Billing / Sign out; +Analytics/Companies when narrow) —
             far-corner resident. Authed-only; the anonymous board's CTA is the
             Sign in / Sign up anchor pair above. */}
-        {isAuthed && <AccountMenu email={viewerEmail} includeNav={isNarrow} />}
+        {isAuthed && <AccountMenu email={viewerEmail} includeNav={isNarrow} isAdmin={isAdmin} />}
       </div>
     </div>
   );

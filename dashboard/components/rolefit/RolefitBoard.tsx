@@ -50,6 +50,8 @@ export interface RolefitBoardProps {
   hasProfile: boolean;
   // The viewer's email for the account-menu trigger/label; null for the anon board.
   viewerEmail: string | null;
+  // Forwarded to the header's account menu to reveal the Admin console link (admins only).
+  isAdmin?: boolean;
   resumeText: string;
   // Live profiles.profile_version — a package whose stored profileVersion differs
   // was generated from an older résumé/instructions and is flagged stale. null for
@@ -100,6 +102,7 @@ export function RolefitBoard({
   operator,
   hasProfile,
   viewerEmail,
+  isAdmin,
   resumeText,
   currentProfileVersion,
   initialPackages,
@@ -938,6 +941,7 @@ export function RolefitBoard({
         hasProfile={hasProfile}
         operator={operator}
         viewerEmail={viewerEmail}
+        isAdmin={isAdmin}
         isNarrow={isNarrow}
         // The header CTA is authed-only now (anon gets Sign in / Sign up anchors),
         // so this only ever opens the modal. (JobDetail's onOpenProfile below was

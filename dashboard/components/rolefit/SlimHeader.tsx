@@ -10,6 +10,7 @@
 
 import Link from "next/link";
 import { getUserClaims } from "@/lib/auth";
+import { isAdmin } from "@/lib/admin";
 import { AccountMenu } from "./AccountMenu";
 
 type NavKey = "analytics" | "companies" | "profile" | "billing";
@@ -98,6 +99,7 @@ export async function SlimHeader({ current }: { current?: NavKey }) {
       {/* Account menu (Profile / Billing / Sign out) */}
       <AccountMenu
         email={claims?.email ?? null}
+        isAdmin={isAdmin(claims)}
         current={current === "profile" || current === "billing" ? current : undefined}
       />
     </header>

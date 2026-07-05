@@ -77,6 +77,23 @@ describe("AccountMenu — open contents", () => {
     expect(screen.queryByRole("menuitem", { name: "Companies" })).toBeNull();
   });
 
+  test("Admin link is absent by default (non-admins)", () => {
+    renderMenu();
+    openWithClick();
+    expect(screen.queryByRole("menuitem", { name: "Admin" })).toBeNull();
+  });
+
+  test("isAdmin reveals an Admin link to /admin/tenants, with Sign out still last", () => {
+    renderMenu({ isAdmin: true });
+    openWithClick();
+    const admin = screen.getByRole("menuitem", { name: "Admin" });
+    expect(admin.getAttribute("href")).toBe("/admin/tenants");
+    // Admin joins the nav group; Sign out stays the last item so the keyboard-wrap
+    // contract (ArrowDown at end → first) is unchanged.
+    const items = screen.getAllByRole("menuitem");
+    expect((items[items.length - 1] as HTMLElement).textContent).toBe("Sign out");
+  });
+
   test("includeNav prepends Analytics/Companies menuitems", () => {
     renderMenu({ includeNav: true });
     openWithClick();

@@ -14,8 +14,9 @@ _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 _INSTRUCTIONS = (
     "You are screening COMPANIES for one candidate against their company "
-    "preferences. You are given only a company's name and its ATS slug — judge "
-    "from what you actually know about the company.\n"
+    "preferences. You are given a company's name, its ATS slug, and sometimes a "
+    "short description block — judge from what you know about the company plus any "
+    "description provided.\n"
     "- reasoning: a SINGLE self-contained sentence (max ~200 characters) stating "
     "your final justification — name the preference it matches or violates. Do NOT "
     "include step-by-step deliberation, self-correction, or hedging phrases "

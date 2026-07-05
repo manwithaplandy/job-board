@@ -252,6 +252,14 @@ def test_review_truncates_description_to_2000_chars():
     assert "x" * 2001 not in user
 
 
+def test_instructions_opening_acknowledges_description_block():
+    # The opening line must no longer claim the model gets "only a company's name
+    # and its ATS slug" now that a <company_description> block can be present — it
+    # would contradict the verdict bullet that tells the model to judge from it.
+    assert "given only a company's name" not in _INSTRUCTIONS
+    assert "sometimes a" in _INSTRUCTIONS and "description block" in _INSTRUCTIONS
+
+
 def test_instructions_ground_unknown_on_provided_description():
     # 'unknown' is only correct when there is no identifying description; a provided
     # company_description that identifies the company must be judged from.

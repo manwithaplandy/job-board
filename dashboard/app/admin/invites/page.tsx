@@ -6,6 +6,7 @@ import { listInvites, type InviteCode } from "@/lib/invites";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { InviteGenerator } from "@/components/admin/InviteGenerator";
 import { CopyButton } from "@/components/admin/CopyButton";
+import { SlimHeader } from "@/components/rolefit/SlimHeader";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Invites · Admin" };
@@ -79,47 +80,50 @@ export default async function AdminInvitesPage() {
   const invites = await listInvites();
 
   return (
-    <main style={pageStyle}>
-      <div style={wrapStyle}>
-        <AdminNav active="invites" />
+    <>
+      <SlimHeader current="admin" />
+      <main style={pageStyle}>
+        <div style={wrapStyle}>
+          <AdminNav active="invites" />
 
-        <div style={{ ...cardStyle, marginBottom: "18px" }}>
-          <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
-            Invites
-          </h1>
-          <div style={{ fontSize: "12.5px", color: "#6b7480", marginBottom: "18px" }}>
-            Generate invite codes for the invite-only beta and track how many uses each has left.
+          <div style={{ ...cardStyle, marginBottom: "18px" }}>
+            <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
+              Invites
+            </h1>
+            <div style={{ fontSize: "12.5px", color: "#6b7480", marginBottom: "18px" }}>
+              Generate invite codes for the invite-only beta and track how many uses each has left.
+            </div>
+            <InviteGenerator />
           </div>
-          <InviteGenerator />
-        </div>
 
-        <div style={cardStyle}>
-          {invites.length === 0 ? (
-            <div style={{ fontSize: "13px", color: "#6b7480", padding: "24px 4px" }}>
-              No invite codes yet.
-            </div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px" }}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>Code</th>
-                    <th style={thStyle}>Note</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Uses</th>
-                    <th style={thStyle}>Expires</th>
-                    <th style={thStyle}>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invites.map((inv) => (
-                    <Row key={inv.code} inv={inv} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <div style={cardStyle}>
+            {invites.length === 0 ? (
+              <div style={{ fontSize: "13px", color: "#6b7480", padding: "24px 4px" }}>
+                No invite codes yet.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px" }}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Code</th>
+                      <th style={thStyle}>Note</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Uses</th>
+                      <th style={thStyle}>Expires</th>
+                      <th style={thStyle}>Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invites.map((inv) => (
+                      <Row key={inv.code} inv={inv} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </>
   );
 }

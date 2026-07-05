@@ -13,7 +13,7 @@ import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import { AccountMenu } from "./AccountMenu";
 
-type NavKey = "analytics" | "companies" | "profile" | "billing";
+type NavKey = "analytics" | "companies" | "profile" | "billing" | "admin";
 
 const NAV: { key: NavKey; href: string; label: string }[] = [
   { key: "analytics", href: "/analytics", label: "Analytics" },
@@ -100,7 +100,7 @@ export async function SlimHeader({ current }: { current?: NavKey }) {
       <AccountMenu
         email={claims?.email ?? null}
         isAdmin={isAdmin(claims)}
-        current={current === "profile" || current === "billing" ? current : undefined}
+        current={current === "profile" || current === "billing" || current === "admin" ? current : undefined}
       />
     </header>
   );

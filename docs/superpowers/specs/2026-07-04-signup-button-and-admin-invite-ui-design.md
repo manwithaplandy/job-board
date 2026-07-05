@@ -155,14 +155,18 @@ authenticated RLS policy by design. The new functions inherit that justification
 
 ### Server action — new `app/actions/invites.ts`
 
-- **`createInviteAction(input): Promise<{ code: string }>`** (`"use server"`).
+- **`createInviteAction(input): Promise<{ ok: true; code: string } | { ok: false; error: string }>`** (`"use server"`).
   - **Gate first, before any work:**
     `if (!isAdmin(await getUserClaims())) throw new Error("not authorized");`
-    (mirrors `app/actions/companies.ts:50`).
+    (mirrors `app/actions/companies.ts:50` — strangers get no legible detail).
   - Validate: `maxUses` is an integer in `1..1000`; `expiresAt` parses to a future
     timestamp or is null; custom `code` (if provided) matches an allowed charset/length.
-  - Call `createInvite(...)`, return `{ code }`.
-  - Any validation failure throws a legible message the form can display.
+  - On success return `{ ok: true, code }`; on a validation failure or custom-code
+    collision return `{ ok: false, error }` with a legible message the form can display.
+  - **Why a result union, not throw-for-validation:** Next.js redacts thrown
+    server-action error messages in production, so a thrown validation message would
+    reach the form as a generic error. The union mirrors the house `RedeemResult`
+    pattern (`lib/invites.ts:30`). Only the unauthorized gate throws.
 
 ### Page — new `app/admin/invites/page.tsx`
 
@@ -185,9 +189,10 @@ Server component, mirrors `app/admin/tenants/page.tsx` structure and inline-styl
      Created**, newest first, each row with a per-row copy button. Empty state: "No
      invite codes yet."
 
-The form is the only client component; the page and table are server-rendered. Codes are
-capability tokens shown only to admins (page + action both gated), so listing them in
-plaintext is fine.
+The page and table are server-rendered; the client footprint is two small leaves — the
+`InviteGenerator` form and a shared `CopyButton` (the per-row copy button inside the
+server-rendered table needs a client leaf). Codes are capability tokens shown only to
+admins (page + action both gated), so listing them in plaintext is fine.
 
 ### Navigation
 

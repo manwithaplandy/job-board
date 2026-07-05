@@ -80,7 +80,7 @@ function LegendList({ items }: { items: SeriesDef[] }) {
 function makeIsolatedDot(
   data: Array<Record<string, string | number | null>>, key: string, color: string,
 ) {
-  return (props: { cx?: number; cy?: number; index?: number }) => {
+  const IsolatedDot = (props: { cx?: number; cy?: number; index?: number }) => {
     const { cx, cy } = props;
     const i = props.index ?? -1;
     const val = i >= 0 ? data[i]?.[key] : null;
@@ -90,6 +90,10 @@ function makeIsolatedDot(
     if (prev != null || next != null) return <g key={`dot-${i}`} />;
     return <circle key={`dot-${i}`} cx={cx} cy={cy} r={3} fill={color} stroke="#fff" strokeWidth={1} />;
   };
+  // Named + displayName so the recharts `dot` render-prop isn't an anonymous
+  // component (react/display-name, enforced as error on main).
+  IsolatedDot.displayName = "IsolatedDot";
+  return IsolatedDot;
 }
 
 function refLineNode(refLine?: RefLine) {

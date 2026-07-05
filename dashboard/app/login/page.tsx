@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { saveBoardFilters } from "@/lib/queries";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { safeAuthMessage } from "@/lib/safeError";
+import { SupportLink, supportEmail } from "@/components/SupportLink";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +15,7 @@ async function signIn(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/login?error=${encodeURIComponent(safeAuthMessage("login", error))}`);
 
   // Adopt anonymous cookie filters into the account (best-effort, UPDATE-only).
   const store = await cookies();
@@ -33,9 +35,9 @@ async function signIn(formData: FormData) {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; deleted?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, deleted } = await searchParams;
   return (
     <main
       style={{
@@ -67,6 +69,17 @@ export default async function LoginPage({
         >
           Sign in
         </h1>
+        {deleted && (
+          <p
+            role="status"
+            style={{
+              margin: "0 0 16px", fontSize: "12.5px", lineHeight: 1.5,
+              color: "#2f6f4f", fontWeight: 600,
+            }}
+          >
+            Your account and data have been permanently deleted.
+          </p>
+        )}
         <form
           action={signIn}
           style={{ display: "flex", flexDirection: "column", gap: "14px" }}
@@ -151,6 +164,37 @@ export default async function LoginPage({
             Sign in
           </SubmitButton>
         </form>
+        <div
+          style={{
+            marginTop: "16px",
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: "12.5px",
+            color: "#6b7480",
+          }}
+        >
+          <a href="/signup" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+            Create account
+          </a>
+          <a href="/reset-password" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+            Forgot password?
+          </a>
+        </div>
+        <div
+          style={{
+            marginTop: "12px", fontSize: "11.5px", color: "#8b94a3", textAlign: "center",
+          }}
+        >
+          <a href="/terms" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>Terms</a>
+          {" · "}
+          <a href="/privacy" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>Privacy</a>
+          {supportEmail() && (
+            <>
+              {" · "}
+              <SupportLink label="Support" />
+            </>
+          )}
+        </div>
       </div>
     </main>
   );

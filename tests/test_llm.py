@@ -130,6 +130,7 @@ def test_stage1_creates_generation_when_tracing_enabled(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
 
     class _LF:
         def start_as_current_observation(self, **kw):
@@ -164,7 +165,7 @@ def test_system_prompt_mandates_english_output():
 
 def test_prompt_contains_anchors_and_guard():
     """Stage-2 system prompt must contain score anchors, UNTRUSTED guard, and comp definition."""
-    from reviewer.llm import _STAGE2_INSTRUCTIONS, _STAGE1_INSTRUCTIONS
+    from reviewer.llm import _STAGE2_INSTRUCTIONS
     # Score anchor for skills_score
     assert "90-100" in _STAGE2_INSTRUCTIONS
     # Separate comp definition
@@ -285,6 +286,7 @@ def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
 
     class _LF:
         def start_as_current_observation(self, **kw):
@@ -303,6 +305,7 @@ def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
                     )
                 )],
                 usage=usage,
+                id="gen-cost", model="deepseek/deepseek-v4-flash",
             )
 
     client = types.SimpleNamespace(
@@ -311,4 +314,164 @@ def test_stage1_forwards_openrouter_cost_as_cost_details(monkeypatch):
     rc = ReviewClient(client=client, model_stage1="m1", model_stage2="m2")
     asyncio.run(rc.stage1(profile_block="P", title="T", company="C", location=None))
 
+    # A real positive usage.cost is trusted verbatim and stamped source='usage'.
     assert events["update"]["cost_details"] == {"total": 1.23e-05}
+    assert events["update"]["metadata"]["cost_source"] == "usage"
+
+
+def test_cost_confirmation_runs_outside_the_span_latency_window(monkeypatch):
+    """minor 9: when usage.cost is 0/absent the cost is CONFIRMED via a second OpenRouter
+    round-trip. That confirm must NOT inflate the generation latency: the span is ended
+    with an explicit end_time pinned to the API-call completion, and the confirmed cost is
+    still attached before end()."""
+    from observability import tracing, llm
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            events["create"] = kw
+            return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    confirm_calls = []
+
+    async def _fake_confirm(gen_id):
+        confirm_calls.append(gen_id)
+        return 0.5
+
+    monkeypatch.setattr(llm, "_confirm_generation_cost", _fake_confirm)
+
+    # usage.cost absent (capture gap) but a generation id is present → confirm path.
+    usage = types.SimpleNamespace(prompt_tokens=10, completion_tokens=2, cost=None)
+
+    class _GapCompletions:
+        async def parse(self, **kwargs):
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(
+                    message=types.SimpleNamespace(
+                        parsed=Stage1Result(decision="pass", reason="r"), refusal=None
+                    )
+                )],
+                usage=usage, id="gen-gap", model="deepseek/deepseek-v4-flash",
+            )
+
+    client = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_GapCompletions()))
+    )
+    rc = ReviewClient(client=client, model_stage1="m1", model_stage2="m2")
+    asyncio.run(rc.stage1(profile_block="P", title="T", company="C", location=None))
+
+    # The confirm ran (against the generation id) and its cost was recorded…
+    assert confirm_calls == ["gen-gap"]
+    assert events["update"]["cost_details"] == {"total": 0.5}
+    assert events["update"]["metadata"]["cost_source"] == "generation_api"
+    # …and the span was ended with an EXPLICIT end_time (pinned to the API call, so the
+    # confirm round-trip is excluded from the recorded latency). end_on_exit=False enables this.
+    assert events["create"].get("end_on_exit") is False
+    assert events["end"].get("end_time") is not None
+
+
+# ── Robust structured-output parsing (deepseek-v4-flash: fence / prose / fractional) ──
+# These reproduce the exact malformed inputs a real prod review run logged and assert the
+# parser now recovers them (or fails gracefully when there is genuinely no JSON).
+from pydantic import ValidationError
+
+from observability.llm import robust_model_validate
+from reviewer.schemas import Stage1BatchResult
+
+
+def _valid_stage2_json() -> str:
+    return Stage2Result(
+        verdict="deny", experience_match="match",
+        industry="software_internet", industry_subcategory="devtools_platforms",
+        confidence="low", reasoning="x",
+    ).model_dump_json()
+
+
+class _RawParsingCompletions:
+    """Mimics the OpenAI SDK's beta.chat.completions.parse: it validates a fixed raw
+    string into response_format and raises the pydantic ValidationError (with the raw
+    payload recorded as the error's `input`) exactly as the SDK does on fenced/malformed
+    output — so _invoke's salvage path is exercised end-to-end."""
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    async def parse(self, **kwargs):
+        schema = kwargs["response_format"]
+        return _make_response(schema.model_validate_json(self.raw))
+
+
+def _client_returning(raw):
+    return types.SimpleNamespace(
+        beta=types.SimpleNamespace(
+            chat=types.SimpleNamespace(completions=_RawParsingCompletions(raw))))
+
+
+def test_schema_rounds_fractional_pay_and_scores_to_int():
+    """A fractional salary/score (real run: pay_min=73539.55) is rounded to int rather
+    than failing validation ('got a number with a fractional part') and dropping the
+    review. Covers pay_min/pay_max plus the sibling int score fields."""
+    m = Stage2Result.model_validate_json(
+        '{"verdict":"deny","experience_match":"match","industry":"software_internet",'
+        '"industry_subcategory":"devtools_platforms","confidence":"low","reasoning":"x",'
+        '"pay_min":73539.55,"pay_max":90000.4,"skills_score":82.6}'
+    )
+    assert m.pay_min == 73540 and m.pay_max == 90000 and m.skills_score == 83
+    assert isinstance(m.pay_min, int) and isinstance(m.skills_score, int)
+
+
+def test_robust_validate_strips_json_code_fence():
+    """The highest-value fix: ```json … ``` wrapping is stripped before validation
+    (real run: input_value='```json\\n{ "verdict": … }\\n```')."""
+    fenced = "```json\n" + _valid_stage2_json() + "\n```"
+    assert robust_model_validate(Stage2Result, fenced).verdict == "deny"
+
+
+def test_robust_validate_strips_bare_code_fence():
+    """A bare ``` … ``` fence (no language tag) is handled too."""
+    fenced = "```\n" + _valid_stage2_json() + "\n```"
+    assert robust_model_validate(Stage2Result, fenced).verdict == "deny"
+
+
+def test_robust_validate_salvages_json_after_leading_prose():
+    """A leading prose sentence before the JSON object is salvaged via first-block
+    extraction, not dropped."""
+    noisy = "Sure! Here is the result:\n" + _valid_stage2_json()
+    assert robust_model_validate(Stage2Result, noisy).confidence == "low"
+
+
+def test_robust_validate_raises_on_non_json_numbered_list():
+    """The stage-1 numbered-list case (real run: input_value='1. id=lever:agicap:…') has
+    no JSON to recover, so it must fail gracefully (raise) rather than fabricate a result."""
+    numbered = "1. id=lever:agicap:foo pass\n2. id=lever:bar:baz reject"
+    with pytest.raises(ValidationError):
+        robust_model_validate(Stage1BatchResult, numbered)
+
+
+def test_stage2_recovers_fenced_response_end_to_end():
+    """A fenced stage-2 response that would raise inside the SDK is salvaged through
+    _invoke, so the review is recovered instead of silently dropped."""
+    fenced = "```json\n" + _valid_stage2_json() + "\n```"
+    rc = ReviewClient(client=_client_returning(fenced), model_stage1="m1", model_stage2="m2")
+    out = asyncio.run(rc.stage2(profile_block="P", title="SRE", company="Acme",
+                                location="Remote", jd="Operate clusters"))
+    assert isinstance(out, Stage2Result) and out.verdict == "deny"
+
+
+def test_stage1_batch_unrecoverable_numbered_list_still_raises():
+    """A stage-1 batch returned as a numbered list (no JSON) can't be salvaged: the error
+    propagates so review_batch records a retryable whole-batch error (no regression)."""
+    numbered = "1. id=lever:agicap:foo pass\n2. id=lever:bar:baz reject"
+    rc = ReviewClient(client=_client_returning(numbered), model_stage1="m1", model_stage2="m2")
+    jobs = [{"id": "lever:agicap:foo", "title": "SRE", "company_name": "Acme", "location": None}]
+    with pytest.raises(ValidationError):
+        asyncio.run(rc.stage1_batch(profile_block="P", jobs=jobs))

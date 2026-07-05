@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
+import { ReviewNowPanel } from "@/components/rolefit/ReviewNowPanel";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
@@ -37,7 +39,6 @@ const isAbort = (e: unknown) => e instanceof Error && e.name === "AbortError";
 export interface RolefitBoardProps {
   jobs: JobRow[];
   nowIso: string;
-  isOperator: boolean;
   isAuthed: boolean;
   initialFilters: BoardFilterState;
   saveResume: (fd: FormData) => Promise<void>;
@@ -47,6 +48,8 @@ export interface RolefitBoardProps {
   unmarkApplied: (jobId: string) => Promise<void>;
   operator?: OperatorSignals;
   hasProfile: boolean;
+  // The viewer's email for the account-menu trigger/label; null for the anon board.
+  viewerEmail: string | null;
   resumeText: string;
   // Live profiles.profile_version — a package whose stored profileVersion differs
   // was generated from an older résumé/instructions and is flagged stale. null for
@@ -61,27 +64,32 @@ export interface RolefitBoardProps {
   initialRejected: JobRow[];
 }
 
+const NARROW_QUERY = "(max-width: 760px)";
+
+function subscribeNarrow(onChange: () => void) {
+  const mq = window.matchMedia(NARROW_QUERY);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
 function useIsNarrow() {
-  // Seed a stable `false` so the first client render matches the SSR HTML (the board is
-  // server-rendered), then resolve the real value in the effect below. Reading matchMedia
-  // in the initializer would make mobile's hydration pass diverge from the server render —
-  // a structural mismatch (the detail-pane branch differs) that forces a full client
-  // re-render, reintroducing the very flash it aimed to avoid.
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 760px)");
-    setNarrow(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setNarrow(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-  return narrow;
+  // Read matchMedia through useSyncExternalStore. getServerSnapshot returns a stable
+  // `false`, so the first client render matches the SSR HTML (the board is server-rendered);
+  // reading the real value in the initializer would make mobile's hydration pass diverge
+  // from the server render — a structural mismatch (the detail-pane branch differs) that
+  // forces a full client re-render, reintroducing the very flash it aimed to avoid. The
+  // real viewport value resolves right after hydration, and `change` events re-render —
+  // all without a setState-in-effect that would cascade renders.
+  return useSyncExternalStore(
+    subscribeNarrow,
+    () => window.matchMedia(NARROW_QUERY).matches, // client snapshot
+    () => false, // server snapshot — SSR has no viewport
+  );
 }
 
 export function RolefitBoard({
   jobs,
   nowIso,
-  isOperator: _isOperator,
   isAuthed,
   initialFilters,
   saveResume,
@@ -91,12 +99,14 @@ export function RolefitBoard({
   unmarkApplied,
   operator,
   hasProfile,
+  viewerEmail,
   resumeText,
   currentProfileVersion,
   initialPackages,
   initialRejected,
 }: RolefitBoardProps) {
   const isNarrow = useIsNarrow();
+  const router = useRouter();
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
   const [search, setSearch] = useState(initialFilters.search);
   const deferredSearch = useDeferredValue(search);
@@ -927,6 +937,8 @@ export function RolefitBoard({
         isAuthed={isAuthed}
         hasProfile={hasProfile}
         operator={operator}
+        viewerEmail={viewerEmail}
+        isNarrow={isNarrow}
         onOpenProfile={() => {
           if (isAuthed) {
             setProfileOpen(true);
@@ -960,6 +972,15 @@ export function RolefitBoard({
         onSetPayMin={handleSetPayMin}
         onSetSort={handleSetSort}
       />
+
+      {/* First-run / in-progress: mounted while there are unreviewed roles so the panel
+          can keep a compact progress strip visible WHILE a review runs, even after the
+          first matches land (T6). It self-hides when idle on a populated board, shows the
+          full "being built" CTA on an empty board, and refreshes the board when a request
+          settles. Benign pending state → neutral status card, not a warning banner. */}
+      {isAuthed && (operator?.unreviewed ?? 0) > 0 && (
+        <ReviewNowPanel firstRun={jobs.length === 0} onSettled={() => router.refresh()} />
+      )}
 
       {/* Split pane — left: job list; right: detail */}
       <div style={{ flex: 1, display: "flex", minHeight: isNarrow ? undefined : 0 }}>

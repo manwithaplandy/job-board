@@ -39,6 +39,17 @@ export function ProfileModal({
   // the user to review before saving (resume_text is the source of truth).
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Declared before the effects that reference it (the Escape handler) so it's never
+  // read in its temporal dead zone.
+  const handleClose = () => {
+    if (isDirty) {
+      if (!window.confirm("You have unsaved changes. Close anyway?")) return;
+    }
+    setSaveError(null);
+    setIsDirty(false);
+    onClose();
+  };
+
   // Save and restore focus
   useEffect(() => {
     if (open) {
@@ -93,15 +104,6 @@ export function ProfileModal({
 
   if (!open) return null;
 
-  const handleClose = () => {
-    if (isDirty) {
-      if (!window.confirm("You have unsaved changes. Close anyway?")) return;
-    }
-    setSaveError(null);
-    setIsDirty(false);
-    onClose();
-  };
-
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaveError(null);
@@ -147,7 +149,7 @@ export function ProfileModal({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={hasProfile ? "Edit profile" : "Set up profile"}
+        aria-label={hasProfile ? "Résumé" : "Set up profile"}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -171,7 +173,7 @@ export function ProfileModal({
         >
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: "16px", color: "#161d29" }}>
-              {hasProfile ? "Edit profile" : "Set up profile"}
+              {hasProfile ? "Résumé" : "Set up profile"}
             </div>
             <div
               style={{

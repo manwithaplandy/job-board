@@ -64,7 +64,7 @@ function client(): LangfuseClient {
 // shape differs, adjust the accessor — the concept (name→value on the trace) holds.
 // verify SDK shape
 async function judgeScores(c: LangfuseClient, traceId: string): Promise<{ grounding?: number; jd?: number }> {
-  const trace = (await (c.api as any).trace.get(traceId)) as unknown as {
+  const trace = (await c.api.trace.get(traceId)) as unknown as {
     scores?: { name: string; value: number }[];
   };
   const byName = (name: string) => trace.scores?.find((s) => s.name === name)?.value;

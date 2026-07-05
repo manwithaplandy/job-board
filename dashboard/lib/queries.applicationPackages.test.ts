@@ -1,11 +1,13 @@
 import { describe, expect, test, vi } from "vitest";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 
-// queries.ts imports `sql` from @/lib/db, whose module load throws without DATABASE_URL.
-// toApplicationPackage never touches sql, but queries.ts also calls sql`...` as a tagged
-// template at module scope (BARE_MARKER_PREDICATE), so the stub must be callable — matches
-// the sql mock pattern used in queries.jobDetail.test.ts / queries.boardFilters.test.ts.
-vi.mock("@/lib/db", () => ({ sql: () => Promise.resolve([]) }));
+// queries.ts imports the withUserSql/withAnonSql executors from @/lib/db (whose module
+// load throws without DATABASE_URL). toApplicationPackage never touches the DB, so the
+// executors just need to exist as importable stubs.
+vi.mock("@/lib/db", () => ({
+  withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(() => Promise.resolve([])),
+  withAnonSql: (fn: (t: unknown) => unknown) => fn(() => Promise.resolve([])),
+}));
 
 import { toApplicationPackage } from "@/lib/queries";
 

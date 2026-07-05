@@ -1,7 +1,12 @@
 import os
 
 from company_discovery.schemas import CompanyReviewResult
-from observability.llm import OutOfCreditsError, traced_structured_call
+from observability.llm import (
+    # Re-exported (redundant alias) so company_discovery.run can import the
+    # exception from this domain module rather than reaching into observability.
+    OutOfCreditsError as OutOfCreditsError,
+    traced_structured_call,
+)
 from reviewer.schemas import ENGLISH_ONLY_INSTRUCTION, TAXONOMY_TEXT
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"

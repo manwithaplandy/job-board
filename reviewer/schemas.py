@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Appendix A — two-level, tech/SWE/DevOps-focused taxonomy.
 TAXONOMY: dict[str, list[str]] = {
@@ -124,3 +124,15 @@ class Stage2Result(BaseModel):
     skill_gaps: list[str] = Field(default_factory=list)
     benefits: list[str] = Field(default_factory=list)
     requirements: list[Requirement] = Field(default_factory=list)
+
+    @field_validator("pay_min", "pay_max", "skills_score", "experience_score",
+                     "comp_score", mode="before")
+    @classmethod
+    def _round_fractional_int(cls, v):
+        # deepseek-v4-flash sometimes emits a fractional salary or score (observed:
+        # pay_min=73539.55) where these fields are typed int; round to the nearest int
+        # rather than failing validation and dropping the whole review. None / int pass
+        # through untouched (bool is not a float, so it is left for int validation).
+        if isinstance(v, float):
+            return round(v)
+        return v

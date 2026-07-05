@@ -1,9 +1,7 @@
 # tests/test_discovery_run.py
 import asyncio
 import os
-import uuid
 
-import pytest
 
 from company_discovery.llm import OutOfCreditsError
 from company_discovery.schemas import CompanyReviewResult

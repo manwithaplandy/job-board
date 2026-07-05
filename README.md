@@ -60,7 +60,7 @@ DATABASE_URL="postgresql://…" ANTHROPIC_API_KEY="sk-…" .venv/bin/python -m r
 | `REVIEW_MODEL_STAGE1` | `claude-haiku-4-5` | Model used for the gate (title-only) pass. |
 | `REVIEW_MODEL_STAGE2` | `claude-haiku-4-5` | Model used for the full JD pass. |
 | `REVIEW_CONCURRENCY` | `5` | Max concurrent Anthropic requests per run. |
-| `REVIEW_MAX_JOBS_PER_RUN` | `200` | Cap on jobs reviewed in a single run. |
+| `REVIEW_DAILY_CAP_DEFAULT` | `400` | Per-user, per-day ceiling on jobs entering review (a hard cost cap regardless of run cadence, pool size, or profile edits). A profile's `daily_review_cap` column overrides this per-user. Spend is tracked in `usage_counters` and rolls over at UTC midnight. |
 
 **No-op conditions:** the review phase exits immediately (no API calls, no DB
 writes) when `ANTHROPIC_API_KEY` is unset or when no active user profile exists
@@ -69,6 +69,33 @@ in the database.
 **Railway note:** set the env vars above on the Job Discovery service, and extend the
 watch patterns in the Railway dashboard to include `reviewer/**` so that
 reviewer-only commits also redeploy the Job Discovery service.
+
+### On-demand review worker
+
+The cron reviewer runs on a schedule, so a brand-new account (or a user who clicks
+"Review my board now") would otherwise wait until the next cycle. A small always-on
+worker consumes the `review_requests` queue near-real-time:
+
+```bash
+DATABASE_URL="postgresql://…" OPENROUTER_API_KEY="sk-or-…" python -m reviewer.worker
+```
+
+It claims the oldest `pending` request (`FOR UPDATE SKIP LOCKED`, so multiple workers
+are safe), loads that user's profile, and runs the **same** `run._review_user` path as
+the cron reviewer — so the per-tier daily cap, mandatory location filter, and
+model-entitlement policy all apply with no duplicated logic. A request stuck `running`
+longer than 30 minutes (crashed worker) is auto-failed so a user's single active slot
+can't wedge. Idle poll interval: `REVIEW_WORKER_POLL_SECONDS` (default 15). SIGTERM/
+SIGINT exit cleanly after the in-flight request.
+
+Deploys as its own **always-on** Railway service (no cron): `railway.reviewer-worker.json`,
+start `python -m reviewer.worker`.
+
+> **Pre-launch (manual, do NOT push migration-coupled code first):** creating the
+> Railway worker service AND applying both Phase-1 migrations
+> (`migrations/2026-07-03-rls-tenant-isolation.sql` then
+> `migrations/2026-07-03-billing-review-requests.sql`, in that order) are manual steps.
+> Apply the migrations before the code that depends on `review_requests` / RLS ships.
 
 ## Configuration
 
@@ -112,5 +139,21 @@ reviewer-only commits also redeploy the Job Discovery service.
   (`BEGIN/COMMIT`), and mirrored into `schema.sql`. `CREATE INDEX CONCURRENTLY` statements
   cannot run inside a transaction — keep them outside `BEGIN/COMMIT` and run them individually.
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
+- **OpenRouter spend alert** → Railway **cron** service (`railway.spend-alert.json`, hourly
+  `0 * * * *`), root `/`, start `python -m observability.spend_alert`. It snapshots
+  OpenRouter usage/credits into `openrouter_usage_snapshots`, computes the trailing-24h
+  burn, and POSTs to `ALERT_WEBHOOK_URL` when the 24h burn exceeds `SPEND_ALERT_DAILY_USD`
+  (default $10) or remaining credits fall below `SPEND_ALERT_CREDITS_FLOOR_USD` (default
+  $20). If a threshold trips but the webhook is unset or the POST fails, it exits nonzero
+  so the cron surfaces the failure (never a silent pass). This is the backstop *behind*
+  the per-user daily caps and the `OutOfCreditsError` hard halt — not a replacement.
 
 Pushes to `main` auto-deploy the affected component.
+
+## Ops runbooks
+
+- **Backup & restore:** [`docs/runbooks/backup-restore.md`](docs/runbooks/backup-restore.md)
+  — verified Supabase backup posture for prod `fdhspmavadgucktetzoi`, the restore
+  procedure + post-restore checklist (schema-migration audit, Stripe re-sync, stuck
+  review-request cleanup, worker restart), the not-restorable list (storage objects,
+  LangFuse traces), and the RPO/RTO the current setup provides.

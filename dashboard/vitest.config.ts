@@ -13,7 +13,7 @@ export default defineConfig({
     // test (.test.tsx under components/) opts into jsdom via a `// @vitest-environment
     // jsdom` docblock at the top of the file — vitest 4 removed environmentMatchGlobs.
     environment: "node",
-    include: ["lib/**/*.test.ts", "components/**/*.test.tsx"],
+    include: ["lib/**/*.test.ts", "components/**/*.test.tsx", "app/**/*.test.ts", "app/**/*.test.tsx"],
     env: { DATABASE_URL: "postgresql://test:test@localhost:5432/test" },
   },
 });

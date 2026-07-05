@@ -184,6 +184,6 @@ def test_drop_denied_sets_pruned_flag(conn):
     _review(conn, job_id, verdict="deny")
     prune_jobs(conn)
     assert _description(conn, job_id) is None
-    with conn.cursor() as cur:
+    with conn.cursor() as _cur:
         row = conn.execute("SELECT description_pruned FROM jobs WHERE id=%s", (job_id,)).fetchone()
         assert row["description_pruned"] is True

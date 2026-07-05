@@ -29,7 +29,7 @@ const cachedSnapshot = unstable_cache(
   { revalidate: REVALIDATE_SECONDS },
 );
 const cachedRunSeries = unstable_cache(
-  () => getRunSeries(),
+  (userId: string) => getRunSeries(userId),
   ["analytics-run-series"],
   { revalidate: REVALIDATE_SECONDS },
 );
@@ -40,7 +40,7 @@ export default async function AnalyticsPage() {
   // `seq`) to avoid overwhelming the DB connection pool, so there's no benefit to racing
   // the two cached groups — and keeping them sequential guarantees no concurrent fan-out.
   const snapshot = await cachedSnapshot(userId);
-  const series = await cachedRunSeries();
+  const series = await cachedRunSeries(userId);
   return (
     <>
       <SlimHeader current="analytics" />

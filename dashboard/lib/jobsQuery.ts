@@ -8,7 +8,7 @@ export interface SqlQuery {
 export function buildJobsQuery(
   f: Filters,
   userId: string | null,
-  ownerLocations: string[] = [],
+  viewerLocations: string[] = [],
   opts: { humanOverrideOnly?: boolean } = {},
 ): SqlQuery {
   const values: unknown[] = [];
@@ -16,13 +16,13 @@ export function buildJobsQuery(
   const where: string[] = [];
   const hasReviews = userId !== null;
 
-  // The review join binds the owner's user_id. Capture its placeholder before
+  // The review join binds the VIEWER's own user_id. Capture its placeholder before
   // seeding the value (so it resolves to $1, with values still empty), so the
   // join string isn't coupled to a hardcoded "$1" if the seeding order changes.
-  const ownerPh = hasReviews ? ph() : null;
+  const viewerPh = hasReviews ? ph() : null;
   if (hasReviews) values.push(userId);
 
-  // --- review-scoped filters (only when an owner's reviews are joined) ---
+  // --- review-scoped filters (only when the viewer's reviews are joined) ---
   if (hasReviews) {
     const v = "COALESCE(rc.verdict, r.verdict)";
     if (f.verdict === "approve") where.push(`${v} = 'approve'`);
@@ -57,12 +57,12 @@ export function buildJobsQuery(
     where.push(`j.location ILIKE ${ph()}`);
     values.push(`%${f.location}%`);
   }
-  // Board owner's location include-list (set on the profile). Mirrors the
+  // The viewer's location include-list (set on their profile). Mirrors the
   // reviewer pre-filter: keep remote jobs always, else require an exact match.
-  // Empty list => no clause (everything shows). Applies with or without an owner.
-  if (ownerLocations.length) {
+  // Empty list => no clause (everything shows). Applies with or without reviews.
+  if (viewerLocations.length) {
     where.push(`(j.remote IS TRUE OR j.location = ANY(${ph()}))`);
-    values.push(ownerLocations);
+    values.push(viewerLocations);
   }
 
   // --- review dimension filters (only on verdicts that carry review columns) ---
@@ -118,10 +118,10 @@ export function buildJobsQuery(
     );
   }
   const reviewJoin = hasReviews
-    ? `LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${ownerPh}::uuid`
+    ? `LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${viewerPh}::uuid`
     : "";
   const correctionsJoin = hasReviews
-    ? `LEFT JOIN review_corrections rc ON rc.job_id = j.id AND rc.user_id = ${ownerPh}::uuid`
+    ? `LEFT JOIN review_corrections rc ON rc.job_id = j.id AND rc.user_id = ${viewerPh}::uuid`
     : "";
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

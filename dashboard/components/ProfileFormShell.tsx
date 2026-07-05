@@ -35,9 +35,13 @@ export function ProfileFormShell({
   // decide whether there are unsaved edits.
   const pristineRef = useRef<string | null>(null);
   // Latest isPending, read inside the beforeunload closure (registered once on mount) so a
-  // save-in-flight doesn't prompt during the post-save redirect.
+  // save-in-flight doesn't prompt during the post-save redirect. Synced via an effect
+  // (never write a ref during render); the closure only reads it at unload time, always
+  // after the commit, so it sees the latest value.
   const pendingRef = useRef(false);
-  pendingRef.current = isPending;
+  useEffect(() => {
+    pendingRef.current = isPending;
+  }, [isPending]);
 
   // Reactive mirror of the dirty check so the sticky bar can show an "Unsaved changes" cue.
   const [dirty, setDirty] = useState(false);

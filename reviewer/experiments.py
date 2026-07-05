@@ -5,7 +5,6 @@ from langfuse.experiment import Evaluation
 from observability import tracing
 from reviewer import db
 from reviewer.llm import ReviewClient, build_profile_block
-from reviewer.run import review_one
 
 GOLDEN_CATEGORICALS = [
     "verdict", "experience_match", "industry", "industry_subcategory",

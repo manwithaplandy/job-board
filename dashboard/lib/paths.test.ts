@@ -15,6 +15,25 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/api/board-filters")).toBe(true);
     expect(isPublicPath("/api/resume")).toBe(false);
   });
+  test("the Stripe webhook is public (Stripe posts anonymously) but checkout/portal are not", () => {
+    expect(isPublicPath("/api/stripe/webhook")).toBe(true);
+    expect(isPublicPath("/api/stripe/checkout")).toBe(false);
+    expect(isPublicPath("/api/stripe/portal")).toBe(false);
+  });
+  test("account-lifecycle pages are public (logged-out visitors must reach them)", () => {
+    expect(isPublicPath("/signup")).toBe(true);
+    expect(isPublicPath("/reset-password")).toBe(true);
+    expect(isPublicPath("/auth/confirm")).toBe(true);
+  });
+  test("/reset-password/update is reachable (its page enforces the recovery session)", () => {
+    // It matches the /reset-password prefix — intentional; the page itself gates on
+    // a valid recovery session before allowing a password change.
+    expect(isPublicPath("/reset-password/update")).toBe(true);
+  });
+  test("legal pages are public (linked from signup consent + auth footers)", () => {
+    expect(isPublicPath("/terms")).toBe(true);
+    expect(isPublicPath("/privacy")).toBe(true);
+  });
 });
 
 describe("internalPathFromReferer", () => {

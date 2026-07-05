@@ -1,9 +1,10 @@
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from observability import tracing
-from reviewer import config, db, scoring
+from reviewer import config, db, entitlements, scoring
 from reviewer.llm import OutOfCreditsError, ReviewClient, _is_out_of_credits, build_profile_block
 
 log = logging.getLogger("reviewer")
@@ -188,13 +189,21 @@ async def review_one(candidate: dict, profile_block: str, client,
 
 async def review_batch(candidates: list[dict], profile_block: str, client,
                        concurrency: int, *, user_id: str | None = None,
-                       run_id=None) -> tuple[list[ReviewResult], bool]:
+                       run_id=None,
+                       deleted_check: Callable[[], bool] | None = None,
+                       ) -> tuple[list[ReviewResult], bool]:
     """Gate candidates through a batched stage-1 call, then run stage 2 for passes.
 
     Returns (results, halted). Never-attempted jobs stay retryable: a 402 halt
     skips them entirely (no row), a whole-batch stage-1 failure and a per-id
     missing decision each yield a retryable error row. halted=True means a 402 was
     encountered and remaining candidates were skipped.
+
+    deleted_check, when supplied, is a cheap predicate polled ONCE per stage-1 chunk
+    (and once before the stage-2 fan-out) — not once per row. If it returns True the
+    user was deleted mid-run, so the batch halts early: no further LLM calls are issued
+    and remaining jobs stay retryable (no rows). The caller re-checks the tombstone at
+    its write boundary and skips all writes.
     """
     halt = asyncio.Event()
     results: list[ReviewResult] = []
@@ -202,6 +211,10 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
 
     for start in range(0, len(candidates), config.STAGE1_BATCH_SIZE):
         if halt.is_set():
+            break
+        if deleted_check is not None and deleted_check():
+            log.info("user deleted mid-run; aborting stage-1 gate before further LLM calls")
+            halt.set()
             break
         batch = candidates[start:start + config.STAGE1_BATCH_SIZE]
         try:
@@ -236,6 +249,12 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
             else:
                 passed.append((c, res))
 
+    # One more check before the (expensive) stage-2 fan-out: if the user was deleted
+    # while stage 1 ran, skip stage 2 entirely rather than issue its LLM calls.
+    if deleted_check is not None and not halt.is_set() and deleted_check():
+        log.info("user deleted mid-run; skipping stage-2 for %s passed job(s)", len(passed))
+        halt.set()
+
     sem = asyncio.Semaphore(concurrency)
 
     async def _run_stage2(candidate: dict, res: ReviewResult) -> ReviewResult | None:
@@ -259,34 +278,116 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
     return results, halt.is_set()
 
 
-def _review_user(conn, profile: dict) -> None:
+def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
+    # `ent` is the DB-overlaid entitlements map (T1). review_all loads it once per run;
+    # the on-demand worker passes None so it is loaded per request. None → compiled
+    # defaults inside the entitlement helpers.
     user_id = str(profile["user_id"])
     pv = profile["profile_version"]
-    run_id = db.start_review_run(conn)
+    run_id = db.start_review_run(conn, user_id)
     conn.commit()
 
     counts = {"reviewed": 0, "gate_rejected": 0, "approved": 0, "denied": 0, "errors": 0}
     notes = None
+    locked = False
     try:
+        # M-TOCTOU: serialize per-user review spend across the cron reviewer (review_all)
+        # and the on-demand worker. Without this, both can read spend=0, each select up
+        # to the cap, and each spend up to the cap → up to 2x the per-user daily budget on
+        # the operator's LLM balance. A non-blocking per-user advisory lock lets only one
+        # run review a user at a time; a concurrent run skips (the holder covers its
+        # budget) rather than blocking the whole cron loop behind a slow LLM batch. The
+        # lock is released in the finally, AFTER the spend/finish commit, so the next run
+        # reads the committed spend. Covers BOTH entry points since both funnel here.
+        locked = db.try_lock_user_review(conn, user_id)
+        if not locked:
+            notes = "review already in progress; skipped"
+            log.info("review already in progress for %s; skipping", user_id)
+            return
+
+        # Tier gate (spec subsystem C/D). Resolve the user's plan from their
+        # subscription mirror + invite proof (loaded by db.load_profiles). No plan →
+        # skip entirely: zero candidate selection, zero LLM calls.
+        sub = {
+            "plan": profile.get("sub_plan"),
+            "status": profile.get("sub_status"),
+            "current_period_end": profile.get("sub_current_period_end"),
+        }
+        plan = entitlements.resolve_plan(sub, bool(profile.get("invited")))
+        if plan is None:
+            notes = "no active subscription"
+            log.info("no active subscription for %s; skipping", user_id)
+            return
+
+        # Mandatory location filter (spec's #1 cost lever). Phase-0 onboarding already
+        # requires it, but this closes the pre-Phase-0 / direct-write hole: an empty or
+        # NULL preferred_locations means an unbounded pool, so skip with zero LLM calls.
+        if not (profile.get("preferred_locations") or []):
+            notes = "location filter required"
+            log.info("no location filter for %s; skipping", user_id)
+            return
+
+        # Cheap gate ALWAYS (spec model-policy decision): stage 1 is forced to the cheap
+        # model regardless of profiles.model_stage1. Stage 2 is the tier-entitled model
+        # (premium only if the plan grants it, else cheap).
+        resolved_stage2 = entitlements.resolve_stage2_model(plan, profile.get("model_stage2"), ent)
+
+        # Per-user rolling daily budget: the per-model cap minus what's already been
+        # spent today (UTC). The tier's per-model cap is the ceiling; a per-profile
+        # daily_review_cap is an operator override that may only LOWER it, never raise
+        # it (cost integrity, finding B-COST — the same clamp lives in the dashboard's
+        # reviewRequests.ts). daily_review_cap is operator-only at the DB layer (users
+        # have no UPDATE privilege on that column), so this is defense in depth against
+        # any path that could still write it. config.DAILY_REVIEW_CAP_DEFAULT is only a
+        # last-resort fallback (a resolved plan always yields a positive entitlement cap).
+        tier_cap = (entitlements.daily_review_cap(plan, resolved_stage2, ent)
+                    or config.DAILY_REVIEW_CAP_DEFAULT)
+        override = profile.get("daily_review_cap")
+        cap = min(override, tier_cap) if override is not None else tier_cap
+        remaining = max(0, cap - db.get_daily_spend(conn, user_id))
+        if remaining == 0:
+            # Budget exhausted — skip the user entirely: zero candidates selected,
+            # zero LLM calls. The run row still closes so the skip is auditable.
+            notes = "daily cap exhausted"
+            log.info("daily cap %s exhausted for %s; skipping", cap, user_id)
+            return
+
         candidates, total = db.select_candidates(
-            conn, user_id, pv, config.MAX_JOBS_PER_RUN,
+            conn, user_id, pv, remaining,
             preferred_locations=profile.get("preferred_locations"),
         )
         overflow = total - len(candidates)
         if overflow > 0:
             notes = f"overflow: {overflow} job(s) deferred to next run"
-            log.info("review overflow: %s job(s) over cap %s, deferred",
-                     overflow, config.MAX_JOBS_PER_RUN)
+            log.info("review overflow: %s job(s) over remaining budget %s, deferred",
+                     overflow, remaining)
 
         profile_block = build_profile_block(profile["resume_text"], profile["instructions"])
         client = ReviewClient(
-            model_stage1=profile.get("model_stage1"),
-            model_stage2=profile.get("model_stage2"),
+            model_stage1=entitlements.CHEAP_MODEL,   # cheap gate always (see above)
+            model_stage2=resolved_stage2,
         )
         results, halted = asyncio.run(review_batch(
             candidates, profile_block, client, config.CONCURRENCY,
             user_id=user_id, run_id=run_id,
+            # Cheap per-chunk poll so a mid-run deletion stops issuing LLM calls instead
+            # of grinding all ≤cap jobs whose writes the tombstone guard then discards.
+            deleted_check=lambda: db.user_deleted(conn, user_id),
         ))
+
+        # M-RESURRECT-2: the account can be erased mid-run (profile loaded before the
+        # deletion cascade; the LLM work above is slow). Re-check the tombstone at the
+        # write boundary — BEFORE persisting job_reviews or charging usage_counters — so
+        # a purge that landed during this run isn't undone by recreated PII / spend rows.
+        # Covers BOTH the cron (review_all) and the on-demand worker, since both funnel
+        # their writes through here. Checked BEFORE the credits-halt note so a
+        # deletion-aborted run (which also sets halt) isn't mislabeled "out of credits".
+        # Cheap EXISTS; the run row still closes below.
+        if db.user_deleted(conn, user_id):
+            notes = "account deleted mid-run; skipped writes"
+            log.info("account %s deleted mid-run; skipping writes", user_id)
+            return
+
         if halted:
             notes = (f"{notes}; " if notes else "") + "halted: out of credits"
             log.warning("review halted (no credits) for %s", user_id)
@@ -313,6 +414,14 @@ def _review_user(conn, profile: dict) -> None:
                 continue
             rows_to_persist.append(r.as_row(user_id=user_id, profile_version=pv))
         _persist_rows(conn, rows_to_persist, config.PERSIST_CHUNK_SIZE)
+
+        # Charge the daily budget for jobs that actually consumed LLM budget: any
+        # result carrying a stage-1 decision (gate-reject, stage-2-complete, or
+        # JD-deferred). Error-only rows (stage1_batch transport failures leave
+        # stage1_decision NULL) are excluded so an outage can't burn a day's budget.
+        # Committed together with finish_review_run in the finally's single commit.
+        spent = sum(1 for r in results if r.stage1_decision is not None)
+        db.add_daily_spend(conn, user_id, spent)
     except Exception:
         conn.rollback()
         notes = (f"{notes}; " if notes else "") + "review phase errored; see logs"
@@ -320,6 +429,11 @@ def _review_user(conn, profile: dict) -> None:
     finally:
         db.finish_review_run(conn, run_id, notes=notes, **counts)
         conn.commit()
+        # Release AFTER the commit above so any concurrent run that now acquires the
+        # lock reads this run's committed daily spend (M-TOCTOU). No-op if we never
+        # acquired it (a concurrent run already held it → this call skipped).
+        if locked:
+            db.unlock_user_review(conn, user_id)
     log.info("review complete for %s: %s", user_id, counts)
 
 
@@ -333,8 +447,12 @@ def review_all(conn) -> None:
         return
     if tracing.tracing_enabled():
         log.info("langfuse tracing on; sample_rate=%s", tracing.sample_rate())
+    # DB-overlaid tier config (T1), read ONCE per run and threaded into every user's
+    # cap/model resolution. An operator's `UPDATE tier_settings` is honored on the next
+    # run with no redeploy.
+    ent = db.load_tier_settings(conn)
     try:
         for profile in profiles:
-            _review_user(conn, profile)
+            _review_user(conn, profile, ent)
     finally:
         tracing.flush()

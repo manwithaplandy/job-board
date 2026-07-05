@@ -12,8 +12,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // The mock returns a plausible row so toApplicationPackage (called on the result) is happy.
 // vi.hoisted: the mock factory is hoisted above module init, so `captured` must be too.
 const { captured } = vi.hoisted(() => ({ captured: [] as string[] }));
-vi.mock("@/lib/db", () => ({
-  sql: (strings: TemplateStringsArray, ..._vals: unknown[]) => {
+vi.mock("@/lib/db", () => {
+  const tx = (strings: TemplateStringsArray, ..._vals: unknown[]) => {
     captured.push(strings.join(" ? "));
     return Promise.resolve([
       {
@@ -30,8 +30,9 @@ vi.mock("@/lib/db", () => ({
         applied_at: null,
       },
     ]);
-  },
-}));
+  };
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+});
 
 import { upsertApplicationPackage } from "@/lib/queries";
 

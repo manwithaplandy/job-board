@@ -8,6 +8,15 @@ CREATE TABLE companies (
   discovery_source TEXT NOT NULL DEFAULT 'manual'
                      CHECK (discovery_source IN ('manual','seed','dataset','expansion')),
   first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Company-enrichment substrate (see migrations/2026-07-05-company-enrichment.sql).
+  -- Raw `name` (slug) stays the stable join/display fallback; these are populated by
+  -- later enrichment tasks. enriched_at > company_reviews.reviewed_at re-triggers a screen.
+  display_name     TEXT,
+  about            TEXT,
+  about_source     TEXT CHECK (about_source IN ('ats_board','jd_probe','serp')),
+  web_description  TEXT,
+  web_searched_at  TIMESTAMPTZ,
+  enriched_at      TIMESTAMPTZ,
   UNIQUE (ats, token)
 );
 

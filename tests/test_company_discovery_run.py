@@ -18,7 +18,8 @@ class StubClient:
         self.model = "stub"
         self.calls = []
 
-    async def review(self, *, company_block, name, ats, token):
+    async def review(self, *, company_block, name, ats, token,
+                     display_name=None, about=None, web_description=None):
         self.calls.append(name)
         if name == "CREDITS":
             raise OutOfCreditsError("402 insufficient credits")

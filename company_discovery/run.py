@@ -20,14 +20,20 @@ async def review_company_one(c: dict, company_block: str, client,
     lf = tracing.get_langfuse()
     if lf is None:
         return await client.review(company_block=company_block, name=c["name"],
-                                   ats=c["ats"], token=c["token"])
+                                   ats=c["ats"], token=c["token"],
+                                   display_name=c.get("display_name"),
+                                   about=c.get("about"),
+                                   web_description=c.get("web_description"))
     with tracing.identity(user_id=user_id, session_id=run_id, tags=["company_discovery"]):
         with lf.start_as_current_observation(
             as_type="span", name="company-review",
             input={"company_id": c["id"], "name": c["name"], "ats": c["ats"]},
         ) as span:
             res = await client.review(company_block=company_block, name=c["name"],
-                                      ats=c["ats"], token=c["token"])
+                                      ats=c["ats"], token=c["token"],
+                                      display_name=c.get("display_name"),
+                                      about=c.get("about"),
+                                      web_description=c.get("web_description"))
             span.update(output={"verdict": res.verdict, "industry": res.industry},
                         metadata={"company_id": c["id"], "verdict": res.verdict,
                                   "confidence": res.confidence, "industry": res.industry})

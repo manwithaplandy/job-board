@@ -2,9 +2,21 @@
 import type { PipelineHealth } from "@/lib/metrics";
 import { derivePipelineStatus, type PipelineStatus } from "@/lib/status";
 import { SCHEDULES, nextRun, type Schedule } from "@/lib/schedules";
+import { GLOSSARY } from "@/lib/analyticsLabels";
+import { InfoTip } from "@/components/analytics/InfoTip";
 
 const DOT: Record<PipelineStatus, string> = {
   ok: "#22c55e", warn: "#f59e0b", running: "#3b82f6", failed: "#ef4444", stale: "#9aa3b0",
+};
+
+// Worded status chip — text + color so it's colorblind-safe (audit F9). The chip
+// labels the schedule state; it does NOT alarm on benign no-op runs (that rule stays).
+const CHIP: Record<PipelineStatus, { bg: string; color: string }> = {
+  ok:      { bg: "#e7f6ee", color: "#1d7a4f" },
+  running: { bg: "#eaf1fc", color: "#2f5cc0" },
+  warn:    { bg: "#fdf3e6", color: "#8a5a12" },
+  failed:  { bg: "#fdecf1", color: "#b23a5b" },
+  stale:   { bg: "#eef1f5", color: "#5b6472" },
 };
 
 function rel(nowIso: string, iso: string | null): string {
@@ -30,41 +42,85 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const utcWeekdayTime = (d: Date) => `${WEEKDAYS[d.getUTCDay()]} ${utcTime(d)}`;
 const intervalHoursOf = (s: Schedule): number => s.kind === "interval" ? s.everyHours : 7 * 24;
 
+const num = (v: number | null | undefined): string => (v == null ? "—" : v.toLocaleString());
+
+interface Stat { label: React.ReactNode; value: string }
+
+/** A stat key optionally carrying a plain-language tooltip. */
+function Key({ glossKey, children }: { glossKey?: keyof typeof GLOSSARY; children: React.ReactNode }) {
+  if (!glossKey) return <span style={{ color: "#6b7480" }}>{children}</span>;
+  const g = GLOSSARY[glossKey];
+  return (
+    <InfoTip term={g.label} gloss={g.gloss} labelStyle={{ color: "#6b7480" }}>
+      {children}
+    </InfoTip>
+  );
+}
+
+function StatGrid({ stats }: { stats: Stat[] }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 14px" }}>
+      {stats.map((s, i) => (
+        <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "12px" }}>
+          <span>{s.label}</span>
+          <span style={{ color: "#1f2430", fontWeight: 700, whiteSpace: "nowrap" }}>{s.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function statusText(status: PipelineStatus, staleRel: string): string {
+  switch (status) {
+    case "ok": return "On schedule";
+    case "running": return "Running";
+    case "warn": return "High failure rate";
+    case "failed": return "Failed";
+    case "stale": return `Overdue — last success ${staleRel}`;
+  }
+}
+
 function Card({
-  name, status, when, scheduleLine, banner, stats, totals,
+  name, status, staleRel, when, scheduleLine, banner, stats, allTime,
 }: {
   name: string;
   status: PipelineStatus;
+  staleRel: string;
   when: string;
   scheduleLine: string;
   banner?: string;
-  stats: [string, number | null | undefined][];
-  totals: string;
+  stats: Stat[];
+  allTime: Stat[];
 }) {
+  const chip = CHIP[status];
   return (
-    <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px", padding: "16px 18px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-        <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: DOT[status] }} title={status} />
+    <div style={{ flex: "1 1 260px", background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px", padding: "16px 18px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
+        <span aria-hidden="true" style={{ width: "9px", height: "9px", borderRadius: "50%", background: DOT[status], flex: "0 0 auto" }} />
         <span style={{ fontSize: "13.5px", fontWeight: 800, color: "#161d29" }}>{name}</span>
-        <span style={{ marginLeft: "auto", fontSize: "11.5px", color: "#6b7480" }}>{when}</span>
+        <span
+          style={{
+            fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "8px",
+            background: chip.bg, color: chip.color,
+          }}
+        >
+          {statusText(status, staleRel)}
+        </span>
       </div>
+      <div style={{ fontSize: "11px", color: "#6b7480" }}>{when}</div>
       <div style={{ fontSize: "11px", color: "#6b7480", marginBottom: "4px" }}>{scheduleLine}</div>
       {banner && (
         <div style={{ margin: "8px 0", padding: "7px 10px", background: "#fdf3e6", border: "1px solid #f3d9ad",
           borderRadius: "9px", color: "#8a5a12", fontSize: "11.5px", fontWeight: 600 }}>{banner}</div>
       )}
-      <div style={{ fontSize: "11px", color: "#6b7480", marginTop: "10px", marginBottom: "4px", fontWeight: 600 }}>
+      <div style={{ fontSize: "11px", color: "#8a93a0", fontWeight: 800, letterSpacing: ".3px", textTransform: "uppercase", marginTop: "12px", marginBottom: "5px" }}>
         Last successful run
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 14px" }}>
-        {stats.map(([k, v]) => (
-          <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-            <span style={{ color: "#6b7480" }}>{k}</span>
-            <span style={{ color: "#1f2430", fontWeight: 700 }}>{v ?? "—"}</span>
-          </div>
-        ))}
+      <StatGrid stats={stats} />
+      <div style={{ fontSize: "11px", color: "#8a93a0", fontWeight: 800, letterSpacing: ".3px", textTransform: "uppercase", marginTop: "12px", marginBottom: "5px" }}>
+        All-time
       </div>
-      <div style={{ fontSize: "11px", color: "#6b7480", marginTop: "10px" }}>{totals}</div>
+      <StatGrid stats={allTime} />
     </div>
   );
 }
@@ -134,52 +190,85 @@ export function HealthCards({ health, nowIso }: { health: PipelineHealth; nowIso
   // No-op runs (e.g. the weekly company discovery cron finding 0 new candidates)
   // show no banner — a clean run that did no work is not a failure.
 
+  // Job Discovery last-run failure rate (audit F10)
+  const jdOk = pollSuccess?.companies_ok ?? 0;
+  const jdFailed = pollSuccess?.companies_failed ?? 0;
+  const jdTotal = jdOk + jdFailed;
+  const jdFailedValue =
+    pollSuccess == null
+      ? "—"
+      : jdTotal > 0
+        ? `${jdFailed.toLocaleString()} (${Math.round((jdFailed / jdTotal) * 100)}%)`
+        : jdFailed.toLocaleString();
+
   return (
     <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
       <Card
         name="Job Discovery"
         status={jobDiscoveryStatus}
+        staleRel={rel(nowIso, health.jobDiscovery.lastSuccess?.finished_at ?? null)}
         when={`last run · ${rel(nowIso, poll?.started_at ?? null)}`}
         scheduleLine={`next run ${relFuture(now, nextJobDiscovery)} · ${utcTime(nextJobDiscovery)}`}
         banner={jobDiscoveryBanner}
         stats={[
-          ["companies ok", pollSuccess?.companies_ok],
-          ["failed", pollSuccess?.companies_failed],
-          ["new jobs", pollSuccess?.new_jobs],
-          ["closed", pollSuccess?.closed_jobs],
+          { label: <Key>companies ok</Key>, value: num(pollSuccess?.companies_ok) },
+          { label: <Key>failed</Key>, value: jdFailedValue },
+          { label: <Key>new jobs</Key>, value: num(pollSuccess?.new_jobs) },
+          { label: <Key>closed</Key>, value: num(pollSuccess?.closed_jobs) },
         ]}
-        totals={`All-time: ${pollTotals.runs} runs · ${pollTotals.new_jobs} new · ${pollTotals.closed_jobs} closed`}
+        allTime={[
+          { label: <Key>runs</Key>, value: num(pollTotals.runs) },
+          { label: <Key>new jobs</Key>, value: num(pollTotals.new_jobs) },
+          { label: <Key>closed</Key>, value: num(pollTotals.closed_jobs) },
+          { label: <Key>companies ok</Key>, value: num(pollTotals.companies_ok) },
+          { label: <Key>failed</Key>, value: num(pollTotals.companies_failed) },
+        ]}
       />
       <Card
         name="Reviewer"
         status={reviewerStatus}
+        staleRel={rel(nowIso, health.reviewer.lastSuccess?.finished_at ?? null)}
         when={`last run · ${rel(nowIso, review?.started_at ?? null)}`}
         scheduleLine={`next cycle ~${utcTime(nextReviewer)}`}
         banner={reviewerBanner}
         stats={[
-          ["reviewed", reviewSuccess?.reviewed],
-          ["gate-rejected", reviewSuccess?.gate_rejected],
-          ["approved", reviewSuccess?.approved],
-          ["denied", reviewSuccess?.denied],
-          ["errors", reviewSuccess?.errors],
+          { label: <Key>reviewed</Key>, value: num(reviewSuccess?.reviewed) },
+          { label: <Key glossKey="gate-rejected">gate-rejected</Key>, value: num(reviewSuccess?.gate_rejected) },
+          { label: <Key glossKey="approved">approved</Key>, value: num(reviewSuccess?.approved) },
+          { label: <Key glossKey="denied">denied</Key>, value: num(reviewSuccess?.denied) },
+          { label: <Key glossKey="errors">errors</Key>, value: num(reviewSuccess?.errors) },
         ]}
-        totals={`All-time: ${reviewTotals.runs} runs · ${reviewTotals.reviewed} reviewed (${reviewTotals.gate_rejected} gate-rejected · ${reviewTotals.approved} approved · ${reviewTotals.denied} denied) · ${reviewTotals.errors} errors`}
+        allTime={[
+          { label: <Key>runs</Key>, value: num(reviewTotals.runs) },
+          { label: <Key>reviewed</Key>, value: num(reviewTotals.reviewed) },
+          { label: <Key glossKey="gate-rejected">gate-rejected</Key>, value: num(reviewTotals.gate_rejected) },
+          { label: <Key glossKey="approved">approved</Key>, value: num(reviewTotals.approved) },
+          { label: <Key glossKey="denied">denied</Key>, value: num(reviewTotals.denied) },
+          { label: <Key glossKey="errors">errors</Key>, value: num(reviewTotals.errors) },
+        ]}
       />
       <Card
         name="Company Discovery"
         status={companyDiscoveryStatus}
+        staleRel={rel(nowIso, health.companyDiscovery.lastSuccess?.finished_at ?? null)}
         when={`last run · ${rel(nowIso, disc?.started_at ?? null)}`}
         scheduleLine={`next ${utcWeekdayTime(nextCompanyDiscovery)}`}
         banner={companyDiscoveryBanner}
         stats={[
-          ["ingested", discSuccess?.ingested],
-          ["included", discSuccess?.included],
-          ["excluded", discSuccess?.excluded],
-          ["unknown", discSuccess?.unknown],
-          ["errors", discSuccess?.errors],
-          ["backlog", discSuccess?.backlog],
+          { label: <Key glossKey="ingested">ingested</Key>, value: num(discSuccess?.ingested) },
+          { label: <Key glossKey="included">included</Key>, value: num(discSuccess?.included) },
+          { label: <Key glossKey="excluded">excluded</Key>, value: num(discSuccess?.excluded) },
+          { label: <Key glossKey="unknown">unknown</Key>, value: num(discSuccess?.unknown) },
+          { label: <Key glossKey="errors">errors</Key>, value: num(discSuccess?.errors) },
+          { label: <Key glossKey="backlog-run">run-end backlog</Key>, value: num(discSuccess?.backlog) },
         ]}
-        totals={`All-time: ${discTotals.runs} runs · ${discTotals.ingested} ingested · ${discTotals.included} included · ${discTotals.excluded} excluded`}
+        allTime={[
+          { label: <Key>runs</Key>, value: num(discTotals.runs) },
+          { label: <Key glossKey="ingested">ingested</Key>, value: num(discTotals.ingested) },
+          { label: <Key glossKey="included">included</Key>, value: num(discTotals.included) },
+          { label: <Key glossKey="excluded">excluded</Key>, value: num(discTotals.excluded) },
+          { label: <Key glossKey="errors">errors</Key>, value: num(discTotals.errors) },
+        ]}
       />
     </div>
   );

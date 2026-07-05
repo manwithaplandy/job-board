@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import type { RunSeries } from "@/lib/metrics";
-import { fillDays, toWeekly, sliceWindow, rate } from "@/lib/trend";
-import { LinesCard, BarsCard } from "@/components/analytics/Chart";
+import { fillDays, toWeekly, sliceWindow, rate, weekStart } from "@/lib/trend";
+import { JOB_DISCOVERY_FAILURE_WARN_RATE } from "@/lib/status";
+import { LinesCard, BarsCard, StateCard } from "@/components/analytics/Chart";
 
 type Gran = "day" | "week";
 type Win = 30 | 90;
@@ -13,29 +14,77 @@ const COLORS = {
   slate: "#7a8699", violet: "#7c6cd4",
 };
 
-// Two-up on wide screens, single-column on narrow. The track minimum is raised to ~460px
-// (min(100%, …) so a narrow container still collapses to one column) specifically so three
-// columns can't fit in the ~1040px analytics container — a third ~336px column left these
-// 4-series bar charts + legends cramped.
+const DAY_MS = 86_400_000;
+
 const GRID: React.CSSProperties = {
   display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 460px), 1fr))", gap: "16px",
 };
 
+const GROUP_LABEL: React.CSSProperties = {
+  fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: 0,
+};
+
+function fmtMD(day: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  return m ? `${Number(m[2])}/${Number(m[3])}` : day;
+}
+
+/** Humanize a duration in seconds for the run-time axis/tooltip. */
+function fmtDuration(s: number): string {
+  if (!isFinite(s) || s <= 0) return "0s";
+  if (s < 90) return `${Math.round(s)}s`;
+  if (s < 90 * 60) return `${Math.round(s / 60)}m`;
+  return `${(s / 3600).toFixed(1)}h`;
+}
+
+// Note when one DAY dwarfs the rest (> 10× the median of nonzero values). Always
+// computed on the pre-bucketing DAILY rows so the annotation survives the Weekly
+// toggle — a bucketed week has too few nonzero values to trip the detector, yet the
+// weekly bar is exactly where a hidden one-day backfill is most misleading (audit
+// R4-P4). In weekly view the wording points at the containing week.
+function outlierNote<T extends { day: string }>(dailyRows: T[], key: keyof T, weekly: boolean): string | undefined {
+  const nonzero = dailyRows.map((r) => r[key] as unknown as number).filter((v) => v > 0).sort((a, b) => a - b);
+  if (nonzero.length < 3) return undefined;
+  const median = nonzero[Math.floor(nonzero.length / 2)];
+  if (median <= 0) return undefined;
+  let maxV = -Infinity, maxDay = "";
+  for (const r of dailyRows) {
+    const v = r[key] as unknown as number;
+    if (v > maxV) { maxV = v; maxDay = r.day; }
+  }
+  if (maxV > 10 * median) {
+    return weekly
+      ? `The week of ${fmtMD(weekStart(maxDay))} includes a one-day ${fmtMD(maxDay)} backfill of ${maxV.toLocaleString()} — the rest of that week is far smaller.`
+      : `One-day spike on ${fmtMD(maxDay)} (${maxV.toLocaleString()}) compresses this scale — other days are much smaller.`;
+  }
+  return undefined;
+}
+
+function allZero<T>(rows: T[], key: keyof T): boolean {
+  return rows.every((r) => ((r[key] as unknown as number) ?? 0) === 0);
+}
+
 function Toggle<T extends string | number>(
-  { value, onChange, options }:
-  { value: T; onChange: (v: T) => void; options: { v: T; label: string }[] },
+  { value, onChange, options, label }:
+  { value: T; onChange: (v: T) => void; options: { v: T; label: string }[]; label: string },
 ) {
   return (
-    <div style={{ display: "inline-flex", background: "#eef1f5", borderRadius: "9px", padding: "3px" }}>
+    <div role="group" aria-label={label} style={{ display: "inline-flex", background: "#eef1f5", borderRadius: "9px", padding: "3px" }}>
       {options.map((o) => {
         const active = o.v === value;
         return (
-          <button key={String(o.v)} onClick={() => onChange(o.v)} style={{
-            border: "none", cursor: "pointer", fontWeight: 700, fontSize: "12.5px", padding: "6px 14px",
-            borderRadius: "7px", background: active ? "#fff" : "transparent",
-            // Inactive label sits on the #eef1f5 track, where #6b7480 is only 4.18:1; #5b6472 (5.28:1) clears AA.
-            color: active ? "#1f2430" : "#5b6472", boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
-          }}>{o.label}</button>
+          <button
+            key={String(o.v)}
+            onClick={() => onChange(o.v)}
+            aria-pressed={active}
+            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px #3b6fd4"; }}
+            onBlur={(e) => { e.currentTarget.style.boxShadow = active ? "0 1px 4px rgba(0,0,0,.1)" : "none"; }}
+            style={{
+              border: "none", cursor: "pointer", fontWeight: 700, fontSize: "12.5px", padding: "6px 14px",
+              borderRadius: "7px", background: active ? "#fff" : "transparent",
+              color: active ? "#1f2430" : "#5b6472", boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
+            }}
+          >{o.label}</button>
         );
       })}
     </div>
@@ -46,11 +95,6 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
   const [gran, setGran] = useState<Gran>("day");
   const [win, setWin] = useState<Win>(30);
 
-  // Re-bucket one pipeline's rows through fill → (weekly) → slice. lastKeys
-  // carry "take latest in week" fields (e.g. backlog); everything else sums.
-  // All three pipelines fill over the same 90-day window ending nowIso, so the
-  // resulting day (or week) sequences are identical and index-aligned — which is
-  // what lets the merged `ops` array below zip them together by index.
   function prep<T extends { day: string }>(rows: T[], sumKeys: (keyof T)[], lastKeys: (keyof T)[] = []): T[] {
     const dense = fillDays(rows, 90, nowIso, [...sumKeys, ...lastKeys]);
     const bucketed = gran === "week" ? toWeekly(dense, sumKeys, lastKeys) : dense;
@@ -74,7 +118,15 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
     [series, gran, win, nowIso],
   );
 
-  // Derived rate/net series (null on zero-denominator → gap in the line).
+  // Pre-bucketing DAILY poll rows (window-sliced but never weekly-aggregated), used only
+  // to detect the one-day backfill spike so its annotation survives the Weekly toggle
+  // (audit R4-P4).
+  const pollDaily = useMemo(
+    () => sliceWindow(fillDays(series.jobDiscovery, 90, nowIso, ["new_jobs", "closed_jobs"]), win, nowIso),
+    [series, win, nowIso],
+  );
+  const pollDailyNet = pollDaily.map((p) => ({ day: p.day, net_growth: p.new_jobs - p.closed_jobs }));
+
   const pollDerived = poll.map((p) => ({
     day: p.day,
     net_growth: p.new_jobs - p.closed_jobs,
@@ -92,7 +144,6 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
     halt_count: p.halt_count,
   }));
 
-  // Cross-pipeline cadence + latency (index-aligned per the prep note above).
   const ops = poll.map((p, i) => ({
     day: p.day,
     poll_runs: p.run_count,
@@ -103,49 +154,92 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
     discovery_latency: rate(companyDiscovery[i]?.total_duration_seconds ?? 0, companyDiscovery[i]?.run_count ?? 0),
   }));
 
+  // Data-start annotation: the raw series only has rows for days that ran, so the
+  // earliest such day is the true first-active day (audit F5).
+  const firstActiveDay = useMemo(() => {
+    const firsts = [series.jobDiscovery, series.review, series.companyDiscovery]
+      .map((s) => s[0]?.day)
+      .filter(Boolean) as string[];
+    return firsts.length ? firsts.sort()[0] : undefined;
+  }, [series]);
+  const windowStartMs = Date.parse(nowIso.slice(0, 10) + "T00:00:00Z") - (win - 1) * DAY_MS;
+  // Show whenever run data starts after the window's left edge — including the default
+  // Daily/30d view, where the empty left third was previously unexplained (audit R4-P3).
+  const dataBeginsNote =
+    firstActiveDay && Date.parse(firstActiveDay + "T00:00:00Z") > windowStartMs
+      ? `Run data begins ${fmtMD(firstActiveDay)} — earlier days in this ${win}-day window are empty.`
+      : undefined;
+
+  const foundNote = outlierNote(pollDaily, "new_jobs", gran === "week");
+  const netNote = outlierNote(pollDailyNet, "net_growth", gran === "week");
+
+  const haltsZero = allZero(companyDiscoveryDerived, "halt_count");
+  const backlogZero = allZero(companyDiscoveryDerived, "backlog");
+  const winLabel = win === 30 ? "30 days" : "90 days";
+
+  // In weekly view the final bucket only covers this week so far, so its shorter bars
+  // read as a throughput drop to a non-technical reader. Flag it (audit R3-P4).
+  const weekly = gran === "week";
+  const partialWeekNote = weekly
+    ? "The last bar is the current week so far — its lower values aren't a real drop."
+    : undefined;
+
   return (
     <div>
-      <div style={{ display: "flex", gap: "12px", marginBottom: "14px" }}>
-        <Toggle value={gran} onChange={setGran}
+      <div style={{ display: "flex", gap: "12px", marginBottom: "14px", flexWrap: "wrap" }}>
+        <Toggle value={gran} onChange={setGran} label="Granularity"
           options={[{ v: "day", label: "Daily" }, { v: "week", label: "Weekly" }]} />
-        <Toggle value={win} onChange={setWin}
+        <Toggle value={win} onChange={setWin} label="Time window"
           options={[{ v: 30, label: "30 days" }, { v: 90, label: "90 days" }]} />
       </div>
 
-      <div style={{ fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: "4px 0 10px" }}>VOLUME</div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap", margin: "4px 0 10px" }}>
+        <h3 style={GROUP_LABEL}>VOLUME</h3>
+        {dataBeginsNote && <span style={{ fontSize: "11.5px", color: "#8a5a12", fontWeight: 600 }}>{dataBeginsNote}</span>}
+        {partialWeekNote && <span style={{ fontSize: "11.5px", color: "#8a5a12", fontWeight: 600 }}>{partialWeekNote}</span>}
+      </div>
       <div style={GRID}>
-        <BarsCard title="Jobs found vs closed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
+        <BarsCard title="Jobs found vs closed" subtitle={foundNote} weekly={weekly} data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
           bars={[{ key: "new_jobs", name: "New", color: COLORS.green }, { key: "closed_jobs", name: "Closed", color: COLORS.red }]} />
-        <BarsCard title="Job Discovery — companies ok vs failed" data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
+        <BarsCard title="Job Discovery — companies ok vs failed" weekly={weekly} data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
           bars={[{ key: "companies_ok", name: "OK", color: COLORS.blue }, { key: "companies_failed", name: "Failed", color: COLORS.red }]} />
-        <BarsCard title="Review outcomes" data={review as unknown as Array<Record<string, string | number | null>>} xKey="day"
+        <BarsCard title="Review outcomes" weekly={weekly} data={review as unknown as Array<Record<string, string | number | null>>} xKey="day"
           bars={[{ key: "approved", name: "Approved", color: COLORS.green }, { key: "denied", name: "Denied", color: COLORS.red },
                  { key: "gate_rejected", name: "Gate-rejected", color: COLORS.amber }, { key: "errors", name: "Errors", color: COLORS.slate }]} />
-        <BarsCard title="Company Discovery outcomes" data={companyDiscovery as unknown as Array<Record<string, string | number | null>>} xKey="day"
+        <BarsCard title="Company Discovery outcomes" weekly={weekly} data={companyDiscovery as unknown as Array<Record<string, string | number | null>>} xKey="day"
           bars={[{ key: "included", name: "Included", color: COLORS.green }, { key: "excluded", name: "Excluded", color: COLORS.red },
                  { key: "unknown", name: "Unknown", color: COLORS.slate }, { key: "errors", name: "Errors", color: COLORS.amber }]} />
       </div>
 
-      <div style={{ fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: "18px 0 10px" }}>RATES &amp; OPERATIONS</div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap", margin: "18px 0 10px" }}>
+        <h3 style={GROUP_LABEL}>RATES &amp; OPERATIONS</h3>
+        {partialWeekNote && <span style={{ fontSize: "11.5px", color: "#8a5a12", fontWeight: 600 }}>{partialWeekNote}</span>}
+      </div>
       <div style={GRID}>
-        <LinesCard title="Review rates" data={reviewDerived} xKey="day" percent
+        <LinesCard title="Review rates" subtitle="High gate-reject is normal — the gate filters obvious non-fits before full review." weekly={weekly} data={reviewDerived} xKey="day" percent
           lines={[{ key: "approval_rate", name: "Approval", color: COLORS.green }, { key: "gate_rate", name: "Gate-reject", color: COLORS.amber }]} />
-        <LinesCard title="Company Discovery inclusion rate" data={companyDiscoveryDerived} xKey="day" percent
+        <LinesCard title="Company Discovery inclusion rate" subtitle="Share of newly screened companies accepted for tracking." weekly={weekly} data={companyDiscoveryDerived} xKey="day" percent
           lines={[{ key: "inclusion_rate", name: "Inclusion", color: COLORS.blue }]} />
-        <LinesCard title="Job Discovery failure rate" data={pollDerived} xKey="day" percent
+        <LinesCard title="Job Discovery failure rate" subtitle="Share of companies whose ATS poll failed. Lower is better; the dashed line is the 60% warn threshold." weekly={weekly} data={pollDerived} xKey="day" percent
+          refLine={{ y: JOB_DISCOVERY_FAILURE_WARN_RATE, label: "warn threshold" }}
           lines={[{ key: "failure_rate", name: "Failure", color: COLORS.red }]} />
-        <BarsCard title="Net job growth (new − closed)" data={pollDerived} xKey="day"
+        <BarsCard title="Net job growth (new − closed)" subtitle={netNote} weekly={weekly} data={pollDerived} xKey="day"
           bars={[{ key: "net_growth", name: "Net", color: COLORS.blue }]} />
-        <LinesCard title="Company Discovery backlog" data={companyDiscoveryDerived} xKey="day"
-          lines={[{ key: "backlog", name: "Backlog", color: COLORS.violet }]} />
-        <BarsCard title="Run cadence (runs per period)" data={ops} xKey="day"
+        {backlogZero
+          ? <StateCard title="Company Discovery backlog" note={`Backlog stayed at 0 across the last ${winLabel} — the pipeline is caught up.`} />
+          : <LinesCard title="Company Discovery backlog" subtitle="Companies awaiting classification at each run's end." weekly={weekly} data={companyDiscoveryDerived} xKey="day"
+              lines={[{ key: "backlog", name: "Backlog", color: COLORS.violet }]} />}
+        <BarsCard title="Run cadence (runs per period)" subtitle="Runs completed per bucket — should track each pipeline's cron schedule." weekly={weekly} data={ops} xKey="day"
           bars={[{ key: "poll_runs", name: "Job Discovery", color: COLORS.blue }, { key: "review_runs", name: "Reviewer", color: COLORS.green },
                  { key: "discovery_runs", name: "Company Discovery", color: COLORS.violet }]} />
-        <LinesCard title="Avg run latency (seconds)" data={ops} xKey="day"
-          lines={[{ key: "poll_latency", name: "Job Discovery", color: COLORS.blue }, { key: "review_latency", name: "Reviewer", color: COLORS.green },
-                  { key: "discovery_latency", name: "Company Discovery", color: COLORS.violet }]} />
-        <BarsCard title="Credit-halt frequency" data={companyDiscoveryDerived} xKey="day"
-          bars={[{ key: "halt_count", name: "Halts", color: COLORS.amber }]} />
+        <LinesCard title="Average run time — Job Discovery & Reviewer" subtitle="Wall-clock time per run." weekly={weekly} data={ops} xKey="day" valueFormatter={fmtDuration}
+          lines={[{ key: "poll_latency", name: "Job Discovery", color: COLORS.blue }, { key: "review_latency", name: "Reviewer", color: COLORS.green }]} />
+        <LinesCard title="Average run time — Company Discovery" subtitle="Plotted separately — its weekly deep scan runs far longer than the other two." weekly={weekly} data={ops} xKey="day" valueFormatter={fmtDuration}
+          lines={[{ key: "discovery_latency", name: "Company Discovery", color: COLORS.violet }]} />
+        {haltsZero
+          ? <StateCard title="Credit-halt frequency" note={`No credit halts in the last ${winLabel} — the LLM provider stayed funded.`} />
+          : <BarsCard title="Credit-halt frequency" subtitle="Times discovery paused for lack of LLM credits." weekly={weekly} data={companyDiscoveryDerived} xKey="day"
+              bars={[{ key: "halt_count", name: "Halts", color: COLORS.amber }]} />}
       </div>
     </div>
   );

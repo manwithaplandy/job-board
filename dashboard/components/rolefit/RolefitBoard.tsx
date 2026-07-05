@@ -939,13 +939,10 @@ export function RolefitBoard({
         operator={operator}
         viewerEmail={viewerEmail}
         isNarrow={isNarrow}
-        onOpenProfile={() => {
-          if (isAuthed) {
-            setProfileOpen(true);
-          } else {
-            window.location.href = "/login";
-          }
-        }}
+        // The header CTA is authed-only now (anon gets Sign in / Sign up anchors),
+        // so this only ever opens the modal. (JobDetail's onOpenProfile below was
+        // already modal-only.)
+        onOpenProfile={() => setProfileOpen(true)}
       />
       <FilterBar
         totalInView={totalInView}

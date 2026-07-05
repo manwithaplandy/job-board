@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { CSSProperties, RefObject } from "react";
 import type { OperatorSignals } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { AccountMenu } from "./AccountMenu";
@@ -23,6 +23,16 @@ const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
   ok: "#22c55e",
   warn: "#f59e0b",
   stale: "#9aa3b0",
+};
+
+// Ghost nav-anchor style shared by the desktop content nav (Analytics, Companies) and
+// the anon "Sign in" link — they read identically, so the tokens live in one place.
+const NAV_ANCHOR_STYLE: CSSProperties = {
+  fontWeight: 700,
+  fontSize: "13px",
+  color: "#3b6fd4",
+  textDecoration: "none",
+  padding: "9px 6px",
 };
 
 export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewerEmail, isNarrow = false, onOpenProfile, searchRef }: HeaderProps) {
@@ -195,19 +205,13 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
         {/* Content nav — top-level on desktop; folds into the account menu (includeNav)
             at narrow widths so the header fits. */}
         {isAuthed && !isNarrow && (
-          <a href="/analytics" style={{
-            fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
-            textDecoration: "none", padding: "9px 6px",
-          }}>
+          <a href="/analytics" style={NAV_ANCHOR_STYLE}>
             Analytics
           </a>
         )}
 
         {isAuthed && !isNarrow && (
-          <a href="/companies" style={{
-            fontWeight: 700, fontSize: "13px", color: "#3b6fd4",
-            textDecoration: "none", padding: "9px 6px",
-          }}>
+          <a href="/companies" style={NAV_ANCHOR_STYLE}>
             Companies
           </a>
         )}
@@ -234,16 +238,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
           </Button>
         ) : (
           <>
-            <a
-              href="/login"
-              style={{
-                fontWeight: 700,
-                fontSize: "13px",
-                color: "#3b6fd4",
-                textDecoration: "none",
-                padding: "9px 6px",
-              }}
-            >
+            <a href="/login" style={NAV_ANCHOR_STYLE}>
               Sign in
             </a>
             <a

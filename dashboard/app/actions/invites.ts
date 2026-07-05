@@ -63,8 +63,9 @@ export async function createInviteAction(
   }
 
   let code: string | undefined;
-  if (input.code?.trim()) {
-    code = input.code.trim().toUpperCase();
+  const trimmedCode = input.code?.trim();
+  if (trimmedCode) {
+    code = trimmedCode.toUpperCase();
     if (!CUSTOM_CODE_RE.test(code)) {
       return {
         ok: false,
@@ -73,7 +74,8 @@ export async function createInviteAction(
     }
   }
 
-  const note = input.note?.trim() ? input.note.trim().slice(0, 200) : undefined;
+  // Pass the trimmed note through; createInvite owns the length clamp (column invariant).
+  const note = input.note?.trim() || undefined;
 
   try {
     const created = await createInvite({ note, maxUses, expiresAt, code });

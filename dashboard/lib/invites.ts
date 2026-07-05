@@ -197,10 +197,12 @@ export type CreateInviteOpts = {
  * action can surface it as user-legible copy instead of a raw PG error.
  */
 export async function createInvite(opts: CreateInviteOpts = {}): Promise<InviteCode> {
-  const note = opts.note?.trim() ? opts.note.trim() : null;
+  // Trim + clamp the note to the column's practical cap here, at the DB primitive
+  // that owns the invariant — every caller (not just the action) gets a bounded note.
+  const note = opts.note?.trim().slice(0, 200) || null;
   const maxUses = opts.maxUses ?? 1;
   const expiresAt = opts.expiresAt ?? null;
-  const custom = opts.code?.trim() ? opts.code.trim() : undefined;
+  const custom = opts.code?.trim() || undefined;
 
   const attempts = custom ? 1 : MAX_GENERATION_ATTEMPTS;
   for (let i = 0; i < attempts; i++) {

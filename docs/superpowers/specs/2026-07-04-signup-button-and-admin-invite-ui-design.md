@@ -159,8 +159,9 @@ authenticated RLS policy by design. The new functions inherit that justification
   - **Gate first, before any work:**
     `if (!isAdmin(await getUserClaims())) throw new Error("not authorized");`
     (mirrors `app/actions/companies.ts:50` — strangers get no legible detail).
-  - Validate: `maxUses` is an integer in `1..1000`; `expiresAt` parses to a future
-    timestamp or is null; custom `code` (if provided) matches an allowed charset/length.
+  - Validate: `maxUses` is an integer in `1..1000`; `expiresAt` is null or a date-only
+    value interpreted as **end of that day** (so an expiry of "today" is valid) and must
+    be today-or-later; custom `code` (if provided) matches an allowed charset/length.
   - On success return `{ ok: true, code }`; on a validation failure or custom-code
     collision return `{ ok: false, error }` with a legible message the form can display.
   - **Why a result union, not throw-for-validation:** Next.js redacts thrown

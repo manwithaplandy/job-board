@@ -551,7 +551,7 @@
     test("a past expiry is rejected without an insert", async () => {
       asAdmin();
       const res = await createInviteAction({ expiresAt: "2020-01-01" });
-      expect(res).toEqual({ ok: false, error: expect.stringContaining("future") });
+      expect(res).toEqual({ ok: false, error: expect.stringContaining("today or later") });
       expect(invites.createInvite).not.toHaveBeenCalled();
     });
 
@@ -577,12 +577,26 @@
       );
     });
 
-    test("a valid future expiry is forwarded as a Date", async () => {
+    test("a valid future expiry is forwarded as an end-of-day Date", async () => {
       asAdmin();
       await createInviteAction({ expiresAt: "2030-01-01" });
       expect(invites.createInvite).toHaveBeenCalledWith(
-        expect.objectContaining({ expiresAt: new Date("2030-01-01") }),
+        expect.objectContaining({ expiresAt: new Date("2030-01-01T23:59:59.999Z") }),
       );
+    });
+
+    test("an expiry of today is accepted (interpreted as end of day)", async () => {
+      asAdmin();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-04T09:00:00Z"));
+      try {
+        await createInviteAction({ expiresAt: "2026-07-04" });
+        expect(invites.createInvite).toHaveBeenCalledWith(
+          expect.objectContaining({ expiresAt: new Date("2026-07-04T23:59:59.999Z") }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -649,7 +663,7 @@
     note?: string;
     // From the form's <input type="number"> via Number(...) — validated to an int in 1..1000.
     maxUses?: number;
-    // From the form's <input type="date"> (YYYY-MM-DD) — must parse to a future date.
+    // From the form's <input type="date"> (YYYY-MM-DD) — interpreted as end of that day; must be today or later.
     expiresAt?: string | null;
     code?: string;
   };
@@ -674,8 +688,12 @@
       if (Number.isNaN(parsed.getTime())) {
         return { ok: false, error: "Expiry must be a valid date." };
       }
+      // A date-only value (YYYY-MM-DD) parses to UTC midnight; treat it as the END of
+      // that day so an expiry of "today" stays valid through the whole day rather than
+      // being rejected as already past.
+      parsed.setUTCHours(23, 59, 59, 999);
       if (parsed.getTime() <= Date.now()) {
-        return { ok: false, error: "Expiry must be in the future." };
+        return { ok: false, error: "Expiry must be today or later." };
       }
       expiresAt = parsed;
     }
@@ -712,7 +730,7 @@
   cd dashboard && npx vitest run app/actions/invites.test.ts
   ```
 
-  Expected: PASS — 13 tests (4 gate, 4+3 validation via `test.each` expansion, 2 error surfacing). Also confirm the allowlist still holds:
+  Expected: PASS — 16 tests (4 gate, 10 validation incl. `test.each` expansion, 2 error surfacing). Also confirm the allowlist still holds:
 
   ```
   cd dashboard && npx vitest run lib/serviceRoleAllowlist.test.ts

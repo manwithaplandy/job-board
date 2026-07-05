@@ -220,3 +220,13 @@ export async function createInvite(opts: CreateInviteOpts = {}): Promise<InviteC
   }
   throw new Error("Couldn't generate a unique invite code after 5 attempts.");
 }
+
+/** Every invite code, newest first, for the admin list view (`uses` IS the usage count — no join needed). */
+export async function listInvites(): Promise<InviteCode[]> {
+  const rows = (await serviceSql`
+    SELECT code, note, max_uses, uses, expires_at, created_at
+    FROM invite_codes
+    ORDER BY created_at DESC
+  `) as unknown as InviteRow[];
+  return rows.map(toInviteCode);
+}

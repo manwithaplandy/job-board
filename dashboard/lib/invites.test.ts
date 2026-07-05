@@ -29,6 +29,7 @@ import {
   createInvite,
   generateInviteCode,
   InviteCodeExistsError,
+  listInvites,
 } from "@/lib/invites";
 
 const calls = (sql as unknown as { __calls: { strings: readonly string[]; values: unknown[] }[] }).__calls;
@@ -192,5 +193,46 @@ describe("createInvite", () => {
     stage(Object.assign(new Error("boom"), { code: "57014" }));
     await expect(createInvite()).rejects.toThrow("boom");
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("listInvites", () => {
+  test("selects all codes newest-first and maps snake_case rows to InviteCode", async () => {
+    stage([
+      inviteRow({ code: "RF-CCCC-DDDD", created_at: new Date("2026-07-04T12:00:00Z") }),
+      inviteRow({
+        code: "FOUNDER-01",
+        note: "seed",
+        uses: 1,
+        created_at: new Date("2026-07-03T12:00:00Z"),
+      }),
+    ]);
+    const out = await listInvites();
+    expect(calls).toHaveLength(1);
+    expect(text()).toContain("from invite_codes");
+    expect(text()).toContain("order by created_at desc");
+    expect(out).toEqual([
+      {
+        code: "RF-CCCC-DDDD",
+        note: null,
+        maxUses: 1,
+        uses: 0,
+        expiresAt: null,
+        createdAt: new Date("2026-07-04T12:00:00Z"),
+      },
+      {
+        code: "FOUNDER-01",
+        note: "seed",
+        maxUses: 1,
+        uses: 1,
+        expiresAt: null,
+        createdAt: new Date("2026-07-03T12:00:00Z"),
+      },
+    ]);
+  });
+
+  test("returns [] when no codes exist", async () => {
+    stage([]);
+    expect(await listInvites()).toEqual([]);
   });
 });

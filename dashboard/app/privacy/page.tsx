@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import { SupportLink } from "@/components/SupportLink";
 
-// NOTE: This copy is a good-faith starting point and MUST be reviewed by a lawyer
-// before public launch (see the commit message). It is not legal advice. It names the
-// ACTUAL processors used by this codebase — keep it in sync if the stack changes.
+// NOTE: Content-reviewed against the codebase on 2026-07-05 (processors, export,
+// deletion-cascade, and billing claims verified in code) and shipped on the operator's
+// decision for the invite-only beta. It has NOT been reviewed by a lawyer, is not legal
+// advice, and does not substitute for review by counsel before a broader public launch.
+// It names the ACTUAL processors used by this codebase — keep it in sync if the stack
+// changes.
 export const metadata: Metadata = { title: "Privacy Policy · Rolefit" };
 
 const pageStyle: React.CSSProperties = {
@@ -31,11 +34,13 @@ export default function PrivacyPage() {
     <main style={pageStyle}>
       <div style={cardStyle}>
         <h1 style={h1Style}>Privacy Policy</h1>
-        <div style={metaStyle}>Last updated 2026-07-04</div>
+        <div style={metaStyle}>Last updated 2026-07-05</div>
 
         <p style={pStyle}>
           This policy explains what personal information Rolefit collects, how we use it, and
-          the third-party processors we rely on. Your résumé is personal information (PII), so
+          the third-party processors we rely on. Rolefit is operated by Andrew Malvani, who
+          is the data controller for the personal information described here
+          (&ldquo;we,&rdquo; &ldquo;us&rdquo;). Your résumé is personal information (PII), so
           we treat it with care and keep the list of processors below deliberately explicit.
         </p>
 
@@ -71,7 +76,8 @@ export default function PrivacyPage() {
           </li>
           <li style={liStyle}>
             <strong>Stripe</strong> — processes subscription payments. Card data goes directly
-            to Stripe and never touches our systems; we store only a customer id and status.
+            to Stripe and never touches our systems; we store only Stripe identifiers (a
+            customer and subscription id) and your plan, status, and billing-period dates.
           </li>
           <li style={liStyle}>
             <strong>OpenRouter</strong> and the downstream AI model providers it routes to —
@@ -101,10 +107,13 @@ export default function PrivacyPage() {
           <strong>delete your account</strong> from the same page: deletion removes your
           profile, reviews, generated application packages, and archived résumé files from our
           storage, cancels any active subscription, and deletes your customer record (email,
-          name, saved payment methods) from Stripe. Deletion is irreversible. Note that Stripe
-          retains its own charge and invoice records for tax and accounting compliance, and
-          that LLM traces already sent to LangFuse and data at third-party model providers are
-          governed by those providers&rsquo; retention policies.
+          name, saved payment methods) from Stripe. Deletion is irreversible. We keep two
+          minimal traces: a deletion-ledger entry holding a keyed, irreversible hash of your
+          email (proof of erasure and abuse prevention — never the address itself), and
+          internal pipeline run records permanently disassociated from your identity. Note
+          that Stripe retains its own charge and invoice records for tax and accounting
+          compliance, and that LLM traces already sent to LangFuse and data at third-party
+          model providers are governed by those providers&rsquo; retention policies.
         </p>
 
         <h2 style={h2Style}>Security</h2>

@@ -1,6 +1,7 @@
 import { propagateAttributes } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForCoverLetter, upsertApplicationPackage } from "@/lib/queries";
+import { gateRejectionBody } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations } from "@/lib/usage";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
   // failed generation never burns allowance. After the 404/422/500 validation so we
   // never charge a request that can't generate.
   const gate = await reserveGenerations(userId, claims.email, ["cover"]);
-  if (!gate.ok) return Response.json({ error: gate.error }, { status: gate.status });
+  if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
 
   const run = async () => {
     try {

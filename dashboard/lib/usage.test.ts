@@ -47,7 +47,12 @@ describe("reserveGenerations (atomic reserve, minor 4)", () => {
   test("null plan → 402 subscribe, nothing charged", async () => {
     state.plan = null;
     const r = await reserveGenerations("u", "e@x.com", ["resume"]);
-    expect(r).toEqual({ ok: false, status: 402, error: expect.stringContaining("Subscribe") });
+    expect(r).toEqual({
+      ok: false,
+      status: 402,
+      code: "subscription_required",
+      error: expect.stringContaining("Subscribe"),
+    });
     expect(inserts()).toHaveLength(0);
   });
 
@@ -66,6 +71,9 @@ describe("reserveGenerations (atomic reserve, minor 4)", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.status).toBe(429);
+      // Structured fields the client's /billing upsell keys off (lib/rolefit/tierGate.ts).
+      expect(r.code).toBe("allowance_exhausted");
+      if (r.status === 429) expect(r.plan).toBe("standard");
       expect(r.error).toContain("30/30");
       expect(r.error).toContain("Standard");
       expect(r.error).toContain("résumé");

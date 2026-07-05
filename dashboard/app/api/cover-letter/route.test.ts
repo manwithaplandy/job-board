@@ -91,20 +91,32 @@ describe("POST /api/cover-letter — validation ladder (charge only after valida
 
 describe("POST /api/cover-letter — subscription/allowance gate", () => {
   test("no plan → 402 pass-through (status + error), nothing generated/persisted", async () => {
-    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 402, error: "Subscribe first." });
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 402, code: "subscription_required", error: "Subscribe first.",
+    });
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(402);
-    expect((await res.json()).error).toBe("Subscribe first.");
+    const body = await res.json();
+    expect(body.error).toBe("Subscribe first.");
+    // Machine-readable code the client's /billing upsell keys off (lib/rolefit/tierGate.ts).
+    expect(body.code).toBe("subscription_required");
     expect(mocks.generateCoverLetter).not.toHaveBeenCalled();
     expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
     expect(mocks.refundGenerations).not.toHaveBeenCalled();
   });
 
   test("exhausted → 429 pass-through", async () => {
-    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 429, error: "Monthly cover letter allowance used (3/3)." });
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 429, code: "allowance_exhausted", plan: "standard",
+      error: "Monthly cover letter allowance used (3/3).",
+    });
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(429);
-    expect((await res.json()).error).toBe("Monthly cover letter allowance used (3/3).");
+    const body = await res.json();
+    expect(body.error).toBe("Monthly cover letter allowance used (3/3).");
+    // code + plan let the client distinguish this from an upstream 429 and pitch Pro.
+    expect(body.code).toBe("allowance_exhausted");
+    expect(body.plan).toBe("standard");
     expect(mocks.generateCoverLetter).not.toHaveBeenCalled();
   });
 });

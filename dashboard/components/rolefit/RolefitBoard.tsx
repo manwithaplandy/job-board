@@ -12,6 +12,8 @@ import { isResumeStale } from "@/lib/resumeStale";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
 import { selectionAfterRemoval, stepSelection } from "@/lib/rolefit/selection";
+import { tierGateNotice, type TierGateNotice } from "@/lib/rolefit/tierGate";
+import { UpsellNotice } from "./UpsellNotice";
 import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
@@ -204,6 +206,12 @@ export function RolefitBoard({
   const [actionError, setActionError] = useState<string | null>(null);
   const actionErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Tier-gate upsell notice (402 subscribe / 429 monthly allowance): shown in the same
+  // bottom stack as the pills above, but styled as an invitation with a /billing CTA —
+  // a gate rejection is not a failure, so it never routes through actionError.
+  const [upsell, setUpsell] = useState<TierGateNotice | null>(null);
+  const upsellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Refs
   const detailRef = useRef<HTMLDivElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -215,12 +223,21 @@ export function RolefitBoard({
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
+    if (upsellTimerRef.current) clearTimeout(upsellTimerRef.current);
   }, []);
 
   const showActionError = useCallback((msg: string) => {
     setActionError(msg);
     if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
     actionErrorTimerRef.current = setTimeout(() => setActionError(null), 5000);
+  }, []);
+
+  // Longer-lived than actionError's 5s: the upsell carries a sentence or two plus a CTA
+  // the user may want to click, so give it reading time before it self-dismisses.
+  const showUpsell = useCallback((notice: TierGateNotice) => {
+    setUpsell(notice);
+    if (upsellTimerRef.current) clearTimeout(upsellTimerRef.current);
+    upsellTimerRef.current = setTimeout(() => setUpsell(null), 12_000);
   }, []);
 
   // Shared focus-return: many actions unmount the control the user just activated — a card
@@ -539,7 +556,8 @@ export function RolefitBoard({
   //     the apply toast's Undo (handleUndo's apply branch mutates only packages + toast).
   //   • toast       — a toast expiring on its 5s timer while its Undo button holds focus.
   //   • actionError — the error banner's Dismiss (or its own timeout) unmounting that button.
-  // Watch all four; the helper's activeElement===body guard makes running on every such change
+  //   • upsell      — the tier-gate pill's Dismiss (or its 12s timeout) unmounting that button.
+  // Watch all five; the helper's activeElement===body guard makes running on every such change
   // safe. Skip the initial mount so a fresh load isn't disturbed.
   const firstFocusReturnRun = useRef(true);
   useEffect(() => {
@@ -548,7 +566,7 @@ export function RolefitBoard({
       return;
     }
     returnFocusIfStranded();
-  }, [rejectedIds, packages, toast, actionError, returnFocusIfStranded]);
+  }, [rejectedIds, packages, toast, actionError, upsell, returnFocusIfStranded]);
 
   const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;
@@ -715,6 +733,15 @@ export function RolefitBoard({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        // Tier gate (402 subscribe / 429 monthly allowance): nothing was generated, so
+        // the pane returns to its prior state and the upsell pill carries the message
+        // + /billing CTA instead of the generic error path.
+        const gate = tierGateNotice(res.status, body);
+        if (gate) {
+          showUpsell(gate);
+          setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "idle" }));
+          return;
+        }
         throw new Error((body as { error?: string }).error ?? "failed");
       }
       const { package: pkg } = (await res.json()) as { package: ApplicationPackage };
@@ -733,7 +760,7 @@ export function RolefitBoard({
     } finally {
       endGeneration(controller);
     }
-  }, [beginGeneration, endGeneration, genData]);
+  }, [beginGeneration, endGeneration, genData, showUpsell]);
 
   // Cover-letter generation — mirrors handleGenerate against /api/cover-letter (D7).
   const handleGenerateCover = useCallback(async (job: JobRow) => {
@@ -750,6 +777,13 @@ export function RolefitBoard({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        // Tier gate: same treatment as handleGenerate — upsell pill, prior pane state.
+        const gate = tierGateNotice(res.status, body);
+        if (gate) {
+          showUpsell(gate);
+          setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "idle" }));
+          return;
+        }
         throw new Error((body as { error?: string }).error ?? "failed");
       }
       const { package: pkg } = (await res.json()) as { package: ApplicationPackage };
@@ -767,7 +801,7 @@ export function RolefitBoard({
     } finally {
       endGeneration(controller);
     }
-  }, [beginGeneration, endGeneration, coverData]);
+  }, [beginGeneration, endGeneration, coverData, showUpsell]);
 
   // "Prepare application" — build + PERSIST the package in one call. D7 returns
   // { package, status } where status reports each leg (resume / coverLetter / answers)
@@ -790,6 +824,15 @@ export function RolefitBoard({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        // Tier gate (reserves BOTH kinds, so either allowance can trip it): revert both
+        // panes to their prior state and let the upsell pill carry the /billing CTA.
+        const gate = tierGateNotice(res.status, body);
+        if (gate) {
+          showUpsell(gate);
+          setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "idle" }));
+          setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "idle" }));
+          return;
+        }
         throw new Error((body as { error?: string }).error ?? "failed");
       }
       const { package: pkg, status } = (await res.json()) as {
@@ -832,7 +875,7 @@ export function RolefitBoard({
     } finally {
       endGeneration(controller);
     }
-  }, [beginGeneration, endGeneration, genData, coverData, showActionError]);
+  }, [beginGeneration, endGeneration, genData, coverData, showActionError, showUpsell]);
 
   // "Mark as applied" — works with OR without a prepared package. Optimistically
   // flips/creates the package to status='applied' (hiding the job from the default
@@ -1108,7 +1151,7 @@ export function RolefitBoard({
       {/* Live regions are ALWAYS mounted (empty when idle) so a screen reader observes them
           before their content changes — a region added to the DOM together with its content
           is not reliably announced. Only the inner pill toggles. The outer wrapper collapses
-          to 0×0 when both are empty, so it never intercepts pointer events. */}
+          to 0×0 when all are empty, so it never intercepts pointer events. */}
       <div
         style={{
           position: "fixed",
@@ -1157,6 +1200,15 @@ export function RolefitBoard({
             </div>
           ) : null}
         </div>
+        <div role="status">
+          {upsell ? (
+            <UpsellNotice
+              notice={upsell}
+              marginTop={toast ? 8 : 0}
+              onDismiss={() => setUpsell(null)}
+            />
+          ) : null}
+        </div>
         <div role="alert">
           {actionError ? (
             <div
@@ -1164,8 +1216,8 @@ export function RolefitBoard({
                 display: "flex",
                 alignItems: "center",
                 gap: "16px",
-                // Keep the 8px gap from the toast above only when both are showing.
-                marginTop: toast ? "8px" : 0,
+                // Keep the 8px gap from the pills above only when one is showing.
+                marginTop: toast || upsell ? "8px" : 0,
                 background: "#7a2e22",
                 color: "#fff",
                 borderRadius: "12px",

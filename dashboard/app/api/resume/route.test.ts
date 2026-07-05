@@ -98,10 +98,15 @@ describe("POST /api/resume — validation ladder (never charge an unchargeable r
 
 describe("POST /api/resume — subscription/allowance gate", () => {
   test("no plan → 402 with the gate's error body; nothing generated or persisted", async () => {
-    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 402, error: "Subscribe to generate." });
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 402, code: "subscription_required", error: "Subscribe to generate.",
+    });
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(402);
-    expect((await res.json()).error).toBe("Subscribe to generate.");
+    const body = await res.json();
+    expect(body.error).toBe("Subscribe to generate.");
+    // Machine-readable code the client's /billing upsell keys off (lib/rolefit/tierGate.ts).
+    expect(body.code).toBe("subscription_required");
     expect(mocks.generateResume).not.toHaveBeenCalled();
     expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
     // A gate rejection charged nothing, so there is nothing to refund.
@@ -109,10 +114,17 @@ describe("POST /api/resume — subscription/allowance gate", () => {
   });
 
   test("allowance exhausted → 429 with the gate's error body", async () => {
-    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 429, error: "Monthly résumé allowance used (5/5)." });
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 429, code: "allowance_exhausted", plan: "standard",
+      error: "Monthly résumé allowance used (5/5).",
+    });
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(429);
-    expect((await res.json()).error).toBe("Monthly résumé allowance used (5/5).");
+    const body = await res.json();
+    expect(body.error).toBe("Monthly résumé allowance used (5/5).");
+    // code + plan let the client distinguish this from an upstream 429 and pitch Pro.
+    expect(body.code).toBe("allowance_exhausted");
+    expect(body.plan).toBe("standard");
     expect(mocks.generateResume).not.toHaveBeenCalled();
     expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
   });

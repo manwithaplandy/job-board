@@ -2,6 +2,7 @@ import { serviceSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { getViewerPlan } from "@/lib/subscriptions";
 import { monthlyAllowance, PLAN_LABEL, type Plan } from "@/lib/entitlements";
+import type { AllowanceGateRejection } from "@/lib/gateRejection";
 import { loadTierConfig } from "@/lib/tierConfig";
 
 // Monthly generation-allowance enforcement (spec subsystem D / scope item 3). Reuses
@@ -58,9 +59,9 @@ export async function chargeGeneration(
   );
 }
 
-export type AllowanceGate =
-  | { ok: true; plan: Plan }
-  | { ok: false; status: 402 | 429; error: string };
+// Rejection shape (status + machine-readable code + error) lives in lib/gateRejection.ts
+// — a pure module, so routes/tests can build the wire body without importing serviceSql.
+export type AllowanceGate = { ok: true; plan: Plan } | AllowanceGateRejection;
 
 // Advisory-lock key for the per-(user,kind) reserve critical section. hashtextextended
 // (64-bit) not hashtext (32-bit) so distinct users can't collide onto the same lock.
@@ -90,7 +91,12 @@ export async function reserveGenerations(
 ): Promise<AllowanceGate> {
   const plan = await getViewerPlan(userId, email);
   if (!plan) {
-    return { ok: false, status: 402, error: "Subscribe to generate résumés and cover letters." };
+    return {
+      ok: false,
+      status: 402,
+      code: "subscription_required",
+      error: "Subscribe to generate résumés and cover letters.",
+    };
   }
   // DB-overlaid allowances (T1): tunable without a redeploy via tier_settings.
   const { entitlements } = await loadTierConfig();
@@ -107,6 +113,8 @@ export async function reserveGenerations(
         return {
           ok: false as const,
           status: 429 as const,
+          code: "allowance_exhausted" as const,
+          plan,
           error: `Monthly ${KIND_LABEL[kind]} allowance used (${used}/${limit} on ${PLAN_LABEL[plan]}).`,
         };
       }

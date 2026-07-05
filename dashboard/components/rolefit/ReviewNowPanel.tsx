@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { tierGateNotice, type TierGateNotice } from "@/lib/rolefit/tierGate";
 
 // First-run "your board is being built" affordance (spec F core / T6). Two shapes:
 //   • FULL card — shown on an empty board (firstRun) with the Review-now CTA.
@@ -47,6 +48,9 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
   const [reviewedToday, setReviewedToday] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tier-gate rejection (402 no plan / 409 daily budget spent): rendered as an
+  // invitation with a /billing link, not through the red `error` line.
+  const [gate, setGate] = useState<TierGateNotice | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks whether we've observed an active request, so we only fire onSettled on a real
   // active→done transition (not a stale 'done' seen on the very first poll).
@@ -102,13 +106,19 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
   const request = async () => {
     setBusy(true);
     setError(null);
+    setGate(null);
     try {
       const res = await fetch("/api/review/request", { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as {
         status?: Status; remaining?: number; error?: string;
       };
       if (!res.ok) {
-        setError(data.error ?? "Couldn't start a review. Please try again.");
+        // Tier gate (402 subscribe / 409 daily budget): upsell with a /billing link
+        // keyed off the status + the body's machine-readable code — anything else
+        // keeps the generic retry copy.
+        const notice = tierGateNotice(res.status, data);
+        if (notice) setGate(notice);
+        else setError(data.error ?? "Couldn't start a review. Please try again.");
       } else {
         setStatus(data.status ?? "pending");
         settledRef.current = false;
@@ -158,6 +168,14 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
           {remaining != null && ` · ${remaining.toLocaleString()} reviews left in today's budget.`}
         </div>
         {error && <div style={{ fontSize: "12px", color: "#c0392b", marginTop: "4px" }}>{error}</div>}
+        {gate && (
+          <div style={{ fontSize: "12px", color: "#3d4552", marginTop: "4px" }}>
+            {gate.message}{" "}
+            <a href="/billing" style={{ color: "#3b6fd4", fontWeight: 700, textDecoration: "none" }}>
+              {gate.cta} →
+            </a>
+          </div>
+        )}
       </div>
       <button
         type="button"

@@ -1,6 +1,7 @@
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
+import { gateRejectionBody } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations, type GenerationKind } from "@/lib/usage";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
   // it never burns allowance. After the 404/422/500 validation so we never charge a
   // request that can't generate. No plan → 402, exhausted → 429.
   const gate = await reserveGenerations(userId, claims.email, ["resume", "cover"]);
-  if (!gate.ok) return Response.json({ error: gate.error }, { status: gate.status });
+  if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
 
   const answers = applicationAnswersFromProfile(profile);
   // Résumé plaintext via the shared helper.

@@ -1,6 +1,7 @@
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForResume, upsertApplicationPackage } from "@/lib/queries";
+import { gateRejectionBody } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations } from "@/lib/usage";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
   // Placed AFTER the 404/422/500 validation so we never charge for a request that
   // can't generate.
   const gate = await reserveGenerations(userId, claims.email, ["resume"]);
-  if (!gate.ok) return Response.json({ error: gate.error }, { status: gate.status });
+  if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
 
   const run = async () => {
     try {

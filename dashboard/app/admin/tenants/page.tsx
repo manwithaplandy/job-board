@@ -5,6 +5,7 @@ import { isAdmin } from "@/lib/admin";
 import { getTenantMetrics, type TenantMetric } from "@/lib/tenantMetrics";
 import { PLAN_LABEL } from "@/lib/entitlements";
 import { AdminNav } from "@/components/admin/AdminNav";
+import { SlimHeader } from "@/components/rolefit/SlimHeader";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Tenants · Admin" };
@@ -73,49 +74,52 @@ export default async function AdminTenantsPage() {
   const tenants = await getTenantMetrics();
 
   return (
-    <main style={pageStyle}>
-      <div style={wrapStyle}>
-        <AdminNav active="tenants" />
-        <div style={cardStyle}>
-          <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
-            Tenants
-          </h1>
-          <div style={{ fontSize: "12.5px", color: "#6b7480", marginBottom: "18px" }}>
-            Per-tenant plan, usage, pipeline health, and an estimated 30-day review cost.
-          </div>
+    <>
+      <SlimHeader current="admin" />
+      <main style={pageStyle}>
+        <div style={wrapStyle}>
+          <AdminNav active="tenants" />
+          <div style={cardStyle}>
+            <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
+              Tenants
+            </h1>
+            <div style={{ fontSize: "12.5px", color: "#6b7480", marginBottom: "18px" }}>
+              Per-tenant plan, usage, pipeline health, and an estimated 30-day review cost.
+            </div>
 
-          {tenants.length === 0 ? (
-            <div style={{ fontSize: "13px", color: "#6b7480", padding: "24px 4px" }}>
-              No tenants yet.
-            </div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "980px" }}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>Tenant</th>
-                    <th style={thStyle}>Plan</th>
-                    <th style={thStyle}>Status</th>
-                    <th style={thStyle}>Renews</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Rev today</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Rev 30d</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Résumé/Cover mo</th>
-                    <th style={thStyle}>Last run</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Errors</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Req act/fail</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Est 30d $</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tenants.map((t) => (
-                    <Row key={t.userId} t={t} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+            {tenants.length === 0 ? (
+              <div style={{ fontSize: "13px", color: "#6b7480", padding: "24px 4px" }}>
+                No tenants yet.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "980px" }}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Tenant</th>
+                      <th style={thStyle}>Plan</th>
+                      <th style={thStyle}>Status</th>
+                      <th style={thStyle}>Renews</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Rev today</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Rev 30d</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Résumé/Cover mo</th>
+                      <th style={thStyle}>Last run</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Errors</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Req act/fail</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Est 30d $</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tenants.map((t) => (
+                      <Row key={t.userId} t={t} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </>
   );
 }

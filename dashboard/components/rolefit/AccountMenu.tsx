@@ -9,8 +9,8 @@ export interface AccountMenuProps {
   // menu items, because Header hides the flat links at that width.
   includeNav?: boolean;
   // SlimHeader passes the current page so the matching item carries aria-current="page"
-  // (/profile and /billing no longer have a filled nav pill).
-  current?: "profile" | "billing";
+  // (/profile, /billing, and /admin/* no longer rely on a filled nav pill).
+  current?: "profile" | "billing" | "admin";
   // True only for ADMIN_EMAILS viewers (computed server-side from verified claims):
   // reveals an "Admin" link to the otherwise-unadvertised /admin console. Non-admins
   // are never passed true, so the link never renders — and the /admin pages re-gate
@@ -257,6 +257,7 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
               role="menuitem"
               tabIndex={-1}
               href="/admin/tenants"
+              aria-current={current === "admin" ? "page" : undefined}
               className="rf-picker-option"
               style={itemStyle}
               onClick={close}

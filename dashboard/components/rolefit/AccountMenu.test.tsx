@@ -70,6 +70,13 @@ describe("AccountMenu — open contents", () => {
     expect(screen.getByRole("menuitem", { name: "Profile" }).getAttribute("aria-current")).toBeNull();
   });
 
+  test("current='admin' marks the Admin item aria-current=page", () => {
+    renderMenu({ isAdmin: true, current: "admin" });
+    openWithClick();
+    expect(screen.getByRole("menuitem", { name: "Admin" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("menuitem", { name: "Profile" }).getAttribute("aria-current")).toBeNull();
+  });
+
   test("Analytics/Companies are absent by default", () => {
     renderMenu();
     openWithClick();

@@ -1,12 +1,12 @@
-// Shared slim top-nav for the off-board pages (Analytics/Companies/Profile/Billing).
+// Shared slim top-nav for the off-board pages (Analytics/Companies/Profile/Billing/Admin).
 // The logo links back to the board; the content nav (Analytics/Companies) lets operators
 // hop between subpages, and account management (Profile/Billing/Sign out) lives in the
 // account menu on the far right. Reuses the board Header's logo + link tokens so the
 // surfaces read as one app; the current content page is marked with a filled pill, while
-// /profile and /billing carry aria-current on their menu item instead.
+// /profile, /billing, and /admin/* carry aria-current on their menu item instead.
 //
 // Async server component: it reads the viewer's email (locally-verified JWT) for the menu.
-// Safe on every caller — all four subpages are authed, force-dynamic server pages.
+// Safe on every caller — every subpage (incl. the admin console) is authed, force-dynamic.
 
 import Link from "next/link";
 import { getUserClaims } from "@/lib/auth";
@@ -96,7 +96,7 @@ export async function SlimHeader({ current }: { current?: NavKey }) {
         })}
       </nav>
 
-      {/* Account menu (Profile / Billing / Sign out) */}
+      {/* Account menu (Profile / Billing / Admin / Sign out) */}
       <AccountMenu
         email={claims?.email ?? null}
         isAdmin={isAdmin(claims)}

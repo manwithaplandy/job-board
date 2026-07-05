@@ -118,3 +118,105 @@ export async function linkInviteRedemption(email: string, userId: string): Promi
     WHERE email = ${e} AND user_id IS NULL
   `;
 }
+
+// ── Admin invite minting (Feature 2: /admin/invites) ────────────────────────
+// createInvite/listInvites run on serviceSql under the SAME justification as the
+// header above: invite_codes has no authenticated RLS policy by design. They must
+// only ever be called from isAdmin-gated code (app/actions/invites.ts and
+// app/admin/invites/page.tsx) — never from an anon/tenant-reachable route.
+
+/** Camel-case shape of an invite_codes row (rows arrive snake_case; see toInviteCode). */
+export type InviteCode = {
+  code: string;
+  note: string | null;
+  maxUses: number;
+  uses: number;
+  expiresAt: Date | null;
+  createdAt: Date;
+};
+
+type InviteRow = {
+  code: string;
+  note: string | null;
+  max_uses: number;
+  uses: number;
+  expires_at: Date | null;
+  created_at: Date;
+};
+
+const toInviteCode = (r: InviteRow): InviteCode => ({
+  code: r.code,
+  note: r.note,
+  maxUses: r.max_uses,
+  uses: r.uses,
+  expiresAt: r.expires_at,
+  createdAt: r.created_at,
+});
+
+/** A caller-supplied custom code already exists — surfaced legibly by the action. */
+export class InviteCodeExistsError extends Error {
+  constructor() {
+    super("That code already exists.");
+    this.name = "InviteCodeExistsError";
+  }
+}
+
+// 30 chars, no I/L/O/U/0/1 — nothing a human can misread when relaying a code.
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
+const MAX_GENERATION_ATTEMPTS = 5;
+
+/**
+ * CSPRNG invite code in the form RF-XXXX-XXXX (~30^8 ≈ 6.6e11 space). Rejection
+ * sampling (bytes ≥ 240 are discarded; 240 = 8 × 30) removes the modulo bias a
+ * plain `b % 30` over 0..255 would have. Exported for tests; treat as internal.
+ */
+export function generateInviteCode(): string {
+  const chars: string[] = [];
+  while (chars.length < 8) {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    for (const b of bytes) {
+      if (chars.length === 8) break;
+      if (b < 240) chars.push(CODE_ALPHABET[b % CODE_ALPHABET.length]);
+    }
+  }
+  return `RF-${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
+}
+
+export type CreateInviteOpts = {
+  note?: string;
+  maxUses?: number;
+  expiresAt?: Date | null;
+  code?: string;
+};
+
+/**
+ * Insert one invite code and return the created row. Without `code`, an
+ * RF-XXXX-XXXX code is generated; a 23505 PK collision (vanishingly rare)
+ * regenerates and retries up to MAX_GENERATION_ATTEMPTS times. A caller-supplied
+ * `code` is tried exactly once — a collision throws InviteCodeExistsError so the
+ * action can surface it as user-legible copy instead of a raw PG error.
+ */
+export async function createInvite(opts: CreateInviteOpts = {}): Promise<InviteCode> {
+  const note = opts.note?.trim() ? opts.note.trim() : null;
+  const maxUses = opts.maxUses ?? 1;
+  const expiresAt = opts.expiresAt ?? null;
+  const custom = opts.code?.trim() ? opts.code.trim() : undefined;
+
+  const attempts = custom ? 1 : MAX_GENERATION_ATTEMPTS;
+  for (let i = 0; i < attempts; i++) {
+    const code = custom ?? generateInviteCode();
+    try {
+      const rows = (await serviceSql`
+        INSERT INTO invite_codes (code, note, max_uses, expires_at)
+        VALUES (${code}, ${note}, ${maxUses}, ${expiresAt})
+        RETURNING code, note, max_uses, uses, expires_at, created_at
+      `) as unknown as InviteRow[];
+      return toInviteCode(rows[0]);
+    } catch (err) {
+      if ((err as { code?: string }).code !== "23505") throw err; // real failures propagate
+      if (custom) throw new InviteCodeExistsError();
+      // else: astronomically unlucky collision — loop regenerates a fresh code
+    }
+  }
+  throw new Error("Couldn't generate a unique invite code after 5 attempts.");
+}

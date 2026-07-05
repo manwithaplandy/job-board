@@ -23,7 +23,13 @@ vi.mock("@/lib/db", () => {
 });
 
 import { serviceSql as sql } from "@/lib/db";
-import { redeemInvite, isInvitedUser } from "@/lib/invites";
+import {
+  redeemInvite,
+  isInvitedUser,
+  createInvite,
+  generateInviteCode,
+  InviteCodeExistsError,
+} from "@/lib/invites";
 
 const calls = (sql as unknown as { __calls: { strings: readonly string[]; values: unknown[] }[] }).__calls;
 const queue = (sql as unknown as { __queue: unknown[] }).__queue;
@@ -87,5 +93,104 @@ describe("isInvitedUser", () => {
   test("false for an empty email without querying", async () => {
     expect(await isInvitedUser("   ")).toBe(false);
     expect(calls).toHaveLength(0);
+  });
+});
+
+// ── Admin invite minting (Feature 2) ────────────────────────────────────────
+
+const CODE_FORMAT = /^RF-[ABCDEFGHJKMNPQRSTVWXYZ23456789]{4}-[ABCDEFGHJKMNPQRSTVWXYZ23456789]{4}$/;
+
+// A staged invite_codes row exactly as postgres.js returns it: snake_case.
+const inviteRow = (over: Record<string, unknown> = {}) => ({
+  code: "RF-AAAA-AAAA",
+  note: null,
+  max_uses: 1,
+  uses: 0,
+  expires_at: null,
+  created_at: new Date("2026-07-04T00:00:00Z"),
+  ...over,
+});
+
+describe("generateInviteCode", () => {
+  test("produces RF-XXXX-XXXX from the no-ambiguity alphabet, every time", () => {
+    for (let i = 0; i < 200; i++) {
+      expect(generateInviteCode()).toMatch(CODE_FORMAT);
+    }
+  });
+
+  test("does not repeat across a small sample (CSPRNG sanity)", () => {
+    const seen = new Set(Array.from({ length: 100 }, () => generateInviteCode()));
+    expect(seen.size).toBe(100);
+  });
+});
+
+describe("createInvite", () => {
+  test("auto-generates a well-formed code and inserts with defaults (max_uses=1, no expiry, no note)", async () => {
+    stage([inviteRow()]);
+    const created = await createInvite();
+    expect(calls).toHaveLength(1);
+    expect(text()).toContain("insert into invite_codes");
+    expect(text()).toContain("returning");
+    // Bound values, in template order: [code, note, maxUses, expiresAt].
+    expect(calls[0].values[0]).toMatch(CODE_FORMAT);
+    expect(calls[0].values[1]).toBeNull();
+    expect(calls[0].values[2]).toBe(1);
+    expect(calls[0].values[3]).toBeNull();
+    // The snake_case row comes back mapped to the camelCase InviteCode shape.
+    expect(created).toEqual({
+      code: "RF-AAAA-AAAA",
+      note: null,
+      maxUses: 1,
+      uses: 0,
+      expiresAt: null,
+      createdAt: new Date("2026-07-04T00:00:00Z"),
+    });
+  });
+
+  test("respects note, maxUses, expiresAt, and a caller-supplied code", async () => {
+    const expires = new Date("2026-08-01T00:00:00Z");
+    stage([
+      inviteRow({ code: "TEAM-2026", note: "for the team", max_uses: 5, expires_at: expires }),
+    ]);
+    const created = await createInvite({
+      note: "for the team",
+      maxUses: 5,
+      expiresAt: expires,
+      code: "TEAM-2026",
+    });
+    expect(calls[0].values).toEqual(["TEAM-2026", "for the team", 5, expires]);
+    expect(created.code).toBe("TEAM-2026");
+    expect(created.maxUses).toBe(5);
+    expect(created.expiresAt).toEqual(expires);
+  });
+
+  test("retries auto-generation on a unique-PK collision with a FRESH code, then succeeds", async () => {
+    const dup = Object.assign(new Error("duplicate key"), { code: "23505" });
+    stage(dup, [inviteRow({ code: "RF-BBBB-BBBB" })]);
+    const created = await createInvite();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].values[0]).not.toBe(calls[1].values[0]); // regenerated, not re-tried
+    expect(created.code).toBe("RF-BBBB-BBBB");
+  });
+
+  test("gives up after 5 colliding auto-generation attempts", async () => {
+    const dup = () => Object.assign(new Error("duplicate key"), { code: "23505" });
+    stage(dup(), dup(), dup(), dup(), dup());
+    await expect(createInvite()).rejects.toThrow(/unique invite code/i);
+    expect(calls).toHaveLength(5);
+  });
+
+  test("a custom-code collision throws InviteCodeExistsError without retrying", async () => {
+    stage(Object.assign(new Error("duplicate key"), { code: "23505" }));
+    await expect(createInvite({ code: "FOUNDER-01" })).rejects.toBeInstanceOf(
+      InviteCodeExistsError,
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a non-collision DB error propagates untouched (no silent retry)", async () => {
+    stage(Object.assign(new Error("boom"), { code: "57014" }));
+    await expect(createInvite()).rejects.toThrow("boom");
+    expect(calls).toHaveLength(1);
   });
 });

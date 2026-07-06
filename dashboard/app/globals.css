@@ -1,3 +1,58 @@
+/* Theme tokens. :root holds the light defaults; :root[data-theme="dark"] overrides
+   them. Every color across the app resolves to one of these var(--token) names, so a
+   single attribute flip on <html> repaints the whole surface. Keep the two blocks in
+   parity — a token defined here must exist in both (enforced by globals.theme.test.ts). */
+:root {
+  --bg-page: #f4f6fa;
+  --bg-surface: #ffffff;
+  --bg-raised: #ffffff;
+  --bg-muted: #eef1f5;
+  --border: #e7eaf0;
+  --border-strong: #d7dce5;
+  --text-primary: #1f2430;
+  --text-secondary: #5b6472;
+  --text-muted: #8b94a3;
+  --accent: #3b6fd4;
+  --accent-hover: #2f57a8;
+  --accent-bg: #eef3fc;
+  --text-on-accent: #ffffff;
+  --success: #2f7d54;
+  --success-bg: #e3f1e9;
+  --warning: #8a5a12;
+  --warning-bg: #fdf3e6;
+  --danger: #b23b3b;
+  --danger-bg: #fdf6f5;
+  --focus-ring: #3b6fd4;
+  --focus-halo: rgba(59,111,212,.18);
+  --scrollbar-thumb: #d3d9e2;
+  --scrollbar-thumb-hover: #bcc4d1;
+}
+:root[data-theme="dark"] {
+  --bg-page: #12161e;
+  --bg-surface: #1a1f2a;
+  --bg-raised: #212734;
+  --bg-muted: #161b24;
+  --border: #2c3444;
+  --border-strong: #3a4150;
+  --text-primary: #e7eaf1;
+  --text-secondary: #98a1b1;
+  --text-muted: #6b7585;
+  --accent: #5b8def;
+  --accent-hover: #7aa4f2;
+  --accent-bg: rgba(91,141,239,.15);
+  --text-on-accent: #ffffff;
+  --success: #46b17e;
+  --success-bg: rgba(70,177,126,.16);
+  --warning: #d7a24c;
+  --warning-bg: rgba(215,162,76,.15);
+  --danger: #df6f6f;
+  --danger-bg: rgba(223,111,111,.15);
+  --focus-ring: #5b8def;
+  --focus-halo: rgba(91,141,239,.30);
+  --scrollbar-thumb: #2c3444;
+  --scrollbar-thumb-hover: #3a4150;
+}
+
 /* Design base — verbatim from rolefit-reference.dc.html <style> block */
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -5,8 +60,8 @@ body {
   font-family: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  background: #f4f6fa;
-  color: #1f2430;
+  background: var(--bg-page);
+  color: var(--text-primary);
   /* Restores the base line-height Tailwind preflight set on `html` (dropped with
      @tailwind base); explicit per-element line-heights still override it. */
   line-height: 1.5;
@@ -14,19 +69,19 @@ body {
 input, button, textarea, select { font-family: inherit; }
 /* Restores Tailwind preflight's placeholder normalization (dropped with @tailwind base):
    app-wide light-gray placeholder + opacity:1 for Firefox parity. */
-input::placeholder, textarea::placeholder { color: #9aa3b0; opacity: 1; }
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
 
 @keyframes rf-spin { to { transform: rotate(360deg); } }
 
 .rf-scroll::-webkit-scrollbar { width: 11px; }
 .rf-scroll::-webkit-scrollbar-thumb {
-  background: #d3d9e2;
+  background: var(--scrollbar-thumb);
   border-radius: 7px;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 .rf-scroll::-webkit-scrollbar-thumb:hover {
-  background: #bcc4d1;
+  background: var(--scrollbar-thumb-hover);
   background-clip: padding-box;
 }
 .rf-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -44,14 +99,14 @@ input::placeholder, textarea::placeholder { color: #9aa3b0; opacity: 1; }
    4px translucent halo reproduces the border+ring treatment over any inline border. */
 .rf-focusable:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1px #3b6fd4, 0 0 0 4px rgba(59,111,212,.18);
+  box-shadow: 0 0 0 1px var(--focus-ring), 0 0 0 4px var(--focus-halo);
 }
 
 /* The board-search input is borderless/transparent, so its focus ring belongs on the
    rounded pill wrapper. Same reasoning as .rf-focusable: the pill's border is inline, so
    the focus color rides the box-shadow to survive the inline-style specificity. */
 .rf-search:focus-within {
-  box-shadow: 0 0 0 1px #3b6fd4, 0 0 0 4px rgba(59,111,212,.18);
+  box-shadow: 0 0 0 1px var(--focus-ring), 0 0 0 4px var(--focus-halo);
 }
 
 /* Hover-revealed reject × on job cards (#14). Inline styles can't express a parent's
@@ -70,6 +125,6 @@ input::placeholder, textarea::placeholder { color: #9aa3b0; opacity: 1; }
    rule isn't shadowed by an inline value and survives preflight removal. The picker
    inputs' placeholder color now comes from the global input::placeholder rule above. */
 .rf-picker-option { background: transparent; }
-.rf-picker-option:hover { background: #eef3fc; }
-.rf-picker-clear { color: #3b6fd4; }
-.rf-picker-clear:hover { color: #2f57a8; }
+.rf-picker-option:hover { background: var(--accent-bg); }
+.rf-picker-clear { color: var(--accent); }
+.rf-picker-clear:hover { color: var(--accent-hover); }

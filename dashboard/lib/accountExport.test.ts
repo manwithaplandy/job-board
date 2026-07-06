@@ -18,6 +18,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
     usage_counters: [{ user_id: "user-a", kind: "review", n: 3 }],
     subscriptions: [{ plan: "pro", status: "active" }],
     review_requests: [],
+    generation_jobs: [{ user_id: "user-a", job_id: "j1", kind: "resume", status: "ready" }],
     review_runs: [{ user_id: "user-a", id: 10 }],
     invite_redemptions: [{ user_id: "user-a", email: "a@x.com", code: "INV" }],
   },
@@ -54,6 +55,7 @@ function makeTx(userId: string) {
     if (/FROM usage_counters/.test(sql)) return rows.usage_counters ?? [];
     if (/FROM subscriptions/.test(sql)) return rows.subscriptions ?? [];
     if (/FROM review_requests/.test(sql)) return rows.review_requests ?? [];
+    if (/FROM generation_jobs/.test(sql)) return rows.generation_jobs ?? [];
     if (/FROM review_runs/.test(sql)) return rows.review_runs ?? [];
     if (/FROM invite_redemptions/.test(sql)) return rows.invite_redemptions ?? [];
     return [];

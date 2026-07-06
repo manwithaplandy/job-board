@@ -24,6 +24,8 @@ export const USER_DELETE_TABLES = [
   "subscriptions",
   "review_requests",
   "invite_redemptions",
+  // Async-generation status rows (transient; most are pruned within a day anyway).
+  "generation_jobs",
 ] as const;
 
 /** Tables whose rows are kept but de-identified (user_id → NULL) on deletion. */

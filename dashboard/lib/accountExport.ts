@@ -34,6 +34,7 @@ export interface AccountExport {
   subscriptions: unknown;
   review_requests: unknown[];
   invite_redemptions: unknown[];
+  generation_jobs: unknown[];
   review_runs: unknown[];
   resume_files: ResumeFileRef[];
   // Non-null when the résumé-object listing FAILED (storage error / down). Distinguishes
@@ -85,7 +86,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
     const [
       profiles, jobReviews, reviewCorrections, companyReviews,
       applicationPackages, resumeScores, usageCounters, subscriptions,
-      reviewRequests, reviewRuns,
+      reviewRequests, generationJobs, reviewRuns,
     ] = await Promise.all([
       tx`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`,
       tx`SELECT r.*, j.title AS job_title, c.name AS company_name, j.url AS job_url
@@ -104,6 +105,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       tx`SELECT plan, status, current_period_end, cancel_at_period_end, created_at, updated_at
          FROM subscriptions WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM review_requests WHERE user_id = ${userId}::uuid ORDER BY requested_at DESC`,
+      tx`SELECT * FROM generation_jobs WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
       tx`SELECT * FROM review_runs WHERE user_id = ${userId}::uuid ORDER BY started_at DESC`,
     ]);
     return {
@@ -116,6 +118,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       usage_counters: usageCounters as unknown[],
       subscriptions: (subscriptions[0] as unknown) ?? null,
       review_requests: reviewRequests as unknown[],
+      generation_jobs: generationJobs as unknown[],
       review_runs: reviewRuns as unknown[],
     };
   });

@@ -93,8 +93,17 @@ export async function POST(req: Request) {
     } catch (e) {
       // Reserved-but-failed: refund so a failed generation never burns allowance.
       await refundGenerations(userId, ["resume"]);
-      const msg = e instanceof Error ? e.message : "";
-      if (msg.includes("truncated")) return Response.json({ error: "Résumé generation truncated — try again with a shorter résumé." }, { status: 502 });
+      const msg = e instanceof Error ? e.message : String(e);
+      // Surface the real cause in the Vercel runtime logs — the branches below only
+      // map it to a user-safe message, so without this the actual failure
+      // (truncation / timeout / upstream status) is invisible outside Langfuse.
+      console.error("resume generation failed", {
+        userId, jobId, model: profile.model_resume ?? DEFAULT_RESUME_MODEL, error: msg,
+      });
+      // Truncation is reasoning-overflow, NOT résumé length (see REASONING_SAFE_MAX_TOKENS),
+      // so never advise "use a shorter résumé"; a truncated payload also arrives as non-JSON.
+      if (msg.includes("truncated") || msg.includes("non-JSON")) return Response.json({ error: "Résumé generation was cut off — please try again." }, { status: 502 });
+      if (msg.includes("timeout") || msg.includes("aborted")) return Response.json({ error: "Résumé generation timed out — please try again." }, { status: 502 });
       if (msg.includes("429") || msg.includes("rate")) return Response.json({ error: "Rate limited — try again in a moment." }, { status: 429 });
       if (msg.includes("402")) return Response.json({ error: "Insufficient credits." }, { status: 502 });
       return Response.json({ error: "Generation failed — try again." }, { status: 502 });

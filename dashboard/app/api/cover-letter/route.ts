@@ -69,8 +69,14 @@ export async function POST(req: Request) {
     } catch (e) {
       // Reserved-but-failed: refund so a failed generation never burns allowance.
       await refundGenerations(userId, ["cover"]);
-      const msg = e instanceof Error ? e.message : "";
-      if (msg.includes("truncated")) return Response.json({ error: "Cover letter generation truncated — try again with a shorter résumé." }, { status: 502 });
+      const msg = e instanceof Error ? e.message : String(e);
+      // Surface the real cause in the Vercel runtime logs; the branches below only
+      // map it to a user-safe message (mirrors /api/resume).
+      console.error("cover letter generation failed", {
+        userId, jobId, model: profile.model_cover ?? DEFAULT_COVER_MODEL, error: msg,
+      });
+      if (msg.includes("truncated") || msg.includes("non-JSON")) return Response.json({ error: "Cover letter generation was cut off — please try again." }, { status: 502 });
+      if (msg.includes("timeout") || msg.includes("aborted")) return Response.json({ error: "Cover letter generation timed out — please try again." }, { status: 502 });
       if (msg.includes("429") || msg.includes("rate")) return Response.json({ error: "Rate limited — try again in a moment." }, { status: 429 });
       if (msg.includes("402")) return Response.json({ error: "Insufficient credits." }, { status: 502 });
       return Response.json({ error: "Generation failed — try again." }, { status: 502 });

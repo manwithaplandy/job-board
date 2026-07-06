@@ -156,7 +156,9 @@ describe("POST /api/resume — error → status mapping (refunds a burned slot)"
   // Each failure must NOT persist a package (a broken generation must not clobber a
   // previously-saved good one) AND must refund the reserved slot.
   const cases: [string, number, string?][] = [
-    ["response truncated mid-stream", 502, "truncated"],
+    ["response truncated mid-stream", 502, "cut off"],
+    ["OpenRouter returned non-JSON résumé content", 502, "cut off"],
+    ["The operation was aborted due to timeout", 502, "timed out"],
     ["429 rate limited", 429],
     ["rate limit exceeded", 429],
     ["402 payment required", 502, "Insufficient credits."],

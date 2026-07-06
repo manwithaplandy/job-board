@@ -19,6 +19,18 @@ const PER_ATTEMPT_TIMEOUT_MS = 55_000;
 // Total attempts (1 original + 1 retry). Keep ≥2-attempt cost within maxDuration.
 const MAX_ATTEMPTS = 2;
 
+// Output-token budget for the structured generators (résumé / cover-letter /
+// prefill). Sized as REASONING HEADROOM, not content size: the cheap-tier model
+// (deepseek-v4-flash) is a hybrid *reasoning* model whose reasoning tokens count
+// against max_tokens and swing 0–5k+ run-to-run, while the visible JSON is small
+// (~650 tokens for a full one-page résumé). Set too low, reasoning exhausts the
+// budget before any content is emitted → finish_reason "length" (the truncated /
+// non-JSON failures we saw at the old 4k/2k caps). This sits well above observed
+// reasoning peaks; the per-attempt 55s timeout is the real ceiling on a runaway
+// trace. The proper fix is to disable reasoning for these extraction tasks — this
+// is the interim guard against truncation.
+export const REASONING_SAFE_MAX_TOKENS = 12_000;
+
 /** Extract error body text safely — handles fakes without a text() method. */
 async function errText(res: Response): Promise<string> {
   try {

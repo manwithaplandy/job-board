@@ -10,17 +10,17 @@ export interface SeriesDef { key: string; name: string; color: string }
 export interface RefLine { y: number; label: string }
 
 const CARD: React.CSSProperties = {
-  background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px",
+  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "14px",
   padding: "16px 18px 8px", marginBottom: "16px",
 };
 const TITLE: React.CSSProperties = {
-  fontSize: "13.5px", fontWeight: 800, color: "#161d29", letterSpacing: "-.2px",
+  fontSize: "13.5px", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-.2px",
 };
 const SUBTITLE: React.CSSProperties = {
-  fontSize: "11.5px", color: "#6b7480", marginTop: "3px", lineHeight: 1.4,
+  fontSize: "11.5px", color: "var(--text-secondary)", marginTop: "3px", lineHeight: 1.4,
 };
-const EMPTY: React.CSSProperties = { fontSize: "12.5px", color: "#9aa3b0", padding: "28px 0" };
-const AXIS = { fontSize: 11, fill: "#6b7480" } as const;
+const EMPTY: React.CSSProperties = { fontSize: "12.5px", color: "var(--text-muted)", padding: "28px 0" };
+const AXIS = { fontSize: 11, fill: "var(--text-secondary)" } as const;
 
 // Compact Y-axis ticks: 120000 → "120K", 28000 → "28K" — keeps the axis narrow and
 // readable instead of showing raw "120000" (audit R5-P2). Small values pass through
@@ -64,7 +64,7 @@ function LegendList({ items }: { items: SeriesDef[] }) {
       listStyle: "none", margin: "8px 0 0", padding: 0,
     }}>
       {items.map((it) => (
-        <li key={it.key} style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: 12, color: "#5b6472" }}>
+        <li key={it.key} style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: 12, color: "var(--text-secondary)" }}>
           <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 2, background: it.color, display: "inline-block", flex: "0 0 auto" }} />
           {it.name}
         </li>
@@ -88,7 +88,7 @@ function makeIsolatedDot(
     const prev = i > 0 ? data[i - 1]?.[key] : null;
     const next = i < data.length - 1 ? data[i + 1]?.[key] : null;
     if (prev != null || next != null) return <g key={`dot-${i}`} />;
-    return <circle key={`dot-${i}`} cx={cx} cy={cy} r={3} fill={color} stroke="#fff" strokeWidth={1} />;
+    return <circle key={`dot-${i}`} cx={cx} cy={cy} r={3} fill={color} stroke="var(--bg-surface)" strokeWidth={1} />;
   };
   // Named + displayName so the recharts `dot` render-prop isn't an anonymous
   // component (react/display-name, enforced as error on main).
@@ -101,9 +101,9 @@ function refLineNode(refLine?: RefLine) {
   return (
     <ReferenceLine
       y={refLine.y}
-      stroke="#f59e0b"
+      stroke="var(--chart-amber)"
       strokeDasharray="4 4"
-      label={{ value: refLine.label, position: "insideTopRight", fontSize: 10, fill: "#8a5a12" }}
+      label={{ value: refLine.label, position: "insideTopRight", fontSize: 10, fill: "var(--warning)" }}
     />
   );
 }
@@ -122,7 +122,7 @@ export function BarsCard(
       <div role="img" aria-label={`${title} — bar chart`}>
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
-            <CartesianGrid stroke="#f0f2f6" vertical={false} />
+            <CartesianGrid stroke="var(--bg-muted)" vertical={false} />
             {/* type="category" is explicit on purpose: recharts 3 dropped XAxis defaultProps, so the
                 implicit category/band scale the bar-positioning path relied on is no longer applied —
                 without it, weekly/90-day series (mostly-zero buckets) render bars on a wrong band scale
@@ -135,14 +135,14 @@ export function BarsCard(
               angle={allTicks ? -30 : undefined}
               textAnchor={allTicks ? "end" : undefined}
               height={allTicks ? 48 : undefined}
-              tickLine={false} axisLine={{ stroke: "#e7eaf0" }} tickFormatter={formatDateTick}
+              tickLine={false} axisLine={{ stroke: "var(--border)" }} tickFormatter={formatDateTick}
             />
             <YAxis
               tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false}
               tickFormatter={valueFormatter ? (v: number) => valueFormatter(v) : compactTick}
             />
             <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid #e7eaf0" }}
+              contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--border)" }}
               labelFormatter={(label) => (weekly ? "Week of " : "") + formatDateTick(label as string | number)}
               itemSorter={(item) => bars.findIndex((b) => b.key === item.dataKey)}
               // Locale-format the raw value so tooltips read "10,608" like every other
@@ -188,15 +188,15 @@ export function LinesCard(
       <div role="img" aria-label={`${title} — line chart`}>
         <ResponsiveContainer width="100%" height={240}>
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
-            <CartesianGrid stroke="#f0f2f6" vertical={false} />
-            <XAxis dataKey={xKey} type="category" tick={AXIS} tickLine={false} axisLine={{ stroke: "#e7eaf0" }} tickFormatter={formatDateTick} />
+            <CartesianGrid stroke="var(--bg-muted)" vertical={false} />
+            <XAxis dataKey={xKey} type="category" tick={AXIS} tickLine={false} axisLine={{ stroke: "var(--border)" }} tickFormatter={formatDateTick} />
             <YAxis
               tick={AXIS} tickLine={false} axisLine={false}
               domain={percent ? [0, 1] : undefined}
               tickFormatter={yTickFmt}
             />
             <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid #e7eaf0" }}
+              contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--border)" }}
               labelFormatter={(label) => (weekly ? "Week of " : "") + formatDateTick(label as string | number)}
               itemSorter={(item) => lines.findIndex((l) => l.key === item.dataKey)}
               formatter={tipFmt}
@@ -222,8 +222,8 @@ export function StateCard({ title, subtitle, note }: { title: string; subtitle?:
     // alignSelf:'start' keeps a benign-zero card at its own content height instead
     // of stretching to a neighbouring 240px chart's row height (audit P2).
     <Card title={title} subtitle={subtitle} style={{ alignSelf: "start" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", minHeight: "40px", color: "#1d7a4f", fontSize: "12.5px", fontWeight: 600 }}>
-        <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#22a06b", flex: "0 0 auto" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", minHeight: "40px", color: "var(--success)", fontSize: "12.5px", fontWeight: 600 }}>
+        <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", background: "var(--chart-good)", flex: "0 0 auto" }} />
         {note}
       </div>
     </Card>
@@ -234,7 +234,7 @@ export function StateCard({ title, subtitle, note }: { title: string; subtitle?:
 // legible (recharts vertical bars drop every other tick on 10-item lists). Same
 // row pattern as the funnel. (audit F8)
 export function HBarCard(
-  { title, subtitle, data, color = "#3b6fd4", empty = "No data yet." }:
+  { title, subtitle, data, color = "var(--chart-stage)", empty = "No data yet." }:
   { title: string; subtitle?: string; data: Array<BarDatum & { title?: string }>; color?: string; empty?: string },
 ) {
   if (data.length === 0) return <Card title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></Card>;
@@ -247,16 +247,16 @@ export function HBarCard(
             <div
               title={d.title ?? d.label}
               style={{
-                flex: "0 0 140px", width: "140px", fontSize: "12px", color: "#5b6472",
+                flex: "0 0 140px", width: "140px", fontSize: "12px", color: "var(--text-secondary)",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}
             >
               {d.label}
             </div>
-            <div style={{ flex: 1, minWidth: "40px", height: "14px", background: "#f0f2f6", borderRadius: "5px", overflow: "hidden" }}>
+            <div style={{ flex: 1, minWidth: "40px", height: "14px", background: "var(--bg-muted)", borderRadius: "5px", overflow: "hidden" }}>
               <div style={{ width: `${Math.round((d.count / max) * 100)}%`, height: "100%", background: color, borderRadius: "5px", minWidth: d.count > 0 ? "2px" : 0 }} />
             </div>
-            <div style={{ width: "56px", textAlign: "right", fontSize: "12.5px", fontWeight: 700, color: "#161d29" }}>
+            <div style={{ width: "56px", textAlign: "right", fontSize: "12.5px", fontWeight: 700, color: "var(--text-primary)" }}>
               {d.count.toLocaleString()}
             </div>
           </div>
@@ -267,7 +267,7 @@ export function HBarCard(
 }
 
 export function SimpleBarCard(
-  { title, subtitle, data, color = "#3b6fd4", empty = "No data yet.", allTicks = false }:
+  { title, subtitle, data, color = "var(--chart-stage)", empty = "No data yet.", allTicks = false }:
   { title: string; subtitle?: string; data: BarDatum[]; color?: string; empty?: string; allTicks?: boolean },
 ) {
   return <BarsCard title={title} subtitle={subtitle} data={data as unknown as Array<Record<string, string | number | null>>}
@@ -286,18 +286,18 @@ export function SimpleTableCard(
           <div key={`${row.label}-${i}`} style={{
             display: "flex", justifyContent: "space-between", gap: "12px",
             fontSize: "12.5px", padding: "6px 2px",
-            borderBottom: i < data.length - 1 ? "1px solid #f0f2f6" : "none",
+            borderBottom: i < data.length - 1 ? "1px solid var(--bg-muted)" : "none",
           }}>
             <span
               title={row.label}
               style={{
-                color: "#5b6472", overflow: "hidden", textOverflow: "ellipsis",
+                color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis",
                 display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
               }}
             >
               {row.label}
             </span>
-            <span style={{ color: "#161d29", fontWeight: 700, flexShrink: 0 }}>{row.count.toLocaleString()}</span>
+            <span style={{ color: "var(--text-primary)", fontWeight: 700, flexShrink: 0 }}>{row.count.toLocaleString()}</span>
           </div>
         ))}
       </div>

@@ -32,6 +32,8 @@
   --shadow-accent-sm: 0 3px 8px rgba(59,111,212,.32);
   /* Elevation shadow for the floating board toasts (RolefitBoard). */
   --shadow-toast: 0 8px 22px rgba(20,28,40,.22);
+  /* Raised pill of the analytics segmented toggle (TrendCharts active button). */
+  --shadow-toggle: 0 1px 4px rgba(0,0,0,.1);
   --scrollbar-thumb: #d3d9e2;
   --scrollbar-thumb-hover: #bcc4d1;
 
@@ -134,6 +136,8 @@
   --shadow-accent-sm: 0 3px 8px rgba(91,141,239,.24);
   /* Dark: deepen to near-black so the elevated toast still reads over #12161e. */
   --shadow-toast: 0 8px 22px rgba(0,0,0,.5);
+  /* Dark: deepen the toggle pill shadow so the raised button still reads on charcoal. */
+  --shadow-toggle: 0 1px 4px rgba(0,0,0,.45);
   --scrollbar-thumb: #2c3444;
   --scrollbar-thumb-hover: #3a4150;
 

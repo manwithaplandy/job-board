@@ -10,8 +10,8 @@ type Gran = "day" | "week";
 type Win = 30 | 90;
 
 const COLORS = {
-  blue: "#3b6fd4", green: "#22a06b", red: "#e0607e", amber: "#f59e0b",
-  slate: "#7a8699", violet: "#7c6cd4",
+  blue: "var(--chart-stage)", green: "var(--chart-good)", red: "var(--chart-bad)", amber: "var(--chart-amber)",
+  slate: "var(--chart-muted)", violet: "var(--chart-violet)",
 };
 
 const DAY_MS = 86_400_000;
@@ -21,7 +21,7 @@ const GRID: React.CSSProperties = {
 };
 
 const GROUP_LABEL: React.CSSProperties = {
-  fontSize: "12px", fontWeight: 800, color: "#6b7480", letterSpacing: ".4px", margin: 0,
+  fontSize: "12px", fontWeight: 800, color: "var(--text-secondary)", letterSpacing: ".4px", margin: 0,
 };
 
 function fmtMD(day: string): string {
@@ -69,7 +69,7 @@ function Toggle<T extends string | number>(
   { value: T; onChange: (v: T) => void; options: { v: T; label: string }[]; label: string },
 ) {
   return (
-    <div role="group" aria-label={label} style={{ display: "inline-flex", background: "#eef1f5", borderRadius: "9px", padding: "3px" }}>
+    <div role="group" aria-label={label} style={{ display: "inline-flex", background: "var(--bg-muted)", borderRadius: "9px", padding: "3px" }}>
       {options.map((o) => {
         const active = o.v === value;
         return (
@@ -77,12 +77,12 @@ function Toggle<T extends string | number>(
             key={String(o.v)}
             onClick={() => onChange(o.v)}
             aria-pressed={active}
-            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px #3b6fd4"; }}
-            onBlur={(e) => { e.currentTarget.style.boxShadow = active ? "0 1px 4px rgba(0,0,0,.1)" : "none"; }}
+            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px var(--focus-ring)"; }}
+            onBlur={(e) => { e.currentTarget.style.boxShadow = active ? "var(--shadow-toggle)" : "none"; }}
             style={{
               border: "none", cursor: "pointer", fontWeight: 700, fontSize: "12.5px", padding: "6px 14px",
-              borderRadius: "7px", background: active ? "#fff" : "transparent",
-              color: active ? "#1f2430" : "#5b6472", boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
+              borderRadius: "7px", background: active ? "var(--bg-surface)" : "transparent",
+              color: active ? "var(--text-primary)" : "var(--text-secondary)", boxShadow: active ? "var(--shadow-toggle)" : "none",
             }}
           >{o.label}</button>
         );
@@ -195,8 +195,8 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
 
       <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap", margin: "4px 0 10px" }}>
         <h3 style={GROUP_LABEL}>VOLUME</h3>
-        {dataBeginsNote && <span style={{ fontSize: "11.5px", color: "#8a5a12", fontWeight: 600 }}>{dataBeginsNote}</span>}
-        {partialWeekNote && <span style={{ fontSize: "11.5px", color: "#8a5a12", fontWeight: 600 }}>{partialWeekNote}</span>}
+        {dataBeginsNote && <span style={{ fontSize: "11.5px", color: "var(--warning)", fontWeight: 600 }}>{dataBeginsNote}</span>}
+        {partialWeekNote && <span style={{ fontSize: "11.5px", color: "var(--warning)", fontWeight: 600 }}>{partialWeekNote}</span>}
       </div>
       <div style={GRID}>
         <BarsCard title="Jobs found vs closed" subtitle={foundNote} weekly={weekly} data={poll as unknown as Array<Record<string, string | number | null>>} xKey="day"
@@ -213,7 +213,7 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
 
       <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap", margin: "18px 0 10px" }}>
         <h3 style={GROUP_LABEL}>RATES &amp; OPERATIONS</h3>
-        {partialWeekNote && <span style={{ fontSize: "11.5px", color: "#8a5a12", fontWeight: 600 }}>{partialWeekNote}</span>}
+        {partialWeekNote && <span style={{ fontSize: "11.5px", color: "var(--warning)", fontWeight: 600 }}>{partialWeekNote}</span>}
       </div>
       <div style={GRID}>
         <LinesCard title="Review rates" subtitle="High gate-reject is normal — the gate filters obvious non-fits before full review." weekly={weekly} data={reviewDerived} xKey="day" percent

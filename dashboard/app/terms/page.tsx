@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { SupportLink } from "@/components/SupportLink";
 
-// NOTE: This copy is a good-faith starting point and MUST be reviewed by a lawyer
-// before public launch (see the commit message). It is not legal advice.
+// NOTE: Content-reviewed against the codebase on 2026-07-05 (billing, refund, and
+// export/deletion claims verified in code) and shipped on the operator's decision for
+// the invite-only beta. It has NOT been reviewed by a lawyer, is not legal advice, and
+// does not substitute for review by counsel before a broader public launch.
 export const metadata: Metadata = { title: "Terms of Service · Rolefit" };
 
 const pageStyle: React.CSSProperties = {
@@ -29,20 +31,22 @@ export default function TermsPage() {
     <main style={pageStyle}>
       <div style={cardStyle}>
         <h1 style={h1Style}>Terms of Service</h1>
-        <div style={metaStyle}>Last updated 2026-07-04</div>
+        <div style={metaStyle}>Last updated 2026-07-05</div>
 
         <p style={pStyle}>
           These terms govern your use of Rolefit (&ldquo;the Service&rdquo;), a job-search
           assistant that reviews public job postings against your profile and helps you
-          prepare applications. By creating an account you agree to these terms and to our{" "}
+          prepare applications. Rolefit is operated by Andrew Malvani (&ldquo;we,&rdquo;
+          &ldquo;us&rdquo;). By creating an account you agree to these terms and to our{" "}
           <a href="/privacy" style={linkStyle}>Privacy Policy</a>.
         </p>
 
         <h2 style={h2Style}>Accounts</h2>
         <p style={pStyle}>
-          You must provide accurate information, keep your credentials secure, and be
-          responsible for activity under your account. Accounts are currently invite-only.
-          You must use a permanent email address.
+          You must be at least 18 years old to use the Service. You must provide accurate
+          information, keep your credentials secure, and be responsible for activity under
+          your account. Accounts are currently invite-only. You must use a permanent email
+          address.
         </p>
 
         <h2 style={h2Style}>Your content</h2>
@@ -65,11 +69,13 @@ export default function TermsPage() {
 
         <h2 style={h2Style}>Subscriptions &amp; billing</h2>
         <p style={pStyle}>
-          Paid plans are billed monthly through Stripe. Your plan sets a per-day review
-          budget and a monthly generation allowance. You can change or cancel your plan at
-          any time from the billing page; cancellation takes effect at the end of the current
-          period, and downgrades keep your current benefits until then. We do not store your
-          card details — Stripe handles all payment data.
+          Paid plans are billed monthly, in advance, through Stripe. Your plan sets a
+          per-day review budget and a monthly generation allowance. You can change or cancel
+          your plan at any time from the billing page; cancellation takes effect at the end
+          of the current billing period. Partial periods are not automatically prorated or
+          refunded, but if something went wrong, contact us — we review refund requests in
+          good faith and can issue refunds through Stripe. We do not store your card
+          details — Stripe handles all payment data.
         </p>
 
         <h2 style={h2Style}>AI-generated output</h2>

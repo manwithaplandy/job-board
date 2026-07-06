@@ -23,6 +23,9 @@ def test_company_discovery_schema(conn):
         state = cur.fetchone()
 
     assert {"discovery_source", "first_seen_at"} <= company_cols
+    # Company-enrichment substrate (C0): real display name + grounding text + triggers.
+    assert {"display_name", "about", "about_source", "web_description",
+            "web_searched_at", "enriched_at"} <= company_cols
     assert {"company_instructions", "company_profile_version", "model_company"} <= profile_cols
     assert has_reviews is not None and has_runs is not None
     assert state is not None and state["halted_no_credits"] is False  # seeded single row

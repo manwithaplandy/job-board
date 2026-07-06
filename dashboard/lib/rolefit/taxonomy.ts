@@ -121,3 +121,12 @@ export const TAXONOMY_LABELS: Record<string, string> = {
 };
 
 export const taxonomyLabel = (token: string): string => TAXONOMY_LABELS[token] ?? token;
+
+/** Display label for a legitimately-optional enum token: null for null/undefined or the
+ *  literal "unknown" (hide the pill — "unknown" is a real taxonomy value, not a label),
+ *  else the Title-Cased label (TAXONOMY_LABELS, first-letter fallback). Shared by
+ *  JobCard/JobDetail so seniority and work_arrangement can't drift again (plan phase J4). */
+export function displayEnumLabel(token: string | null | undefined): string | null {
+  if (!token || token === "unknown") return null;
+  return TAXONOMY_LABELS[token] ?? (token.charAt(0).toUpperCase() + token.slice(1));
+}

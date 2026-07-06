@@ -181,6 +181,60 @@ def test_errored_company_review_is_reselected(conn):
 
 
 @requires_db
+def test_reselects_when_enrichment_postdates_review(conn):
+    """A reviewed company is re-screened once its enrichment postdates the review
+    (companies.enriched_at > company_reviews.reviewed_at); a human-overridden row is
+    never re-picked; an unenriched company (enriched_at IS NULL) is not spuriously
+    re-picked; and a fresh review that bumps reviewed_at past enriched_at stops it."""
+    db.upsert_candidates(conn, [
+        Candidate("Enriched", "greenhouse", "enriched"),
+        Candidate("Override", "greenhouse", "override"),
+        Candidate("Unenriched", "greenhouse", "unenriched"),
+    ])
+    conn.commit()
+    ids = {}
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, token FROM companies")
+        for r in cur.fetchall():
+            ids[r["token"]] = r["id"]
+
+    # All reviewed 'unknown' at the CURRENT profile version, no error — so ONLY the
+    # enriched_at > reviewed_at predicate can re-pick any of them.
+    for tok in ("enriched", "override", "unenriched"):
+        db.upsert_company_review(conn, _candidate_review_row(ids[tok], "unknown", pv="v1"))
+    conn.commit()
+
+    with conn.cursor() as cur:
+        # Enrichment lands strictly AFTER the review for two of the three.
+        cur.execute(
+            "UPDATE companies SET enriched_at = "
+            "(SELECT reviewed_at FROM company_reviews WHERE company_id = companies.id) "
+            "+ interval '1 minute' WHERE token IN ('enriched','override')")
+        # 'override' is human-pinned and must never be re-screened.
+        cur.execute("UPDATE company_reviews SET human_override=TRUE, override_verdict='include' "
+                    "WHERE company_id=%s", (ids["override"],))
+    conn.commit()
+
+    picked = {r["token"] for r in db.select_for_review(conn, USER, "v1", 100)}
+    assert "enriched" in picked          # enrichment postdates review -> re-screen
+    assert "override" not in picked      # human override is sticky
+    assert "unenriched" not in picked    # enriched_at IS NULL -> not re-picked
+    # count_backlog must agree with select_for_review.
+    assert db.count_backlog(conn, USER, "v1") == 1
+
+    # A fresh review that bumps reviewed_at past enriched_at stops the re-screen.
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE company_reviews SET reviewed_at = "
+            "(SELECT enriched_at FROM companies WHERE id = company_reviews.company_id) "
+            "+ interval '1 minute' WHERE company_id=%s", (ids["enriched"],))
+    conn.commit()
+    picked2 = {r["token"] for r in db.select_for_review(conn, USER, "v1", 100)}
+    assert "enriched" not in picked2
+    assert db.count_backlog(conn, USER, "v1") == 0
+
+
+@requires_db
 def test_run_and_state_helpers(conn):
     rid = db.start_discovery_run(conn)
     db.set_halted(conn, True)

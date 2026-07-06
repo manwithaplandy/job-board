@@ -8,6 +8,15 @@ CREATE TABLE companies (
   discovery_source TEXT NOT NULL DEFAULT 'manual'
                      CHECK (discovery_source IN ('manual','seed','dataset','expansion')),
   first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Company-enrichment substrate (see migrations/2026-07-05-company-enrichment.sql).
+  -- Raw `name` (slug) stays the stable join/display fallback; these are populated by
+  -- later enrichment tasks. enriched_at > company_reviews.reviewed_at re-triggers a screen.
+  display_name     TEXT,
+  about            TEXT,
+  about_source     TEXT CHECK (about_source IN ('ats_board','jd_probe','serp')),
+  web_description  TEXT,
+  web_searched_at  TIMESTAMPTZ,
+  enriched_at      TIMESTAMPTZ,
   UNIQUE (ats, token)
 );
 
@@ -383,6 +392,30 @@ CREATE TABLE openrouter_usage_snapshots (
   total_credits NUMERIC
 );
 
+-- Async generation tracking (see migrations/2026-07-05-generation-jobs.sql). The
+-- generate routes 202 immediately and settle the row from a background `after()`
+-- callback; the dashboard polls GET /api/generations for completion toasts.
+-- `error` holds the USER-SAFE failure/partial-failure message. kind='prepare' is
+-- the multi-leg prepare tracked as one row.
+CREATE TABLE generation_jobs (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL,
+  job_id     TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL CHECK (kind IN ('resume','cover','prepare')),
+  status     TEXT NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending','ready','failed')),
+  error      TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.
+CREATE INDEX idx_generation_jobs_job ON generation_jobs (job_id);
+-- Poll query: the viewer's pending rows + recently-settled rows.
+CREATE INDEX idx_generation_jobs_user ON generation_jobs (user_id, status);
+-- One in-flight generation per (user, job, kind); settled rows don't block a rerun.
+CREATE UNIQUE INDEX one_pending_generation
+  ON generation_jobs (user_id, job_id, kind) WHERE status = 'pending';
+
 -- Applied-migrations ledger. Record each migration with:
 --   INSERT INTO schema_migrations (filename) VALUES ('<file>');
 -- when applied. Every new migration must be idempotent, transactional where
@@ -441,6 +474,8 @@ ALTER TABLE account_deletions    ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON account_deletions    FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE openrouter_usage_snapshots ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON openrouter_usage_snapshots FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE generation_jobs      ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON generation_jobs      FOR ALL USING (false) WITH CHECK (false);
 
 -- ── Phase-1 tenant isolation (mirrors migrations/2026-07-03-rls-tenant-isolation.sql
 -- + the per-user policies of 2026-07-03-billing-review-requests.sql) ────────────
@@ -502,6 +537,8 @@ CREATE POLICY owner_access ON resume_scores FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 CREATE POLICY owner_access ON usage_counters FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON generation_jobs FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 
 -- Shared-read policies (global corpus + pipeline accounting).
 CREATE POLICY shared_read ON jobs      FOR SELECT TO anon, authenticated USING (true);
@@ -539,6 +576,10 @@ GRANT SELECT ON jobs, companies, poll_runs, discovery_runs, discovery_state, rev
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   job_reviews, review_corrections, company_reviews, application_packages, resume_scores
   TO authenticated;
+-- generation_jobs: owner-scoped CRUD (DELETE backs the per-user housekeeping prune of
+-- old settled rows). Cost integrity is unaffected: allowance charges live in
+-- usage_counters (SELECT-only above) and status rows never drive refunds server-side.
+GRANT SELECT, INSERT, UPDATE, DELETE ON generation_jobs TO authenticated;
 GRANT SELECT ON usage_counters TO authenticated;
 -- profiles: full user control EXCEPT the operator-only cost lever daily_review_cap.
 -- INSERT/UPDATE are column-level over every column but daily_review_cap. (A bare

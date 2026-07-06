@@ -18,7 +18,8 @@ class StubClient:
         self.model = "stub"
         self.calls = []
 
-    async def review(self, *, company_block, name, ats, token):
+    async def review(self, *, company_block, name, ats, token,
+                     display_name=None, about=None, web_description=None):
         self.calls.append(name)
         if name == "CREDITS":
             raise OutOfCreditsError("402 insufficient credits")
@@ -119,6 +120,10 @@ def test_run_writes_reviews_and_reconciles(conn, monkeypatch):
     import company_discovery.run as run_module
     monkeypatch.setattr(run_module, "CompanyReviewClient", lambda **kw: StubClient())
     monkeypatch.setattr(run_module.dataset, "load_candidates", lambda _d: [])  # skip ingest
+    enrich_calls = []
+    monkeypatch.setattr(
+        run_module, "enrich_selected",
+        lambda conn, cands: (enrich_calls.append({c["token"] for c in cands}) or 0))
     run_module.run(conn)
 
     with conn.cursor() as cur:
@@ -128,3 +133,4 @@ def test_run_writes_reviews_and_reconciles(conn, monkeypatch):
         run = cur.fetchone()
     assert active["linear"] is True and active["defense"] is False
     assert run["status"] == "completed" and run["included"] == 1 and run["excluded"] == 1
+    assert enrich_calls == [{"linear", "defense"}]  # enrich_selected ran on the batch

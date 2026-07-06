@@ -195,4 +195,10 @@ describe("buildJobsQuery", () => {
     const q = buildJobsQuery(base, null);
     expect(q.text).not.toContain("review_corrections");
   });
+
+  test("company_name prefers the enriched display_name, falling back to the slug", () => {
+    expect(buildJobsQuery(base, UID).text).toContain(
+      "COALESCE(c.display_name, c.name) AS company_name",
+    );
+  });
 });

@@ -7,7 +7,7 @@ import {
   type TailoredContent,
 } from "@/lib/rolefit/resumeSchema";
 import { parseProfileText, yearsOfExperience } from "@/lib/rolefit/parseProfile";
-import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
+import { callOpenRouterStructured, REASONING_SAFE_MAX_TOKENS } from "@/lib/rolefit/openrouterClient";
 import { resumeChecks, type ResumeChecks } from "@/lib/rolefit/resumeChecks";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
 
@@ -33,7 +33,7 @@ export async function generateResume(args: {
     system,
     user,
     responseFormat: TAILORED_RESUME_SCHEMA,
-    maxTokens: 4000,
+    maxTokens: REASONING_SAFE_MAX_TOKENS,
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
       const tailored = raw as TailoredContent;

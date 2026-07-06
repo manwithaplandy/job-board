@@ -270,7 +270,7 @@ export async function getJobForResume(
 ): Promise<{ title: string; company_name: string; description: string | null } | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT j.title, c.name AS company_name, j.description
+      SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.description
       FROM jobs j JOIN companies c ON c.id = j.company_id
       WHERE j.id = ${jobId}
     `;
@@ -295,7 +295,7 @@ export async function getJobForCoverLetter(
 } | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT j.title, c.name AS company_name, j.description,
+      SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.description,
              r.about,
              COALESCE(r.requirements, '[]'::jsonb) AS requirements,
              COALESCE(r.skill_gaps,   '[]'::jsonb) AS skill_gaps,
@@ -339,7 +339,7 @@ export async function getJobForPackage(
 } | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT j.title, c.name AS company_name, j.description, j.url, j.external_id,
+      SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.description, j.url, j.external_id,
              c.ats, c.token AS company_token,
              r.about,
              COALESCE(r.requirements, '[]'::jsonb) AS requirements,
@@ -408,6 +408,26 @@ export function bareMarkerPredicate(tx: Sql | TransactionSql) {
       AND greenhouse_questions IS NULL AND prefilled_answers IS NULL
       AND answers_snapshot IS NULL AND apply_url IS NULL
   `;
+}
+
+// One job's prepared package — the async-generation completion path (GET
+// /api/application/package) reloads just the settled job instead of the full set.
+export async function getApplicationPackage(
+  userId: string,
+  jobId: string,
+): Promise<ApplicationPackage | null> {
+  return withUserSql(userId, async (tx) => {
+    const rows = await tx`
+      SELECT job_id, status, resume_json, cover_letter_json, answers_snapshot,
+             greenhouse_questions, prefilled_answers, apply_url, profile_version,
+             prepared_at, applied_at
+      FROM application_packages
+      WHERE user_id = ${userId}::uuid AND job_id = ${jobId}
+    `;
+    return rows.length > 0
+      ? toApplicationPackage(rows[0] as unknown as Record<string, unknown>)
+      : null;
+  });
 }
 
 // All of the viewer's prepared packages, keyed by job in the caller. Only created

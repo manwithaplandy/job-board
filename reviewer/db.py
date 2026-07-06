@@ -221,7 +221,8 @@ def select_candidates(
         )
         total = cur.fetchone()["n"]
         cur.execute(
-            f"SELECT j.id, j.title, j.location, j.description, c.ats, c.name AS company_name"
+            f"SELECT j.id, j.title, j.location, j.remote, j.description,"
+            f" c.ats, COALESCE(c.display_name, c.name) AS company_name"
             f" {_where} ORDER BY j.first_seen_at DESC LIMIT %(lim)s",
             params,
         )
@@ -250,7 +251,7 @@ def recent_stage2_reviews(conn, limit: int) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT j.title, c.name AS company_name, j.location, c.ats, j.description,
+            SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.location, c.ats, j.description,
                    p.resume_text, p.instructions, r.verdict
             FROM job_reviews r
             JOIN jobs j ON j.id = r.job_id
@@ -355,7 +356,7 @@ def golden_corrections(conn) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT rc.user_id, rc.job_id, j.title, c.name AS company_name,
+            SELECT rc.user_id, rc.job_id, j.title, COALESCE(c.display_name, c.name) AS company_name,
                    j.location, c.ats,
                    COALESCE(rc.description_snapshot, j.description) AS description,
                    COALESCE(rc.resume_text_snapshot, p.resume_text) AS resume_text,

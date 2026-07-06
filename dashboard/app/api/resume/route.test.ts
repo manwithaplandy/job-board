@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ProfileRow } from "@/lib/types";
 
-// SaaS cutover: auth is getUserClaims() ({id,email}); the route gained an atomic
-// subscription/allowance gate — reserveGenerations(userId, email, ["resume"]) charges the
-// slot UP FRONT (after validation, so an unchargeable request never pays) and can return
-// {ok:false, status:402|429}; a failed generation refundGenerations(userId, ["resume"]).
-// getResumeSource is now a trivial pure function, so we let the REAL one run off
-// profile.resume_text (no over-mocking) and assert the generator gets that text.
+// Async-generation contract: the route does auth/validation/config/gate
+// SYNCHRONOUSLY (so 401/400/422/404/500/402/429 still reach the caller), records
+// a 'pending' generation_jobs row, and returns 202. The LLM work + persist +
+// status write run in `after()` — mocked here so tests trigger the background
+// callback deterministically. reserveGenerations(userId, email, ["resume"]) still
+// charges the slot UP FRONT and a failed background generation refunds it.
 const mocks = vi.hoisted(() => ({
   getUserClaims: vi.fn(),
   getProfile: vi.fn(),
@@ -15,8 +15,16 @@ const mocks = vi.hoisted(() => ({
   generateResume: vi.fn(),
   reserveGenerations: vi.fn(),
   refundGenerations: vi.fn(),
+  createGenerationJob: vi.fn(),
+  settleGenerationJob: vi.fn(),
+  afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
+// Capture after() callbacks instead of scheduling them (the real one needs the
+// Next request scope); tests drain them explicitly via flushBackground().
+vi.mock("next/server", () => ({
+  after: (fn: () => Promise<void>) => { mocks.afterCallbacks.push(fn); },
+}));
 vi.mock("@langfuse/tracing", () => ({
   propagateAttributes: (_a: unknown, fn: () => unknown) => fn(),
   startActiveObservation: (_n: string, fn: (s: unknown) => unknown) =>
@@ -33,17 +41,33 @@ vi.mock("@/lib/usage", () => ({
   reserveGenerations: mocks.reserveGenerations,
   refundGenerations: mocks.refundGenerations,
 }));
+vi.mock("@/lib/generationJobs", () => ({
+  createGenerationJob: mocks.createGenerationJob,
+  settleGenerationJob: mocks.settleGenerationJob,
+}));
 vi.mock("@/lib/rolefit/resumeClient", () => ({
   DEFAULT_RESUME_MODEL: "default-resume-model",
   generateResume: mocks.generateResume,
 }));
-// NOTE: @/lib/rolefit/resumeSource is intentionally NOT mocked — it's a pure function.
+// NOTE: @/lib/rolefit/resumeSource and @/lib/rolefit/generationFailureMessage are
+// intentionally NOT mocked — both are pure functions.
 
 import { POST } from "@/app/api/resume/route";
 
 const USER = "22222222-2222-2222-2222-222222222222";
 const EMAIL = "u@x.com";
 const RESUME = { name: "Ada", contact: "", headline: "", summary: "", skills: [], experience: [], education: [], certifications: [] };
+const GEN_ROW = {
+  id: "11111111-1111-1111-1111-111111111111",
+  jobId: "job-1",
+  kind: "resume",
+  status: "pending",
+  error: null,
+  jobTitle: null,
+  company: null,
+  createdAt: "2026-07-05T00:00:00.000Z",
+  updatedAt: "2026-07-05T00:00:00.000Z",
+};
 
 function profileFixture(): Partial<ProfileRow> {
   return { resume_text: "resume text", model_resume: null, profile_version: "pv-9" };
@@ -54,9 +78,14 @@ function req(body?: unknown, raw?: string) {
     body: raw !== undefined ? raw : JSON.stringify(body ?? {}),
   });
 }
+/** Drain the captured after() callbacks — the background LLM work + status write. */
+async function flushBackground() {
+  while (mocks.afterCallbacks.length) await mocks.afterCallbacks.shift()!();
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.afterCallbacks.length = 0;
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   mocks.getUserClaims.mockResolvedValue({ id: USER, email: EMAIL });
   mocks.getProfile.mockResolvedValue(profileFixture());
@@ -65,6 +94,8 @@ beforeEach(() => {
   mocks.refundGenerations.mockResolvedValue(undefined);
   mocks.generateResume.mockResolvedValue({ resume: RESUME, checks: {} });
   mocks.upsertApplicationPackage.mockResolvedValue({ jobId: "job-1", status: "prepared" });
+  mocks.createGenerationJob.mockResolvedValue({ created: true, job: GEN_ROW });
+  mocks.settleGenerationJob.mockResolvedValue(undefined);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -96,12 +127,19 @@ describe("POST /api/resume — validation ladder (never charge an unchargeable r
   });
 });
 
-describe("POST /api/resume — subscription/allowance gate", () => {
-  test("no plan → 402 with the gate's error body; nothing generated or persisted", async () => {
-    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 402, error: "Subscribe to generate." });
+describe("POST /api/resume — subscription/allowance gate (synchronous, before the 202)", () => {
+  test("no plan → 402 with the gate's error body; no row tracked, nothing scheduled", async () => {
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 402, code: "subscription_required", error: "Subscribe to generate.",
+    });
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(402);
-    expect((await res.json()).error).toBe("Subscribe to generate.");
+    const body = await res.json();
+    expect(body.error).toBe("Subscribe to generate.");
+    // Machine-readable code the client's /billing upsell keys off (lib/rolefit/tierGate.ts).
+    expect(body.code).toBe("subscription_required");
+    expect(mocks.createGenerationJob).not.toHaveBeenCalled();
+    expect(mocks.afterCallbacks).toHaveLength(0);
     expect(mocks.generateResume).not.toHaveBeenCalled();
     expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
     // A gate rejection charged nothing, so there is nothing to refund.
@@ -109,21 +147,42 @@ describe("POST /api/resume — subscription/allowance gate", () => {
   });
 
   test("allowance exhausted → 429 with the gate's error body", async () => {
-    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 429, error: "Monthly résumé allowance used (5/5)." });
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 429, code: "allowance_exhausted", plan: "standard",
+      error: "Monthly résumé allowance used (5/5).",
+    });
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(429);
-    expect((await res.json()).error).toBe("Monthly résumé allowance used (5/5).");
+    const body = await res.json();
+    expect(body.error).toBe("Monthly résumé allowance used (5/5).");
+    // code + plan let the client distinguish this from an upstream 429 and pitch Pro.
+    expect(body.code).toBe("allowance_exhausted");
+    expect(body.plan).toBe("standard");
+    expect(mocks.createGenerationJob).not.toHaveBeenCalled();
     expect(mocks.generateResume).not.toHaveBeenCalled();
-    expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
   });
 });
 
-describe("POST /api/resume — happy path", () => {
-  test("reserves the résumé slot for the authed user, generates from resume_text, persists stamped package", async () => {
+describe("POST /api/resume — 202 accept + background completion", () => {
+  test("202 immediately with the tracked pending generation (title/company for the toast)", async () => {
     const res = await POST(req({ jobId: "job-1" }));
-    expect(res.status).toBe(200);
-    // Charged exactly once, for THIS user+email, for the résumé kind.
+    expect(res.status).toBe(202);
+    const body = await res.json();
+    expect(body.generation).toMatchObject({
+      id: GEN_ROW.id, jobId: "job-1", kind: "resume", status: "pending",
+      jobTitle: "Eng", company: "Acme",
+    });
+    // Charged exactly once, for THIS user+email, BEFORE the row was tracked.
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["resume"]);
+    expect(mocks.createGenerationJob).toHaveBeenCalledWith(USER, "job-1", "resume");
+    // Nothing generated yet — the LLM work lives in the captured after() callback.
+    expect(mocks.generateResume).not.toHaveBeenCalled();
+    expect(mocks.afterCallbacks).toHaveLength(1);
+  });
+
+  test("background success: generates from resume_text, persists stamped package, settles ready, keeps the slot", async () => {
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
     // The REAL getResumeSource fed the generator the profile's resume_text.
     expect(mocks.generateResume.mock.calls[0][0].resumeText).toBe("resume text");
 
@@ -135,37 +194,80 @@ describe("POST /api/resume — happy path", () => {
     expect(pkg.applyUrl).toBeNull();
     // The profileVersion stamp drives the "Outdated — regenerate" badge.
     expect(pkg.profileVersion).toBe("pv-9");
+    expect(mocks.settleGenerationJob).toHaveBeenCalledWith(USER, GEN_ROW.id, { status: "ready" });
     // A success keeps the reserved slot — never refunded.
     expect(mocks.refundGenerations).not.toHaveBeenCalled();
   });
+
+  test("duplicate pending row → 202 with the existing row, extra reservation refunded, NO second background run", async () => {
+    mocks.createGenerationJob.mockResolvedValue({ created: false, job: GEN_ROW });
+    const res = await POST(req({ jobId: "job-1" }));
+    expect(res.status).toBe(202);
+    expect((await res.json()).generation.id).toBe(GEN_ROW.id);
+    // This request charged a slot the ALREADY-RUNNING generation also charged — refund it.
+    expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume"]);
+    expect(mocks.afterCallbacks).toHaveLength(0);
+    expect(mocks.generateResume).not.toHaveBeenCalled();
+  });
+
+  test("tracking row failed → 502 and the reservation is refunded (no orphaned charge)", async () => {
+    mocks.createGenerationJob.mockRejectedValue(new Error("db down"));
+    const res = await POST(req({ jobId: "job-1" }));
+    expect(res.status).toBe(502);
+    expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume"]);
+    expect(mocks.afterCallbacks).toHaveLength(0);
+  });
 });
 
-describe("POST /api/resume — error → status mapping (refunds a burned slot)", () => {
+describe("POST /api/resume — background failure → refund + user-safe settled error", () => {
   // Each failure must NOT persist a package (a broken generation must not clobber a
-  // previously-saved good one) AND must refund the reserved slot.
-  const cases: [string, number, string?][] = [
-    ["response truncated mid-stream", 502, "truncated"],
-    ["429 rate limited", 429],
-    ["rate limit exceeded", 429],
-    ["402 payment required", 502, "Insufficient credits."],
-    ["some generic boom", 502, "Generation failed"],
+  // previously-saved good one), must REFUND the reserved slot, and must settle the
+  // row 'failed' with mapped user-safe copy (the poll toast is the only user signal
+  // now — there's no HTTP status to carry it).
+  const cases: [string, string][] = [
+    ["response truncated mid-stream", "cut off"],
+    ["OpenRouter returned non-JSON résumé content", "cut off"],
+    ["The operation was aborted due to timeout", "timed out"],
+    ["429 rate limited", "Rate limited"],
+    ["rate limit exceeded", "Rate limited"],
+    ["402 payment required", "Insufficient credits."],
+    ["some generic boom", "Generation failed"],
   ];
-  for (const [message, status, copy] of cases) {
-    test(`Error("${message}") → ${status}, refunds the résumé slot`, async () => {
+  for (const [message, copy] of cases) {
+    test(`Error("${message}") → settles failed containing "${copy}", refunds the résumé slot`, async () => {
       mocks.generateResume.mockRejectedValue(new Error(message));
       const res = await POST(req({ jobId: "job-1" }));
-      expect(res.status).toBe(status);
-      if (copy) expect((await res.json()).error).toContain(copy);
+      expect(res.status).toBe(202); // acceptance already happened — failure is async
+      await flushBackground();
       expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
       expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume"]);
+      const [uid, gid, outcome] = mocks.settleGenerationJob.mock.calls[0];
+      expect(uid).toBe(USER);
+      expect(gid).toBe(GEN_ROW.id);
+      expect(outcome.status).toBe("failed");
+      expect(outcome.error).toContain(copy);
     });
   }
 
-  test("non-Error throw (string) → generic 502 and still refunds", async () => {
+  test("non-Error throw (string) → generic copy and still refunds", async () => {
     mocks.generateResume.mockRejectedValue("plain string failure");
-    const res = await POST(req({ jobId: "job-1" }));
-    expect(res.status).toBe(502);
-    expect((await res.json()).error).toContain("Generation failed");
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
     expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume"]);
+    expect(mocks.settleGenerationJob.mock.calls[0][2].error).toContain("Generation failed");
+  });
+
+  test("status-write failure after a SUCCESSFUL generation never refunds the kept slot", async () => {
+    mocks.settleGenerationJob.mockRejectedValue(new Error("db blip"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await POST(req({ jobId: "job-1" }));
+      await flushBackground();
+      expect(mocks.upsertApplicationPackage).toHaveBeenCalled();
+      // The generation succeeded and persisted — a failed settle is logged, not refunded.
+      expect(mocks.refundGenerations).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });

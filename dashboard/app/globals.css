@@ -73,9 +73,10 @@
   --danger-border: #ecd6d6;
   --accent-border: #d8e2f6;
 
-  /* Inverted toasts (RolefitBoard) — dark chips over the light board. */
+  /* Inverted toasts (RolefitBoard / UpsellNotice) — dark chips over the light board. */
   --toast-bg: #1b2330;
   --toast-link: #9ec1ff;
+  --toast-muted: #8fa0b8;
   --toast-danger-bg: #7a2e22;
   --toast-danger-link: #ffd2c8;
 
@@ -175,6 +176,7 @@
      links kept light so they read on the dark chip. */
   --toast-bg: #2b333f;
   --toast-link: #9ec1ff;
+  --toast-muted: #8fa0b8;
   --toast-danger-bg: #5a2a20;
   --toast-danger-link: #ffd2c8;
 
@@ -286,3 +288,9 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .rf-picker-option:hover { background: var(--accent-bg); }
 .rf-picker-clear { color: var(--accent); }
 .rf-picker-clear:hover { color: var(--accent-hover); }
+
+/* Sonner completion toasts (GenerationToastProvider): the pill itself is styled
+   inline via toastOptions to match the board's dark Undo toast; the description
+   line needs a rule here because sonner's default muted gray is unreadable on
+   the dark toast surface (--toast-bg). */
+[data-sonner-toast] [data-description] { color: #b9c3d4; }

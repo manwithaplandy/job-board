@@ -12,6 +12,15 @@ import { isResumeStale } from "@/lib/resumeStale";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { formToCorrection } from "@/lib/rolefit/correction";
 import { selectionAfterRemoval, stepSelection } from "@/lib/rolefit/selection";
+import { tierGateNotice, type TierGateNotice } from "@/lib/rolefit/tierGate";
+import { useGenerationTracker } from "@/components/generation/GenerationToastProvider";
+import {
+  OPEN_JOB_EVENT,
+  parseGenerationJob,
+  pendingKindsForJob,
+  type GenerationJobView,
+} from "@/lib/generationJobCodec";
+import { UpsellNotice } from "./UpsellNotice";
 import { Header } from "./Header";
 import { FilterBar } from "./FilterBar";
 import { JobList } from "./JobList";
@@ -34,7 +43,8 @@ export interface PrepareLegStatus {
   answers: LegStatus;
 }
 
-const isAbort = (e: unknown) => e instanceof Error && e.name === "AbortError";
+// Stable empty fallback so a provider-less render (isolated tests) doesn't churn memos.
+const NO_PENDING: GenerationJobView[] = [];
 
 export interface RolefitBoardProps {
   jobs: JobRow[];
@@ -194,18 +204,26 @@ export function RolefitBoard({
   });
   const [coverError, setCoverError] = useState<Record<string, string>>({});
 
-  // Single in-flight generation lock (résumé / cover / prepare all share one slot per
-  // job). While set to a job id, that job's generate/cover/prepare buttons disable and a
-  // Cancel button shows; the AbortController backs the cancel. Per-leg prepare results
-  // land in prepareStatus so a partially-failed prepare can retry just the failed legs.
-  const [generationInFlight, setGenerationInFlight] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  // Per-job accept-request lock: only the POST → 202 window (a few hundred ms).
+  // Once the 202 lands, "generating" is owned by the GenerationToastProvider's
+  // server-backed pending state, which survives navigation and reloads — the old
+  // AbortController + single in-flight lock died with the blocking model
+  // (background generations don't cancel, and different jobs can generate
+  // concurrently). Per-leg prepare results land in prepareStatus so a partially-
+  // failed prepare can retry just the failed legs.
+  const [requestingId, setRequestingId] = useState<string | null>(null);
   const [prepareStatus, setPrepareStatus] = useState<Record<string, PrepareLegStatus>>({});
 
   // Transient bottom-of-screen error notice for failed actions (mark-applied rollback,
   // non-destructive re-prepare/regenerate failures) — mirrors the reject toast styling.
   const [actionError, setActionError] = useState<string | null>(null);
   const actionErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Tier-gate upsell notice (402 subscribe / 429 monthly allowance): shown in the same
+  // bottom stack as the pills above, but styled as an invitation with a /billing CTA —
+  // a gate rejection is not a failure, so it never routes through actionError.
+  const [upsell, setUpsell] = useState<TierGateNotice | null>(null);
+  const upsellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refs
   const detailRef = useRef<HTMLDivElement>(null);
@@ -218,12 +236,21 @@ export function RolefitBoard({
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
+    if (upsellTimerRef.current) clearTimeout(upsellTimerRef.current);
   }, []);
 
   const showActionError = useCallback((msg: string) => {
     setActionError(msg);
     if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
     actionErrorTimerRef.current = setTimeout(() => setActionError(null), 5000);
+  }, []);
+
+  // Longer-lived than actionError's 5s: the upsell carries a sentence or two plus a CTA
+  // the user may want to click, so give it reading time before it self-dismisses.
+  const showUpsell = useCallback((notice: TierGateNotice) => {
+    setUpsell(notice);
+    if (upsellTimerRef.current) clearTimeout(upsellTimerRef.current);
+    upsellTimerRef.current = setTimeout(() => setUpsell(null), 12_000);
   }, []);
 
   // Shared focus-return: many actions unmount the control the user just activated — a card
@@ -300,6 +327,20 @@ export function RolefitBoard({
     if (v === "applied" || v === "rejected") setView(v);
     const job = params.get("job");
     if (job) setSelectedId(job);
+  }, []);
+  // The completion toast's "View" action (GenerationToastProvider): claim the event
+  // (preventDefault) and select the job in place — unclaimed events make the provider
+  // fall back to a /?job= router push, which the mount-time seed above resolves.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent<{ jobId?: unknown }>).detail;
+      const jobId = typeof detail?.jobId === "string" ? detail.jobId : null;
+      if (!jobId) return;
+      e.preventDefault();
+      setSelectedId(jobId);
+    };
+    window.addEventListener(OPEN_JOB_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_JOB_EVENT, onOpen);
   }, []);
   const firstUrlMirror = useRef(true);
   useEffect(() => {
@@ -542,7 +583,8 @@ export function RolefitBoard({
   //     the apply toast's Undo (handleUndo's apply branch mutates only packages + toast).
   //   • toast       — a toast expiring on its 5s timer while its Undo button holds focus.
   //   • actionError — the error banner's Dismiss (or its own timeout) unmounting that button.
-  // Watch all four; the helper's activeElement===body guard makes running on every such change
+  //   • upsell      — the tier-gate pill's Dismiss (or its 12s timeout) unmounting that button.
+  // Watch all five; the helper's activeElement===body guard makes running on every such change
   // safe. Skip the initial mount so a fresh load isn't disturbed.
   const firstFocusReturnRun = useRef(true);
   useEffect(() => {
@@ -551,7 +593,7 @@ export function RolefitBoard({
       return;
     }
     returnFocusIfStranded();
-  }, [rejectedIds, packages, toast, actionError, returnFocusIfStranded]);
+  }, [rejectedIds, packages, toast, actionError, upsell, returnFocusIfStranded]);
 
   const handleReject = useCallback(async (job: JobRow) => {
     const priorVerdict = job.verdict;
@@ -660,31 +702,52 @@ export function RolefitBoard({
     loadDetail(id);
   }, [selectedId, loadDetail]);
 
-  // Begin a generation: claim the single lock + a fresh AbortController. Returns the
-  // controller (or null if a generation for this job is already running — the buttons
-  // are disabled in that case, so this is just a guard).
-  const beginGeneration = useCallback((jobId: string): AbortController | null => {
-    if (generationInFlight === jobId) return null;
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setGenerationInFlight(jobId);
-    return controller;
-  }, [generationInFlight]);
+  // Async-generation tracker (GenerationToastProvider in the root layout). Null only
+  // outside the provider (isolated tests) — every consumer degrades to local state.
+  const tracker = useGenerationTracker();
+  const trackerPending = tracker?.pending ?? NO_PENDING;
 
-  // Release the lock only if this controller still owns it (a newer generation may have
-  // replaced it).
-  const endGeneration = useCallback((controller: AbortController) => {
-    if (abortRef.current === controller) {
-      abortRef.current = null;
-      setGenerationInFlight(null);
+  // Server-backed "generating…": true while the provider reports a pending
+  // generation for this job — correct across navigation, reload, and other tabs.
+  const jobBusy = useCallback(
+    (jobId: string): boolean => pendingKindsForJob(trackerPending, jobId).size > 0,
+    [trackerPending],
+  );
+
+  // Busy overlay for the pane records: while a generation is pending server-side,
+  // the affected pane shows "busy" no matter what the local record says (the local
+  // record can't know about generations started before a reload or on another tab).
+  // A pending 'prepare' busies both panes; 'resume'/'cover' busy their own.
+  const genShown = useMemo(() => {
+    let m = gen;
+    for (const g of trackerPending) {
+      if (g.kind === "cover") continue;
+      if (m === gen) m = { ...gen };
+      m[g.jobId] = "busy";
     }
-  }, []);
+    return m;
+  }, [gen, trackerPending]);
+  const coverShown = useMemo(() => {
+    let m = coverGen;
+    for (const g of trackerPending) {
+      if (g.kind === "resume") continue;
+      if (m === coverGen) m = { ...coverGen };
+      m[g.jobId] = "busy";
+    }
+    return m;
+  }, [coverGen, trackerPending]);
 
-  const handleCancelGeneration = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setGenerationInFlight(null);
+  // Begin an accept request (POST → 202). False if this job already has a request
+  // in flight or a pending background generation — the buttons are disabled in
+  // those cases, so this is just a guard.
+  const beginRequest = useCallback((jobId: string): boolean => {
+    if (requestingId === jobId || jobBusy(jobId)) return false;
+    setRequestingId(jobId);
+    return true;
+  }, [requestingId, jobBusy]);
+
+  const endRequest = useCallback((jobId: string) => {
+    setRequestingId((prev) => (prev === jobId ? null : prev));
   }, []);
 
   // A shown résumé is stale when its package was generated from a different
@@ -701,12 +764,12 @@ export function RolefitBoard({
     [packages, genData, currentProfileVersion],
   );
 
-  // Résumé generation. D7 contract: /api/resume persists server-side and returns the full
-  // { package }. Standalone Generate always persists now (no client persist call, no
-  // "only if a package exists" gate — the server creates/updates the row).
+  // Résumé generation — async accept contract: /api/resume validates + charges the
+  // slot synchronously (so 401/402/422/429 still land here), then 202s with a
+  // pending generation_jobs row and finishes in the background. The provider polls
+  // it; the settled-feed effect below lands the package or the failure.
   const handleGenerate = useCallback(async (job: JobRow) => {
-    const controller = beginGeneration(job.id);
-    if (!controller) return;
+    if (!beginRequest(job.id)) return;
     const hadResume = Boolean(genData[job.id]);
     setGen((g) => ({ ...g, [job.id]: "busy" }));
     try {
@@ -714,34 +777,37 @@ export function RolefitBoard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
-        signal: controller.signal,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "failed");
+      if (res.status === 202) {
+        // Accepted: hand tracking to the provider (immediate pending + prompt poll).
+        const body: unknown = await res.json().catch(() => null);
+        const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
+        if (generation && tracker) tracker.notifyStarted(generation);
+        else tracker?.refresh();
+        return;
       }
-      const { package: pkg } = (await res.json()) as { package: ApplicationPackage };
-      setPackages((p) => ({ ...p, [job.id]: pkg }));
-      if (pkg.resume) setGenData((d) => ({ ...d, [job.id]: pkg.resume as TailoredResume }));
-      setGen((g) => ({ ...g, [job.id]: "done" }));
-      // A successful standalone résumé clears a prior prepare's failed résumé leg.
-      setPrepareStatus((s) => (s[job.id] ? { ...s, [job.id]: { ...s[job.id], resume: "ok" } } : s));
-    } catch (e) {
-      if (isAbort(e)) {
+      const body = await res.json().catch(() => ({}));
+      // Tier gate (402 subscribe / 429 monthly allowance): nothing was generated, so
+      // the pane returns to its prior state and the upsell pill carries the message
+      // + /billing CTA instead of the generic error path.
+      const gate = tierGateNotice(res.status, body);
+      if (gate) {
+        showUpsell(gate);
         setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "idle" }));
-      } else {
-        setGen((g) => ({ ...g, [job.id]: "error" }));
-        setGenError((m) => ({ ...m, [job.id]: (e as Error).message }));
+        return;
       }
+      throw new Error((body as { error?: string }).error ?? "failed");
+    } catch (e) {
+      setGen((g) => ({ ...g, [job.id]: "error" }));
+      setGenError((m) => ({ ...m, [job.id]: (e as Error).message }));
     } finally {
-      endGeneration(controller);
+      endRequest(job.id);
     }
-  }, [beginGeneration, endGeneration, genData]);
+  }, [beginRequest, endRequest, genData, showUpsell, tracker]);
 
   // Cover-letter generation — mirrors handleGenerate against /api/cover-letter (D7).
   const handleGenerateCover = useCallback(async (job: JobRow) => {
-    const controller = beginGeneration(job.id);
-    if (!controller) return;
+    if (!beginRequest(job.id)) return;
     const hadCover = Boolean(coverData[job.id]);
     setCoverGen((g) => ({ ...g, [job.id]: "busy" }));
     try {
@@ -749,35 +815,37 @@ export function RolefitBoard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
-        signal: controller.signal,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "failed");
+      if (res.status === 202) {
+        const body: unknown = await res.json().catch(() => null);
+        const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
+        if (generation && tracker) tracker.notifyStarted(generation);
+        else tracker?.refresh();
+        return;
       }
-      const { package: pkg } = (await res.json()) as { package: ApplicationPackage };
-      setPackages((p) => ({ ...p, [job.id]: pkg }));
-      if (pkg.coverLetter) setCoverData((d) => ({ ...d, [job.id]: pkg.coverLetter as TailoredCoverLetter }));
-      setCoverGen((g) => ({ ...g, [job.id]: "done" }));
-      setPrepareStatus((s) => (s[job.id] ? { ...s, [job.id]: { ...s[job.id], coverLetter: "ok" } } : s));
-    } catch (e) {
-      if (isAbort(e)) {
+      const body = await res.json().catch(() => ({}));
+      // Tier gate: same treatment as handleGenerate — upsell pill, prior pane state.
+      const gate = tierGateNotice(res.status, body);
+      if (gate) {
+        showUpsell(gate);
         setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "idle" }));
-      } else {
-        setCoverGen((g) => ({ ...g, [job.id]: "error" }));
-        setCoverError((m) => ({ ...m, [job.id]: (e as Error).message }));
+        return;
       }
+      throw new Error((body as { error?: string }).error ?? "failed");
+    } catch (e) {
+      setCoverGen((g) => ({ ...g, [job.id]: "error" }));
+      setCoverError((m) => ({ ...m, [job.id]: (e as Error).message }));
     } finally {
-      endGeneration(controller);
+      endRequest(job.id);
     }
-  }, [beginGeneration, endGeneration, coverData]);
+  }, [beginRequest, endRequest, coverData, showUpsell, tracker]);
 
-  // "Prepare application" — build + PERSIST the package in one call. D7 returns
-  // { package, status } where status reports each leg (resume / coverLetter / answers)
-  // independently, so a partial failure keeps what succeeded and offers a per-leg retry.
+  // "Prepare application" — build + PERSIST the package server-side. Async accept
+  // contract like handleGenerate: the route reserves BOTH kinds synchronously, 202s
+  // with ONE kind='prepare' row, and the legs run in the background. The settled
+  // feed lands the package (deriving per-leg pane states from its contents).
   const handlePrepare = useCallback(async (job: JobRow) => {
-    const controller = beginGeneration(job.id);
-    if (!controller) return;
+    if (!beginRequest(job.id)) return;
     // Snapshot whether we already have successful content to fall back to, so a failed
     // re-prepare doesn't blank out the still-valid résumé/cover the user can see.
     const hadResume = Boolean(genData[job.id]);
@@ -789,53 +857,130 @@ export function RolefitBoard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: job.id }),
-        signal: controller.signal,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "failed");
+      if (res.status === 202) {
+        const body: unknown = await res.json().catch(() => null);
+        const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
+        if (generation && tracker) tracker.notifyStarted(generation);
+        else tracker?.refresh();
+        return;
       }
-      const { package: pkg, status } = (await res.json()) as {
-        package: ApplicationPackage;
-        status: PrepareLegStatus;
-      };
-      setPackages((p) => ({ ...p, [job.id]: pkg }));
-      setPrepareStatus((s) => ({ ...s, [job.id]: status }));
-      // Résumé leg
-      if (status.resume === "ok" && pkg.resume) {
-        setGenData((d) => ({ ...d, [job.id]: pkg.resume as TailoredResume }));
-        setGen((g) => ({ ...g, [job.id]: "done" }));
-      } else {
-        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
-        if (!hadResume) setGenError((m) => ({ ...m, [job.id]: "Couldn’t generate the résumé." }));
-      }
-      // Cover-letter leg
-      if (status.coverLetter === "ok" && pkg.coverLetter) {
-        setCoverData((d) => ({ ...d, [job.id]: pkg.coverLetter as TailoredCoverLetter }));
-        setCoverGen((g) => ({ ...g, [job.id]: "done" }));
-      } else {
-        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
-        if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: "Couldn’t generate the cover letter." }));
-      }
-    } catch (e) {
-      if (isAbort(e)) {
+      const body = await res.json().catch(() => ({}));
+      // Tier gate (reserves BOTH kinds, so either allowance can trip it): revert both
+      // panes to their prior state and let the upsell pill carry the /billing CTA.
+      const gate = tierGateNotice(res.status, body);
+      if (gate) {
+        showUpsell(gate);
         setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "idle" }));
         setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "idle" }));
-      } else {
-        const msg = (e as Error).message;
-        // Only fall to the full "error" state when there was nothing to preserve. When
-        // prior content exists, keep it visible (state stays "done") and surface the
-        // failure non-destructively via the toast instead of blanking the panels.
-        setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
-        setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
-        if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
-        if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
-        if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+        return;
       }
+      throw new Error((body as { error?: string }).error ?? "failed");
+    } catch (e) {
+      const msg = (e as Error).message;
+      // Only fall to the full "error" state when there was nothing to preserve. When
+      // prior content exists, keep it visible (state stays "done") and surface the
+      // failure non-destructively via the toast instead of blanking the panels.
+      setGen((g) => ({ ...g, [job.id]: hadResume ? "done" : "error" }));
+      setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
+      if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
+      if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
+      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
     } finally {
-      endGeneration(controller);
+      endRequest(job.id);
     }
-  }, [beginGeneration, endGeneration, genData, coverData, showActionError]);
+  }, [beginRequest, endRequest, genData, coverData, showActionError, showUpsell, tracker]);
+
+  // Land a settled generation's outcome in the panes. 'ready' reloads the persisted
+  // package (the 202 carried no content); per-leg pane states derive from what the
+  // package now holds — a prepare that failed one leg but kept prior content shows
+  // "done" with the old artifact, matching the old hadResume/hadCover salvage.
+  const applySettledReady = useCallback((g: GenerationJobView, pkg: ApplicationPackage) => {
+    setPackages((p) => ({ ...p, [g.jobId]: pkg }));
+    if (g.kind === "resume" || g.kind === "prepare") {
+      if (pkg.resume) {
+        setGenData((d) => ({ ...d, [g.jobId]: pkg.resume as TailoredResume }));
+        setGen((s) => ({ ...s, [g.jobId]: "done" }));
+        // A successful standalone résumé clears a prior prepare's failed résumé leg.
+        if (g.kind === "resume") {
+          setPrepareStatus((s) => (s[g.jobId] ? { ...s, [g.jobId]: { ...s[g.jobId], resume: "ok" } } : s));
+        }
+      } else {
+        const had = Boolean(genData[g.jobId]);
+        setGen((s) => ({ ...s, [g.jobId]: had ? "done" : "error" }));
+        if (!had) setGenError((m) => ({ ...m, [g.jobId]: g.error ?? "Couldn’t generate the résumé." }));
+      }
+    }
+    if (g.kind === "cover" || g.kind === "prepare") {
+      if (pkg.coverLetter) {
+        setCoverData((d) => ({ ...d, [g.jobId]: pkg.coverLetter as TailoredCoverLetter }));
+        setCoverGen((s) => ({ ...s, [g.jobId]: "done" }));
+        if (g.kind === "cover") {
+          setPrepareStatus((s) => (s[g.jobId] ? { ...s, [g.jobId]: { ...s[g.jobId], coverLetter: "ok" } } : s));
+        }
+      } else {
+        const had = Boolean(coverData[g.jobId]);
+        setCoverGen((s) => ({ ...s, [g.jobId]: had ? "done" : "error" }));
+        if (!had) setCoverError((m) => ({ ...m, [g.jobId]: g.error ?? "Couldn’t generate the cover letter." }));
+      }
+    }
+    if (g.kind === "prepare") {
+      setPrepareStatus((s) => ({
+        ...s,
+        [g.jobId]: {
+          resume: pkg.resume ? "ok" : "failed",
+          coverLetter: pkg.coverLetter ? "ok" : "failed",
+          answers: "ok",
+        },
+      }));
+    }
+  }, [genData, coverData]);
+
+  // 'failed' (nothing persisted): mirror the old blocking-model catch per kind,
+  // with the row's user-safe message standing in for the thrown error.
+  const applySettledFailure = useCallback((g: GenerationJobView) => {
+    const msg = g.error ?? "Generation failed — try again.";
+    if (g.kind === "resume") {
+      setGen((s) => ({ ...s, [g.jobId]: "error" }));
+      setGenError((m) => ({ ...m, [g.jobId]: msg }));
+    } else if (g.kind === "cover") {
+      setCoverGen((s) => ({ ...s, [g.jobId]: "error" }));
+      setCoverError((m) => ({ ...m, [g.jobId]: msg }));
+    } else {
+      // prepare: keep prior visible content ("done"); error only with nothing to show.
+      const hadResume = Boolean(genData[g.jobId]);
+      const hadCover = Boolean(coverData[g.jobId]);
+      setGen((s) => ({ ...s, [g.jobId]: hadResume ? "done" : "error" }));
+      setCoverGen((s) => ({ ...s, [g.jobId]: hadCover ? "done" : "error" }));
+      if (!hadResume) setGenError((m) => ({ ...m, [g.jobId]: msg }));
+      if (!hadCover) setCoverError((m) => ({ ...m, [g.jobId]: msg }));
+      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+    }
+  }, [genData, coverData, showActionError]);
+
+  // Consume the provider's settled feed (pending→settled transitions this tab
+  // watched). Keyed by seq so a re-render never re-applies a batch. A board that
+  // was unmounted at settle time needs nothing here — its server-loaded packages
+  // already carry the outcome.
+  const settledFeed = tracker?.settledFeed ?? null;
+  const settledSeqRef = useRef(0);
+  useEffect(() => {
+    if (!settledFeed || settledFeed.seq <= settledSeqRef.current) return;
+    settledSeqRef.current = settledFeed.seq;
+    for (const g of settledFeed.jobs) {
+      if (g.status === "ready") {
+        void fetch(`/api/application/package?jobId=${encodeURIComponent(g.jobId)}`)
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+          .then((body) => applySettledReady(g, (body as { package: ApplicationPackage }).package))
+          .catch((e) => {
+            console.error("settled package refresh failed", e);
+            applySettledFailure({ ...g, status: "failed", error: "Couldn’t load the generated package — refresh the page." });
+          });
+      } else {
+        applySettledFailure(g);
+      }
+    }
+  }, [settledFeed, applySettledReady, applySettledFailure]);
 
   // "Mark as applied" — works with OR without a prepared package. Optimistically
   // flips/creates the package to status='applied' (hiding the job from the default
@@ -1058,19 +1203,18 @@ export function RolefitBoard({
                     job={selectedJobWithDetail}
                     nowIso={nowIso}
                     isAuthed={isAuthed}
-                    gen={gen}
+                    gen={genShown}
                     genData={genData}
                     genError={genError}
                     onGenerate={handleGenerate}
                     onCopy={handleCopy}
                     copiedId={copiedId}
-                    coverGen={coverGen}
+                    coverGen={coverShown}
                     coverData={coverData}
                     coverError={coverError}
                     onGenerateCover={handleGenerateCover}
                     onPrepare={handlePrepare}
-                    generating={generationInFlight === selectedJobWithDetail.id}
-                    onCancelGeneration={handleCancelGeneration}
+                    generating={requestingId === selectedJobWithDetail.id || jobBusy(selectedJobWithDetail.id)}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
                     pkg={packages[selectedJobWithDetail.id]}
                     resumeStale={resumeStaleFor(selectedJobWithDetail.id)}
@@ -1109,7 +1253,7 @@ export function RolefitBoard({
       {/* Live regions are ALWAYS mounted (empty when idle) so a screen reader observes them
           before their content changes — a region added to the DOM together with its content
           is not reliably announced. Only the inner pill toggles. The outer wrapper collapses
-          to 0×0 when both are empty, so it never intercepts pointer events. */}
+          to 0×0 when all are empty, so it never intercepts pointer events. */}
       <div
         style={{
           position: "fixed",
@@ -1158,6 +1302,15 @@ export function RolefitBoard({
             </div>
           ) : null}
         </div>
+        <div role="status">
+          {upsell ? (
+            <UpsellNotice
+              notice={upsell}
+              marginTop={toast ? 8 : 0}
+              onDismiss={() => setUpsell(null)}
+            />
+          ) : null}
+        </div>
         <div role="alert">
           {actionError ? (
             <div
@@ -1165,8 +1318,8 @@ export function RolefitBoard({
                 display: "flex",
                 alignItems: "center",
                 gap: "16px",
-                // Keep the 8px gap from the toast above only when both are showing.
-                marginTop: toast ? "8px" : 0,
+                // Keep the 8px gap from the pills above only when one is showing.
+                marginTop: toast || upsell ? "8px" : 0,
                 background: "var(--toast-danger-bg)",
                 color: "var(--text-on-accent)",
                 borderRadius: "12px",

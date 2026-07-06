@@ -9,6 +9,8 @@ import {
   EXPERIENCE_MATCH,
   CONFIDENCE,
   VERDICTS,
+  TAXONOMY_LABELS,
+  displayEnumLabel,
 } from "@/lib/rolefit/taxonomy";
 
 // These literal arrays are copied verbatim from reviewer/schemas.py — the
@@ -177,5 +179,38 @@ describe("taxonomy mirror (reviewer/schemas.py)", () => {
 
   test("VERDICTS matches the literal schemas.py list", () => {
     expect([...VERDICTS]).toEqual(EXPECTED_VERDICTS);
+  });
+});
+
+// displayEnumLabel is the single treatment for legitimately-"unknown" enum fields
+// (seniority, work_arrangement). It hides "unknown"/absent values (return null so the
+// pill is omitted) and Title-Cases everything else, so JobCard and JobDetail can't
+// drift apart again — the seniority pill used to render raw lowercase / a literal
+// "unknown" pill (plan phase J4).
+describe("displayEnumLabel", () => {
+  test('"unknown" is hidden (returns null) — no literal "unknown" pill leaks', () => {
+    expect(displayEnumLabel("unknown")).toBeNull();
+  });
+
+  test("null / undefined return null (hide the pill)", () => {
+    expect(displayEnumLabel(null)).toBeNull();
+    expect(displayEnumLabel(undefined)).toBeNull();
+  });
+
+  test("seniority tokens render Title-Cased, not raw lowercase", () => {
+    expect(displayEnumLabel("senior")).toBe("Senior");
+  });
+
+  test("work_arrangement tokens render Title-Cased", () => {
+    expect(displayEnumLabel("onsite")).toBe("Onsite");
+  });
+
+  test("a multi-word token uses its TAXONOMY_LABELS entry, not naive capitalize", () => {
+    expect(displayEnumLabel("far_reach")).toBe(TAXONOMY_LABELS["far_reach"]);
+    expect(displayEnumLabel("far_reach")).toBe("Far reach");
+  });
+
+  test("an unmapped token falls back to first-letter capitalization", () => {
+    expect(displayEnumLabel("wizard")).toBe("Wizard");
   });
 });

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-// Same SaaS drift as /api/resume: auth via getUserClaims() ({id,email}) and an atomic
-// reserveGenerations(userId, email, ["cover"]) tier gate (402 no plan / 429 exhausted)
-// placed AFTER validation, with refundGenerations(userId, ["cover"]) in the catch. The
+// Same async-generation drift as /api/resume: auth/validation/gate stay synchronous
+// (402/429 pass-through unchanged), then a 'pending' generation_jobs row + 202; the
+// LLM work runs in a captured after() callback that tests drain explicitly. The
 // cover-specific contract (profileVersion:null, review-context forwarding) is unchanged.
 const mocks = vi.hoisted(() => ({
   getUserClaims: vi.fn(),
@@ -12,8 +12,14 @@ const mocks = vi.hoisted(() => ({
   generateCoverLetter: vi.fn(),
   reserveGenerations: vi.fn(),
   refundGenerations: vi.fn(),
+  createGenerationJob: vi.fn(),
+  settleGenerationJob: vi.fn(),
+  afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
+vi.mock("next/server", () => ({
+  after: (fn: () => Promise<void>) => { mocks.afterCallbacks.push(fn); },
+}));
 vi.mock("@langfuse/tracing", () => ({
   propagateAttributes: (_a: unknown, fn: () => unknown) => fn(),
 }));
@@ -28,6 +34,10 @@ vi.mock("@/lib/usage", () => ({
   reserveGenerations: mocks.reserveGenerations,
   refundGenerations: mocks.refundGenerations,
 }));
+vi.mock("@/lib/generationJobs", () => ({
+  createGenerationJob: mocks.createGenerationJob,
+  settleGenerationJob: mocks.settleGenerationJob,
+}));
 vi.mock("@/lib/rolefit/coverLetterClient", () => ({
   DEFAULT_COVER_MODEL: "default-cover-model",
   generateCoverLetter: mocks.generateCoverLetter,
@@ -38,6 +48,17 @@ import { POST } from "@/app/api/cover-letter/route";
 const USER = "33333333-3333-3333-3333-333333333333";
 const EMAIL = "u@x.com";
 const LETTER = { greeting: "Dear", body: ["para"], signoff: "Best" };
+const GEN_ROW = {
+  id: "44444444-4444-4444-4444-444444444444",
+  jobId: "job-1",
+  kind: "cover",
+  status: "pending",
+  error: null,
+  jobTitle: null,
+  company: null,
+  createdAt: "2026-07-05T00:00:00.000Z",
+  updatedAt: "2026-07-05T00:00:00.000Z",
+};
 
 function req(body?: unknown, raw?: string) {
   return new Request("http://localhost/api/cover-letter", {
@@ -45,9 +66,14 @@ function req(body?: unknown, raw?: string) {
     body: raw !== undefined ? raw : JSON.stringify(body ?? {}),
   });
 }
+/** Drain the captured after() callbacks — the background LLM work + status write. */
+async function flushBackground() {
+  while (mocks.afterCallbacks.length) await mocks.afterCallbacks.shift()!();
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.afterCallbacks.length = 0;
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   mocks.getUserClaims.mockResolvedValue({ id: USER, email: EMAIL });
   mocks.getProfile.mockResolvedValue({ resume_text: "resume", full_name: "Ada", instructions: null, model_cover: null });
@@ -59,6 +85,8 @@ beforeEach(() => {
   mocks.refundGenerations.mockResolvedValue(undefined);
   mocks.generateCoverLetter.mockResolvedValue(LETTER);
   mocks.upsertApplicationPackage.mockResolvedValue({ jobId: "job-1", status: "prepared" });
+  mocks.createGenerationJob.mockResolvedValue({ created: true, job: GEN_ROW });
+  mocks.settleGenerationJob.mockResolvedValue(undefined);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -89,64 +117,99 @@ describe("POST /api/cover-letter — validation ladder (charge only after valida
   });
 });
 
-describe("POST /api/cover-letter — subscription/allowance gate", () => {
-  test("no plan → 402 pass-through (status + error), nothing generated/persisted", async () => {
-    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 402, error: "Subscribe first." });
+describe("POST /api/cover-letter — subscription/allowance gate (synchronous, before the 202)", () => {
+  test("no plan → 402 pass-through (status + error), nothing tracked/generated/persisted", async () => {
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 402, code: "subscription_required", error: "Subscribe first.",
+    });
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(402);
-    expect((await res.json()).error).toBe("Subscribe first.");
+    const body = await res.json();
+    expect(body.error).toBe("Subscribe first.");
+    // Machine-readable code the client's /billing upsell keys off (lib/rolefit/tierGate.ts).
+    expect(body.code).toBe("subscription_required");
+    expect(mocks.createGenerationJob).not.toHaveBeenCalled();
     expect(mocks.generateCoverLetter).not.toHaveBeenCalled();
     expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
     expect(mocks.refundGenerations).not.toHaveBeenCalled();
   });
 
   test("exhausted → 429 pass-through", async () => {
-    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 429, error: "Monthly cover letter allowance used (3/3)." });
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 429, code: "allowance_exhausted", plan: "standard",
+      error: "Monthly cover letter allowance used (3/3).",
+    });
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(429);
-    expect((await res.json()).error).toBe("Monthly cover letter allowance used (3/3).");
+    const body = await res.json();
+    expect(body.error).toBe("Monthly cover letter allowance used (3/3).");
+    // code + plan let the client distinguish this from an upstream 429 and pitch Pro.
+    expect(body.code).toBe("allowance_exhausted");
+    expect(body.plan).toBe("standard");
     expect(mocks.generateCoverLetter).not.toHaveBeenCalled();
   });
 });
 
 describe("POST /api/cover-letter — cover-specific contract", () => {
-  test("reserves the cover kind for the authed user, persists cover-only with profileVersion:null", async () => {
+  test("202 with the tracked pending generation; reserves the cover kind; persists cover-only with profileVersion:null in the background", async () => {
     const res = await POST(req({ jobId: "job-1" }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
+    const body = await res.json();
+    expect(body.generation).toMatchObject({
+      id: GEN_ROW.id, kind: "cover", status: "pending", jobTitle: "Eng", company: "Acme",
+    });
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["cover"]);
+    expect(mocks.createGenerationJob).toHaveBeenCalledWith(USER, "job-1", "cover");
+
+    await flushBackground();
     const pkg = mocks.upsertApplicationPackage.mock.calls[0][2];
     expect(pkg.coverLetter).toBe(LETTER);
     expect(pkg.resume).toBeNull();
     // A cover-only regen must NOT stamp or clear the stored résumé's profile_version
     // (ON CONFLICT preserves it).
     expect(pkg.profileVersion).toBeNull();
+    expect(mocks.settleGenerationJob).toHaveBeenCalledWith(USER, GEN_ROW.id, { status: "ready" });
     expect(mocks.refundGenerations).not.toHaveBeenCalled();
   });
 
   test("forwards the review context (about/requirements/skillGaps/redFlags) to the generator", async () => {
     await POST(req({ jobId: "job-1" }));
+    await flushBackground();
     const arg = mocks.generateCoverLetter.mock.calls[0][0];
     expect(arg.job.about).toBe("about");
     expect(arg.job.skillGaps).toEqual(["rust"]);
     expect(arg.job.redFlags).toEqual(["hours"]);
     expect(arg.job.requirements).toEqual([{ text: "5y", met: true }]);
   });
+
+  test("duplicate pending row → 202 with existing row, extra reservation refunded, no second run", async () => {
+    mocks.createGenerationJob.mockResolvedValue({ created: false, job: GEN_ROW });
+    const res = await POST(req({ jobId: "job-1" }));
+    expect(res.status).toBe(202);
+    expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["cover"]);
+    expect(mocks.afterCallbacks).toHaveLength(0);
+  });
 });
 
-describe("POST /api/cover-letter — error mapping (refunds a burned slot)", () => {
-  const cases: [string, number][] = [
-    ["response truncated", 502],
-    ["429 too many", 429],
-    ["402 no credits", 502],
-    ["generic boom", 502],
+describe("POST /api/cover-letter — background failure → refund + user-safe settled error", () => {
+  const cases: [string, string][] = [
+    ["response truncated", "cut off"],
+    ["429 too many", "Rate limited"],
+    ["402 no credits", "Insufficient credits."],
+    ["generic boom", "Generation failed"],
   ];
-  for (const [message, status] of cases) {
-    test(`Error("${message}") → ${status}, refunds the cover slot`, async () => {
+  for (const [message, copy] of cases) {
+    test(`Error("${message}") → settles failed containing "${copy}", refunds the cover slot`, async () => {
       mocks.generateCoverLetter.mockRejectedValue(new Error(message));
       const res = await POST(req({ jobId: "job-1" }));
-      expect(res.status).toBe(status);
+      expect(res.status).toBe(202); // acceptance already happened — failure is async
+      await flushBackground();
       expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
       expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["cover"]);
+      const [, gid, outcome] = mocks.settleGenerationJob.mock.calls[0];
+      expect(gid).toBe(GEN_ROW.id);
+      expect(outcome.status).toBe("failed");
+      expect(outcome.error).toContain(copy);
     });
   }
 });

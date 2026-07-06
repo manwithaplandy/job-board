@@ -191,9 +191,26 @@ def _salvage_parse(schema, exc: Exception):
         return None
     log.warning("recovered a fenced/malformed %s response via salvage parse", schema.__name__)
     msg = SimpleNamespace(parsed=parsed, refusal=None)
-    resp = SimpleNamespace(choices=[SimpleNamespace(message=msg)],
-                           usage=None, id=None, model=None)
+    resp = SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason=None)],
+                           usage=None, id=None, model=None, salvaged=True)
     return resp, msg
+
+
+def _omission_metadata(schema, resp, msg) -> dict:
+    """Omitted-vs-explicit visibility. model_fields_set distinguishes fields the model
+    actually emitted from schema defaults — works on the SDK parse and the salvage
+    parse alike (both produce pydantic instances via model_validate_json)."""
+    out: dict = {}
+    parsed = getattr(msg, "parsed", None)
+    if isinstance(parsed, BaseModel):
+        fields = set(type(parsed).model_fields)
+        omitted = sorted(fields - parsed.model_fields_set)
+        out["omitted_fields"] = omitted
+        out["completeness"] = round(1 - len(omitted) / max(len(fields), 1), 3)
+    out["salvaged"] = bool(getattr(resp, "salvaged", False))
+    choices = getattr(resp, "choices", None) or []
+    out["finish_reason"] = getattr(choices[0], "finish_reason", None) if choices else None
+    return out
 
 
 async def _invoke(client, kwargs: dict) -> tuple:
@@ -316,7 +333,11 @@ async def traced_structured_call(
             # model is what OpenRouter actually routed to (may differ from the requested
             # slug), which matters for per-model cost attribution.
             metadata={**metadata, "cost_source": cost_source,
-                      "served_model": getattr(resp, "model", None)},
+                      "served_model": getattr(resp, "model", None),
+                      **_omission_metadata(schema, resp, msg)},
+            **({"level": "WARNING",
+                "status_message": "salvaged fenced/malformed structured output"}
+               if getattr(resp, "salvaged", False) else {}),
         )
     finally:
         # Pin the end to the API-call completion so the confirm round-trip above is excluded.

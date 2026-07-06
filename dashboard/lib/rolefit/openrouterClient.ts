@@ -11,13 +11,27 @@ import { tracingEnabled } from "@/lib/observability";
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 // Per-attempt fetch timeout. We retry once on a stall, so two attempts plus the
-// back-off must fit inside the calling route's `maxDuration` (120s for
-// /api/resume): 2 × 55s + 2s ≈ 112s, leaving headroom. A healthy
-// `deepseek-*-flash` response returns in a few seconds; a 55s wait only ever
-// hits a stalled backend, which the retry routes around.
-const PER_ATTEMPT_TIMEOUT_MS = 55_000;
+// back-off must fit inside the calling route's `maxDuration` (300s for the
+// generate routes, whose LLM work now runs in a background `after()` callback):
+// 2 × 120s + 2s ≈ 242s, leaving headroom. A healthy `deepseek-*-flash` response
+// returns in a few seconds, but as a hybrid REASONING model its thinking phase
+// swings run-to-run and legitimately exceeded the old 55s ceiling — the
+// generation is background work now, so waiting out a slow trace beats failing it.
+const PER_ATTEMPT_TIMEOUT_MS = 120_000;
 // Total attempts (1 original + 1 retry). Keep ≥2-attempt cost within maxDuration.
 const MAX_ATTEMPTS = 2;
+
+// Output-token budget for the structured generators (résumé / cover-letter /
+// prefill). Sized as REASONING HEADROOM, not content size: the cheap-tier model
+// (deepseek-v4-flash) is a hybrid *reasoning* model whose reasoning tokens count
+// against max_tokens and swing 0–5k+ run-to-run, while the visible JSON is small
+// (~650 tokens for a full one-page résumé). Set too low, reasoning exhausts the
+// budget before any content is emitted → finish_reason "length" (the truncated /
+// non-JSON failures we saw at the old 4k/2k caps). This sits well above observed
+// reasoning peaks; the per-attempt 55s timeout is the real ceiling on a runaway
+// trace. The proper fix is to disable reasoning for these extraction tasks — this
+// is the interim guard against truncation.
+export const REASONING_SAFE_MAX_TOKENS = 12_000;
 
 /** Extract error body text safely — handles fakes without a text() method. */
 async function errText(res: Response): Promise<string> {

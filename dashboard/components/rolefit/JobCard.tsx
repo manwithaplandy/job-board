@@ -2,6 +2,7 @@
 import React from "react";
 import type { JobRow } from "@/lib/types";
 import { fitColor, initialsOf, fmtPay } from "@/lib/rolefit/fit";
+import { displayEnumLabel } from "@/lib/rolefit/taxonomy";
 import { Chip } from "@/components/ui/Chip";
 
 // Palette from the reference design's getBaseJobs() logoBg array
@@ -29,12 +30,11 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
   const c = fitColor(job.fit_score ?? 0);
   const initials = initialsOf(job.company_name);
   const payLabel = fmtPay(job);
-  const rawArrangement = job.work_arrangement ?? (job.remote === true ? "remote" : null);
-  // "unknown" is a real taxonomy value (lib/rolefit/taxonomy.ts) — don't surface it as a
-  // literal "Unknown" pill; omit the chip instead (the render already guards on truthiness).
-  const remoteLabel = rawArrangement && rawArrangement !== "unknown"
-    ? rawArrangement.charAt(0).toUpperCase() + rawArrangement.slice(1)
-    : null;
+  // "unknown" is a real taxonomy value (lib/rolefit/taxonomy.ts) — displayEnumLabel hides
+  // it (returns null → chip omitted, the render guards on truthiness) and Title-Cases the
+  // rest. Shared with JobDetail's arrangement + seniority so the treatments can't drift.
+  const remoteLabel = displayEnumLabel(
+    job.work_arrangement ?? (job.remote === true ? "remote" : null));
   const companyLine = [job.company_name, job.location].filter(Boolean).join(" · ");
   const logoBg = logoColor(job.company_name);
 

@@ -16,14 +16,25 @@ export async function POST() {
   if (!claims) return Response.json({ error: "sign in" }, { status: 401 });
   const userId = claims.id;
 
+  // Rejections carry a machine-readable `code` (and the plan, once known) so the client
+  // can key its /billing upsell CTA off structured fields, mirroring lib/usage.ts's
+  // AllowanceGateRejection shape.
   const plan = await getViewerPlan(userId, claims.email);
   if (!plan) {
-    return Response.json({ error: "Subscribe to have your board reviewed." }, { status: 402 });
+    return Response.json(
+      { error: "Subscribe to have your board reviewed.", code: "subscription_required" },
+      { status: 402 },
+    );
   }
   const remaining = await remainingDailyBudget(userId, plan);
   if (remaining <= 0) {
     return Response.json(
-      { error: "Daily review budget used — resumes tomorrow.", remaining: 0 },
+      {
+        error: "Daily review budget used — resumes tomorrow.",
+        code: "review_budget_exhausted",
+        plan,
+        remaining: 0,
+      },
       { status: 409 },
     );
   }

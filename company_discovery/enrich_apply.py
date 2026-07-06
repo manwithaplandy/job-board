@@ -4,6 +4,7 @@ one-time backfill (enrich_backfill.py) and the standing cron stage
 (enrich_selected, called from company_discovery/run.py). Keeping it here means the
 backfill and the cron ground companies through byte-identical logic."""
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import NamedTuple
 
 from company_discovery.enrich import ENRICHERS, JD_PROBE_ATS, enrich_from_jd
@@ -57,3 +58,41 @@ def apply_enrichment(conn, company_id, plan: EnrichUpdate) -> None:
     with conn.cursor() as cur:
         cur.execute(_UPDATE_SQL,
                     (plan.display_name, plan.about, plan.about_source, company_id))
+
+
+def enrich_selected(conn, candidates: list[dict], *,
+                    max_workers: int = MAX_WORKERS) -> int:
+    """Ground every selected company still lacking enrichment (enriched_at IS NULL):
+    fetch board metadata, persist it, and patch the in-memory candidate dict
+    (display_name/about) so THIS run's review sees the grounding without a re-query.
+    Returns the number of companies enriched.
+
+    Dead boards / unsupported ATSes skip silently (plan_enrichment never raises): that
+    company is reviewed ungrounded this run and its enriched_at stays NULL, so it is
+    retried only when it next becomes stale (a company reviewed under the current
+    profile version is not re-selected — there is no per-run re-probe storm).
+
+    Board fetches (HTTP) run in a small thread pool — they share the poller's egress
+    IP, so max_workers stays small. DB writes stay on the calling thread; one psycopg
+    connection must not be shared across threads. Does not commit — the caller owns
+    the transaction."""
+    pending = [c for c in candidates if c.get("enriched_at") is None]
+    if not pending:
+        return 0
+    enriched = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(plan_enrichment, c["ats"], c["token"]): c for c in pending}
+        for fut in as_completed(futures):
+            c = futures[fut]
+            plan = fut.result()  # plan_enrichment never raises (it skips instead)
+            if plan is None:
+                continue
+            apply_enrichment(conn, c["id"], plan)
+            # Mirror the UPDATE's COALESCE: display_name is only overwritten when the
+            # board returned one (JD-probe returns None -> keep prior); about is always
+            # set to the fetched value.
+            if plan.display_name is not None:
+                c["display_name"] = plan.display_name
+            c["about"] = plan.about
+            enriched += 1
+    return enriched

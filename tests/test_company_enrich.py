@@ -252,3 +252,66 @@ def test_select_to_enrich_no_duplicate_rows_across_reviews(conn):
     conn.commit()
     rows = [r for r in bf.select_to_enrich(conn) if r["token"] == "multi"]
     assert len(rows) == 1
+
+
+@requires_db
+def test_enrich_selected_grounds_pending_patches_dicts_and_skips(conn, monkeypatch):
+    """enrich_selected grounds only enriched_at-IS-NULL candidates: it persists the
+    board result + stamps enriched_at, patches the in-memory dict so this run's
+    review sees it, skips dead boards (no write, dict untouched, enriched_at stays
+    NULL), and never re-fetches an already-enriched company."""
+    from company_discovery import db
+
+    def _dead(token):
+        raise RuntimeError("404 dead board")
+
+    # 'workable' stands in for a dead board (its enricher raises); the fabricated
+    # 'deadco' from the brief violates the companies.ats CHECK constraint, so use a
+    # real ATS value that this run maps to a raising enricher.
+    monkeypatch.setattr(ea, "ENRICHERS", {
+        "greenhouse": lambda token: (f"Name-{token}", f"About {token}."),
+        "workable": _dead,
+    })
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, active, discovery_source) VALUES "
+            "('pend','greenhouse','pendtok', FALSE, 'dataset'),"
+            "('dead','workable','deadtok', FALSE, 'dataset'),"
+            "('done','greenhouse','donetok', FALSE, 'dataset')")
+        # 'done' is already enriched -> enrich_selected must skip it (no re-fetch).
+        cur.execute("UPDATE companies SET display_name='Already', about='old about', "
+                    "about_source='ats_board', enriched_at=now() WHERE token='donetok'")
+    conn.commit()
+
+    # Real select_for_review returns candidate dicts INCLUDING enriched_at (Step 1),
+    # which enrich_selected filters on. No reviews exist, so all three are selected.
+    candidates = db.select_for_review(conn, USER, "pv-current", 100)
+    by_token = {c["token"]: c for c in candidates}
+    assert by_token["donetok"]["enriched_at"] is not None   # column present + set
+    assert by_token["pendtok"]["enriched_at"] is None
+
+    n = ea.enrich_selected(conn, candidates)
+    conn.commit()
+    assert n == 1                                           # only 'pend' enriched
+
+    # in-memory dict patched for the pending greenhouse company...
+    assert by_token["pendtok"]["display_name"] == "Name-pendtok"
+    assert by_token["pendtok"]["about"] == "About pendtok."
+    # dead board: skipped, dict untouched (reviewed ungrounded this run)
+    assert by_token["deadtok"]["display_name"] is None
+    assert by_token["deadtok"]["about"] is None
+    # already-enriched: not re-fetched/overwritten
+    assert by_token["donetok"]["display_name"] == "Already"
+    assert by_token["donetok"]["about"] == "old about"
+
+    # ...and persisted to the DB, enriched_at stamped; dead board stays NULL.
+    with conn.cursor() as cur:
+        cur.execute("SELECT token, display_name, about, about_source, enriched_at "
+                    "FROM companies WHERE token IN ('pendtok','deadtok','donetok')")
+        rows = {r["token"]: r for r in cur.fetchall()}
+    assert rows["pendtok"]["display_name"] == "Name-pendtok"
+    assert rows["pendtok"]["about"] == "About pendtok."
+    assert rows["pendtok"]["about_source"] == "ats_board"
+    assert rows["pendtok"]["enriched_at"] is not None
+    assert rows["deadtok"]["enriched_at"] is None           # dead board: no write
+    assert rows["donetok"]["display_name"] == "Already"     # untouched

@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 from company_discovery import config, dataset, db
+from company_discovery.enrich_apply import enrich_selected
 from company_discovery.llm import CompanyReviewClient, OutOfCreditsError, build_company_block
 from company_discovery.profile import compute_company_profile_version
 from observability import tracing
@@ -92,6 +93,10 @@ def _review_user(conn, profile: dict) -> None:
     backlog = 0
     try:
         candidates = db.select_for_review(conn, user_id, pv, config.BATCH_CAP)
+        enriched = enrich_selected(conn, candidates)
+        if enriched:
+            conn.commit()  # persist grounding before the long, credit-gated review
+            log.info("enriched %s selected companies before review", enriched)
         company_block = build_company_block(profile.get("company_instructions"))
         client = CompanyReviewClient(model=profile.get("model_company"))
         results, halted = asyncio.run(

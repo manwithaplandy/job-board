@@ -55,7 +55,7 @@ def select_for_review(conn, user_id: str, company_profile_version: str,
         cur.execute(
             """
             SELECT c.id, c.name, c.ats, c.token,
-                   c.display_name, c.about, c.web_description
+                   c.display_name, c.about, c.web_description, c.enriched_at
             FROM companies c
             LEFT JOIN company_reviews r ON r.company_id = c.id AND r.user_id = %(uid)s
             WHERE c.discovery_source NOT IN ('seed', 'manual')

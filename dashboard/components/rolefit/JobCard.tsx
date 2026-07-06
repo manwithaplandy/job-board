@@ -27,6 +27,12 @@ export interface JobCardProps {
 }
 
 export const JobCard = React.memo(function JobCard({ job, selected, onSelect, onReject }: JobCardProps) {
+  // A null fit_score means "not yet reviewed" — same gate JobDetail uses (`hasReview`).
+  // fitColor(0) bottoms out at the red end of its red→green scale, so an unscored card
+  // would read as a misleading RED. Instead give it the SAME neutral-grey treatment as
+  // JobDetail's "Not yet reviewed" card (var(--bg-muted) fill / var(--border) edge /
+  // var(--text-secondary) text); scored cards keep the fitColor tint exactly as before.
+  const hasReview = job.fit_score != null;
   const c = fitColor(job.fit_score ?? 0);
   const initials = initialsOf(job.company_name);
   const payLabel = fmtPay(job);
@@ -38,8 +44,10 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
   const companyLine = [job.company_name, job.location].filter(Boolean).join(" · ");
   const logoBg = logoColor(job.company_name);
 
-  const cardBg = selected ? "var(--bg-surface)" : c.tint;
-  const cardBorder = selected ? "2px solid var(--accent)" : `2px solid ${c.tintBorder}`;
+  const cardBg = selected ? "var(--bg-surface)" : hasReview ? c.tint : "var(--bg-muted)";
+  const cardBorder = selected
+    ? "2px solid var(--accent)"
+    : `2px solid ${hasReview ? c.tintBorder : "var(--border)"}`;
   // One-off card elevations (unique geometry, no shared token): a blue selected-state
   // glow and a faint neutral resting shadow. Both read weakly on dark charcoal; a
   // dark-mode deepening is deferred to the later visual pass.
@@ -79,7 +87,7 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
             bottom: "9px",
             width: "4px",
             borderRadius: "4px",
-            background: c.strong,
+            background: hasReview ? c.strong : "var(--border-strong)",
           }}
         />
         {/* Logo */}
@@ -124,8 +132,8 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
                 fontSize: "11.5px",
                 padding: "3px 9px",
                 borderRadius: "20px",
-                background: c.strong,
-                color: c.textOn,
+                background: hasReview ? c.strong : "var(--bg-surface)",
+                color: hasReview ? c.textOn : "var(--text-secondary)",
                 fontVariantNumeric: "tabular-nums",
               }}
             >

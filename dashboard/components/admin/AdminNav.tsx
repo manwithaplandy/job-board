@@ -26,9 +26,9 @@ export function AdminNav({ active }: { active: AdminSection }) {
               textDecoration: "none",
               padding: "7px 12px",
               borderRadius: "9px",
-              color: isActive ? "#161d29" : "#3b6fd4",
-              background: isActive ? "#fff" : "transparent",
-              border: isActive ? "1px solid #e7eaf0" : "1px solid transparent",
+              color: isActive ? "var(--text-primary)" : "var(--accent)",
+              background: isActive ? "var(--bg-surface)" : "transparent",
+              border: isActive ? "1px solid var(--border)" : "1px solid transparent",
             }}
           >
             {label}

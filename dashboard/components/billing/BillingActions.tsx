@@ -49,15 +49,15 @@ export function SubscribeButton({ plan, current }: { plan: Plan; current: boolea
         disabled={busy || current}
         style={{
           ...btnStyle,
-          background: current ? "#e7eaf0" : "#3b6fd4",
-          color: current ? "#6b7480" : "#fff",
+          background: current ? "var(--border)" : "var(--accent)",
+          color: current ? "var(--text-secondary)" : "var(--text-on-accent)",
           cursor: current ? "default" : "pointer",
           opacity: busy ? 0.7 : 1,
         }}
       >
         {current ? "Current plan" : busy ? "Redirecting…" : `Subscribe to ${plan === "pro" ? "Pro" : "Standard"}`}
       </button>
-      {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "#c0392b" }}>{error}</div>}
+      {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--danger)" }}>{error}</div>}
     </>
   );
 }
@@ -81,11 +81,11 @@ export function ManageBillingButton() {
         type="button"
         onClick={onClick}
         disabled={busy}
-        style={{ ...btnStyle, marginTop: 0, background: "#f4f6fa", color: "#1f2430", border: "1px solid #e3e7ee" }}
+        style={{ ...btnStyle, marginTop: 0, background: "var(--bg-page)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
       >
         {busy ? "Redirecting…" : "Manage billing"}
       </button>
-      {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "#c0392b" }}>{error}</div>}
+      {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--danger)" }}>{error}</div>}
     </>
   );
 }

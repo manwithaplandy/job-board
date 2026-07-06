@@ -928,8 +928,8 @@ export function RolefitBoard({
         height: isNarrow ? undefined : "100vh",
         display: "flex",
         flexDirection: "column",
-        background: "#f4f6fa",
-        color: "#1f2430",
+        background: "var(--bg-page)",
+        color: "var(--text-primary)",
         overflow: isNarrow ? undefined : "hidden",
       }}
     >
@@ -994,8 +994,8 @@ export function RolefitBoard({
               flex: isNarrow ? undefined : "0 0 426px",
               width: isNarrow ? "100%" : undefined,
               overflowY: isNarrow ? undefined : "auto",
-              background: "#f4f6fa",
-              borderRight: isNarrow ? "none" : "1px solid #e7eaf0",
+              background: "var(--bg-page)",
+              borderRight: isNarrow ? "none" : "1px solid var(--border)",
               padding: "13px 2px 24px",
             }}
           >
@@ -1027,7 +1027,7 @@ export function RolefitBoard({
             // effect can return focus here after an auto-advance remount (see above).
             tabIndex={-1}
             className={isNarrow ? undefined : "rf-scroll"}
-            style={{ flex: 1, overflowY: isNarrow ? undefined : "auto", background: "#fff", minWidth: 0, outline: "none" }}
+            style={{ flex: 1, overflowY: isNarrow ? undefined : "auto", background: "var(--bg-surface)", minWidth: 0, outline: "none" }}
           >
             {selectedJobWithDetail ? (
               <>
@@ -1042,9 +1042,9 @@ export function RolefitBoard({
                       margin: "16px 16px 0",
                       fontWeight: 700,
                       fontSize: "13px",
-                      color: "#3b6fd4",
-                      background: "#eef3fc",
-                      border: "1px solid #d8e2f6",
+                      color: "var(--accent)",
+                      background: "var(--accent-bg)",
+                      border: "1px solid var(--accent-border)",
                       borderRadius: "9px",
                       padding: "8px 14px",
                       cursor: "pointer",
@@ -1094,7 +1094,7 @@ export function RolefitBoard({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "#6b7480",
+                  color: "var(--text-secondary)",
                   fontSize: "14px",
                   fontWeight: 600,
                 }}
@@ -1129,11 +1129,11 @@ export function RolefitBoard({
                 display: "flex",
                 alignItems: "center",
                 gap: "16px",
-                background: "#1b2330",
-                color: "#fff",
+                background: "var(--toast-bg)",
+                color: "var(--text-on-accent)",
                 borderRadius: "12px",
                 padding: "11px 18px",
-                boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+                boxShadow: "var(--shadow-toast)",
                 fontSize: "13.5px",
                 fontWeight: 600,
                 whiteSpace: "nowrap",
@@ -1146,7 +1146,7 @@ export function RolefitBoard({
                 style={{
                   fontWeight: 800,
                   fontSize: "13px",
-                  color: "#9ec1ff",
+                  color: "var(--toast-link)",
                   background: "transparent",
                   border: "none",
                   cursor: "pointer",
@@ -1167,11 +1167,11 @@ export function RolefitBoard({
                 gap: "16px",
                 // Keep the 8px gap from the toast above only when both are showing.
                 marginTop: toast ? "8px" : 0,
-                background: "#7a2e22",
-                color: "#fff",
+                background: "var(--toast-danger-bg)",
+                color: "var(--text-on-accent)",
                 borderRadius: "12px",
                 padding: "11px 18px",
-                boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+                boxShadow: "var(--shadow-toast)",
                 fontSize: "13.5px",
                 fontWeight: 600,
                 whiteSpace: "nowrap",
@@ -1184,7 +1184,7 @@ export function RolefitBoard({
                 style={{
                   fontWeight: 800,
                   fontSize: "13px",
-                  color: "#ffd2c8",
+                  color: "var(--toast-danger-link)",
                   background: "transparent",
                   border: "none",
                   cursor: "pointer",

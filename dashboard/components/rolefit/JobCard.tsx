@@ -6,9 +6,9 @@ import { Chip } from "@/components/ui/Chip";
 
 // Palette from the reference design's getBaseJobs() logoBg array
 const LOGO_COLORS = [
-  "#3f6695", "#4f8a7e", "#8a6da3", "#a9663f", "#4a7a52",
-  "#b08a3e", "#6f88a8", "#9a5b6e", "#586b8c", "#5f8f6a",
-  "#9c6a4a", "#5e7e9e", "#8a7d52", "#7a6aa0", "#4f8a86", "#a05f5f",
+  "var(--logo-1)", "var(--logo-2)", "var(--logo-3)", "var(--logo-4)", "var(--logo-5)",
+  "var(--logo-6)", "var(--logo-7)", "var(--logo-8)", "var(--logo-9)", "var(--logo-10)",
+  "var(--logo-11)", "var(--logo-12)", "var(--logo-13)", "var(--logo-14)", "var(--logo-15)", "var(--logo-16)",
 ];
 
 function logoColor(name: string): string {
@@ -38,8 +38,11 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
   const companyLine = [job.company_name, job.location].filter(Boolean).join(" · ");
   const logoBg = logoColor(job.company_name);
 
-  const cardBg = selected ? "#ffffff" : c.tint;
-  const cardBorder = selected ? "2px solid #3b6fd4" : `2px solid ${c.tintBorder}`;
+  const cardBg = selected ? "var(--bg-surface)" : c.tint;
+  const cardBorder = selected ? "2px solid var(--accent)" : `2px solid ${c.tintBorder}`;
+  // One-off card elevations (unique geometry, no shared token): a blue selected-state
+  // glow and a faint neutral resting shadow. Both read weakly on dark charcoal; a
+  // dark-mode deepening is deferred to the later visual pass.
   const cardShadow = selected
     ? "0 8px 22px rgba(59,111,212,.17)"
     : "0 1px 2px rgba(20,28,40,.045)";
@@ -86,7 +89,7 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
             height: "40px",
             borderRadius: "10px",
             background: logoBg,
-            color: "#fff",
+            color: "var(--text-on-accent)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -105,7 +108,7 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
               style={{
                 fontWeight: 700,
                 fontSize: "14.5px",
-                color: "#1b2330",
+                color: "var(--text-primary)",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -132,7 +135,7 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
           <div
             style={{
               fontSize: "12.5px",
-              color: "#5b6472",
+              color: "var(--text-secondary)",
               marginTop: "3px",
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -171,8 +174,11 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
             height: "24px",
             borderRadius: "6px",
             border: "none",
+            // One-off faint neutral overlay for the hover-reveal reject ×; no token
+            // covers it. Reads on light; a dark-mode inversion (light-on-dark) is
+            // deferred to the later visual pass.
             background: "rgba(20,28,40,.06)",
-            color: "#5b6472",
+            color: "var(--text-secondary)",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",

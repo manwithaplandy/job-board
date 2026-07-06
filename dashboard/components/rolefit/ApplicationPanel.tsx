@@ -172,9 +172,9 @@ export function ApplicationPanel({
     flex: "0 0 auto",
     fontWeight: 700,
     fontSize: "12.5px",
-    color: "#5b6472",
-    background: "#fff",
-    border: "1px solid #dfe3ea",
+    color: "var(--text-secondary)",
+    background: "var(--bg-surface)",
+    border: "1px solid var(--border)",
     borderRadius: "9px",
     padding: "8px 14px",
     cursor: "pointer",
@@ -197,8 +197,8 @@ export function ApplicationPanel({
     cursor: "pointer",
     textDecoration: "none",
     ...(prepared
-      ? { background: "#3b6fd4", color: "#fff", border: "none", boxShadow: "0 4px 12px rgba(59,111,212,.28)" }
-      : { background: "#fff", color: "#5b6472", border: "1px solid #dfe3ea" }),
+      ? { background: "var(--accent)", color: "var(--text-on-accent)", border: "none", boxShadow: "var(--shadow-accent)" }
+      : { background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }),
   };
 
   // Per-leg failures from the last prepare. Résumé + cover retry their own endpoints;
@@ -220,24 +220,24 @@ export function ApplicationPanel({
           gap: "16px",
           flexWrap: "wrap",
           padding: "17px 19px",
-          background: "#f7f9fc",
+          background: "var(--bg-muted)",
         }}
       >
         <div style={{ flex: 1, minWidth: "200px" }}>
-          <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
+          <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>
             Application
           </div>
           <div
-            style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
+            style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
           >
             Tailored résumé and cover letter — ready for {job.company_name}.
           </div>
         </div>
         {applied && (
           <Chip
-            color="#2f7d54"
-            bg="#e3f1e9"
-            border="#cfe6d8"
+            color="var(--success)"
+            bg="var(--success-bg)"
+            border="var(--success-border)"
             style={{
               flex: "0 0 auto",
               gap: "7px",
@@ -260,9 +260,9 @@ export function ApplicationPanel({
               gap: "7px",
               fontWeight: 700,
               fontSize: "13.5px",
-              color: "#2f7d54",
-              background: "#fff",
-              border: "1px solid #cfe6d8",
+              color: "var(--success)",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--success-border)",
               borderRadius: "11px",
               padding: "12px 16px",
               cursor: "pointer",
@@ -300,13 +300,13 @@ export function ApplicationPanel({
         <div
           style={{
             marginTop: "12px",
-            border: "1px solid #ecd6d6",
-            background: "#fdf6f5",
+            border: "1px solid var(--danger-border)",
+            background: "var(--danger-bg)",
             borderRadius: "12px",
             padding: "13px 15px",
           }}
         >
-          <div style={{ fontWeight: 800, fontSize: "13px", color: "#b25a36" }}>
+          <div style={{ fontWeight: 800, fontSize: "13px", color: "var(--danger)" }}>
             Some parts couldn&apos;t be prepared
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
@@ -319,9 +319,9 @@ export function ApplicationPanel({
                 style={{
                   fontWeight: 700,
                   fontSize: "12.5px",
-                  color: "#b25a36",
-                  background: "#fff",
-                  border: "1px solid #ecd6d6",
+                  color: "var(--danger)",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--danger-border)",
                   borderRadius: "9px",
                   padding: "7px 13px",
                   cursor: generating ? "not-allowed" : "pointer",
@@ -363,15 +363,15 @@ export function ApplicationPanel({
               alignItems: "center",
               gap: "16px",
               padding: "17px 19px",
-              background: "#f7f9fc",
+              background: "var(--bg-muted)",
             }}
           >
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
+              <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>
                 Cover letter
               </div>
               <div
-                style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
+                style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
               >
                 A focused letter that ties your background to this role.
               </div>
@@ -390,15 +390,15 @@ export function ApplicationPanel({
               alignItems: "center",
               gap: "16px",
               padding: "17px 19px",
-              background: "#f7f9fc",
+              background: "var(--bg-muted)",
             }}
           >
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
+              <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>
                 Cover letter
               </div>
               <div
-                style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
+                style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
               >
                 Sign in to draft a cover letter tailored to this exact role.
               </div>
@@ -412,14 +412,14 @@ export function ApplicationPanel({
                 gap: "8px",
                 fontWeight: 700,
                 fontSize: "14px",
-                color: "#fff",
-                background: "#3b6fd4",
+                color: "var(--text-on-accent)",
+                background: "var(--accent)",
                 border: "none",
                 borderRadius: "11px",
                 padding: "12px 20px",
                 cursor: "pointer",
                 textDecoration: "none",
-                boxShadow: "0 4px 12px rgba(59,111,212,.28)",
+                boxShadow: "var(--shadow-accent)",
               }}
             >
               Sign in
@@ -435,7 +435,7 @@ export function ApplicationPanel({
               alignItems: "center",
               gap: "15px",
               padding: "21px 19px",
-              background: "#f7f9fc",
+              background: "var(--bg-muted)",
             }}
           >
             <div
@@ -443,18 +443,18 @@ export function ApplicationPanel({
                 width: "30px",
                 height: "30px",
                 borderRadius: "50%",
-                border: "3px solid #e0e8f5",
-                borderTopColor: "#3b6fd4",
+                border: "3px solid var(--accent-border)",
+                borderTopColor: "var(--accent)",
                 animation: "rf-spin .8s linear infinite",
                 flex: "0 0 auto",
               }}
             />
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
+              <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
                 Drafting your cover letter for {job.company_name}…
               </div>
               <div
-                style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
+                style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
               >
                 Connecting your experience to this role&apos;s requirements. Usually about 30 seconds.
               </div>
@@ -469,15 +469,15 @@ export function ApplicationPanel({
 
         {/* Done */}
         {coverDone && coverData && (
-          <div style={{ padding: "17px 19px", background: "#f6faf7" }}>
+          <div style={{ padding: "17px 19px", background: "var(--success-bg)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
               <span
                 style={{
                   width: "20px",
                   height: "20px",
                   borderRadius: "6px",
-                  background: "#dcefe2",
-                  color: "#2f7d54",
+                  background: "var(--success-bg)",
+                  color: "var(--success)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -487,22 +487,22 @@ export function ApplicationPanel({
               >
                 ✓
               </span>
-              <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
+              <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
                 Cover letter ready — tailored to {job.company_name}
               </div>
             </div>
             <div
               style={{
                 marginTop: "12px",
-                background: "#fff",
-                border: "1px solid #e3e7ee",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
                 borderRadius: "12px",
                 padding: "15px 16px",
                 maxHeight: "260px",
                 overflowY: "auto",
               }}
             >
-              <div style={{ fontSize: "13px", color: "#2f3845", fontWeight: 600 }}>
+              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>
                 {coverData.greeting}
               </div>
               {coverData.paragraphs.map((p, i) => (
@@ -511,7 +511,7 @@ export function ApplicationPanel({
                   style={{
                     fontSize: "13px",
                     lineHeight: 1.62,
-                    color: "#2f3845",
+                    color: "var(--text-primary)",
                     margin: "11px 0 0",
                     fontWeight: 500,
                   }}
@@ -519,14 +519,17 @@ export function ApplicationPanel({
                   {p}
                 </p>
               ))}
-              <div style={{ fontSize: "13px", color: "#2f3845", fontWeight: 500, marginTop: "11px" }}>
+              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500, marginTop: "11px" }}>
                 {coverData.closing}
               </div>
-              <div style={{ fontSize: "13px", color: "#161d29", fontWeight: 700, marginTop: "2px" }}>
+              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 700, marginTop: "2px" }}>
                 {coverData.signature}
               </div>
             </div>
             <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
+              {/* One-off small accent glow (unique geometry 0 3px 10px .26; no shared token —
+                  --shadow-accent/-sm differ in geometry). Reads bright-blue on dark; a
+                  dark-mode softening is deferred to the later visual pass. */}
               <Button variant="primary" size="sm" onClick={handleCoverDownload} style={{ boxShadow: "0 3px 10px rgba(59,111,212,.26)" }}>
                 <span>⤓</span>Download PDF
               </Button>
@@ -566,16 +569,16 @@ export function ApplicationPanel({
               alignItems: "center",
               gap: "16px",
               padding: "17px 19px",
-              background: "#fdf6f5",
+              background: "var(--danger-bg)",
             }}
           >
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#b25a36" }}>
+              <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--danger)" }}>
                 Cover letter failed
               </div>
               {coverError && (
                 <div
-                  style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
+                  style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
                 >
                   {coverError}
                 </div>
@@ -592,13 +595,13 @@ export function ApplicationPanel({
       {isAuthed && hasGreenhouse && (
         <Panel style={{ marginTop: "18px", padding: "17px 19px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
+            <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>
               Application questions
             </div>
             <Chip
-              color="#2f7d54"
-              bg="#e3f1e9"
-              border="#cfe6d8"
+              color="var(--success)"
+              bg="var(--success-bg)"
+              border="var(--success-border)"
               style={{
                 fontSize: "10.5px",
                 fontWeight: 800,
@@ -611,13 +614,13 @@ export function ApplicationPanel({
               Greenhouse
             </Chip>
             <div style={{ flex: 1 }} />
-            <div style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 600 }}>
+            <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 600 }}>
               Pulled from this posting
             </div>
           </div>
 
           <div
-            style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "6px", fontWeight: 500 }}
+            style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "6px", fontWeight: 500 }}
           >
             Pre-filled from your profile and résumé where possible — review before submitting,
             and fill in anything still marked “Needs your answer” on the form.
@@ -632,8 +635,8 @@ export function ApplicationPanel({
               <div
                 key={row.key}
                 style={{
-                  background: "#f7f9fc",
-                  border: "1px solid #eef1f5",
+                  background: "var(--bg-muted)",
+                  border: "1px solid var(--bg-muted)",
                   borderRadius: "10px",
                   padding: "11px 13px",
                 }}
@@ -645,7 +648,7 @@ export function ApplicationPanel({
                       minWidth: 0,
                       fontSize: "12.5px",
                       fontWeight: 700,
-                      color: "#414b59",
+                      color: "var(--text-primary)",
                     }}
                   >
                     {row.label}
@@ -656,8 +659,8 @@ export function ApplicationPanel({
                         flex: "0 0 auto",
                         fontSize: "10.5px",
                         fontWeight: 800,
-                        color: "#b07a2e",
-                        background: "#f6edda",
+                        color: "var(--warning)",
+                        background: "var(--warning-bg)",
                         borderRadius: "6px",
                         padding: "2px 7px",
                       }}
@@ -675,9 +678,9 @@ export function ApplicationPanel({
                         gap: "6px",
                         fontWeight: 700,
                         fontSize: "12px",
-                        color: copiedKey === row.key ? "#2f7d54" : "#5b6472",
-                        background: "#fff",
-                        border: "1px solid #dfe3ea",
+                        color: copiedKey === row.key ? "var(--success)" : "var(--text-secondary)",
+                        background: "var(--bg-surface)",
+                        border: "1px solid var(--border)",
                         borderRadius: "8px",
                         padding: "6px 11px",
                         cursor: "pointer",
@@ -692,7 +695,7 @@ export function ApplicationPanel({
                     style={{
                       fontSize: "13px",
                       lineHeight: 1.55,
-                      color: "#2f3845",
+                      color: "var(--text-primary)",
                       fontWeight: 500,
                       marginTop: "7px",
                       whiteSpace: "pre-wrap",
@@ -704,7 +707,7 @@ export function ApplicationPanel({
                   <div
                     style={{
                       fontSize: "12.5px",
-                      color: "#b07a2e",
+                      color: "var(--warning)",
                       fontWeight: 600,
                       marginTop: "7px",
                     }}

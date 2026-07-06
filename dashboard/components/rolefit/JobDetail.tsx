@@ -28,9 +28,9 @@ function ApplyButton({ url }: { url: string }) {
         gap: "6px",
         fontWeight: 700,
         fontSize: "13px",
-        color: "#fff",
-        background: "#3b6fd4",
-        border: "1px solid #3b6fd4",
+        color: "var(--text-on-accent)",
+        background: "var(--accent)",
+        border: "1px solid var(--accent)",
         borderRadius: "9px",
         padding: "8px 18px",
         textDecoration: "none",
@@ -45,9 +45,9 @@ function ApplyButton({ url }: { url: string }) {
 
 // Palette from reference getBaseJobs() — same as JobCard
 const LOGO_COLORS = [
-  "#3f6695", "#4f8a7e", "#8a6da3", "#a9663f", "#4a7a52",
-  "#b08a3e", "#6f88a8", "#9a5b6e", "#586b8c", "#5f8f6a",
-  "#9c6a4a", "#5e7e9e", "#8a7d52", "#7a6aa0", "#4f8a86", "#a05f5f",
+  "var(--logo-1)", "var(--logo-2)", "var(--logo-3)", "var(--logo-4)", "var(--logo-5)",
+  "var(--logo-6)", "var(--logo-7)", "var(--logo-8)", "var(--logo-9)", "var(--logo-10)",
+  "var(--logo-11)", "var(--logo-12)", "var(--logo-13)", "var(--logo-14)", "var(--logo-15)", "var(--logo-16)",
 ];
 
 function logoColor(name: string): string {
@@ -183,7 +183,7 @@ export function JobDetail({
             height: "54px",
             borderRadius: "13px",
             background: logoBg,
-            color: "#fff",
+            color: "var(--text-on-accent)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -203,14 +203,14 @@ export function JobDetail({
               fontSize: "24px",
               fontWeight: 800,
               letterSpacing: "-.4px",
-              color: "#161d29",
+              color: "var(--text-primary)",
               lineHeight: 1.15,
             }}
           >
             {job.title}
           </h1>
           <div
-            style={{ fontSize: "14px", color: "#5b6472", marginTop: "5px", fontWeight: 600 }}
+            style={{ fontSize: "14px", color: "var(--text-secondary)", marginTop: "5px", fontWeight: 600 }}
           >
             {metaLine}
           </div>
@@ -222,9 +222,9 @@ export function JobDetail({
                   alignItems: "center",
                   fontSize: "11.5px",
                   fontWeight: 700,
-                  color: "#414b59",
-                  background: "#f2f4f8",
-                  border: "1px solid #e7eaf0",
+                  color: "var(--text-primary)",
+                  background: "var(--bg-muted)",
+                  border: "1px solid var(--border)",
                   borderRadius: "7px",
                   padding: "4px 10px",
                 }}
@@ -239,9 +239,9 @@ export function JobDetail({
                   alignItems: "center",
                   fontSize: "11.5px",
                   fontWeight: 700,
-                  color: "#414b59",
-                  background: "#f2f4f8",
-                  border: "1px solid #e7eaf0",
+                  color: "var(--text-primary)",
+                  background: "var(--bg-muted)",
+                  border: "1px solid var(--border)",
                   borderRadius: "7px",
                   padding: "4px 10px",
                 }}
@@ -256,9 +256,9 @@ export function JobDetail({
                   alignItems: "center",
                   fontSize: "11.5px",
                   fontWeight: 700,
-                  color: "#414b59",
-                  background: "#f2f4f8",
-                  border: "1px solid #e7eaf0",
+                  color: "var(--text-primary)",
+                  background: "var(--bg-muted)",
+                  border: "1px solid var(--border)",
                   borderRadius: "7px",
                   padding: "4px 10px",
                 }}
@@ -273,9 +273,9 @@ export function JobDetail({
                   alignItems: "center",
                   fontSize: "11.5px",
                   fontWeight: 700,
-                  color: "#414b59",
-                  background: "#f2f4f8",
-                  border: "1px solid #e7eaf0",
+                  color: "var(--text-primary)",
+                  background: "var(--bg-muted)",
+                  border: "1px solid var(--border)",
                   borderRadius: "7px",
                   padding: "4px 10px",
                 }}
@@ -289,7 +289,7 @@ export function JobDetail({
                 alignItems: "center",
                 fontSize: "11.5px",
                 fontWeight: 700,
-                color: "#6b7480",
+                color: "var(--text-secondary)",
                 borderRadius: "7px",
                 padding: "4px 2px",
               }}
@@ -310,7 +310,7 @@ export function JobDetail({
             }}
           >
             <svg width="88" height="88" viewBox="0 0 88 88">
-              <circle cx="44" cy="44" r="34" fill="none" stroke="#eef1f5" strokeWidth="9" />
+              <circle cx="44" cy="44" r="34" fill="none" stroke="var(--bg-muted)" strokeWidth="9" />
               <circle
                 cx="44"
                 cy="44"
@@ -338,7 +338,7 @@ export function JobDetail({
                 style={{
                   fontSize: "23px",
                   fontWeight: 800,
-                  color: "#161d29",
+                  color: "var(--text-primary)",
                   lineHeight: 1,
                   fontVariantNumeric: "tabular-nums",
                 }}
@@ -350,7 +350,7 @@ export function JobDetail({
                   fontSize: "9px",
                   fontWeight: 700,
                   letterSpacing: "1.2px",
-                  color: "#6b7480",
+                  color: "var(--text-secondary)",
                   marginTop: "3px",
                 }}
               >
@@ -374,9 +374,9 @@ export function JobDetail({
         >
           {(job.human_override || isRejected) && (
             <Chip
-              color="#a05f5f"
-              bg="#f8eded"
-              border="#ecd6d6"
+              color="var(--danger)"
+              bg="var(--danger-bg)"
+              border="var(--danger-border)"
               style={{ fontSize: "11.5px", fontWeight: 700, borderRadius: "20px", padding: "4px 11px" }}
             >
               Rejected · you
@@ -388,8 +388,8 @@ export function JobDetail({
               onClick={() => onUnreject(job)}
               style={{
                 fontSize: "12.5px",
-                color: "#2f7d54",
-                border: "1px solid #cfe6d8",
+                color: "var(--success)",
+                border: "1px solid var(--success-border)",
                 borderRadius: "9px",
                 padding: "7px 16px",
               }}
@@ -399,9 +399,9 @@ export function JobDetail({
           )}
           {applied && (
             <Chip
-              color="#2f7d54"
-              bg="#e3f1e9"
-              border="#cfe6d8"
+              color="var(--success)"
+              bg="var(--success-bg)"
+              border="var(--success-border)"
               style={{ gap: "8px", fontSize: "11.5px", fontWeight: 700, borderRadius: "20px", padding: "4px 11px" }}
             >
               ✓ Applied · you
@@ -412,7 +412,7 @@ export function JobDetail({
                   style={{
                     fontWeight: 800,
                     fontSize: "11px",
-                    color: "#2f7d54",
+                    color: "var(--success)",
                     padding: 0,
                     textDecoration: "underline",
                   }}
@@ -428,8 +428,8 @@ export function JobDetail({
               onClick={() => onReject?.(job)}
               style={{
                 fontSize: "12.5px",
-                color: "#a05f5f",
-                border: "1px solid #e2c9c9",
+                color: "var(--danger)",
+                border: "1px solid var(--danger-border)",
                 borderRadius: "9px",
                 padding: "7px 16px",
               }}
@@ -445,18 +445,18 @@ export function JobDetail({
         <div
           style={{
             marginTop: "24px",
-            border: "1px solid #e3e7ee",
+            border: "1px solid var(--border)",
             borderRadius: "16px",
             padding: "24px 20px",
-            background: "#f7f9fc",
+            background: "var(--bg-muted)",
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "#6b7480" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
             Not yet reviewed
           </div>
           <div
-            style={{ fontSize: "13px", color: "#aab2be", marginTop: "6px", fontWeight: 500 }}
+            style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "6px", fontWeight: 500 }}
           >
             AI analysis for this role is pending.
           </div>
@@ -475,7 +475,7 @@ export function JobDetail({
                 style={{
                   fontSize: "13px",
                   fontWeight: 800,
-                  color: "#1b2330",
+                  color: "var(--text-primary)",
                   letterSpacing: "-.2px",
                 }}
               >
@@ -492,8 +492,8 @@ export function JobDetail({
                         width: "21px",
                         height: "21px",
                         borderRadius: "6px",
-                        background: req.met ? "#e3f1e9" : "#f6edda",
-                        color: req.met ? "#2f7d54" : "#b07a2e",
+                        background: req.met ? "var(--success-bg)" : "var(--warning-bg)",
+                        color: req.met ? "var(--success)" : "var(--warning)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -504,7 +504,7 @@ export function JobDetail({
                       {req.met ? "✓" : "△"}
                     </span>
                     <span
-                      style={{ fontSize: "13.5px", color: "#2f3845", fontWeight: 500 }}
+                      style={{ fontSize: "13.5px", color: "var(--text-primary)", fontWeight: 500 }}
                     >
                       {req.text}
                     </span>
@@ -521,7 +521,7 @@ export function JobDetail({
                 style={{
                   fontSize: "13px",
                   fontWeight: 800,
-                  color: "#1b2330",
+                  color: "var(--text-primary)",
                   letterSpacing: "-.2px",
                 }}
               >
@@ -534,9 +534,9 @@ export function JobDetail({
                     style={{
                       fontSize: "12px",
                       fontWeight: 700,
-                      color: "#3f6b50",
-                      background: "#eaf4ee",
-                      border: "1px solid #d3e7da",
+                      color: "var(--success)",
+                      background: "var(--success-bg)",
+                      border: "1px solid var(--success-border)",
                       borderRadius: "8px",
                       padding: "5px 11px",
                     }}
@@ -551,13 +551,13 @@ export function JobDetail({
           {/* ── About ── */}
           {job.about && (
             <div
-              style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
+              style={{ marginTop: "24px", borderTop: "1px solid var(--bg-muted)", paddingTop: "20px" }}
             >
               <div
                 style={{
                   fontSize: "13px",
                   fontWeight: 800,
-                  color: "#1b2330",
+                  color: "var(--text-primary)",
                   letterSpacing: "-.2px",
                 }}
               >
@@ -567,7 +567,7 @@ export function JobDetail({
                 style={{
                   fontSize: "13.5px",
                   lineHeight: 1.6,
-                  color: "#5b6472",
+                  color: "var(--text-secondary)",
                   margin: "10px 0 0",
                   fontWeight: 500,
                 }}
@@ -581,18 +581,18 @@ export function JobDetail({
           {detailState?.status === "loading" && (
             <div style={{ marginTop: "24px" }}>
               {[120, 80, 60].map((h, i) => (
-                <div key={i} style={{ height: h, background: "#eef1f5", borderRadius: 8, marginTop: 12 }} />
+                <div key={i} style={{ height: h, background: "var(--bg-muted)", borderRadius: 8, marginTop: 12 }} />
               ))}
             </div>
           )}
           {/* Detail-fetch error */}
           {detailState?.status === "error" && (
-            <div style={{ marginTop: "24px", padding: "16px 20px", border: "1px solid #e3e7ee", borderRadius: "12px", background: "#fdf6f5", display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{ flex: 1, fontSize: "13.5px", color: "#b25a36", fontWeight: 600 }}>
+            <div style={{ marginTop: "24px", padding: "16px 20px", border: "1px solid var(--border)", borderRadius: "12px", background: "var(--danger-bg)", display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ flex: 1, fontSize: "13.5px", color: "var(--danger)", fontWeight: 600 }}>
                 Couldn&apos;t load full job details.
               </div>
               {onRetryDetail && (
-                <Button variant="ghost" onClick={onRetryDetail} style={{ fontSize: "13px", background: "#eef3fc", border: "1px solid #d8e2f6", borderRadius: "9px", padding: "7px 14px" }}>
+                <Button variant="ghost" onClick={onRetryDetail} style={{ fontSize: "13px", background: "var(--accent-bg)", border: "1px solid var(--accent-border)", borderRadius: "9px", padding: "7px 14px" }}>
                   Retry
                 </Button>
               )}
@@ -639,7 +639,7 @@ export function JobDetail({
            "Apply on {provider}" button. ── */}
       {(fullJD || (!hasReview && applyUrl)) && (
         <div
-          style={{ marginTop: "24px", borderTop: "1px solid #eef1f5", paddingTop: "20px" }}
+          style={{ marginTop: "24px", borderTop: "1px solid var(--bg-muted)", paddingTop: "20px" }}
         >
           {fullJD && (
             <>
@@ -652,9 +652,9 @@ export function JobDetail({
                   gap: "7px",
                   fontWeight: 700,
                   fontSize: "13px",
-                  color: "#3b6fd4",
-                  background: "#fff",
-                  border: "1px solid #d7e0f2",
+                  color: "var(--accent)",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--accent-border)",
                   borderRadius: "9px",
                   padding: "8px 16px",
                   cursor: "pointer",
@@ -669,7 +669,7 @@ export function JobDetail({
                     whiteSpace: "pre-wrap",
                     fontSize: "13.5px",
                     lineHeight: 1.6,
-                    color: "#5b6472",
+                    color: "var(--text-secondary)",
                     marginTop: "16px",
                     fontWeight: 500,
                   }}

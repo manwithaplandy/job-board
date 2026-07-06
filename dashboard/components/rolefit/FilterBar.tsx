@@ -228,8 +228,8 @@ export function FilterBar({
   const { categories, locations, sources: sourceCounts } = facets;
 
   const activeBtn = (on: boolean) => ({
-    bg: on ? "#eef3fc" : "#ffffff",
-    border: on ? "#bcd0f2" : "#dfe3ea",
+    bg: on ? "var(--accent-bg)" : "var(--bg-surface)",
+    border: on ? "var(--accent-border)" : "var(--border)",
   });
   const cb = activeBtn(cats.length > 0);
   const lb = activeBtn(locs.length > 0);
@@ -245,12 +245,12 @@ export function FilterBar({
   const sortLabel = SORT_DEFS.find(([v]) => v === sort)?.[1] ?? "Best match";
 
   const box = (on: boolean) => ({
-    boxBg: on ? "#3b6fd4" : "#ffffff",
-    boxBorder: on ? "#3b6fd4" : "#cdd5e0",
+    boxBg: on ? "var(--accent)" : "var(--bg-surface)",
+    boxBorder: on ? "var(--accent)" : "var(--border-strong)",
     check: on ? "✓" : "",
   });
   const radio = (on: boolean) => ({
-    bg: on ? "#eef3fc" : "transparent",
+    bg: on ? "var(--accent-bg)" : "transparent",
     weight: on ? 700 : 500,
     check: on ? "✓" : "",
   });
@@ -271,9 +271,11 @@ export function FilterBar({
     position: "absolute" as const,
     top: "calc(100% + 7px)",
     zIndex: 50,
-    background: "#fff",
-    border: "1px solid #e3e7ee",
+    background: "var(--bg-surface)",
+    border: "1px solid var(--border)",
     borderRadius: "13px",
+    // One-off dropdown elevation (unique geometry, no shared token); reads weakly on
+    // dark charcoal — a dark-mode deepening is deferred to the later visual pass.
     boxShadow: "0 16px 40px rgba(20,28,45,.17)",
     padding: "7px",
   };
@@ -284,14 +286,14 @@ export function FilterBar({
     gap: "7px",
     fontWeight: 600,
     fontSize: "12.5px",
-    color: "#39424f",
+    color: "var(--text-primary)",
     background: bg,
     border: `1px solid ${border}`,
     borderRadius: "9px",
     padding: "7px 11px",
     cursor: "pointer",
   });
-  const caret = <span style={{ color: "#9aa3b0", fontSize: "9px" }}>▼</span>;
+  const caret = <span style={{ color: "var(--text-muted)", fontSize: "9px" }}>▼</span>;
 
   return (
     <div
@@ -301,8 +303,8 @@ export function FilterBar({
         alignItems: "center",
         gap: "9px",
         padding: "10px 22px",
-        background: "#fff",
-        borderBottom: "1px solid #e7eaf0",
+        background: "var(--bg-surface)",
+        borderBottom: "1px solid var(--border)",
         flexWrap: "wrap",
         zIndex: 15,
         position: "relative",
@@ -344,7 +346,7 @@ export function FilterBar({
                 borderRadius: "5px",
                 border: `1.5px solid ${boxBorder}`,
                 background: boxBg,
-                color: "#fff",
+                color: "var(--text-on-accent)",
                 fontSize: "11px",
                 fontWeight: 800,
                 display: "flex",
@@ -355,10 +357,10 @@ export function FilterBar({
             >
               {check}
             </span>
-            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#2b333f" }}>
+            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
               {cat}
             </span>
-            <span style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 700 }}>
+            <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 700 }}>
               {count}
             </span>
           </button>
@@ -396,10 +398,10 @@ export function FilterBar({
                 background: r.bg,
               }}
             >
-              <span style={{ flex: 1, fontSize: "13px", fontWeight: r.weight, color: "#2b333f" }}>
+              <span style={{ flex: 1, fontSize: "13px", fontWeight: r.weight, color: "var(--text-primary)" }}>
                 {label}
               </span>
-              <span style={{ color: "#3b6fd4", fontWeight: 800, fontSize: "12px" }}>
+              <span style={{ color: "var(--accent)", fontWeight: 800, fontSize: "12px" }}>
                 {r.check}
               </span>
             </button>
@@ -438,10 +440,10 @@ export function FilterBar({
                 background: r.bg,
               }}
             >
-              <span style={{ flex: 1, fontSize: "13px", fontWeight: r.weight, color: "#2b333f" }}>
+              <span style={{ flex: 1, fontSize: "13px", fontWeight: r.weight, color: "var(--text-primary)" }}>
                 {label}
               </span>
-              <span style={{ color: "#3b6fd4", fontWeight: 800, fontSize: "12px" }}>
+              <span style={{ color: "var(--accent)", fontWeight: 800, fontSize: "12px" }}>
                 {r.check}
               </span>
             </button>
@@ -485,7 +487,7 @@ export function FilterBar({
                 borderRadius: "5px",
                 border: `1.5px solid ${boxBorder}`,
                 background: boxBg,
-                color: "#fff",
+                color: "var(--text-on-accent)",
                 fontSize: "11px",
                 fontWeight: 800,
                 display: "flex",
@@ -496,10 +498,10 @@ export function FilterBar({
             >
               {check}
             </span>
-            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#2b333f" }}>
+            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
               {loc}
             </span>
-            <span style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 700 }}>
+            <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 700 }}>
               {count}
             </span>
           </button>
@@ -542,7 +544,7 @@ export function FilterBar({
                 borderRadius: "5px",
                 border: `1.5px solid ${boxBorder}`,
                 background: boxBg,
-                color: "#fff",
+                color: "var(--text-on-accent)",
                 fontSize: "11px",
                 fontWeight: 800,
                 display: "flex",
@@ -553,10 +555,10 @@ export function FilterBar({
             >
               {check}
             </span>
-            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#2b333f" }}>
+            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
               {label}
             </span>
-            <span style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 700 }}>
+            <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 700 }}>
               {count}
             </span>
           </button>
@@ -568,7 +570,7 @@ export function FilterBar({
         <span
           style={{
             fontSize: "11.5px",
-            color: "#6b7480",
+            color: "var(--text-secondary)",
             fontWeight: 700,
             letterSpacing: ".2px",
           }}
@@ -580,7 +582,7 @@ export function FilterBar({
           aria-label="Remote filter"
           style={{
             display: "inline-flex",
-            background: "#eef1f5",
+            background: "var(--bg-muted)",
             borderRadius: "9px",
             padding: "2px",
           }}
@@ -600,9 +602,12 @@ export function FilterBar({
                   fontSize: "12px",
                   padding: "5px 11px",
                   borderRadius: "7px",
-                  background: on ? "#ffffff" : "transparent",
-                  // Inactive label sits on the #eef1f5 track, where #6b7480 is only 4.18:1; #5b6472 (5.28:1) clears AA.
-                  color: on ? "#1b2330" : "#5b6472",
+                  background: on ? "var(--bg-surface)" : "transparent",
+                  // Inactive label sits on the --bg-muted track, where --text-muted is only 4.18:1
+                  // in light; --text-secondary (5.28:1) clears AA — hence the off arm below.
+                  color: on ? "var(--text-primary)" : "var(--text-secondary)",
+                  // One-off toggle-knob elevation (unique geometry, no shared token); reads weakly
+                  // on dark — a dark-mode deepening is deferred to the later visual pass.
                   boxShadow: on ? "0 1px 3px rgba(20,28,40,.12)" : "none",
                 }}
               >
@@ -626,9 +631,9 @@ export function FilterBar({
               gap: "7px",
               fontWeight: 600,
               fontSize: "12.5px",
-              color: view === "applied" ? "#2f7d54" : "#39424f",
-              background: view === "applied" ? "#e3f1e9" : "#ffffff",
-              border: `1px solid ${view === "applied" ? "#cfe6d8" : "#dfe3ea"}`,
+              color: view === "applied" ? "var(--success)" : "var(--text-primary)",
+              background: view === "applied" ? "var(--success-bg)" : "var(--bg-surface)",
+              border: `1px solid ${view === "applied" ? "var(--success-border)" : "var(--border)"}`,
               borderRadius: "9px",
               padding: "7px 11px",
               cursor: "pointer",
@@ -647,9 +652,9 @@ export function FilterBar({
                 gap: "7px",
                 fontWeight: 600,
                 fontSize: "12.5px",
-                color: view === "rejected" ? "#a05f5f" : "#39424f",
-                background: view === "rejected" ? "#f8eded" : "#ffffff",
-                border: `1px solid ${view === "rejected" ? "#ecd6d6" : "#dfe3ea"}`,
+                color: view === "rejected" ? "var(--danger)" : "var(--text-primary)",
+                background: view === "rejected" ? "var(--danger-bg)" : "var(--bg-surface)",
+                border: `1px solid ${view === "rejected" ? "var(--danger-border)" : "var(--border)"}`,
                 borderRadius: "9px",
                 padding: "7px 11px",
                 cursor: "pointer",
@@ -670,7 +675,7 @@ export function FilterBar({
       <div
         style={{
           fontSize: "12.5px",
-          color: "#6b7480",
+          color: "var(--text-secondary)",
           fontWeight: 700,
           whiteSpace: "nowrap",
           minWidth: "128px",
@@ -693,9 +698,9 @@ export function FilterBar({
           gap: "7px",
           fontWeight: 600,
           fontSize: "12.5px",
-          color: "#39424f",
-          background: "#fff",
-          border: "1px solid #dfe3ea",
+          color: "var(--text-primary)",
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border)",
           borderRadius: "9px",
           padding: "7px 11px",
           cursor: "pointer",
@@ -723,10 +728,10 @@ export function FilterBar({
                 background: r.bg,
               }}
             >
-              <span style={{ flex: 1, fontSize: "13px", fontWeight: r.weight, color: "#2b333f" }}>
+              <span style={{ flex: 1, fontSize: "13px", fontWeight: r.weight, color: "var(--text-primary)" }}>
                 {label}
               </span>
-              <span style={{ color: "#3b6fd4", fontWeight: 800, fontSize: "12px" }}>
+              <span style={{ color: "var(--accent)", fontWeight: 800, fontSize: "12px" }}>
                 {r.check}
               </span>
             </button>

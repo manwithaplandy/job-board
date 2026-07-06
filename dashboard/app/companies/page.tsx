@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Companies · Rolefit" };
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "#f4f6fa", color: "#1f2430", padding: "40px 20px 64px",
+  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "40px 20px 64px",
 };
 const cardStyle: React.CSSProperties = {
   maxWidth: "780px", margin: "0 auto",
@@ -65,12 +65,12 @@ export default async function CompaniesPage({
       <SlimHeader current="companies" />
       <main style={pageStyle}>
         <div style={cardStyle}>
-          <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29" }}>
+          <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)" }}>
             Companies
           </h1>
-          <div style={{ fontSize: "13px", fontWeight: 500, color: "#8a93a3", marginBottom: "22px" }}>
+          <div style={{ fontSize: "13px", fontWeight: 500, color: "var(--text-muted)", marginBottom: "22px" }}>
             AI-classified against your company preferences. Override any decision — it sticks.{" "}
-            <a href="/profile" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+            <a href="/profile" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
               Edit preferences →
             </a>
           </div>
@@ -82,16 +82,16 @@ export default async function CompaniesPage({
             />
           ) : (
             <div style={{
-              background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px",
-              padding: "40px 30px", textAlign: "center", color: "#5b6472",
+              background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "14px",
+              padding: "40px 30px", textAlign: "center", color: "var(--text-secondary)",
             }}>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
                 No companies classified yet
               </div>
               <div style={{ fontSize: "13px", marginTop: "6px", lineHeight: 1.6 }}>
                 As your board is reviewed, the companies behind those roles are classified
                 against your preferences and appear here. Set your{" "}
-                <a href="/profile" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+                <a href="/profile" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
                   company preferences
                 </a>{" "}
                 to steer which ones are surfaced.

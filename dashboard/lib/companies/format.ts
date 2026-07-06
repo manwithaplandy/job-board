@@ -2,10 +2,10 @@
 export function verdictMeta(verdict: string): { label: string; color: string; bg: string } {
   switch (verdict) {
     case "include":
-      return { label: "Included", color: "#2f7d54", bg: "#e8f6ee" };
+      return { label: "Included", color: "var(--success)", bg: "var(--success-bg)" };
     case "exclude":
-      return { label: "Excluded", color: "#b4471f", bg: "#fdece4" };
+      return { label: "Excluded", color: "var(--danger)", bg: "var(--danger-bg)" };
     default:
-      return { label: "Unknown", color: "#8a93a3", bg: "#eef1f5" };
+      return { label: "Unknown", color: "var(--text-muted)", bg: "var(--bg-muted)" };
   }
 }

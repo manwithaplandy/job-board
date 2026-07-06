@@ -20,22 +20,22 @@ export function CompanyCard({
 
   return (
     <div style={{
-      background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px",
+      background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "14px",
       padding: "16px 18px", marginBottom: "10px",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <div style={{ fontWeight: 800, fontSize: "15px", color: "#161d29" }}>{company.name}</div>
+        <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>{company.name}</div>
         <span style={{
           fontSize: "11px", fontWeight: 700, color: meta.color, background: meta.bg,
           borderRadius: "20px", padding: "3px 9px",
         }}>{meta.label}{company.human_override ? " · you" : ""}</span>
-        <span style={{ fontSize: "11.5px", color: "#9aa3b0", marginLeft: "auto" }}>
+        <span style={{ fontSize: "11.5px", color: "var(--text-muted)", marginLeft: "auto" }}>
           {company.ats} · {company.token}
         </span>
       </div>
       {company.reasoning && (
         <div style={{
-          fontSize: "12.5px", color: "#5b6472", marginTop: "8px", lineHeight: 1.5,
+          fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "8px", lineHeight: 1.5,
           display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
           overflow: "hidden",
         }}>
@@ -46,8 +46,8 @@ export function CompanyCard({
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "9px" }}>
           {tags.map((t, i) => (
             <span key={`${t}-${i}`} style={{
-              fontSize: "11px", fontWeight: 600, color: "#6b7585",
-              background: "#f3f5f9", borderRadius: "7px", padding: "3px 8px",
+              fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)",
+              background: "var(--bg-muted)", borderRadius: "7px", padding: "3px 8px",
             }}>{t}</span>
           ))}
         </div>
@@ -69,9 +69,9 @@ export function CompanyCard({
 function overrideBtn(active: boolean, disabled = false): React.CSSProperties {
   return {
     fontWeight: 700, fontSize: "12.5px",
-    color: active ? "#fff" : "#5b6472",
-    background: active ? "#3b6fd4" : "#fff",
-    border: `1px solid ${active ? "#3b6fd4" : "#dfe3ea"}`,
+    color: active ? "var(--text-on-accent)" : "var(--text-secondary)",
+    background: active ? "var(--accent)" : "var(--bg-surface)",
+    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
     borderRadius: "9px", padding: "7px 14px",
     cursor: disabled ? "not-allowed" : "pointer",
   };

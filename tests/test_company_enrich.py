@@ -220,12 +220,17 @@ def test_select_to_enrich_scope(conn):
         cur.execute("SELECT id, token FROM companies")
         for r in cur.fetchall():
             ids[r["token"]] = r["id"]
+    # ActiveCo is a realistic active company: verdict 'include' → active. UNKNOWNS-ONLY
+    # scope must EXCLUDE it (we don't re-evaluate currently-active/included companies).
+    db.upsert_company_review(conn, _review_row(ids["active"], "include"))
     db.upsert_company_review(conn, _review_row(ids["excluded"], "exclude"))
     db.upsert_company_review(conn, _review_row(ids["unknowned"], "unknown"))
     conn.commit()
 
     tokens = {r["token"] for r in bf.select_to_enrich(conn)}
-    assert tokens == {"active", "noreview", "unknowned"}
+    # noreview (no review → effectively unknown) + unknowned; NOT active/include, NOT
+    # excluded, NOT the already-enriched rows.
+    assert tokens == {"noreview", "unknowned"}
 
 
 @requires_db

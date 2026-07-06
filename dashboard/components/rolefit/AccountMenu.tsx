@@ -31,7 +31,7 @@ const itemStyle: CSSProperties = {
   borderRadius: "8px",
   fontSize: "13px",
   fontWeight: 600,
-  color: "#1f2430",
+  color: "var(--text-primary)",
   textDecoration: "none",
   textAlign: "left",
   border: "none",
@@ -39,7 +39,7 @@ const itemStyle: CSSProperties = {
   fontFamily: "inherit",
 };
 
-const separatorStyle: CSSProperties = { borderTop: "1px solid #eef1f5", margin: "6px 0" };
+const separatorStyle: CSSProperties = { borderTop: "1px solid var(--bg-muted)", margin: "6px 0" };
 
 // WAI-ARIA menu-button. The trigger is an initials avatar; the popup is a role=menu whose
 // items are links + a same-origin sign-out form-POST. Sign out MUST stay a real form POST
@@ -159,9 +159,9 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
           width: "32px",
           height: "32px",
           borderRadius: "50%",
-          background: "#eef3fc",
-          border: "1px solid #d8e2f6",
-          color: "#3b6fd4",
+          background: "var(--accent-bg)",
+          border: "1px solid var(--accent-border)",
+          color: "var(--accent)",
           fontSize: "13px",
           fontWeight: 800,
           fontFamily: "inherit",
@@ -187,8 +187,8 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
             right: 0,
             top: "calc(100% + 6px)",
             minWidth: "210px",
-            background: "#fff",
-            border: "1px solid #e3e7ee",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border)",
             borderRadius: "12px",
             boxShadow: "0 8px 24px rgba(15,22,35,.1)",
             padding: "6px",
@@ -203,7 +203,7 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
                   padding: "8px 12px",
                   fontSize: "12px",
                   fontWeight: 600,
-                  color: "#8b94a3",
+                  color: "var(--text-muted)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",

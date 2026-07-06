@@ -24,6 +24,10 @@
   --danger-bg: #fdf6f5;
   --focus-ring: #3b6fd4;
   --focus-halo: rgba(59,111,212,.18);
+  /* Accent drop-shadows — blue CTA glow (button) and its smaller logo-chip variant.
+     Held as full box-shadow values so the geometry travels with the color. */
+  --shadow-accent: 0 4px 12px rgba(59,111,212,.28);
+  --shadow-accent-sm: 0 3px 8px rgba(59,111,212,.32);
   --scrollbar-thumb: #d3d9e2;
   --scrollbar-thumb-hover: #bcc4d1;
 
@@ -112,6 +116,10 @@
   --danger-bg: rgba(223,111,111,.15);
   --focus-ring: #5b8def;
   --focus-halo: rgba(91,141,239,.30);
+  /* Dark: soften the accent glow to a lower-alpha blue so it reads on charcoal
+     without haloing. Same geometry as light. */
+  --shadow-accent: 0 4px 12px rgba(91,141,239,.22);
+  --shadow-accent-sm: 0 3px 8px rgba(91,141,239,.24);
   --scrollbar-thumb: #2c3444;
   --scrollbar-thumb-hover: #3a4150;
 

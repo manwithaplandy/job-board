@@ -30,7 +30,7 @@ export function SupportLink({
   return (
     <a
       href={href}
-      style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none", ...style }}
+      style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none", ...style }}
     >
       {label ?? email}
     </a>

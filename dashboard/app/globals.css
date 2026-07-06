@@ -217,6 +217,14 @@ body {
   line-height: 1.5;
 }
 input, button, textarea, select { font-family: inherit; }
+/* Themed default for text form controls: "naked" inputs that set no explicit
+   background previously fell through to the user-agent white, which matched the
+   light theme by luck but did NOT flip in dark (login/signup fields rendered
+   white-on-charcoal). Default them to the surface + primary-text tokens — matches
+   the app's inputStyle convention, is a no-op in light (surface is white), and is
+   overridden by any input that sets its own background inline (e.g. the transparent
+   board search). No native checkbox/radio inputs exist in the app to worry about. */
+input, textarea, select { background: var(--bg-surface); color: var(--text-primary); }
 /* Restores Tailwind preflight's placeholder normalization (dropped with @tailwind base):
    app-wide light-gray placeholder + opacity:1 for Firefox parity. */
 input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }

@@ -1,8 +1,11 @@
+import { after } from "next/server";
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForResume, upsertApplicationPackage } from "@/lib/queries";
 import { gateRejectionBody } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations } from "@/lib/usage";
+import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
+import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
@@ -11,8 +14,16 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { ResumeChecks } from "@/lib/rolefit/resumeChecks";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// Vercel Pro ceiling. The 202 response returns in milliseconds; the budget covers
+// the background `after()` work: 2 LLM attempts × 120s + backoff ≈ 242s (see
+// PER_ATTEMPT_TIMEOUT_MS in lib/rolefit/openrouterClient.ts).
+export const maxDuration = 300;
 
+// Async contract: everything the user must hear about IMMEDIATELY — auth,
+// validation, config, and the allowance gate — stays synchronous (401/400/422/
+// 404/500/402/429 exactly as before), then the route records a 'pending'
+// generation_jobs row and returns 202. The LLM work, persist, and status write
+// run in `after()`; the client polls GET /api/generations and toasts completion.
 export async function POST(req: Request) {
   const claims = await getUserClaims();
   if (!claims) return Response.json({ error: "sign in to generate a résumé" }, { status: 401 });
@@ -34,11 +45,42 @@ export async function POST(req: Request) {
 
   // Tier gate: no plan → 402, monthly allowance exhausted → 429. reserveGenerations
   // ATOMICALLY charges the slot up front (avoids the check-then-charge TOCTOU); the
-  // catch below REFUNDS on a failed generation so a failure never burns allowance.
-  // Placed AFTER the 404/422/500 validation so we never charge for a request that
-  // can't generate.
+  // background catch below REFUNDS on a failed generation so a failure never burns
+  // allowance. Placed AFTER the 404/422/500 validation so we never charge a request
+  // that can't generate.
   const gate = await reserveGenerations(userId, claims.email, ["resume"]);
   if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
+
+  // Pending tracking row — created AFTER the reserve, so a pending row always
+  // corresponds to a charged slot. A concurrent duplicate converges on the
+  // existing pending row: refund THIS request's extra reservation and 202
+  // idempotently without starting a second background generation.
+  let tracked;
+  try {
+    tracked = await createGenerationJob(userId, jobId, "resume");
+  } catch (e) {
+    await refundGenerations(userId, ["resume"]);
+    console.error("resume generation tracking failed", {
+      userId, jobId, error: e instanceof Error ? e.message : String(e),
+    });
+    return Response.json({ error: "Generation couldn’t start — try again." }, { status: 502 });
+  }
+  const generation = { ...tracked.job, jobTitle: job.title, company: job.company_name };
+  if (!tracked.created) {
+    await refundGenerations(userId, ["resume"]);
+    return Response.json({ generation }, { status: 202 });
+  }
+  const generationJobId = tracked.job.id;
+
+  // Status writes never throw out of the background callback: a failed write is
+  // logged and the row stays 'pending' for the staleness sweep — it must not
+  // trigger the catch's refund after a generation that actually succeeded.
+  const settle = (outcome: { status: "ready" | "failed"; error?: string | null }) =>
+    settleGenerationJob(userId, generationJobId, outcome).catch((e) => {
+      console.error("resume generation status write failed", {
+        userId, jobId, generationJobId, error: e instanceof Error ? e.message : String(e),
+      });
+    });
 
   const run = async () => {
     try {
@@ -78,7 +120,7 @@ export async function POST(req: Request) {
         result = await generate();
       }
 
-      const pkg = await upsertApplicationPackage(userId, jobId, {
+      await upsertApplicationPackage(userId, jobId, {
         resume: result.resume,
         coverLetter: null,
         answersSnapshot: null,
@@ -89,33 +131,33 @@ export async function POST(req: Request) {
         profileVersion: profile.profile_version,
       });
       // The slot was reserved (charged) up front; a success keeps it.
-      return Response.json({ package: pkg });
+      await settle({ status: "ready" });
     } catch (e) {
-      // Reserved-but-failed: refund so a failed generation never burns allowance.
-      await refundGenerations(userId, ["resume"]);
       const msg = e instanceof Error ? e.message : String(e);
-      // Surface the real cause in the Vercel runtime logs — the branches below only
-      // map it to a user-safe message, so without this the actual failure
-      // (truncation / timeout / upstream status) is invisible outside Langfuse.
+      // Surface the real cause in the Vercel runtime logs — the stored message is
+      // user-safe copy only, so without this the actual failure (truncation /
+      // timeout / upstream status) is invisible outside Langfuse.
       console.error("resume generation failed", {
         userId, jobId, model: profile.model_resume ?? DEFAULT_RESUME_MODEL, error: msg,
       });
-      // Truncation is reasoning-overflow, NOT résumé length (see REASONING_SAFE_MAX_TOKENS),
-      // so never advise "use a shorter résumé"; a truncated payload also arrives as non-JSON.
-      if (msg.includes("truncated") || msg.includes("non-JSON")) return Response.json({ error: "Résumé generation was cut off — please try again." }, { status: 502 });
-      if (msg.includes("timeout") || msg.includes("aborted")) return Response.json({ error: "Résumé generation timed out — please try again." }, { status: 502 });
-      if (msg.includes("429") || msg.includes("rate")) return Response.json({ error: "Rate limited — try again in a moment." }, { status: 429 });
-      if (msg.includes("402")) return Response.json({ error: "Insufficient credits." }, { status: 502 });
-      return Response.json({ error: "Generation failed — try again." }, { status: 502 });
+      // Reserved-but-failed: refund so a failed generation never burns allowance.
+      // Refund BEFORE the status write — if we crash between the two, the row is
+      // still 'pending' and the staleness sweep fails it, but the money is back.
+      await refundGenerations(userId, ["resume"]);
+      await settle({ status: "failed", error: generationFailureMessage("Résumé", msg) });
     }
   };
 
-  if (tracingEnabled()) {
-    const res = await propagateAttributes({ userId, sessionId: jobId }, run);
-    // Flush inline while the invocation is still alive — a post-response after()
-    // callback can lose the race against Vercel freezing the instance.
-    await flushLangfuseTraces();
-    return res;
-  }
-  return await run();
+  after(async () => {
+    if (tracingEnabled()) {
+      await propagateAttributes({ userId, sessionId: jobId }, run);
+      // Flush inside the after() callback, which keeps the invocation alive until
+      // it resolves — the old inline pre-response flush no longer applies.
+      await flushLangfuseTraces();
+    } else {
+      await run();
+    }
+  });
+
+  return Response.json({ generation }, { status: 202 });
 }

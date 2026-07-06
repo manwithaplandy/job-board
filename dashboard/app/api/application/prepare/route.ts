@@ -1,8 +1,10 @@
+import { after } from "next/server";
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
 import { gateRejectionBody } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations, type GenerationKind } from "@/lib/usage";
+import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
@@ -17,14 +19,21 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// Vercel Pro ceiling. The 202 response returns in milliseconds; the budget covers
+// the background `after()` work — the legs overlap, so the slowest leg bounds it:
+// 2 LLM attempts × 120s + backoff ≈ 242s (see lib/rolefit/openrouterClient.ts).
+export const maxDuration = 300;
 
 // "Prepare application": build the persisted package once (résumé + cover letter +
 // answers snapshot, and — Greenhouse only — the real question schema + LLM-prefilled
 // answers) and upsert it. The board loads the saved package instead of regenerating.
-// Mirrors /api/resume + /api/cover-letter: a fetch() POST wants a clean JSON error,
-// not requireUserId's redirect to /login (which the client would receive as HTML).
-// Uses Promise.allSettled so a failure in one LLM leg doesn't block the others.
+//
+// Async contract (mirrors /api/resume): auth/validation/config/gate stay synchronous,
+// then ONE 'pending' generation_jobs row of kind='prepare' is recorded and the route
+// returns 202. The legs run in `after()` under Promise.allSettled (a failure in one
+// LLM leg doesn't block the others); the row settles 'ready' when the legs settle —
+// with a user-safe partial note if one LLM leg failed — and 'failed' only when the
+// whole prepare throws or BOTH LLM legs fail (nothing new was generated).
 export async function POST(req: Request) {
   const claims = await getUserClaims();
   if (!claims) return Response.json({ error: "sign in to prepare an application" }, { status: 401 });
@@ -50,6 +59,36 @@ export async function POST(req: Request) {
   // request that can't generate. No plan → 402, exhausted → 429.
   const gate = await reserveGenerations(userId, claims.email, ["resume", "cover"]);
   if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
+
+  // Pending tracking row — created AFTER the reserve, so a pending row always
+  // corresponds to charged slots. A concurrent duplicate converges on the existing
+  // pending row: refund THIS request's extra reservations and 202 idempotently.
+  let tracked;
+  try {
+    tracked = await createGenerationJob(userId, jobId, "prepare");
+  } catch (e) {
+    await refundGenerations(userId, ["resume", "cover"]);
+    console.error("application prepare tracking failed", {
+      userId, jobId, error: e instanceof Error ? e.message : String(e),
+    });
+    return Response.json({ error: "Preparation couldn’t start — try again." }, { status: 502 });
+  }
+  const generation = { ...tracked.job, jobTitle: job.title, company: job.company_name };
+  if (!tracked.created) {
+    await refundGenerations(userId, ["resume", "cover"]);
+    return Response.json({ generation }, { status: 202 });
+  }
+  const generationJobId = tracked.job.id;
+
+  // Status writes never throw out of the background callback: a failed write is
+  // logged and the row stays 'pending' for the staleness sweep — it must not
+  // trigger the outer catch's both-kind refund after legs already settled.
+  const settle = (outcome: { status: "ready" | "failed"; error?: string | null }) =>
+    settleGenerationJob(userId, generationJobId, outcome).catch((e) => {
+      console.error("application prepare status write failed", {
+        userId, jobId, generationJobId, error: e instanceof Error ? e.message : String(e),
+      });
+    });
 
   const answers = applicationAnswersFromProfile(profile);
   // Résumé plaintext via the shared helper.
@@ -155,7 +194,7 @@ export async function POST(req: Request) {
     if (resumeResult.status === "rejected") console.error("resume generation failed", resumeResult.reason);
     if (coverResult.status === "rejected") console.error("cover letter generation failed", coverResult.reason);
 
-    const pkg = await upsertApplicationPackage(userId, jobId, {
+    await upsertApplicationPackage(userId, jobId, {
       resume,
       coverLetter,
       answersSnapshot: answers,
@@ -177,35 +216,45 @@ export async function POST(req: Request) {
       ...(coverResult.status === "rejected" ? (["cover"] as const) : []),
     ];
     if (refundKinds.length) await refundGenerations(userId, refundKinds);
-    // Per-leg status so the client can surface which parts of a partially
-    // failed prepare need a retry (the package persists whatever succeeded).
-    return Response.json({
-      package: pkg,
-      status: {
-        resume: resumeResult.status === "fulfilled" ? "ok" : "failed",
-        coverLetter: coverResult.status === "fulfilled" ? "ok" : "failed",
-        answers: ghResult.status === "fulfilled" ? "ok" : "failed",
-      },
-    });
+    // Settle the tracked prepare. The old inline response carried per-leg status;
+    // the client now reloads the persisted package on 'ready' and derives the pane
+    // states from its contents, so the row only distinguishes: clean success,
+    // partial success (user-safe note in `error`), and nothing-generated.
+    if (resumeResult.status === "rejected" && coverResult.status === "rejected") {
+      await settle({ status: "failed", error: "Generation failed — try again." });
+    } else {
+      const note =
+        resumeResult.status === "rejected"
+          ? "Couldn’t generate the résumé — you can retry it from the job pane."
+          : coverResult.status === "rejected"
+            ? "Couldn’t generate the cover letter — you can retry it from the job pane."
+            : null;
+      await settle({ status: "ready", error: note });
+    }
   };
 
-  try {
-    if (tracingEnabled()) {
-      const res = await propagateAttributes({ userId, sessionId: jobId }, run);
-      // Flush inline while the invocation is still alive — a post-response after()
-      // callback can lose the race against Vercel freezing the instance.
-      // flushLangfuseTraces swallows its own errors, so a trace-export failure
-      // can't reach the outer 502 branch: the generation already succeeded.
-      await flushLangfuseTraces();
-      return res;
+  after(async () => {
+    try {
+      if (tracingEnabled()) {
+        await propagateAttributes({ userId, sessionId: jobId }, run);
+        // Flush inside the after() callback, which keeps the invocation alive until
+        // it resolves — the old inline pre-response flush no longer applies.
+        // flushLangfuseTraces swallows its own errors, so a trace-export failure
+        // can't reach the catch below: the generation already settled.
+        await flushLangfuseTraces();
+      } else {
+        await run();
+      }
+    } catch (e) {
+      // Generation failures are salvaged per-leg above; this catches the upsert /
+      // infrastructure path where NOTHING persisted — refund both reserved kinds so a
+      // failed prepare never burns allowance. Never leak internal error detail to
+      // the stored user-safe message.
+      await refundGenerations(userId, ["resume", "cover"]);
+      console.error("application prepare failed", e);
+      await settle({ status: "failed", error: "Preparation failed — try again." });
     }
-    return await run();
-  } catch (e) {
-    // Generation failures are salvaged per-leg above; this catches the upsert /
-    // infrastructure path where NOTHING persisted — refund both reserved kinds so a
-    // failed prepare never burns allowance. Never leak internal error detail to the client.
-    await refundGenerations(userId, ["resume", "cover"]);
-    console.error("application prepare failed", e);
-    return Response.json({ error: "Preparation failed — try again." }, { status: 502 });
-  }
+  });
+
+  return Response.json({ generation }, { status: 202 });
 }

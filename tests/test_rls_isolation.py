@@ -388,6 +388,9 @@ EXPECTED_RLS = {
     "application_packages": _OWNER_ALL,
     "resume_scores": _OWNER_ALL,
     "usage_counters": _OWNER_ALL,
+    # Async-generation status rows (2026-07-05-generation-jobs): owner CRUD; the
+    # dashboard's withUserSql create/settle/poll paths are the only writers.
+    "generation_jobs": _OWNER_ALL,
     # Stripe mirror: owner may READ, never write (webhook/service role writes).
     "subscriptions": {
         "no_anon_access": _DENY,
@@ -487,6 +490,7 @@ EXPECTED_GRANTS = {
     "company_reviews":      (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "application_packages": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "resume_scores":        (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "generation_jobs":      (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "usage_counters":       (_R(), _R({"SELECT"})),               # SELECT-only (B-COST)
     "profiles":             (_R(), _R({"SELECT", "DELETE"})),     # INSERT/UPDATE are column-level
     "subscriptions":        (_R(), _R({"SELECT"})),               # webhook writes; owner reads

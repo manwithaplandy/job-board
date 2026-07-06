@@ -3,7 +3,7 @@ import {
   COVER_LETTER_JSON_SCHEMA, buildCoverLetterPrompt,
   type CoverLetterJob, type TailoredCoverLetter,
 } from "@/lib/rolefit/coverLetterSchema";
-import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
+import { callOpenRouterStructured, REASONING_SAFE_MAX_TOKENS } from "@/lib/rolefit/openrouterClient";
 import { parseTailoredCoverLetter } from "@/lib/rolefit/packageCodec";
 
 export const DEFAULT_COVER_MODEL = "anthropic/claude-haiku-4.5";
@@ -31,7 +31,7 @@ export async function generateCoverLetter(args: {
     system,
     user,
     responseFormat: COVER_LETTER_JSON_SCHEMA,
-    maxTokens: 2000,
+    maxTokens: REASONING_SAFE_MAX_TOKENS,
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
       const parsed = parseTailoredCoverLetter(raw);

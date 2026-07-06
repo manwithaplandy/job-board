@@ -4,7 +4,7 @@ import {
   type PrefillJob, type PrefillQuestion, type PrefilledAnswer,
 } from "@/lib/rolefit/prefillSchema";
 import type { ApplicationAnswers } from "@/lib/types";
-import { callOpenRouterStructured } from "@/lib/rolefit/openrouterClient";
+import { callOpenRouterStructured, REASONING_SAFE_MAX_TOKENS } from "@/lib/rolefit/openrouterClient";
 import { parsePrefilledAnswers } from "@/lib/rolefit/packageCodec";
 
 export const DEFAULT_PREFILL_MODEL = "anthropic/claude-haiku-4.5";
@@ -64,7 +64,7 @@ export async function generatePrefilledAnswers(args: {
     system,
     user,
     responseFormat: PREFILL_JSON_SCHEMA,
-    maxTokens: 2000,
+    maxTokens: REASONING_SAFE_MAX_TOKENS,
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
       const parsed = raw as { answers?: unknown };

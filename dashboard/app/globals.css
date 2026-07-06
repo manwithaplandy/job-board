@@ -73,3 +73,9 @@ input::placeholder, textarea::placeholder { color: #9aa3b0; opacity: 1; }
 .rf-picker-option:hover { background: #eef3fc; }
 .rf-picker-clear { color: #3b6fd4; }
 .rf-picker-clear:hover { color: #2f57a8; }
+
+/* Sonner completion toasts (GenerationToastProvider): the pill itself is styled
+   inline via toastOptions to match the board's dark Undo toast; the description
+   line needs a rule here because sonner's default muted gray is unreadable on
+   #1b2330. */
+[data-sonner-toast] [data-description] { color: #b9c3d4; }

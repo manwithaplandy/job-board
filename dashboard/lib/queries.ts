@@ -410,6 +410,26 @@ export function bareMarkerPredicate(tx: Sql | TransactionSql) {
   `;
 }
 
+// One job's prepared package — the async-generation completion path (GET
+// /api/application/package) reloads just the settled job instead of the full set.
+export async function getApplicationPackage(
+  userId: string,
+  jobId: string,
+): Promise<ApplicationPackage | null> {
+  return withUserSql(userId, async (tx) => {
+    const rows = await tx`
+      SELECT job_id, status, resume_json, cover_letter_json, answers_snapshot,
+             greenhouse_questions, prefilled_answers, apply_url, profile_version,
+             prepared_at, applied_at
+      FROM application_packages
+      WHERE user_id = ${userId}::uuid AND job_id = ${jobId}
+    `;
+    return rows.length > 0
+      ? toApplicationPackage(rows[0] as unknown as Record<string, unknown>)
+      : null;
+  });
+}
+
 // All of the viewer's prepared packages, keyed by job in the caller. Only created
 // on explicit "Prepare", so the row count stays small.
 export async function getApplicationPackages(userId: string): Promise<ApplicationPackage[]> {

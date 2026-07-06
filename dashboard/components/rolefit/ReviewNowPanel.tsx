@@ -15,8 +15,8 @@ type Status = "pending" | "running" | "done" | "failed" | null;
 
 const cardStyle: React.CSSProperties = {
   margin: "12px 16px 0",
-  background: "#fff",
-  border: "1px solid #e7eaf0",
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border)",
   borderRadius: "12px",
   padding: "14px 18px",
   display: "flex",
@@ -125,12 +125,12 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
   if (active) {
     return (
       <div style={cardStyle} data-testid="review-progress">
-        <span style={dot("#e0a83b")} />
+        <span style={dot("var(--chart-amber)")} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: "13.5px", fontWeight: 700, color: "#161d29" }}>
+          <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--text-primary)" }}>
             Reviewing your board…
           </div>
-          <div style={{ fontSize: "12px", color: "#6b7480", marginTop: "2px" }}>
+          <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
             {reviewedToday != null
               ? `${reviewedToday.toLocaleString()} role${reviewedToday === 1 ? "" : "s"} scored so far — new matches appear here as they're scored.`
               : "This runs in the background — new matches appear here as they're scored."}
@@ -146,18 +146,18 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
 
   return (
     <div style={cardStyle}>
-      <span style={dot(status === "failed" ? "#c0392b" : "#3b6fd4")} />
+      <span style={dot(status === "failed" ? "var(--danger)" : "var(--accent)")} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: "13.5px", fontWeight: 700, color: "#161d29" }}>
+        <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--text-primary)" }}>
           Your board is being built
         </div>
-        <div style={{ fontSize: "12px", color: "#6b7480", marginTop: "2px" }}>
+        <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
           {status === "failed"
             ? "The last review didn't finish. You can start another below."
             : "Run an AI review now to score the open roles against your profile, or wait for the next scheduled pass."}
           {remaining != null && ` · ${remaining.toLocaleString()} reviews left in today's budget.`}
         </div>
-        {error && <div style={{ fontSize: "12px", color: "#c0392b", marginTop: "4px" }}>{error}</div>}
+        {error && <div style={{ fontSize: "12px", color: "var(--danger)", marginTop: "4px" }}>{error}</div>}
       </div>
       <button
         type="button"
@@ -169,8 +169,8 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
           padding: "9px 14px",
           fontSize: "13px",
           fontWeight: 700,
-          color: "#fff",
-          background: "#3b6fd4",
+          color: "var(--text-on-accent)",
+          background: "var(--accent)",
           cursor: busy ? "default" : "pointer",
           opacity: busy ? 0.7 : 1,
           flexShrink: 0,

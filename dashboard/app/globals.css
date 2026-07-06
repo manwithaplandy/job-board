@@ -24,9 +24,11 @@
   --danger-bg: #fdf6f5;
   --focus-ring: #3b6fd4;
   --focus-halo: rgba(59,111,212,.18);
-  /* Accent drop-shadows — blue CTA glow (button) and its smaller logo-chip variant.
-     Held as full box-shadow values so the geometry travels with the color. */
+  /* Accent drop-shadows — blue CTA glow in three sizes: the 12px CTA, the 10px
+     inline primary-button, and the 8px logo-chip variant. Held as full box-shadow
+     values so the geometry travels with the color. */
   --shadow-accent: 0 4px 12px rgba(59,111,212,.28);
+  --shadow-accent-md: 0 3px 10px rgba(59,111,212,.26);
   --shadow-accent-sm: 0 3px 8px rgba(59,111,212,.32);
   /* Elevation shadow for the floating board toasts (RolefitBoard). */
   --shadow-toast: 0 8px 22px rgba(20,28,40,.22);
@@ -128,6 +130,7 @@
   /* Dark: soften the accent glow to a lower-alpha blue so it reads on charcoal
      without haloing. Same geometry as light. */
   --shadow-accent: 0 4px 12px rgba(91,141,239,.22);
+  --shadow-accent-md: 0 3px 10px rgba(91,141,239,.20);
   --shadow-accent-sm: 0 3px 8px rgba(91,141,239,.24);
   /* Dark: deepen to near-black so the elevated toast still reads over #12161e. */
   --shadow-toast: 0 8px 22px rgba(0,0,0,.5);

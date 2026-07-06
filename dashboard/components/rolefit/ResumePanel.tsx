@@ -85,17 +85,17 @@ export function ResumePanel({
             alignItems: "center",
             gap: "16px",
             padding: "17px 19px",
-            background: "#f7f9fc",
+            background: "var(--bg-muted)",
           }}
         >
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
+            <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>
               Tailored résumé
             </div>
             <div
               style={{
                 fontSize: "12.5px",
-                color: "#6b7480",
+                color: "var(--text-secondary)",
                 marginTop: "3px",
                 fontWeight: 500,
               }}
@@ -112,13 +112,13 @@ export function ResumePanel({
               gap: "8px",
               fontWeight: 700,
               fontSize: "14px",
-              color: "#fff",
-              background: "#3b6fd4",
+              color: "var(--text-on-accent)",
+              background: "var(--accent)",
               border: "none",
               borderRadius: "11px",
               padding: "12px 20px",
               cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(59,111,212,.28)",
+              boxShadow: "var(--shadow-accent)",
               textDecoration: "none",
             }}
           >
@@ -135,17 +135,17 @@ export function ResumePanel({
             alignItems: "center",
             gap: "16px",
             padding: "17px 19px",
-            background: "#f7f9fc",
+            background: "var(--bg-muted)",
           }}
         >
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>
+            <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>
               Tailored résumé
             </div>
             <div
               style={{
                 fontSize: "12.5px",
-                color: "#6b7480",
+                color: "var(--text-secondary)",
                 marginTop: "3px",
                 fontWeight: 500,
               }}
@@ -154,12 +154,12 @@ export function ResumePanel({
             </div>
             {usingSample && (
               <div
-                style={{ fontSize: "12px", color: "#9a7b3e", marginTop: "7px", fontWeight: 600 }}
+                style={{ fontSize: "12px", color: "var(--warning)", marginTop: "7px", fontWeight: 600 }}
               >
                 Using a sample profile —{" "}
                 <span
                   onClick={onOpenProfile}
-                  style={{ color: "#3b6fd4", cursor: "pointer", textDecoration: "underline" }}
+                  style={{ color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}
                 >
                   add yours
                 </span>{" "}
@@ -181,7 +181,7 @@ export function ResumePanel({
             alignItems: "center",
             gap: "15px",
             padding: "21px 19px",
-            background: "#f7f9fc",
+            background: "var(--bg-muted)",
           }}
         >
           <div
@@ -189,18 +189,18 @@ export function ResumePanel({
               width: "30px",
               height: "30px",
               borderRadius: "50%",
-              border: "3px solid #e0e8f5",
-              borderTopColor: "#3b6fd4",
+              border: "3px solid var(--accent-border)",
+              borderTopColor: "var(--accent)",
               animation: "rf-spin .8s linear infinite",
               flex: "0 0 auto",
             }}
           />
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
+            <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
               Tailoring your résumé to {job.company_name}…
             </div>
             <div
-              style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
+              style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
             >
               Matching your background against this role&apos;s requirements. Usually about 30 seconds.
             </div>
@@ -213,9 +213,9 @@ export function ResumePanel({
                 flex: "0 0 auto",
                 fontWeight: 700,
                 fontSize: "12.5px",
-                color: "#5b6472",
-                background: "#fff",
-                border: "1px solid #dfe3ea",
+                color: "var(--text-secondary)",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
                 borderRadius: "9px",
                 padding: "8px 14px",
                 cursor: "pointer",
@@ -229,15 +229,15 @@ export function ResumePanel({
 
       {/* ── Done ── */}
       {isDone && data && (
-        <div style={{ padding: "17px 19px", background: "#f6faf7" }}>
+        <div style={{ padding: "17px 19px", background: "var(--success-bg)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
             <span
               style={{
                 width: "20px",
                 height: "20px",
                 borderRadius: "6px",
-                background: "#dcefe2",
-                color: "#2f7d54",
+                background: "var(--success-bg)",
+                color: "var(--success)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -247,7 +247,7 @@ export function ResumePanel({
             >
               ✓
             </span>
-            <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#1b2330" }}>
+            <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
               Résumé ready — tailored to {job.company_name}
             </div>
             {stale && (
@@ -256,9 +256,9 @@ export function ResumePanel({
                   marginLeft: "auto",
                   fontSize: "11px",
                   fontWeight: 700,
-                  color: "#9a6b1e",
-                  background: "#fdf3e0",
-                  border: "1px solid #f3dfb5",
+                  color: "var(--warning)",
+                  background: "var(--warning-bg)",
+                  border: "1px solid var(--warning-border)",
                   borderRadius: "6px",
                   padding: "3px 8px",
                 }}
@@ -270,17 +270,17 @@ export function ResumePanel({
           <div
             style={{
               marginTop: "12px",
-              background: "#fff",
-              border: "1px solid #e3e7ee",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border)",
               borderRadius: "12px",
               padding: "15px 16px",
             }}
           >
-            <div style={{ fontWeight: 800, fontSize: "15px", color: "#161d29" }}>{data.name}</div>
+            <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>{data.name}</div>
             <div
               style={{
                 fontSize: "12.5px",
-                color: "#5b6472",
+                color: "var(--text-secondary)",
                 lineHeight: 1.5,
                 marginTop: "6px",
                 display: "-webkit-box",
@@ -298,9 +298,9 @@ export function ResumePanel({
                   style={{
                     fontSize: "11px",
                     fontWeight: 700,
-                    color: "#3b6fd4",
-                    background: "#eef3fc",
-                    border: "1px solid #d8e2f6",
+                    color: "var(--accent)",
+                    background: "var(--accent-bg)",
+                    border: "1px solid var(--accent-border)",
                     borderRadius: "6px",
                     padding: "3px 8px",
                   }}
@@ -319,13 +319,13 @@ export function ResumePanel({
                 gap: "8px",
                 fontWeight: 700,
                 fontSize: "13.5px",
-                color: "#fff",
-                background: "#3b6fd4",
+                color: "var(--text-on-accent)",
+                background: "var(--accent)",
                 border: "none",
                 borderRadius: "10px",
                 padding: "10px 17px",
                 cursor: "pointer",
-                boxShadow: "0 3px 10px rgba(59,111,212,.26)",
+                boxShadow: "var(--shadow-accent-md)",
               }}
             >
               <span>⤓</span>Download PDF
@@ -338,9 +338,9 @@ export function ResumePanel({
                 gap: "7px",
                 fontWeight: 700,
                 fontSize: "13.5px",
-                color: "#5b6472",
-                background: "#fff",
-                border: "1px solid #dfe3ea",
+                color: "var(--text-secondary)",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
                 borderRadius: "10px",
                 padding: "10px 15px",
                 cursor: "pointer",
@@ -366,9 +366,9 @@ export function ResumePanel({
                 gap: "7px",
                 fontWeight: 700,
                 fontSize: "13.5px",
-                color: "#5b6472",
-                background: "#fff",
-                border: "1px solid #dfe3ea",
+                color: "var(--text-secondary)",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
                 borderRadius: "10px",
                 padding: "10px 15px",
                 cursor: generating ? "not-allowed" : "pointer",
@@ -390,16 +390,16 @@ export function ResumePanel({
             alignItems: "center",
             gap: "16px",
             padding: "17px 19px",
-            background: "#fdf6f5",
+            background: "var(--danger-bg)",
           }}
         >
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: "14.5px", color: "#b25a36" }}>
+            <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--danger)" }}>
               Generation failed
             </div>
             {error && (
               <div
-                style={{ fontSize: "12.5px", color: "#6b7480", marginTop: "3px", fontWeight: 500 }}
+                style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
               >
                 {error}
               </div>

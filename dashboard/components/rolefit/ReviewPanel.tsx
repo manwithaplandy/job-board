@@ -93,12 +93,12 @@ export function ReviewPanel({
   }
 
   const sel = (label: string, k: keyof CorrectionForm, opts: readonly string[]) => (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "#5b6472" }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
       {label}
       <select
         value={(form[k] as string) ?? ""}
         onChange={(e) => set(k, (e.target.value || null) as CorrectionForm[typeof k])}
-        style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13 }}
+        style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--border-strong)", fontSize: 13 }}
       >
         <option value="">—</option>
         {opts.map((o) => <option key={o} value={o}>{taxonomyLabel(o)}</option>)}
@@ -107,7 +107,7 @@ export function ReviewPanel({
   );
 
   const num = (label: string, k: "skillsScore" | "experienceScore" | "compScore") => (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "#5b6472" }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
       {label}
       <input
         type="number" min={0} max={100}
@@ -116,9 +116,9 @@ export function ReviewPanel({
           const raw = e.target.value;
           set(k, raw === "" ? null : Math.max(0, Math.min(100, Number(raw))));
         }}
-        style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13, width: 90 }}
+        style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--border-strong)", fontSize: 13, width: 90 }}
       />
-      <span style={{ fontSize: 11, color: "#9aa3b0", fontWeight: 500 }}>0–100</span>
+      <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>0–100</span>
     </label>
   );
 
@@ -140,8 +140,8 @@ export function ReviewPanel({
           style={{
             fontSize: "10px",
             fontWeight: 800,
-            color: "#fff",
-            background: "#3b6fd4",
+            color: "var(--text-on-accent)",
+            background: "var(--accent)",
             borderRadius: "6px",
             padding: "3px 8px",
             letterSpacing: ".5px",
@@ -149,12 +149,12 @@ export function ReviewPanel({
         >
           AI
         </span>
-        <div style={{ fontWeight: 800, fontSize: "15px", color: "#1b2330" }}>Review</div>
+        <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>Review</div>
         <div style={{ flex: 1 }} />
         {job.role_category && (
-          <div style={{ fontSize: "11.5px", color: "#6b7480", fontWeight: 600 }}>
+          <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 600 }}>
             Auto-categorized ·{" "}
-            <span style={{ color: "#5b6472", fontWeight: 700 }}>{job.role_category}</span>
+            <span style={{ color: "var(--text-secondary)", fontWeight: 700 }}>{job.role_category}</span>
           </div>
         )}
       </div>
@@ -163,11 +163,11 @@ export function ReviewPanel({
         <div style={{ marginTop: 12 }}>
           {!editing ? (
             <Button variant="secondary" onClick={() => { setForm(initialForm(job)); setEditing(true); }}
-              style={{ fontSize: "12.5px", color: "#3b6fd4", border: "1px solid #d7e0f2", borderRadius: "9px", padding: "7px 14px" }}>
+              style={{ fontSize: "12.5px", color: "var(--accent)", border: "1px solid var(--accent-border)", borderRadius: "9px", padding: "7px 14px" }}>
               {job.corrected ? "Edit correction" : "Correct job details"}
             </Button>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, border: "1px solid #e3e7ee", borderRadius: 12, padding: 16, marginBottom: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 8 }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                 {sel("Verdict", "verdict", VERDICTS)}
                 {sel("Experience match", "experienceMatch", EXPERIENCE_MATCH)}
@@ -184,25 +184,25 @@ export function ReviewPanel({
                 {num("Experience", "experienceScore")}
                 {num("Comp", "compScore")}
               </div>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "#5b6472" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
                 Reasoning
                 <textarea value={form.reasoning ?? ""} rows={3}
                   onChange={(e) => set("reasoning", e.target.value || null)}
-                  style={{ padding: 8, borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13 }} />
+                  style={{ padding: 8, borderRadius: 8, border: "1px solid var(--border-strong)", fontSize: 13 }} />
               </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "#5b6472" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
                 Note (why corrected)
                 <input value={form.note ?? ""}
                   onChange={(e) => set("note", e.target.value || null)}
-                  style={{ padding: 8, borderRadius: 8, border: "1px solid #d7dce5", fontSize: 13 }} />
+                  style={{ padding: 8, borderRadius: 8, border: "1px solid var(--border-strong)", fontSize: 13 }} />
               </label>
               <div style={{ display: "flex", gap: 10 }}>
                 <Button variant="primary" onClick={onSave} disabled={saving}
-                  style={{ fontSize: "12.5px", border: "1px solid #3b6fd4", borderRadius: "9px", padding: "7px 16px", boxShadow: "none" }}>
+                  style={{ fontSize: "12.5px", border: "1px solid var(--accent)", borderRadius: "9px", padding: "7px 16px", boxShadow: "none" }}>
                   {saving ? "Saving…" : "Save correction"}
                 </Button>
                 <Button variant="secondary" onClick={() => setEditing(false)} disabled={saving}
-                  style={{ fontSize: "12.5px", border: "1px solid #d7dce5", borderRadius: "9px", padding: "7px 16px" }}>
+                  style={{ fontSize: "12.5px", border: "1px solid var(--border-strong)", borderRadius: "9px", padding: "7px 16px" }}>
                   Cancel
                 </Button>
               </div>
@@ -212,7 +212,7 @@ export function ReviewPanel({
               before its content changes — a region added to the DOM together with its content
               is not reliably announced (mirrors the board toasts). Only the text toggles; the
               top margin collapses to 0 when empty so an idle region adds no visible gap. */}
-          <div role="status" aria-live="polite" style={{ fontSize: 12, color: "#5b6472", marginTop: toast ? 6 : 0 }}>
+          <div role="status" aria-live="polite" style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: toast ? 6 : 0 }}>
             {toast}
           </div>
         </div>
@@ -231,7 +231,7 @@ export function ReviewPanel({
                   width: "128px",
                   fontSize: "12.5px",
                   fontWeight: 600,
-                  color: "#5b6472",
+                  color: "var(--text-secondary)",
                 }}
               >
                 {r.label}
@@ -240,7 +240,7 @@ export function ReviewPanel({
                 style={{
                   flex: 1,
                   height: "8px",
-                  background: "#eef1f5",
+                  background: "var(--bg-muted)",
                   borderRadius: "5px",
                   overflow: "hidden",
                 }}
@@ -249,7 +249,7 @@ export function ReviewPanel({
                   style={{
                     height: "100%",
                     width: `${r.value}%`,
-                    background: "#3b6fd4",
+                    background: "var(--accent)",
                     borderRadius: "5px",
                   }}
                 />
@@ -260,7 +260,7 @@ export function ReviewPanel({
                   textAlign: "right",
                   fontSize: "12px",
                   fontWeight: 800,
-                  color: "#3b6fd4",
+                  color: "var(--accent)",
                   fontVariantNumeric: "tabular-nums",
                 }}
               >
@@ -276,7 +276,7 @@ export function ReviewPanel({
           style={{
             fontSize: "14px",
             lineHeight: 1.62,
-            color: "#2f3845",
+            color: "var(--text-primary)",
             margin: "17px 0 0",
             fontWeight: 500,
           }}
@@ -296,7 +296,7 @@ export function ReviewPanel({
                 style={{
                   fontSize: "12px",
                   fontWeight: 800,
-                  color: "#b25a36",
+                  color: "var(--danger)",
                   letterSpacing: ".3px",
                   textTransform: "uppercase",
                 }}
@@ -315,7 +315,7 @@ export function ReviewPanel({
                 >
                   <span
                     style={{
-                      color: "#c2683f",
+                      color: "var(--danger)",
                       fontSize: "11px",
                       lineHeight: 1.5,
                       flex: "0 0 auto",
@@ -324,7 +324,7 @@ export function ReviewPanel({
                     ▲
                   </span>
                   <span
-                    style={{ fontSize: "13px", color: "#414b59", lineHeight: 1.5, fontWeight: 500 }}
+                    style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.5, fontWeight: 500 }}
                   >
                     {flag}
                   </span>
@@ -338,7 +338,7 @@ export function ReviewPanel({
                 style={{
                   fontSize: "12px",
                   fontWeight: 800,
-                  color: "#9a6a1e",
+                  color: "var(--warning)",
                   letterSpacing: ".3px",
                   textTransform: "uppercase",
                 }}
@@ -352,9 +352,9 @@ export function ReviewPanel({
                     style={{
                       fontSize: "12px",
                       fontWeight: 700,
-                      color: "#9a6a1e",
-                      background: "#f8efdd",
-                      border: "1px solid #ecdcb8",
+                      color: "var(--warning)",
+                      background: "var(--warning-bg)",
+                      border: "1px solid var(--warning-border)",
                       borderRadius: "7px",
                       padding: "3px 10px",
                     }}

@@ -10,18 +10,18 @@ type LocationOption = { location: string; count: number };
 
 const fieldStyle: React.CSSProperties = { display: "flex", flexDirection: "column" };
 const labelTextStyle: React.CSSProperties = {
-  fontSize: "13px", fontWeight: 600, color: "#5b6472", marginBottom: "7px",
+  fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "7px",
 };
 const hintStyle: React.CSSProperties = {
-  fontSize: "11.5px", fontWeight: 500, color: "#6b7480", marginBottom: "8px",
+  fontSize: "11.5px", fontWeight: 500, color: "var(--text-secondary)", marginBottom: "8px",
 };
 const inputStyle: React.CSSProperties = {
-  width: "100%", border: "1px solid #e3e7ee", borderRadius: "12px", padding: "13px",
-  fontSize: "13px", lineHeight: 1.5, color: "#1f2430", boxSizing: "border-box",
-  fontFamily: "inherit", background: "#fff",
+  width: "100%", border: "1px solid var(--border)", borderRadius: "12px", padding: "13px",
+  fontSize: "13px", lineHeight: 1.5, color: "var(--text-primary)", boxSizing: "border-box",
+  fontFamily: "inherit", background: "var(--bg-surface)",
 };
 const errStyle: React.CSSProperties = {
-  margin: "6px 0 0", fontSize: "12px", fontWeight: 600, color: "#b25a36",
+  margin: "6px 0 0", fontSize: "12px", fontWeight: 600, color: "var(--danger)",
 };
 
 export function OnboardingForm({

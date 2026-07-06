@@ -61,14 +61,14 @@ export function ResumeUploadField({ textareaId }: { textareaId: string }) {
           Upload PDF
         </Button>
         <span style={{
-          fontSize: "12.5px", color: fileName ? "#1f2430" : "#8a93a3",
+          fontSize: "12.5px", color: fileName ? "var(--text-primary)" : "var(--text-muted)",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
         }}>
           {fileName ?? "No file chosen"}
         </span>
       </div>
       {status && (
-        <span style={{ fontSize: "11.5px", fontWeight: 500, color: "#6b7480" }}>{status}</span>
+        <span style={{ fontSize: "11.5px", fontWeight: 500, color: "var(--text-secondary)" }}>{status}</span>
       )}
     </div>
   );

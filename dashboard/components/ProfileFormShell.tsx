@@ -93,7 +93,7 @@ export function ProfileFormShell({
     >
       {children}
       {state?.error && (
-        <p role="alert" style={{ margin: 0, fontSize: "13px", fontWeight: 600, color: "#b25a36" }}>
+        <p role="alert" style={{ margin: 0, fontSize: "13px", fontWeight: 600, color: "var(--danger)" }}>
           {state.error}
         </p>
       )}
@@ -107,8 +107,8 @@ export function ProfileFormShell({
           alignItems: "center",
           gap: "16px",
           padding: "16px 0",
-          background: "#fff",
-          borderTop: "1px solid #e7eaf0",
+          background: "var(--bg-surface)",
+          borderTop: "1px solid var(--border)",
         }}
       >
         <button
@@ -117,21 +117,21 @@ export function ProfileFormShell({
           style={{
             fontWeight: 700,
             fontSize: "13.5px",
-            color: "#fff",
-            background: "#3b6fd4",
+            color: "var(--text-on-accent)",
+            background: "var(--accent)",
             border: "none",
             borderRadius: "10px",
             padding: "11px 22px",
             cursor: isPending ? "not-allowed" : "pointer",
             opacity: isPending ? 0.7 : 1,
-            boxShadow: "0 3px 10px rgba(59,111,212,.26)",
+            boxShadow: "var(--shadow-accent-md)",
           }}
         >
           {isPending ? "Saving…" : "Save"}
         </button>
         {dirty && !isPending ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", fontSize: "12px", fontWeight: 600, color: "#b25a36" }}>
-            <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#e0a03a", flexShrink: 0 }} />
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", fontSize: "12px", fontWeight: 600, color: "var(--danger)" }}>
+            <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "var(--chart-amber)", flexShrink: 0 }} />
             Unsaved changes
           </span>
         ) : (

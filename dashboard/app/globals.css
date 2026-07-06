@@ -26,6 +26,69 @@
   --focus-halo: rgba(59,111,212,.18);
   --scrollbar-thumb: #d3d9e2;
   --scrollbar-thumb-hover: #bcc4d1;
+
+  /* ── Categorical tokens (Task 6 audit) ─────────────────────────────────────
+     Families that must stay mutually DISTINCT — collapsing them into the core
+     semantic tokens above would erase a category the UI relies on. Every value
+     here has a matching dark override below (parity enforced by the theme test).
+     Full hex→token map: docs/superpowers/specs/2026-07-05-dark-mode-color-map.md */
+
+  /* Chart series — data-viz palette (Chart/Funnel/Trend/Breakdowns). Six hues
+     kept visually separable as adjacent bars/lines. */
+  --chart-stage: #3b6fd4;
+  --chart-good: #22a06b;
+  --chart-bad: #e0607e;
+  --chart-amber: #f59e0b;
+  --chart-muted: #9aa3b0;
+  --chart-violet: #7c6cd4;
+
+  /* Pipeline status dots — traffic-lights (HealthCards/Header). Deliberately more
+     vivid than the semantic success/warning/danger so they read at 9px. */
+  --status-ok: #22c55e;
+  --status-warn: #f59e0b;
+  --status-running: #3b82f6;
+  --status-failed: #ef4444;
+  --status-stale: #9aa3b0;
+
+  /* Status chips whose bg/text have no core equivalent. (ok→success, warn→warning,
+     stale→bg-muted/text-secondary reuse the core tokens instead of duplicating.) */
+  --status-running-bg: #eaf1fc;
+  --status-running-text: #2f5cc0;
+  --status-failed-bg: #fdecf1;
+  --status-failed-text: #b23a5b;
+
+  /* Tinted-chip borders — the green/gold/red/blue chip families each carry a
+     tinted border the core bg/text pair doesn't cover. */
+  --success-border: #cfe6d8;
+  --warning-border: #f3d9ad;
+  --danger-border: #ecd6d6;
+  --accent-border: #d8e2f6;
+
+  /* Inverted toasts (RolefitBoard) — dark chips over the light board. */
+  --toast-bg: #1b2330;
+  --toast-link: #9ec1ff;
+  --toast-danger-bg: #7a2e22;
+  --toast-danger-link: #ffd2c8;
+
+  /* Company logo/avatar palette — hash-assigned tiles (JobCard/JobDetail). Opaque
+     tiles with white initials, so they're theme-independent by design: the dark
+     values are identical, which preserves the already-validated white-text contrast. */
+  --logo-1: #3f6695;
+  --logo-2: #4f8a7e;
+  --logo-3: #8a6da3;
+  --logo-4: #a9663f;
+  --logo-5: #4a7a52;
+  --logo-6: #b08a3e;
+  --logo-7: #6f88a8;
+  --logo-8: #9a5b6e;
+  --logo-9: #586b8c;
+  --logo-10: #5f8f6a;
+  --logo-11: #9c6a4a;
+  --logo-12: #5e7e9e;
+  --logo-13: #8a7d52;
+  --logo-14: #7a6aa0;
+  --logo-15: #4f8a86;
+  --logo-16: #a05f5f;
 }
 :root[data-theme="dark"] {
   --bg-page: #12161e;
@@ -51,6 +114,63 @@
   --focus-halo: rgba(91,141,239,.30);
   --scrollbar-thumb: #2c3444;
   --scrollbar-thumb-hover: #3a4150;
+
+  /* ── Categorical tokens (Task 6) — dark variants ───────────────────────────
+     Hues lightened to read on #12161e/#1a1f2a and kept mutually distinguishable;
+     tint backgrounds become low-alpha rgba of the hue instead of pale pastels.
+     Text hues target WCAG AA on the #1a1f2a surface. */
+
+  /* Chart series — brighter so bars/lines separate from charcoal; six distinct hues. */
+  --chart-stage: #5b8def;
+  --chart-good: #46b17e;
+  --chart-bad: #ea7389;
+  --chart-amber: #e6a53c;
+  --chart-muted: #808b9d;
+  --chart-violet: #9a8bec;
+
+  /* Pipeline status dots — vivid traffic-lights on charcoal. */
+  --status-ok: #3ecf74;
+  --status-warn: #e6a53c;
+  --status-running: #5b93f5;
+  --status-failed: #f0665f;
+  --status-stale: #808b9d;
+
+  /* Status chips — low-alpha tint bg + AA-legible text. */
+  --status-running-bg: rgba(91,147,245,.16);
+  --status-running-text: #8fb2f5;
+  --status-failed-bg: rgba(224,96,126,.16);
+  --status-failed-text: #ec89a4;
+
+  /* Tinted-chip borders — low-alpha of each family's hue. */
+  --success-border: rgba(70,177,126,.32);
+  --warning-border: rgba(215,162,76,.32);
+  --danger-border: rgba(223,111,111,.30);
+  --accent-border: rgba(91,141,239,.32);
+
+  /* Inverted toasts — elevated charcoal (bg) that floats over #12161e; accent
+     links kept light so they read on the dark chip. */
+  --toast-bg: #2b333f;
+  --toast-link: #9ec1ff;
+  --toast-danger-bg: #5a2a20;
+  --toast-danger-link: #ffd2c8;
+
+  /* Logo/avatar tiles — identical to light (opaque, white-text, theme-independent). */
+  --logo-1: #3f6695;
+  --logo-2: #4f8a7e;
+  --logo-3: #8a6da3;
+  --logo-4: #a9663f;
+  --logo-5: #4a7a52;
+  --logo-6: #b08a3e;
+  --logo-7: #6f88a8;
+  --logo-8: #9a5b6e;
+  --logo-9: #586b8c;
+  --logo-10: #5f8f6a;
+  --logo-11: #9c6a4a;
+  --logo-12: #5e7e9e;
+  --logo-13: #8a7d52;
+  --logo-14: #7a6aa0;
+  --logo-15: #4f8a86;
+  --logo-16: #a05f5f;
 }
 
 /* Design base — verbatim from rolefit-reference.dc.html <style> block */

@@ -121,8 +121,8 @@ export function ProfileModal({
 
   const pasteActive = profileTab === "paste";
 
-  const tabBg = (active: boolean) => (active ? "#fff" : "transparent");
-  const tabColor = (active: boolean) => (active ? "#1f2430" : "#6b7480");
+  const tabBg = (active: boolean) => (active ? "var(--bg-surface)" : "transparent");
+  const tabColor = (active: boolean) => (active ? "var(--text-primary)" : "var(--text-secondary)");
   const tabShadow = (active: boolean) => (active ? "0 1px 4px rgba(0,0,0,.1)" : "none");
 
   return (
@@ -155,7 +155,7 @@ export function ProfileModal({
         style={{
           width: "480px",
           maxWidth: "100%",
-          background: "#fff",
+          background: "var(--bg-surface)",
           borderRadius: "18px",
           boxShadow: "0 30px 70px rgba(15,22,35,.4)",
           overflow: "hidden",
@@ -168,17 +168,17 @@ export function ProfileModal({
             display: "flex",
             alignItems: "center",
             padding: "18px 20px",
-            borderBottom: "1px solid #eef1f5",
+            borderBottom: "1px solid var(--bg-muted)",
           }}
         >
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: "16px", color: "#161d29" }}>
+            <div style={{ fontWeight: 800, fontSize: "16px", color: "var(--text-primary)" }}>
               {hasProfile ? "Résumé" : "Set up profile"}
             </div>
             <div
               style={{
                 fontSize: "12.5px",
-                color: "#6b7480",
+                color: "var(--text-secondary)",
                 marginTop: "2px",
                 fontWeight: 500,
               }}
@@ -194,9 +194,9 @@ export function ProfileModal({
               width: "30px",
               height: "30px",
               borderRadius: "8px",
-              border: "1px solid #e7eaf0",
-              background: "#fff",
-              color: "#6b7480",
+              border: "1px solid var(--border)",
+              background: "var(--bg-surface)",
+              color: "var(--text-secondary)",
               fontSize: "16px",
               cursor: "pointer",
               display: "flex",
@@ -215,7 +215,7 @@ export function ProfileModal({
             <div
               style={{
                 fontSize: "14px",
-                color: "#5b6472",
+                color: "var(--text-secondary)",
                 marginBottom: "18px",
                 fontWeight: 500,
                 lineHeight: 1.5,
@@ -229,13 +229,13 @@ export function ProfileModal({
                 display: "inline-block",
                 fontWeight: 700,
                 fontSize: "13.5px",
-                color: "#fff",
-                background: "#3b6fd4",
+                color: "var(--text-on-accent)",
+                background: "var(--accent)",
                 borderRadius: "10px",
                 padding: "10px 20px",
                 cursor: "pointer",
                 textDecoration: "none",
-                boxShadow: "0 3px 10px rgba(59,111,212,.26)",
+                boxShadow: "var(--shadow-accent-md)",
               }}
             >
               Sign in →
@@ -249,7 +249,7 @@ export function ProfileModal({
               <div
                 style={{
                   display: "inline-flex",
-                  background: "#eef1f5",
+                  background: "var(--bg-muted)",
                   borderRadius: "10px",
                   padding: "3px",
                   width: "100%",
@@ -314,12 +314,12 @@ export function ProfileModal({
                       width: "100%",
                       height: "184px",
                       marginTop: "14px",
-                      border: "1px solid #e3e7ee",
+                      border: "1px solid var(--border)",
                       borderRadius: "12px",
                       padding: "13px",
                       fontSize: "13px",
                       lineHeight: 1.5,
-                      color: "#1f2430",
+                      color: "var(--text-primary)",
                       resize: "vertical",
                       boxSizing: "border-box",
                       fontFamily: "inherit",
@@ -328,7 +328,7 @@ export function ProfileModal({
                   <div
                     style={{
                       fontSize: "11.5px",
-                      color: "#9aa3b0",
+                      color: "var(--text-muted)",
                       marginTop: "8px",
                       fontWeight: 500,
                     }}
@@ -350,10 +350,10 @@ export function ProfileModal({
                       gap: "9px",
                       height: "184px",
                       marginTop: "14px",
-                      border: "1.5px dashed #cdd5e0",
+                      border: "1.5px dashed var(--border-strong)",
                       borderRadius: "12px",
                       cursor: "pointer",
-                      background: "#f7f9fc",
+                      background: "var(--bg-muted)",
                     }}
                   >
                     <div
@@ -361,8 +361,8 @@ export function ProfileModal({
                         width: "42px",
                         height: "42px",
                         borderRadius: "11px",
-                        background: "#eef3fc",
-                        color: "#3b6fd4",
+                        background: "var(--accent-bg)",
+                        color: "var(--accent)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -371,10 +371,10 @@ export function ProfileModal({
                     >
                       ⤒
                     </div>
-                    <div style={{ fontSize: "13.5px", fontWeight: 700, color: "#3b6fd4" }}>
+                    <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--accent)" }}>
                       Choose a PDF
                     </div>
-                    <div style={{ fontSize: "12px", color: "#6b7480", fontWeight: 500 }}>
+                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 500 }}>
                       PDF — up to 5MB
                     </div>
                     {uploadName && (
@@ -382,7 +382,7 @@ export function ProfileModal({
                         style={{
                           fontSize: "12.5px",
                           fontWeight: 700,
-                          color: "#2f7d54",
+                          color: "var(--success)",
                           marginTop: "2px",
                         }}
                       >
@@ -427,7 +427,7 @@ export function ProfileModal({
                     <div
                       style={{
                         fontSize: "11.5px",
-                        color: "#6b7480",
+                        color: "var(--text-secondary)",
                         marginTop: "8px",
                         fontWeight: 500,
                       }}
@@ -458,7 +458,7 @@ export function ProfileModal({
                 }}
                 style={{
                   fontSize: "12.5px",
-                  color: "#6b7480",
+                  color: "var(--text-secondary)",
                   fontWeight: 600,
                   textDecoration: "none",
                   marginRight: "auto",
@@ -467,7 +467,7 @@ export function ProfileModal({
                 Advanced settings →
               </a>
               {saveError && (
-                <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "#b25a36", fontWeight: 600 }}>
+                <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "var(--danger)", fontWeight: 600 }}>
                   {saveError}
                 </p>
               )}
@@ -486,7 +486,7 @@ export function ProfileModal({
                   borderRadius: "10px",
                   padding: "10px 20px",
                   fontSize: "13.5px",
-                  boxShadow: "0 3px 10px rgba(59,111,212,.26)",
+                  boxShadow: "var(--shadow-accent-md)",
                 }}
               >
                 {isPending ? "Saving…" : "Save profile"}

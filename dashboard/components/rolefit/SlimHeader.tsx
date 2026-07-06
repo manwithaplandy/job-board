@@ -29,8 +29,8 @@ export async function SlimHeader({ current }: { current?: NavKey }) {
         alignItems: "center",
         gap: "16px",
         padding: "13px 22px",
-        background: "#fff",
-        borderBottom: "1px solid #e7eaf0",
+        background: "var(--bg-surface)",
+        borderBottom: "1px solid var(--border)",
       }}
     >
       {/* Logo + brand → back to the board */}
@@ -49,24 +49,24 @@ export async function SlimHeader({ current }: { current?: NavKey }) {
             width: "31px",
             height: "31px",
             borderRadius: "9px",
-            background: "#3b6fd4",
+            background: "var(--accent)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 3px 8px rgba(59,111,212,.32)",
+            boxShadow: "var(--shadow-accent-sm)",
           }}
         >
           <div
             style={{
               width: "11px",
               height: "11px",
-              background: "#fff",
+              background: "var(--text-on-accent)",
               borderRadius: "3px",
               transform: "rotate(45deg)",
             }}
           />
         </div>
-        <div style={{ fontWeight: 800, fontSize: "18.5px", letterSpacing: "-.4px", color: "#1b2330" }}>
+        <div style={{ fontWeight: 800, fontSize: "18.5px", letterSpacing: "-.4px", color: "var(--text-primary)" }}>
           Rolefit
         </div>
       </Link>
@@ -86,8 +86,8 @@ export async function SlimHeader({ current }: { current?: NavKey }) {
                 textDecoration: "none",
                 padding: "9px 12px",
                 borderRadius: "9px",
-                color: active ? "#1b2330" : "#3b6fd4",
-                background: active ? "#eef3fc" : "transparent",
+                color: active ? "var(--text-primary)" : "var(--accent)",
+                background: active ? "var(--accent-bg)" : "transparent",
               }}
             >
               {n.label}

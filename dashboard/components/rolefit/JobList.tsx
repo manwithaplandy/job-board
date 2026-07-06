@@ -36,9 +36,9 @@ const pillBtnStyle = {
   marginTop: "14px",
   fontWeight: 700,
   fontSize: "13px",
-  color: "#3b6fd4",
-  background: "#eef3fc",
-  border: "1px solid #d8e2f6",
+  color: "var(--accent)",
+  background: "var(--accent-bg)",
+  border: "1px solid var(--accent-border)",
   borderRadius: "9px",
   padding: "8px 14px",
   cursor: "pointer",
@@ -146,8 +146,8 @@ export function JobList({
       // with only a "Back to all roles" escape, hides that their filter is the cause.
       if (viewPoolCount > 0) {
         return (
-          <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
-            <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
+          <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
               No roles match your filters
             </div>
             <Button variant="ghost" onClick={onClearFilters} style={pillBtnStyle}>
@@ -163,8 +163,8 @@ export function JobList({
           ? "You haven't marked any roles as applied yet."
           : "You haven't rejected any roles yet.";
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>{msg}</div>
+        <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>{msg}</div>
           {onBackToAll && (
             <Button variant="ghost" onClick={onBackToAll} style={pillBtnStyle}>
               Back to all roles
@@ -175,14 +175,14 @@ export function JobList({
     }
     if (!hasUnfilteredJobs) {
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
+        <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
             Your board is being built
           </div>
           <div style={{ fontSize: "13px", marginTop: "6px" }}>
             Scored roles land here as they&apos;re reviewed — the card above shows progress
             or lets you start a review. Check{" "}
-            <a href="/analytics" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+            <a href="/analytics" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
               pipeline health
             </a>{" "}
             if it stays empty.
@@ -194,8 +194,8 @@ export function JobList({
     // reason filters can't fix, so offer no (no-op) Clear-filters CTA.
     if (viewPoolCount === 0) {
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
+        <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
             All caught up
           </div>
           <div style={{ fontSize: "13px", marginTop: "6px" }}>
@@ -205,8 +205,8 @@ export function JobList({
       );
     }
     return (
-      <div style={{ padding: "60px 30px", textAlign: "center", color: "#5b6472" }}>
-        <div style={{ fontSize: "14px", fontWeight: 700, color: "#5b6472" }}>
+      <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+        <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
           No roles match your filters
         </div>
         <Button variant="ghost" onClick={onClearFilters} style={pillBtnStyle}>

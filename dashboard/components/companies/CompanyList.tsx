@@ -56,7 +56,7 @@ export function CompanyList({
   return (
     <div>
       <CreditBanner state={state} refresh={refresh} canRefresh={canRefresh} />
-      <div style={{ display: "inline-flex", background: "#eef1f5", borderRadius: "10px",
+      <div style={{ display: "inline-flex", background: "var(--bg-muted)", borderRadius: "10px",
         padding: "3px", marginBottom: "16px" }}>
         {tabs.map((t) => {
           const active = activeBucket === t.key;
@@ -65,15 +65,14 @@ export function CompanyList({
             <a key={t.key} href={`?bucket=${t.key}`} aria-current={active ? "page" : undefined} style={{
               textDecoration: "none", cursor: "pointer", fontWeight: 700, fontSize: "13px",
               padding: "8px 16px", borderRadius: "8px",
-              background: active ? "#fff" : "transparent",
-              // Inactive tabs sit on the #eef1f5 tab bar, where #6b7480 is only 4.18:1 —
-              // below AA for 13px text. Use the darker #5b6472 (5.28:1) there; the active
-              // tab keeps its dark label on white. The count matches the label so they
-              // don't split contrast on the inactive tab.
-              color: active ? "#1f2430" : "#5b6472",
-              boxShadow: active ? "0 1px 4px rgba(0,0,0,.1)" : "none",
+              background: active ? "var(--bg-surface)" : "transparent",
+              // Active tab: --text-primary on the raised --bg-surface pill. Inactive tabs
+              // sit on the --bg-muted bar and use --text-secondary; the count reuses the
+              // same token as its label so they don't split contrast on the inactive tab.
+              color: active ? "var(--text-primary)" : "var(--text-secondary)",
+              boxShadow: active ? "var(--shadow-toggle)" : "none",
             }}>
-              {t.label} <span style={{ color: active ? "#6b7480" : "#5b6472" }}>{t.n}</span>
+              {t.label} <span style={{ color: "var(--text-secondary)" }}>{t.n}</span>
             </a>
           );
         })}
@@ -87,17 +86,17 @@ export function CompanyList({
         className="rf-focusable"
         style={{
           display: "block", width: "100%", maxWidth: "320px", marginBottom: "10px",
-          padding: "8px 12px", fontSize: "13px", color: "#1f2430", background: "#fff",
-          border: "1px solid #dce1e8", borderRadius: "8px", outline: "none",
+          padding: "8px 12px", fontSize: "13px", color: "var(--text-primary)", background: "var(--bg-surface)",
+          border: "1px solid var(--border)", borderRadius: "8px", outline: "none",
         }}
       />
       {rows.length === 0 ? (
-        <div style={{ fontSize: "13px", color: "#6b7480", padding: "20px 0" }}>
+        <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "20px 0" }}>
           {q ? `No companies match “${q}”.` : "No companies here yet."}
         </div>
       ) : (
         <>
-          <div style={{ fontSize: "12px", color: "#8a93a3", marginBottom: "10px" }}>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "10px" }}>
             {q
               ? `${rows.length}${truncated ? "+" : ""} ${rows.length === 1 ? "match" : "matches"} for “${q}”${truncated ? " — refine to narrow further" : ""}${pending ? " · searching…" : ""}`
               : truncated

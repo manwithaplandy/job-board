@@ -25,11 +25,11 @@ export function UpsellNotice({
         alignItems: "center",
         gap: "16px",
         marginTop,
-        background: "#1b2330",
-        color: "#fff",
+        background: "var(--toast-bg)",
+        color: "var(--text-on-accent)",
         borderRadius: "12px",
         padding: "11px 18px",
-        boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+        boxShadow: "var(--shadow-toast)",
         fontSize: "13.5px",
         fontWeight: 600,
         // Unlike the one-word toasts, the message is a sentence or two — cap the pill
@@ -43,7 +43,7 @@ export function UpsellNotice({
         style={{
           fontWeight: 800,
           fontSize: "13px",
-          color: "#9ec1ff",
+          color: "var(--toast-link)",
           textDecoration: "none",
           whiteSpace: "nowrap",
           flexShrink: 0,
@@ -57,7 +57,7 @@ export function UpsellNotice({
         style={{
           fontWeight: 800,
           fontSize: "13px",
-          color: "#8fa0b8",
+          color: "var(--toast-muted)",
           background: "transparent",
           border: "none",
           cursor: "pointer",

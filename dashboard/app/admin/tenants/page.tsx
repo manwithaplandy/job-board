@@ -11,21 +11,21 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Tenants · Admin" };
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "#f4f6fa", color: "#1f2430", padding: "40px 20px 64px",
+  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "40px 20px 64px",
 };
 const wrapStyle: React.CSSProperties = { maxWidth: "1180px", margin: "0 auto" };
 const cardStyle: React.CSSProperties = {
-  background: "#fff", border: "1px solid #e7eaf0", borderRadius: "16px",
+  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "16px",
   boxShadow: "0 12px 40px rgba(15,22,35,.06)", padding: "22px 24px",
 };
 const thStyle: React.CSSProperties = {
-  textAlign: "left", fontSize: "11px", fontWeight: 700, color: "#6b7480",
+  textAlign: "left", fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)",
   textTransform: "uppercase", letterSpacing: ".4px", padding: "8px 10px",
-  borderBottom: "1px solid #e7eaf0", whiteSpace: "nowrap",
+  borderBottom: "1px solid var(--border)", whiteSpace: "nowrap",
 };
 const tdStyle: React.CSSProperties = {
-  fontSize: "12.5px", color: "#3a4150", padding: "9px 10px",
-  borderBottom: "1px solid #f0f2f6", whiteSpace: "nowrap",
+  fontSize: "12.5px", color: "var(--text-primary)", padding: "9px 10px",
+  borderBottom: "1px solid var(--bg-muted)", whiteSpace: "nowrap",
 };
 
 function fmtDate(d: Date | null): string {
@@ -36,13 +36,13 @@ function Row({ t }: { t: TenantMetric }) {
   return (
     <tr>
       <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: "160px" }}>
-        <div style={{ fontWeight: 600, color: "#161d29" }}>{t.email ?? "—"}</div>
-        <div style={{ fontSize: "10.5px", color: "#9aa2b1" }}>{t.userId.slice(0, 8)}</div>
+        <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{t.email ?? "—"}</div>
+        <div style={{ fontSize: "10.5px", color: "var(--text-muted)" }}>{t.userId.slice(0, 8)}</div>
       </td>
       <td style={tdStyle}>
         {t.plan ? PLAN_LABEL[t.plan] : "None"}
         {t.plan && t.invited && !t.subStatus && (
-          <span style={{ color: "#3b6fd4", fontSize: "10.5px" }}> comped</span>
+          <span style={{ color: "var(--accent)", fontSize: "10.5px" }}> comped</span>
         )}
       </td>
       <td style={tdStyle}>{t.subStatus ?? "—"}</td>
@@ -53,12 +53,12 @@ function Row({ t }: { t: TenantMetric }) {
         {t.resumeMonth} / {t.coverMonth}
       </td>
       <td style={tdStyle}>{fmtDate(t.lastRunAt)}</td>
-      <td style={{ ...tdStyle, textAlign: "right", color: (t.lastRunErrors ?? 0) > 0 ? "#b23b3b" : undefined }}>
+      <td style={{ ...tdStyle, textAlign: "right", color: (t.lastRunErrors ?? 0) > 0 ? "var(--danger)" : undefined }}>
         {t.lastRunErrors ?? "—"}
       </td>
       <td style={{ ...tdStyle, textAlign: "right" }}>
         {t.activeRequests}
-        {t.failedRequests > 0 && <span style={{ color: "#b23b3b" }}> / {t.failedRequests}✗</span>}
+        {t.failedRequests > 0 && <span style={{ color: "var(--danger)" }}> / {t.failedRequests}✗</span>}
       </td>
       <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>${t.estCost30dUsd.toFixed(2)}</td>
     </tr>
@@ -80,15 +80,15 @@ export default async function AdminTenantsPage() {
         <div style={wrapStyle}>
           <AdminNav active="tenants" />
           <div style={cardStyle}>
-            <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
+            <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
               Tenants
             </h1>
-            <div style={{ fontSize: "12.5px", color: "#6b7480", marginBottom: "18px" }}>
+            <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: "18px" }}>
               Per-tenant plan, usage, pipeline health, and an estimated 30-day review cost.
             </div>
 
             {tenants.length === 0 ? (
-              <div style={{ fontSize: "13px", color: "#6b7480", padding: "24px 4px" }}>
+              <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "24px 4px" }}>
                 No tenants yet.
               </div>
             ) : (

@@ -94,7 +94,7 @@ export function LocationPicker({
         }
       }}
     >
-      <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "#5b6472" }}>
+      <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>
         {label}
       </label>
       <input type="hidden" name={name} value={JSON.stringify(selected)} />
@@ -114,11 +114,11 @@ export function LocationPicker({
               alignItems: "center",
               gap: "6px",
               borderRadius: "8px",
-              background: "#eef3fc",
+              background: "var(--accent-bg)",
               padding: "4px 10px",
               fontSize: "12px",
               fontWeight: 600,
-              color: "#3b6fd4",
+              color: "var(--accent)",
             }}>
               <span>{loc}</span>
               <button
@@ -157,10 +157,10 @@ export function LocationPicker({
         style={{
           marginTop: "8px",
           borderRadius: "10px",
-          border: "1px solid #e3e7ee",
+          border: "1px solid var(--border)",
           padding: "11px 12px",
           fontSize: "13px",
-          color: "#1f2430",
+          color: "var(--text-primary)",
           fontFamily: "inherit",
         }}
         placeholder="Type to filter locations…"
@@ -178,8 +178,8 @@ export function LocationPicker({
           maxHeight: "224px",
           overflow: "auto",
           borderRadius: "10px",
-          border: "1px solid #e3e7ee",
-          background: "#fff",
+          border: "1px solid var(--border)",
+          background: "var(--bg-surface)",
           fontSize: "13px",
           boxShadow: "0 8px 24px rgba(15,22,35,.1)",
         }}>
@@ -201,12 +201,12 @@ export function LocationPicker({
                   fontSize: "inherit",
                   lineHeight: "inherit",
                   color: "inherit",
-                  background: idx === activeIndex ? "#eef3fc" : undefined,
+                  background: idx === activeIndex ? "var(--accent-bg)" : undefined,
                 }}
                 onClick={() => add(o.location)}
               >
-                <span style={{ color: "#1f2430" }}>{o.location}</span>
-                <span style={{ color: "#6b7480" }}>{o.count}</span>
+                <span style={{ color: "var(--text-primary)" }}>{o.location}</span>
+                <span style={{ color: "var(--text-secondary)" }}>{o.count}</span>
               </button>
             </li>
           ))}

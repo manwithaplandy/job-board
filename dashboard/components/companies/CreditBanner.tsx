@@ -13,8 +13,8 @@ export function CreditBanner({
     <div style={{
       display: "flex", alignItems: "center", gap: "12px",
       padding: "12px 16px", margin: "0 0 16px",
-      background: "#fdf3e6", border: "1px solid #f3d9ad",
-      borderRadius: "12px", color: "#8a5a12", fontSize: "13px", fontWeight: 600,
+      background: "var(--warning-bg)", border: "1px solid var(--warning-border)",
+      borderRadius: "12px", color: "var(--warning)", fontSize: "13px", fontWeight: 600,
     }}>
       <span>⚠️ Company scan paused — OpenRouter out of credits.
         {state.backlog > 0 ? ` ${state.backlog.toLocaleString()} companies still pending.` : ""}

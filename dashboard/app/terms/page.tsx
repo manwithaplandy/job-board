@@ -8,23 +8,23 @@ import { SupportLink } from "@/components/SupportLink";
 export const metadata: Metadata = { title: "Terms of Service · Rolefit" };
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "#f4f6fa", color: "#1f2430", padding: "48px 20px 72px",
+  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "48px 20px 72px",
 };
 const cardStyle: React.CSSProperties = {
-  maxWidth: "760px", margin: "0 auto", background: "#fff", border: "1px solid #e7eaf0",
+  maxWidth: "760px", margin: "0 auto", background: "var(--bg-surface)", border: "1px solid var(--border)",
   borderRadius: "18px", boxShadow: "0 12px 40px rgba(15,22,35,.08)", padding: "34px 38px 40px",
 };
 const h1Style: React.CSSProperties = {
-  margin: "0 0 4px", fontSize: "24px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29",
+  margin: "0 0 4px", fontSize: "24px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)",
 };
-const metaStyle: React.CSSProperties = { fontSize: "12.5px", color: "#8b94a3", marginBottom: "24px" };
+const metaStyle: React.CSSProperties = { fontSize: "12.5px", color: "var(--text-muted)", marginBottom: "24px" };
 const h2Style: React.CSSProperties = {
-  fontSize: "15px", fontWeight: 800, color: "#161d29", margin: "26px 0 8px",
+  fontSize: "15px", fontWeight: 800, color: "var(--text-primary)", margin: "26px 0 8px",
 };
 const pStyle: React.CSSProperties = {
-  fontSize: "13.5px", lineHeight: 1.7, color: "#3a4150", margin: "0 0 10px",
+  fontSize: "13.5px", lineHeight: 1.7, color: "var(--text-primary)", margin: "0 0 10px",
 };
-const linkStyle: React.CSSProperties = { color: "#3b6fd4", fontWeight: 600, textDecoration: "none" };
+const linkStyle: React.CSSProperties = { color: "var(--accent)", fontWeight: 600, textDecoration: "none" };
 
 export default function TermsPage() {
   return (

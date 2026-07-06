@@ -58,7 +58,7 @@ function Delta({ current, prior, noun, spikeDay }: { current: number; prior: num
   // (< 15%); otherwise green-up / red-down. Arrow + words carry direction so hue is
   // never the only signal (colorblind-safe).
   const muted = spikeDay != null || pctChange < 0.15;
-  const color = muted ? "#6b7480" : up ? "#1d7a4f" : "#c0456a";
+  const color = muted ? "var(--text-secondary)" : up ? "var(--success)" : "var(--danger)";
   return (
     <div style={{ fontSize: "11px", fontWeight: 700, color, marginTop: "5px" }}>
       {/* value+noun is one non-breaking unit so "found this week" never splits as "this / week" */}
@@ -69,14 +69,14 @@ function Delta({ current, prior, noun, spikeDay }: { current: number; prior: num
       {spikeDay ? (
         // The long backfill annotation gets its own wrapping block line so it never
         // hard-clips at the ~163px tile edge (audit R3-1 / REG2-1).
-        <span style={{ display: "block", color: "#8a93a0", fontWeight: 500, marginTop: "2px", lineHeight: 1.35 }}>
+        <span style={{ display: "block", color: "var(--text-muted)", fontWeight: 500, marginTop: "2px", lineHeight: 1.35 }}>
           prior week includes one-time {fmtMD(spikeDay)} backfill
         </span>
       ) : (
         // Own block line (no nowrap) so a long value+noun line like "217 approved this
         // week" doesn't push this suffix past the ~163px tile edge and hard-clip the
         // prior-week numeral (audit R4-1). Matches the spike-annotation branch's look.
-        <span style={{ display: "block", color: "#8a93a0", fontWeight: 500, marginTop: "2px", lineHeight: 1.35 }}>
+        <span style={{ display: "block", color: "var(--text-muted)", fontWeight: 500, marginTop: "2px", lineHeight: 1.35 }}>
           prior 7d {prior.toLocaleString()}
         </span>
       )}
@@ -98,16 +98,16 @@ function Tile({
       role="group"
       aria-label={`${label}: ${value.toLocaleString()}`}
       style={{
-        flex: "1 1 170px", minWidth: 0, background: "#fff", border: "1px solid #e7eaf0",
+        flex: "1 1 170px", minWidth: 0, background: "var(--bg-surface)", border: "1px solid var(--border)",
         borderRadius: "14px", padding: "14px 16px",
       }}
     >
-      <div style={{ fontSize: "24px", fontWeight: 800, color: "#161d29", letterSpacing: "-.6px", lineHeight: 1.05 }}>
+      <div style={{ fontSize: "24px", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-.6px", lineHeight: 1.05 }}>
         {value.toLocaleString()}
       </div>
-      <div style={{ fontSize: "12px", color: "#6b7480", marginTop: "3px", fontWeight: 600 }}>
+      <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 600 }}>
         {gloss ? (
-          <InfoTip term={glossTerm ?? label} gloss={gloss} labelStyle={{ color: "#6b7480" }}>
+          <InfoTip term={glossTerm ?? label} gloss={gloss} labelStyle={{ color: "var(--text-secondary)" }}>
             {label}
           </InfoTip>
         ) : (
@@ -170,12 +170,12 @@ export function KpiStrip({ snapshot, series, nowIso }: { snapshot: PipelineSnaps
         />
       </div>
 
-      <p style={{ fontSize: "13px", color: "#5b6472", lineHeight: 1.55, margin: "12px 2px 0", maxWidth: "760px" }}>
-        Rolefit is tracking <strong style={{ color: "#161d29" }}>{j.open.toLocaleString()}</strong> open jobs at{" "}
-        <strong style={{ color: "#161d29" }}>{c.include.toLocaleString()}</strong> companies;{" "}
-        <strong style={{ color: "#161d29" }}>{j.reviewed.toLocaleString()}</strong> have been reviewed,{" "}
-        <strong style={{ color: "#161d29" }}>{j.approved.toLocaleString()}</strong> look like a fit, and{" "}
-        <strong style={{ color: "#161d29" }}>{j.applied.toLocaleString()}</strong>{" "}
+      <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.55, margin: "12px 2px 0", maxWidth: "760px" }}>
+        Rolefit is tracking <strong style={{ color: "var(--text-primary)" }}>{j.open.toLocaleString()}</strong> open jobs at{" "}
+        <strong style={{ color: "var(--text-primary)" }}>{c.include.toLocaleString()}</strong> companies;{" "}
+        <strong style={{ color: "var(--text-primary)" }}>{j.reviewed.toLocaleString()}</strong> have been reviewed,{" "}
+        <strong style={{ color: "var(--text-primary)" }}>{j.approved.toLocaleString()}</strong> look like a fit, and{" "}
+        <strong style={{ color: "var(--text-primary)" }}>{j.applied.toLocaleString()}</strong>{" "}
         {j.applied === 1 ? "has" : "have"} been applied to.
       </p>
     </div>

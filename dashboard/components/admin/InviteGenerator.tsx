@@ -14,7 +14,7 @@ const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: "11px",
   fontWeight: 700,
-  color: "#6b7480",
+  color: "var(--text-secondary)",
   textTransform: "uppercase",
   letterSpacing: ".4px",
   marginBottom: "4px",
@@ -23,9 +23,9 @@ const inputStyle: React.CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
   fontSize: "13px",
-  color: "#1f2430",
-  background: "#f3f5f9",
-  border: "1px solid #e7eaf0",
+  color: "var(--text-primary)",
+  background: "var(--bg-muted)",
+  border: "1px solid var(--border)",
   borderRadius: "9px",
   padding: "8px 10px",
   fontFamily: "inherit",
@@ -120,9 +120,9 @@ export function InviteGenerator() {
             padding: "9px 16px",
             fontSize: "13px",
             fontWeight: 700,
-            color: "#fff",
-            background: "#3b6fd4",
-            boxShadow: "0 4px 12px rgba(59,111,212,.28)",
+            color: "var(--text-on-accent)",
+            background: "var(--accent)",
+            boxShadow: "var(--shadow-accent)",
             cursor: busy ? "default" : "pointer",
             opacity: busy ? 0.7 : 1,
             fontFamily: "inherit",
@@ -153,7 +153,7 @@ export function InviteGenerator() {
             marginTop: "10px",
             border: "none",
             background: "transparent",
-            color: "#3b6fd4",
+            color: "var(--accent)",
             fontSize: "12px",
             fontWeight: 700,
             cursor: "pointer",
@@ -166,7 +166,7 @@ export function InviteGenerator() {
       )}
 
       {error && (
-        <div style={{ marginTop: "10px", fontSize: "12.5px", color: "#b23b3b" }}>{error}</div>
+        <div style={{ marginTop: "10px", fontSize: "12.5px", color: "var(--danger)" }}>{error}</div>
       )}
 
       {minted && (
@@ -176,8 +176,8 @@ export function InviteGenerator() {
             display: "inline-flex",
             alignItems: "center",
             gap: "10px",
-            background: "#eef3fc",
-            border: "1px solid #d8e2f6",
+            background: "var(--accent-bg)",
+            border: "1px solid var(--accent-border)",
             borderRadius: "10px",
             padding: "9px 12px",
           }}
@@ -187,7 +187,7 @@ export function InviteGenerator() {
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
               fontWeight: 700,
               fontSize: "14px",
-              color: "#161d29",
+              color: "var(--text-primary)",
             }}
           >
             {minted}

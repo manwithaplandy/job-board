@@ -18,7 +18,7 @@ const SECTIONS = [
 
 function SectionHeading({ id, children }: { id: string; children: React.ReactNode }) {
   return (
-    <h2 id={id} style={{ scrollMarginTop: "70px", fontSize: "16px", fontWeight: 800, color: "#161d29", margin: "28px 0 14px" }}>
+    <h2 id={id} style={{ scrollMarginTop: "70px", fontSize: "16px", fontWeight: 800, color: "var(--text-primary)", margin: "28px 0 14px" }}>
       {children}
     </h2>
   );
@@ -98,12 +98,12 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
   // empty-domain gotcha by telling the user rather than rendering degenerate axes).
   const noReviewRuns = snapshot.health.reviewer.totals.runs === 0;
   return (
-    <main style={{ minHeight: "100vh", background: "#f4f6fa", color: "#1f2430", padding: "32px 20px 64px" }}>
+    <main style={{ minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "32px 20px 64px" }}>
       <div style={{ maxWidth: "1040px", margin: "0 auto" }}>
-        <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29" }}>
+        <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)" }}>
           Pipeline analytics
         </h1>
-        <div style={{ fontSize: "13px", color: "#6b7480", marginBottom: "18px" }}>
+        <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "18px" }}>
           Company Discovery, Job Discovery, and reviewer pipelines — totals, throughput, and trends.
           {" "}
           <span style={{ fontWeight: 600 }}>Aggregates refresh at least every 10 minutes.</span>
@@ -115,7 +115,7 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
           aria-label="Sections"
           style={{
             position: "sticky", top: 0, zIndex: 10, display: "flex", gap: "8px", alignItems: "center",
-            padding: "10px 0", background: "#f4f6fa", borderBottom: "1px solid #e7eaf0", margin: "24px 0 8px",
+            padding: "10px 0", background: "var(--bg-page)", borderBottom: "1px solid var(--border)", margin: "24px 0 8px",
             flexWrap: "wrap",
           }}
         >
@@ -127,13 +127,13 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
                 href={`#${s.id}`}
                 aria-current={isActive ? "true" : undefined}
                 onClick={(e) => go(e, s.id)}
-                onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px #3b6fd4"; }}
+                onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px var(--focus-ring)"; }}
                 onBlur={(e) => { e.currentTarget.style.boxShadow = "none"; }}
                 style={{
                   fontSize: "12.5px", fontWeight: 700, textDecoration: "none",
                   padding: "6px 12px", borderRadius: "8px", outline: "none",
-                  color: isActive ? "#1b2330" : "#3b6fd4",
-                  background: isActive ? "#eef3fc" : "transparent",
+                  color: isActive ? "var(--text-primary)" : "var(--accent)",
+                  background: isActive ? "var(--accent-bg)" : "transparent",
                 }}
               >{s.label}</a>
             );
@@ -141,23 +141,23 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
           <a
             href="#"
             onClick={goTop}
-            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px #3b6fd4"; }}
+            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px var(--focus-ring)"; }}
             onBlur={(e) => { e.currentTarget.style.boxShadow = "none"; }}
             style={{
               marginLeft: "auto", fontSize: "12.5px", fontWeight: 700, textDecoration: "none",
-              padding: "6px 12px", borderRadius: "8px", outline: "none", color: "#5b6472",
+              padding: "6px 12px", borderRadius: "8px", outline: "none", color: "var(--text-secondary)",
             }}
           >↑ Top</a>
         </nav>
 
         {noReviewRuns && (
           <div style={{
-            background: "#fff", border: "1px solid #e7eaf0", borderRadius: "12px",
+            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "12px",
             padding: "16px 18px", marginTop: "8px", display: "flex", alignItems: "center", gap: "12px",
           }}>
-            <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: "#3b6fd4", flexShrink: 0 }} />
-            <div style={{ fontSize: "13px", color: "#5b6472", lineHeight: 1.5 }}>
-              <strong style={{ color: "#161d29" }}>No reviews yet.</strong>{" "}
+            <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: "var(--accent)", flexShrink: 0 }} />
+            <div style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              <strong style={{ color: "var(--text-primary)" }}>No reviews yet.</strong>{" "}
               Once your board is reviewed, the funnel, throughput trends, and breakdowns below
               fill in. Trigger a first pass with “Review my board now” on your board.
             </div>

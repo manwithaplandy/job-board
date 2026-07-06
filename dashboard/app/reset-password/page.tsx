@@ -24,20 +24,20 @@ async function sendReset(formData: FormData) {
 }
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "#f4f6fa",
+  minHeight: "100vh", background: "var(--bg-page)",
   display: "flex", alignItems: "center", justifyContent: "center",
 };
 const cardStyle: React.CSSProperties = {
-  width: "360px", maxWidth: "calc(100vw - 32px)", background: "#fff",
-  borderRadius: "18px", border: "1px solid #e7eaf0",
+  width: "360px", maxWidth: "calc(100vw - 32px)", background: "var(--bg-surface)",
+  borderRadius: "18px", border: "1px solid var(--border)",
   boxShadow: "0 12px 40px rgba(15,22,35,.08)", padding: "32px",
 };
 const labelStyle: React.CSSProperties = {
   display: "flex", flexDirection: "column", gap: "6px",
-  fontSize: "13px", fontWeight: 600, color: "#5b6472",
+  fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)",
 };
 const inputStyle: React.CSSProperties = {
-  border: "1px solid #e3e7ee", borderRadius: "10px", padding: "10px 13px",
+  border: "1px solid var(--border)", borderRadius: "10px", padding: "10px 13px",
   fontSize: "13px", fontFamily: "inherit",
 };
 
@@ -52,14 +52,14 @@ export default async function ResetPasswordPage({
     return (
       <main style={pageStyle}>
         <div style={cardStyle}>
-          <h1 style={{ margin: "0 0 12px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
+          <h1 style={{ margin: "0 0 12px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
             Check your email
           </h1>
-          <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.6, color: "#5b6472" }}>
+          <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.6, color: "var(--text-secondary)" }}>
             If that account exists, we&apos;ve sent a link to reset your password.
           </p>
           <div style={{ marginTop: "16px", fontSize: "12.5px", textAlign: "center" }}>
-            <a href="/login" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+            <a href="/login" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
               Back to sign in
             </a>
           </div>
@@ -71,10 +71,10 @@ export default async function ResetPasswordPage({
   return (
     <main style={pageStyle}>
       <div style={cardStyle}>
-        <h1 style={{ margin: "0 0 8px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
+        <h1 style={{ margin: "0 0 8px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
           Reset password
         </h1>
-        <p style={{ margin: "0 0 18px", fontSize: "12.5px", color: "#6b7480", lineHeight: 1.5 }}>
+        <p style={{ margin: "0 0 18px", fontSize: "12.5px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
           Enter your email and we&apos;ll send you a link to set a new password.
         </p>
         <form action={sendReset} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -87,14 +87,14 @@ export default async function ResetPasswordPage({
             pendingLabel="Sending…"
             style={{
               borderRadius: "10px", padding: "11px 20px", fontSize: "13.5px",
-              boxShadow: "0 3px 10px rgba(59,111,212,.26)", marginTop: "4px",
+              boxShadow: "var(--shadow-accent-md)", marginTop: "4px",
             }}
           >
             Send reset link
           </SubmitButton>
         </form>
-        <div style={{ marginTop: "16px", fontSize: "12.5px", color: "#6b7480", textAlign: "center" }}>
-          <a href="/login" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+        <div style={{ marginTop: "16px", fontSize: "12.5px", color: "var(--text-secondary)", textAlign: "center" }}>
+          <a href="/login" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
             Back to sign in
           </a>
         </div>

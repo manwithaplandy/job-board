@@ -26,20 +26,20 @@ async function updatePassword(formData: FormData) {
 }
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "#f4f6fa",
+  minHeight: "100vh", background: "var(--bg-page)",
   display: "flex", alignItems: "center", justifyContent: "center",
 };
 const cardStyle: React.CSSProperties = {
-  width: "360px", maxWidth: "calc(100vw - 32px)", background: "#fff",
-  borderRadius: "18px", border: "1px solid #e7eaf0",
+  width: "360px", maxWidth: "calc(100vw - 32px)", background: "var(--bg-surface)",
+  borderRadius: "18px", border: "1px solid var(--border)",
   boxShadow: "0 12px 40px rgba(15,22,35,.08)", padding: "32px",
 };
 const labelStyle: React.CSSProperties = {
   display: "flex", flexDirection: "column", gap: "6px",
-  fontSize: "13px", fontWeight: 600, color: "#5b6472",
+  fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)",
 };
 const inputStyle: React.CSSProperties = {
-  border: "1px solid #e3e7ee", borderRadius: "10px", padding: "10px 13px",
+  border: "1px solid var(--border)", borderRadius: "10px", padding: "10px 13px",
   fontSize: "13px", fontFamily: "inherit",
 };
 
@@ -57,7 +57,7 @@ export default async function UpdatePasswordPage({
   return (
     <main style={pageStyle}>
       <div style={cardStyle}>
-        <h1 style={{ margin: "0 0 18px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
+        <h1 style={{ margin: "0 0 18px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
           Set a new password
         </h1>
         <form action={updatePassword} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -68,7 +68,7 @@ export default async function UpdatePasswordPage({
               style={inputStyle} />
           </label>
           {error && (
-            <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "#b25a36", fontWeight: 600 }}>
+            <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "var(--danger)", fontWeight: 600 }}>
               {error}
             </p>
           )}
@@ -76,7 +76,7 @@ export default async function UpdatePasswordPage({
             pendingLabel="Saving…"
             style={{
               borderRadius: "10px", padding: "11px 20px", fontSize: "13.5px",
-              boxShadow: "0 3px 10px rgba(59,111,212,.26)", marginTop: "4px",
+              boxShadow: "var(--shadow-accent-md)", marginTop: "4px",
             }}
           >
             Update password

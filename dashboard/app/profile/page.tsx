@@ -23,6 +23,7 @@ import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
 import { ResumeUploadField } from "@/components/rolefit/ResumeUploadField";
 import { DangerZone } from "@/components/account/DangerZone";
+import { AppearanceToggle } from "@/components/theme/AppearanceToggle";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Profile · Rolefit" };
@@ -171,15 +172,15 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
 // Rolefit visual tokens — kept inline to match the sibling surfaces (Header, ProfileModal).
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
-  background: "#f4f6fa",
-  color: "#1f2430",
+  background: "var(--bg-page)",
+  color: "var(--text-primary)",
   padding: "40px 20px 64px",
 };
 const cardStyle: React.CSSProperties = {
   maxWidth: "640px",
   margin: "0 auto",
-  background: "#fff",
-  border: "1px solid #e7eaf0",
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border)",
   borderRadius: "18px",
   boxShadow: "0 12px 40px rgba(15,22,35,.08)",
   padding: "30px 32px 32px",
@@ -189,38 +190,38 @@ const titleStyle: React.CSSProperties = {
   fontSize: "22px",
   fontWeight: 800,
   letterSpacing: "-.4px",
-  color: "#161d29",
+  color: "var(--text-primary)",
 };
 const subtitleStyle: React.CSSProperties = {
   fontSize: "13px",
   fontWeight: 500,
-  color: "#6b7480",
+  color: "var(--text-secondary)",
   marginBottom: "22px",
 };
 const fieldStyle: React.CSSProperties = { display: "flex", flexDirection: "column" };
 const labelTextStyle: React.CSSProperties = {
   fontSize: "13px",
   fontWeight: 600,
-  color: "#5b6472",
+  color: "var(--text-secondary)",
   marginBottom: "7px",
 };
 const hintStyle: React.CSSProperties = {
   fontSize: "11.5px",
   fontWeight: 500,
-  color: "#6b7480",
+  color: "var(--text-secondary)",
   marginBottom: "8px",
 };
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  border: "1px solid #e3e7ee",
+  border: "1px solid var(--border)",
   borderRadius: "12px",
   padding: "13px",
   fontSize: "13px",
   lineHeight: 1.5,
-  color: "#1f2430",
+  color: "var(--text-primary)",
   boxSizing: "border-box",
   fontFamily: "inherit",
-  background: "#fff",
+  background: "var(--bg-surface)",
 };
 const selectStyle: React.CSSProperties = {
   ...inputStyle,
@@ -231,8 +232,8 @@ const detailsCardStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "16px",
-  background: "#f9fbfd",
-  border: "1px solid #e7eaf0",
+  background: "var(--bg-muted)",
+  border: "1px solid var(--border)",
   borderRadius: "14px",
   padding: "18px",
 };
@@ -245,20 +246,20 @@ const modelsCardStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "16px",
-  background: "#f9fbfd",
-  border: "1px solid #e7eaf0",
+  background: "var(--bg-muted)",
+  border: "1px solid var(--border)",
   borderRadius: "14px",
   padding: "18px",
 };
 const modelsLegendStyle: React.CSSProperties = {
   fontSize: "12px",
   fontWeight: 600,
-  color: "#6b7480",
+  color: "var(--text-secondary)",
 };
 const lastSavedStyle: React.CSSProperties = {
   fontSize: "12px",
   fontWeight: 500,
-  color: "#6b7480",
+  color: "var(--text-secondary)",
 };
 
 export default async function ProfilePage() {
@@ -283,7 +284,7 @@ export default async function ProfilePage() {
         <h1 style={titleStyle}>Profile</h1>
         <div style={subtitleStyle}>
           Advanced settings — résumé, review models, and location preferences.{" "}
-          <a href="/billing" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+          <a href="/billing" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
             Billing &amp; plan →
           </a>
         </div>
@@ -467,7 +468,7 @@ export default async function ProfilePage() {
             {/* Stage 1 is the always-on cheap gate (the reviewer forces it), so it is
                 no longer a user-selectable knob — shown read-only for transparency. */}
             <div style={fieldStyle}>
-              <span style={{ fontSize: "13px", fontWeight: 600, color: "#5b6472" }}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>
                 Stage 1 — title/company gate
               </span>
               <span style={hintStyle}>Always the cheap model ({CHEAP_MODEL}) — not configurable.</span>
@@ -494,6 +495,15 @@ export default async function ProfilePage() {
         </ProfileFormShell>
 
         <DangerZone />
+      </div>
+
+      <div style={cardStyle}>
+        <h2 style={titleStyle}>Appearance</h2>
+        <div style={subtitleStyle}>Choose how Rolefit looks on this device.</div>
+        <AppearanceToggle />
+        <div style={{ ...hintStyle, marginTop: 12 }}>
+          System follows your device and updates live; Light or Dark pin an override. Saved on this device.
+        </div>
       </div>
     </main>
     </>

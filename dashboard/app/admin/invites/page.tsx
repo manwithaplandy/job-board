@@ -14,21 +14,21 @@ export const metadata: Metadata = { title: "Invites · Admin" };
 // Style tokens mirror app/admin/tenants/page.tsx so the admin consoles read as one
 // surface (narrower wrap — this table has 5 columns, not 11).
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "#f4f6fa", color: "#1f2430", padding: "40px 20px 64px",
+  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "40px 20px 64px",
 };
 const wrapStyle: React.CSSProperties = { maxWidth: "860px", margin: "0 auto" };
 const cardStyle: React.CSSProperties = {
-  background: "#fff", border: "1px solid #e7eaf0", borderRadius: "16px",
+  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "16px",
   boxShadow: "0 12px 40px rgba(15,22,35,.06)", padding: "22px 24px",
 };
 const thStyle: React.CSSProperties = {
-  textAlign: "left", fontSize: "11px", fontWeight: 700, color: "#6b7480",
+  textAlign: "left", fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)",
   textTransform: "uppercase", letterSpacing: ".4px", padding: "8px 10px",
-  borderBottom: "1px solid #e7eaf0", whiteSpace: "nowrap",
+  borderBottom: "1px solid var(--border)", whiteSpace: "nowrap",
 };
 const tdStyle: React.CSSProperties = {
-  fontSize: "12.5px", color: "#3a4150", padding: "9px 10px",
-  borderBottom: "1px solid #f0f2f6", whiteSpace: "nowrap",
+  fontSize: "12.5px", color: "var(--text-primary)", padding: "9px 10px",
+  borderBottom: "1px solid var(--bg-muted)", whiteSpace: "nowrap",
 };
 
 // UTC calendar date (YYYY-MM-DD). Deterministic on purpose: toLocaleDateString() in a
@@ -55,17 +55,17 @@ function Row({ inv }: { inv: InviteCode }) {
           ...tdStyle,
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
           fontWeight: 600,
-          color: "#161d29",
+          color: "var(--text-primary)",
         }}
       >
         <span style={{ marginRight: "8px" }}>{inv.code}</span>
         <CopyButton text={inv.code} />
       </td>
       <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: "140px" }}>{inv.note ?? "—"}</td>
-      <td style={{ ...tdStyle, textAlign: "right", color: exhausted ? "#b23b3b" : undefined }}>
+      <td style={{ ...tdStyle, textAlign: "right", color: exhausted ? "var(--danger)" : undefined }}>
         {inv.uses}/{inv.maxUses}
       </td>
-      <td style={{ ...tdStyle, color: expired ? "#b23b3b" : undefined }}>{fmtDate(inv.expiresAt)}</td>
+      <td style={{ ...tdStyle, color: expired ? "var(--danger)" : undefined }}>{fmtDate(inv.expiresAt)}</td>
       <td style={tdStyle}>{fmtDate(inv.createdAt)}</td>
     </tr>
   );
@@ -87,10 +87,10 @@ export default async function AdminInvitesPage() {
           <AdminNav active="invites" />
 
           <div style={{ ...cardStyle, marginBottom: "18px" }}>
-            <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "#161d29" }}>
+            <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
               Invites
             </h1>
-            <div style={{ fontSize: "12.5px", color: "#6b7480", marginBottom: "18px" }}>
+            <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: "18px" }}>
               Generate invite codes for the invite-only beta and track how many uses each has left.
             </div>
             <InviteGenerator />
@@ -98,7 +98,7 @@ export default async function AdminInvitesPage() {
 
           <div style={cardStyle}>
             {invites.length === 0 ? (
-              <div style={{ fontSize: "13px", color: "#6b7480", padding: "24px 4px" }}>
+              <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "24px 4px" }}>
                 No invite codes yet.
               </div>
             ) : (

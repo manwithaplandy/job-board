@@ -22,9 +22,9 @@ export interface HeaderProps {
 }
 
 const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
-  ok: "#22c55e",
-  warn: "#f59e0b",
-  stale: "#9aa3b0",
+  ok: "var(--status-ok)",
+  warn: "var(--status-warn)",
+  stale: "var(--status-stale)",
 };
 
 // Ghost nav-anchor style shared by the desktop content nav (Analytics, Companies) and
@@ -32,7 +32,7 @@ const HEALTH_DOT: Record<OperatorSignals["health"], string> = {
 const NAV_ANCHOR_STYLE: CSSProperties = {
   fontWeight: 700,
   fontSize: "13px",
-  color: "#3b6fd4",
+  color: "var(--accent)",
   textDecoration: "none",
   padding: "9px 6px",
 };
@@ -52,8 +52,8 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
         alignItems: "center",
         gap: "16px",
         padding: "13px 22px",
-        background: "#fff",
-        borderBottom: "1px solid #e7eaf0",
+        background: "var(--bg-surface)",
+        borderBottom: "1px solid var(--border)",
         zIndex: 20,
       }}
     >
@@ -64,25 +64,25 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
             width: "31px",
             height: "31px",
             borderRadius: "9px",
-            background: "#3b6fd4",
+            background: "var(--accent)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 3px 8px rgba(59,111,212,.32)",
+            boxShadow: "var(--shadow-accent-sm)",
           }}
         >
           <div
             style={{
               width: "11px",
               height: "11px",
-              background: "#fff",
+              background: "var(--text-on-accent)",
               borderRadius: "3px",
               transform: "rotate(45deg)",
             }}
           />
         </div>
         <div
-          style={{ fontWeight: 800, fontSize: "18.5px", letterSpacing: "-.4px", color: "#1b2330" }}
+          style={{ fontWeight: 800, fontSize: "18.5px", letterSpacing: "-.4px", color: "var(--text-primary)" }}
         >
           Rolefit
         </div>
@@ -91,9 +91,9 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
             style={{
               fontSize: "10px",
               fontWeight: 800,
-              color: "#3b6fd4",
-              background: "#eef3fc",
-              border: "1px solid #d8e2f6",
+              color: "var(--accent)",
+              background: "var(--accent-bg)",
+              border: "1px solid var(--accent-border)",
               borderRadius: "20px",
               padding: "3px 8px",
               letterSpacing: ".5px",
@@ -115,26 +115,28 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
           alignItems: "center",
           gap: "10px",
           height: "39px",
-          background: "#f3f5f9",
-          border: "1px solid #e7eaf0",
+          background: "var(--bg-muted)",
+          border: "1px solid var(--border)",
           borderRadius: "11px",
           padding: "0 14px",
         }}
       >
+        {/* Search glyph. Stroke uses currentColor so the muted token (a CSS var, invalid
+            in an SVG presentation attribute) can drive it via the svg's `color`. */}
         <svg
           width="15"
           height="15"
           viewBox="0 0 15 15"
           fill="none"
-          style={{ flex: "0 0 auto" }}
+          style={{ flex: "0 0 auto", color: "var(--text-muted)" }}
         >
-          <circle cx="6.4" cy="6.4" r="4.6" stroke="#9aa3b0" strokeWidth="1.7" />
+          <circle cx="6.4" cy="6.4" r="4.6" stroke="currentColor" strokeWidth="1.7" />
           <line
             x1="9.9"
             y1="9.9"
             x2="13.4"
             y2="13.4"
-            stroke="#9aa3b0"
+            stroke="currentColor"
             strokeWidth="1.7"
             strokeLinecap="round"
           />
@@ -154,7 +156,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
             outline: "none",
             background: "transparent",
             fontSize: "13.5px",
-            color: "#1f2430",
+            color: "var(--text-primary)",
             minWidth: 0,
           }}
         />
@@ -169,7 +171,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
               alignItems: "center",
               gap: "7px",
               fontSize: "12px",
-              color: "#6b7585",
+              color: "var(--text-secondary)",
               fontWeight: 500,
             }}
           >
@@ -196,7 +198,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
             {operator.unreviewed > 0 && operator.reviewed > 0 && (
               <a
                 href="/analytics"
-                style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}
+                style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}
               >
                 {operator.unreviewed} unreviewed
               </a>
@@ -222,8 +224,8 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
             primary action). Anon: real navigation anchors — secondary "Sign in" then
             the primary "Sign up" rightmost (most prominent). Anchors, not <Button>,
             so middle-click/new-tab semantics work (Button renders a hardcoded
-            <button>); tokens mirror components/ui/Button.tsx primary (#3b6fd4 fill,
-            white text, the primary box-shadow) and the nav-anchor ghost style. */}
+            <button>); tokens mirror components/ui/Button.tsx primary (--accent fill,
+            --text-on-accent text, --shadow-accent) and the nav-anchor ghost style. */}
         {isAuthed ? (
           <Button
             variant="primary"
@@ -231,7 +233,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
             style={{
               fontSize: "13px",
               padding: "9px 14px",
-              border: "1px solid #3b6fd4",
+              border: "1px solid var(--accent)",
               boxShadow: "none",
             }}
           >
@@ -250,13 +252,13 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
                 alignItems: "center",
                 fontWeight: 700,
                 fontSize: "13px",
-                color: "#fff",
-                background: "#3b6fd4",
-                border: "1px solid #3b6fd4",
+                color: "var(--text-on-accent)",
+                background: "var(--accent)",
+                border: "1px solid var(--accent)",
                 borderRadius: "11px",
                 padding: "9px 14px",
                 textDecoration: "none",
-                boxShadow: "0 4px 12px rgba(59,111,212,.28)",
+                boxShadow: "var(--shadow-accent)",
               }}
             >
               Sign up

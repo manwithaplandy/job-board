@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Get started · Rolefit" };
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "#f4f6fa", color: "#1f2430", padding: "48px 20px 64px",
+  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "48px 20px 64px",
 };
 const cardStyle: React.CSSProperties = {
-  maxWidth: "640px", margin: "0 auto", background: "#fff", border: "1px solid #e7eaf0",
+  maxWidth: "640px", margin: "0 auto", background: "var(--bg-surface)", border: "1px solid var(--border)",
   borderRadius: "18px", boxShadow: "0 12px 40px rgba(15,22,35,.08)", padding: "30px 32px 32px",
 };
 
@@ -26,10 +26,10 @@ export default async function OnboardingPage() {
   return (
     <main style={pageStyle}>
       <div style={cardStyle}>
-        <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "#161d29" }}>
+        <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)" }}>
           Set up your board
         </h1>
-        <p style={{ margin: "0 0 24px", fontSize: "13px", fontWeight: 500, color: "#6b7480", lineHeight: 1.5 }}>
+        <p style={{ margin: "0 0 24px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)", lineHeight: 1.5 }}>
           Add your résumé and the locations you want to search. We&apos;ll start reviewing
           matching jobs on the next cycle.
         </p>

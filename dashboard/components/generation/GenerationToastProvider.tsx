@@ -221,18 +221,18 @@ export function GenerationToastProvider({ children }: { children: React.ReactNod
         gap={8}
         toastOptions={{
           style: {
-            background: "#1b2330",
-            color: "#fff",
+            background: "var(--toast-bg)",
+            color: "var(--text-on-accent)",
             border: "none",
             borderRadius: "12px",
-            boxShadow: "0 8px 22px rgba(20,28,40,.22)",
+            boxShadow: "var(--shadow-toast)",
             fontSize: "13.5px",
             fontWeight: 600,
             fontFamily: "inherit",
           },
           actionButtonStyle: {
-            background: "#3b6fd4",
-            color: "#fff",
+            background: "var(--accent)",
+            color: "var(--text-on-accent)",
             fontWeight: 700,
           },
         }}

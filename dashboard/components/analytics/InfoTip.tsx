@@ -57,7 +57,7 @@ export function InfoTip({
           if (e.key === "Escape") setOpen(false);
         }}
         style={{
-          borderBottom: "1px dotted #9aa3b0",
+          borderBottom: "1px dotted var(--text-muted)",
           cursor: "help",
           outline: "none",
           ...labelStyle,
@@ -76,8 +76,8 @@ export function InfoTip({
             zIndex: 40,
             width: "max-content",
             maxWidth: "264px",
-            background: "#161d29",
-            color: "#fff",
+            background: "var(--toast-bg)",
+            color: "var(--text-on-accent)",
             fontSize: "12px",
             fontWeight: 500,
             lineHeight: 1.45,

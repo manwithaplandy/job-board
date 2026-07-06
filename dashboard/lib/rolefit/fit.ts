@@ -19,9 +19,14 @@ export function fitColor(fit: number): FitColors {
     // cutoff below the palette floor so every badge gets dark text (≥5:1); white text is
     // never the higher-contrast choice on this scale.
     textOn: L > 0.6 ? "#2a2410" : "#ffffff",
-    tint: `oklch(0.975 ${Math.min(C, 0.026).toFixed(3)} ${H.toFixed(1)})`,
-    tintVivid: `oklch(0.95 ${Math.min(C, 0.058).toFixed(3)} ${H.toFixed(1)})`,
-    tintBorder: `oklch(0.905 ${Math.min(C, 0.05).toFixed(3)} ${H.toFixed(1)})`,
+    // The tint LIGHTNESS is a theme token so these chips flip with the theme: the
+    // score-derived chroma & hue stay computed here, but light mode's near-white
+    // lightness (0.975/0.95/0.905) would read as glaring bright patches on the dark
+    // charcoal surface, so dark overrides --fit-tint-*-l to low lightnesses (subtle
+    // colored chips on charcoal). The fallbacks preserve the original light values.
+    tint: `oklch(var(--fit-tint-l, 0.975) ${Math.min(C, 0.026).toFixed(3)} ${H.toFixed(1)})`,
+    tintVivid: `oklch(var(--fit-tint-vivid-l, 0.95) ${Math.min(C, 0.058).toFixed(3)} ${H.toFixed(1)})`,
+    tintBorder: `oklch(var(--fit-tint-border-l, 0.905) ${Math.min(C, 0.05).toFixed(3)} ${H.toFixed(1)})`,
   };
 }
 

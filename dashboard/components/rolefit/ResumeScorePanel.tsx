@@ -48,7 +48,7 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
 
   const scale = (value: number | null, set: (n: number) => void, label: string) => (
     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px" }}>
-      <span style={{ width: "150px", fontSize: "12.5px", fontWeight: 700, color: "#3b4250" }}>{label}</span>
+      <span style={{ width: "150px", fontSize: "12.5px", fontWeight: 700, color: "var(--text-primary)" }}>{label}</span>
       {DIMS.map((n) => (
         <button
           key={n}
@@ -57,9 +57,9 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
           style={{
             width: "30px", height: "30px", borderRadius: "8px", cursor: "pointer",
             fontWeight: 700, fontSize: "13px",
-            border: value === n ? "2px solid #3b6fd4" : "1px solid #dfe3ea",
-            background: value === n ? "#eef3fc" : "#fff",
-            color: value === n ? "#2b52a0" : "#5b6472",
+            border: value === n ? "2px solid var(--accent)" : "1px solid var(--border)",
+            background: value === n ? "var(--accent-bg)" : "var(--bg-surface)",
+            color: value === n ? "var(--accent-hover)" : "var(--text-secondary)",
           }}
         >
           {n}
@@ -69,21 +69,21 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
   );
 
   return (
-    <div style={{ marginTop: "13px", borderTop: "1px dashed #d8dee8", paddingTop: "13px" }}>
+    <div style={{ marginTop: "13px", borderTop: "1px dashed var(--border)", paddingTop: "13px" }}>
       {!open ? (
         <button
           type="button"
           onClick={() => setOpen(true)}
           style={{
-            fontWeight: 700, fontSize: "12.5px", color: "#5b6472", background: "#fff",
-            border: "1px solid #dfe3ea", borderRadius: "9px", padding: "8px 13px", cursor: "pointer",
+            fontWeight: 700, fontSize: "12.5px", color: "var(--text-secondary)", background: "var(--bg-surface)",
+            border: "1px solid var(--border)", borderRadius: "9px", padding: "8px 13px", cursor: "pointer",
           }}
         >
           ★ Score résumé
         </button>
       ) : (
         <div>
-          <div style={{ fontWeight: 800, fontSize: "13px", color: "#1b2330" }}>
+          <div style={{ fontWeight: 800, fontSize: "13px", color: "var(--text-primary)" }}>
             Score this résumé (1–5)
           </div>
 
@@ -95,9 +95,9 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
                 title={c.detail ?? c.label}
                 style={{
                   fontSize: "11px", fontWeight: 700, borderRadius: "6px", padding: "3px 8px",
-                  color: c.pass ? "#2f7d54" : "#b25a36",
-                  background: c.pass ? "#e6f4ec" : "#fdf0ec",
-                  border: `1px solid ${c.pass ? "#c7e6d3" : "#f3d5c9"}`,
+                  color: c.pass ? "var(--success)" : "var(--danger)",
+                  background: c.pass ? "var(--success-bg)" : "var(--danger-bg)",
+                  border: `1px solid ${c.pass ? "var(--success-border)" : "var(--danger-border)"}`,
                 }}
               >
                 {c.pass ? "✓" : "✕"} {c.label}
@@ -108,7 +108,7 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
           {scale(grounding, setGrounding, "Grounding (truthful)")}
           {scale(jd, setJd, "JD relevance")}
           {grounding !== null && jd !== null && (
-            <div style={{ fontSize: "12px", color: "#6b7480", marginTop: "8px", fontWeight: 600 }}>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "8px", fontWeight: 600 }}>
               Overall: {resumeOverall(grounding, jd)} (grounding-weighted 0.7/0.3)
             </div>
           )}
@@ -120,7 +120,7 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
             rows={2}
             style={{
               width: "100%", marginTop: "9px", padding: "8px 10px", fontSize: "12.5px",
-              border: "1px solid #dfe3ea", borderRadius: "9px", resize: "vertical", boxSizing: "border-box",
+              border: "1px solid var(--border)", borderRadius: "9px", resize: "vertical", boxSizing: "border-box",
             }}
           />
 
@@ -130,8 +130,8 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
               onClick={onSave}
               disabled={!canSave}
               style={{
-                fontWeight: 700, fontSize: "13px", color: "#fff",
-                background: canSave ? "#3b6fd4" : "#9db6e2", border: "none", borderRadius: "9px",
+                fontWeight: 700, fontSize: "13px", color: "var(--text-on-accent)",
+                background: canSave ? "var(--accent)" : "var(--accent-border)", border: "none", borderRadius: "9px",
                 padding: "9px 16px", cursor: canSave ? "pointer" : "not-allowed",
               }}
             >
@@ -141,14 +141,14 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
               type="button"
               onClick={() => { setOpen(false); setStatus(null); }}
               style={{
-                fontWeight: 700, fontSize: "13px", color: "#5b6472", background: "#fff",
-                border: "1px solid #dfe3ea", borderRadius: "9px", padding: "9px 14px", cursor: "pointer",
+                fontWeight: 700, fontSize: "13px", color: "var(--text-secondary)", background: "var(--bg-surface)",
+                border: "1px solid var(--border)", borderRadius: "9px", padding: "9px 14px", cursor: "pointer",
               }}
             >
               Cancel
             </button>
             {status && (
-              <span style={{ fontSize: "12px", fontWeight: 600, color: status.ok ? "#2f7d54" : "#b25a36" }}>
+              <span style={{ fontSize: "12px", fontWeight: 600, color: status.ok ? "var(--success)" : "var(--danger)" }}>
                 {status.text}
               </span>
             )}

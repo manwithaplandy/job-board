@@ -21,10 +21,10 @@ export function CopyButton({ text, style }: { text: string; style?: React.CSSPro
         }
       }}
       style={{
-        border: "1px solid #dfe3ea",
+        border: "1px solid var(--border)",
         borderRadius: "8px",
-        background: "#fff",
-        color: "#5b6472",
+        background: "var(--bg-surface)",
+        color: "var(--text-secondary)",
         fontSize: "11.5px",
         fontWeight: 700,
         padding: "4px 9px",

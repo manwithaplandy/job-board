@@ -28,10 +28,10 @@ export class DetailErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div style={{ maxWidth: 880, margin: "40px auto", padding: "24px 36px" }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#b25a36" }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--danger)" }}>
             This role couldn&apos;t be displayed
           </div>
-          <div style={{ fontSize: 13, color: "#6b7480", marginTop: 6, fontWeight: 500, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 6, fontWeight: 500, lineHeight: 1.6 }}>
             Something in this job&apos;s saved data is malformed. The rest of the board is
             unaffected — pick another role, or reload the page to try again.
           </div>

@@ -6,17 +6,17 @@ import { GLOSSARY } from "@/lib/analyticsLabels";
 import { InfoTip } from "@/components/analytics/InfoTip";
 
 const DOT: Record<PipelineStatus, string> = {
-  ok: "#22c55e", warn: "#f59e0b", running: "#3b82f6", failed: "#ef4444", stale: "#9aa3b0",
+  ok: "var(--status-ok)", warn: "var(--status-warn)", running: "var(--status-running)", failed: "var(--status-failed)", stale: "var(--status-stale)",
 };
 
 // Worded status chip — text + color so it's colorblind-safe (audit F9). The chip
 // labels the schedule state; it does NOT alarm on benign no-op runs (that rule stays).
 const CHIP: Record<PipelineStatus, { bg: string; color: string }> = {
-  ok:      { bg: "#e7f6ee", color: "#1d7a4f" },
-  running: { bg: "#eaf1fc", color: "#2f5cc0" },
-  warn:    { bg: "#fdf3e6", color: "#8a5a12" },
-  failed:  { bg: "#fdecf1", color: "#b23a5b" },
-  stale:   { bg: "#eef1f5", color: "#5b6472" },
+  ok:      { bg: "var(--success-bg)", color: "var(--success)" },
+  running: { bg: "var(--status-running-bg)", color: "var(--status-running-text)" },
+  warn:    { bg: "var(--warning-bg)", color: "var(--warning)" },
+  failed:  { bg: "var(--status-failed-bg)", color: "var(--status-failed-text)" },
+  stale:   { bg: "var(--bg-muted)", color: "var(--text-secondary)" },
 };
 
 function rel(nowIso: string, iso: string | null): string {
@@ -48,10 +48,10 @@ interface Stat { label: React.ReactNode; value: string }
 
 /** A stat key optionally carrying a plain-language tooltip. */
 function Key({ glossKey, children }: { glossKey?: keyof typeof GLOSSARY; children: React.ReactNode }) {
-  if (!glossKey) return <span style={{ color: "#6b7480" }}>{children}</span>;
+  if (!glossKey) return <span style={{ color: "var(--text-secondary)" }}>{children}</span>;
   const g = GLOSSARY[glossKey];
   return (
-    <InfoTip term={g.label} gloss={g.gloss} labelStyle={{ color: "#6b7480" }}>
+    <InfoTip term={g.label} gloss={g.gloss} labelStyle={{ color: "var(--text-secondary)" }}>
       {children}
     </InfoTip>
   );
@@ -63,7 +63,7 @@ function StatGrid({ stats }: { stats: Stat[] }) {
       {stats.map((s, i) => (
         <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "12px" }}>
           <span>{s.label}</span>
-          <span style={{ color: "#1f2430", fontWeight: 700, whiteSpace: "nowrap" }}>{s.value}</span>
+          <span style={{ color: "var(--text-primary)", fontWeight: 700, whiteSpace: "nowrap" }}>{s.value}</span>
         </div>
       ))}
     </div>
@@ -94,10 +94,10 @@ function Card({
 }) {
   const chip = CHIP[status];
   return (
-    <div style={{ flex: "1 1 260px", background: "#fff", border: "1px solid #e7eaf0", borderRadius: "14px", padding: "16px 18px" }}>
+    <div style={{ flex: "1 1 260px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "16px 18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
         <span aria-hidden="true" style={{ width: "9px", height: "9px", borderRadius: "50%", background: DOT[status], flex: "0 0 auto" }} />
-        <span style={{ fontSize: "13.5px", fontWeight: 800, color: "#161d29" }}>{name}</span>
+        <span style={{ fontSize: "13.5px", fontWeight: 800, color: "var(--text-primary)" }}>{name}</span>
         <span
           style={{
             fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "8px",
@@ -107,17 +107,17 @@ function Card({
           {statusText(status, staleRel)}
         </span>
       </div>
-      <div style={{ fontSize: "11px", color: "#6b7480" }}>{when}</div>
-      <div style={{ fontSize: "11px", color: "#6b7480", marginBottom: "4px" }}>{scheduleLine}</div>
+      <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{when}</div>
+      <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "4px" }}>{scheduleLine}</div>
       {banner && (
-        <div style={{ margin: "8px 0", padding: "7px 10px", background: "#fdf3e6", border: "1px solid #f3d9ad",
-          borderRadius: "9px", color: "#8a5a12", fontSize: "11.5px", fontWeight: 600 }}>{banner}</div>
+        <div style={{ margin: "8px 0", padding: "7px 10px", background: "var(--warning-bg)", border: "1px solid var(--warning-border)",
+          borderRadius: "9px", color: "var(--warning)", fontSize: "11.5px", fontWeight: 600 }}>{banner}</div>
       )}
-      <div style={{ fontSize: "11px", color: "#8a93a0", fontWeight: 800, letterSpacing: ".3px", textTransform: "uppercase", marginTop: "12px", marginBottom: "5px" }}>
+      <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 800, letterSpacing: ".3px", textTransform: "uppercase", marginTop: "12px", marginBottom: "5px" }}>
         Last successful run
       </div>
       <StatGrid stats={stats} />
-      <div style={{ fontSize: "11px", color: "#8a93a0", fontWeight: 800, letterSpacing: ".3px", textTransform: "uppercase", marginTop: "12px", marginBottom: "5px" }}>
+      <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: 800, letterSpacing: ".3px", textTransform: "uppercase", marginTop: "12px", marginBottom: "5px" }}>
         All-time
       </div>
       <StatGrid stats={allTime} />

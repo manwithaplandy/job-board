@@ -34,4 +34,15 @@ describe("AppearanceToggle", () => {
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
+
+  test("arrow keys move roving focus to the newly-selected radio", () => {
+    mockMatchMedia(false);
+    renderToggle();
+    const system = screen.getByRole("radio", { name: /system/i });
+    system.focus();
+    fireEvent.keyDown(system, { key: "ArrowRight" });
+    const light = screen.getByRole("radio", { name: /light/i });
+    expect(light.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(light);
+  });
 });

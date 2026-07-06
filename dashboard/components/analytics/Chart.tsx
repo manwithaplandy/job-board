@@ -142,7 +142,9 @@ export function BarsCard(
               tickFormatter={valueFormatter ? (v: number) => valueFormatter(v) : compactTick}
             />
             <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--border)" }}
+              contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-surface)" }}
+              labelStyle={{ color: "var(--text-primary)" }}
+              itemStyle={{ color: "var(--text-primary)" }}
               labelFormatter={(label) => (weekly ? "Week of " : "") + formatDateTick(label as string | number)}
               itemSorter={(item) => bars.findIndex((b) => b.key === item.dataKey)}
               // Locale-format the raw value so tooltips read "10,608" like every other
@@ -196,7 +198,9 @@ export function LinesCard(
               tickFormatter={yTickFmt}
             />
             <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--border)" }}
+              contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-surface)" }}
+              labelStyle={{ color: "var(--text-primary)" }}
+              itemStyle={{ color: "var(--text-primary)" }}
               labelFormatter={(label) => (weekly ? "Week of " : "") + formatDateTick(label as string | number)}
               itemSorter={(item) => lines.findIndex((l) => l.key === item.dataKey)}
               formatter={tipFmt}

@@ -39,7 +39,9 @@ const allowed = (file: string) =>
   ALLOW.has(file) || ALLOW_DIRS.some((d) => file.startsWith(d + path.sep));
 
 describe("no raw hex in themed source", () => {
-  test("every color goes through a token", () => {
+  // Guards hex color LITERALS only (the /#hex/ regex). rgba() elevation shadows
+  // (~20 intentional inline shadow values) are deliberately allowed and NOT policed.
+  test("no raw hex color literal escapes a var(--token)", () => {
     const offenders: string[] = [];
     for (const base of SCAN) {
       for (const file of walk(base)) {

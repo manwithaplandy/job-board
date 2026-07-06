@@ -66,14 +66,13 @@ export function CompanyList({
               textDecoration: "none", cursor: "pointer", fontWeight: 700, fontSize: "13px",
               padding: "8px 16px", borderRadius: "8px",
               background: active ? "var(--bg-surface)" : "transparent",
-              // Inactive tabs sit on the #eef1f5 tab bar, where #6b7480 is only 4.18:1 —
-              // below AA for 13px text. Use the darker #5b6472 (5.28:1) there; the active
-              // tab keeps its dark label on white. The count matches the label so they
-              // don't split contrast on the inactive tab.
+              // Active tab: --text-primary on the raised --bg-surface pill. Inactive tabs
+              // sit on the --bg-muted bar and use --text-secondary; the count reuses the
+              // same token as its label so they don't split contrast on the inactive tab.
               color: active ? "var(--text-primary)" : "var(--text-secondary)",
               boxShadow: active ? "var(--shadow-toggle)" : "none",
             }}>
-              {t.label} <span style={{ color: active ? "var(--text-secondary)" : "var(--text-secondary)" }}>{t.n}</span>
+              {t.label} <span style={{ color: "var(--text-secondary)" }}>{t.n}</span>
             </a>
           );
         })}

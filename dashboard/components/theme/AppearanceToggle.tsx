@@ -1,4 +1,5 @@
 "use client";
+import { useRef } from "react";
 import { useTheme } from "./ThemeProvider";
 import type { ThemeChoice } from "@/lib/theme";
 
@@ -19,13 +20,20 @@ function swatch(value: ThemeChoice, resolvedDark: boolean): React.CSSProperties 
 export function AppearanceToggle() {
   const { choice, resolvedTheme, setChoice } = useTheme();
   const resolvedDark = resolvedTheme === "dark";
+  const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const onKey = (e: React.KeyboardEvent, i: number) => {
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-      e.preventDefault(); setChoice(OPTIONS[(i + 1) % OPTIONS.length].value);
-    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-      e.preventDefault(); setChoice(OPTIONS[(i + OPTIONS.length - 1) % OPTIONS.length].value);
-    }
+    let next = i;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (i + 1) % OPTIONS.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (i + OPTIONS.length - 1) % OPTIONS.length;
+    else return;
+    e.preventDefault();
+    setChoice(OPTIONS[next].value);
+    // Roving tabindex: the newly-selected radio becomes the only tab-stop (tabIndex 0),
+    // so move DOM focus with the selection — otherwise focus is stranded on the button
+    // that just became tabIndex=-1. The buttons are keyed by value (stable DOM nodes),
+    // so the ref is valid to focus synchronously before the re-render flips tabIndex.
+    btnRefs.current[next]?.focus();
   };
 
   return (
@@ -36,6 +44,7 @@ export function AppearanceToggle() {
         const checked = choice === o.value;
         return (
           <button key={o.value} type="button" role="radio" aria-checked={checked}
+            ref={(el) => { btnRefs.current[i] = el; }}
             tabIndex={checked ? 0 : -1} onClick={() => setChoice(o.value)}
             onKeyDown={(e) => onKey(e, i)}
             style={{ ...swatch(o.value, resolvedDark), padding: "9px 18px", borderRadius: 8,

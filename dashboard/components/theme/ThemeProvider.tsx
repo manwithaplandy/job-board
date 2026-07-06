@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   parseThemeChoice, resolveTheme, THEME_STORAGE_KEY,
   type ResolvedTheme, type ThemeChoice,
@@ -26,7 +26,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("light");
 
   useEffect(() => {
+    // Post-mount sync from the external store (localStorage + matchMedia): the server
+    // rendered the stable "system"/"light" default, and only after mount can we read
+    // the client's real stored choice / OS preference. This is a genuine external-store
+    // sync, not a derived-state anti-pattern — it can't be a lazy useState initializer
+    // (a client-only initial value would hydration-mismatch the server render and the
+    // AppearanceToggle's aria-checked / System swatch). useSyncExternalStore is out of
+    // scope. Hence the deliberate setState-in-effect.
     const stored = parseThemeChoice(safeGet());
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above
     setChoiceState(stored);
     setResolvedTheme(resolveTheme(stored, prefersDark()));
   }, []);
@@ -40,7 +48,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => mql.removeEventListener("change", onChange);
   }, [choice]);
 
-  useEffect(() => { applyResolved(resolvedTheme); }, [resolvedTheme]);
+  const firstApply = useRef(true);
+  useEffect(() => {
+    // The head-script already set the correct data-theme before first paint, and
+    // our initial resolvedTheme matches the server "light" default — applying on the
+    // first commit would clobber it (flash for dark users) / fight hydration. Apply
+    // only on genuine post-mount changes (mount sync, user toggle, OS flip).
+    if (firstApply.current) { firstApply.current = false; return; }
+    applyResolved(resolvedTheme);
+  }, [resolvedTheme]);
 
   const setChoice = (c: ThemeChoice) => {
     safeSet(c);

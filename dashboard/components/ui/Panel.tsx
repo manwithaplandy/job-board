@@ -7,7 +7,7 @@ export function Panel({ children, style }: PanelProps) {
   return (
     <div
       style={{
-        border: "1px solid #e3e7ee",
+        border: "1px solid var(--border)",
         borderRadius: "16px",
         padding: "19px 20px",
         ...style,

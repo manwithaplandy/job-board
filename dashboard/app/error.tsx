@@ -38,7 +38,7 @@ export default function ErrorPage({
     <main
       style={{
         minHeight: "100vh",
-        background: "#f4f6fa",
+        background: "var(--bg-page)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -49,7 +49,7 @@ export default function ErrorPage({
           style={{
             fontSize: "16px",
             fontWeight: 800,
-            color: "#161d29",
+            color: "var(--text-primary)",
             marginBottom: "8px",
           }}
         >
@@ -58,7 +58,7 @@ export default function ErrorPage({
         <div
           style={{
             fontSize: "13px",
-            color: "#6b7480",
+            color: "var(--text-secondary)",
             marginBottom: "20px",
             fontWeight: 500,
           }}
@@ -70,16 +70,16 @@ export default function ErrorPage({
           size="sm"
           onClick={retry}
           disabled={isPending}
-          style={{ padding: "10px 20px", boxShadow: "0 3px 10px rgba(59,111,212,.26)" }}
+          style={{ padding: "10px 20px", boxShadow: "var(--shadow-accent-md)" }}
         >
           {isPending ? "Retrying..." : "Try again"}
         </Button>
         {digest && (
-          <div style={{ fontSize: "11px", color: "#8b94a3", marginTop: "18px", fontWeight: 500 }}>
+          <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "18px", fontWeight: 500 }}>
             Reference: <code>{digest}</code>
           </div>
         )}
-        <div style={{ fontSize: "12px", color: "#6b7480", marginTop: "10px", fontWeight: 500 }}>
+        <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "10px", fontWeight: 500 }}>
           <SupportLink
             label="Contact support"
             subject={digest ? `Error report (ref ${digest})` : "Error report"}

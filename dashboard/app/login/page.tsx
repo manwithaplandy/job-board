@@ -42,7 +42,7 @@ export default async function LoginPage({
     <main
       style={{
         minHeight: "100vh",
-        background: "#f4f6fa",
+        background: "var(--bg-page)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -52,9 +52,9 @@ export default async function LoginPage({
         style={{
           width: "360px",
           maxWidth: "calc(100vw - 32px)",
-          background: "#fff",
+          background: "var(--bg-surface)",
           borderRadius: "18px",
-          border: "1px solid #e7eaf0",
+          border: "1px solid var(--border)",
           boxShadow: "0 12px 40px rgba(15,22,35,.08)",
           padding: "32px",
         }}
@@ -64,7 +64,7 @@ export default async function LoginPage({
             margin: "0 0 20px",
             fontSize: "20px",
             fontWeight: 800,
-            color: "#161d29",
+            color: "var(--text-primary)",
           }}
         >
           Sign in
@@ -74,7 +74,7 @@ export default async function LoginPage({
             role="status"
             style={{
               margin: "0 0 16px", fontSize: "12.5px", lineHeight: 1.5,
-              color: "#2f6f4f", fontWeight: 600,
+              color: "var(--success)", fontWeight: 600,
             }}
           >
             Your account and data have been permanently deleted.
@@ -91,7 +91,7 @@ export default async function LoginPage({
               gap: "6px",
               fontSize: "13px",
               fontWeight: 600,
-              color: "#5b6472",
+              color: "var(--text-secondary)",
             }}
           >
             Email
@@ -103,7 +103,7 @@ export default async function LoginPage({
               required
               placeholder="you@example.com"
               style={{
-                border: "1px solid #e3e7ee",
+                border: "1px solid var(--border)",
                 borderRadius: "10px",
                 padding: "10px 13px",
                 fontSize: "13px",
@@ -118,7 +118,7 @@ export default async function LoginPage({
               gap: "6px",
               fontSize: "13px",
               fontWeight: 600,
-              color: "#5b6472",
+              color: "var(--text-secondary)",
             }}
           >
             Password
@@ -130,7 +130,7 @@ export default async function LoginPage({
               required
               placeholder="••••••••"
               style={{
-                border: "1px solid #e3e7ee",
+                border: "1px solid var(--border)",
                 borderRadius: "10px",
                 padding: "10px 13px",
                 fontSize: "13px",
@@ -144,7 +144,7 @@ export default async function LoginPage({
               style={{
                 margin: 0,
                 fontSize: "12.5px",
-                color: "#b25a36",
+                color: "var(--danger)",
                 fontWeight: 600,
               }}
             >
@@ -157,7 +157,7 @@ export default async function LoginPage({
               borderRadius: "10px",
               padding: "11px 20px",
               fontSize: "13.5px",
-              boxShadow: "0 3px 10px rgba(59,111,212,.26)",
+              boxShadow: "var(--shadow-accent-md)",
               marginTop: "4px",
             }}
           >
@@ -170,24 +170,24 @@ export default async function LoginPage({
             display: "flex",
             justifyContent: "space-between",
             fontSize: "12.5px",
-            color: "#6b7480",
+            color: "var(--text-secondary)",
           }}
         >
-          <a href="/signup" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+          <a href="/signup" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
             Create account
           </a>
-          <a href="/reset-password" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>
+          <a href="/reset-password" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
             Forgot password?
           </a>
         </div>
         <div
           style={{
-            marginTop: "12px", fontSize: "11.5px", color: "#8b94a3", textAlign: "center",
+            marginTop: "12px", fontSize: "11.5px", color: "var(--text-muted)", textAlign: "center",
           }}
         >
-          <a href="/terms" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>Terms</a>
+          <a href="/terms" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>Terms</a>
           {" · "}
-          <a href="/privacy" style={{ color: "#3b6fd4", fontWeight: 600, textDecoration: "none" }}>Privacy</a>
+          <a href="/privacy" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>Privacy</a>
           {supportEmail() && (
             <>
               {" · "}

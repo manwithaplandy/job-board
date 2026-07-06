@@ -50,6 +50,10 @@ def test_candidates_missing_then_excluded_when_fresh(conn):
     assert cands[0]["ats"] == "lever"
     assert cands[0]["company_name"] == "Acme"
     assert cands[0]["description"] == "jd"
+    # The SELECT now carries j.remote so the write-time work_arrangement floor can
+    # read it (plan J1). This job was seeded without a remote flag → NULL.
+    assert "remote" in cands[0]
+    assert cands[0]["remote"] is None
 
     rdb.upsert_review(conn, {
         "user_id": USER, "job_id": job_id, "profile_version": "v1",
@@ -66,6 +70,24 @@ def test_candidates_missing_then_excluded_when_fresh(conn):
     # stale profile_version -> re-selected
     rows2, _ = rdb.select_candidates(conn, USER, "v2", limit=10)
     assert [c["id"] for c in rows2] == [job_id]
+
+
+@requires_db
+def test_candidate_company_name_prefers_display_name(conn):
+    """company_name (the LLM-prompt string) uses COALESCE(display_name, name):
+    prefer the enriched display_name when set, fall back to the raw slug when NULL.
+    The NULL-fallback case is pinned by test_candidates_missing_then_excluded_when_fresh
+    (seeded name 'Acme', display_name defaults NULL -> company_name == 'Acme')."""
+    job_id = _seed_job(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE companies SET display_name = %s WHERE ats='lever' AND token='acme'",
+            ("Acme, Inc.",),
+        )
+    conn.commit()
+    cands, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
+    assert [c["id"] for c in cands] == [job_id]
+    assert cands[0]["company_name"] == "Acme, Inc."
 
 
 def _seed_loc(conn, ext, location, remote):

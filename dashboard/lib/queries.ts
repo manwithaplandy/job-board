@@ -270,7 +270,7 @@ export async function getJobForResume(
 ): Promise<{ title: string; company_name: string; description: string | null } | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT j.title, c.name AS company_name, j.description
+      SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.description
       FROM jobs j JOIN companies c ON c.id = j.company_id
       WHERE j.id = ${jobId}
     `;
@@ -295,7 +295,7 @@ export async function getJobForCoverLetter(
 } | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT j.title, c.name AS company_name, j.description,
+      SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.description,
              r.about,
              COALESCE(r.requirements, '[]'::jsonb) AS requirements,
              COALESCE(r.skill_gaps,   '[]'::jsonb) AS skill_gaps,
@@ -339,7 +339,7 @@ export async function getJobForPackage(
 } | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT j.title, c.name AS company_name, j.description, j.url, j.external_id,
+      SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.description, j.url, j.external_id,
              c.ats, c.token AS company_token,
              r.about,
              COALESCE(r.requirements, '[]'::jsonb) AS requirements,

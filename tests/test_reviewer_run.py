@@ -46,9 +46,11 @@ class StubClient:
         )
 
 
-def _cand(title, ats="lever", description="jd"):
+def _cand(title, ats="lever", description="jd", **extra):
+    # **extra lets a test add candidate keys the SELECT now carries (e.g. remote);
+    # omitting `remote` leaves the key absent so the defensive `.get` path is exercised.
     return {"id": f"lever:acme:{title}", "title": title, "location": "Remote",
-            "ats": ats, "company_name": "Acme", "description": description}
+            "ats": ats, "company_name": "Acme", "description": description, **extra}
 
 
 def test_missing_jd_skips_stage2_and_writes_no_row():
@@ -76,6 +78,31 @@ def test_pass_runs_stage2_with_stored_jd():
     res = asyncio.run(review_one(_cand("SRE"), "P", client))
     assert res.stage1_decision == "pass" and res.verdict == "approve"
     assert client.stage2_calls == ["jd"]
+
+
+def test_stage2_floors_work_arrangement_from_remote_flag():
+    """Model abstains (work_arrangement='unknown') + candidate remote=True → the
+    write-time floor persists 'remote' (plan J1). StubClient.stage2 never sets
+    work_arrangement, so it defaults to 'unknown'."""
+    client = StubClient()
+    res = asyncio.run(review_one(_cand("SRE", remote=True), "P", client))
+    assert res.work_arrangement == "remote"
+
+
+def test_stage2_work_arrangement_stays_unknown_without_remote_key():
+    """A candidate dict lacking a 'remote' key (defensive .get → None) is never
+    mapped to onsite; the abstained 'unknown' is kept."""
+    client = StubClient()
+    res = asyncio.run(review_one(_cand("SRE"), "P", client))  # no remote key
+    assert res.work_arrangement == "unknown"
+
+
+def test_stage2_floors_seniority_from_title_ladder_word():
+    """Model abstains (seniority='unknown') + a single ladder word in the title →
+    the write-time floor recovers it (plan J2)."""
+    client = StubClient()
+    res = asyncio.run(review_one(_cand("Senior SRE"), "P", client))
+    assert res.seniority == "senior"
 
 
 def test_pass_with_missing_jd_defers_stage2():

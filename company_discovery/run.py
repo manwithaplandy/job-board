@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 from company_discovery import config, dataset, db
+from company_discovery.enrich_apply import enrich_selected
 from company_discovery.llm import CompanyReviewClient, OutOfCreditsError, build_company_block
 from company_discovery.profile import compute_company_profile_version
 from observability import tracing
@@ -20,14 +21,20 @@ async def review_company_one(c: dict, company_block: str, client,
     lf = tracing.get_langfuse()
     if lf is None:
         return await client.review(company_block=company_block, name=c["name"],
-                                   ats=c["ats"], token=c["token"])
+                                   ats=c["ats"], token=c["token"],
+                                   display_name=c.get("display_name"),
+                                   about=c.get("about"),
+                                   web_description=c.get("web_description"))
     with tracing.identity(user_id=user_id, session_id=run_id, tags=["company_discovery"]):
         with lf.start_as_current_observation(
             as_type="span", name="company-review",
             input={"company_id": c["id"], "name": c["name"], "ats": c["ats"]},
         ) as span:
             res = await client.review(company_block=company_block, name=c["name"],
-                                      ats=c["ats"], token=c["token"])
+                                      ats=c["ats"], token=c["token"],
+                                      display_name=c.get("display_name"),
+                                      about=c.get("about"),
+                                      web_description=c.get("web_description"))
             span.update(output={"verdict": res.verdict, "industry": res.industry},
                         metadata={"company_id": c["id"], "verdict": res.verdict,
                                   "confidence": res.confidence, "industry": res.industry})
@@ -86,6 +93,10 @@ def _review_user(conn, profile: dict) -> None:
     backlog = 0
     try:
         candidates = db.select_for_review(conn, user_id, pv, config.BATCH_CAP)
+        enriched = enrich_selected(conn, candidates)
+        if enriched:
+            conn.commit()  # persist grounding before the long, credit-gated review
+            log.info("enriched %s selected companies before review", enriched)
         company_block = build_company_block(profile.get("company_instructions"))
         client = CompanyReviewClient(model=profile.get("model_company"))
         results, halted = asyncio.run(

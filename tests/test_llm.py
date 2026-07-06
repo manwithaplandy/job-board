@@ -475,3 +475,132 @@ def test_stage1_batch_unrecoverable_numbered_list_still_raises():
     jobs = [{"id": "lever:agicap:foo", "title": "SRE", "company_name": "Acme", "location": None}]
     with pytest.raises(ValidationError):
         asyncio.run(rc.stage1_batch(profile_block="P", jobs=jobs))
+
+
+# ── Omission observability (J3): omitted-vs-explicit field visibility on the trace ──
+# Stage2Result fields role_category/seniority/work_arrangement default to real tokens
+# ("Other"/"unknown"), so an OMITTED field and an EXPLICIT "unknown" collapse to the same
+# post-default value. model_fields_set records exactly which keys the model emitted, so
+# set(model_fields) - model_fields_set is the omitted set — the load-bearing distinction.
+from observability.llm import _omission_metadata
+
+
+def _stage2_json_omitting_seniority() -> str:
+    """Valid Stage2Result JSON (all REQUIRED fields present) that OMITS 'seniority'."""
+    return (
+        '{"verdict":"approve","experience_match":"match",'
+        '"industry":"software_internet","industry_subcategory":"devtools_platforms",'
+        '"confidence":"high","reasoning":"x"}'
+    )
+
+
+def test_omission_metadata_distinguishes_omitted_from_explicit_unknown():
+    """The key assertion: an OMITTED 'seniority' appears in omitted_fields, while an
+    EXPLICIT 'seniority':'unknown' does NOT — even though both model_dump() to 'unknown'."""
+    resp = types.SimpleNamespace(
+        choices=[types.SimpleNamespace(finish_reason="stop")], salvaged=False)
+
+    # (a) OMITTED → present in omitted_fields, completeness < 1.0
+    omitted = Stage2Result.model_validate_json(_stage2_json_omitting_seniority())
+    msg = types.SimpleNamespace(parsed=omitted, refusal=None)
+    meta = _omission_metadata(Stage2Result, resp, msg)
+    assert "seniority" in meta["omitted_fields"]
+    assert meta["completeness"] < 1.0
+    assert meta["salvaged"] is False
+    assert meta["finish_reason"] == "stop"
+    # role_category/work_arrangement are also defaulted here → likewise omitted…
+    assert {"role_category", "work_arrangement"} <= set(meta["omitted_fields"])
+    # …but a REQUIRED field the model did emit is never "omitted".
+    assert "verdict" not in meta["omitted_fields"]
+
+    # (b) EXPLICIT "unknown" → NOT omitted (proves explicit-unknown != omitted)
+    explicit_json = _stage2_json_omitting_seniority()[:-1] + ',"seniority":"unknown"}'
+    explicit = Stage2Result.model_validate_json(explicit_json)
+    msg2 = types.SimpleNamespace(parsed=explicit, refusal=None)
+    meta2 = _omission_metadata(Stage2Result, resp, msg2)
+    assert explicit.seniority == "unknown"           # same post-default value…
+    assert "seniority" not in meta2["omitted_fields"]  # …but distinguished on the trace
+
+
+def test_omission_metadata_reads_salvaged_flag_and_absent_finish_reason():
+    """The salvage stand-in carries salvaged=True and choices[0].finish_reason=None."""
+    parsed = Stage2Result.model_validate_json(_stage2_json_omitting_seniority())
+    msg = types.SimpleNamespace(parsed=parsed, refusal=None)
+    resp = types.SimpleNamespace(
+        choices=[types.SimpleNamespace(finish_reason=None)], salvaged=True)
+    meta = _omission_metadata(Stage2Result, resp, msg)
+    assert meta["salvaged"] is True
+    assert meta["finish_reason"] is None
+
+
+def test_traced_clean_path_records_omission_metadata(monkeypatch):
+    """A normal (non-salvaged) traced call records salvaged=False, the finish_reason, and
+    omitted_fields/completeness — with no WARNING level."""
+    from observability import tracing, llm as obs_llm
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    parsed = Stage2Result.model_validate_json(_stage2_json_omitting_seniority())
+
+    class _Completions:
+        async def parse(self, **kwargs):
+            msg = types.SimpleNamespace(parsed=parsed, refusal=None)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=msg, finish_reason="stop")],
+                usage=None, id=None, model="m")
+
+    fake = types.SimpleNamespace(
+        beta=types.SimpleNamespace(chat=types.SimpleNamespace(completions=_Completions())))
+    asyncio.run(obs_llm.traced_structured_call(
+        fake, model="m", messages=[{"role": "user", "content": "hi"}],
+        schema=Stage2Result, name="t", metadata={}))
+
+    md = events["update"]["metadata"]
+    assert md["salvaged"] is False
+    assert md["finish_reason"] == "stop"
+    assert "seniority" in md["omitted_fields"]
+    assert md["completeness"] < 1.0
+    # a clean path is NOT flagged as a warning
+    assert events["update"].get("level") != "WARNING"
+
+
+def test_traced_salvage_path_flags_salvaged_and_warning(monkeypatch):
+    """A fenced response salvaged through _invoke records salvaged=True and level=WARNING on
+    the generation update, while still returning the recovered parsed object."""
+    from observability import tracing
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+
+    fenced = "```json\n" + _valid_stage2_json() + "\n```"
+    rc = ReviewClient(client=_client_returning(fenced), model_stage1="m1", model_stage2="m2")
+    out = asyncio.run(rc.stage2(profile_block="P", title="SRE", company="Acme",
+                                location="Remote", jd="Operate clusters"))
+    assert isinstance(out, Stage2Result) and out.verdict == "deny"
+
+    md = events["update"]["metadata"]
+    assert md["salvaged"] is True
+    assert md["finish_reason"] is None            # salvage stand-in has no finish_reason
+    assert events["update"]["level"] == "WARNING"
+    assert events["update"]["status_message"]     # a human-readable reason is attached

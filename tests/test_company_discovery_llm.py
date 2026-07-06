@@ -187,6 +187,87 @@ def test_instructions_use_confidence_enum_not_float():
     assert 'confidence="low"' in _INSTRUCTIONS
 
 
+def _capture_user_message(**review_kwargs) -> str:
+    """Run review() against a message-capturing stub; return the user message text."""
+    captured = {}
+
+    class _CapParse:
+        async def parse(self, **kw):
+            captured["messages"] = kw["messages"]
+            parsed = CompanyReviewResult(verdict="unknown", confidence="low", reasoning="x")
+            return _Resp(parsed)
+
+    client = type("Cl", (), {"beta": type("B", (), {
+        "chat": type("Ch", (), {"completions": _CapParse()})()
+    })()})()
+    rc = CompanyReviewClient(client=client, model="m")
+    asyncio.run(rc.review(company_block="P", **review_kwargs))
+    return captured["messages"][1]["content"]
+
+
+def test_review_user_message_uses_display_name_when_set():
+    user = _capture_user_message(name="acme-corp", ats="lever", token="acme",
+                                 display_name="Acme Corporation")
+    assert "Company: Acme Corporation" in user
+    assert "acme-corp" not in user  # raw slug name is hidden when a display name exists
+
+
+def test_review_user_message_falls_back_to_name_without_display_name():
+    user = _capture_user_message(name="Acme", ats="lever", token="acme")
+    assert "Company: Acme" in user
+
+
+def test_review_injects_about_as_untrusted_description():
+    user = _capture_user_message(name="Acme", ats="lever", token="acme",
+                                 about="Acme builds developer tools for CI/CD.")
+    assert "<company_description>" in user
+    assert "Acme builds developer tools for CI/CD." in user
+    assert "</company_description>" in user
+    assert "UNTRUSTED" in user
+
+
+def test_review_uses_web_description_when_no_about():
+    user = _capture_user_message(name="Acme", ats="lever", token="acme",
+                                 web_description="Acme is a fintech startup.")
+    assert "<company_description>" in user
+    assert "Acme is a fintech startup." in user
+
+
+def test_review_prefers_about_over_web_description():
+    user = _capture_user_message(name="Acme", ats="lever", token="acme",
+                                 about="ABOUT-TEXT", web_description="WEB-TEXT")
+    assert "ABOUT-TEXT" in user
+    assert "WEB-TEXT" not in user
+
+
+def test_review_omits_description_block_when_no_context():
+    user = _capture_user_message(name="Acme", ats="lever", token="acme")
+    assert "<company_description>" not in user
+    assert "UNTRUSTED" not in user
+
+
+def test_review_truncates_description_to_2000_chars():
+    user = _capture_user_message(name="Acme", ats="lever", token="acme", about="x" * 5000)
+    assert "x" * 2000 in user
+    assert "x" * 2001 not in user
+
+
+def test_instructions_opening_acknowledges_description_block():
+    # The opening line must no longer claim the model gets "only a company's name
+    # and its ATS slug" now that a <company_description> block can be present — it
+    # would contradict the verdict bullet that tells the model to judge from it.
+    assert "given only a company's name" not in _INSTRUCTIONS
+    assert "sometimes a" in _INSTRUCTIONS and "description block" in _INSTRUCTIONS
+
+
+def test_instructions_ground_unknown_on_provided_description():
+    # 'unknown' is only correct when there is no identifying description; a provided
+    # company_description that identifies the company must be judged from.
+    assert "company_description block is provided" in _INSTRUCTIONS
+    assert "do not answer 'unknown'" in _INSTRUCTIONS
+    assert "merely because the name is unfamiliar" in _INSTRUCTIONS
+
+
 def test_review_forwards_openrouter_cost_as_cost_details(monkeypatch):
     """OpenRouter returns the actual USD cost on resp.usage.cost; Langfuse has no
     price entry for OpenRouter-prefixed model slugs, so without forwarding this

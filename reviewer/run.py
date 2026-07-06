@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from observability import tracing
-from reviewer import config, db, entitlements, scoring
+from reviewer import config, db, entitlements, floors, scoring
 from reviewer.llm import OutOfCreditsError, ReviewClient, _is_out_of_credits, build_profile_block
 
 log = logging.getLogger("reviewer")
@@ -101,8 +101,13 @@ async def _stage2_inner(candidate: dict, profile_block: str, client,
         res.confidence = s2.confidence
         res.reasoning = s2.reasoning
         res.role_category = s2.role_category
-        res.seniority = s2.seniority
-        res.work_arrangement = s2.work_arrangement
+        # Deterministic write-time floors (plan J1/J2): recover work_arrangement /
+        # seniority when the model abstained ("unknown") but the answer is recoverable
+        # from the ATS remote flag or a single title ladder word. Applied HERE, not in
+        # the schema, so the LangFuse generation output keeps the raw model answer.
+        res.seniority = floors.floor_seniority(s2.seniority, candidate.get("title"))
+        res.work_arrangement = floors.floor_work_arrangement(
+            s2.work_arrangement, candidate.get("remote"))
         res.about = s2.about
         res.pay_min, res.pay_max = s2.pay_min, s2.pay_max
         res.pay_currency, res.pay_period = s2.pay_currency, s2.pay_period

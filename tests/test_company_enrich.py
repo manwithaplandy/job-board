@@ -6,6 +6,7 @@ exercised. The backfill's per-row decision (`plan_enrichment`) is DB-free and th
 scope query is validated behind `requires_db`.
 """
 import company_discovery.enrich as enrich
+import company_discovery.enrich_apply as ea
 import company_discovery.enrich_backfill as bf
 from company_discovery import db
 from job_discovery.models import Posting
@@ -140,42 +141,42 @@ def test_enrich_from_jd_ashby(monkeypatch):
 # backfill per-row decision (pure, DB-free)
 # --------------------------------------------------------------------------
 def test_plan_greenhouse_maps_to_ats_board(monkeypatch):
-    monkeypatch.setattr(bf, "ENRICHERS", {"greenhouse": lambda t: ("Acme", "about text")})
-    assert bf.plan_enrichment("greenhouse", "acme") == ("Acme", "about text", "ats_board")
+    monkeypatch.setattr(ea, "ENRICHERS", {"greenhouse": lambda t: ("Acme", "about text")})
+    assert ea.plan_enrichment("greenhouse", "acme") == ("Acme", "about text", "ats_board")
 
 
 def test_plan_lever_maps_to_jd_probe(monkeypatch):
-    monkeypatch.setattr(bf, "enrich_from_jd", lambda ats, token: (None, "jd about"))
-    assert bf.plan_enrichment("lever", "acme") == (None, "jd about", "jd_probe")
+    monkeypatch.setattr(ea, "enrich_from_jd", lambda ats, token: (None, "jd about"))
+    assert ea.plan_enrichment("lever", "acme") == (None, "jd about", "jd_probe")
 
 
 def test_plan_ashby_maps_to_jd_probe(monkeypatch):
-    monkeypatch.setattr(bf, "enrich_from_jd", lambda ats, token: (None, "jd about"))
-    assert bf.plan_enrichment("ashby", "acme") == (None, "jd about", "jd_probe")
+    monkeypatch.setattr(ea, "enrich_from_jd", lambda ats, token: (None, "jd about"))
+    assert ea.plan_enrichment("ashby", "acme") == (None, "jd about", "jd_probe")
 
 
 def test_plan_skips_when_enricher_returns_empty(monkeypatch):
-    monkeypatch.setattr(bf, "ENRICHERS", {"greenhouse": lambda t: (None, None)})
-    assert bf.plan_enrichment("greenhouse", "acme") is None
+    monkeypatch.setattr(ea, "ENRICHERS", {"greenhouse": lambda t: (None, None)})
+    assert ea.plan_enrichment("greenhouse", "acme") is None
 
 
 def test_plan_skips_when_enricher_raises(monkeypatch):
     def boom(t):
         raise RuntimeError("404 dead board")
 
-    monkeypatch.setattr(bf, "ENRICHERS", {"greenhouse": boom})
-    assert bf.plan_enrichment("greenhouse", "acme") is None
+    monkeypatch.setattr(ea, "ENRICHERS", {"greenhouse": boom})
+    assert ea.plan_enrichment("greenhouse", "acme") is None
 
 
 def test_plan_skips_unsupported_ats():
     # workday has an adapter but no board-metadata / JD-probe enricher.
-    assert bf.plan_enrichment("workday", "acme") is None
+    assert ea.plan_enrichment("workday", "acme") is None
 
 
 def test_plan_name_only_result_is_kept(monkeypatch):
     # A name-only board (about None) is still a usable enrichment.
-    monkeypatch.setattr(bf, "ENRICHERS", {"greenhouse": lambda t: ("Acme", None)})
-    assert bf.plan_enrichment("greenhouse", "acme") == ("Acme", None, "ats_board")
+    monkeypatch.setattr(ea, "ENRICHERS", {"greenhouse": lambda t: ("Acme", None)})
+    assert ea.plan_enrichment("greenhouse", "acme") == ("Acme", None, "ats_board")
 
 
 # --------------------------------------------------------------------------

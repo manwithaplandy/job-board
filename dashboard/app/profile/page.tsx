@@ -23,6 +23,7 @@ import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
 import { ResumeUploadField } from "@/components/rolefit/ResumeUploadField";
 import { DangerZone } from "@/components/account/DangerZone";
+import { AppearanceToggle } from "@/components/theme/AppearanceToggle";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Profile · Rolefit" };
@@ -494,6 +495,15 @@ export default async function ProfilePage() {
         </ProfileFormShell>
 
         <DangerZone />
+      </div>
+
+      <div style={cardStyle}>
+        <h2 style={titleStyle}>Appearance</h2>
+        <div style={subtitleStyle}>Choose how Rolefit looks on this device.</div>
+        <AppearanceToggle />
+        <div style={{ ...hintStyle, marginTop: 12 }}>
+          System follows your device and updates live; Light or Dark pin an override. Saved on this device.
+        </div>
       </div>
     </main>
     </>

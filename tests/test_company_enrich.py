@@ -191,6 +191,21 @@ def test_fetch_board_name_caps_length(monkeypatch):
     assert name is not None and len(name) == 200
 
 
+def test_fetch_board_name_rejects_generic_titles(monkeypatch):
+    # Some boards title the page, not the company (207 prod ashby boards were
+    # just "Jobs") — storing that is worse than the slug fallback.
+    for title in ("Jobs", "jobs", "Careers", "Job Board", "Careers Jobs"):
+        monkeypatch.setattr(enrich, "get_text",
+                            lambda url, t=title: f"<title>{t}</title>")
+        assert enrich.fetch_board_name("ashby", "t") is None, title
+
+
+def test_greenhouse_generic_board_name_becomes_none(monkeypatch):
+    monkeypatch.setattr(enrich, "get_json",
+                        lambda url: {"name": "Job Board", "content": "<p>About us.</p>"})
+    assert enrich.enrich_greenhouse("t") == (None, "About us.")
+
+
 def test_enrich_from_jd_includes_board_title_name(monkeypatch):
     posting = _posting("Eng", {"descriptionPlain": "We build infra."})
     monkeypatch.setattr(enrich, "ADAPTERS", {"ashby": lambda token: [posting]})

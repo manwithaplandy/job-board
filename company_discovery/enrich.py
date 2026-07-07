@@ -45,6 +45,13 @@ _BOARD_PAGES = {
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 _JOBS_SUFFIX_RE = re.compile(r"\s+jobs\s*$", re.IGNORECASE)
 
+# Board names that name the page, not the company ("Jobs", "Careers", …) — 207
+# prod ashby boards title their page just "Jobs". Storing one is worse than the
+# slug fallback, so such a name is rejected as no-name.
+_GENERIC_TITLES = frozenset({
+    "jobs", "careers", "job board", "current openings", "open positions", "openings",
+})
+
 
 def fetch_board_name(ats: str, token: str) -> str | None:
     """Company display name from the public job-board page <title>. Returns None
@@ -57,11 +64,18 @@ def fetch_board_name(ats: str, token: str) -> str | None:
     if not m:
         return None
     title = _JOBS_SUFFIX_RE.sub("", unescape(m.group(1)).strip())
-    return _clean(title[:_NAME_MAX])
+    return _clean_name(title[:_NAME_MAX])
 
 
 def _clean(value: str | None) -> str | None:
     return (value or "").strip() or None
+
+
+def _clean_name(value: str | None) -> str | None:
+    name = _clean(value)
+    if name is not None and name.lower() in _GENERIC_TITLES:
+        return None
+    return name
 
 
 def _about(html: str | None) -> str | None:
@@ -75,7 +89,7 @@ def enrich_greenhouse(token: str) -> tuple[str | None, str | None]:
     # fetches `/v1/boards/{token}/jobs?content=true`): the board root returns
     # {"name": ..., "content": <about html>}.
     data = get_json(f"https://boards-api.greenhouse.io/v1/boards/{token}")
-    return _clean(data.get("name")), _about(data.get("content"))
+    return _clean_name(data.get("name")), _about(data.get("content"))
 
 
 def enrich_workable(token: str) -> tuple[str | None, str | None]:
@@ -85,7 +99,7 @@ def enrich_workable(token: str) -> tuple[str | None, str | None]:
     data = get_json(
         f"https://apply.workable.com/api/v1/widget/accounts/{token}?details=true"
     )
-    return _clean(data.get("name")), _about(data.get("description"))
+    return _clean_name(data.get("name")), _about(data.get("description"))
 
 
 def enrich_smartrecruiters(token: str) -> tuple[str | None, str | None]:
@@ -99,7 +113,7 @@ def enrich_smartrecruiters(token: str) -> tuple[str | None, str | None]:
     if not first_id:
         return None, None
     detail = get_json(f"{base}/{first_id}")
-    name = _clean((detail.get("company") or {}).get("name"))
+    name = _clean_name((detail.get("company") or {}).get("name"))
     sections = (detail.get("jobAd") or {}).get("sections") or {}
     company_desc = sections.get("companyDescription") or {}
     return name, _about(company_desc.get("text"))

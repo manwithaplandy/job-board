@@ -72,6 +72,10 @@ export interface JobDetailProps {
   coverData: Record<string, TailoredCoverLetter>;
   coverError: Record<string, string>;
   onGenerateCover: (job: JobRow) => void;
+  // Human cover-letter edits (current/non-superseded only), keyed by job id, owned by the board.
+  coverEdited: Record<string, string>;
+  onCoverEditSaved: (jobId: string, text: string) => void;
+  onCoverEditReset: (jobId: string) => void;
   onPrepare: (job: JobRow) => void;
   // Single generation lock for this job (résumé/cover/prepare share one slot) + cancel.
   generating?: boolean;
@@ -112,6 +116,9 @@ export function JobDetail({
   coverData,
   coverError,
   onGenerateCover,
+  coverEdited,
+  onCoverEditSaved,
+  onCoverEditReset,
   onPrepare,
   generating,
   onCancelGeneration,
@@ -619,6 +626,9 @@ export function JobDetail({
             coverError={coverErrorMsg}
             onGenerateCover={() => onGenerateCover(job)}
             onRegenerateCover={() => onGenerateCover(job)}
+            coverEditedText={coverEdited[job.id] ?? null}
+            onCoverEditSaved={onCoverEditSaved}
+            onCoverEditReset={onCoverEditReset}
             onPrepare={() => onPrepare(job)}
             generating={generating}
             onCancelGeneration={onCancelGeneration}

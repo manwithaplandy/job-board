@@ -11,6 +11,7 @@ import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { atsLabel as atsLabelOf } from "@/lib/rolefit/ats";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
+import { CoverLetterEditor } from "./CoverLetterEditor";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -49,6 +50,11 @@ export interface ApplicationPanelProps {
   coverError?: string;
   onGenerateCover: () => void;
   onRegenerateCover: () => void;
+  // Human edit overlay (Phase: editable cover letters). Non-null = a CURRENT
+  // (non-superseded) edit that displays/downloads over the structured original.
+  coverEditedText: string | null;
+  onCoverEditSaved: (jobId: string, text: string) => void;
+  onCoverEditReset: (jobId: string) => void;
   // One-click: build + persist the application package
   onPrepare: () => void;
   // Single generation lock for this job (résumé/cover/prepare) + cancel + last per-leg result.
@@ -85,6 +91,9 @@ export function ApplicationPanel({
   coverError,
   onGenerateCover,
   onRegenerateCover,
+  coverEditedText,
+  onCoverEditSaved,
+  onCoverEditReset,
   onPrepare,
   generating,
   onCancelGeneration,
@@ -131,9 +140,9 @@ export function ApplicationPanel({
 
   // Cover-letter PDF download — shared helper handles the import + .txt fallback.
   const handleCoverDownload = async () => {
-    if (!coverData) return;
+    if (!coverData && !coverEditedText) return;
     const fname = `Cover Letter - ${job.company_name} - ${job.title}.pdf`.replace(/[\\/:*?"<>|]/g, " ");
-    const text = composeCoverLetterText(coverData);
+    const text = coverEditedText ?? composeCoverLetterText(coverData!);
     await downloadPdf(
       fname,
       (doc) => {
@@ -151,11 +160,19 @@ export function ApplicationPanel({
             y += 16;
           });
         };
-        writeBlock(coverData.greeting);
-        y += 8;
-        coverData.paragraphs.forEach((p) => { writeBlock(p); y += 10; });
-        writeBlock(coverData.closing);
-        writeBlock(coverData.signature);
+        if (coverEditedText) {
+          // Edited letters are plain text: render line-by-line, blank lines as spacing.
+          coverEditedText.split("\n").forEach((line) => {
+            if (line.trim() === "") { y += 10; return; }
+            writeBlock(line);
+          });
+        } else {
+          writeBlock(coverData!.greeting);
+          y += 8;
+          coverData!.paragraphs.forEach((p) => { writeBlock(p); y += 10; });
+          writeBlock(coverData!.closing);
+          writeBlock(coverData!.signature);
+        }
       },
       text,
     );
@@ -483,42 +500,73 @@ export function ApplicationPanel({
               <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
                 Cover letter ready — tailored to {job.company_name}
               </div>
-            </div>
-            <div
-              style={{
-                marginTop: "12px",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "12px",
-                padding: "15px 16px",
-                maxHeight: "260px",
-                overflowY: "auto",
-              }}
-            >
-              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>
-                {coverData.greeting}
-              </div>
-              {coverData.paragraphs.map((p, i) => (
-                <p
-                  key={i}
-                  style={{
-                    fontSize: "13px",
-                    lineHeight: 1.62,
-                    color: "var(--text-primary)",
-                    margin: "11px 0 0",
-                    fontWeight: 500,
-                  }}
+              {coverEditedText && (
+                <Chip
+                  color="var(--accent)"
+                  bg="var(--accent-bg)"
+                  border="var(--accent-border)"
+                  style={{ marginLeft: "auto", fontSize: "11px", fontWeight: 700, borderRadius: "6px", padding: "3px 8px" }}
                 >
-                  {p}
-                </p>
-              ))}
-              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500, marginTop: "11px" }}>
-                {coverData.closing}
-              </div>
-              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 700, marginTop: "2px" }}>
-                {coverData.signature}
-              </div>
+                  Edited
+                </Chip>
+              )}
             </div>
+            {coverEditedText ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "12px",
+                  padding: "15px 16px",
+                  maxHeight: "260px",
+                  overflowY: "auto",
+                  fontSize: "13px",
+                  lineHeight: 1.62,
+                  color: "var(--text-primary)",
+                  fontWeight: 500,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {coverEditedText}
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: "12px",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "12px",
+                  padding: "15px 16px",
+                  maxHeight: "260px",
+                  overflowY: "auto",
+                }}
+              >
+                <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>
+                  {coverData.greeting}
+                </div>
+                {coverData.paragraphs.map((p, i) => (
+                  <p
+                    key={i}
+                    style={{
+                      fontSize: "13px",
+                      lineHeight: 1.62,
+                      color: "var(--text-primary)",
+                      margin: "11px 0 0",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {p}
+                  </p>
+                ))}
+                <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500, marginTop: "11px" }}>
+                  {coverData.closing}
+                </div>
+                <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 700, marginTop: "2px" }}>
+                  {coverData.signature}
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
               {/* One-off small accent glow (unique geometry 0 3px 10px .26; no shared token —
                   --shadow-accent/-sm differ in geometry). Reads bright-blue on dark; a
@@ -529,7 +577,7 @@ export function ApplicationPanel({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => flashCopied("cover", composeCoverLetterText(coverData))}
+                onClick={() => flashCopied("cover", coverEditedText ?? composeCoverLetterText(coverData))}
               >
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
                   <rect x="5.2" y="5.2" width="8.6" height="8.6" rx="2" stroke="currentColor" strokeWidth="1.6" />
@@ -551,6 +599,14 @@ export function ApplicationPanel({
                 <span>↻</span>Regenerate
               </Button>
             </div>
+            <CoverLetterEditor
+              job={job}
+              letterText={coverEditedText ?? composeCoverLetterText(coverData)}
+              hasEdit={Boolean(coverEditedText)}
+              isAuthed={isAuthed}
+              onSaved={onCoverEditSaved}
+              onReset={onCoverEditReset}
+            />
           </div>
         )}
 

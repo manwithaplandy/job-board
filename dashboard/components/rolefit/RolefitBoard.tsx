@@ -204,6 +204,23 @@ export function RolefitBoard({
   });
   const [coverError, setCoverError] = useState<Record<string, string>>({});
 
+  // Human cover-letter edits (current/non-superseded only) — display + download override.
+  const [coverEdited, setCoverEdited] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of initialPackages) if (p.coverLetterEditedText) m[p.jobId] = p.coverLetterEditedText;
+    return m;
+  });
+  const handleCoverEditSaved = useCallback((jobId: string, text: string) => {
+    setCoverEdited((m) => ({ ...m, [jobId]: text }));
+  }, []);
+  const handleCoverEditReset = useCallback((jobId: string) => {
+    setCoverEdited((m) => {
+      if (!(jobId in m)) return m;
+      const { [jobId]: _gone, ...rest } = m;
+      return rest;
+    });
+  }, []);
+
   // Per-job accept-request lock: only the POST → 202 window (a few hundred ms).
   // Once the 202 lands, "generating" is owned by the GenerationToastProvider's
   // server-backed pending state, which survives navigation and reloads — the old
@@ -897,6 +914,16 @@ export function RolefitBoard({
   // "done" with the old artifact, matching the old hadResume/hadCover salvage.
   const applySettledReady = useCallback((g: GenerationJobView, pkg: ApplicationPackage) => {
     setPackages((p) => ({ ...p, [g.jobId]: pkg }));
+    // A regenerate supersedes the edit server-side; mirror it here so the fresh letter
+    // replaces the stale edit in the pane without a reload.
+    setCoverEdited((m) => {
+      if (pkg.coverLetterEditedText) return { ...m, [g.jobId]: pkg.coverLetterEditedText };
+      if (m[g.jobId]) {
+        const { [g.jobId]: _gone, ...rest } = m;
+        return rest;
+      }
+      return m;
+    });
     if (g.kind === "resume" || g.kind === "prepare") {
       if (pkg.resume) {
         setGenData((d) => ({ ...d, [g.jobId]: pkg.resume as TailoredResume }));
@@ -1216,6 +1243,9 @@ export function RolefitBoard({
                     coverData={coverData}
                     coverError={coverError}
                     onGenerateCover={handleGenerateCover}
+                    coverEdited={coverEdited}
+                    onCoverEditSaved={handleCoverEditSaved}
+                    onCoverEditReset={handleCoverEditReset}
                     onPrepare={handlePrepare}
                     generating={requestingId === selectedJobWithDetail.id || jobBusy(selectedJobWithDetail.id)}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}

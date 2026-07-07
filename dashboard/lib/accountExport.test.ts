@@ -15,6 +15,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
     company_reviews: [{ user_id: "user-a", company_name: "Acme" }],
     application_packages: [{ user_id: "user-a", id: 1 }],
     resume_scores: [],
+    cover_letter_edits: [{ user_id: "user-a", job_id: "j1", edited_text: "edited" }],
     usage_counters: [{ user_id: "user-a", kind: "review", n: 3 }],
     subscriptions: [{ plan: "pro", status: "active" }],
     review_requests: [],
@@ -29,6 +30,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
     company_reviews: [],
     application_packages: [],
     resume_scores: [],
+    cover_letter_edits: [],
     usage_counters: [],
     subscriptions: [],
     review_requests: [],
@@ -38,7 +40,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
   "empty-user": {
     profiles: [{ user_id: "empty-user", resume_text: null }],
     job_reviews: [], review_corrections: [], company_reviews: [],
-    application_packages: [], resume_scores: [], usage_counters: [],
+    application_packages: [], resume_scores: [], cover_letter_edits: [], usage_counters: [],
     subscriptions: [], review_requests: [], review_runs: [], invite_redemptions: [],
   },
 };
@@ -52,6 +54,7 @@ function makeTx(userId: string) {
     if (/FROM company_reviews/.test(sql)) return rows.company_reviews ?? [];
     if (/FROM application_packages/.test(sql)) return rows.application_packages ?? [];
     if (/FROM resume_scores/.test(sql)) return rows.resume_scores ?? [];
+    if (/FROM cover_letter_edits/.test(sql)) return rows.cover_letter_edits ?? [];
     if (/FROM usage_counters/.test(sql)) return rows.usage_counters ?? [];
     if (/FROM subscriptions/.test(sql)) return rows.subscriptions ?? [];
     if (/FROM review_requests/.test(sql)) return rows.review_requests ?? [];

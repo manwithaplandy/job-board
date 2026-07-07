@@ -30,6 +30,7 @@ export interface AccountExport {
   company_reviews: unknown[];
   application_packages: unknown[];
   resume_scores: unknown[];
+  cover_letter_edits: unknown[];
   usage_counters: unknown[];
   subscriptions: unknown;
   review_requests: unknown[];
@@ -85,7 +86,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
   return withUserSql(userId, async (tx) => {
     const [
       profiles, jobReviews, reviewCorrections, companyReviews,
-      applicationPackages, resumeScores, usageCounters, subscriptions,
+      applicationPackages, resumeScores, coverLetterEdits, usageCounters, subscriptions,
       reviewRequests, generationJobs, reviewRuns,
     ] = await Promise.all([
       tx`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`,
@@ -100,6 +101,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
          WHERE cr.user_id = ${userId}::uuid`,
       tx`SELECT * FROM application_packages WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM resume_scores WHERE user_id = ${userId}::uuid`,
+      tx`SELECT * FROM cover_letter_edits WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM usage_counters WHERE user_id = ${userId}::uuid ORDER BY day DESC`,
       // Subscription SUMMARY only — no Stripe ids in the export.
       tx`SELECT plan, status, current_period_end, cancel_at_period_end, created_at, updated_at
@@ -115,6 +117,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       company_reviews: companyReviews as unknown[],
       application_packages: applicationPackages as unknown[],
       resume_scores: resumeScores as unknown[],
+      cover_letter_edits: coverLetterEdits as unknown[],
       usage_counters: usageCounters as unknown[],
       subscriptions: (subscriptions[0] as unknown) ?? null,
       review_requests: reviewRequests as unknown[],

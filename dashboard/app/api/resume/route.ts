@@ -7,6 +7,7 @@ import { reserveGenerations, refundGenerations } from "@/lib/usage";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
+import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 
@@ -26,8 +27,14 @@ export async function POST(req: Request) {
   if (!claims) return Response.json({ error: "sign in to generate a résumé" }, { status: 401 });
   const userId = claims.id;
 
-  const { jobId } = (await req.json().catch(() => ({}))) as { jobId?: string };
+  const { jobId, instructions: rawInstructions } =
+    (await req.json().catch(() => ({}))) as { jobId?: string; instructions?: unknown };
   if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
+  // Per-job generation instructions ride the generate request (the sole instruction
+  // source — profile.instructions is reviewer-only and no longer reaches generation).
+  const norm = normalizeInstructions(rawInstructions, "résumé");
+  if (!norm.ok) return Response.json({ error: norm.error }, { status: 400 });
+  const instructions = norm.value;
 
   const [profile, job] = await Promise.all([getProfile(userId), getJobForResume(jobId, userId)]);
   if (!profile?.resume_text) {
@@ -88,6 +95,7 @@ export async function POST(req: Request) {
         job: { title: job.title, company: job.company_name, description: job.description },
         model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
         apiKey,
+        instructions,
       });
 
       await upsertApplicationPackage(userId, jobId, {
@@ -98,6 +106,7 @@ export async function POST(req: Request) {
         prefilledAnswers: null,
         applyUrl: null,
         resumeTraceId: traceId,
+        resumeInstructions: instructions,
         profileVersion: profile.profile_version,
       });
       // The slot was reserved (charged) up front; a success keeps it.

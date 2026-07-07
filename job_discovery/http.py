@@ -31,6 +31,7 @@ def _request(
     *,
     retries: int = _DEFAULT_RETRIES,
     backoff: float = _DEFAULT_BACKOFF,
+    parse=None,
     **kw: Any,
 ) -> Any:
     """Send an HTTP request with retry/back-off, using the shared client.
@@ -47,7 +48,7 @@ def _request(
         try:
             resp = _client.request(method, url, **kw)
             resp.raise_for_status()
-            return resp.json()
+            return parse(resp) if parse is not None else resp.json()
         except httpx.HTTPStatusError as e:
             last_exc = e
             code = e.response.status_code
@@ -76,6 +77,20 @@ def get_json(
     timeout: float = _TIMEOUT,
 ) -> Any:
     return _request("GET", url, retries=retries, backoff=backoff, timeout=timeout)
+
+
+def get_text(
+    url: str,
+    *,
+    retries: int = _DEFAULT_RETRIES,
+    backoff: float = _DEFAULT_BACKOFF,
+    timeout: float = _TIMEOUT,
+) -> str:
+    """GET a page and return its body text. Same retry/backoff contract as
+    get_json — used for ATS board HTML pages that carry the company name in
+    <title> (lever/ashby expose no JSON org-name endpoint)."""
+    return _request("GET", url, retries=retries, backoff=backoff, timeout=timeout,
+                    parse=lambda r: r.text)
 
 
 def post_json(

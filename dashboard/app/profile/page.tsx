@@ -319,6 +319,7 @@ export default async function ProfilePage() {
 
           <label style={fieldStyle}>
             <span style={labelTextStyle}>Instructions (focus / avoid)</span>
+            <span style={hintStyle}>Used by the job reviewer to decide which roles are relevant — not used to write your résumé or cover letters.</span>
             <textarea
               className="rf-focusable"
               name="instructions"

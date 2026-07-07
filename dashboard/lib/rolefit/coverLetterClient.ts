@@ -19,7 +19,7 @@ export async function generateCoverLetter(args: {
   model: string;
   apiKey: string;
   fetchImpl?: typeof fetch;
-}): Promise<TailoredCoverLetter> {
+}): Promise<{ letter: TailoredCoverLetter; traceId: string | null }> {
   const { system, user } = buildCoverLetterPrompt({
     resumeText: args.resumeText,
     candidateName: args.candidateName,
@@ -53,13 +53,13 @@ export async function generateCoverLetter(args: {
   // BOTH the standalone cover-letter route AND the prepare route's cover-letter leg
   // get it with no route edits. propagateAttributes stamps a trace-level
   // `generated_at` (updateActiveTrace does not exist in @langfuse/tracing).
-  if (!tracingEnabled()) return runGeneration();
+  if (!tracingEnabled()) return { letter: await runGeneration(), traceId: null };
   return startActiveObservation("cover-letter", (span) => {
     span.update({ input: { title: args.job.title, company: args.job.company, description: args.job.description, background: args.resumeText } });
     return propagateAttributes({ metadata: { generated_at: new Date().toISOString() } }, async () => {
       const letter = await runGeneration();
       span.update({ output: composeCoverLetterText(letter) });
-      return letter;
+      return { letter, traceId: span.traceId };
     });
   }, { asType: "span" });
 }

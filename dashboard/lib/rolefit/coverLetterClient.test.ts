@@ -1,5 +1,15 @@
 // dashboard/lib/rolefit/coverLetterClient.test.ts
 import { describe, expect, test, vi } from "vitest";
+
+// This suite covers the tracing-OFF return path (traceId === null). tracingEnabled()
+// keys off LANGFUSE_PUBLIC_KEY/SECRET_KEY, which the langfuse-cli creds export into a
+// local shell — pin it false so the suite is deterministic regardless of ambient env.
+// The tracing-ON path lives in coverLetterClient.tracing.test.ts (which pins it true).
+vi.mock("@/lib/observability", () => ({
+  tracingEnabled: () => false,
+  flushLangfuseTraces: async () => {},
+}));
+
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 
 const LETTER = {
@@ -29,8 +39,9 @@ describe("generateCoverLetter", () => {
   test("posts model + messages + response_format and returns parsed letter", async () => {
     const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(LETTER) } }] });
     const out = await generateCoverLetter({ ...args, fetchImpl: f });
-    expect(out.greeting).toBe("Dear Hiring Manager,");
-    expect(out.paragraphs).toHaveLength(2);
+    expect(out.letter.greeting).toBe("Dear Hiring Manager,");
+    expect(out.letter.paragraphs).toHaveLength(2);
+    expect(out.traceId).toBeNull(); // tracing is off in this suite
     const call = (f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
     const body = JSON.parse((call[1] as RequestInit).body as string);
     expect(body.model).toBe("test/model");

@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const admin = vi.hoisted(() => ({ isAdmin: true }));
-
 const sqlMock = vi.fn();
 vi.mock("@/lib/db", () => {
   const tx = Object.assign((...a: unknown[]) => sqlMock(...a), { json: (v: unknown) => v });
@@ -9,9 +7,7 @@ vi.mock("@/lib/db", () => {
 });
 vi.mock("@/lib/auth", () => ({
   requireUserId: vi.fn(async () => "u1"),
-  getUserClaims: vi.fn(async () => ({ id: "u1", email: "a@x.com" })),
 }));
-vi.mock("@/lib/admin", () => ({ isAdmin: () => admin.isAdmin }));
 vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: async () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const upsertMock = vi.fn(async () => undefined);
@@ -37,7 +33,6 @@ beforeEach(() => {
   sqlMock.mockReset();
   upsertMock.mockReset();
   upsertMock.mockResolvedValue(undefined);
-  admin.isAdmin = true;
 });
 
 describe("saveCoverLetterEdit", () => {
@@ -55,7 +50,7 @@ describe("saveCoverLetterEdit", () => {
     await expect(saveCoverLetterEdit("j1", "Edited.")).rejects.toThrow(/no cover letter/i);
   });
 
-  it("persists the edit and pushes the golden item (admin): expectedOutput = the edit", async () => {
+  it("persists the edit and pushes the golden item: expectedOutput = the edit", async () => {
     sqlMock.mockResolvedValueOnce([SRC_ROW]).mockResolvedValueOnce(undefined); // SELECT, then upsert
     const res = await saveCoverLetterEdit("j1", "Dear Hiring Manager,\n\nEdited body.", "note");
     expect(res).toEqual({ ok: true, langfuseSynced: true });
@@ -81,12 +76,11 @@ describe("saveCoverLetterEdit", () => {
     expect(res).toEqual({ ok: true, langfuseSynced: false });
   });
 
-  it("a NON-admin persists the row but never pushes to the shared dataset", async () => {
-    admin.isAdmin = false;
+  it("any authenticated user's edit pushes to the shared dataset", async () => {
     sqlMock.mockResolvedValueOnce([SRC_ROW]).mockResolvedValueOnce(undefined);
     const res = await saveCoverLetterEdit("j1", "Edited.");
     expect(sqlMock).toHaveBeenCalledTimes(2); // SELECT + INSERT still ran
-    expect(upsertMock).not.toHaveBeenCalled();
+    expect(upsertMock).toHaveBeenCalledOnce();
     expect(res).toEqual({ ok: true, langfuseSynced: true });
   });
 

@@ -1,8 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUserId, getUserClaims } from "@/lib/auth";
-import { isAdmin } from "@/lib/admin";
+import { requireUserId } from "@/lib/auth";
 import { withUserSql } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { parseTailoredCoverLetter } from "@/lib/rolefit/packageCodec";
@@ -16,13 +15,13 @@ import { upsertCoverLetterGoldenItem } from "@/lib/coverLetterGoldenDataset";
 const EDITED_TEXT_MAX_LENGTH = 20_000;
 
 // Persist a human EDIT of the generated cover letter (overlay; never mutates
-// application_packages) and — for ADMINS only — push it to the SHARED LangFuse
-// cover-letter-golden dataset as the expected_output. DB commits first, so a LangFuse
-// failure never loses the edit — it returns langfuseSynced=false and is reconciled by
-// `scripts/calibrate-cover-letter-judge.ts --sync`. Structured exactly like
-// saveResumeScore (app/actions/resumeScores.ts), incl. the tenant eval-poisoning gate:
-// the shared dataset only ever receives admin-authored edits; a normal user's edit
-// still persists and overlays THEIR OWN board.
+// application_packages) and push it to the SHARED LangFuse cover-letter-golden dataset
+// as the expected_output. EVERY authenticated user's edit is golden signal here — the
+// evals are a proxy for user preference, so each user's edit is exactly the "ideal
+// letter" we want the dataset to learn from. The push is best-effort and runs AFTER the
+// DB transaction commits, so a LangFuse failure never loses the edit — it returns
+// langfuseSynced=false and is reconciled by `scripts/calibrate-cover-letter-judge.ts
+// --sync`. Structured like saveResumeScore (app/actions/resumeScores.ts).
 export async function saveCoverLetterEdit(
   jobId: string,
   editedText: string,
@@ -88,33 +87,32 @@ export async function saveCoverLetterEdit(
     return { ...s, originalText };
   });
 
-  // Admin-only push to the shared golden dataset. Non-admins: DB row persisted above,
-  // nothing to reconcile → langfuseSynced stays true.
+  // Push this edit to the shared golden dataset as the expected_output. Best-effort:
+  // the DB row is already committed above, so a LangFuse failure only flips
+  // langfuseSynced=false (reconciled later by the --sync script) — never lost.
   let langfuseSynced = true;
-  if (isAdmin(await getUserClaims())) {
-    try {
-      const input: CoverLetterGoldenInput = {
-        background: src.resume_text,
-        candidateName: src.full_name,
-        instructions: src.cover_letter_instructions,
-        job: {
-          title: src.title, company: src.company_name, description: src.description,
-          about: src.about, requirements: src.requirements,
-          skillGaps: src.skill_gaps, redFlags: src.red_flags,
-        },
-        model: src.model_cover,
-      };
-      await upsertCoverLetterGoldenItem(
-        buildCoverLetterGoldenItem({
-          userId, jobId, input, editedText: text, comment,
-          traceId: src.cover_letter_trace_id, model: src.model_cover,
-          originalText: src.originalText, editedAt,
-        }),
-      );
-    } catch (e) {
-      console.error("cover-letter-golden dataset upsert failed", e);
-      langfuseSynced = false;
-    }
+  try {
+    const input: CoverLetterGoldenInput = {
+      background: src.resume_text,
+      candidateName: src.full_name,
+      instructions: src.cover_letter_instructions,
+      job: {
+        title: src.title, company: src.company_name, description: src.description,
+        about: src.about, requirements: src.requirements,
+        skillGaps: src.skill_gaps, redFlags: src.red_flags,
+      },
+      model: src.model_cover,
+    };
+    await upsertCoverLetterGoldenItem(
+      buildCoverLetterGoldenItem({
+        userId, jobId, input, editedText: text, comment,
+        traceId: src.cover_letter_trace_id, model: src.model_cover,
+        originalText: src.originalText, editedAt,
+      }),
+    );
+  } catch (e) {
+    console.error("cover-letter-golden dataset upsert failed", e);
+    langfuseSynced = false;
   }
 
   revalidatePath("/");

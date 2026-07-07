@@ -30,7 +30,7 @@ import { resolveLangfuseHost } from "../lib/langfuseHost.ts";
 // résumé calibrate script predates that. Scripts run operator-side with the direct
 // connection, same trust level as calibrate-resume-judge.ts.
 import { serviceSql } from "../lib/db.ts";
-import { generateCoverLetter } from "../lib/rolefit/coverLetterClient.ts";
+import { generateCoverLetter, DEFAULT_COVER_MODEL } from "../lib/rolefit/coverLetterClient.ts";
 import { callOpenRouterStructured } from "../lib/rolefit/openrouterClient.ts";
 import { composeCoverLetterText } from "../lib/rolefit/coverLetterText.ts";
 import {
@@ -218,11 +218,11 @@ async function run(): Promise<void> {
   const lines: string[] = [];
   for (const item of items) {
     const input = item.input;
-    if (!input?.background || !input.job?.title) {
-      console.warn(`skipping ${item.id}: incomplete replay input`);
+    if (!input?.background || !input.job?.title || !item.expectedOutput?.cover_letter) {
+      console.warn(`skipping ${item.id}: incomplete replay input or missing golden cover_letter`);
       continue;
     }
-    const model = modelOverride ?? input.model ?? "anthropic/claude-haiku-4.5";
+    const model = modelOverride ?? input.model ?? DEFAULT_COVER_MODEL;
     const { letter } = await generateCoverLetter({
       resumeText: input.background,
       candidateName: input.candidateName,

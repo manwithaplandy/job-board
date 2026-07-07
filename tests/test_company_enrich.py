@@ -184,6 +184,13 @@ def test_fetch_board_name_unsupported_ats_no_fetch(monkeypatch):
     assert enrich.fetch_board_name("greenhouse", "t") is None
 
 
+def test_fetch_board_name_caps_length(monkeypatch):
+    monkeypatch.setattr(enrich, "get_text",
+                        lambda url: "<title>" + ("x" * 500) + "</title>")
+    name = enrich.fetch_board_name("lever", "t")
+    assert name is not None and len(name) == 200
+
+
 def test_enrich_from_jd_includes_board_title_name(monkeypatch):
     posting = _posting("Eng", {"descriptionPlain": "We build infra."})
     monkeypatch.setattr(enrich, "ADAPTERS", {"ashby": lambda token: [posting]})

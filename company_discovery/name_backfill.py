@@ -28,7 +28,7 @@ log = logging.getLogger("name_backfill")
 # Commit cadence (rows written) so a long run is durable and resumable.
 _COMMIT_EVERY = 50
 
-_SCOPE_SQL = ("SELECT id, name, ats, token FROM companies "
+_SCOPE_SQL = ("SELECT id, ats, token FROM companies "
               "WHERE active AND display_name IS NULL")
 _UPDATE_SQL = ("UPDATE companies SET display_name = %s "
                "WHERE id = %s AND display_name IS NULL")
@@ -71,6 +71,8 @@ def main() -> None:
                     continue
                 with conn.cursor() as cur:
                     cur.execute(_UPDATE_SQL, (name, futures[fut]["id"]))
+                    if cur.rowcount == 0:  # lost the race to the cron / a rerun — already named
+                        continue
                 updated += 1
                 if updated % _COMMIT_EVERY == 0:
                     conn.commit()

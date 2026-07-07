@@ -25,6 +25,10 @@ log = logging.getLogger("company_discovery.enrich")
 # block at 2000 chars (company_discovery/llm.py), so anything longer is unused.
 _ABOUT_MAX = 2000
 
+# Cap stored display name. Board <title> text is untrusted external input into an
+# uncapped TEXT column; this mirrors _ABOUT_MAX's role for the about-path.
+_NAME_MAX = 200
+
 # ATSes with no board-level name/about JSON endpoint — their company identity is
 # derived from a one-shot probe of the job board (handled by enrich_from_jd, NOT the
 # ENRICHERS table below): the about text comes from a posting's JD and the display
@@ -52,7 +56,8 @@ def fetch_board_name(ats: str, token: str) -> str | None:
     m = _TITLE_RE.search(get_text(page.format(token=token)))
     if not m:
         return None
-    return _clean(_JOBS_SUFFIX_RE.sub("", unescape(m.group(1)).strip()))
+    title = _JOBS_SUFFIX_RE.sub("", unescape(m.group(1)).strip())
+    return _clean(title[:_NAME_MAX])
 
 
 def _clean(value: str | None) -> str | None:

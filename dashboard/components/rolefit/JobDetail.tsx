@@ -72,6 +72,12 @@ export interface JobDetailProps {
   coverData: Record<string, TailoredCoverLetter>;
   coverError: Record<string, string>;
   onGenerateCover: (job: JobRow) => void;
+  // Per-job generation instructions (maps keyed by job id, owned by the board) — the value
+  // rides the next generate/regenerate/prepare request.
+  resumeInstructions: Record<string, string>;
+  coverInstructions: Record<string, string>;
+  onResumeInstructionsChange: (jobId: string, v: string) => void;
+  onCoverInstructionsChange: (jobId: string, v: string) => void;
   // Human cover-letter edits (current/non-superseded only), keyed by job id, owned by the board.
   coverEdited: Record<string, string>;
   onCoverEditSaved: (jobId: string, text: string) => void;
@@ -116,6 +122,10 @@ export function JobDetail({
   coverData,
   coverError,
   onGenerateCover,
+  resumeInstructions,
+  coverInstructions,
+  onResumeInstructionsChange,
+  onCoverInstructionsChange,
   coverEdited,
   onCoverEditSaved,
   onCoverEditReset,
@@ -626,6 +636,10 @@ export function JobDetail({
             coverError={coverErrorMsg}
             onGenerateCover={() => onGenerateCover(job)}
             onRegenerateCover={() => onGenerateCover(job)}
+            resumeInstructions={resumeInstructions[job.id] ?? ""}
+            onResumeInstructionsChange={(v) => onResumeInstructionsChange(job.id, v)}
+            coverInstructions={coverInstructions[job.id] ?? ""}
+            onCoverInstructionsChange={(v) => onCoverInstructionsChange(job.id, v)}
             coverEditedText={coverEdited[job.id] ?? null}
             onCoverEditSaved={onCoverEditSaved}
             onCoverEditReset={onCoverEditReset}

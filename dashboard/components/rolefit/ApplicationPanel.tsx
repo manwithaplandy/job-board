@@ -12,6 +12,7 @@ import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { atsLabel as atsLabelOf } from "@/lib/rolefit/ats";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
 import { CoverLetterEditor } from "./CoverLetterEditor";
+import { GenerationInstructions } from "./GenerationInstructions";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -44,6 +45,11 @@ export interface ApplicationPanelProps {
   resumeCopyLabel: string;
   usingSample: boolean;
   onOpenProfile: () => void;
+  // Per-job generation instructions (ride the next generate/regenerate/prepare request).
+  resumeInstructions: string;
+  onResumeInstructionsChange: (v: string) => void;
+  coverInstructions: string;
+  onCoverInstructionsChange: (v: string) => void;
   // Cover letter (state owned by the board, keyed by job id)
   coverState: string | undefined;
   coverData: TailoredCoverLetter | undefined;
@@ -86,6 +92,10 @@ export function ApplicationPanel({
   resumeCopyLabel,
   usingSample,
   onOpenProfile,
+  resumeInstructions,
+  onResumeInstructionsChange,
+  coverInstructions,
+  onCoverInstructionsChange,
   coverState,
   coverData,
   coverError,
@@ -359,6 +369,8 @@ export function ApplicationPanel({
         copyLabel={resumeCopyLabel}
         usingSample={usingSample}
         onOpenProfile={onOpenProfile}
+        instructions={resumeInstructions}
+        onInstructionsChange={onResumeInstructionsChange}
         generating={generating}
         onCancelGeneration={onCancelGeneration}
       />
@@ -385,6 +397,7 @@ export function ApplicationPanel({
               >
                 A focused letter that ties your background to this role.
               </div>
+              <GenerationInstructions value={coverInstructions} onChange={onCoverInstructionsChange} kind="cover letter" />
             </div>
             <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
               <span style={{ fontSize: "15px" }}>✦</span>Generate cover letter
@@ -599,6 +612,7 @@ export function ApplicationPanel({
                 <span>↻</span>Regenerate
               </Button>
             </div>
+            <GenerationInstructions value={coverInstructions} onChange={onCoverInstructionsChange} kind="cover letter" />
             <CoverLetterEditor
               job={job}
               letterText={coverEditedText ?? composeCoverLetterText(coverData)}

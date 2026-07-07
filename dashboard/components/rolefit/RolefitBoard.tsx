@@ -221,6 +221,25 @@ export function RolefitBoard({
     });
   }, []);
 
+  // Per-job generation instructions. Seeded from the persisted package value; typing
+  // is local state that rides the NEXT generate request (the route persists it).
+  const [resumeInstructions, setResumeInstructions] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of initialPackages) if (p.resumeInstructions) m[p.jobId] = p.resumeInstructions;
+    return m;
+  });
+  const [coverInstructions, setCoverInstructions] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of initialPackages) if (p.coverLetterInstructions) m[p.jobId] = p.coverLetterInstructions;
+    return m;
+  });
+  const handleResumeInstructionsChange = useCallback((jobId: string, v: string) => {
+    setResumeInstructions((m) => ({ ...m, [jobId]: v }));
+  }, []);
+  const handleCoverInstructionsChange = useCallback((jobId: string, v: string) => {
+    setCoverInstructions((m) => ({ ...m, [jobId]: v }));
+  }, []);
+
   // Per-job accept-request lock: only the POST → 202 window (a few hundred ms).
   // Once the 202 lands, "generating" is owned by the GenerationToastProvider's
   // server-backed pending state, which survives navigation and reloads — the old
@@ -793,7 +812,7 @@ export function RolefitBoard({
       const res = await fetch("/api/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id }),
+        body: JSON.stringify({ jobId: job.id, instructions: resumeInstructions[job.id]?.trim() || undefined }),
       });
       if (res.status === 202) {
         // Accepted: hand tracking to the provider (immediate pending + prompt poll).
@@ -820,7 +839,7 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, genData, showUpsell, tracker]);
+  }, [beginRequest, endRequest, genData, resumeInstructions, showUpsell, tracker]);
 
   // Cover-letter generation — mirrors handleGenerate against /api/cover-letter (D7).
   const handleGenerateCover = useCallback(async (job: JobRow) => {
@@ -831,7 +850,7 @@ export function RolefitBoard({
       const res = await fetch("/api/cover-letter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id }),
+        body: JSON.stringify({ jobId: job.id, instructions: coverInstructions[job.id]?.trim() || undefined }),
       });
       if (res.status === 202) {
         const body: unknown = await res.json().catch(() => null);
@@ -855,7 +874,7 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, coverData, showUpsell, tracker]);
+  }, [beginRequest, endRequest, coverData, coverInstructions, showUpsell, tracker]);
 
   // "Prepare application" — build + PERSIST the package server-side. Async accept
   // contract like handleGenerate: the route reserves BOTH kinds synchronously, 202s
@@ -873,7 +892,11 @@ export function RolefitBoard({
       const res = await fetch("/api/application/prepare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id }),
+        body: JSON.stringify({
+          jobId: job.id,
+          resumeInstructions: resumeInstructions[job.id]?.trim() || undefined,
+          coverLetterInstructions: coverInstructions[job.id]?.trim() || undefined,
+        }),
       });
       if (res.status === 202) {
         const body: unknown = await res.json().catch(() => null);
@@ -906,7 +929,7 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, genData, coverData, showActionError, showUpsell, tracker]);
+  }, [beginRequest, endRequest, genData, coverData, resumeInstructions, coverInstructions, showActionError, showUpsell, tracker]);
 
   // Land a settled generation's outcome in the panes. 'ready' reloads the persisted
   // package (the 202 carried no content); per-leg pane states derive from what the
@@ -1243,6 +1266,10 @@ export function RolefitBoard({
                     coverData={coverData}
                     coverError={coverError}
                     onGenerateCover={handleGenerateCover}
+                    resumeInstructions={resumeInstructions}
+                    coverInstructions={coverInstructions}
+                    onResumeInstructionsChange={handleResumeInstructionsChange}
+                    onCoverInstructionsChange={handleCoverInstructionsChange}
                     coverEdited={coverEdited}
                     onCoverEditSaved={handleCoverEditSaved}
                     onCoverEditReset={handleCoverEditReset}

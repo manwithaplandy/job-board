@@ -42,7 +42,7 @@
 | `migrations/2026-07-07-cover-letter-edits.sql` | overlay table + 3 `application_packages` columns + RLS/grants |
 | `dashboard/lib/rolefit/coverLetterScore.ts` (+`.test.ts`) | runtime-pure: dataset name, judge weights, `coverLetterOverall`, golden-item builder |
 | `dashboard/lib/coverLetterGoldenDataset.ts` (+`.test.ts`) | LangFuse dataset upsert (no-op without keys) |
-| `dashboard/lib/rolefit/coverLetterJudgeRubric.ts` | reference-based judge prompt + score-name constants + variable substitution |
+| `dashboard/lib/rolefit/coverLetterJudgeRubric.ts` (+`.test.ts`) | reference-based judge prompt + score-name constants + variable substitution (function replacers) |
 | `dashboard/lib/rolefit/generationInstructions.ts` (+`.test.ts`) | shared request-body instruction normalizer (cap 4000, blank→null) |
 | `dashboard/app/actions/coverLetterEdits.ts` (+ `dashboard/lib/coverLetterEdits.action.test.ts`) | `saveCoverLetterEdit` / `deleteCoverLetterEdit` server actions |
 | `dashboard/components/rolefit/CoverLetterEditor.tsx` (+`.test.tsx`) | textarea editor + save/cancel/reset, calls the actions |
@@ -80,7 +80,7 @@ Standalone:             Task 17 (fix calibrate-resume-judge.ts — pre-existing 
 Final:                  Task 18 (full sweep)
 ```
 
-Dependencies stated per task. If workstreams are handed to parallel subagents: WS2 (Tasks 10–13) and WS4-UI (Tasks 14–15) both modify `ApplicationPanel.tsx`/`JobDetail.tsx`/`RolefitBoard.tsx` — run Task 15 after Task 13 (or give both to one agent). Everything else is file-disjoint after Tasks 1–7.
+Dependencies stated per task. If workstreams are handed to parallel subagents, three ordering edges matter: (a) WS2 (Tasks 10–13) and WS4-UI (Tasks 14–15) both modify `ApplicationPanel.tsx`/`JobDetail.tsx`/`RolefitBoard.tsx` — run Task 15 after Task 13 (or give both to one agent); (b) **Task 11 (WS2) imports Tasks 8 + 9 (WS3)** — don't start the save-action task before `coverLetterScore`/`coverLetterGoldenDataset` land; (c) **Task 16 (WS3) imports Task 2 (WS1)**'s new `generateCoverLetter` return shape. Everything else is file-disjoint after Tasks 1–7.
 
 ---
 
@@ -916,43 +916,60 @@ git commit -m "feat(resume): route accepts + persists per-job generation instruc
 
 - [ ] **Step 1: Update the prepare route test (failing first)**
 
+⚠️ This test's scaffolding differs from the cover/résumé route tests: it uses a `state = vi.hoisted(...)` mock object (NOT `mocks.*`), a **zero-arg** `req()` that hardcodes `{ jobId: "job-1" }` (line 136), and background legs run in captured `after()` callbacks drained by the existing `flushBackground()` helper (line 143). Its only job fixture is `ats: "lever"` (line 40), so the prefill leg is SKIPPED by default — the prefill test MUST force the Greenhouse path or it asserts nothing.
+
 In `dashboard/app/api/application/prepare/route.test.ts`:
-- Change the `generateCoverLetter` mock resolution to `{ letter: <the existing letter fixture>, traceId: "cl-tr-9" }` wherever it resolves a bare letter.
-- Set the profile mock's `instructions` to `"REVIEWER-ONLY"` so a leak is detectable.
+- Rework `req` to take an optional body (the default keeps every existing caller working):
+
+```ts
+const req = (body: Record<string, unknown> = { jobId: "job-1" }) =>
+  new Request("http://localhost/api/application/prepare", {
+    method: "POST", body: JSON.stringify(body),
+  });
+```
+- Change `state.generateCoverLetter` to resolve `{ letter: <the existing letter fixture>, traceId: "cl-tr-9" }` (it currently resolves a bare letter).
+- Set `state.getProfile`'s `instructions` to `"REVIEWER-ONLY"` so a leak is detectable.
 - Add:
 
 ```ts
 describe("POST /api/application/prepare — instructions + cover trace id", () => {
-  test("both instruction kinds thread to their legs and persist; prefill gets none", async () => {
+  test("both instruction kinds thread to their legs and persist; cover trace id captured", async () => {
     await POST(req({ jobId: "job-1", resumeInstructions: "R focus", coverLetterInstructions: "C focus" }));
     await flushBackground();
-    expect(mocks.generateResume.mock.calls[0][0].instructions).toBe("R focus");
-    expect(mocks.generateCoverLetter.mock.calls[0][0].instructions).toBe("C focus");
-    const pkg = mocks.upsertApplicationPackage.mock.calls[0][2];
+    expect(state.generateResume.mock.calls[0][0].instructions).toBe("R focus");
+    expect(state.generateCoverLetter.mock.calls[0][0].instructions).toBe("C focus");
+    const pkg = state.upsertApplicationPackage.mock.calls[0][2];
     expect(pkg.resumeInstructions).toBe("R focus");
     expect(pkg.coverLetterInstructions).toBe("C focus");
     expect(pkg.coverLetterTraceId).toBe("cl-tr-9");
   });
 
-  test("prefill is instruction-less even with profile.instructions set (Greenhouse leg)", async () => {
-    // Use the file's existing Greenhouse fixtures (ats: "greenhouse" + question fetch mocks).
-    await POST(req({ jobId: "job-1" }));
+  test("prefill RUNS but is instruction-less, even with profile.instructions set (Greenhouse leg)", async () => {
+    // Force the Greenhouse path so generatePrefilledAnswers actually runs (default fixture is
+    // ats:"lever", which short-circuits the leg). Match the shapes route.ts:106-123 consumes:
+    // a non-null question schema + a non-empty toPrefillQuestions array.
+    state.getJobForPackage.mockResolvedValueOnce({
+      /* …spread the file's default job fixture, then override: */
+      ats: "greenhouse", company_token: "tok", external_id: "ext-1",
+    });
+    state.fetchGreenhouseQuestions.mockResolvedValueOnce({ /* the file's question-schema shape */ });
+    state.toPrefillQuestions.mockReturnValueOnce([{ /* one prefillable question */ }]);
+    await POST(req());
     await flushBackground();
-    if (mocks.generatePrefilledAnswers.mock.calls.length > 0) {
-      expect(mocks.generatePrefilledAnswers.mock.calls[0][0].instructions).toBeNull();
-    }
-    expect(mocks.generateCoverLetter.mock.calls[0][0].instructions).toBeNull();
+    expect(state.generatePrefilledAnswers).toHaveBeenCalled();                 // the leg RAN
+    expect(state.generatePrefilledAnswers.mock.calls[0][0].instructions).toBeNull();
+    expect(state.generateCoverLetter.mock.calls[0][0].instructions).toBeNull();
   });
 
   test("over-cap resumeInstructions → 400 before the gate", async () => {
     const res = await POST(req({ jobId: "job-1", resumeInstructions: "x".repeat(4001) }));
     expect(res.status).toBe(400);
-    expect(mocks.reserveGenerations).not.toHaveBeenCalled();
+    expect(state.reserveGenerations).not.toHaveBeenCalled();
   });
 });
 ```
 
-(Adapt to the file's fixture names; if its default job mock is not Greenhouse, run the prefill assertion inside the file's existing Greenhouse-path test instead.)
+The Greenhouse test is REQUIRED, not optional — it is the ONLY coverage that prefill drops `profile.instructions` (`route.ts:117`). Do **not** gate the assertion behind `if (…calls.length > 0)`; force the leg to run (`getJobForPackage`→greenhouse + non-empty questions) and assert `instructions` is `null`.
 
 - [ ] **Step 2: Run to verify failures** — `npx vitest run app/api/application/prepare/route.test.ts` → FAIL.
 
@@ -2456,7 +2473,7 @@ git commit -m "feat(instructions): per-job instruction boxes ride generate/regen
 ### Task 16: Judge rubric + `calibrate-cover-letter-judge.ts`
 
 **Files:**
-- Create: `dashboard/lib/rolefit/coverLetterJudgeRubric.ts`, `dashboard/scripts/calibrate-cover-letter-judge.ts`
+- Create: `dashboard/lib/rolefit/coverLetterJudgeRubric.ts` (+`.test.ts`), `dashboard/scripts/calibrate-cover-letter-judge.ts`
 
 **Interfaces:**
 - Consumes: Task 2 `generateCoverLetter`, Task 8 constants/`coverLetterOverall`/`buildCoverLetterGoldenItem`, Task 9 `upsertCoverLetterGoldenItem`, `callOpenRouterStructured` (`@/lib/rolefit/openrouterClient`), `composeCoverLetterText`, `serviceSql` (`../lib/db.ts` — NOT `sql`, see discrepancy 3), `resolveLangfuseHost`.
@@ -2512,15 +2529,38 @@ export function renderCoverLetterJudgePrompt(vars: {
   coverLetter: string;
   goldenLetter: string;
 }): string {
+  // Function replacers, NOT string replacements: a string replacement makes JS interpret
+  // `$$`, `$&`, `` $` ``, `$'` in the VALUE as special patterns (a résumé/letter can contain
+  // "$$" or "$&"), corrupting the prompt. A replacer function inserts the value literally.
   return COVER_LETTER_JUDGE_RUBRIC
-    .replaceAll("{{candidate_background}}", vars.candidateBackground)
-    .replaceAll("{{job_title}}", vars.jobTitle)
-    .replaceAll("{{company}}", vars.company)
-    .replaceAll("{{job_description}}", vars.jobDescription)
-    .replaceAll("{{golden_letter}}", vars.goldenLetter)
-    .replaceAll("{{cover_letter}}", vars.coverLetter);
+    .replaceAll("{{candidate_background}}", () => vars.candidateBackground)
+    .replaceAll("{{job_title}}", () => vars.jobTitle)
+    .replaceAll("{{company}}", () => vars.company)
+    .replaceAll("{{job_description}}", () => vars.jobDescription)
+    .replaceAll("{{golden_letter}}", () => vars.goldenLetter)
+    .replaceAll("{{cover_letter}}", () => vars.coverLetter);
 }
 ```
+
+- [ ] **Step 1b: Substitution unit test (test-first).** Create `dashboard/lib/rolefit/coverLetterJudgeRubric.test.ts` and run it RED before Step 1's module exists:
+
+```ts
+import { describe, test, expect } from "vitest";
+import { renderCoverLetterJudgePrompt } from "./coverLetterJudgeRubric";
+
+describe("renderCoverLetterJudgePrompt", () => {
+  test("substitutes every placeholder and inserts values literally", () => {
+    const out = renderCoverLetterJudgePrompt({
+      candidateBackground: "raise of $$ and a $& bonus", // regex-special chars in the value
+      jobTitle: "SRE", company: "Acme", jobDescription: "keep it up",
+      coverLetter: "Dear team", goldenLetter: "Dear hiring manager",
+    });
+    expect(out).not.toMatch(/\{\{[a-z_]+\}\}/);          // no placeholder survives
+    expect(out).toContain("raise of $$ and a $& bonus"); // literal — fails if string (not fn) replacers are used
+  });
+});
+```
+Run: `npx vitest run lib/rolefit/coverLetterJudgeRubric.test.ts` → RED (module not found) before Step 1, GREEN after. The `$$`/`$&` assertion is exactly what fails if the render reverts to string replacements.
 
 - [ ] **Step 2: Write the script**
 
@@ -2831,7 +2871,9 @@ Expected (RED): the run fails citing the missing export — `does not provide an
 
 - [ ] **Step 2: fix the import + usage.**
   - Line 7: `import { sql } from "../lib/db.ts";` → `import { serviceSql } from "../lib/db.ts";`
-  - Line 22: `return (await sql\`` → `return (await serviceSql\`` (the only usage). Confirm none remain: `grep -nE "\bsql\b" scripts/calibrate-resume-judge.ts` returns nothing (only `serviceSql`).
+  - Line 22: `return (await sql\`` → `return (await serviceSql\`` (usage 1 of 2 — the template query).
+  - Line 123: `await sql.end({ timeout: 5 })` → `await serviceSql.end({ timeout: 5 })` (usage 2 of 2 — in `main()`). Missing this leaves a `ReferenceError: sql is not defined` at the END of every run: a `--sync` would push all items, then crash with exit 1 — a clean sync that looks failed.
+  - Confirm none remain: `grep -nE "\bsql\b" scripts/calibrate-resume-judge.ts` returns nothing but `serviceSql` (note `sql.end` matches `\bsql\b`, so this grep catches a missed line 123).
   - Header comment (the two `node …` run-command lines): add `--env-file-if-exists=.env.local` to each, matching the new cover-letter script. `lib/db.ts` throws at *import* if `DATABASE_URL` is unset, and ESM import hoisting runs `db.ts` before any in-body loader — so env must be supplied via the node flag, not `process.loadEnvFile()`.
 
 - [ ] **Step 3 (GREEN): the export error is gone.** Re-run the Step 1 command. Expected: output no longer contains `does not provide an export named 'sql'`. It now either runs to completion (if `.env.local` carries `DATABASE_URL` + `LANGFUSE_*`) or fails on a missing-env / connection error — either outcome proves the link break is fixed. A full end-to-end run needs prod-ish `DATABASE_URL` + `LANGFUSE_*` and is not required to pass in a bare worktree.

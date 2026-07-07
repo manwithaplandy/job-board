@@ -466,21 +466,36 @@ export async function upsertApplicationPackage(
     prefilledAnswers: PrefilledAnswer[] | null;
     applyUrl: string | null;
     resumeTraceId?: string | null;
+    coverLetterTraceId?: string | null;
     profileVersion?: string | null;
+    resumeInstructions?: string | null;
+    coverLetterInstructions?: string | null;
   },
 ): Promise<ApplicationPackage> {
   // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
   const j = (v: unknown): string | null => (v == null ? null : JSON.stringify(v));
   return withUserSql(userId, async (tx) => {
+  // Regenerating the letter cleanly replaces the user's edit in their view: stamp the
+  // current edit superseded (the row + its already-pushed golden item persist; re-saving
+  // an edit resets superseded_at to NULL — see app/actions/coverLetterEdits.ts).
+  if (data.coverLetter != null) {
+    await tx`
+      UPDATE cover_letter_edits SET superseded_at = now()
+      WHERE user_id = ${userId}::uuid AND job_id = ${jobId} AND superseded_at IS NULL
+    `;
+  }
   const rows = await tx`
     INSERT INTO application_packages
       (user_id, job_id, resume_json, cover_letter_json, answers_snapshot,
        greenhouse_questions, prefilled_answers, apply_url, resume_trace_id,
+       cover_letter_trace_id, resume_instructions, cover_letter_instructions,
        profile_version, status, prepared_at)
     VALUES (${userId}::uuid, ${jobId},
             ${j(data.resume)}::jsonb, ${j(data.coverLetter)}::jsonb,
             ${j(data.answersSnapshot)}::jsonb, ${j(data.greenhouseQuestions)}::jsonb,
             ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
+            ${data.coverLetterTraceId ?? null}, ${data.resumeInstructions ?? null},
+            ${data.coverLetterInstructions ?? null},
             ${data.profileVersion ?? null}, 'prepared', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       resume_json          = COALESCE(EXCLUDED.resume_json, application_packages.resume_json),
@@ -499,9 +514,22 @@ export async function upsertApplicationPackage(
       profile_version      = CASE WHEN EXCLUDED.resume_json IS NOT NULL
                                   THEN EXCLUDED.profile_version
                                   ELSE application_packages.profile_version END,
+      -- Same lockstep rule for the cover letter's trace id + per-job instructions:
+      -- these describe the cover letter, so they refresh only when a new letter is
+      -- written and are preserved (alongside the preserved letter) otherwise.
+      cover_letter_trace_id = CASE WHEN EXCLUDED.cover_letter_json IS NOT NULL
+                                   THEN EXCLUDED.cover_letter_trace_id
+                                   ELSE application_packages.cover_letter_trace_id END,
+      resume_instructions = CASE WHEN EXCLUDED.resume_json IS NOT NULL
+                                 THEN EXCLUDED.resume_instructions
+                                 ELSE application_packages.resume_instructions END,
+      cover_letter_instructions = CASE WHEN EXCLUDED.cover_letter_json IS NOT NULL
+                                       THEN EXCLUDED.cover_letter_instructions
+                                       ELSE application_packages.cover_letter_instructions END,
       prepared_at          = now()
     RETURNING job_id, status, resume_json, cover_letter_json, answers_snapshot,
               greenhouse_questions, prefilled_answers, apply_url, profile_version,
+              resume_instructions, cover_letter_instructions,
               prepared_at, applied_at
   `;
   return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);

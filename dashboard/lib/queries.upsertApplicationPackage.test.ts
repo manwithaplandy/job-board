@@ -99,3 +99,43 @@ describe("upsertApplicationPackage ON CONFLICT preserves stored artifacts on NUL
     );
   });
 });
+
+describe("cover-letter fields track the cover-letter write (CASE on cover_letter_json)", () => {
+  beforeEach(() => {
+    captured.length = 0;
+  });
+
+  const allNull = {
+    resume: null, coverLetter: null, answersSnapshot: null,
+    greenhouseQuestions: null, prefilledAnswers: null, applyUrl: null,
+  } as const;
+
+  test("cover_letter_trace_id and cover_letter_instructions refresh only with a new letter", async () => {
+    await upsertApplicationPackage("u", "j", { ...allNull });
+    const sql = upsertSql();
+    expect(sql).toContain(
+      "cover_letter_trace_id = CASE WHEN EXCLUDED.cover_letter_json IS NOT NULL THEN EXCLUDED.cover_letter_trace_id ELSE application_packages.cover_letter_trace_id END",
+    );
+    expect(sql).toContain(
+      "cover_letter_instructions = CASE WHEN EXCLUDED.cover_letter_json IS NOT NULL THEN EXCLUDED.cover_letter_instructions ELSE application_packages.cover_letter_instructions END",
+    );
+    expect(sql).toContain(
+      "resume_instructions = CASE WHEN EXCLUDED.resume_json IS NOT NULL THEN EXCLUDED.resume_instructions ELSE application_packages.resume_instructions END",
+    );
+  });
+
+  test("a new cover letter supersedes any current edit; a resume-only write does not", async () => {
+    await upsertApplicationPackage("u", "j", {
+      ...allNull,
+      coverLetter: { greeting: "Dear", paragraphs: ["p"], closing: "Sincerely,", signature: "A" },
+    });
+    const supersede = captured.map(norm).find((s) => s.includes("UPDATE cover_letter_edits"));
+    expect(supersede).toBeDefined();
+    expect(supersede).toContain("SET superseded_at = now()");
+    expect(supersede).toContain("superseded_at IS NULL");
+
+    captured.length = 0;
+    await upsertApplicationPackage("u", "j", { ...allNull });
+    expect(captured.map(norm).find((s) => s.includes("UPDATE cover_letter_edits"))).toBeUndefined();
+  });
+});

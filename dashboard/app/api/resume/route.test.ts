@@ -92,7 +92,7 @@ beforeEach(() => {
   mocks.getJobForResume.mockResolvedValue({ title: "Eng", company_name: "Acme", description: "jd" });
   mocks.reserveGenerations.mockResolvedValue({ ok: true, plan: "pro" });
   mocks.refundGenerations.mockResolvedValue(undefined);
-  mocks.generateResume.mockResolvedValue({ resume: RESUME, checks: {} });
+  mocks.generateResume.mockResolvedValue({ resume: RESUME, checks: {}, traceId: null });
   mocks.upsertApplicationPackage.mockResolvedValue({ jobId: "job-1", status: "prepared" });
   mocks.createGenerationJob.mockResolvedValue({ created: true, job: GEN_ROW });
   mocks.settleGenerationJob.mockResolvedValue(undefined);

@@ -5,6 +5,9 @@ import {
 } from "@/lib/rolefit/coverLetterSchema";
 import { callOpenRouterStructured, REASONING_SAFE_MAX_TOKENS } from "@/lib/rolefit/openrouterClient";
 import { parseTailoredCoverLetter } from "@/lib/rolefit/packageCodec";
+import { startActiveObservation, propagateAttributes } from "@langfuse/tracing";
+import { composeCoverLetterText } from "@/lib/rolefit/coverLetterText";
+import { tracingEnabled } from "@/lib/observability";
 
 export const DEFAULT_COVER_MODEL = "anthropic/claude-haiku-4.5";
 
@@ -23,7 +26,7 @@ export async function generateCoverLetter(args: {
     instructions: args.instructions,
     job: args.job,
   });
-  return callOpenRouterStructured<TailoredCoverLetter>({
+  const runGeneration = () => callOpenRouterStructured<TailoredCoverLetter>({
     generationName: "cover-letter-generation",
     label: "cover letter",
     model: args.model,
@@ -45,4 +48,18 @@ export async function generateCoverLetter(args: {
       return parsed;
     },
   });
+
+  // Mirror the résumé `resume` span: one `cover-letter` parent span defined here so
+  // BOTH the standalone cover-letter route AND the prepare route's cover-letter leg
+  // get it with no route edits. propagateAttributes stamps a trace-level
+  // `generated_at` (updateActiveTrace does not exist in @langfuse/tracing).
+  if (!tracingEnabled()) return runGeneration();
+  return startActiveObservation("cover-letter", (span) => {
+    span.update({ input: { title: args.job.title, company: args.job.company, description: args.job.description, background: args.resumeText } });
+    return propagateAttributes({ metadata: { generated_at: new Date().toISOString() } }, async () => {
+      const letter = await runGeneration();
+      span.update({ output: composeCoverLetterText(letter) });
+      return letter;
+    });
+  }, { asType: "span" });
 }

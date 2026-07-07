@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
+import { propagateAttributes } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
 import { gateRejectionBody } from "@/lib/gateRejection";
@@ -13,7 +13,6 @@ import { DEFAULT_PREFILL_MODEL, generatePrefilledAnswers } from "@/lib/rolefit/p
 import { fetchGreenhouseQuestions, type GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
-import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
@@ -136,35 +135,20 @@ export async function POST(req: Request) {
     // whatever succeeded.
     let resumeTraceId: string | null = null;
     const [resumeResult, coverResult, ghResult] = await Promise.allSettled([
-      // résumé leg — wrapped so the managed judge has a clean `resume` trace and
-      // we capture its trace id for the golden-dataset join. Returns the
-      // TailoredResume so resumeResult.value stays the résumé (not { resume, checks }).
+      // résumé leg — the `resume` parent span now lives in generateResume; capture its
+      // trace id for the golden-dataset judge join. Returns the TailoredResume so
+      // resumeResult.value stays the résumé. NOTE: on résumé failure this leg throws
+      // before reading traceId, so resumeTraceId stays null (previously it captured the
+      // failed trace's id) — acceptable, nothing depends on it.
       (async () => {
-        const genArgs = {
+        const { resume, traceId } = await generateResume({
           resumeText,
           job: { title: job.title, company: job.company_name, description: job.description },
           model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
           apiKey,
-        };
-        if (!tracingEnabled()) return (await generateResume(genArgs)).resume;
-        return startActiveObservation(
-          "resume",
-          async (span) => {
-            resumeTraceId = span.traceId;
-            span.update({
-              // `background` = the candidate's real source résumé, the grounding
-              // truth the judge compares generated claims against ({{candidate_background}}).
-              input: { title: job.title, company: job.company_name, description: job.description, background: resumeText },
-            });
-            const r = await generateResume(genArgs);
-            span.update({
-              output: composeResumeText(r.resume),
-              metadata: { mechanical_checks: r.checks },
-            });
-            return r.resume;
-          },
-          { asType: "span" },
-        );
+        });
+        resumeTraceId = traceId;
+        return resume;
       })(),
       generateCoverLetter({
         resumeText,

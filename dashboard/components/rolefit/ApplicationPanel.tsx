@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
+import { composeCoverLetterText } from "@/lib/rolefit/coverLetterText";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
@@ -15,14 +16,6 @@ import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { Chip } from "@/components/ui/Chip";
 import type { PrepareLegStatus } from "./RolefitBoard";
-
-// Plain-text cover letter — mirrors composeResumeText in ResumePanel.
-function composeCoverLetterText(data: TailoredCoverLetter): string {
-  let t = `${data.greeting}\n\n`;
-  data.paragraphs.forEach((p) => { t += `${p}\n\n`; });
-  t += `${data.closing}\n${data.signature}\n`;
-  return t;
-}
 
 function copyToClipboard(text: string) {
   try {
@@ -723,5 +716,3 @@ export function ApplicationPanel({
     </div>
   );
 }
-
-export { composeCoverLetterText };

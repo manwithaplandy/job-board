@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
+import { propagateAttributes } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForResume, upsertApplicationPackage } from "@/lib/queries";
 import { gateRejectionBody } from "@/lib/gateRejection";
@@ -7,11 +7,8 @@ import { reserveGenerations, refundGenerations } from "@/lib/usage";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
-import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
-import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
-import type { ResumeChecks } from "@/lib/rolefit/resumeChecks";
 
 export const dynamic = "force-dynamic";
 // Vercel Pro ceiling. The 202 response returns in milliseconds; the budget covers
@@ -84,44 +81,17 @@ export async function POST(req: Request) {
 
   const run = async () => {
     try {
-      let traceId: string | null = null;
-      const generate = async (): Promise<{ resume: TailoredResume; checks: ResumeChecks }> =>
-        generateResume({
-          resumeText,
-          job: { title: job.title, company: job.company_name, description: job.description },
-          model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
-          apiKey,
-        });
-
-      let result: { resume: TailoredResume; checks: ResumeChecks };
-      if (tracingEnabled()) {
-        // Parent `resume` observation: clean input/output the managed judge targets,
-        // and the trace whose id links human scores to judge scores. The nested
-        // `resume-generation` span records inside this active trace.
-        result = await startActiveObservation(
-          "resume",
-          async (span) => {
-            traceId = span.traceId;
-            span.update({
-              // `background` is the candidate's real source résumé — the grounding
-              // truth the judge compares generated claims against ({{candidate_background}}).
-              input: { title: job.title, company: job.company_name, description: job.description, background: resumeText },
-            });
-            const r = await generate();
-            span.update({
-              output: composeResumeText(r.resume),
-              metadata: { mechanical_checks: r.checks },
-            });
-            return r;
-          },
-          { asType: "span" },
-        );
-      } else {
-        result = await generate();
-      }
+      // The parent `resume` span (and its trace-level generated_at) now lives in
+      // generateResume; the route just captures the trace id for the golden-dataset join.
+      const { resume, traceId } = await generateResume({
+        resumeText,
+        job: { title: job.title, company: job.company_name, description: job.description },
+        model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
+        apiKey,
+      });
 
       await upsertApplicationPackage(userId, jobId, {
-        resume: result.resume,
+        resume,
         coverLetter: null,
         answersSnapshot: null,
         greenhouseQuestions: null,

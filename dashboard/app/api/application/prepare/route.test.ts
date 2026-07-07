@@ -88,7 +88,7 @@ vi.mock("@/lib/rolefit/resumeClient", () => ({
   DEFAULT_RESUME_MODEL: "cheap/model",
   generateResume: vi.fn(async () => {
     if (state.resumeRejects) throw new Error("resume LLM outage");
-    return { resume: { sections: [] }, checks: {} };
+    return { resume: { sections: [] }, checks: {}, traceId: null };
   }),
 }));
 

@@ -210,7 +210,7 @@ async function run(): Promise<void> {
 
   const items = await loadDatasetItems(langfuse(), limit);
   if (items.length === 0) {
-    console.log(`no items in ${COVER_LETTER_GOLDEN_DATASET_NAME} — run --sync (or save an admin edit) first`);
+    console.log(`no items in ${COVER_LETTER_GOLDEN_DATASET_NAME} — run --sync (or save an edit) first`);
     return;
   }
 

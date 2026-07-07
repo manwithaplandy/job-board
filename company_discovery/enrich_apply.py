@@ -89,7 +89,7 @@ def enrich_selected(conn, candidates: list[dict], *,
                 continue
             apply_enrichment(conn, c["id"], plan)
             # Mirror the UPDATE's COALESCE: display_name is only overwritten when the
-            # board returned one (JD-probe returns None -> keep prior); about is always
+            # enricher returned one (a None name -> keep prior); about is always
             # set to the fetched value.
             if plan.display_name is not None:
                 c["display_name"] = plan.display_name

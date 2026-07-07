@@ -31,7 +31,7 @@ export async function saveReviewCorrection(
   const src = await withUserSql(userId, async (tx) => {
     // Model snapshot + dataset input, one round-trip.
     const inputRows = await tx`
-      SELECT j.title, c.name AS company_name, j.location, c.ats, j.description,
+      SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.location, c.ats, j.description,
              p.resume_text, p.instructions,
              to_jsonb(r.*) AS model_snapshot
       FROM jobs j

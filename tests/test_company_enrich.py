@@ -101,6 +101,7 @@ def test_enrich_from_jd_derives_about_with_title_header(monkeypatch):
     posting = _posting("Senior Engineer",
                        {"descriptionPlain": "We are a fintech building payments."})
     monkeypatch.setattr(enrich, "ADAPTERS", {"lever": lambda token: [posting]})
+    monkeypatch.setattr(enrich, "fetch_board_name", lambda ats, token: None)
     name, about = enrich.enrich_from_jd("lever", "acme")
     assert name is None
     assert about.startswith("Job postings from this company's board include: Senior Engineer")
@@ -110,6 +111,7 @@ def test_enrich_from_jd_derives_about_with_title_header(monkeypatch):
 def test_enrich_from_jd_truncates_to_2000(monkeypatch):
     posting = _posting("T", {"descriptionPlain": "z" * 3000})
     monkeypatch.setattr(enrich, "ADAPTERS", {"lever": lambda token: [posting]})
+    monkeypatch.setattr(enrich, "fetch_board_name", lambda ats, token: None)
     name, about = enrich.enrich_from_jd("lever", "acme")
     assert name is None and len(about) == 2000
 
@@ -117,6 +119,7 @@ def test_enrich_from_jd_truncates_to_2000(monkeypatch):
 def test_enrich_from_jd_no_extractable_jd(monkeypatch):
     posting = _posting("T", {"id": "1"})  # truthy raw, but no JD fields
     monkeypatch.setattr(enrich, "ADAPTERS", {"lever": lambda token: [posting]})
+    monkeypatch.setattr(enrich, "fetch_board_name", lambda ats, token: None)
     assert enrich.enrich_from_jd("lever", "acme") == (None, None)
 
 
@@ -124,6 +127,7 @@ def test_enrich_from_jd_skips_to_first_posting_with_jd(monkeypatch):
     p1 = _posting("No JD", {"id": "1"})
     p2 = _posting("Has JD", {"descriptionPlain": "real jd text"})
     monkeypatch.setattr(enrich, "ADAPTERS", {"lever": lambda token: [p1, p2]})
+    monkeypatch.setattr(enrich, "fetch_board_name", lambda ats, token: None)
     name, about = enrich.enrich_from_jd("lever", "acme")
     assert name is None
     assert "Has JD" in about and "real jd text" in about
@@ -132,9 +136,103 @@ def test_enrich_from_jd_skips_to_first_posting_with_jd(monkeypatch):
 def test_enrich_from_jd_ashby(monkeypatch):
     posting = _posting("Backend Dev", {"descriptionPlain": "Ashby-hosted infra company."})
     monkeypatch.setattr(enrich, "ADAPTERS", {"ashby": lambda token: [posting]})
+    monkeypatch.setattr(enrich, "fetch_board_name", lambda ats, token: None)
     name, about = enrich.enrich_from_jd("ashby", "acme")
     assert name is None
     assert "Ashby-hosted infra company." in about
+
+
+# --------------------------------------------------------------------------
+# fetch_board_name (lever / ashby board-page <title>)
+# --------------------------------------------------------------------------
+def test_fetch_board_name_lever_plain_title(monkeypatch):
+    def fake_get_text(url):
+        assert url == "https://jobs.lever.co/pushpress"
+        return "<html><head><title>PushPress</title></head></html>"
+
+    monkeypatch.setattr(enrich, "get_text", fake_get_text)
+    assert enrich.fetch_board_name("lever", "pushpress") == "PushPress"
+
+
+def test_fetch_board_name_ashby_strips_jobs_suffix(monkeypatch):
+    def fake_get_text(url):
+        assert url == "https://jobs.ashbyhq.com/modal"
+        return "<title>Modal Jobs</title>"
+
+    monkeypatch.setattr(enrich, "get_text", fake_get_text)
+    assert enrich.fetch_board_name("ashby", "modal") == "Modal"
+
+
+def test_fetch_board_name_unescapes_entities(monkeypatch):
+    monkeypatch.setattr(enrich, "get_text",
+                        lambda url: "<title>AT&amp;T Careers Jobs</title>")
+    assert enrich.fetch_board_name("ashby", "t") == "AT&T Careers"
+
+
+def test_fetch_board_name_missing_or_blank_title(monkeypatch):
+    monkeypatch.setattr(enrich, "get_text", lambda url: "<html><body>hi</body></html>")
+    assert enrich.fetch_board_name("lever", "t") is None
+    monkeypatch.setattr(enrich, "get_text", lambda url: "<title>   </title>")
+    assert enrich.fetch_board_name("lever", "t") is None
+
+
+def test_fetch_board_name_unsupported_ats_no_fetch(monkeypatch):
+    def boom(url):
+        raise AssertionError("must not fetch for unsupported ats")
+
+    monkeypatch.setattr(enrich, "get_text", boom)
+    assert enrich.fetch_board_name("greenhouse", "t") is None
+
+
+def test_fetch_board_name_caps_length(monkeypatch):
+    monkeypatch.setattr(enrich, "get_text",
+                        lambda url: "<title>" + ("x" * 500) + "</title>")
+    name = enrich.fetch_board_name("lever", "t")
+    assert name is not None and len(name) == 200
+
+
+def test_fetch_board_name_rejects_generic_titles(monkeypatch):
+    # Some boards title the page, not the company (207 prod ashby boards were
+    # just "Jobs") — storing that is worse than the slug fallback.
+    for title in ("Jobs", "jobs", "Careers", "Job Board", "Careers Jobs"):
+        monkeypatch.setattr(enrich, "get_text",
+                            lambda url, t=title: f"<title>{t}</title>")
+        assert enrich.fetch_board_name("ashby", "t") is None, title
+
+
+def test_greenhouse_generic_board_name_becomes_none(monkeypatch):
+    monkeypatch.setattr(enrich, "get_json",
+                        lambda url: {"name": "Job Board", "content": "<p>About us.</p>"})
+    assert enrich.enrich_greenhouse("t") == (None, "About us.")
+
+
+def test_enrich_from_jd_includes_board_title_name(monkeypatch):
+    posting = _posting("Eng", {"descriptionPlain": "We build infra."})
+    monkeypatch.setattr(enrich, "ADAPTERS", {"ashby": lambda token: [posting]})
+    monkeypatch.setattr(enrich, "fetch_board_name", lambda ats, token: "Modal")
+    name, about = enrich.enrich_from_jd("ashby", "modal")
+    assert name == "Modal"
+    assert "We build infra." in about
+
+
+def test_enrich_from_jd_title_failure_does_not_sink_probe(monkeypatch):
+    posting = _posting("Eng", {"descriptionPlain": "Still grounded."})
+    monkeypatch.setattr(enrich, "ADAPTERS", {"lever": lambda token: [posting]})
+
+    def boom(ats, token):
+        raise RuntimeError("page down")
+
+    monkeypatch.setattr(enrich, "fetch_board_name", boom)
+    name, about = enrich.enrich_from_jd("lever", "acme")
+    assert name is None
+    assert "Still grounded." in about
+
+
+def test_enrich_from_jd_name_even_without_jd(monkeypatch):
+    posting = _posting("T", {"id": "1"})  # no extractable JD
+    monkeypatch.setattr(enrich, "ADAPTERS", {"lever": lambda token: [posting]})
+    monkeypatch.setattr(enrich, "fetch_board_name", lambda ats, token: "Acme Inc")
+    assert enrich.enrich_from_jd("lever", "acme") == ("Acme Inc", None)
 
 
 # --------------------------------------------------------------------------

@@ -635,13 +635,15 @@ export async function upsertProfile(
 
 /**
  * ILIKE-name-search fragment for the companies query, built from the active executor
- * `tx`. A non-empty (trimmed) term binds `%term%` as a PARAMETER (postgres.js —
- * injection-safe, never interpolated); empty/whitespace yields an inert empty
- * fragment so behavior is identical to no search. Exported for unit tests.
+ * `tx`. Matches the slug (`c.name`) OR the enriched cased name (`c.display_name`). A
+ * non-empty (trimmed) term binds `%term%` as a PARAMETER (postgres.js — injection-safe,
+ * never interpolated) once per column; empty/whitespace yields an inert empty fragment
+ * so behavior is identical to no search. Exported for unit tests.
  */
 export function companyNameSearchFragment(tx: Sql | TransactionSql, search?: string) {
   const term = (search ?? "").trim();
-  return term ? tx`AND c.name ILIKE ${"%" + term + "%"}` : tx``;
+  const like = "%" + term + "%";
+  return term ? tx`AND (c.name ILIKE ${like} OR c.display_name ILIKE ${like})` : tx``;
 }
 
 export async function getCompanyReviews(
@@ -652,7 +654,7 @@ export async function getCompanyReviews(
 ): Promise<CompanyReviewRow[]> {
   return withUserSql(userId, async (tx) => {
   const rows = await tx`
-    SELECT c.id, c.name, c.ats, c.token, c.discovery_source, c.active,
+    SELECT c.id, COALESCE(c.display_name, c.name) AS name, c.ats, c.token, c.discovery_source, c.active,
            r.verdict, r.override_verdict, r.human_override,
            COALESCE(
              CASE WHEN r.human_override THEN r.override_verdict ELSE r.verdict END,
@@ -668,7 +670,7 @@ export async function getCompanyReviews(
             CASE WHEN c.discovery_source = 'seed' THEN 'include' ELSE 'unknown' END
           ) = ${bucket}
       ${companyNameSearchFragment(tx, search)}
-    ORDER BY c.name
+    ORDER BY COALESCE(c.display_name, c.name)
     LIMIT ${limit}
   `;
   return rows as unknown as CompanyReviewRow[];

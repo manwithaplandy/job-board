@@ -31,7 +31,7 @@ export async function saveResumeScore(
   const src = await withUserSql(userId, async (tx) => {
     const rows = await tx`
       SELECT ap.resume_json, ap.resume_trace_id,
-             j.title, c.name AS company_name, j.description,
+             j.title, COALESCE(c.display_name, c.name) AS company_name, j.description,
              p.resume_text, p.model_resume
       FROM application_packages ap
       JOIN jobs j       ON j.id = ap.job_id

@@ -201,8 +201,9 @@ export function ApplicationPanel({
   };
 
   // The external Apply link must be an <a>, so it can't be a <Button>; instead it mirrors
-  // <Button>'s md tokens (primary/secondary). Prepare leads as the primary CTA until the
-  // package is prepared; then Apply takes primary emphasis and Prepare drops to secondary (#10).
+  // <Button>'s primary md tokens. Apply is the panel's primary CTA at ALL times —
+  // supersedes #10's prepared-based swap, whose pre-prepare surface/outline state left
+  // Apply near-invisible in dark mode while the accent Prepare button pulled the eye.
   const applyLinkStyle: React.CSSProperties = {
     flex: "0 0 auto",
     display: "inline-flex",
@@ -216,9 +217,10 @@ export function ApplicationPanel({
     padding: "12px 20px",
     cursor: "pointer",
     textDecoration: "none",
-    ...(prepared
-      ? { background: "var(--accent)", color: "var(--text-on-accent)", border: "none", boxShadow: "var(--shadow-accent)" }
-      : { background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }),
+    background: "var(--accent)",
+    color: "var(--text-on-accent)",
+    border: "none",
+    boxShadow: "var(--shadow-accent)",
   };
 
   // Per-leg failures from the last prepare. Résumé + cover retry their own endpoints;
@@ -293,7 +295,9 @@ export function ApplicationPanel({
         )}
         {isAuthed && (
           <Button
-            variant={prepared ? "secondary" : "primary"}
+            // Secondary whenever the Apply link renders (Apply owns primary emphasis);
+            // leads only for jobs with no usable apply url.
+            variant={applyHref || prepared ? "secondary" : "primary"}
             onClick={onPrepare}
             disabled={preparing || generating}
             style={{ flex: "0 0 auto" }}

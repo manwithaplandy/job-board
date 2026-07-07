@@ -2,16 +2,17 @@ import httpx
 import pytest
 
 import job_discovery.http as http_mod
-from job_discovery.http import get_json
+from job_discovery.http import get_json, get_text
 
 
 class _Resp:
     """Minimal httpx.Response stand-in."""
 
-    def __init__(self, payload, status=200, headers=None):
+    def __init__(self, payload, status=200, headers=None, text=""):
         self._payload = payload
         self.status_code = status
         self.headers = headers or {}
+        self.text = text
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -130,3 +131,25 @@ def test_redirects_followed(monkeypatch):
     assert get_json("https://x") == {"redirected": True}
     # The client's follow_redirects flag is set (not just the test being trivial).
     assert http_mod._client.follow_redirects is True
+
+
+def test_get_text_returns_body(monkeypatch):
+    monkeypatch.setattr(http_mod._client, "request",
+                        lambda method, url, **kw: _Resp(None, text="<title>X</title>"))
+    assert get_text("https://x") == "<title>X</title>"
+
+
+def test_get_text_retries_then_succeeds(monkeypatch):
+    calls = {"n": 0}
+
+    def flaky(method, url, **kw):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.ConnectError("down")
+        return _Resp(None, text="body")
+
+    monkeypatch.setattr(http_mod._client, "request", flaky)
+    monkeypatch.setattr(http_mod.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(http_mod.random, "uniform", lambda *_: 0)
+    assert get_text("https://x", retries=2, backoff=0.01) == "body"
+    assert calls["n"] == 3

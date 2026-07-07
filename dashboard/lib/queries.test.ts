@@ -63,17 +63,17 @@ describe("companyNameSearchFragment (server-side name search)", () => {
   it("emits ILIKE and binds the wrapped term as a parameter (injection-safe)", () => {
     const f = introspect("vanta");
     expect(f.strings.join(" ").toLowerCase()).toContain("ilike");
-    expect(f.args).toEqual(["%vanta%"]);
+    expect(f.args).toEqual(["%vanta%", "%vanta%"]);
   });
 
   it("trims the term before wrapping", () => {
-    expect(introspect("  zapier  ").args).toEqual(["%zapier%"]);
+    expect(introspect("  zapier  ").args).toEqual(["%zapier%", "%zapier%"]);
   });
 
   it("keeps injection payloads inside the bound value, not the SQL text", () => {
     const evil = "x'; DROP TABLE companies; --";
     const f = introspect(evil);
-    expect(f.args).toEqual([`%${evil}%`]);
+    expect(f.args).toEqual([`%${evil}%`, `%${evil}%`]);
     expect(f.strings.join(" ").toLowerCase()).not.toContain("drop table");
   });
 });

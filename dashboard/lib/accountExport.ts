@@ -89,13 +89,13 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       reviewRequests, generationJobs, reviewRuns,
     ] = await Promise.all([
       tx`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`,
-      tx`SELECT r.*, j.title AS job_title, c.name AS company_name, j.url AS job_url
+      tx`SELECT r.*, j.title AS job_title, COALESCE(c.display_name, c.name) AS company_name, j.url AS job_url
          FROM job_reviews r JOIN jobs j ON j.id = r.job_id JOIN companies c ON c.id = j.company_id
          WHERE r.user_id = ${userId}::uuid ORDER BY r.reviewed_at DESC`,
-      tx`SELECT rc.*, j.title AS job_title, c.name AS company_name, j.url AS job_url
+      tx`SELECT rc.*, j.title AS job_title, COALESCE(c.display_name, c.name) AS company_name, j.url AS job_url
          FROM review_corrections rc JOIN jobs j ON j.id = rc.job_id JOIN companies c ON c.id = j.company_id
          WHERE rc.user_id = ${userId}::uuid ORDER BY rc.corrected_at DESC`,
-      tx`SELECT cr.*, c.name AS company_name
+      tx`SELECT cr.*, COALESCE(c.display_name, c.name) AS company_name
          FROM company_reviews cr JOIN companies c ON c.id = cr.company_id
          WHERE cr.user_id = ${userId}::uuid`,
       tx`SELECT * FROM application_packages WHERE user_id = ${userId}::uuid`,

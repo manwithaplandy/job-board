@@ -122,7 +122,7 @@ export async function listGenerationActivity(userId: string): Promise<Generation
     );
     const rows = await tx.unsafe(
       `SELECT g.id, g.job_id, g.kind, g.status, g.error, g.created_at, g.updated_at,
-              j.title AS job_title, c.name AS company
+              j.title AS job_title, COALESCE(c.display_name, c.name) AS company
        FROM generation_jobs g
        LEFT JOIN jobs j ON j.id = g.job_id
        LEFT JOIN companies c ON c.id = j.company_id

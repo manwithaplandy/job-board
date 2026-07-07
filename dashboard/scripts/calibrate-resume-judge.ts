@@ -1,10 +1,10 @@
 // Résumé judge calibration + golden-dataset backfill.
-//   node --experimental-strip-types scripts/calibrate-resume-judge.ts          → calibration report
-//   node --experimental-strip-types scripts/calibrate-resume-judge.ts --sync   → re-push resume_scores → resume-golden
+//   node --experimental-strip-types --env-file-if-exists=.env.local scripts/calibrate-resume-judge.ts          → calibration report
+//   node --experimental-strip-types --env-file-if-exists=.env.local scripts/calibrate-resume-judge.ts --sync   → re-push resume_scores → resume-golden
 // Requires LANGFUSE_* (+ DATABASE_URL) in the environment (.env.local).
 import { LangfuseClient } from "@langfuse/client";
 import { resolveLangfuseHost } from "../lib/langfuseHost.ts";
-import { sql } from "../lib/db.ts";
+import { serviceSql } from "../lib/db.ts";
 import { buildResumeGoldenItem } from "../lib/rolefit/resumeScore.ts";
 import { upsertResumeGoldenItem } from "../lib/resumeGoldenDataset.ts";
 import {
@@ -19,7 +19,7 @@ interface ScoreRow {
 }
 
 async function loadScores(): Promise<ScoreRow[]> {
-  return (await sql`
+  return (await serviceSql`
     SELECT s.user_id, s.job_id, s.grounding, s.jd_relevance, s.comment,
            s.resume_trace_id, s.model, s.scored_at::text AS scored_at,
            j.title, c.name AS company_name, j.description, p.resume_text
@@ -120,7 +120,7 @@ async function calibrate(): Promise<void> {
 async function main(): Promise<void> {
   if (process.argv.includes("--sync")) await sync();
   else await calibrate();
-  await sql.end({ timeout: 5 });
+  await serviceSql.end({ timeout: 5 });
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

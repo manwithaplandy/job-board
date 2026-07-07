@@ -29,7 +29,7 @@
 
 1. **The spec's migration RLS is stale.** It creates only the deny-all `no_anon_access` policy, "matching resume_scores". That matched the *original* `migrations/2026-07-02-resume-scores.sql`, but `resume_scores` has since gained `owner_access` (`migrations/2026-07-03-rls-tenant-isolation.sql:99-101`) and authenticated CRUD grants (`migrations/2026-07-04-cost-cap-hardening.sql:76`). All dashboard reads/writes run through `withUserSql` (`dashboard/lib/db.ts:69` — drops into the `authenticated` role), so a deny-all-only `cover_letter_edits` would reject every save/read, and both live drift-guards (`EXPECTED_RLS` at `tests/test_rls_isolation.py:382` and `EXPECTED_GRANTS` at `:481`) would fail. The migration in Task 1 mirrors the current pattern for a new user table: `migrations/2026-07-05-generation-jobs.sql` (deny-all + `owner_access` + `GRANT SELECT, INSERT, UPDATE, DELETE … TO authenticated`).
 2. **The spec omits `schema.sql`.** `tests/conftest.py:11` loads the root `schema.sql` into the test DB, and `dashboard/lib/accountDeletion.test.ts:121` parses `schema.sql` to enforce the user-table classification. The migration must be mirrored into `schema.sql` in the same commit or every DB-backed guard fails.
-3. **`calibrate-resume-judge.ts` is currently broken as a template for DB access:** it does `import { sql } from "../lib/db.ts"` (`dashboard/scripts/calibrate-resume-judge.ts:7`), but `lib/db.ts` renamed that export to `serviceSql` in the go-public merge (e711cbd). `scripts/` is excluded from `tsc` (`dashboard/tsconfig.json` `exclude`), so nothing caught it. The new script imports `{ serviceSql }` (Task 16). Fixing the résumé script is OUT OF SCOPE for this branch — do not touch it.
+3. **`calibrate-resume-judge.ts` is currently broken as a template for DB access:** it does `import { sql } from "../lib/db.ts"` (`dashboard/scripts/calibrate-resume-judge.ts:7`), but `lib/db.ts` renamed that export to `serviceSql` in the go-public merge (e711cbd). `scripts/` is excluded from `tsc` (`dashboard/tsconfig.json` `exclude`), so nothing caught it. The new script imports `{ serviceSql }` (Task 16). **The résumé script is fixed by Task 17** — added at the user's request as an independent, pre-existing bug fix (not otherwise part of this feature; no dependency on the other tasks).
 4. **Company name in the golden input:** `saveResumeScore` uses bare `c.name`, but the generation queries (`getJobForCoverLetter`, `queries.ts:298`) use `COALESCE(c.display_name, c.name)`. The golden input must replay generation faithfully, so this plan uses the COALESCE form.
 5. Everything else the spec cites was verified accurate: `generateCoverLetter` returns a bare `TailoredCoverLetter` today (`coverLetterClient.ts:22`), `profile.instructions` feeds cover generation at `app/api/cover-letter/route.ts:83`, the prepare route's cover leg at `route.ts:156` and prefill at `route.ts:117`, the `resume_trace_id` CASE guard at `lib/queries.ts:496-498`, the export compile-time assertion at `lib/accountExport.ts:50-55`.
 
@@ -65,6 +65,7 @@
 | `dashboard/lib/types.ts` | `ApplicationPackage` gains 3 fields |
 | `dashboard/app/api/cover-letter/route.ts`, `app/api/resume/route.ts`, `app/api/application/prepare/route.ts` (+ tests) | trace-id capture, body instructions, drop `profile.instructions` from generation |
 | `dashboard/components/rolefit/ApplicationPanel.tsx`, `ResumePanel.tsx`, `JobDetail.tsx`, `RolefitBoard.tsx` | edited-letter display + editor wiring + instruction boxes |
+| `dashboard/scripts/calibrate-resume-judge.ts` | Task 17: fix pre-existing broken `sql`→`serviceSql` import (independent of this feature) |
 
 ## Task graph (spec workstreams → tasks)
 
@@ -75,7 +76,8 @@ WS4 (instructions core):Task 4 ─┴────────→ Task 6         
 WS3 (eval harness):     Task 8 → Task 9 ──────→ Task 16       │  two tasks fight over a route
 WS2 (edit overlay):     Task 10 → Task 11 → Task 12 → Task 13 │
 WS4 (instructions UI):  Task 14 → Task 15 (after 13 — shares ApplicationPanel/JobDetail/RolefitBoard)
-Final:                  Task 17 (full sweep)
+Standalone:             Task 17 (fix calibrate-resume-judge.ts — pre-existing bug, no deps, run any time)
+Final:                  Task 18 (full sweep)
 ```
 
 Dependencies stated per task. If workstreams are handed to parallel subagents: WS2 (Tasks 10–13) and WS4-UI (Tasks 14–15) both modify `ApplicationPanel.tsx`/`JobDetail.tsx`/`RolefitBoard.tsx` — run Task 15 after Task 13 (or give both to one agent). Everything else is file-disjoint after Tasks 1–7.
@@ -2809,7 +2811,42 @@ git commit -m "feat(evals): reference-based cover-letter judge rubric + replay/s
 
 ---
 
-### Task 17: Full verification sweep
+### Task 17: Fix the pre-existing `calibrate-resume-judge.ts` runtime break (`sql` → `serviceSql`)
+
+**Context:** Independent, pre-existing bug (discrepancy #3), unrelated to the cover-letter
+feature but folded in at the user's request. `dashboard/scripts/calibrate-resume-judge.ts:7`
+imports `{ sql }` from `../lib/db.ts`, but that export was renamed `serviceSql` in the
+go-public merge (e711cbd). `scripts/` is `tsc`-excluded (`dashboard/tsconfig.json`), so
+nothing flagged it; the script fails at ESM link time on every invocation. No dependency
+on any other task — can run any time.
+
+**Files:** `dashboard/scripts/calibrate-resume-judge.ts` (modify only).
+
+- [ ] **Step 1 (RED): reproduce the break.** From `dashboard/`:
+
+```bash
+cd /Users/andrew/Scripts/job-board/dashboard && node --experimental-strip-types --env-file-if-exists=.env.local scripts/calibrate-resume-judge.ts --sync 2>&1 | head -5
+```
+Expected (RED): the run fails citing the missing export — `does not provide an export named 'sql'`. This is an ESM link error that fires at module instantiation, *before* evaluation, so it reproduces with no DB/LangFuse env present.
+
+- [ ] **Step 2: fix the import + usage.**
+  - Line 7: `import { sql } from "../lib/db.ts";` → `import { serviceSql } from "../lib/db.ts";`
+  - Line 22: `return (await sql\`` → `return (await serviceSql\`` (the only usage). Confirm none remain: `grep -nE "\bsql\b" scripts/calibrate-resume-judge.ts` returns nothing (only `serviceSql`).
+  - Header comment (the two `node …` run-command lines): add `--env-file-if-exists=.env.local` to each, matching the new cover-letter script. `lib/db.ts` throws at *import* if `DATABASE_URL` is unset, and ESM import hoisting runs `db.ts` before any in-body loader — so env must be supplied via the node flag, not `process.loadEnvFile()`.
+
+- [ ] **Step 3 (GREEN): the export error is gone.** Re-run the Step 1 command. Expected: output no longer contains `does not provide an export named 'sql'`. It now either runs to completion (if `.env.local` carries `DATABASE_URL` + `LANGFUSE_*`) or fails on a missing-env / connection error — either outcome proves the link break is fixed. A full end-to-end run needs prod-ish `DATABASE_URL` + `LANGFUSE_*` and is not required to pass in a bare worktree.
+
+- [ ] **Step 4: control-byte scan + commit.**
+
+```bash
+cd /Users/andrew/Scripts/job-board && LC_ALL=C grep -nP '[\x00-\x08\x0B\x0C\x0E-\x1F]' dashboard/scripts/calibrate-resume-judge.ts || echo CLEAN
+git add dashboard/scripts/calibrate-resume-judge.ts
+git commit -m "fix(evals): calibrate-resume-judge.ts uses serviceSql (broken sql import since go-public)"
+```
+
+---
+
+### Task 18: Full verification sweep
 
 **Files:** none new (fixes only if something is red).
 

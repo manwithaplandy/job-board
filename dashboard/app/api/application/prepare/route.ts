@@ -13,6 +13,7 @@ import { DEFAULT_PREFILL_MODEL, generatePrefilledAnswers } from "@/lib/rolefit/p
 import { fetchGreenhouseQuestions, type GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
+import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
@@ -38,8 +39,19 @@ export async function POST(req: Request) {
   if (!claims) return Response.json({ error: "sign in to prepare an application" }, { status: 401 });
   const userId = claims.id;
 
-  const { jobId } = (await req.json().catch(() => ({}))) as { jobId?: string };
+  const { jobId, resumeInstructions: rawResumeInstr, coverLetterInstructions: rawCoverInstr } =
+    (await req.json().catch(() => ({}))) as {
+      jobId?: string; resumeInstructions?: unknown; coverLetterInstructions?: unknown;
+    };
   if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
+  // Per-job instruction boxes → each leg's own instructions. Over-cap is a caller
+  // error (400) rejected BEFORE the gate so a bad request never charges allowance.
+  const resumeNorm = normalizeInstructions(rawResumeInstr, "résumé");
+  if (!resumeNorm.ok) return Response.json({ error: resumeNorm.error }, { status: 400 });
+  const coverNorm = normalizeInstructions(rawCoverInstr, "cover letter");
+  if (!coverNorm.ok) return Response.json({ error: coverNorm.error }, { status: 400 });
+  const resumeInstructions = resumeNorm.value;
+  const coverLetterInstructions = coverNorm.value;
 
   const profile = await getProfile(userId);
   if (!profile?.resume_text) {
@@ -114,7 +126,9 @@ export async function POST(req: Request) {
     try {
       const prefilledAnswers = await generatePrefilledAnswers({
         resumeText,
-        instructions: profile.instructions ?? null,
+        // Prefill is instruction-less: profile.instructions is reviewer-only, and the
+        // per-job boxes deliberately don't cover the prefill leg (spec non-goal).
+        instructions: null,
         answers,
         job: { title: job.title, company: job.company_name, description: job.description },
         questions,
@@ -134,6 +148,7 @@ export async function POST(req: Request) {
     // Use allSettled so a failure in one leg doesn't block the others — persist
     // whatever succeeded.
     let resumeTraceId: string | null = null;
+    let coverLetterTraceId: string | null = null;
     const [resumeResult, coverResult, ghResult] = await Promise.allSettled([
       // résumé leg — the `resume` parent span now lives in generateResume; capture its
       // trace id for the golden-dataset judge join. Returns the TailoredResume so
@@ -143,6 +158,7 @@ export async function POST(req: Request) {
       (async () => {
         const { resume, traceId } = await generateResume({
           resumeText,
+          instructions: resumeInstructions,
           job: { title: job.title, company: job.company_name, description: job.description },
           model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
           apiKey,
@@ -150,22 +166,30 @@ export async function POST(req: Request) {
         resumeTraceId = traceId;
         return resume;
       })(),
-      generateCoverLetter({
-        resumeText,
-        candidateName: profile.full_name ?? null,
-        instructions: profile.instructions ?? null,
-        job: {
-          title: job.title,
-          company: job.company_name,
-          description: job.description,
-          about: job.about,
-          requirements: job.requirements,
-          skillGaps: job.skill_gaps,
-          redFlags: job.red_flags,
-        },
-        model: profile.model_cover ?? DEFAULT_COVER_MODEL,
-        apiKey,
-      }),
+      // cover-letter leg — the `cover-letter` parent span lives in generateCoverLetter;
+      // capture its trace id for the cover_letter_edits golden join. Returns the letter
+      // so coverResult.value stays a TailoredCoverLetter. On failure this leg throws
+      // before reading traceId, so coverLetterTraceId stays null (mirrors the résumé leg).
+      (async () => {
+        const { letter, traceId } = await generateCoverLetter({
+          resumeText,
+          candidateName: profile.full_name ?? null,
+          instructions: coverLetterInstructions,
+          job: {
+            title: job.title,
+            company: job.company_name,
+            description: job.description,
+            about: job.about,
+            requirements: job.requirements,
+            skillGaps: job.skill_gaps,
+            redFlags: job.red_flags,
+          },
+          model: profile.model_cover ?? DEFAULT_COVER_MODEL,
+          apiKey,
+        });
+        coverLetterTraceId = traceId;
+        return letter;
+      })(),
       greenhousePrefill(),
     ]);
 
@@ -186,6 +210,9 @@ export async function POST(req: Request) {
       prefilledAnswers: gh.prefilledAnswers,
       applyUrl: applyUrl(job.ats, job.url),
       resumeTraceId,
+      coverLetterTraceId,
+      resumeInstructions,
+      coverLetterInstructions,
       profileVersion: profile.profile_version,
     });
     // Both kinds were reserved (charged) up front; REFUND any leg that rejected — a

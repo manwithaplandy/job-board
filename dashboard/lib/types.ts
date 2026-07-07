@@ -207,6 +207,14 @@ export interface ApplicationPackage {
   // written before this column existed. Compared to the live profile_version to
   // flag a tailored résumé as stale.
   profileVersion: string | null;
+  // Per-job "Generation instructions" persisted with the last generate request (seed
+  // for the UI boxes; null = none).
+  resumeInstructions: string | null;
+  coverLetterInstructions: string | null;
+  // The viewer's CURRENT (non-superseded) human edit of the cover letter, joined from
+  // cover_letter_edits. Displays/downloads over the structured original; null = no
+  // current edit (never generated, never edited, or superseded by a regeneration).
+  coverLetterEditedText: string | null;
   preparedAt: string;
   appliedAt: string | null;
 }

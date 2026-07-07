@@ -1001,6 +1001,9 @@ export function RolefitBoard({
           prefilledAnswers: null,
           applyUrl: null,
           profileVersion: null,
+          resumeInstructions: null,
+          coverLetterInstructions: null,
+          coverLetterEditedText: null,
           preparedAt: appliedAt,
           appliedAt,
         };

@@ -391,6 +391,10 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
     prefilledAnswers: parseField("prefilled_answers", row.prefilled_answers, parsePrefilledAnswers),
     applyUrl: (row.apply_url as string | null) ?? null,
     profileVersion: (row.profile_version as string | null) ?? null,
+    resumeInstructions: (row.resume_instructions as string | null) ?? null,
+    coverLetterInstructions: (row.cover_letter_instructions as string | null) ?? null,
+    // Joined column — absent (undefined) on the upsert RETURNING path, which has no join.
+    coverLetterEditedText: (row.cover_letter_edited_text as string | null) ?? null,
     preparedAt: iso(row.prepared_at),
     appliedAt: row.applied_at != null ? iso(row.applied_at) : null,
   };
@@ -418,11 +422,15 @@ export async function getApplicationPackage(
 ): Promise<ApplicationPackage | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT job_id, status, resume_json, cover_letter_json, answers_snapshot,
-             greenhouse_questions, prefilled_answers, apply_url, profile_version,
-             prepared_at, applied_at
-      FROM application_packages
-      WHERE user_id = ${userId}::uuid AND job_id = ${jobId}
+      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json, ap.answers_snapshot,
+             ap.greenhouse_questions, ap.prefilled_answers, ap.apply_url, ap.profile_version,
+             ap.resume_instructions, ap.cover_letter_instructions,
+             ap.prepared_at, ap.applied_at,
+             e.edited_text AS cover_letter_edited_text
+      FROM application_packages ap
+      LEFT JOIN cover_letter_edits e
+        ON e.user_id = ap.user_id AND e.job_id = ap.job_id AND e.superseded_at IS NULL
+      WHERE ap.user_id = ${userId}::uuid AND ap.job_id = ${jobId}
     `;
     return rows.length > 0
       ? toApplicationPackage(rows[0] as unknown as Record<string, unknown>)
@@ -435,11 +443,15 @@ export async function getApplicationPackage(
 export async function getApplicationPackages(userId: string): Promise<ApplicationPackage[]> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT job_id, status, resume_json, cover_letter_json, answers_snapshot,
-             greenhouse_questions, prefilled_answers, apply_url, profile_version,
-             prepared_at, applied_at
-      FROM application_packages
-      WHERE user_id = ${userId}::uuid
+      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json, ap.answers_snapshot,
+             ap.greenhouse_questions, ap.prefilled_answers, ap.apply_url, ap.profile_version,
+             ap.resume_instructions, ap.cover_letter_instructions,
+             ap.prepared_at, ap.applied_at,
+             e.edited_text AS cover_letter_edited_text
+      FROM application_packages ap
+      LEFT JOIN cover_letter_edits e
+        ON e.user_id = ap.user_id AND e.job_id = ap.job_id AND e.superseded_at IS NULL
+      WHERE ap.user_id = ${userId}::uuid
     `;
     return (rows as unknown as Record<string, unknown>[]).map(toApplicationPackage);
   });

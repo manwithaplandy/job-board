@@ -404,11 +404,17 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
 // a real package that un-apply must preserve rather than delete. Built from the
 // active executor (a withUserSql tx) so the un-apply DELETE (app/actions/applications.ts)
 // and any future reader agree on the column set — including apply_url, which closes
-// the dormant un-apply gap if an apply_url-only write path is ever added.
+// the dormant un-apply gap if an apply_url-only write path is ever added, and the
+// instruction-draft columns, so a Save-before-generating row (a saved box with no
+// artifact yet) survives un-apply instead of being deleted along with its draft.
+// The client mirror of this predicate is RolefitBoard's `hasContent` (handleUnapply) —
+// keep the two column sets in lockstep.
 export function bareMarkerPredicate(tx: Sql | TransactionSql) {
   return tx`
     resume_json IS NULL AND cover_letter_json IS NULL
       AND prefilled_answers IS NULL AND apply_url IS NULL
+      AND resume_instructions_draft IS NULL
+      AND cover_letter_instructions_draft IS NULL
   `;
 }
 

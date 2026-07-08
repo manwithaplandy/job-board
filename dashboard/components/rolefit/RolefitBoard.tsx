@@ -104,6 +104,31 @@ function useIsNarrow() {
   );
 }
 
+// A blank 'prepared' package carrying no artifact — the client mirror of the row
+// upsertInstructionDraft writes when you Save an instructions box on a job you've never
+// generated for (draft columns filled in by the caller). Also the base for the one-click
+// "Mark as applied" marker. Benign to hold in the packages map: panes are content-gated
+// on resume/coverLetter and the applied set is status-gated, so a draft-only 'prepared'
+// entry surfaces nowhere until it gains real content.
+function emptyPreparedPackage(jobId: string, preparedAt: string): ApplicationPackage {
+  return {
+    jobId,
+    status: "prepared",
+    resume: null,
+    coverLetter: null,
+    prefilledAnswers: null,
+    applyUrl: null,
+    profileVersion: null,
+    resumeInstructions: null,
+    coverLetterInstructions: null,
+    resumeInstructionsDraft: null,
+    coverLetterInstructionsDraft: null,
+    coverLetterEditedText: null,
+    preparedAt,
+    appliedAt: null,
+  };
+}
+
 export function RolefitBoard({
   jobs,
   nowIso,
@@ -308,6 +333,12 @@ export function RolefitBoard({
     try {
       await saveGenerationInstructions(jobId, { resumeInstructions: value });
       setSavedResumeInstructions((m) => ({ ...m, [jobId]: value }));
+      // Mirror the saved draft into the packages row the server just wrote/created, so
+      // un-apply's hasContent check sees it exactly as the SQL bareMarkerPredicate does.
+      setPackages((p) => {
+        const prior = p[jobId] ?? emptyPreparedPackage(jobId, new Date().toISOString());
+        return { ...p, [jobId]: { ...prior, resumeInstructionsDraft: value } };
+      });
     } catch (e) {
       showActionError(`Couldn't save instructions: ${(e as Error).message}`);
       throw e; // let GenerationInstructions skip its "✓ Saved" confirmation
@@ -318,6 +349,10 @@ export function RolefitBoard({
     try {
       await saveGenerationInstructions(jobId, { coverLetterInstructions: value });
       setSavedCoverInstructions((m) => ({ ...m, [jobId]: value }));
+      setPackages((p) => {
+        const prior = p[jobId] ?? emptyPreparedPackage(jobId, new Date().toISOString());
+        return { ...p, [jobId]: { ...prior, coverLetterInstructionsDraft: value } };
+      });
     } catch (e) {
       showActionError(`Couldn't save instructions: ${(e as Error).message}`);
       throw e;
@@ -1089,22 +1124,7 @@ export function RolefitBoard({
     const appliedAt = new Date().toISOString();
     const optimistic: ApplicationPackage = prior
       ? { ...prior, status: "applied", appliedAt: prior.appliedAt ?? appliedAt }
-      : {
-          jobId: job.id,
-          status: "applied",
-          resume: null,
-          coverLetter: null,
-          prefilledAnswers: null,
-          applyUrl: null,
-          profileVersion: null,
-          resumeInstructions: null,
-          coverLetterInstructions: null,
-          resumeInstructionsDraft: null,
-          coverLetterInstructionsDraft: null,
-          coverLetterEditedText: null,
-          preparedAt: appliedAt,
-          appliedAt,
-        };
+      : { ...emptyPreparedPackage(job.id, appliedAt), status: "applied", appliedAt };
     setPackages((p) => ({ ...p, [job.id]: optimistic }));
     setSelectedId((prev) => (prev === job.id ? selectionAfterRemoval(visibleIds, job.id) : prev));
     startApply(() => {
@@ -1129,10 +1149,14 @@ export function RolefitBoard({
 
   // Un-mark applied from the Applied view (no toast — immediate). Deletes a bare
   // marker; reverts a real prepared package to status='prepared'. Rolls back on error.
+  // `hasContent` is the client twin of the SQL bareMarkerPredicate (lib/queries.ts) —
+  // a saved instructions draft (even "") is content the server keeps, so it must count
+  // here too, or the map would drop a row un-apply leaves behind server-side.
   const handleUnapply = useCallback((job: JobRow) => {
     const prior = packages[job.id];
     const hasContent = Boolean(
-      prior && (prior.resume || prior.coverLetter || prior.prefilledAnswers),
+      prior && (prior.resume || prior.coverLetter || prior.prefilledAnswers
+        || prior.resumeInstructionsDraft != null || prior.coverLetterInstructionsDraft != null),
     );
     setPackages((p) => {
       const next = { ...p };

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { JobDetail, type JobDetailProps } from "./JobDetail";
-import type { JobRow } from "@/lib/types";
+import type { ApplicationPackage, JobRow } from "@/lib/types";
+import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 
 // Regression guard for the plan-phase-J4 leak: the seniority pill used to render
 // `{job.seniority}` raw, so seniority==="unknown" showed a literal lowercase "unknown"
@@ -84,5 +85,69 @@ describe("JobDetail seniority pill", () => {
     render(<JobDetail job={makeJob({ seniority: "senior" })} {...baseProps} />);
     expect(screen.getByText("Senior")).toBeTruthy();
     expect(screen.queryByText("senior")).toBeNull();
+  });
+});
+
+// The applied-status badge and Save-enabled state are DERIVED in JobDetail (the
+// coverInstructionsApplied / coverInstructionsDirty ternaries feeding ApplicationPanel),
+// not passed in — so a wiring regression (e.g. comparing the box against the draft
+// instead of the generated-with column, or dropping the state!=="done" guard) would slip
+// past GenerationInstructions' own leaf tests. This locks that derivation on the cover leg.
+describe("JobDetail — generation-instructions applied/dirty derivation", () => {
+  const LETTER: TailoredCoverLetter = {
+    greeting: "Dear Hiring Manager,",
+    paragraphs: ["Body."],
+    closing: "Sincerely,",
+    signature: "Ada",
+  };
+  // A prepared package whose cover letter was generated WITH "Mention the launch".
+  const pkg: ApplicationPackage = {
+    jobId: "job-1",
+    status: "prepared",
+    resume: null,
+    coverLetter: LETTER,
+    prefilledAnswers: null,
+    applyUrl: null,
+    profileVersion: null,
+    resumeInstructions: null,
+    coverLetterInstructions: "Mention the launch",
+    resumeInstructionsDraft: null,
+    coverLetterInstructionsDraft: null,
+    coverLetterEditedText: null,
+    preparedAt: "2026-07-01T00:00:00.000Z",
+    appliedAt: null,
+  };
+
+  // Reviewed job so the ApplicationPanel renders; cover leg is "done" with the fixture letter.
+  function renderCover(coverBox: string, savedCover: string) {
+    render(
+      <JobDetail
+        job={makeJob({ fit_score: 88 })}
+        {...baseProps}
+        isAuthed
+        pkg={pkg}
+        coverGen={{ "job-1": "done" }}
+        coverData={{ "job-1": LETTER }}
+        coverInstructions={{ "job-1": coverBox }}
+        savedCoverInstructions={{ "job-1": savedCover }}
+      />,
+    );
+    // Two "Generation instructions" expanders (résumé + cover); open the cover one (last).
+    const toggles = screen.getAllByRole("button", { name: /generation instructions/i });
+    fireEvent.click(toggles[toggles.length - 1]);
+  }
+
+  test('box matches the generated-with instructions → "Applied", Save disabled (not dirty)', () => {
+    renderCover("Mention the launch", "Mention the launch");
+    expect(screen.getByText(/Applied to current cover letter/)).toBeTruthy();
+    expect(screen.queryByText(/Not yet applied/)).toBeNull();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test('box diverges from generated-with → "Not yet applied", Save enabled (dirty)', () => {
+    renderCover("Emphasize scale instead", "Mention the launch");
+    expect(screen.getByText(/Not yet applied — Regenerate to apply/)).toBeTruthy();
+    expect(screen.queryByText(/Applied to current cover letter/)).toBeNull();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

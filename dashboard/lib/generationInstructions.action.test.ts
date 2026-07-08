@@ -29,12 +29,20 @@ describe("saveGenerationInstructions", () => {
 
   it("preserves an empty saved value as '' (does NOT collapse to null)", async () => {
     await saveGenerationInstructions("j1", { resumeInstructions: "   " });
+    expect(draftMock).toHaveBeenCalledOnce();
     expect(draftMock).toHaveBeenCalledWith("u1", "j1", "resume", "");
   });
 
-  it("rejects over-cap input and writes nothing", async () => {
+  it("rejects over-cap résumé input and writes nothing", async () => {
     await expect(
       saveGenerationInstructions("j1", { resumeInstructions: "x".repeat(4001) }),
+    ).rejects.toThrow(/too long/i);
+    expect(draftMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects over-cap cover input and writes nothing", async () => {
+    await expect(
+      saveGenerationInstructions("j1", { coverLetterInstructions: "x".repeat(4001) }),
     ).rejects.toThrow(/too long/i);
     expect(draftMock).not.toHaveBeenCalled();
   });

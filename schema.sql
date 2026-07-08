@@ -640,6 +640,7 @@ GRANT INSERT (user_id, resume_text, resume_file_path, instructions, model_stage1
               company_profile_version, model_company, board_filters, full_name, email,
               phone, links, location, work_authorized, needs_sponsorship, eeo_gender,
               eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
+              reasoning_effort_resume, reasoning_effort_cover,
               profile_version, updated_at)
   ON profiles TO authenticated;
 GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
@@ -647,6 +648,7 @@ GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
               company_profile_version, model_company, board_filters, full_name, email,
               phone, location, links, work_authorized, needs_sponsorship, eeo_gender,
               eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
+              reasoning_effort_resume, reasoning_effort_cover,
               profile_version, updated_at)
   ON profiles TO authenticated;
 GRANT SELECT ON subscriptions TO authenticated;

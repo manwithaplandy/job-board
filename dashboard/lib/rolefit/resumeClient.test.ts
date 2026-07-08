@@ -71,6 +71,20 @@ describe("generateResume", () => {
     const f = fakeFetch({ choices: [{ message: { content: "not json" } }] });
     await expect(generateResume({ ...args, fetchImpl: f })).rejects.toThrow();
   });
+
+  test("forwards reasoningEffort to the transport body", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(TAILORED) } }] });
+    await generateResume({ ...args, fetchImpl: f, reasoningEffort: "high" });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect(body.reasoning).toEqual({ effort: "high" });
+  });
+
+  test("omits reasoning when reasoningEffort is not given (unchanged default)", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(TAILORED) } }] });
+    await generateResume({ ...args, fetchImpl: f });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect("reasoning" in body).toBe(false);
+  });
 });
 
 test("DEFAULT_RESUME_MODEL is claude haiku", () => {

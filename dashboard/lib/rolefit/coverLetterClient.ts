@@ -8,6 +8,7 @@ import { parseTailoredCoverLetter } from "@/lib/rolefit/packageCodec";
 import { startActiveObservation, propagateAttributes } from "@langfuse/tracing";
 import { composeCoverLetterText } from "@/lib/rolefit/coverLetterText";
 import { tracingEnabled } from "@/lib/observability";
+import type { ReasoningEffort } from "@/lib/entitlements";
 
 export const DEFAULT_COVER_MODEL = "anthropic/claude-haiku-4.5";
 
@@ -18,6 +19,7 @@ export async function generateCoverLetter(args: {
   job: CoverLetterJob;
   model: string;
   apiKey: string;
+  reasoningEffort?: ReasoningEffort | null;
   fetchImpl?: typeof fetch;
 }): Promise<{ letter: TailoredCoverLetter; traceId: string | null }> {
   const { system, user } = buildCoverLetterPrompt({
@@ -35,6 +37,7 @@ export async function generateCoverLetter(args: {
     user,
     responseFormat: COVER_LETTER_JSON_SCHEMA,
     maxTokens: REASONING_SAFE_MAX_TOKENS,
+    reasoningEffort: args.reasoningEffort,
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
       const parsed = parseTailoredCoverLetter(raw);

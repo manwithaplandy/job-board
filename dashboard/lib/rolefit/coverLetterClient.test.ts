@@ -89,6 +89,20 @@ describe("generateCoverLetter", () => {
     const f3 = fakeFetch({ choices: [{ message: { content: JSON.stringify(emptySignature) } }] });
     await expect(generateCoverLetter({ ...args, fetchImpl: f3 })).rejects.toThrow("missing required fields");
   });
+
+  test("forwards reasoningEffort to the transport body", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(LETTER) } }] });
+    await generateCoverLetter({ ...args, fetchImpl: f, reasoningEffort: "high" });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect(body.reasoning).toEqual({ effort: "high" });
+  });
+
+  test("omits reasoning when reasoningEffort is not given (unchanged default)", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(LETTER) } }] });
+    await generateCoverLetter({ ...args, fetchImpl: f });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect("reasoning" in body).toBe(false);
+  });
 });
 
 test("DEFAULT_COVER_MODEL is claude haiku", () => {

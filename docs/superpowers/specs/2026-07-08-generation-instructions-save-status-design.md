@@ -66,15 +66,19 @@ Add two nullable columns:
 
 Let `B` = box (local), `D` = draft column, `G` = generated-with column.
 
-- **Seed on load:** `B = D ?? G ?? ""` (prefer the saved draft).
-- **Saved / dirty:** persisted value the box would reload to = `D ?? G`.
-  Save is **disabled** when `B.trim() === (D ?? G ?? "").trim()` (nothing new).
-- **Applied:** only meaningful once the artifact exists (`gen === "done"`).
-  `applied = B.trim() === (G ?? "").trim()`.
-
-Both signals are **derived from `packages[jobId]`** (already board state) — no new state
-map. On Save success, optimistically set `packages[jobId].resumeInstructionsDraft = B` so
-both signals recompute.
+- **Seed on load:** `B = D ?? G ?? ""` (prefer the saved draft). Empty string is a valid
+  saved value — a cleared+saved box persists as `""` (NOT collapsed to `null`), so the
+  clear survives reload and reads "not applied".
+- **Saved / dirty:** the persisted value the box would reload to. Tracked in a small
+  `savedInstructions` map per leg, seeded from `D ?? G ?? ""` (a map — not derived purely
+  from `packages` — so the pre-generation "Save before ever generating" case, where no
+  package row exists yet, still works within the session). Save is **disabled** when
+  `B.trim() === saved.trim()` (nothing new). On Save success set `saved[jobId] = B.trim()`.
+- **Applied:** only meaningful once the artifact exists (`gen === "done"`). Uses the
+  generated-with column directly: `applied = B.trim() === (packages[jobId].resumeInstructions ?? "").trim()`.
+- On regenerate settle, `applySettledReady` refreshes `packages[jobId]` (draft now `NULL`,
+  `G` = fresh instructions) **and** resets `savedInstructions[jobId] = D ?? G ?? ""` so
+  both signals recompute (Save disabled, badge "applied").
 
 ## Generate path stays honest (no route changes)
 

@@ -1,8 +1,12 @@
 import { describe, expect, it, test, vi } from "vitest";
 import {
   getStructuredModels, filterModels, validateModelId, getOpenRouterCredits,
-  CURATED_MODELS, type ORModel,
+  CURATED_MODELS, DEFAULT_MODEL_ID, type ORModel,
 } from "@/lib/openrouter";
+import { CHEAP_MODEL, PREMIUM_MODEL } from "@/lib/entitlements";
+import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
+import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
+import { DEFAULT_PREFILL_MODEL } from "@/lib/rolefit/prefillClient";
 
 function fakeFetch(payload: unknown, ok = true): typeof fetch {
   return vi.fn(async () => ({
@@ -13,7 +17,7 @@ function fakeFetch(payload: unknown, ok = true): typeof fetch {
 
 const CATALOG = {
   data: [
-    { id: "b/model", name: "B Model", supported_parameters: ["structured_outputs", "tools"],
+    { id: "b/model", name: "B Model", supported_parameters: ["structured_outputs", "tools", "reasoning"],
       pricing: { prompt: "0.000001", completion: "0.000002" } },
     { id: "a/model", name: "A Model", supported_parameters: ["structured_outputs"],
       pricing: { prompt: "0.000003", completion: "0.000004" } },
@@ -27,9 +31,10 @@ describe("getStructuredModels", () => {
     const models = await getStructuredModels(fakeFetch(CATALOG));
     expect(models.map((m) => m.id)).toEqual(["a/model", "b/model"]);
     expect(models[0]).toEqual({
-      id: "a/model", name: "A Model",
+      id: "a/model", name: "A Model", reasoning: false,
       pricing: { prompt: "0.000003", completion: "0.000004" },
     });
+    expect(models[1].reasoning).toBe(true);
   });
 
   test("returns [] on non-ok response", async () => {
@@ -90,9 +95,33 @@ describe("validateModelId", () => {
   });
 });
 
-test("CURATED_MODELS is a non-empty list of ids", () => {
-  expect(CURATED_MODELS.length).toBeGreaterThan(0);
-  expect(CURATED_MODELS).toContain("anthropic/claude-haiku-4.5");
+describe("CURATED_MODELS curation policy (2026-07-08 refresh)", () => {
+  test("contains the requested additions", () => {
+    expect(CURATED_MODELS).toContain("anthropic/claude-sonnet-5");
+    expect(CURATED_MODELS).toContain("openai/gpt-5.5");
+  });
+
+  test("aged-out and superseded models are gone", () => {
+    for (const gone of [
+      "google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro",
+      "openai/gpt-4.1-nano", "openai/gpt-4o-mini", "openai/gpt-5-mini", "openai/gpt-4.1-mini",
+      "meta-llama/llama-4-scout", "meta-llama/llama-4-maverick", "meta-llama/llama-3.3-70b-instruct",
+      "mistralai/mistral-small-3.2-24b-instruct", "deepseek/deepseek-v3.2",
+      "qwen/qwen3-8b", "qwen/qwen3-32b", "qwen/qwen3-30b-a3b-thinking-2507",
+      "qwen/qwen3-235b-a22b-thinking-2507", "deepseek/deepseek-r1-0528",
+    ]) {
+      expect(CURATED_MODELS).not.toContain(gone);
+    }
+  });
+
+  test("the default / entitlement model ids stay members (spec invariant)", () => {
+    for (const id of [
+      DEFAULT_MODEL_ID, CHEAP_MODEL, PREMIUM_MODEL,
+      DEFAULT_RESUME_MODEL, DEFAULT_COVER_MODEL, DEFAULT_PREFILL_MODEL,
+    ]) {
+      expect(CURATED_MODELS).toContain(id);
+    }
+  });
 });
 
 describe("getOpenRouterCredits", () => {

@@ -2,6 +2,11 @@ export interface ORModel {
   id: string;
   name: string;
   pricing: { prompt: string; completion: string };
+  // True when the model accepts the `reasoning` request param (catalog
+  // supported_parameters). undefined = unknown (e.g. a curated id missing from
+  // the catalog) — callers FAIL OPEN and attach the param; OpenRouter hard-fails
+  // reasoning sent to some non-supporting providers, so false must mean OMIT.
+  reasoning?: boolean;
 }
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
@@ -9,31 +14,36 @@ const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 // Mirrors reviewer/llm.py DEFAULT_MODEL. Shown as the placeholder when unset.
 export const DEFAULT_MODEL_ID = "deepseek/deepseek-v4-flash";
 
-// Curated default suggestions shown before the user types. Refreshed and catalog-verified
-// 2026-06-25: mix of small bang-for-buck models + cheapest frontier reasoning models, all
-// confirmed present and structured-output-capable on OpenRouter at that date. The search
-// box filters the FULL live catalog, so staleness here is low-impact — edit freely.
+// Curated default suggestions shown before the user types. The search box filters
+// the FULL live catalog, so this list is UX only — removal never invalidates a
+// saved model. Membership policy (refresh by hand; verify against the live
+// catalog at refresh time):
+//   1. present in the OpenRouter catalog with structured_outputs support;
+//   2. released within the last 12 months (catalog `created`);
+//   3. not superseded by a same-provider successor available on OpenRouter
+//      (replace 1:1 with the successor when one exists).
+// The DEFAULT_MODEL_ID / CHEAP_MODEL / PREMIUM_MODEL / DEFAULT_RESUME_MODEL /
+// DEFAULT_COVER_MODEL / DEFAULT_PREFILL_MODEL ids must stay members (tested).
+// Refreshed and catalog-verified 2026-07-08; every entry also supports the
+// `reasoning` param. Meta has no eligible entry (Llama 4 aged out; its successor
+// is not on OpenRouter yet — re-check at next refresh).
 export const CURATED_MODELS: string[] = [
   "anthropic/claude-haiku-4.5",
-  "google/gemini-2.5-flash-lite",
-  "google/gemini-2.5-flash",
-  "openai/gpt-4.1-nano",
-  "openai/gpt-4o-mini",
-  "openai/gpt-5-mini",
-  "openai/gpt-4.1-mini",
-  "meta-llama/llama-4-scout",
-  "meta-llama/llama-4-maverick",
-  "meta-llama/llama-3.3-70b-instruct",
-  "mistralai/mistral-small-3.2-24b-instruct",
+  "anthropic/claude-sonnet-5",
+  "google/gemini-3.1-flash-lite",
+  "google/gemini-3.5-flash",
+  "openai/gpt-5.4-nano",
+  "openai/gpt-5.4-mini",
+  "openai/gpt-5.5",
+  "mistralai/mistral-medium-3-5",
   "deepseek/deepseek-v4-flash",
-  "deepseek/deepseek-v3.2",
-  "qwen/qwen3-8b",
-  "qwen/qwen3-32b",
-  "qwen/qwen3-30b-a3b-thinking-2507",
-  "qwen/qwen3-235b-a22b-thinking-2507",
-  "deepseek/deepseek-r1-0528",
+  "deepseek/deepseek-v4-pro",
+  "qwen/qwen3.5-9b",
+  "qwen/qwen3.5-27b",
+  "qwen/qwen3.5-35b-a3b",
+  "qwen/qwen3.5-397b-a17b",
   "moonshotai/kimi-k2-thinking",
-  "google/gemini-2.5-pro",
+  "google/gemini-3.1-pro-preview",
 ];
 
 interface RawModel {
@@ -62,6 +72,7 @@ export async function getStructuredModels(
       .map((m) => ({
         id: m.id,
         name: m.name,
+        reasoning: m.supported_parameters?.includes("reasoning") ?? false,
         pricing: { prompt: m.pricing?.prompt ?? "", completion: m.pricing?.completion ?? "" },
       }))
       .sort((a, b) => a.name.localeCompare(b.name));

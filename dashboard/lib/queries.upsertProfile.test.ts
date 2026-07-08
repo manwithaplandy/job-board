@@ -26,6 +26,7 @@ const data = {
   workAuthorized: null, needsSponsorship: null,
   eeoGender: null, eeoRace: null, eeoVeteran: null, eeoDisability: null,
   screeningAnswers: {}, modelCover: null,
+  reasoningEffortResume: null, reasoningEffortCover: null,
 };
 
 describe("upsertProfile tombstone guard (M-RESURRECT-2)", () => {

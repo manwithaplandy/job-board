@@ -13,6 +13,7 @@ import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
 import { startActiveObservation, propagateAttributes } from "@langfuse/tracing";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { tracingEnabled } from "@/lib/observability";
+import type { ReasoningEffort } from "@/lib/entitlements";
 
 export const DEFAULT_RESUME_MODEL = "anthropic/claude-haiku-4.5";
 
@@ -21,6 +22,7 @@ export async function generateResume(args: {
   job: { title: string; company: string; description: string | null };
   model: string;
   apiKey: string;
+  reasoningEffort?: ReasoningEffort | null;
   fetchImpl?: typeof fetch;
   instructions?: string | null;
 }): Promise<{ resume: TailoredResume; checks: ResumeChecks; traceId: string | null }> {
@@ -41,6 +43,7 @@ export async function generateResume(args: {
     user,
     responseFormat: TAILORED_RESUME_SCHEMA,
     maxTokens: REASONING_SAFE_MAX_TOKENS,
+    reasoningEffort: args.reasoningEffort,
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
       const tailored = raw as TailoredContent;

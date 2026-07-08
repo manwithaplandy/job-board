@@ -66,6 +66,7 @@ export async function completeOnboarding(
       // Everything below is edited later on /profile — nulls/empties at onboarding.
       modelStage1: null, modelStage2: null, modelResume: null, modelCompany: null,
       modelCover: null, companyInstructions: null,
+      reasoningEffortResume: null, reasoningEffortCover: null,
       fullName: null, email: null, phone: null, links: {},
       location: null, workAuthorized: null, needsSponsorship: null,
       eeoGender: null, eeoRace: null, eeoVeteran: null, eeoDisability: null,

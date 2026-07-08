@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { getViewerPlan } from "@/lib/subscriptions";
-import { resolveStage2Model, CHEAP_MODEL, PREMIUM_MODEL } from "@/lib/entitlements";
+import { resolveStage2Model, validateReasoningEffort, CHEAP_MODEL, PREMIUM_MODEL } from "@/lib/entitlements";
 import { internalPathFromReferer } from "@/lib/paths";
 import { ProfileFormShell, type ProfileSaveState } from "@/components/ProfileFormShell";
 import { createClient } from "@/lib/supabase/server";
@@ -13,6 +13,7 @@ import {
   getStructuredModels, CURATED_MODELS, DEFAULT_MODEL_ID, validateModelId,
 } from "@/lib/openrouter";
 import { ModelPicker } from "@/components/ModelPicker";
+import { ReasoningEffortSelect } from "@/components/ReasoningEffortSelect";
 import { LocationPicker } from "@/components/LocationPicker";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
@@ -96,6 +97,14 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
       return { error: `${name} requires the Pro plan.` };
     }
 
+    // Reasoning-effort gate (mirrors the stage-2 model gate): medium/high are
+    // Pro-only; ""/"off" normalize to null = Off. Call time clamps again, so a
+    // later downgrade degrades gracefully rather than erroring generations.
+    const er = validateReasoningEffort(String(formData.get("reasoning_effort_resume") ?? ""), plan);
+    if (!er.ok) return { error: er.reason };
+    const ec = validateReasoningEffort(String(formData.get("reasoning_effort_cover") ?? ""), plan);
+    if (!ec.ok) return { error: ec.reason };
+
     const preferredLocations = parsePreferredLocations(
       String(formData.get("preferred_locations") ?? ""),
     );
@@ -153,6 +162,8 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
       eeoDisability: trimOrNull(formData.get("eeo_disability")),
       screeningAnswers,
       modelCover: cl.value,
+      reasoningEffortResume: er.value,
+      reasoningEffortCover: ec.value,
     });
     // Return to the page the user came from (threaded through a hidden field captured at
     // GET time — the POST's own referer is /profile).
@@ -483,10 +494,20 @@ export default async function ProfilePage() {
               label="Résumé generation model"
               name="model_resume" models={models} curated={CURATED_MODELS}
               defaultValue={profile?.model_resume ?? null} placeholder={DEFAULT_RESUME_MODEL} />
+            <ReasoningEffortSelect
+              label="Résumé reasoning effort"
+              name="reasoning_effort_resume"
+              defaultValue={profile?.reasoning_effort_resume ?? null}
+              isPro={isPro} />
             <ModelPicker
               label="Cover letter generation model"
               name="model_cover" models={models} curated={CURATED_MODELS}
               defaultValue={profile?.model_cover ?? null} placeholder={DEFAULT_COVER_MODEL} />
+            <ReasoningEffortSelect
+              label="Cover letter reasoning effort"
+              name="reasoning_effort_cover"
+              defaultValue={profile?.reasoning_effort_cover ?? null}
+              isPro={isPro} />
             <ModelPicker
               label="Company review model"
               name="model_company" models={models} curated={CURATED_MODELS}

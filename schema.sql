@@ -97,6 +97,10 @@ CREATE TABLE profiles (
   eeo_disability    TEXT,
   screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb,  -- { notice_period, salary_expectation, relocation, … }
   model_cover       TEXT,                     -- OpenRouter model id; NULL = default
+  -- Reasoning effort for generation ('low'|'medium'|'high'); NULL = off (default).
+  -- medium/high are Pro-gated (dashboard/lib/entitlements.ts, TS-only).
+  reasoning_effort_resume TEXT CHECK (reasoning_effort_resume IN ('low', 'medium', 'high')),
+  reasoning_effort_cover  TEXT CHECK (reasoning_effort_cover  IN ('low', 'medium', 'high')),
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- Optional per-user override of the env daily review cap (reviewer/config.py

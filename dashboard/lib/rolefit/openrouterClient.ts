@@ -7,6 +7,7 @@
 // `parse` step that validates the raw JSON into the typed result, and share this.
 import { startObservation } from "@langfuse/tracing";
 import { tracingEnabled } from "@/lib/observability";
+import type { ReasoningEffort } from "@/lib/entitlements";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -53,6 +54,11 @@ export async function callOpenRouterStructured<T>(args: {
   user: string;
   responseFormat: unknown;
   maxTokens: number;
+  // Reasoning control (OpenRouter unified param). "off" → { enabled: false } (the
+  // fix for hybrid models burning max_tokens on thinking); a level → { effort }.
+  // null/undefined → the field is OMITTED — required for models without reasoning
+  // support, where OpenRouter hard-fails ANY reasoning field (probed 2026-07-08).
+  reasoningEffort?: ReasoningEffort | null;
   // Validate + shape the parsed JSON into the typed result; throw on a bad payload.
   parse: (raw: unknown) => T;
   fetchImpl?: typeof fetch;
@@ -63,7 +69,9 @@ export async function callOpenRouterStructured<T>(args: {
   const gen = tracingEnabled()
     ? startObservation(
         args.generationName,
-        { model: args.model, input: [{ role: "system", content: args.system }, { role: "user", content: args.user }] },
+        { model: args.model,
+          input: [{ role: "system", content: args.system }, { role: "user", content: args.user }],
+          metadata: { reasoning_effort: args.reasoningEffort ?? "omitted" } },
         { asType: "generation" },
       )
     : null;
@@ -71,6 +79,13 @@ export async function callOpenRouterStructured<T>(args: {
   const body = JSON.stringify({
     model: args.model,
     max_tokens: args.maxTokens,
+    ...(args.reasoningEffort == null
+      ? {}
+      : {
+          reasoning: args.reasoningEffort === "off"
+            ? { enabled: false }
+            : { effort: args.reasoningEffort },
+        }),
     messages: [
       { role: "system", content: args.system },
       { role: "user", content: args.user },

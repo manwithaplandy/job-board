@@ -76,6 +76,18 @@ describe("generatePrefilledAnswers", () => {
     const f = fakeFetch({ choices: [{ message: { content: JSON.stringify({ foo: 1 }) } }] });
     await expect(generatePrefilledAnswers({ ...args, fetchImpl: f })).rejects.toThrow();
   });
+
+  test("always disables reasoning (bounded extraction leg)", async () => {
+    const payload = {
+      choices: [{ message: { content: JSON.stringify({
+        answers: [{ question: "Why us?", answer: "I admire your devtools." }],
+      }) } }],
+    };
+    const f = fakeFetch(payload);
+    await generatePrefilledAnswers({ ...args, fetchImpl: f });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect(body.reasoning).toEqual({ enabled: false });
+  });
 });
 
 test("DEFAULT_PREFILL_MODEL is claude haiku", () => {

@@ -65,6 +65,10 @@ export async function generatePrefilledAnswers(args: {
     user,
     responseFormat: PREFILL_JSON_SCHEMA,
     maxTokens: REASONING_SAFE_MAX_TOKENS,
+    // Always off: this leg is bounded to 45s by the prepare route and reasoning
+    // only risks the deadline; DEFAULT_PREFILL_MODEL supports the param, so
+    // {enabled:false} is safe (never omit — the model is fixed, not user-picked).
+    reasoningEffort: "off",
     fetchImpl: args.fetchImpl,
     parse: (raw) => {
       const parsed = raw as { answers?: unknown };

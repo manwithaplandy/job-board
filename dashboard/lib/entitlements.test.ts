@@ -8,6 +8,9 @@ import {
   dailyReviewCap,
   monthlyAllowance,
   modelSlot,
+  REASONING_EFFORTS,
+  resolveReasoningEffort,
+  validateReasoningEffort,
 } from "@/lib/entitlements";
 
 const NOW = new Date("2026-07-03T00:00:00Z");
@@ -138,5 +141,59 @@ describe("ENTITLEMENTS table shape", () => {
   test("standard has no premium slot; pro has both", () => {
     expect(ENTITLEMENTS.standard.stage2Models.premium).toBeUndefined();
     expect(ENTITLEMENTS.pro.stage2Models.premium).toBe(100);
+  });
+});
+
+describe("resolveReasoningEffort", () => {
+  test("pro keeps every level", () => {
+    for (const e of ["off", "low", "medium", "high"] as const) {
+      expect(resolveReasoningEffort("pro", e)).toBe(e);
+    }
+  });
+
+  test("standard keeps off/low and CLAMPS medium/high down to low", () => {
+    expect(resolveReasoningEffort("standard", "off")).toBe("off");
+    expect(resolveReasoningEffort("standard", "low")).toBe("low");
+    expect(resolveReasoningEffort("standard", "medium")).toBe("low");
+    expect(resolveReasoningEffort("standard", "high")).toBe("low");
+  });
+
+  test("null plan always resolves to off", () => {
+    expect(resolveReasoningEffort(null, "high")).toBe("off");
+    expect(resolveReasoningEffort(null, "off")).toBe("off");
+  });
+
+  test("tier table matches the spec", () => {
+    expect(REASONING_EFFORTS.standard).toEqual(["off", "low"]);
+    expect(REASONING_EFFORTS.pro).toEqual(["off", "low", "medium", "high"]);
+  });
+});
+
+describe("validateReasoningEffort", () => {
+  test("empty and 'off' normalize to null (Off is the stored default)", () => {
+    expect(validateReasoningEffort("", "pro")).toEqual({ ok: true, value: null });
+    expect(validateReasoningEffort("off", "standard")).toEqual({ ok: true, value: null });
+  });
+
+  test("low is accepted on any plan (incl. null — call time clamps anyway)", () => {
+    expect(validateReasoningEffort("low", "standard")).toEqual({ ok: true, value: "low" });
+    expect(validateReasoningEffort("low", null)).toEqual({ ok: true, value: "low" });
+  });
+
+  test("medium/high require pro", () => {
+    expect(validateReasoningEffort("medium", "pro")).toEqual({ ok: true, value: "medium" });
+    expect(validateReasoningEffort("high", "pro")).toEqual({ ok: true, value: "high" });
+    expect(validateReasoningEffort("medium", "standard")).toEqual({
+      ok: false, reason: "Medium and High reasoning effort require the Pro plan.",
+    });
+    expect(validateReasoningEffort("high", null)).toEqual({
+      ok: false, reason: "Medium and High reasoning effort require the Pro plan.",
+    });
+  });
+
+  test("unknown values are rejected (hand-crafted form posts)", () => {
+    expect(validateReasoningEffort("maximum", "pro")).toEqual({
+      ok: false, reason: "unknown reasoning effort: maximum",
+    });
   });
 });

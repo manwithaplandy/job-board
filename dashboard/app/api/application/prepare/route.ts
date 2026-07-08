@@ -84,7 +84,7 @@ export async function POST(req: Request) {
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return Response.json({ error: "application preparation not configured" }, { status: 500 });
+  if (!apiKey) return Response.json({ error: "application prefill not configured" }, { status: 500 });
 
   // Poll-time question schema (shared). Fall back to an on-demand fetch for a brand-new
   // job not yet backfilled — used IN-MEMORY ONLY; the poller persists it later (this
@@ -173,7 +173,7 @@ export async function POST(req: Request) {
         // NOT at module load, because AbortSignal.timeout starts counting immediately; a
         // deadline made before the ~242s résumé leg would already be expired and abort every
         // prefill. A single shared signal bounds the WHOLE leg across both openrouter attempts
-        // (replacing the client's per-attempt 120s timeout with our tighter 60s). A capped-out
+        // (replacing the client's per-attempt 120s timeout with our tighter 45s). A capped-out
         // prefill throws → swallowed below (best-effort): the résumé still persists, no answers.
         const prefillDeadline = AbortSignal.timeout(PREFILL_TIMEOUT_MS);
         try {
@@ -185,7 +185,7 @@ export async function POST(req: Request) {
             questions: prefillQuestions,
             model: DEFAULT_PREFILL_MODEL,
             apiKey,
-            // Shared 60s deadline across retries → the leg can't run away sequentially.
+            // Shared 45s deadline across retries → the leg can't run away sequentially.
             fetchImpl: (input, init) => fetch(input, { ...init, signal: prefillDeadline }),
           });
         } catch (e) {

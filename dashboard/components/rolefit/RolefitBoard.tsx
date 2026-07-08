@@ -1149,13 +1149,15 @@ export function RolefitBoard({
 
   // Un-mark applied from the Applied view (no toast — immediate). Deletes a bare
   // marker; reverts a real prepared package to status='prepared'. Rolls back on error.
-  // `hasContent` is the client twin of the SQL bareMarkerPredicate (lib/queries.ts) —
-  // a saved instructions draft (even "") is content the server keeps, so it must count
-  // here too, or the map would drop a row un-apply leaves behind server-side.
+  // `hasContent` is the client twin of the SQL bareMarkerPredicate (lib/queries.ts) — it
+  // mirrors that predicate's full column set (resume/cover/prefilled/apply_url + both
+  // instruction drafts) so the optimistic map reaches the same keep-vs-delete decision the
+  // server DELETE does. A saved instructions draft (even "") is content the server keeps,
+  // so it must count here too, or the map would drop a row un-apply leaves behind.
   const handleUnapply = useCallback((job: JobRow) => {
     const prior = packages[job.id];
     const hasContent = Boolean(
-      prior && (prior.resume || prior.coverLetter || prior.prefilledAnswers
+      prior && (prior.resume || prior.coverLetter || prior.prefilledAnswers || prior.applyUrl != null
         || prior.resumeInstructionsDraft != null || prior.coverLetterInstructionsDraft != null),
     );
     setPackages((p) => {

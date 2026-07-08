@@ -30,5 +30,10 @@ describe("bareMarkerPredicate", () => {
     ]) {
       expect(sql).toContain(`${col} IS NULL`);
     }
+
+    // Conjunction, not disjunction — a row is a bare marker only when ALL columns are
+    // NULL. An accidental OR (which would delete rows that still hold content) must fail.
+    expect(sql).toMatch(/\bAND\b/);
+    expect(sql).not.toMatch(/\bOR\b/);
   });
 });

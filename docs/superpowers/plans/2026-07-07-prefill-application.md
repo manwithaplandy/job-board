@@ -30,6 +30,7 @@
 **Files:**
 - Modify: `schema.sql` (add table, RLS policy, grant; comment on `generation_jobs.kind`)
 - Create: `migrations/2026-07-07-job-questions.sql`
+- Modify: `tests/test_rls_isolation.py` (add `job_questions` to the grant allowlist)
 
 **Interfaces:**
 - Produces: table `job_questions (job_id TEXT PK → jobs ON DELETE CASCADE, questions jsonb NOT NULL, fetched_at timestamptz)`, readable by `authenticated`/`anon` via `shared_read`, writable only by the service/poller role.
@@ -67,6 +68,12 @@ GRANT SELECT ON job_questions TO anon, authenticated;
 
 (No INSERT/UPDATE/DELETE grant to `anon`/`authenticated` — writes are poller/service-role only.)
 
+**Also update the grant-allowlist guard** — `tests/test_rls_isolation.py::test_grant_contract_matches_the_allowlist` asserts every public table's grants equal `EXPECTED_GRANTS` exactly (an unlisted table must have NO grants), so without this the whole poller suite goes red from Task 1 on. Add to the `EXPECTED_GRANTS` dict (matching the existing `_R(...)` helper + the `jobs`/`companies` entries' shape — confirm the exact tuple form in that file first):
+
+```python
+    "job_questions": (_R({"SELECT"}), _R({"SELECT"})),  # shared_read: anon + authenticated SELECT
+```
+
 - [ ] **Step 3: Document keeping `kind='prepare'` at the constraint**
 
 Edit `schema.sql:423` — add a comment directly above the `generation_jobs.kind` CHECK line:
@@ -80,11 +87,13 @@ Edit `schema.sql:423` — add a comment directly above the `generation_jobs.kind
 
 - [ ] **Step 4: Create the migration file**
 
-`migrations/2026-07-07-job-questions.sql`:
+`migrations/2026-07-07-job-questions.sql` — wrap in `BEGIN;…COMMIT;` and record it in the `schema_migrations` ledger, matching `migrations/2026-07-05-generation-jobs.sql` / `migrations/2026-07-07-cover-letter-edits.sql` (confirm the exact ledger column — `filename` — in one of those files):
 
 ```sql
 -- Poll-time Greenhouse application-question schema, stored job-level (shared across
 -- users). See docs/superpowers/specs/2026-07-07-prefill-application-design.md.
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS job_questions (
   job_id     TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
   questions  JSONB NOT NULL,
@@ -98,6 +107,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 GRANT SELECT ON job_questions TO anon, authenticated;
+
+INSERT INTO schema_migrations (filename) VALUES ('2026-07-07-job-questions.sql')
+  ON CONFLICT (filename) DO NOTHING;
+
+COMMIT;
 ```
 
 - [ ] **Step 5: Verify the schema loads (the Python `conn` fixture rebuilds from `schema.sql`)**
@@ -296,6 +310,8 @@ def parse_greenhouse_questions(data) -> dict | None:
     return {"questions": questions}
 ```
 
+> **Parity caveat:** `_as_string` can't be byte-identical to the TS `asString` for two JSON types the fixture doesn't exercise — Python `str(True)` → `"True"` vs JS `"true"`, and a JSON `1.0` → Python `"1.0"` vs JS `"1"`. Real Greenhouse option values are integers, so this never bites in practice; leave it, but don't claim byte-parity on bools/floats. (If you want to close it: lowercase bools and render integral floats without the trailing `.0` in `_as_string`.)
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python3 -m pytest tests/test_greenhouse_questions.py -q`
@@ -414,6 +430,7 @@ def greenhouse_jobs_missing_questions(conn, company_id: int) -> list[str]:
             FROM jobs j
             LEFT JOIN job_questions q ON q.job_id = j.id
             WHERE j.company_id = %s AND j.closed_at IS NULL AND q.job_id IS NULL
+            ORDER BY j.external_id
             """,
             (company_id,),
         )
@@ -532,13 +549,20 @@ def backfill_greenhouse_questions(conn, company_id, token, *, get_json=None, log
     fetched = 0
     for external_id in db.greenhouse_jobs_missing_questions(conn, company_id):
         url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{external_id}?questions=true"
+        # ONLY the HTTP fetch + pure parse are swallowed. A DB write error must NOT be
+        # caught here — a failed statement aborts the transaction, and continuing to
+        # issue statements (all silently caught) then `conn.commit()` at run.py:106 would
+        # commit an aborted tx (→ rollback), discarding the company's whole upsert_jobs
+        # work with no error. Let db errors propagate to the per-company handler, which
+        # rolls back correctly (mirrors smartrecruiters/workday: HTTP-only try/except).
         try:
             questions = parse_greenhouse_questions(get_json(url))
-            if questions and questions["questions"]:
-                db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", questions)
-                fetched += 1
-        except Exception as e:  # noqa: BLE001 — best-effort; never abort the company
+        except Exception as e:  # noqa: BLE001 — fetch/parse only; never abort the company
             log.warning("greenhouse question fetch failed for %s:%s (%s)", token, external_id, e)
+            continue
+        if questions and questions["questions"]:
+            db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", questions)
+            fetched += 1
     return fetched
 ```
 
@@ -575,12 +599,11 @@ git commit -m "feat(prefill): poller backfills Greenhouse question schemas for j
 
 - [ ] **Step 1: Add the failing cross-language parity test**
 
-Append to `dashboard/lib/rolefit/greenhouseQuestions.test.ts`:
+Append to `dashboard/lib/rolefit/greenhouseQuestions.test.ts`. **Do NOT re-import `parseGreenhouseQuestions`** — the file already imports it at the top; add only the two Node imports (a duplicate import is a parse error that fails the whole file):
 
 ```ts
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseGreenhouseQuestions } from "./greenhouseQuestions";
 
 // Drift guard: the SAME fixture the Python parser test asserts (tests/fixtures/
 // greenhouse_questions.json) must parse to the SAME canonical shape here. If the two
@@ -855,10 +878,10 @@ git commit -m "feat(prefill): job-level getJobQuestion/getJobQuestions reads (sh
 - Modify: `dashboard/lib/queries.ts` (`toApplicationPackage`, `bareMarkerPredicate`, `getApplicationPackage`, `getApplicationPackages`, `upsertApplicationPackage`)
 - Modify: `dashboard/components/rolefit/RolefitBoard.tsx` (`handleMarkApplied` literal, `handleUnapply` `hasContent`)
 - Modify: `dashboard/components/rolefit/JobDetail.tsx` (temporarily stub the `greenhouseQuestions` source — Task 9 wires the real one)
-- Modify: `dashboard/app/api/resume/route.ts`, `dashboard/app/api/cover-letter/route.ts` (drop the two upsert args)
-- Modify tests: `dashboard/lib/queries.applicationPackages.test.ts`, `dashboard/lib/queries.upsertApplicationPackage.test.ts` (drop the removed fields)
+- Modify: `dashboard/app/api/resume/route.ts`, `dashboard/app/api/cover-letter/route.ts`, `dashboard/app/api/application/prepare/route.ts` (drop the two upsert args — the prepare route's current `run()` still passes them until Task 10 rewrites it)
+- Modify tests: `dashboard/lib/queries.applicationPackages.test.ts`, `dashboard/lib/queries.upsertApplicationPackage.test.ts`, `dashboard/lib/queries.test.ts` (drop the removed fields / update the `bareMarkerPredicate` fragment assertion)
 
-**Ordering note:** This task removes `greenhouseQuestions` from the package type, but `JobDetail.tsx:650` reads `pkg?.greenhouseQuestions` until Task 9 rewires it to the job-level source. Step 3 below stubs that one line to `{null}` so the type-check stays green; Task 9 replaces the stub.
+**Ordering note:** This task narrows `ApplicationPackage` and the `upsertApplicationPackage` `data` param. TypeScript excess-property checking then flags every *object literal* still passing the removed keys — that includes `JobDetail.tsx:650` (reads `pkg?.greenhouseQuestions`, stubbed in Step 3) AND the prepare route's own `upsertApplicationPackage({ …, answersSnapshot, greenhouseQuestions, … })` call (`prepare/route.ts:205-217`), which Task 10 doesn't rewrite until later. Step 4 below deletes those two keys from the prepare route now (compatible with Task 10's full rewrite) so `tsc` stays green.
 
 **Interfaces:**
 - Produces: `ApplicationPackage` without `answersSnapshot` / `greenhouseQuestions`; `upsertApplicationPackage` `data` param without those two keys.
@@ -890,7 +913,9 @@ export function bareMarkerPredicate(tx: Sql | TransactionSql) {
 
 `getApplicationPackage` (`:425-426`) and `getApplicationPackages` (`:446-447`) — remove `ap.answers_snapshot,` and `ap.greenhouse_questions,` from both SELECT lists.
 
-`upsertApplicationPackage` (`:470-548`) — remove `answersSnapshot` and `greenhouseQuestions` from the `data` param type (`:476-477`), from the INSERT column list + VALUES (`:501-508`), and from the ON CONFLICT SET (`:515-516`). (The `answers_snapshot` / `greenhouse_questions` columns remain in the table, defaulting to NULL on new inserts and preserved-as-is on conflict.)
+`upsertApplicationPackage` (`:470-548`) — remove `answersSnapshot` and `greenhouseQuestions` from the `data` param type (`:476-477`), from the INSERT column list + VALUES (`:501-508`), from the ON CONFLICT SET (`:515-516`), **and from the `RETURNING` list (`:542-543`)** (kept consistent with the SELECTs; `toApplicationPackage` no longer reads them anyway). The `answers_snapshot` / `greenhouse_questions` columns remain in the table, defaulting to NULL on new inserts and preserved-as-is on conflict.
+
+**Behavior note (intended):** with `bareMarkerPredicate` no longer testing those two columns, a legacy prod package whose *only* content is `answers_snapshot`/`greenhouse_questions` (both always written by today's prepare) now counts as a "bare marker" that un-apply deletes rather than reverts to `prepared`. This is desired — both fields are vestigial — but call it out in the commit message.
 
 - [ ] **Step 3: Update `RolefitBoard.tsx`**
 
@@ -906,26 +931,28 @@ export function bareMarkerPredicate(tx: Sql | TransactionSql) {
 
 Also stub `JobDetail.tsx:650` so the type-check survives the field removal (Task 9 finalizes it): change `greenhouseQuestions={pkg?.greenhouseQuestions ?? null}` → `greenhouseQuestions={null}`.
 
-- [ ] **Step 4: Update the two standalone routes**
+- [ ] **Step 4: Update the three routes' upsert calls**
 
 `app/api/resume/route.ts:104-111` — in the `upsertApplicationPackage` call, delete `answersSnapshot: null,` and `greenhouseQuestions: null,`.
 `app/api/cover-letter/route.ts:103-115` — same deletion.
+`app/api/application/prepare/route.ts:205-217` — delete `answersSnapshot: answers,` and `greenhouseQuestions: gh.greenhouseQuestions,` from the `upsertApplicationPackage` call. (Task 10 rewrites this route's `run()` wholesale; this keeps `tsc` green in the meantime. Leave the rest of the current route untouched.)
 
 - [ ] **Step 5: Update the affected unit tests**
 
 In `dashboard/lib/queries.applicationPackages.test.ts`, remove `answers_snapshot: null,` and `greenhouse_questions: null,` from `baseRow` (`:30-31`) and drop any assertion on `pkg.answersSnapshot`/`pkg.greenhouseQuestions`.
 In `dashboard/lib/queries.upsertApplicationPackage.test.ts`, remove `answersSnapshot`/`greenhouseQuestions` from the `data` object(s) and the asserted column set (`:24`, `:55`, `:67`, `:82`, `:109`).
+In `dashboard/lib/queries.test.ts` (`:27-34`), the `bareMarkerPredicate` test asserts the fragment text contains `greenhouse_questions is null` / `answers_snapshot is null`; update those expectations to the new 4-column fragment (`resume_json`, `cover_letter_json`, `prefilled_answers`, `apply_url`).
 
 - [ ] **Step 6: Run the full dashboard type-check + affected tests**
 
-Run: `cd dashboard && npx tsc --noEmit && npx vitest run lib/queries.applicationPackages.test.ts lib/queries.upsertApplicationPackage.test.ts app/api/resume/route.test.ts app/api/cover-letter/route.test.ts`
+Run: `cd dashboard && npx tsc --noEmit && npx vitest run lib/queries.applicationPackages.test.ts lib/queries.upsertApplicationPackage.test.ts lib/queries.test.ts app/api/resume/route.test.ts app/api/cover-letter/route.test.ts`
 Expected: `tsc` clean (it flags any missed reference to the removed fields — fix each), tests PASS. If a résumé/cover route test asserts the old upsert payload (with `answersSnapshot`/`greenhouseQuestions`), update that assertion. If `tsc` flags `RolefitBoard.test.tsx` or others referencing the removed fields, remove those references too.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add dashboard/lib/types.ts dashboard/lib/queries.ts dashboard/components/rolefit/RolefitBoard.tsx dashboard/app/api/resume/route.ts dashboard/app/api/cover-letter/route.ts dashboard/lib/queries.applicationPackages.test.ts dashboard/lib/queries.upsertApplicationPackage.test.ts
-git commit -m "refactor(prefill): detach answers_snapshot + greenhouse_questions from application package (columns now vestigial)"
+git add dashboard/lib/types.ts dashboard/lib/queries.ts dashboard/components/rolefit/RolefitBoard.tsx dashboard/components/rolefit/JobDetail.tsx dashboard/app/api/resume/route.ts dashboard/app/api/cover-letter/route.ts dashboard/app/api/application/prepare/route.ts dashboard/lib/queries.applicationPackages.test.ts dashboard/lib/queries.upsertApplicationPackage.test.ts dashboard/lib/queries.test.ts
+git commit -m "refactor(prefill): detach answers_snapshot + greenhouse_questions from application package (columns now vestigial; legacy bare-marker rows now deletable on un-apply)"
 ```
 
 ---
@@ -1233,6 +1260,8 @@ Update the outer `after()` catch's refund from `["resume", "cover"]` to the comp
 
 Add a comment at the top of the route: `// User-facing label is "Prefill application"; kind stays 'prepare' (see schema.sql).`
 
+**Update the `maxDuration` comment (`route.ts:22-25`).** Its budget analysis assumed the legs *overlap* (slowest leg ≈ 242s bounds the run). Prefill now runs **after** the résumé, so the worst case is résumé + prefill serially (≈ 2× the single-leg budget), which can exceed the 300s Vercel-Pro ceiling and get killed mid-`after()` — leaving the row `pending` with the reserved kinds un-refunded (the staleness sweep fails the row but does not refund). Rewrite the comment to state the sequential reality, and bound the prefill leg by passing a shorter per-attempt budget (prefill is best-effort and its failure is already swallowed, so a tight cap is safe). If the prefill client doesn't expose a timeout/retry knob, note that the résumé leg dominates and typical (p50) runs are ~60s; treat a hard bound as a follow-up if the client can't be capped here.
+
 - [ ] **Step 5: Run the route tests to verify they pass**
 
 Run: `cd dashboard && npx vitest run app/api/application/prepare/route.test.ts && npx tsc --noEmit`
@@ -1260,7 +1289,7 @@ git commit -m "feat(prefill): route generates résumé + prefill (from generated
 
 - [ ] **Step 1: Write failing panel tests**
 
-Add to `dashboard/components/rolefit/ApplicationPanel.test.tsx`:
+Add to `dashboard/components/rolefit/ApplicationPanel.test.tsx`. Import `fireEvent` (add it to the existing `@testing-library/react` import: `import { cleanup, fireEvent, render, screen } from "@testing-library/react";`).
 
 ```ts
 test("Greenhouse job shows a 'Prefill application' button", () => {
@@ -1275,7 +1304,7 @@ test("non-Greenhouse job hides the prefill button (résumé/cover panels remain)
   expect(screen.getByRole("button", { name: /Generate cover letter/ })).toBeTruthy();
 });
 
-test("Greenhouse questions render collapsed by default with a summary", () => {
+test("Greenhouse questions render collapsed by default, expand on click", () => {
   renderPanel({
     job: makeJob({ ats: "greenhouse" }),
     greenhouseQuestions: { questions: [
@@ -1284,12 +1313,28 @@ test("Greenhouse questions render collapsed by default with a summary", () => {
     ] },
     prefilledAnswers: null,
   });
-  // Summary visible; full question labels hidden until expanded.
-  expect(screen.getByText(/questions/i)).toBeTruthy();
-  expect(screen.queryByText("Why us?")).toBeNull();
-  // Expand.
-  screen.getByRole("button", { name: /questions|show|expand/i }).click();
+  // The single toggle button carries the summary; its accessible name (concatenated
+  // child text) uniquely contains "Application questions". Query it specifically to
+  // avoid getByText's multiple-match throw.
+  const toggle = screen.getByRole("button", { name: /Application questions/i });
+  expect(toggle.textContent).toMatch(/cover letter requested/i); // flag shown while collapsed
+  expect(screen.queryByText("Why us?")).toBeNull();               // labels hidden until expanded
+  fireEvent.click(toggle);
   expect(screen.getByText("Why us?")).toBeTruthy();
+});
+
+test("cover-letter-only posting (file field) still shows the panel + flag", () => {
+  renderPanel({
+    job: makeJob({ ats: "greenhouse" }),
+    greenhouseQuestions: { questions: [
+      { label: "Cover Letter", required: false, fields: [{ name: "cover_letter", type: "input_file", options: [] }] },
+    ] },
+    prefilledAnswers: null,
+  });
+  // mergeGreenhouseQuestions drops file fields (ghRows is empty), but the panel must
+  // still render so the charged cover-letter leg is signalled (spec transparency).
+  const toggle = screen.getByRole("button", { name: /Application questions/i });
+  expect(toggle.textContent).toMatch(/cover letter requested/i);
 });
 ```
 
@@ -1329,7 +1374,7 @@ Update the header subtitle (`:255`) to reflect posting-driven behavior:
 Add a `useState` near the other panel state (`:119`): `const [questionsOpen, setQuestionsOpen] = useState(false);`. Import `hasCoverLetterQuestion` from `@/lib/rolefit/coverLetterQuestion` and compute `const coverRequested = hasCoverLetterQuestion(greenhouseQuestions);` (same detection the route uses — checks the `cover_letter` field name, not just the label). Replace the panel's always-expanded body with a header row (always shown) + the `ghRows.map(...)` list gated on `questionsOpen`:
 
 ```tsx
-      {isAuthed && hasGreenhouse && (
+      {isAuthed && (hasGreenhouse || coverRequested) && (
         <Panel style={{ marginTop: "18px", padding: "17px 19px" }}>
           <button
             type="button"
@@ -1348,13 +1393,17 @@ Add a `useState` near the other panel state (`:119`): `const [questionsOpen, set
             </Chip>
             <div style={{ flex: 1 }} />
             <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 600 }}>
-              {ghRows.length} question{ghRows.length === 1 ? "" : "s"}
-              {coverRequested ? " · cover letter requested" : ""}
-              {" · "}{questionsOpen ? "Hide" : "Show"}
+              {[
+                ghRows.length > 0 ? `${ghRows.length} question${ghRows.length === 1 ? "" : "s"}` : null,
+                coverRequested ? "cover letter requested" : null,
+              ].filter(Boolean).join(" · ")}
+              {ghRows.length > 0 ? ` · ${questionsOpen ? "Hide" : "Show"}` : ""}
             </div>
           </button>
 
-          {questionsOpen && (
+          {/* Only the text-answerable questions expand; a cover-letter-only posting has an
+              empty ghRows, so the panel is just the summary flag. */}
+          {questionsOpen && ghRows.length > 0 && (
             <>
               <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "12px", fontWeight: 500 }}>
                 Pre-filled from your profile and résumé where possible — review before submitting,

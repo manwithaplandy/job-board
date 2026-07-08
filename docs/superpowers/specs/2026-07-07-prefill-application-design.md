@@ -114,9 +114,12 @@ Synchronous prologue (unchanged in spirit): auth, validation, config, profile/jo
 **Guard:** the route now returns 4xx for non-Greenhouse jobs (the button is Greenhouse-only,
 but the API must enforce it too). It loads the job's `job_questions` row; if absent
 (e.g. a brand-new job not yet backfilled), it fetches on demand via the existing
-`fetchGreenhouseQuestions` (TS) and persists the result to `job_questions`, so Prefill
-always works and the row is filled for the next viewer. If even the on-demand fetch yields
-no usable schema, Prefill degrades to résumé-only (no answers, no cover).
+`fetchGreenhouseQuestions` (TS) and uses the result **in-memory for this run only** — it
+does **not** persist it. (The route reads `job_questions` under the authenticated
+shared-read role, which has SELECT-only access; a write would require the `serviceSql`
+escape hatch and its allowlist, which we deliberately avoid.) The poller's rolling
+backfill fills the row on its next run. If even the on-demand fetch yields no usable
+schema, Prefill degrades to résumé-only (no answers, no cover).
 
 **Charging (posting-driven):**
 - Always reserve `resume`.

@@ -1173,6 +1173,15 @@ Replace the `greenhousePrefill` closure and the `Promise.allSettled` legs with s
       resumeTraceId = traceId;
       let prefilled: PrefilledAnswer[] | null = null;
       if (prefillQuestions.length > 0) {
+        // Bound the prefill leg. It runs AFTER the résumé (sequential per D3), so an
+        // unbounded prefill stacks on top of the résumé's worst case (2×120s + backoff)
+        // and can blow maxDuration. Create the deadline HERE — lazily, once the résumé
+        // has resolved — NOT at module load, so the ~60s clock starts when prefill
+        // actually begins. A single shared signal bounds the WHOLE leg across both
+        // openrouter attempts (replacing the client's per-attempt 120s timeout with our
+        // tighter 60s). A capped-out prefill throws → swallowed below (best-effort):
+        // the résumé still persists, just with no answers.
+        const prefillDeadline = AbortSignal.timeout(PREFILL_TIMEOUT_MS);
         try {
           prefilled = await generatePrefilledAnswers({
             resumeText: composeResumeText(resume), // the tailored résumé, not profile text
@@ -1182,6 +1191,8 @@ Replace the `greenhousePrefill` closure and the `Promise.allSettled` legs with s
             questions: prefillQuestions,
             model: DEFAULT_PREFILL_MODEL,
             apiKey,
+            // Shared 60s deadline across retries → the leg can't run away sequentially.
+            fetchImpl: (input, init) => fetch(input, { ...init, signal: prefillDeadline }),
           });
         } catch (e) {
           console.error("greenhouse prefill failed", e); // best-effort: keep the résumé
@@ -1254,13 +1265,31 @@ Replace the `greenhousePrefill` closure and the `Promise.allSettled` legs with s
   };
 ```
 
-Update imports at the top of `route.ts`: add `getJobQuestion` from `@/lib/queries`; `hasCoverLetterQuestion`, `stripCoverLetterQuestions` from `@/lib/rolefit/coverLetterQuestion`; `composeResumeText` from `@/lib/rolefit/resumeText`; `PrefilledAnswer` type from `@/lib/rolefit/prefillSchema`. Remove now-unused `GreenhouseQuestions` import if the `greenhousePrefill` closure is gone. Keep `fetchGreenhouseQuestions`.
+Update imports at the top of `route.ts`: add `getJobQuestion` from `@/lib/queries`; `hasCoverLetterQuestion`, `stripCoverLetterQuestions` from `@/lib/rolefit/coverLetterQuestion`; `composeResumeText` from `@/lib/rolefit/resumeText`. (`generatePrefilledAnswers`/`DEFAULT_PREFILL_MODEL`, `toPrefillQuestions`/`PrefilledAnswer`, `normalizeInstructions`, `getResumeSource`, and `fetchGreenhouseQuestions` are already imported today — confirm, don't duplicate.) Remove the now-unused `GreenhouseQuestions` type import if the `greenhousePrefill` closure is gone. **Also add a module constant** near the other top-of-file constants:
+
+```ts
+// Hard ceiling on the prefill leg (best-effort). It runs AFTER the résumé, so this
+// keeps résumé + prefill under maxDuration even when the résumé leg is slow.
+const PREFILL_TIMEOUT_MS = 60_000;
+```
 
 Update the outer `after()` catch's refund from `["resume", "cover"]` to the computed `kinds`.
 
 Add a comment at the top of the route: `// User-facing label is "Prefill application"; kind stays 'prepare' (see schema.sql).`
 
-**Update the `maxDuration` comment (`route.ts:22-25`).** Its budget analysis assumed the legs *overlap* (slowest leg ≈ 242s bounds the run). Prefill now runs **after** the résumé, so the worst case is résumé + prefill serially (≈ 2× the single-leg budget), which can exceed the 300s Vercel-Pro ceiling and get killed mid-`after()` — leaving the row `pending` with the reserved kinds un-refunded (the staleness sweep fails the row but does not refund). Rewrite the comment to state the sequential reality, and bound the prefill leg by passing a shorter per-attempt budget (prefill is best-effort and its failure is already swallowed, so a tight cap is safe). If the prefill client doesn't expose a timeout/retry knob, note that the résumé leg dominates and typical (p50) runs are ~60s; treat a hard bound as a follow-up if the client can't be capped here.
+**Update the `maxDuration` comment (`route.ts:22-25`).** Its budget analysis assumed the legs *overlap* (slowest leg ≈ 242s bounds the run). Prefill now runs **after** the résumé (D3), so the naïve worst case is résumé + prefill serially (≈ 2× the single-leg budget), which could exceed the 300s Vercel-Pro ceiling and get killed mid-`after()` — leaving the row `pending` with the reserved kinds un-refunded (the staleness sweep fails the row but does not refund). We resolve this by **bounding the prefill leg**: `generatePrefilledAnswers` (like the résumé/cover clients) accepts a `fetchImpl`, so Step 4 passes one wrapping `fetch` with a single shared `AbortSignal.timeout(PREFILL_TIMEOUT_MS)` created lazily right before the call — capping the whole prefill leg at ~60s (both openrouter attempts share the deadline; a cap-out is swallowed as best-effort). Rewrite the code comment to state this sequential-with-bounded-prefill reality. Concretely, replace the `maxDuration` comment block with something like:
+
+```ts
+export const dynamic = "force-dynamic";
+// Vercel Pro ceiling for the background `after()` work (the 202 returns in ms). The
+// legs now run SEQUENTIALLY, not overlapped: the résumé leg (≤ 2×120s + backoff ≈ 242s,
+// see lib/rolefit/openrouterClient.ts) is followed by the prefill leg, which we bound
+// to ~60s via a shared AbortSignal on generatePrefilledAnswers' fetchImpl so the pair
+// stays under 300s. The cover leg (when the posting asks) runs in parallel with the
+// résumé and is dominated by it. A capped-out prefill is best-effort — the résumé
+// still persists.
+export const maxDuration = 300;
+```
 
 - [ ] **Step 5: Run the route tests to verify they pass**
 

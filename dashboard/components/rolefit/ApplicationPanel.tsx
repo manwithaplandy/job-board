@@ -339,7 +339,7 @@ export function ApplicationPanel({
           }}
         >
           <div style={{ fontWeight: 800, fontSize: "13px", color: "var(--danger)" }}>
-            Some parts couldn&apos;t be prepared
+            Some parts couldn&apos;t be prefilled
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
             {failedLegs.map((leg) => (

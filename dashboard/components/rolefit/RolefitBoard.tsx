@@ -881,7 +881,7 @@ export function RolefitBoard({
     }
   }, [beginRequest, endRequest, coverData, coverInstructions, showUpsell, tracker]);
 
-  // "Prepare application" — build + PERSIST the package server-side. Async accept
+  // "Prefill application" — build + PERSIST the package server-side. Async accept
   // contract like handleGenerate: the route reserves BOTH kinds synchronously, 202s
   // with ONE kind='prepare' row, and the legs run in the background. The settled
   // feed lands the package (deriving per-leg pane states from its contents).
@@ -930,7 +930,7 @@ export function RolefitBoard({
       setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
       if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
       if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
-      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+      if (hadResume || hadCover) showActionError(`Re-prefill failed: ${msg}`);
     } finally {
       endRequest(job.id);
     }
@@ -1009,7 +1009,7 @@ export function RolefitBoard({
       setCoverGen((s) => ({ ...s, [g.jobId]: hadCover ? "done" : "error" }));
       if (!hadResume) setGenError((m) => ({ ...m, [g.jobId]: msg }));
       if (!hadCover) setCoverError((m) => ({ ...m, [g.jobId]: msg }));
-      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+      if (hadResume || hadCover) showActionError(`Re-prefill failed: ${msg}`);
     }
   }, [genData, coverData, showActionError]);
 

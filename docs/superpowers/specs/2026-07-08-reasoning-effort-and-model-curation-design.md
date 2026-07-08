@@ -93,10 +93,12 @@ type ReasoningEffort = "off" | "low" | "medium" | "high"
   catalog fetch fails, fail open and attach the parameter (matches
   `validateModelId`'s fail-open posture). Every curated model supports
   `reasoning` today, so omission only applies to user-searched catalog models.
-- Implementation-time verification: live-probe how OpenRouter treats
-  `reasoning` on a non-reasoning model (ignored vs 4xx). If it is ignored, the
-  catalog lookup can be dropped and the parameter attached unconditionally —
-  prefer that simplification.
+- SETTLED (live probe, 2026-07-08): OpenRouter **hard-fails** ("Provider
+  returned error") a request that carries `reasoning` — either form, even
+  `enabled: false` — to a model whose provider can't take it (probed
+  `openai/gpt-5.2-chat`; `mistralai/ministral-8b-2512` tolerates it, so
+  behavior is provider-dependent). The catalog-gated omission is therefore
+  REQUIRED, not an optional defense; do not simplify it away.
 
 ### Storage
 
@@ -193,7 +195,5 @@ Standard: off, low        Pro: off, low, medium, high
 
 ## Open items
 
-- Live-probe OpenRouter's handling of `reasoning` on non-reasoning models
-  (drives the omit-vs-always-attach simplification).
 - "Muse Spark" (Meta's Llama successor) absent from OpenRouter as of
   2026-07-08 — re-check at next curated refresh.

@@ -208,6 +208,8 @@ export interface ApplicationPackage {
   // for the UI boxes; null = none).
   resumeInstructions: string | null;
   coverLetterInstructions: string | null;
+  resumeInstructionsDraft: string | null;
+  coverLetterInstructionsDraft: string | null;
   // The viewer's CURRENT (non-superseded) human edit of the cover letter, joined from
   // cover_letter_edits. Displays/downloads over the structured original; null = no
   // current edit (never generated, never edited, or superseded by a regeneration).

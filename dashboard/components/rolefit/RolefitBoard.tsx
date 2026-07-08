@@ -1056,6 +1056,8 @@ export function RolefitBoard({
           profileVersion: null,
           resumeInstructions: null,
           coverLetterInstructions: null,
+          resumeInstructionsDraft: null,
+          coverLetterInstructionsDraft: null,
           coverLetterEditedText: null,
           preparedAt: appliedAt,
           appliedAt,

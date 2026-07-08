@@ -38,6 +38,9 @@ export function GenerationInstructions({
     try {
       await onSave();
       setJustSaved(true);
+    } catch {
+      // The parent surfaces its own error toast; just don't show the "✓ Saved"
+      // confirmation and don't let the rejection escape as an unhandled promise.
     } finally {
       setSaving(false);
     }

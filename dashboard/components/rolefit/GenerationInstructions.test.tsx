@@ -47,6 +47,22 @@ describe("GenerationInstructions", () => {
     expect(await screen.findByText(/saved/i)).toBeTruthy();
   });
 
+  test("a rejected onSave shows no Saved confirmation and re-enables the button", async () => {
+    const onSave = vi.fn(async () => { throw new Error("boom"); });
+    render(
+      <GenerationInstructions value="Focus" onChange={() => {}} kind="résumé" onSave={onSave} dirty={true} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /generation instructions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    // Await the rejection settling: the label returns from "Saving…" to "Save"
+    // only after the catch/finally re-render, so findByRole doubles as the wait.
+    const saveButton = (await screen.findByRole("button", { name: /^save$/i })) as HTMLButtonElement;
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/✓ saved/i)).toBeNull();
+    // button re-enabled (still dirty, no longer saving)
+    expect(saveButton.disabled).toBe(false);
+  });
+
   test("renders no Save button when onSave is absent", () => {
     render(<GenerationInstructions value="Focus" onChange={() => {}} kind="résumé" />);
     fireEvent.click(screen.getByRole("button", { name: /generation instructions/i }));

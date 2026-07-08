@@ -1,3 +1,4 @@
+import json
 import os
 
 import psycopg
@@ -196,3 +197,34 @@ def finish_run(
             """,
             (companies_ok, companies_failed, new_jobs, closed_jobs, notes, run_id),
         )
+
+
+def insert_job_questions(conn, job_id: str, questions: dict) -> None:
+    """Upsert one job's question schema (jsonb). psycopg3 needs an explicit json.dumps."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO job_questions (job_id, questions, fetched_at)
+            VALUES (%s, %s::jsonb, now())
+            ON CONFLICT (job_id) DO UPDATE
+              SET questions = EXCLUDED.questions, fetched_at = now()
+            """,
+            (job_id, json.dumps(questions)),
+        )
+
+
+def greenhouse_jobs_missing_questions(conn, company_id: int) -> list[str]:
+    """external_ids of this company's OPEN jobs that have no job_questions row yet —
+    the rolling-backfill predicate (covers both new jobs and the existing backlog)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT j.external_id
+            FROM jobs j
+            LEFT JOIN job_questions q ON q.job_id = j.id
+            WHERE j.company_id = %s AND j.closed_at IS NULL AND q.job_id IS NULL
+            ORDER BY j.external_id
+            """,
+            (company_id,),
+        )
+        return [r["external_id"] for r in cur.fetchall()]

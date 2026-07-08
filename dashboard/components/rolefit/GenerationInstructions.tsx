@@ -100,7 +100,7 @@ export function GenerationInstructions({
                 {saving ? "Saving…" : "Save"}
               </button>
             )}
-            {onSave && justSaved && (
+            {onSave && justSaved && !dirty && (
               <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--success)" }} aria-live="polite">
                 ✓ Saved
               </span>

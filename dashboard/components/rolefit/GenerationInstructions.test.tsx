@@ -38,13 +38,44 @@ describe("GenerationInstructions", () => {
 
   test("clicking Save invokes onSave and then shows a Saved confirmation", async () => {
     const onSave = vi.fn(async () => {});
-    render(
+    const { rerender } = render(
       <GenerationInstructions value="Focus" onChange={() => {}} kind="résumé" onSave={onSave} dirty={true} />,
     );
     fireEvent.click(screen.getByRole("button", { name: /generation instructions/i }));
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
     expect(onSave).toHaveBeenCalledOnce();
-    expect(await screen.findByText(/saved/i)).toBeTruthy();
+    // The parent flips dirty=false on save success (saved baseline := box); mirror that
+    // so the "✓ Saved" chip (gated on justSaved && !dirty) appears as it does in real wiring.
+    rerender(
+      <GenerationInstructions value="Focus" onChange={() => {}} kind="résumé" onSave={onSave} dirty={false} />,
+    );
+    expect(await screen.findByText(/✓ saved/i)).toBeTruthy();
+  });
+
+  test("typing during an in-flight save suppresses a false ✓ Saved confirmation", async () => {
+    // The textarea is NOT disabled while saving, so a user can type mid-save. When onSave
+    // resolves, justSaved flips true — but the box now holds newer text (dirty), so the
+    // chip (gated on justSaved && !dirty) must stay hidden. No false confirmation.
+    let resolveSave!: () => void;
+    const onSave = vi.fn(() => new Promise<void>((r) => { resolveSave = r; }));
+    const { rerender } = render(
+      <GenerationInstructions value="Focus" onChange={() => {}} kind="résumé" onSave={onSave} dirty={true} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /generation instructions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(onSave).toHaveBeenCalledOnce();
+    // User types while the save is in flight; the parent keeps dirty=true (box differs from
+    // what's being saved). Mirror that with a rerender holding dirty=true.
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Focus more" } });
+    resolveSave();
+    rerender(
+      <GenerationInstructions value="Focus more" onChange={() => {}} kind="résumé" onSave={onSave} dirty={true} />,
+    );
+    // The label reverts "Saving…" → "Save" in the same continuation that sets justSaved=true,
+    // so awaiting the enabled Save button guarantees justSaved has flipped — a deterministic
+    // wait with no fake timers. The chip must still be absent.
+    await screen.findByRole("button", { name: /^save$/i });
+    expect(screen.queryByText(/✓ saved/i)).toBeNull();
   });
 
   test("a rejected onSave shows no Saved confirmation and re-enables the button", async () => {

@@ -8,6 +8,7 @@ import { composeCoverLetterText } from "@/lib/rolefit/coverLetterText";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
+import { hasCoverLetterQuestion } from "@/lib/rolefit/coverLetterQuestion";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { atsLabel as atsLabelOf } from "@/lib/rolefit/ats";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
@@ -117,6 +118,9 @@ export function ApplicationPanel({
 }: ApplicationPanelProps) {
   // Ephemeral "Copied!" feedback for the cover letter + per-field answers.
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  // Application-questions panel is collapsed by default — Apply stays the top CTA, the
+  // questions are a reference the operator opens on demand.
+  const [questionsOpen, setQuestionsOpen] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
 
@@ -146,6 +150,10 @@ export function ApplicationPanel({
   // when one exists — so answered AND still-unanswered (required) questions both render.
   const ghRows = mergeGreenhouseQuestions(greenhouseQuestions, prefilledAnswers);
   const hasGreenhouse = ghRows.length > 0;
+  // Does this posting ask for a cover letter? Same detection the prepare route uses
+  // (the `cover_letter` field name, not just the label) — so a cover-letter-only,
+  // file-field posting (no text-answerable rows) still flags in the summary.
+  const coverRequested = hasCoverLetterQuestion(greenhouseQuestions);
   const appliedDate = appliedAt ? new Date(appliedAt).toLocaleDateString() : null;
 
   // Cover-letter PDF download — shared helper handles the import + .txt fallback.
@@ -252,7 +260,7 @@ export function ApplicationPanel({
           <div
             style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
           >
-            Tailored résumé and cover letter — ready for {job.company_name}.
+            Tailored résumé, prefilled answers, and — when this posting asks — a cover letter.
           </div>
         </div>
         {applied && (
@@ -293,7 +301,7 @@ export function ApplicationPanel({
             ✓ Mark as applied
           </button>
         )}
-        {isAuthed && (
+        {isAuthed && job.ats === "greenhouse" && (
           <Button
             // Secondary whenever the Apply link renders (Apply owns primary emphasis);
             // leads only for jobs with no usable apply url.
@@ -303,7 +311,7 @@ export function ApplicationPanel({
             style={{ flex: "0 0 auto" }}
           >
             <span style={{ fontSize: "15px" }}>✦</span>
-            {preparing ? "Preparing… ~30s" : prepared ? "Re-prepare" : "Prepare application"}
+            {preparing ? "Prefilling… ~30s" : prepared ? "Re-prefill" : "Prefill application"}
           </Button>
         )}
         {applyHref && (
@@ -659,9 +667,27 @@ export function ApplicationPanel({
       </Panel>
 
       {/* ── Greenhouse application questions (this posting's real form) ── */}
-      {isAuthed && hasGreenhouse && (
+      {isAuthed && (hasGreenhouse || coverRequested) && (
         <Panel style={{ marginTop: "18px", padding: "17px 19px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {/* Collapsed by default: a header/toggle carrying the question count + a
+              "cover letter requested" flag. Apply stays the top CTA; the operator opens
+              the questions on demand. */}
+          <button
+            type="button"
+            onClick={() => setQuestionsOpen((v) => !v)}
+            aria-expanded={questionsOpen}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              width: "100%",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+              textAlign: "left",
+            }}
+          >
             <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>
               Application questions
             </div>
@@ -682,22 +708,32 @@ export function ApplicationPanel({
             </Chip>
             <div style={{ flex: 1 }} />
             <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 600 }}>
-              Pulled from this posting
+              {[
+                ghRows.length > 0 ? `${ghRows.length} question${ghRows.length === 1 ? "" : "s"}` : null,
+                coverRequested ? "cover letter requested" : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              {ghRows.length > 0 ? ` · ${questionsOpen ? "Hide" : "Show"}` : ""}
             </div>
-          </div>
+          </button>
 
-          <div
-            style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "6px", fontWeight: 500 }}
-          >
-            Pre-filled from your profile and résumé where possible — review before submitting,
-            and fill in anything still marked “Needs your answer” on the form.
-          </div>
-          {/* Every question this posting asks: answered ones carry a suggested answer +
-              copy button; unanswered (often required) ones stay visible so the operator
-              never discovers a missing required field only on the live form. */}
-          <div
-            style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
-          >
+          {/* Only the text-answerable questions expand; a cover-letter-only posting has an
+              empty ghRows, so the panel is just the summary flag. */}
+          {questionsOpen && ghRows.length > 0 && (
+            <>
+              <div
+                style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "12px", fontWeight: 500 }}
+              >
+                Pre-filled from your profile and résumé where possible — review before submitting,
+                and fill in anything still marked “Needs your answer” on the form.
+              </div>
+              {/* Every question this posting asks: answered ones carry a suggested answer +
+                  copy button; unanswered (often required) ones stay visible so the operator
+                  never discovers a missing required field only on the live form. */}
+              <div
+                style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
+              >
             {ghRows.map((row) => (
               <div
                 key={row.key}
@@ -784,7 +820,9 @@ export function ApplicationPanel({
                 )}
               </div>
             ))}
-          </div>
+              </div>
+            </>
+          )}
         </Panel>
       )}
     </div>

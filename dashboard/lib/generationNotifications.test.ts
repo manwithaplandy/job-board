@@ -98,7 +98,7 @@ describe("toastCopyFor", () => {
   test("ready prepare with a partial note → warning carrying the note", () => {
     const copy = toastCopyFor(job({ kind: "prepare", error: "Couldn’t generate the résumé — you can retry it from the job pane." }));
     expect(copy.tone).toBe("warning");
-    expect(copy.title).toBe("Application package ready · Acme");
+    expect(copy.title).toBe("Application prefilled · Acme");
     expect(copy.description).toContain("résumé");
   });
 

@@ -154,7 +154,7 @@ describe("GenerationToastProvider", () => {
     renderProvider();
     await flush(0);
     expect(mocks.toastWarning).toHaveBeenCalledTimes(1);
-    expect(mocks.toastWarning.mock.calls[0][0]).toBe("Application package ready · Acme");
+    expect(mocks.toastWarning.mock.calls[0][0]).toBe("Application prefilled · Acme");
   });
 
   test("View action: an unclaimed event deep-links via router.push; a claiming listener wins", async () => {

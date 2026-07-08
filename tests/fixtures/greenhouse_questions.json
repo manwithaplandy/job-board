@@ -1,0 +1,28 @@
+{
+  "questions": [
+    {
+      "label": "Why do you want to work here?",
+      "required": true,
+      "fields": [{ "name": "question_0", "type": "textarea", "values": [] }]
+    },
+    {
+      "label": "Are you authorized to work in the US?",
+      "required": true,
+      "fields": [{
+        "name": "question_1",
+        "type": "multi_value_single_select",
+        "values": [{ "value": 0, "label": "Yes" }, { "value": 1, "label": "No" }]
+      }]
+    },
+    {
+      "label": "Cover Letter",
+      "required": false,
+      "fields": [{ "name": "cover_letter", "type": "input_file", "values": [] }]
+    },
+    {
+      "label": "",
+      "required": false,
+      "fields": [{ "name": "ignored", "type": "input_text", "values": [] }]
+    }
+  ]
+}

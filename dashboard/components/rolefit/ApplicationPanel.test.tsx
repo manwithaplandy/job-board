@@ -62,7 +62,6 @@ function renderPanel(overrides: Partial<ApplicationPanelProps> = {}) {
     prefilledAnswers: null,
     status: null,
     appliedAt: null,
-    onMarkApplied: vi.fn(),
     ...overrides,
   };
   return render(<ApplicationPanel {...props} />);

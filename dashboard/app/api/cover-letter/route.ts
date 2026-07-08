@@ -8,7 +8,6 @@ import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
-import { getViewerPlan } from "@/lib/subscriptions";
 import { getStructuredModels } from "@/lib/openrouter";
 import { resolveReasoningSetting } from "@/lib/rolefit/generationSettings";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
@@ -48,23 +47,25 @@ export async function POST(req: Request) {
   if (!apiKey) return Response.json({ error: "cover letter generation not configured" }, { status: 500 });
 
   const model = profile.model_cover ?? DEFAULT_COVER_MODEL;
-  // Plan + catalog resolve the reasoning setting: clamp to the tier, and OMIT the
-  // param (null) for models that can't take it. getStructuredModels is 1h-cached;
-  // [] (fetch failure) fails open. getViewerPlan is one extra query per generate.
-  const [plan, catalog] = await Promise.all([
-    getViewerPlan(userId, claims.email),
-    getStructuredModels(),
-  ]);
-  const reasoningEffort = resolveReasoningSetting(
-    plan, profile.reasoning_effort_cover, model, catalog,
-  );
 
   // Tier gate: no plan → 402, exhausted → 429. reserveGenerations ATOMICALLY charges the
   // slot up front (avoids check-then-charge TOCTOU); the background catch refunds on
   // failure so a failed generation never burns allowance. After the 404/422/500
-  // validation so we never charge a request that can't generate.
-  const gate = await reserveGenerations(userId, claims.email, ["cover"]);
+  // validation so we never charge a request that can't generate. The catalog is fetched
+  // CONCURRENTLY with the gate; getStructuredModels is 1h-cached and returns [] (fail-open)
+  // on failure, so it adds no new rejection path even on the reject path.
+  const [gate, catalog] = await Promise.all([
+    reserveGenerations(userId, claims.email, ["cover"]),
+    getStructuredModels(),
+  ]);
   if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
+
+  // Resolve the reasoning setting from the gate's OWN plan snapshot (the same
+  // authoritative plan the charge used — no second getViewerPlan lookup): clamp to the
+  // tier, and OMIT the param (null) for models that can't take it.
+  const reasoningEffort = resolveReasoningSetting(
+    gate.plan, profile.reasoning_effort_cover, model, catalog,
+  );
 
   // Pending tracking row — created AFTER the reserve, so a pending row always
   // corresponds to a charged slot. A concurrent duplicate converges on the

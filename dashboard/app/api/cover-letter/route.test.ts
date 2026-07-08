@@ -42,10 +42,9 @@ vi.mock("@/lib/rolefit/coverLetterClient", () => ({
   DEFAULT_COVER_MODEL: "default-cover-model",
   generateCoverLetter: mocks.generateCoverLetter,
 }));
-// Plan "pro" = no clamp; empty catalog = fail-open attach. The reasoning-effort
-// resolve is a synchronous-prologue query pair; the resolved value rides into
+// Empty catalog = fail-open attach. The reasoning setting resolves from the gate's
+// returned plan (reserveGenerations mocked "pro" = no clamp) and rides into
 // generateCoverLetter in the background callback.
-vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: async () => "pro" }));
 vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 
 import { POST } from "@/app/api/cover-letter/route";

@@ -34,4 +34,13 @@ describe("ReasoningEffortSelect", () => {
       name="reasoning_effort_resume" defaultValue="high" isPro={true} />);
     expect((screen.getByLabelText("Résumé reasoning effort") as HTMLSelectElement).value).toBe("high");
   });
+
+  test("non-Pro with a stored Pro-only level renders the clamped 'low'", () => {
+    // Disabled selected options are not submitted by browsers, so rendering
+    // "high" here would make a save drop the field → NULL (Off). Render the
+    // clamped value the call-time clamp already uses so the form round-trips it.
+    render(<ReasoningEffortSelect label="Résumé reasoning effort"
+      name="reasoning_effort_resume" defaultValue="high" isPro={false} />);
+    expect((screen.getByLabelText("Résumé reasoning effort") as HTMLSelectElement).value).toBe("low");
+  });
 });

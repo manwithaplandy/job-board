@@ -18,6 +18,14 @@ export function ReasoningEffortSelect({
   isPro: boolean;
 }) {
   const selectId = `reasoning-effort-${name}`;
+  // A SELECTED option that is disabled is NOT submitted by browsers (WHATWG
+  // form entry-list algorithm), so a downgraded Pro→Standard user with a stored
+  // "medium"/"high" would submit no reasoning_effort field on save → NULL (Off),
+  // silently resetting their setting. Render the clamped value the call-time
+  // clamp (resolveReasoningEffort) already applies at generation time, so the
+  // form round-trips what generation actually uses.
+  const stored = defaultValue ?? "";
+  const selected = !isPro && (stored === "medium" || stored === "high") ? "low" : stored;
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
       <label htmlFor={selectId} style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>
@@ -31,7 +39,7 @@ export function ReasoningEffortSelect({
       <select
         id={selectId}
         name={name}
-        defaultValue={defaultValue ?? ""}
+        defaultValue={selected}
         className="rf-focusable"
         style={{
           marginTop: "8px",

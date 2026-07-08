@@ -49,10 +49,9 @@ vi.mock("@/lib/rolefit/resumeClient", () => ({
   DEFAULT_RESUME_MODEL: "default-resume-model",
   generateResume: mocks.generateResume,
 }));
-// Plan "pro" = no clamp; empty catalog = fail-open attach. The reasoning-effort
-// resolve is a synchronous-prologue query pair; the resolved value rides into
+// Empty catalog = fail-open attach. The reasoning setting resolves from the gate's
+// returned plan (reserveGenerations mocked "pro" = no clamp) and rides into
 // generateResume in the background callback.
-vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: async () => "pro" }));
 vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 // NOTE: @/lib/rolefit/resumeSource and @/lib/rolefit/generationFailureMessage are
 // intentionally NOT mocked — both are pure functions.

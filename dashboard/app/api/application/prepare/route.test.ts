@@ -79,10 +79,9 @@ vi.mock("@/lib/rolefit/greenhouseQuestions", () => ({
   fetchGreenhouseQuestions: mocks.fetchGreenhouseQuestions,
 }));
 vi.mock("@/lib/rolefit/resumeSource", () => ({ getResumeSource: mocks.getResumeSource }));
-// Plan "pro" = no clamp; empty catalog = fail-open attach. The reasoning-effort
-// resolve is a synchronous-prologue query pair; each leg's resolved value rides
-// into its generator in the background callback.
-vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: async () => "pro" }));
+// Empty catalog = fail-open attach. Each leg's reasoning setting resolves from the
+// gate's returned plan (reserveGenerations mocked "pro" = no clamp) and rides into
+// its generator in the background callback.
 vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 // NOTE: composeResumeText, hasCoverLetterQuestion, stripCoverLetterQuestions,
 // toPrefillQuestions, normalizeInstructions, gateRejectionBody are PURE — NOT mocked.

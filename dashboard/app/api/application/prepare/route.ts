@@ -16,7 +16,6 @@ import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillS
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
-import { getViewerPlan } from "@/lib/subscriptions";
 import { getStructuredModels } from "@/lib/openrouter";
 import { resolveReasoningSetting } from "@/lib/rolefit/generationSettings";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
@@ -91,20 +90,6 @@ export async function POST(req: Request) {
 
   const resumeModel = profile.model_resume ?? DEFAULT_RESUME_MODEL;
   const coverModel = profile.model_cover ?? DEFAULT_COVER_MODEL;
-  // Plan + catalog resolve each leg's reasoning setting: clamp to the tier, and OMIT
-  // the param (null) for models that can't take it. getStructuredModels is 1h-cached;
-  // [] (fetch failure) fails open. getViewerPlan is one extra query per prepare. The
-  // prefill leg is intentionally excluded — Task 6 hardcoded its reasoning setting.
-  const [plan, catalog] = await Promise.all([
-    getViewerPlan(userId, claims.email),
-    getStructuredModels(),
-  ]);
-  const resumeReasoning = resolveReasoningSetting(
-    plan, profile.reasoning_effort_resume, resumeModel, catalog,
-  );
-  const coverReasoning = resolveReasoningSetting(
-    plan, profile.reasoning_effort_cover, coverModel, catalog,
-  );
 
   // Poll-time question schema (shared). Fall back to an on-demand fetch for a brand-new
   // job not yet backfilled — used IN-MEMORY ONLY; the poller persists it later (this
@@ -128,8 +113,25 @@ export async function POST(req: Request) {
   // rejected leg is REFUNDED below so it never burns allowance. After the 404/400/422/500
   // validation so we never charge a request that can't generate. No plan → 402, exhausted → 429.
   const kinds: GenerationKind[] = wantsCover ? ["resume", "cover"] : ["resume"];
-  const gate = await reserveGenerations(userId, claims.email, kinds);
+  // The catalog is fetched CONCURRENTLY with the gate; getStructuredModels is 1h-cached
+  // and returns [] (fail-open) on failure, so it adds no new rejection path even on the
+  // reject path.
+  const [gate, catalog] = await Promise.all([
+    reserveGenerations(userId, claims.email, kinds),
+    getStructuredModels(),
+  ]);
   if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
+
+  // Resolve each leg's reasoning setting from the gate's OWN plan snapshot (the same
+  // authoritative plan the charge used — no second getViewerPlan lookup): clamp to the
+  // tier, and OMIT the param (null) for models that can't take it. The prefill leg is
+  // intentionally excluded — Task 6 hardcoded its reasoning setting.
+  const resumeReasoning = resolveReasoningSetting(
+    gate.plan, profile.reasoning_effort_resume, resumeModel, catalog,
+  );
+  const coverReasoning = resolveReasoningSetting(
+    gate.plan, profile.reasoning_effort_cover, coverModel, catalog,
+  );
 
   // Pending tracking row — created AFTER the reserve, so a pending row always
   // corresponds to charged slots. A concurrent duplicate converges on the existing

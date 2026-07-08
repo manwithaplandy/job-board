@@ -193,4 +193,32 @@ describe("transport hardening", () => {
     const success = genUpdates.find((u) => u.output !== undefined);
     expect(success?.costDetails).toBeUndefined();
   });
+
+  test("omits the reasoning field entirely when reasoningEffort is not given", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) } }] });
+    await callOpenRouterStructured({ ...baseArgs, fetchImpl: f, parse: (r) => r });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect("reasoning" in body).toBe(false);
+  });
+
+  test("omits the reasoning field when reasoningEffort is null (model lacks support)", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) } }] });
+    await callOpenRouterStructured({ ...baseArgs, reasoningEffort: null, fetchImpl: f, parse: (r) => r });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect("reasoning" in body).toBe(false);
+  });
+
+  test("off sends reasoning: { enabled: false }", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) } }] });
+    await callOpenRouterStructured({ ...baseArgs, reasoningEffort: "off", fetchImpl: f, parse: (r) => r });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect(body.reasoning).toEqual({ enabled: false });
+  });
+
+  test.each(["low", "medium", "high"] as const)("%s sends reasoning: { effort }", async (level) => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify({ ok: 1 }) } }] });
+    await callOpenRouterStructured({ ...baseArgs, reasoningEffort: level, fetchImpl: f, parse: (r) => r });
+    const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
+    expect(body.reasoning).toEqual({ effort: level });
+  });
 });

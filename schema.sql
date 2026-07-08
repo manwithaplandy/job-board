@@ -45,6 +45,16 @@ CREATE INDEX idx_jobs_closed_at ON jobs (closed_at);
 -- Poller: get_open_external_ids / close_jobs filter WHERE company_id = $1 AND closed_at IS NULL.
 CREATE INDEX idx_jobs_company_open ON jobs (company_id) WHERE closed_at IS NULL;
 
+-- Per-job application question schema, fetched once at poll time (Greenhouse only
+-- today). GLOBAL/shared job data — no user_id; keyed by jobs.id. Populated by the
+-- poller; the dashboard reads it job-level (shared_read) and the Prefill route uses
+-- it to draft answers + decide whether the posting asks for a cover letter.
+CREATE TABLE job_questions (
+  job_id     TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+  questions  JSONB NOT NULL,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE poll_runs (
   id               SERIAL PRIMARY KEY,
   started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -420,6 +430,9 @@ CREATE TABLE generation_jobs (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    UUID NOT NULL,
   job_id     TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  -- kind='prepare' backs the Greenhouse "Prefill application" action (user-facing
+  -- label is "Prefill"; the internal identifier stays 'prepare' to avoid a
+  -- kind-constraint migration + dual-value transition). See the /api/application/prepare route.
   kind       TEXT NOT NULL CHECK (kind IN ('resume','cover','prepare')),
   status     TEXT NOT NULL DEFAULT 'pending'
                CHECK (status IN ('pending','ready','failed')),
@@ -566,6 +579,10 @@ CREATE POLICY owner_access ON generation_jobs FOR ALL TO authenticated
 -- Shared-read policies (global corpus + pipeline accounting).
 CREATE POLICY shared_read ON jobs      FOR SELECT TO anon, authenticated USING (true);
 CREATE POLICY shared_read ON companies FOR SELECT TO anon, authenticated USING (true);
+-- job_questions: shared like jobs/companies (poll-time Greenhouse question schema);
+-- writes are poller/service-role only (no anon/authenticated write grant below).
+ALTER TABLE job_questions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY shared_read ON job_questions FOR SELECT TO anon, authenticated USING (true);
 CREATE POLICY shared_read ON poll_runs       FOR SELECT TO authenticated USING (true);
 CREATE POLICY shared_read ON discovery_runs  FOR SELECT TO authenticated USING (true);
 CREATE POLICY shared_read ON discovery_state FOR SELECT TO authenticated USING (true);
@@ -635,6 +652,8 @@ GRANT USAGE ON SEQUENCE review_requests_id_seq TO authenticated;
 GRANT SELECT ON jobs, companies, job_reviews, review_corrections TO anon;
 -- Tier settings: shared operator config read by the dashboard (withAnonSql) + reviewer.
 GRANT SELECT ON tier_settings TO anon, authenticated;
+-- job_questions: shared read for the board/Prefill route; writes are poller/service-role only.
+GRANT SELECT ON job_questions TO anon, authenticated;
 
 -- Default-privilege deny (mirrors migrations/2026-07-05-default-privileges-revoke.sql,
 -- finding minor 6): the REVOKE above only touches tables that exist NOW. Strip the

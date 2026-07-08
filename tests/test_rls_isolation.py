@@ -510,6 +510,7 @@ EXPECTED_GRANTS = {
     "subscriptions":        (_R(), _R({"SELECT"})),               # webhook writes; owner reads
     "review_requests":      (_R(), _R({"SELECT", "INSERT"})),     # owner enqueues; worker updates
     "tier_settings":        (_R({"SELECT"}), _R({"SELECT"})),
+    "job_questions":        (_R({"SELECT"}), _R({"SELECT"})),  # shared_read: anon + authenticated SELECT
     # Everything else (invite_codes, invite_redemptions, schema_migrations,
     # account_deletions, openrouter_usage_snapshots) gets NO anon/authenticated grant.
 }

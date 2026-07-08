@@ -51,6 +51,13 @@ export interface ApplicationPanelProps {
   onResumeInstructionsChange: (v: string) => void;
   coverInstructions: string;
   onCoverInstructionsChange: (v: string) => void;
+  // Save the instruction draft (persists independently of generating) + applied-status.
+  resumeInstructionsDirty: boolean;
+  resumeInstructionsApplied: "none" | "applied" | "pending";
+  onSaveResumeInstructions: () => Promise<void>;
+  coverInstructionsDirty: boolean;
+  coverInstructionsApplied: "none" | "applied" | "pending";
+  onSaveCoverInstructions: () => Promise<void>;
   // Cover letter (state owned by the board, keyed by job id)
   coverState: string | undefined;
   coverData: TailoredCoverLetter | undefined;
@@ -93,6 +100,12 @@ export function ApplicationPanel({
   onResumeInstructionsChange,
   coverInstructions,
   onCoverInstructionsChange,
+  resumeInstructionsDirty,
+  resumeInstructionsApplied,
+  onSaveResumeInstructions,
+  coverInstructionsDirty,
+  coverInstructionsApplied,
+  onSaveCoverInstructions,
   coverState,
   coverData,
   coverError,
@@ -358,6 +371,9 @@ export function ApplicationPanel({
         onOpenProfile={onOpenProfile}
         instructions={resumeInstructions}
         onInstructionsChange={onResumeInstructionsChange}
+        onSaveInstructions={onSaveResumeInstructions}
+        instructionsDirty={resumeInstructionsDirty}
+        instructionsApplied={resumeInstructionsApplied}
         generating={generating}
         onCancelGeneration={onCancelGeneration}
       />
@@ -384,7 +400,14 @@ export function ApplicationPanel({
               >
                 A focused letter that ties your background to this role.
               </div>
-              <GenerationInstructions value={coverInstructions} onChange={onCoverInstructionsChange} kind="cover letter" />
+              <GenerationInstructions
+                value={coverInstructions}
+                onChange={onCoverInstructionsChange}
+                kind="cover letter"
+                onSave={onSaveCoverInstructions}
+                dirty={coverInstructionsDirty}
+                appliedState={coverInstructionsApplied}
+              />
             </div>
             <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
               <span style={{ fontSize: "15px" }}>✦</span>Generate cover letter
@@ -599,7 +622,14 @@ export function ApplicationPanel({
                 <span>↻</span>Regenerate
               </Button>
             </div>
-            <GenerationInstructions value={coverInstructions} onChange={onCoverInstructionsChange} kind="cover letter" />
+            <GenerationInstructions
+              value={coverInstructions}
+              onChange={onCoverInstructionsChange}
+              kind="cover letter"
+              onSave={onSaveCoverInstructions}
+              dirty={coverInstructionsDirty}
+              appliedState={coverInstructionsApplied}
+            />
             <CoverLetterEditor
               job={job}
               letterText={coverEditedText ?? composeCoverLetterText(coverData)}

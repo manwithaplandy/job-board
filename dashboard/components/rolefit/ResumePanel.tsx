@@ -45,6 +45,10 @@ export interface ResumePanelProps {
   // Per-job generation instructions — rides the NEXT generate/regenerate request.
   instructions: string;
   onInstructionsChange: (v: string) => void;
+  // Save the instruction draft (persists independently of generating) + applied-status.
+  onSaveInstructions: () => Promise<void>;
+  instructionsDirty: boolean;
+  instructionsApplied: "none" | "applied" | "pending";
   // Single generation lock for this job (résumé/cover/prepare) + cancel.
   generating?: boolean;
   onCancelGeneration?: () => void;
@@ -65,6 +69,9 @@ export function ResumePanel({
   onOpenProfile,
   instructions,
   onInstructionsChange,
+  onSaveInstructions,
+  instructionsDirty,
+  instructionsApplied,
   generating,
   onCancelGeneration,
 }: ResumePanelProps) {
@@ -172,7 +179,14 @@ export function ResumePanel({
                 for a sharper result.
               </div>
             )}
-            <GenerationInstructions value={instructions} onChange={onInstructionsChange} kind="résumé" />
+            <GenerationInstructions
+              value={instructions}
+              onChange={onInstructionsChange}
+              kind="résumé"
+              onSave={onSaveInstructions}
+              dirty={instructionsDirty}
+              appliedState={instructionsApplied}
+            />
           </div>
           <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
             <span style={{ fontSize: "15px" }}>✦</span>Generate résumé
@@ -385,7 +399,14 @@ export function ResumePanel({
               <span>↻</span>Regenerate
             </button>
           </div>
-          <GenerationInstructions value={instructions} onChange={onInstructionsChange} kind="résumé" />
+          <GenerationInstructions
+            value={instructions}
+            onChange={onInstructionsChange}
+            kind="résumé"
+            onSave={onSaveInstructions}
+            dirty={instructionsDirty}
+            appliedState={instructionsApplied}
+          />
           <ResumeScorePanel job={job} resume={data} isAuthed={isAuthed} />
         </div>
       )}

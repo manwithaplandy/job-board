@@ -29,6 +29,7 @@ import { JobDetail } from "./JobDetail";
 import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
 import { DetailErrorBoundary } from "./DetailErrorBoundary";
+import { saveGenerationInstructions } from "@/app/actions/generationInstructions";
 
 type DetailState =
   | { status: "loading" }
@@ -101,6 +102,31 @@ function useIsNarrow() {
     () => window.matchMedia(NARROW_QUERY).matches, // client snapshot
     () => false, // server snapshot — SSR has no viewport
   );
+}
+
+// A blank 'prepared' package carrying no artifact — the client mirror of the row
+// upsertInstructionDraft writes when you Save an instructions box on a job you've never
+// generated for (draft columns filled in by the caller). Also the base for the one-click
+// "Mark as applied" marker. Benign to hold in the packages map: panes are content-gated
+// on resume/coverLetter and the applied set is status-gated, so a draft-only 'prepared'
+// entry surfaces nowhere until it gains real content.
+function emptyPreparedPackage(jobId: string, preparedAt: string): ApplicationPackage {
+  return {
+    jobId,
+    status: "prepared",
+    resume: null,
+    coverLetter: null,
+    prefilledAnswers: null,
+    applyUrl: null,
+    profileVersion: null,
+    resumeInstructions: null,
+    coverLetterInstructions: null,
+    resumeInstructionsDraft: null,
+    coverLetterInstructionsDraft: null,
+    coverLetterEditedText: null,
+    preparedAt,
+    appliedAt: null,
+  };
 }
 
 export function RolefitBoard({
@@ -226,18 +252,29 @@ export function RolefitBoard({
     });
   }, []);
 
-  // Per-job generation instructions. Seeded from the persisted package value; typing
-  // is local state that rides the NEXT generate request (the route persists it).
-  const [resumeInstructions, setResumeInstructions] = useState<Record<string, string>>(() => {
+  // Per-job generation instructions. Box seeds from the saved DRAFT (persisted, survives
+  // reload) and falls back to the generated-with value; typing rides the next generate.
+  const seedInstr = (pick: (p: ApplicationPackage) => string | null): Record<string, string> => {
     const m: Record<string, string> = {};
-    for (const p of initialPackages) if (p.resumeInstructions) m[p.jobId] = p.resumeInstructions;
+    for (const p of initialPackages) {
+      const v = pick(p);
+      if (v != null) m[p.jobId] = v; // "" is a valid saved value — keep it
+    }
     return m;
-  });
-  const [coverInstructions, setCoverInstructions] = useState<Record<string, string>>(() => {
-    const m: Record<string, string> = {};
-    for (const p of initialPackages) if (p.coverLetterInstructions) m[p.jobId] = p.coverLetterInstructions;
-    return m;
-  });
+  };
+  const [resumeInstructions, setResumeInstructions] = useState<Record<string, string>>(() =>
+    seedInstr((p) => p.resumeInstructionsDraft ?? p.resumeInstructions),
+  );
+  const [coverInstructions, setCoverInstructions] = useState<Record<string, string>>(() =>
+    seedInstr((p) => p.coverLetterInstructionsDraft ?? p.coverLetterInstructions),
+  );
+  // The persisted value the box would reload to — drives Save "dirty" and the ✓ Saved state.
+  const [savedResumeInstructions, setSavedResumeInstructions] = useState<Record<string, string>>(() =>
+    seedInstr((p) => p.resumeInstructionsDraft ?? p.resumeInstructions),
+  );
+  const [savedCoverInstructions, setSavedCoverInstructions] = useState<Record<string, string>>(() =>
+    seedInstr((p) => p.coverLetterInstructionsDraft ?? p.coverLetterInstructions),
+  );
   const handleResumeInstructionsChange = useCallback((jobId: string, v: string) => {
     setResumeInstructions((m) => ({ ...m, [jobId]: v }));
   }, []);
@@ -285,6 +322,42 @@ export function RolefitBoard({
     if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
     actionErrorTimerRef.current = setTimeout(() => setActionError(null), 5000);
   }, []);
+
+  // Save the instruction draft independently of generating (the GenerationInstructions
+  // Save button). Declared after showActionError so the deps array can reference it
+  // (the brief placed these by handleCoverInstructionsChange, but that reads
+  // showActionError before its declaration — a temporal-dead-zone error). On failure,
+  // toast AND re-throw so the component's await throws and it skips its "✓ Saved".
+  const handleSaveResumeInstructions = useCallback(async (jobId: string) => {
+    const value = (resumeInstructions[jobId] ?? "").trim();
+    try {
+      await saveGenerationInstructions(jobId, { resumeInstructions: value });
+      setSavedResumeInstructions((m) => ({ ...m, [jobId]: value }));
+      // Mirror the saved draft into the packages row the server just wrote/created, so
+      // un-apply's hasContent check sees it exactly as the SQL bareMarkerPredicate does.
+      setPackages((p) => {
+        const prior = p[jobId] ?? emptyPreparedPackage(jobId, new Date().toISOString());
+        return { ...p, [jobId]: { ...prior, resumeInstructionsDraft: value } };
+      });
+    } catch (e) {
+      showActionError(`Couldn't save instructions: ${(e as Error).message}`);
+      throw e; // let GenerationInstructions skip its "✓ Saved" confirmation
+    }
+  }, [resumeInstructions, showActionError]);
+  const handleSaveCoverInstructions = useCallback(async (jobId: string) => {
+    const value = (coverInstructions[jobId] ?? "").trim();
+    try {
+      await saveGenerationInstructions(jobId, { coverLetterInstructions: value });
+      setSavedCoverInstructions((m) => ({ ...m, [jobId]: value }));
+      setPackages((p) => {
+        const prior = p[jobId] ?? emptyPreparedPackage(jobId, new Date().toISOString());
+        return { ...p, [jobId]: { ...prior, coverLetterInstructionsDraft: value } };
+      });
+    } catch (e) {
+      showActionError(`Couldn't save instructions: ${(e as Error).message}`);
+      throw e;
+    }
+  }, [coverInstructions, showActionError]);
 
   // Longer-lived than actionError's 5s: the upsell carries a sentence or two plus a CTA
   // the user may want to click, so give it reading time before it self-dismisses.
@@ -942,6 +1015,11 @@ export function RolefitBoard({
   // "done" with the old artifact, matching the old hadResume/hadCover salvage.
   const applySettledReady = useCallback((g: GenerationJobView, pkg: ApplicationPackage) => {
     setPackages((p) => ({ ...p, [g.jobId]: pkg }));
+    // A fresh artifact cleared the draft server-side (upsert lockstep): re-baseline the
+    // saved value to the new generated-with so Save reads "not dirty" and the box reads
+    // "applied". "" stays "".
+    setSavedResumeInstructions((m) => ({ ...m, [g.jobId]: pkg.resumeInstructionsDraft ?? pkg.resumeInstructions ?? "" }));
+    setSavedCoverInstructions((m) => ({ ...m, [g.jobId]: pkg.coverLetterInstructionsDraft ?? pkg.coverLetterInstructions ?? "" }));
     // A regenerate supersedes the edit server-side; mirror it here so the fresh letter
     // replaces the stale edit in the pane without a reload.
     setCoverEdited((m) => {
@@ -1046,20 +1124,7 @@ export function RolefitBoard({
     const appliedAt = new Date().toISOString();
     const optimistic: ApplicationPackage = prior
       ? { ...prior, status: "applied", appliedAt: prior.appliedAt ?? appliedAt }
-      : {
-          jobId: job.id,
-          status: "applied",
-          resume: null,
-          coverLetter: null,
-          prefilledAnswers: null,
-          applyUrl: null,
-          profileVersion: null,
-          resumeInstructions: null,
-          coverLetterInstructions: null,
-          coverLetterEditedText: null,
-          preparedAt: appliedAt,
-          appliedAt,
-        };
+      : { ...emptyPreparedPackage(job.id, appliedAt), status: "applied", appliedAt };
     setPackages((p) => ({ ...p, [job.id]: optimistic }));
     setSelectedId((prev) => (prev === job.id ? selectionAfterRemoval(visibleIds, job.id) : prev));
     startApply(() => {
@@ -1084,10 +1149,16 @@ export function RolefitBoard({
 
   // Un-mark applied from the Applied view (no toast — immediate). Deletes a bare
   // marker; reverts a real prepared package to status='prepared'. Rolls back on error.
+  // `hasContent` is the client twin of the SQL bareMarkerPredicate (lib/queries.ts) — it
+  // mirrors that predicate's full column set (resume/cover/prefilled/apply_url + both
+  // instruction drafts) so the optimistic map reaches the same keep-vs-delete decision the
+  // server DELETE does. A saved instructions draft (even "") is content the server keeps,
+  // so it must count here too, or the map would drop a row un-apply leaves behind.
   const handleUnapply = useCallback((job: JobRow) => {
     const prior = packages[job.id];
     const hasContent = Boolean(
-      prior && (prior.resume || prior.coverLetter || prior.prefilledAnswers),
+      prior && (prior.resume || prior.coverLetter || prior.prefilledAnswers || prior.applyUrl != null
+        || prior.resumeInstructionsDraft != null || prior.coverLetterInstructionsDraft != null),
     );
     setPackages((p) => {
       const next = { ...p };
@@ -1272,6 +1343,10 @@ export function RolefitBoard({
                     coverInstructions={coverInstructions}
                     onResumeInstructionsChange={handleResumeInstructionsChange}
                     onCoverInstructionsChange={handleCoverInstructionsChange}
+                    savedResumeInstructions={savedResumeInstructions}
+                    savedCoverInstructions={savedCoverInstructions}
+                    onSaveResumeInstructions={handleSaveResumeInstructions}
+                    onSaveCoverInstructions={handleSaveCoverInstructions}
                     coverEdited={coverEdited}
                     onCoverEditSaved={handleCoverEditSaved}
                     onCoverEditReset={handleCoverEditReset}

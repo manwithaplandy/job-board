@@ -390,6 +390,8 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
     profileVersion: (row.profile_version as string | null) ?? null,
     resumeInstructions: (row.resume_instructions as string | null) ?? null,
     coverLetterInstructions: (row.cover_letter_instructions as string | null) ?? null,
+    resumeInstructionsDraft: (row.resume_instructions_draft as string | null) ?? null,
+    coverLetterInstructionsDraft: (row.cover_letter_instructions_draft as string | null) ?? null,
     // Joined column — absent (undefined) on the upsert RETURNING path, which has no join.
     coverLetterEditedText: (row.cover_letter_edited_text as string | null) ?? null,
     preparedAt: iso(row.prepared_at),
@@ -402,11 +404,17 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
 // a real package that un-apply must preserve rather than delete. Built from the
 // active executor (a withUserSql tx) so the un-apply DELETE (app/actions/applications.ts)
 // and any future reader agree on the column set — including apply_url, which closes
-// the dormant un-apply gap if an apply_url-only write path is ever added.
+// the dormant un-apply gap if an apply_url-only write path is ever added, and the
+// instruction-draft columns, so a Save-before-generating row (a saved box with no
+// artifact yet) survives un-apply instead of being deleted along with its draft.
+// The client mirror of this predicate is RolefitBoard's `hasContent` (handleUnapply) —
+// keep the two column sets in lockstep.
 export function bareMarkerPredicate(tx: Sql | TransactionSql) {
   return tx`
     resume_json IS NULL AND cover_letter_json IS NULL
       AND prefilled_answers IS NULL AND apply_url IS NULL
+      AND resume_instructions_draft IS NULL
+      AND cover_letter_instructions_draft IS NULL
   `;
 }
 
@@ -421,6 +429,7 @@ export async function getApplicationPackage(
       SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json,
              ap.prefilled_answers, ap.apply_url, ap.profile_version,
              ap.resume_instructions, ap.cover_letter_instructions,
+             ap.resume_instructions_draft, ap.cover_letter_instructions_draft,
              ap.prepared_at, ap.applied_at,
              e.edited_text AS cover_letter_edited_text
       FROM application_packages ap
@@ -442,6 +451,7 @@ export async function getApplicationPackages(userId: string): Promise<Applicatio
       SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json,
              ap.prefilled_answers, ap.apply_url, ap.profile_version,
              ap.resume_instructions, ap.cover_letter_instructions,
+             ap.resume_instructions_draft, ap.cover_letter_instructions_draft,
              ap.prepared_at, ap.applied_at,
              e.edited_text AS cover_letter_edited_text
       FROM application_packages ap
@@ -566,13 +576,54 @@ export async function upsertApplicationPackage(
       cover_letter_instructions = CASE WHEN EXCLUDED.cover_letter_json IS NOT NULL
                                        THEN EXCLUDED.cover_letter_instructions
                                        ELSE application_packages.cover_letter_instructions END,
+      -- A freshly written artifact supersedes any pending saved draft for that leg:
+      -- clear it so the box now mirrors the generated-with value (reads "applied").
+      resume_instructions_draft = CASE WHEN EXCLUDED.resume_json IS NOT NULL
+                                       THEN NULL
+                                       ELSE application_packages.resume_instructions_draft END,
+      cover_letter_instructions_draft = CASE WHEN EXCLUDED.cover_letter_json IS NOT NULL
+                                             THEN NULL
+                                             ELSE application_packages.cover_letter_instructions_draft END,
       prepared_at          = now()
     RETURNING job_id, status, resume_json, cover_letter_json,
               prefilled_answers, apply_url, profile_version,
               resume_instructions, cover_letter_instructions,
+              resume_instructions_draft, cover_letter_instructions_draft,
               prepared_at, applied_at
   `;
   return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);
+  });
+}
+
+// Persist ONLY the saved DRAFT of one leg's generation-instructions box, independent of
+// generating (Save button). Never touches resume_json/cover_letter_json/etc.; creates a
+// bare 'prepared' row if none exists yet (benign — every pane is content-gated on
+// resume/coverLetter, and the applied set is status='applied'-gated). Empty string is a
+// valid saved value; the column is left as the caller passes it.
+export async function upsertInstructionDraft(
+  userId: string,
+  jobId: string,
+  leg: "resume" | "cover",
+  value: string,
+): Promise<void> {
+  await withUserSql(userId, async (tx) => {
+    if (leg === "resume") {
+      await tx`
+        INSERT INTO application_packages
+          (user_id, job_id, resume_instructions_draft, status, prepared_at)
+        VALUES (${userId}::uuid, ${jobId}, ${value}, 'prepared', now())
+        ON CONFLICT (user_id, job_id) DO UPDATE SET
+          resume_instructions_draft = EXCLUDED.resume_instructions_draft
+      `;
+    } else {
+      await tx`
+        INSERT INTO application_packages
+          (user_id, job_id, cover_letter_instructions_draft, status, prepared_at)
+        VALUES (${userId}::uuid, ${jobId}, ${value}, 'prepared', now())
+        ON CONFLICT (user_id, job_id) DO UPDATE SET
+          cover_letter_instructions_draft = EXCLUDED.cover_letter_instructions_draft
+      `;
+    }
   });
 }
 

@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { propagateAttributes } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
-import { getProfile, getJobForPackage, upsertApplicationPackage } from "@/lib/queries";
+import { getProfile, getJobForPackage, getJobQuestion, upsertApplicationPackage } from "@/lib/queries";
 import { gateRejectionBody } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations, type GenerationKind } from "@/lib/usage";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
@@ -10,8 +10,10 @@ import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 import { DEFAULT_PREFILL_MODEL, generatePrefilledAnswers } from "@/lib/rolefit/prefillClient";
-import { fetchGreenhouseQuestions, type GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
+import { fetchGreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
+import { hasCoverLetterQuestion, stripCoverLetterQuestions } from "@/lib/rolefit/coverLetterQuestion";
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
+import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
@@ -19,21 +21,34 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 
 export const dynamic = "force-dynamic";
-// Vercel Pro ceiling. The 202 response returns in milliseconds; the budget covers
-// the background `after()` work — the legs overlap, so the slowest leg bounds it:
-// 2 LLM attempts × 120s + backoff ≈ 242s (see lib/rolefit/openrouterClient.ts).
+// Vercel Pro ceiling for the background `after()` work (the 202 returns in ms). The
+// legs now run SEQUENTIALLY, not overlapped: the résumé leg (≤ 2×120s + backoff ≈ 242s,
+// see lib/rolefit/openrouterClient.ts) is followed by the prefill leg, which we bound
+// to ~60s via a shared AbortSignal on generatePrefilledAnswers' fetchImpl so the pair
+// stays under 300s. The cover leg (when the posting asks) runs in parallel with the
+// résumé and is dominated by it. A capped-out prefill is best-effort — the résumé
+// still persists.
 export const maxDuration = 300;
 
-// "Prepare application": build the persisted package once (résumé + cover letter +
-// answers snapshot, and — Greenhouse only — the real question schema + LLM-prefilled
-// answers) and upsert it. The board loads the saved package instead of regenerating.
+// Hard ceiling on the prefill leg (best-effort). It runs AFTER the résumé, so this
+// keeps résumé + prefill under maxDuration even when the résumé leg is slow.
+const PREFILL_TIMEOUT_MS = 60_000;
+
+// User-facing label is "Prefill application"; kind stays 'prepare' (see schema.sql).
+//
+// Greenhouse-ONLY: this builds the persisted package (résumé + LLM-prefilled answers
+// drawn from the GENERATED résumé, and — when the posting asks — a cover letter) and
+// upserts it. The button/API are Greenhouse-only because prefill needs the posting's
+// real question schema; a non-Greenhouse job 400s before any charge.
 //
 // Async contract (mirrors /api/resume): auth/validation/config/gate stay synchronous,
 // then ONE 'pending' generation_jobs row of kind='prepare' is recorded and the route
-// returns 202. The legs run in `after()` under Promise.allSettled (a failure in one
-// LLM leg doesn't block the others); the row settles 'ready' when the legs settle —
-// with a user-safe partial note if one LLM leg failed — and 'failed' only when the
-// whole prepare throws or BOTH LLM legs fail (nothing new was generated).
+// returns 202. In `after()` the résumé leg runs first; on success it chains a bounded,
+// best-effort prefill fed the generated résumé (a prefill failure is swallowed — the
+// résumé still persists). The cover leg runs in parallel, ONLY when the posting asks
+// for a cover letter (it's the only leg besides résumé that reserves allowance). The
+// row settles 'ready' when the legs settle — with a user-safe partial note if a WANTED
+// leg failed — and 'failed' only when nothing new persisted.
 export async function POST(req: Request) {
   const claims = await getUserClaims();
   if (!claims) return Response.json({ error: "sign in to prepare an application" }, { status: 401 });
@@ -59,16 +74,28 @@ export async function POST(req: Request) {
   }
   const job = await getJobForPackage(jobId, userId);
   if (!job) return Response.json({ error: "job not found" }, { status: 404 });
+  if (job.ats !== "greenhouse") {
+    return Response.json({ error: "Prefill is available for Greenhouse postings only" }, { status: 400 });
+  }
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "application preparation not configured" }, { status: 500 });
 
-  // Prepare generates BOTH a résumé and a cover letter, so reserve both up front (block
-  // if EITHER is exhausted). reserveGenerations is ATOMIC (avoids check-then-charge
-  // TOCTOU) and all-or-nothing across the two kinds; a rejected leg is REFUNDED below so
-  // it never burns allowance. After the 404/422/500 validation so we never charge a
-  // request that can't generate. No plan → 402, exhausted → 429.
-  const gate = await reserveGenerations(userId, claims.email, ["resume", "cover"]);
+  // Poll-time question schema (shared). Fall back to an on-demand fetch for a brand-new
+  // job not yet backfilled — used IN-MEMORY ONLY; the poller persists it later (this
+  // route has shared_read access via getJobQuestion and never writes job_questions).
+  let questions = await getJobQuestion(userId, jobId);
+  if (questions == null) {
+    questions = await fetchGreenhouseQuestions({ token: job.company_token, externalId: job.external_id });
+  }
+  const wantsCover = hasCoverLetterQuestion(questions);
+
+  // Always charge résumé; charge cover ONLY when the posting asks for one. reserveGenerations
+  // is ATOMIC (avoids check-then-charge TOCTOU) and all-or-nothing across the kinds; a
+  // rejected leg is REFUNDED below so it never burns allowance. After the 404/400/422/500
+  // validation so we never charge a request that can't generate. No plan → 402, exhausted → 429.
+  const kinds: GenerationKind[] = wantsCover ? ["resume", "cover"] : ["resume"];
+  const gate = await reserveGenerations(userId, claims.email, kinds);
   if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
 
   // Pending tracking row — created AFTER the reserve, so a pending row always
@@ -78,7 +105,7 @@ export async function POST(req: Request) {
   try {
     tracked = await createGenerationJob(userId, jobId, "prepare");
   } catch (e) {
-    await refundGenerations(userId, ["resume", "cover"]);
+    await refundGenerations(userId, kinds);
     console.error("application prepare tracking failed", {
       userId, jobId, error: e instanceof Error ? e.message : String(e),
     });
@@ -86,14 +113,14 @@ export async function POST(req: Request) {
   }
   const generation = { ...tracked.job, jobTitle: job.title, company: job.company_name };
   if (!tracked.created) {
-    await refundGenerations(userId, ["resume", "cover"]);
+    await refundGenerations(userId, kinds);
     return Response.json({ generation }, { status: 202 });
   }
   const generationJobId = tracked.job.id;
 
   // Status writes never throw out of the background callback: a failed write is
   // logged and the row stays 'pending' for the staleness sweep — it must not
-  // trigger the outer catch's both-kind refund after legs already settled.
+  // trigger the outer catch's refund after legs already settled.
   const settle = (outcome: { status: "ready" | "failed"; error?: string | null }) =>
     settleGenerationJob(userId, generationJobId, outcome).catch((e) => {
       console.error("application prepare status write failed", {
@@ -102,110 +129,94 @@ export async function POST(req: Request) {
     });
 
   const answers = applicationAnswersFromProfile(profile);
-  // Résumé plaintext via the shared helper.
+  // Résumé/cover source plaintext via the shared helper (the profile résumé). NOTE: prefill
+  // does NOT use this — it feeds the freshly GENERATED résumé (composeResumeText below).
   const { resumeText } = getResumeSource(profile);
-
-  // Greenhouse-only side-quest: fetch the posting's real question schema, then
-  // prefill the answerable (non-file) questions. It depends only on profile/job
-  // data — NOT the generated résumé/cover — so it overlaps them in the Promise.allSettled
-  // below instead of running afterward. fetchGreenhouseQuestions never throws (it
-  // degrades to null), and the prefill round-trip is caught, so a Greenhouse/LLM
-  // hiccup still persists a usable generic package and never fails the prepare.
-  const greenhousePrefill = async (): Promise<{
-    greenhouseQuestions: GreenhouseQuestions | null;
-    prefilledAnswers: PrefilledAnswer[] | null;
-  }> => {
-    if (job.ats !== "greenhouse") return { greenhouseQuestions: null, prefilledAnswers: null };
-    const greenhouseQuestions = await fetchGreenhouseQuestions({
-      token: job.company_token,
-      externalId: job.external_id,
-    });
-    if (!greenhouseQuestions) return { greenhouseQuestions: null, prefilledAnswers: null };
-    const questions = toPrefillQuestions(greenhouseQuestions);
-    if (questions.length === 0) return { greenhouseQuestions, prefilledAnswers: null };
-    try {
-      const prefilledAnswers = await generatePrefilledAnswers({
-        resumeText,
-        // Prefill is instruction-less: profile.instructions is reviewer-only, and the
-        // per-job boxes deliberately don't cover the prefill leg (spec non-goal).
-        instructions: null,
-        answers,
-        job: { title: job.title, company: job.company_name, description: job.description },
-        questions,
-        model: DEFAULT_PREFILL_MODEL,
-        apiKey,
-      });
-      return { greenhouseQuestions, prefilledAnswers };
-    } catch (e) {
-      // Best-effort: keep the question list, drop the suggested answers.
-      console.error("greenhouse prefill failed", e);
-      return { greenhouseQuestions, prefilledAnswers: null };
-    }
-  };
+  // Prefill answers the answerable (non-file) questions MINUS any cover-letter question
+  // (the cover leg writes that letter — prefill must not double-answer it).
+  const prefillQuestions = toPrefillQuestions(stripCoverLetterQuestions(questions));
 
   const run = async () => {
-    // Résumé, cover letter, and the Greenhouse prefill are independent round-trips.
-    // Use allSettled so a failure in one leg doesn't block the others — persist
-    // whatever succeeded.
     let resumeTraceId: string | null = null;
     let coverLetterTraceId: string | null = null;
-    const [resumeResult, coverResult, ghResult] = await Promise.allSettled([
-      // résumé leg — the `resume` parent span now lives in generateResume; capture its
-      // trace id for the golden-dataset judge join. Returns the TailoredResume so
-      // resumeResult.value stays the résumé. NOTE: on résumé failure this leg throws
-      // before reading traceId, so resumeTraceId stays null (previously it captured the
-      // failed trace's id) — acceptable, nothing depends on it.
-      (async () => {
-        const { resume, traceId } = await generateResume({
-          resumeText,
-          instructions: resumeInstructions,
-          job: { title: job.title, company: job.company_name, description: job.description },
-          model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
-          apiKey,
-        });
-        resumeTraceId = traceId;
-        return resume;
-      })(),
-      // cover-letter leg — the `cover-letter` parent span lives in generateCoverLetter;
-      // capture its trace id for the cover_letter_edits golden join. Returns the letter
-      // so coverResult.value stays a TailoredCoverLetter. On failure this leg throws
-      // before reading traceId, so coverLetterTraceId stays null (mirrors the résumé leg).
-      (async () => {
-        const { letter, traceId } = await generateCoverLetter({
-          resumeText,
-          candidateName: profile.full_name ?? null,
-          instructions: coverLetterInstructions,
-          job: {
-            title: job.title,
-            company: job.company_name,
-            description: job.description,
-            about: job.about,
-            requirements: job.requirements,
-            skillGaps: job.skill_gaps,
-            redFlags: job.red_flags,
-          },
-          model: profile.model_cover ?? DEFAULT_COVER_MODEL,
-          apiKey,
-        });
-        coverLetterTraceId = traceId;
-        return letter;
-      })(),
-      greenhousePrefill(),
-    ]);
 
-    const resume: TailoredResume | null = resumeResult.status === "fulfilled" ? resumeResult.value : null;
+    // Résumé leg → prefill chained on the GENERATED résumé. A résumé failure rejects the
+    // whole leg (prefill skipped, retried together next time). A prefill failure is
+    // swallowed (best-effort) so the résumé still persists.
+    const resumeLeg = (async (): Promise<{ resume: TailoredResume; prefilled: PrefilledAnswer[] | null }> => {
+      const { resume, traceId } = await generateResume({
+        resumeText,
+        instructions: resumeInstructions,
+        job: { title: job.title, company: job.company_name, description: job.description },
+        model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
+        apiKey,
+      });
+      resumeTraceId = traceId;
+      let prefilled: PrefilledAnswer[] | null = null;
+      if (prefillQuestions.length > 0) {
+        // Bound the prefill leg. It runs AFTER the résumé (sequential), so an unbounded
+        // prefill stacks on top of the résumé's worst case (2×120s + backoff) and can blow
+        // maxDuration. Create the deadline HERE — LAZILY, once the résumé has resolved —
+        // NOT at module load, because AbortSignal.timeout starts counting immediately; a
+        // deadline made before the ~242s résumé leg would already be expired and abort every
+        // prefill. A single shared signal bounds the WHOLE leg across both openrouter attempts
+        // (replacing the client's per-attempt 120s timeout with our tighter 60s). A capped-out
+        // prefill throws → swallowed below (best-effort): the résumé still persists, no answers.
+        const prefillDeadline = AbortSignal.timeout(PREFILL_TIMEOUT_MS);
+        try {
+          prefilled = await generatePrefilledAnswers({
+            resumeText: composeResumeText(resume), // the tailored résumé, not profile text
+            instructions: null,                    // prefill is instruction-less (spec)
+            answers,
+            job: { title: job.title, company: job.company_name, description: job.description },
+            questions: prefillQuestions,
+            model: DEFAULT_PREFILL_MODEL,
+            apiKey,
+            // Shared 60s deadline across retries → the leg can't run away sequentially.
+            fetchImpl: (input, init) => fetch(input, { ...init, signal: prefillDeadline }),
+          });
+        } catch (e) {
+          console.error("greenhouse prefill failed", e); // best-effort: keep the résumé
+        }
+      }
+      return { resume, prefilled };
+    })();
+
+    // Cover leg — only when the posting asks. Independent of the résumé (uses profile text).
+    // The sentinel rejection is consumed by Promise.allSettled → never an unhandled rejection.
+    const coverLeg: Promise<TailoredCoverLetter> = wantsCover
+      ? (async (): Promise<TailoredCoverLetter> => {
+          const { letter, traceId } = await generateCoverLetter({
+            resumeText,
+            candidateName: profile.full_name ?? null,
+            instructions: coverLetterInstructions,
+            job: {
+              title: job.title, company: job.company_name, description: job.description,
+              about: job.about, requirements: job.requirements,
+              skillGaps: job.skill_gaps, redFlags: job.red_flags,
+            },
+            model: profile.model_cover ?? DEFAULT_COVER_MODEL,
+            apiKey,
+          });
+          coverLetterTraceId = traceId;
+          return letter;
+        })()
+      : Promise.reject(new Error("no cover requested")); // sentinel; not counted as a failure
+
+    const [resumeResult, coverResult] = await Promise.allSettled([resumeLeg, coverLeg]);
+
+    const resume: TailoredResume | null = resumeResult.status === "fulfilled" ? resumeResult.value.resume : null;
+    const prefilledAnswers: PrefilledAnswer[] | null =
+      resumeResult.status === "fulfilled" ? resumeResult.value.prefilled : null;
     const coverLetter: TailoredCoverLetter | null = coverResult.status === "fulfilled" ? coverResult.value : null;
-    const gh = ghResult.status === "fulfilled"
-      ? ghResult.value
-      : { greenhouseQuestions: null, prefilledAnswers: null };
 
     if (resumeResult.status === "rejected") console.error("resume generation failed", resumeResult.reason);
-    if (coverResult.status === "rejected") console.error("cover letter generation failed", coverResult.reason);
+    if (wantsCover && coverResult.status === "rejected") console.error("cover letter generation failed", coverResult.reason);
 
     await upsertApplicationPackage(userId, jobId, {
       resume,
       coverLetter,
-      prefilledAnswers: gh.prefilledAnswers,
+      prefilledAnswers,
       applyUrl: applyUrl(job.ats, job.url),
       resumeTraceId,
       coverLetterTraceId,
@@ -213,31 +224,33 @@ export async function POST(req: Request) {
       coverLetterInstructions,
       profileVersion: profile.profile_version,
     });
-    // Both kinds were reserved (charged) up front; REFUND any leg that rejected — a
-    // rejected leg (e.g. OpenRouter outage) persists a partial package but must never
-    // burn its kind's allowance (T9: "a failed generation never burns allowance";
-    // mirrors the sibling /api/resume + /api/cover-letter routes). Both-fulfilled refunds
-    // nothing. A whole-prepare failure throws before here and refunds both in the outer
-    // catch. Model choice (model_resume/model_cover) is intentionally NOT tier-gated —
+
+    // Refund charged legs that failed. Cover is only charged (and only "failed") when wanted;
+    // an unwanted cover leg is the sentinel rejection above and is never refunded. Both-fulfilled
+    // refunds nothing. A whole-prepare failure throws before here and refunds `kinds` in the
+    // outer catch. Model choice (model_resume/model_cover) is intentionally NOT tier-gated —
     // generation is 1–3% of cost (spec); the monthly counter is the abuse cap.
     const refundKinds: GenerationKind[] = [
       ...(resumeResult.status === "rejected" ? (["resume"] as const) : []),
-      ...(coverResult.status === "rejected" ? (["cover"] as const) : []),
+      ...(wantsCover && coverResult.status === "rejected" ? (["cover"] as const) : []),
     ];
     if (refundKinds.length) await refundGenerations(userId, refundKinds);
-    // Settle the tracked prepare. The old inline response carried per-leg status;
-    // the client now reloads the persisted package on 'ready' and derives the pane
-    // states from its contents, so the row only distinguishes: clean success,
-    // partial success (user-safe note in `error`), and nothing-generated.
-    if (resumeResult.status === "rejected" && coverResult.status === "rejected") {
+
+    // Settle the tracked prepare. The client reloads the persisted package on 'ready' and
+    // derives the pane states from its contents, so the row only distinguishes: clean
+    // success, partial success (user-safe note in `error`), and nothing-generated. 'failed'
+    // only when nothing new persisted — a résumé failure on a résumé-only posting, or both
+    // wanted legs failing.
+    const resumeFailed = resumeResult.status === "rejected";
+    const coverFailed = wantsCover && coverResult.status === "rejected";
+    if (resumeFailed && (coverFailed || !wantsCover)) {
       await settle({ status: "failed", error: "Generation failed — try again." });
     } else {
-      const note =
-        resumeResult.status === "rejected"
-          ? "Couldn’t generate the résumé — you can retry it from the job pane."
-          : coverResult.status === "rejected"
-            ? "Couldn’t generate the cover letter — you can retry it from the job pane."
-            : null;
+      const note = resumeFailed
+        ? "Couldn’t generate the résumé — you can retry it from the job pane."
+        : coverFailed
+          ? "Couldn’t generate the cover letter — you can retry it from the job pane."
+          : null;
       await settle({ status: "ready", error: note });
     }
   };
@@ -256,10 +269,10 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       // Generation failures are salvaged per-leg above; this catches the upsert /
-      // infrastructure path where NOTHING persisted — refund both reserved kinds so a
+      // infrastructure path where NOTHING persisted — refund the reserved kinds so a
       // failed prepare never burns allowance. Never leak internal error detail to
       // the stored user-safe message.
-      await refundGenerations(userId, ["resume", "cover"]);
+      await refundGenerations(userId, kinds);
       console.error("application prepare failed", e);
       await settle({ status: "failed", error: "Preparation failed — try again." });
     }

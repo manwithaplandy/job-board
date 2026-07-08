@@ -602,6 +602,8 @@ export async function upsertProfile(
     eeoDisability: string | null;
     screeningAnswers: ScreeningAnswers;
     modelCover: string | null;
+    reasoningEffortResume: string | null;
+    reasoningEffortCover: string | null;
   },
 ): Promise<void> {
   // M-RESURRECT-2: a deleted user's JWT stays valid ≤1h after the erasure cascade, so
@@ -621,6 +623,7 @@ export async function upsertProfile(
                           work_authorized, needs_sponsorship,
                           eeo_gender, eeo_race, eeo_veteran, eeo_disability,
                           screening_answers, model_cover,
+                          reasoning_effort_resume, reasoning_effort_cover,
                           profile_version, updated_at)
     VALUES (${userId}::uuid, ${data.resumeText}, ${data.instructions},
             ${data.resumeFilePath}, ${data.modelStage1}, ${data.modelStage2},
@@ -631,6 +634,7 @@ export async function upsertProfile(
             ${data.workAuthorized}, ${data.needsSponsorship},
             ${data.eeoGender}, ${data.eeoRace}, ${data.eeoVeteran}, ${data.eeoDisability},
             ${JSON.stringify(data.screeningAnswers)}::jsonb, ${data.modelCover},
+            ${data.reasoningEffortResume}, ${data.reasoningEffortCover},
             ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       resume_text             = EXCLUDED.resume_text,
@@ -656,6 +660,8 @@ export async function upsertProfile(
       eeo_disability          = EXCLUDED.eeo_disability,
       screening_answers       = EXCLUDED.screening_answers,
       model_cover             = EXCLUDED.model_cover,
+      reasoning_effort_resume = EXCLUDED.reasoning_effort_resume,
+      reasoning_effort_cover  = EXCLUDED.reasoning_effort_cover,
       profile_version         = EXCLUDED.profile_version,
       updated_at              = now()
   `);

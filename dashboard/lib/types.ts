@@ -167,6 +167,9 @@ export interface ProfileRow {
   eeo_disability: string | null;
   screening_answers: ScreeningAnswers;
   model_cover: string | null;
+  // Reasoning effort for generation ('low'|'medium'|'high'); NULL = off (default).
+  reasoning_effort_resume: string | null;
+  reasoning_effort_cover: string | null;
   profile_version: string;
   updated_at: string;
 }

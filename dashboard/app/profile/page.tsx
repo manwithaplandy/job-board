@@ -153,6 +153,8 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
       eeoDisability: trimOrNull(formData.get("eeo_disability")),
       screeningAnswers,
       modelCover: cl.value,
+      reasoningEffortResume: existing?.reasoning_effort_resume ?? null,
+      reasoningEffortCover: existing?.reasoning_effort_cover ?? null,
     });
     // Return to the page the user came from (threaded through a hidden field captured at
     // GET time — the POST's own referer is /profile).

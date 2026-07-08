@@ -5,6 +5,7 @@ import type { ApplicationPackage, JobReviewDetail, JobRow } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
+import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrepareLegStatus } from "./RolefitBoard";
 import { fitColor, initialsOf, fmtPay, fmtPosted } from "@/lib/rolefit/fit";
 import { displayEnumLabel } from "@/lib/rolefit/taxonomy";
@@ -88,6 +89,9 @@ export interface JobDetailProps {
   onCancelGeneration?: () => void;
   // Per-leg result of the last prepare — failed legs get an inline retry.
   prepareStatus?: PrepareLegStatus | null;
+  // Job-level Greenhouse question schema (shared job_questions table). Static server
+  // data forwarded to the application panel; per-user prefilled answers ride the package.
+  greenhouseQuestions: GreenhouseQuestions | null;
   // Persisted package for the selected job (Phase 3) — undefined until prepared.
   pkg?: ApplicationPackage;
   // True when the shown tailored résumé was generated from an older profile_version.
@@ -133,6 +137,7 @@ export function JobDetail({
   generating,
   onCancelGeneration,
   prepareStatus,
+  greenhouseQuestions,
   pkg,
   resumeStale,
   onMarkApplied,
@@ -647,7 +652,7 @@ export function JobDetail({
             generating={generating}
             onCancelGeneration={onCancelGeneration}
             prepareStatus={prepareStatus}
-            greenhouseQuestions={null}
+            greenhouseQuestions={greenhouseQuestions}
             prefilledAnswers={pkg?.prefilledAnswers ?? null}
             status={pkg?.status ?? null}
             appliedAt={pkg?.appliedAt ?? null}

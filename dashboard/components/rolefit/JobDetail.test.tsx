@@ -61,6 +61,7 @@ const baseProps: Omit<JobDetailProps, "job"> = {
   onCoverEditSaved: vi.fn(),
   onCoverEditReset: vi.fn(),
   onPrepare: vi.fn(),
+  greenhouseQuestions: null,
   resumeStale: false,
   onMarkApplied: vi.fn(),
   onOpenProfile: vi.fn(),

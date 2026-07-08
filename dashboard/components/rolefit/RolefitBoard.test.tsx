@@ -56,6 +56,7 @@ const baseProps: RolefitBoardProps = {
   currentProfileVersion: null,
   initialPackages: [],
   initialRejected: [],
+  initialJobQuestions: {},
 };
 
 // The board reads window.matchMedia through useSyncExternalStore; jsdom has none.

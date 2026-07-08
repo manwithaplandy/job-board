@@ -7,6 +7,7 @@ import { ReviewNowPanel } from "@/components/rolefit/ReviewNowPanel";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
+import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
 import { isResumeStale } from "@/lib/resumeStale";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
@@ -74,6 +75,9 @@ export interface RolefitBoardProps {
   // board loads only approves, so these seed the Rejected view for cross-session recovery
   // of a mis-clicked reject. Empty on the anon path.
   initialRejected: JobRow[];
+  // Job-level Greenhouse question schema (shared job_questions table), keyed by job id.
+  // Static server data — forwarded to the selected job's application panel. Empty on anon.
+  initialJobQuestions: Record<string, GreenhouseQuestions>;
 }
 
 const NARROW_QUERY = "(max-width: 760px)";
@@ -117,6 +121,7 @@ export function RolefitBoard({
   currentProfileVersion,
   initialPackages,
   initialRejected,
+  initialJobQuestions,
 }: RolefitBoardProps) {
   const isNarrow = useIsNarrow();
   const router = useRouter();
@@ -1273,6 +1278,7 @@ export function RolefitBoard({
                     onPrepare={handlePrepare}
                     generating={requestingId === selectedJobWithDetail.id || jobBusy(selectedJobWithDetail.id)}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
+                    greenhouseQuestions={initialJobQuestions[selectedJobWithDetail.id] ?? null}
                     pkg={packages[selectedJobWithDetail.id]}
                     resumeStale={resumeStaleFor(selectedJobWithDetail.id)}
                     onMarkApplied={handleMarkApplied}

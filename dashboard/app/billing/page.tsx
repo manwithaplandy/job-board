@@ -60,6 +60,11 @@ function TierCard({
         ))}
         <li>{ent.monthlyResume} résumés / mo</li>
         <li>{ent.monthlyCover} cover letters / mo</li>
+        <li>
+          {plan === "pro"
+            ? "Reasoning effort up to High on résumé / cover-letter generation"
+            : "Reasoning effort Off / Low on generation"}
+        </li>
       </ul>
       <div style={{ marginTop: "auto" }}>
         <SubscribeButton plan={plan} current={currentPlan === plan} />

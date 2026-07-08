@@ -56,6 +56,7 @@ const baseProps: RolefitBoardProps = {
   currentProfileVersion: null,
   initialPackages: [],
   initialRejected: [],
+  initialJobQuestions: {},
 };
 
 // The board reads window.matchMedia through useSyncExternalStore; jsdom has none.
@@ -101,7 +102,7 @@ afterEach(() => {
 async function renderAndPrepare(status: number, body: Record<string, unknown>) {
   mockFetch({ status, body });
   render(<RolefitBoard {...baseProps} />);
-  fireEvent.click(await screen.findByRole("button", { name: /Prepare application/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Prefill application/ }));
 }
 
 describe("RolefitBoard — tier-gate upsell pill (/billing CTA)", () => {
@@ -118,7 +119,7 @@ describe("RolefitBoard — tier-gate upsell pill (/billing CTA)", () => {
     expect(cta.getAttribute("href")).toBe("/billing");
     // The rejection is an upsell, not a failure: the pane reverts to idle (the Prepare
     // button is back) instead of entering the error state.
-    expect(await screen.findByRole("button", { name: /Prepare application/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Prefill application/ })).toBeTruthy();
     expect(screen.queryByText(/Couldn’t generate/)).toBeNull();
   });
 

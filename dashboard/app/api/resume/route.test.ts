@@ -271,3 +271,25 @@ describe("POST /api/resume — background failure → refund + user-safe settled
     }
   });
 });
+
+describe("POST /api/resume — per-job instructions", () => {
+  test("body instructions thread into generateResume and persist", async () => {
+    await POST(req({ jobId: "job-1", instructions: " Focus on infra. " }));
+    await flushBackground();
+    expect(mocks.generateResume.mock.calls[0][0].instructions).toBe("Focus on infra.");
+    expect(mocks.upsertApplicationPackage.mock.calls[0][2].resumeInstructions).toBe("Focus on infra.");
+  });
+
+  test("absent instructions → null through to generation and persistence", async () => {
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    expect(mocks.generateResume.mock.calls[0][0].instructions).toBeNull();
+    expect(mocks.upsertApplicationPackage.mock.calls[0][2].resumeInstructions).toBeNull();
+  });
+
+  test("over-cap instructions → 400 before the gate", async () => {
+    const res = await POST(req({ jobId: "job-1", instructions: "x".repeat(4001) }));
+    expect(res.status).toBe(400);
+    expect(mocks.reserveGenerations).not.toHaveBeenCalled();
+  });
+});

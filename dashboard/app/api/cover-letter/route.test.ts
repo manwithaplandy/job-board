@@ -76,14 +76,17 @@ beforeEach(() => {
   mocks.afterCallbacks.length = 0;
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   mocks.getUserClaims.mockResolvedValue({ id: USER, email: EMAIL });
-  mocks.getProfile.mockResolvedValue({ resume_text: "resume", full_name: "Ada", instructions: null, model_cover: null });
+  mocks.getProfile.mockResolvedValue({
+    resume_text: "resume", full_name: "Ada",
+    instructions: "REVIEWER-ONLY — must never reach generation", model_cover: null,
+  });
   mocks.getJobForCoverLetter.mockResolvedValue({
     title: "Eng", company_name: "Acme", description: "jd", about: "about",
     requirements: [{ text: "5y", met: true }], skill_gaps: ["rust"], red_flags: ["hours"],
   });
   mocks.reserveGenerations.mockResolvedValue({ ok: true, plan: "pro" });
   mocks.refundGenerations.mockResolvedValue(undefined);
-  mocks.generateCoverLetter.mockResolvedValue(LETTER);
+  mocks.generateCoverLetter.mockResolvedValue({ letter: LETTER, traceId: "cl-tr-1" });
   mocks.upsertApplicationPackage.mockResolvedValue({ jobId: "job-1", status: "prepared" });
   mocks.createGenerationJob.mockResolvedValue({ created: true, job: GEN_ROW });
   mocks.settleGenerationJob.mockResolvedValue(undefined);
@@ -164,6 +167,8 @@ describe("POST /api/cover-letter — cover-specific contract", () => {
     await flushBackground();
     const pkg = mocks.upsertApplicationPackage.mock.calls[0][2];
     expect(pkg.coverLetter).toBe(LETTER);
+    expect(pkg.coverLetterTraceId).toBe("cl-tr-1");
+    expect(pkg.coverLetterInstructions).toBeNull();
     expect(pkg.resume).toBeNull();
     // A cover-only regen must NOT stamp or clear the stored résumé's profile_version
     // (ON CONFLICT preserves it).
@@ -188,6 +193,29 @@ describe("POST /api/cover-letter — cover-specific contract", () => {
     expect(res.status).toBe(202);
     expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["cover"]);
     expect(mocks.afterCallbacks).toHaveLength(0);
+  });
+});
+
+describe("POST /api/cover-letter — per-job instructions", () => {
+  test("body instructions thread into generation and persist; profile.instructions never does", async () => {
+    await POST(req({ jobId: "job-1", instructions: "  Mention the SRE rotation.  " }));
+    await flushBackground();
+    const arg = mocks.generateCoverLetter.mock.calls[0][0];
+    expect(arg.instructions).toBe("Mention the SRE rotation.");
+    const pkg = mocks.upsertApplicationPackage.mock.calls[0][2];
+    expect(pkg.coverLetterInstructions).toBe("Mention the SRE rotation.");
+  });
+
+  test("no body instructions → generation gets null (NOT the reviewer-only profile.instructions)", async () => {
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    expect(mocks.generateCoverLetter.mock.calls[0][0].instructions).toBeNull();
+  });
+
+  test("over-cap instructions → 400 before the gate", async () => {
+    const res = await POST(req({ jobId: "job-1", instructions: "x".repeat(4001) }));
+    expect(res.status).toBe(400);
+    expect(mocks.reserveGenerations).not.toHaveBeenCalled();
   });
 });
 

@@ -7,6 +7,7 @@ import { ReviewNowPanel } from "@/components/rolefit/ReviewNowPanel";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
+import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
 import { isResumeStale } from "@/lib/resumeStale";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
@@ -74,6 +75,9 @@ export interface RolefitBoardProps {
   // board loads only approves, so these seed the Rejected view for cross-session recovery
   // of a mis-clicked reject. Empty on the anon path.
   initialRejected: JobRow[];
+  // Job-level Greenhouse question schema (shared job_questions table), keyed by job id.
+  // Static server data — forwarded to the selected job's application panel. Empty on anon.
+  initialJobQuestions: Record<string, GreenhouseQuestions>;
 }
 
 const NARROW_QUERY = "(max-width: 760px)";
@@ -117,6 +121,7 @@ export function RolefitBoard({
   currentProfileVersion,
   initialPackages,
   initialRejected,
+  initialJobQuestions,
 }: RolefitBoardProps) {
   const isNarrow = useIsNarrow();
   const router = useRouter();
@@ -203,6 +208,42 @@ export function RolefitBoard({
     return m;
   });
   const [coverError, setCoverError] = useState<Record<string, string>>({});
+
+  // Human cover-letter edits (current/non-superseded only) — display + download override.
+  const [coverEdited, setCoverEdited] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of initialPackages) if (p.coverLetterEditedText) m[p.jobId] = p.coverLetterEditedText;
+    return m;
+  });
+  const handleCoverEditSaved = useCallback((jobId: string, text: string) => {
+    setCoverEdited((m) => ({ ...m, [jobId]: text }));
+  }, []);
+  const handleCoverEditReset = useCallback((jobId: string) => {
+    setCoverEdited((m) => {
+      if (!(jobId in m)) return m;
+      const { [jobId]: _gone, ...rest } = m;
+      return rest;
+    });
+  }, []);
+
+  // Per-job generation instructions. Seeded from the persisted package value; typing
+  // is local state that rides the NEXT generate request (the route persists it).
+  const [resumeInstructions, setResumeInstructions] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of initialPackages) if (p.resumeInstructions) m[p.jobId] = p.resumeInstructions;
+    return m;
+  });
+  const [coverInstructions, setCoverInstructions] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of initialPackages) if (p.coverLetterInstructions) m[p.jobId] = p.coverLetterInstructions;
+    return m;
+  });
+  const handleResumeInstructionsChange = useCallback((jobId: string, v: string) => {
+    setResumeInstructions((m) => ({ ...m, [jobId]: v }));
+  }, []);
+  const handleCoverInstructionsChange = useCallback((jobId: string, v: string) => {
+    setCoverInstructions((m) => ({ ...m, [jobId]: v }));
+  }, []);
 
   // Per-job accept-request lock: only the POST → 202 window (a few hundred ms).
   // Once the 202 lands, "generating" is owned by the GenerationToastProvider's
@@ -776,7 +817,7 @@ export function RolefitBoard({
       const res = await fetch("/api/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id }),
+        body: JSON.stringify({ jobId: job.id, instructions: resumeInstructions[job.id]?.trim() || undefined }),
       });
       if (res.status === 202) {
         // Accepted: hand tracking to the provider (immediate pending + prompt poll).
@@ -803,7 +844,7 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, genData, showUpsell, tracker]);
+  }, [beginRequest, endRequest, genData, resumeInstructions, showUpsell, tracker]);
 
   // Cover-letter generation — mirrors handleGenerate against /api/cover-letter (D7).
   const handleGenerateCover = useCallback(async (job: JobRow) => {
@@ -814,7 +855,7 @@ export function RolefitBoard({
       const res = await fetch("/api/cover-letter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id }),
+        body: JSON.stringify({ jobId: job.id, instructions: coverInstructions[job.id]?.trim() || undefined }),
       });
       if (res.status === 202) {
         const body: unknown = await res.json().catch(() => null);
@@ -838,9 +879,9 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, coverData, showUpsell, tracker]);
+  }, [beginRequest, endRequest, coverData, coverInstructions, showUpsell, tracker]);
 
-  // "Prepare application" — build + PERSIST the package server-side. Async accept
+  // "Prefill application" — build + PERSIST the package server-side. Async accept
   // contract like handleGenerate: the route reserves BOTH kinds synchronously, 202s
   // with ONE kind='prepare' row, and the legs run in the background. The settled
   // feed lands the package (deriving per-leg pane states from its contents).
@@ -856,7 +897,11 @@ export function RolefitBoard({
       const res = await fetch("/api/application/prepare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id }),
+        body: JSON.stringify({
+          jobId: job.id,
+          resumeInstructions: resumeInstructions[job.id]?.trim() || undefined,
+          coverLetterInstructions: coverInstructions[job.id]?.trim() || undefined,
+        }),
       });
       if (res.status === 202) {
         const body: unknown = await res.json().catch(() => null);
@@ -885,11 +930,11 @@ export function RolefitBoard({
       setCoverGen((g) => ({ ...g, [job.id]: hadCover ? "done" : "error" }));
       if (!hadResume) setGenError((m) => ({ ...m, [job.id]: msg }));
       if (!hadCover) setCoverError((m) => ({ ...m, [job.id]: msg }));
-      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+      if (hadResume || hadCover) showActionError(`Re-prefill failed: ${msg}`);
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, genData, coverData, showActionError, showUpsell, tracker]);
+  }, [beginRequest, endRequest, genData, coverData, resumeInstructions, coverInstructions, showActionError, showUpsell, tracker]);
 
   // Land a settled generation's outcome in the panes. 'ready' reloads the persisted
   // package (the 202 carried no content); per-leg pane states derive from what the
@@ -897,6 +942,16 @@ export function RolefitBoard({
   // "done" with the old artifact, matching the old hadResume/hadCover salvage.
   const applySettledReady = useCallback((g: GenerationJobView, pkg: ApplicationPackage) => {
     setPackages((p) => ({ ...p, [g.jobId]: pkg }));
+    // A regenerate supersedes the edit server-side; mirror it here so the fresh letter
+    // replaces the stale edit in the pane without a reload.
+    setCoverEdited((m) => {
+      if (pkg.coverLetterEditedText) return { ...m, [g.jobId]: pkg.coverLetterEditedText };
+      if (m[g.jobId]) {
+        const { [g.jobId]: _gone, ...rest } = m;
+        return rest;
+      }
+      return m;
+    });
     if (g.kind === "resume" || g.kind === "prepare") {
       if (pkg.resume) {
         setGenData((d) => ({ ...d, [g.jobId]: pkg.resume as TailoredResume }));
@@ -954,7 +1009,7 @@ export function RolefitBoard({
       setCoverGen((s) => ({ ...s, [g.jobId]: hadCover ? "done" : "error" }));
       if (!hadResume) setGenError((m) => ({ ...m, [g.jobId]: msg }));
       if (!hadCover) setCoverError((m) => ({ ...m, [g.jobId]: msg }));
-      if (hadResume || hadCover) showActionError(`Re-prepare failed: ${msg}`);
+      if (hadResume || hadCover) showActionError(`Re-prefill failed: ${msg}`);
     }
   }, [genData, coverData, showActionError]);
 
@@ -996,11 +1051,12 @@ export function RolefitBoard({
           status: "applied",
           resume: null,
           coverLetter: null,
-          answersSnapshot: null,
-          greenhouseQuestions: null,
           prefilledAnswers: null,
           applyUrl: null,
           profileVersion: null,
+          resumeInstructions: null,
+          coverLetterInstructions: null,
+          coverLetterEditedText: null,
           preparedAt: appliedAt,
           appliedAt,
         };
@@ -1031,8 +1087,7 @@ export function RolefitBoard({
   const handleUnapply = useCallback((job: JobRow) => {
     const prior = packages[job.id];
     const hasContent = Boolean(
-      prior && (prior.resume || prior.coverLetter || prior.answersSnapshot
-        || prior.greenhouseQuestions || prior.prefilledAnswers),
+      prior && (prior.resume || prior.coverLetter || prior.prefilledAnswers),
     );
     setPackages((p) => {
       const next = { ...p };
@@ -1213,9 +1268,17 @@ export function RolefitBoard({
                     coverData={coverData}
                     coverError={coverError}
                     onGenerateCover={handleGenerateCover}
+                    resumeInstructions={resumeInstructions}
+                    coverInstructions={coverInstructions}
+                    onResumeInstructionsChange={handleResumeInstructionsChange}
+                    onCoverInstructionsChange={handleCoverInstructionsChange}
+                    coverEdited={coverEdited}
+                    onCoverEditSaved={handleCoverEditSaved}
+                    onCoverEditReset={handleCoverEditReset}
                     onPrepare={handlePrepare}
                     generating={requestingId === selectedJobWithDetail.id || jobBusy(selectedJobWithDetail.id)}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
+                    greenhouseQuestions={initialJobQuestions[selectedJobWithDetail.id] ?? null}
                     pkg={packages[selectedJobWithDetail.id]}
                     resumeStale={resumeStaleFor(selectedJobWithDetail.id)}
                     onMarkApplied={handleMarkApplied}

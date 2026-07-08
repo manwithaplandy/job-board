@@ -45,6 +45,16 @@ CREATE INDEX idx_jobs_closed_at ON jobs (closed_at);
 -- Poller: get_open_external_ids / close_jobs filter WHERE company_id = $1 AND closed_at IS NULL.
 CREATE INDEX idx_jobs_company_open ON jobs (company_id) WHERE closed_at IS NULL;
 
+-- Per-job application question schema, fetched once at poll time (Greenhouse only
+-- today). GLOBAL/shared job data — no user_id; keyed by jobs.id. Populated by the
+-- poller; the dashboard reads it job-level (shared_read) and the Prefill route uses
+-- it to draft answers + decide whether the posting asks for a cover letter.
+CREATE TABLE job_questions (
+  job_id     TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+  questions  JSONB NOT NULL,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE poll_runs (
   id               SERIAL PRIMARY KEY,
   started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -270,6 +280,9 @@ CREATE TABLE application_packages (
   prefilled_answers    JSONB,                 -- [{ question, answer }] mapped by the LLM (NULL = none)
   apply_url            TEXT,
   resume_trace_id      TEXT,
+  cover_letter_trace_id TEXT,
+  resume_instructions        TEXT,   -- per-job "Generation instructions" (résumé leg)
+  cover_letter_instructions  TEXT,   -- per-job "Generation instructions" (cover-letter leg)
   profile_version      TEXT,                  -- profiles.profile_version at generation time (NULL = pre-column row)
   status               TEXT NOT NULL DEFAULT 'prepared'
                          CHECK (status IN ('prepared','applied')),
@@ -295,6 +308,22 @@ CREATE TABLE resume_scores (
   PRIMARY KEY (user_id, job_id)
 );
 CREATE INDEX idx_resume_scores_user ON resume_scores (user_id);
+
+-- Cover-letter edit overlay (see migrations/2026-07-07-cover-letter-edits.sql).
+CREATE TABLE cover_letter_edits (
+  user_id               UUID NOT NULL,
+  job_id                TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  edited_text           TEXT NOT NULL,
+  original_text         TEXT,
+  cover_letter_trace_id TEXT,
+  model                 TEXT,
+  comment               TEXT,
+  superseded_at         TIMESTAMPTZ,
+  edited_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, job_id)
+);
+CREATE INDEX idx_cover_letter_edits_user ON cover_letter_edits (user_id);
+CREATE INDEX idx_cover_letter_edits_job ON cover_letter_edits (job_id);
 
 -- Multi-tenant foundation (see migrations/2026-07-03-multitenant-foundation.sql).
 -- Invite-gated signup: invite_codes + invite_redemptions are the server-side source
@@ -401,6 +430,9 @@ CREATE TABLE generation_jobs (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    UUID NOT NULL,
   job_id     TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  -- kind='prepare' backs the Greenhouse "Prefill application" action (user-facing
+  -- label is "Prefill"; the internal identifier stays 'prepare' to avoid a
+  -- kind-constraint migration + dual-value transition). See the /api/application/prepare route.
   kind       TEXT NOT NULL CHECK (kind IN ('resume','cover','prepare')),
   status     TEXT NOT NULL DEFAULT 'pending'
                CHECK (status IN ('pending','ready','failed')),
@@ -454,6 +486,8 @@ ALTER TABLE application_packages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON application_packages FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE resume_scores        ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON resume_scores        FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE cover_letter_edits   ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON cover_letter_edits   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE review_corrections   ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON review_corrections   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE schema_migrations    ENABLE ROW LEVEL SECURITY;
@@ -535,6 +569,8 @@ CREATE POLICY owner_access ON application_packages FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 CREATE POLICY owner_access ON resume_scores FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+CREATE POLICY owner_access ON cover_letter_edits FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 CREATE POLICY owner_access ON usage_counters FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 CREATE POLICY owner_access ON generation_jobs FOR ALL TO authenticated
@@ -543,6 +579,10 @@ CREATE POLICY owner_access ON generation_jobs FOR ALL TO authenticated
 -- Shared-read policies (global corpus + pipeline accounting).
 CREATE POLICY shared_read ON jobs      FOR SELECT TO anon, authenticated USING (true);
 CREATE POLICY shared_read ON companies FOR SELECT TO anon, authenticated USING (true);
+-- job_questions: shared like jobs/companies (poll-time Greenhouse question schema);
+-- writes are poller/service-role only (no anon/authenticated write grant below).
+ALTER TABLE job_questions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY shared_read ON job_questions FOR SELECT TO anon, authenticated USING (true);
 CREATE POLICY shared_read ON poll_runs       FOR SELECT TO authenticated USING (true);
 CREATE POLICY shared_read ON discovery_runs  FOR SELECT TO authenticated USING (true);
 CREATE POLICY shared_read ON discovery_state FOR SELECT TO authenticated USING (true);
@@ -574,7 +614,8 @@ GRANT SELECT ON jobs, companies, poll_runs, discovery_runs, discovery_state, rev
 -- Owner-scoped CRUD (usage_counters excluded — SELECT-only for users; writes are
 -- service-role only, so a user cannot zero their own review/generation counters).
 GRANT SELECT, INSERT, UPDATE, DELETE ON
-  job_reviews, review_corrections, company_reviews, application_packages, resume_scores
+  job_reviews, review_corrections, company_reviews, application_packages, resume_scores,
+  cover_letter_edits
   TO authenticated;
 -- generation_jobs: owner-scoped CRUD (DELETE backs the per-user housekeeping prune of
 -- old settled rows). Cost integrity is unaffected: allowance charges live in
@@ -611,6 +652,8 @@ GRANT USAGE ON SEQUENCE review_requests_id_seq TO authenticated;
 GRANT SELECT ON jobs, companies, job_reviews, review_corrections TO anon;
 -- Tier settings: shared operator config read by the dashboard (withAnonSql) + reviewer.
 GRANT SELECT ON tier_settings TO anon, authenticated;
+-- job_questions: shared read for the board/Prefill route; writes are poller/service-role only.
+GRANT SELECT ON job_questions TO anon, authenticated;
 
 -- Default-privilege deny (mirrors migrations/2026-07-05-default-privileges-revoke.sql,
 -- finding minor 6): the REVOKE above only touches tables that exist NOW. Strip the

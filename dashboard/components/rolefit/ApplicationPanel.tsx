@@ -8,9 +8,12 @@ import { composeCoverLetterText } from "@/lib/rolefit/coverLetterText";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { mergeGreenhouseQuestions } from "@/lib/rolefit/greenhouseAnswers";
+import { hasCoverLetterQuestion } from "@/lib/rolefit/coverLetterQuestion";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { atsLabel as atsLabelOf } from "@/lib/rolefit/ats";
 import { ResumePanel, legacyCopy } from "./ResumePanel";
+import { CoverLetterEditor } from "./CoverLetterEditor";
+import { GenerationInstructions } from "./GenerationInstructions";
 import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -43,12 +46,22 @@ export interface ApplicationPanelProps {
   resumeCopyLabel: string;
   usingSample: boolean;
   onOpenProfile: () => void;
+  // Per-job generation instructions (ride the next generate/regenerate/prepare request).
+  resumeInstructions: string;
+  onResumeInstructionsChange: (v: string) => void;
+  coverInstructions: string;
+  onCoverInstructionsChange: (v: string) => void;
   // Cover letter (state owned by the board, keyed by job id)
   coverState: string | undefined;
   coverData: TailoredCoverLetter | undefined;
   coverError?: string;
   onGenerateCover: () => void;
   onRegenerateCover: () => void;
+  // Human edit overlay (Phase: editable cover letters). Non-null = a CURRENT
+  // (non-superseded) edit that displays/downloads over the structured original.
+  coverEditedText: string | null;
+  onCoverEditSaved: (jobId: string, text: string) => void;
+  onCoverEditReset: (jobId: string) => void;
   // One-click: build + persist the application package
   onPrepare: () => void;
   // Single generation lock for this job (résumé/cover/prepare) + cancel + last per-leg result.
@@ -76,11 +89,18 @@ export function ApplicationPanel({
   resumeCopyLabel,
   usingSample,
   onOpenProfile,
+  resumeInstructions,
+  onResumeInstructionsChange,
+  coverInstructions,
+  onCoverInstructionsChange,
   coverState,
   coverData,
   coverError,
   onGenerateCover,
   onRegenerateCover,
+  coverEditedText,
+  onCoverEditSaved,
+  onCoverEditReset,
   onPrepare,
   generating,
   onCancelGeneration,
@@ -92,6 +112,9 @@ export function ApplicationPanel({
 }: ApplicationPanelProps) {
   // Ephemeral "Copied!" feedback for the cover letter + per-field answers.
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  // Application-questions panel is collapsed by default — Apply stays the top CTA, the
+  // questions are a reference the operator opens on demand.
+  const [questionsOpen, setQuestionsOpen] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
 
@@ -121,13 +144,17 @@ export function ApplicationPanel({
   // when one exists — so answered AND still-unanswered (required) questions both render.
   const ghRows = mergeGreenhouseQuestions(greenhouseQuestions, prefilledAnswers);
   const hasGreenhouse = ghRows.length > 0;
+  // Does this posting ask for a cover letter? Same detection the prepare route uses
+  // (the `cover_letter` field name, not just the label) — so a cover-letter-only,
+  // file-field posting (no text-answerable rows) still flags in the summary.
+  const coverRequested = hasCoverLetterQuestion(greenhouseQuestions);
   const appliedDate = appliedAt ? new Date(appliedAt).toLocaleDateString() : null;
 
   // Cover-letter PDF download — shared helper handles the import + .txt fallback.
   const handleCoverDownload = async () => {
-    if (!coverData) return;
+    if (!coverData && !coverEditedText) return;
     const fname = `Cover Letter - ${job.company_name} - ${job.title}.pdf`.replace(/[\\/:*?"<>|]/g, " ");
-    const text = composeCoverLetterText(coverData);
+    const text = coverEditedText ?? composeCoverLetterText(coverData!);
     await downloadPdf(
       fname,
       (doc) => {
@@ -145,11 +172,19 @@ export function ApplicationPanel({
             y += 16;
           });
         };
-        writeBlock(coverData.greeting);
-        y += 8;
-        coverData.paragraphs.forEach((p) => { writeBlock(p); y += 10; });
-        writeBlock(coverData.closing);
-        writeBlock(coverData.signature);
+        if (coverEditedText) {
+          // Edited letters are plain text: render line-by-line, blank lines as spacing.
+          coverEditedText.split("\n").forEach((line) => {
+            if (line.trim() === "") { y += 10; return; }
+            writeBlock(line);
+          });
+        } else {
+          writeBlock(coverData!.greeting);
+          y += 8;
+          coverData!.paragraphs.forEach((p) => { writeBlock(p); y += 10; });
+          writeBlock(coverData!.closing);
+          writeBlock(coverData!.signature);
+        }
       },
       text,
     );
@@ -219,7 +254,9 @@ export function ApplicationPanel({
           <div
             style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
           >
-            Tailored résumé and cover letter — ready for {job.company_name}.
+            {job.ats === "greenhouse"
+              ? "Tailored résumé, prefilled answers, and — when this posting asks — a cover letter."
+              : `Tailored résumé and cover letter — ready for ${job.company_name}.`}
           </div>
         </div>
         {applied && (
@@ -239,7 +276,7 @@ export function ApplicationPanel({
             ✓ Applied{appliedDate ? ` · ${appliedDate}` : ""}
           </Chip>
         )}
-        {isAuthed && (
+        {isAuthed && job.ats === "greenhouse" && (
           <Button
             // Secondary whenever the Apply link renders (Apply owns primary emphasis);
             // leads only for jobs with no usable apply url.
@@ -249,7 +286,7 @@ export function ApplicationPanel({
             style={{ flex: "0 0 auto" }}
           >
             <span style={{ fontSize: "15px" }}>✦</span>
-            {preparing ? "Preparing… ~30s" : prepared ? "Re-prepare" : "Prepare application"}
+            {preparing ? "Prefilling… ~60s" : prepared ? "Re-prefill" : "Prefill application"}
           </Button>
         )}
         {applyHref && (
@@ -277,7 +314,7 @@ export function ApplicationPanel({
           }}
         >
           <div style={{ fontWeight: 800, fontSize: "13px", color: "var(--danger)" }}>
-            Some parts couldn&apos;t be prepared
+            Some parts couldn&apos;t be prefilled
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
             {failedLegs.map((leg) => (
@@ -319,6 +356,8 @@ export function ApplicationPanel({
         copyLabel={resumeCopyLabel}
         usingSample={usingSample}
         onOpenProfile={onOpenProfile}
+        instructions={resumeInstructions}
+        onInstructionsChange={onResumeInstructionsChange}
         generating={generating}
         onCancelGeneration={onCancelGeneration}
       />
@@ -345,6 +384,7 @@ export function ApplicationPanel({
               >
                 A focused letter that ties your background to this role.
               </div>
+              <GenerationInstructions value={coverInstructions} onChange={onCoverInstructionsChange} kind="cover letter" />
             </div>
             <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
               <span style={{ fontSize: "15px" }}>✦</span>Generate cover letter
@@ -460,42 +500,73 @@ export function ApplicationPanel({
               <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
                 Cover letter ready — tailored to {job.company_name}
               </div>
-            </div>
-            <div
-              style={{
-                marginTop: "12px",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "12px",
-                padding: "15px 16px",
-                maxHeight: "260px",
-                overflowY: "auto",
-              }}
-            >
-              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>
-                {coverData.greeting}
-              </div>
-              {coverData.paragraphs.map((p, i) => (
-                <p
-                  key={i}
-                  style={{
-                    fontSize: "13px",
-                    lineHeight: 1.62,
-                    color: "var(--text-primary)",
-                    margin: "11px 0 0",
-                    fontWeight: 500,
-                  }}
+              {coverEditedText && (
+                <Chip
+                  color="var(--accent)"
+                  bg="var(--accent-bg)"
+                  border="var(--accent-border)"
+                  style={{ marginLeft: "auto", fontSize: "11px", fontWeight: 700, borderRadius: "6px", padding: "3px 8px" }}
                 >
-                  {p}
-                </p>
-              ))}
-              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500, marginTop: "11px" }}>
-                {coverData.closing}
-              </div>
-              <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 700, marginTop: "2px" }}>
-                {coverData.signature}
-              </div>
+                  Edited
+                </Chip>
+              )}
             </div>
+            {coverEditedText ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "12px",
+                  padding: "15px 16px",
+                  maxHeight: "260px",
+                  overflowY: "auto",
+                  fontSize: "13px",
+                  lineHeight: 1.62,
+                  color: "var(--text-primary)",
+                  fontWeight: 500,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {coverEditedText}
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: "12px",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "12px",
+                  padding: "15px 16px",
+                  maxHeight: "260px",
+                  overflowY: "auto",
+                }}
+              >
+                <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 600 }}>
+                  {coverData.greeting}
+                </div>
+                {coverData.paragraphs.map((p, i) => (
+                  <p
+                    key={i}
+                    style={{
+                      fontSize: "13px",
+                      lineHeight: 1.62,
+                      color: "var(--text-primary)",
+                      margin: "11px 0 0",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {p}
+                  </p>
+                ))}
+                <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500, marginTop: "11px" }}>
+                  {coverData.closing}
+                </div>
+                <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 700, marginTop: "2px" }}>
+                  {coverData.signature}
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
               {/* One-off small accent glow (unique geometry 0 3px 10px .26; no shared token —
                   --shadow-accent/-sm differ in geometry). Reads bright-blue on dark; a
@@ -506,7 +577,7 @@ export function ApplicationPanel({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => flashCopied("cover", composeCoverLetterText(coverData))}
+                onClick={() => flashCopied("cover", coverEditedText ?? composeCoverLetterText(coverData))}
               >
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
                   <rect x="5.2" y="5.2" width="8.6" height="8.6" rx="2" stroke="currentColor" strokeWidth="1.6" />
@@ -528,6 +599,15 @@ export function ApplicationPanel({
                 <span>↻</span>Regenerate
               </Button>
             </div>
+            <GenerationInstructions value={coverInstructions} onChange={onCoverInstructionsChange} kind="cover letter" />
+            <CoverLetterEditor
+              job={job}
+              letterText={coverEditedText ?? composeCoverLetterText(coverData)}
+              hasEdit={Boolean(coverEditedText)}
+              isAuthed={isAuthed}
+              onSaved={onCoverEditSaved}
+              onReset={onCoverEditReset}
+            />
           </div>
         )}
 
@@ -562,9 +642,27 @@ export function ApplicationPanel({
       </Panel>
 
       {/* ── Greenhouse application questions (this posting's real form) ── */}
-      {isAuthed && hasGreenhouse && (
+      {isAuthed && (hasGreenhouse || coverRequested) && (
         <Panel style={{ marginTop: "18px", padding: "17px 19px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {/* Collapsed by default: a header/toggle carrying the question count + a
+              "cover letter requested" flag. Apply stays the top CTA; the operator opens
+              the questions on demand. */}
+          <button
+            type="button"
+            onClick={() => setQuestionsOpen((v) => !v)}
+            aria-expanded={questionsOpen}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              width: "100%",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+              textAlign: "left",
+            }}
+          >
             <div style={{ fontWeight: 800, fontSize: "15px", color: "var(--text-primary)" }}>
               Application questions
             </div>
@@ -585,22 +683,32 @@ export function ApplicationPanel({
             </Chip>
             <div style={{ flex: 1 }} />
             <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 600 }}>
-              Pulled from this posting
+              {[
+                ghRows.length > 0 ? `${ghRows.length} question${ghRows.length === 1 ? "" : "s"}` : null,
+                coverRequested ? "cover letter requested" : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              {ghRows.length > 0 ? ` · ${questionsOpen ? "Hide" : "Show"}` : ""}
             </div>
-          </div>
+          </button>
 
-          <div
-            style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "6px", fontWeight: 500 }}
-          >
-            Pre-filled from your profile and résumé where possible — review before submitting,
-            and fill in anything still marked “Needs your answer” on the form.
-          </div>
-          {/* Every question this posting asks: answered ones carry a suggested answer +
-              copy button; unanswered (often required) ones stay visible so the operator
-              never discovers a missing required field only on the live form. */}
-          <div
-            style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
-          >
+          {/* Only the text-answerable questions expand; a cover-letter-only posting has an
+              empty ghRows, so the panel is just the summary flag. */}
+          {questionsOpen && ghRows.length > 0 && (
+            <>
+              <div
+                style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "12px", fontWeight: 500 }}
+              >
+                Pre-filled from your profile and résumé where possible — review before submitting,
+                and fill in anything still marked “Needs your answer” on the form.
+              </div>
+              {/* Every question this posting asks: answered ones carry a suggested answer +
+                  copy button; unanswered (often required) ones stay visible so the operator
+                  never discovers a missing required field only on the live form. */}
+              <div
+                style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
+              >
             {ghRows.map((row) => (
               <div
                 key={row.key}
@@ -687,7 +795,9 @@ export function ApplicationPanel({
                 )}
               </div>
             ))}
-          </div>
+              </div>
+            </>
+          )}
         </Panel>
       )}
     </div>

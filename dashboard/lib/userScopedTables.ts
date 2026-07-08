@@ -20,6 +20,8 @@ export const USER_DELETE_TABLES = [
   "company_reviews",
   "application_packages",
   "resume_scores",
+  // Cover-letter edit overlay (owner data; the golden push is a separate LangFuse copy).
+  "cover_letter_edits",
   "usage_counters",
   "subscriptions",
   "review_requests",

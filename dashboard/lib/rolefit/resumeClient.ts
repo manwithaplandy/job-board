@@ -22,12 +22,16 @@ export async function generateResume(args: {
   model: string;
   apiKey: string;
   fetchImpl?: typeof fetch;
+  instructions?: string | null;
 }): Promise<{ resume: TailoredResume; checks: ResumeChecks; traceId: string | null }> {
   // Deterministically extract the fixed fields; the LLM only tailors the rest,
   // and the OpenRouter transport (+ Langfuse generation span) is the shared helper.
   const profile = parseProfileText(args.resumeText);
   const tenureYears = yearsOfExperience(profile, Date.now());
-  const { system, user } = buildResumePrompt({ profile, resumeText: args.resumeText, job: args.job, tenureYears });
+  const { system, user } = buildResumePrompt({
+    profile, resumeText: args.resumeText, job: args.job, tenureYears,
+    instructions: args.instructions ?? null,
+  });
   const callModel = () => callOpenRouterStructured<TailoredResume>({
     generationName: "resume-generation",
     label: "résumé",

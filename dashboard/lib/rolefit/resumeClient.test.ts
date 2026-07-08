@@ -54,6 +54,15 @@ describe("generateResume", () => {
     expect((call[1] as RequestInit).headers).toMatchObject({ Authorization: "Bearer sk-test" });
   });
 
+  test("threads per-job instructions into the user prompt", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(TAILORED) } }] });
+    await generateResume({ ...args, fetchImpl: f, instructions: "Lead with Kubernetes" });
+    const call = (f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.messages[1].content).toContain("CANDIDATE FOCUS / AVOID");
+    expect(body.messages[1].content).toContain("Lead with Kubernetes");
+  });
+
   test("throws on non-ok response", async () => {
     await expect(generateResume({ ...args, fetchImpl: fakeFetch({}, false) })).rejects.toThrow();
   });

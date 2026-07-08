@@ -2,9 +2,37 @@ import logging
 
 from job_discovery import db
 from job_discovery.adapters import ADAPTERS
+from job_discovery.adapters.greenhouse import parse_greenhouse_questions
+from job_discovery.http import get_json as _get_json
 from job_discovery.targets import load_targets
 
 log = logging.getLogger("job_discovery")
+
+
+def backfill_greenhouse_questions(conn, company_id, token, *, get_json=None, log=log) -> int:
+    """Fetch + persist the question schema for this Greenhouse company's open jobs that
+    lack a job_questions row (rolling backfill). One HTTP call per missing job, each
+    wrapped so a single failure never aborts the company. Returns the count persisted."""
+    get_json = get_json or _get_json
+    fetched = 0
+    for external_id in db.greenhouse_jobs_missing_questions(conn, company_id):
+        url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{external_id}?questions=true"
+        # ONLY the HTTP fetch + pure parse are swallowed. A DB write error must NOT be
+        # caught here — a failed statement aborts the transaction, and continuing to
+        # issue statements (all silently caught) then `conn.commit()` in the poll loop
+        # would commit an aborted tx (→ rollback), discarding the company's whole
+        # upsert_jobs work with no error. Let db errors propagate to the per-company
+        # handler, which rolls back correctly (mirrors smartrecruiters/workday:
+        # HTTP-only try/except).
+        try:
+            questions = parse_greenhouse_questions(get_json(url))
+        except Exception as e:  # noqa: BLE001 — fetch/parse only; never abort the company
+            log.warning("greenhouse question fetch failed for %s:%s (%s)", token, external_id, e)
+            continue
+        if questions and questions["questions"]:
+            db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", questions)
+            fetched += 1
+    return fetched
 
 # Upsert postings in fixed-size chunks. The workday adapter yields lazily to keep
 # peak memory bounded (A10); buffering a whole tenant into one list before a single
@@ -103,6 +131,8 @@ def run(dsn: str | None = None) -> dict:
                     closed_jobs += db.close_jobs(
                         conn, company_id, db.compute_newly_closed(open_ids, seen)
                     )
+                if ats == "greenhouse":
+                    backfill_greenhouse_questions(conn, company_id, token)
                 conn.commit()
                 ok += 1
             except Exception as exc:  # per-company isolation (incl. dead boards)

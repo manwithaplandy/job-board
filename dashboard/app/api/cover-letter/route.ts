@@ -7,6 +7,7 @@ import { reserveGenerations, refundGenerations } from "@/lib/usage";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
+import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
@@ -25,8 +26,14 @@ export async function POST(req: Request) {
   if (!claims) return Response.json({ error: "sign in to generate a cover letter" }, { status: 401 });
   const userId = claims.id;
 
-  const { jobId } = (await req.json().catch(() => ({}))) as { jobId?: string };
+  const { jobId, instructions: rawInstructions } =
+    (await req.json().catch(() => ({}))) as { jobId?: string; instructions?: unknown };
   if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
+  // Per-job generation instructions ride the generate request (the sole instruction
+  // source — profile.instructions is reviewer-only and no longer reaches generation).
+  const norm = normalizeInstructions(rawInstructions, "cover letter");
+  if (!norm.ok) return Response.json({ error: norm.error }, { status: 400 });
+  const instructions = norm.value;
 
   const [profile, job] = await Promise.all([getProfile(userId), getJobForCoverLetter(jobId, userId)]);
   if (!profile?.resume_text) {
@@ -77,10 +84,10 @@ export async function POST(req: Request) {
 
   const run = async () => {
     try {
-      const letter = await generateCoverLetter({
+      const { letter, traceId } = await generateCoverLetter({
         resumeText: profile.resume_text!,
         candidateName: profile.full_name ?? null,
-        instructions: profile.instructions ?? null,
+        instructions,
         job: {
           title: job.title,
           company: job.company_name,
@@ -96,10 +103,10 @@ export async function POST(req: Request) {
       await upsertApplicationPackage(userId, jobId, {
         resume: null,
         coverLetter: letter,
-        answersSnapshot: null,
-        greenhouseQuestions: null,
         prefilledAnswers: null,
         applyUrl: null,
+        coverLetterTraceId: traceId,
+        coverLetterInstructions: instructions,
         // No résumé generated here, so no résumé provenance to record. upsert's
         // ON CONFLICT preserves the stored résumé + its profile_version untouched.
         profileVersion: null,

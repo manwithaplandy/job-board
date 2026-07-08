@@ -76,6 +76,28 @@ describe("roleIdentity", () => {
   });
 });
 
+describe("buildResumePrompt — per-job instructions", () => {
+  test("an instructions arg renders a CANDIDATE FOCUS / AVOID block in the user prompt", () => {
+    const { user } = buildResumePrompt({
+      profile: PROFILE,
+      resumeText: "Alex Morgan — Senior Engineer, React/TS",
+      job: { title: "Frontend Engineer", company: "Cobalt", description: "Build React apps." },
+      instructions: "Emphasize the ML platform work; avoid frontend framing.",
+    });
+    expect(user).toContain("CANDIDATE FOCUS / AVOID");
+    expect(user).toContain("Emphasize the ML platform work; avoid frontend framing.");
+  });
+
+  test("no instructions → no block (prompt unchanged)", () => {
+    const { user } = buildResumePrompt({
+      profile: PROFILE,
+      resumeText: "x",
+      job: { title: "T", company: "C", description: null },
+    });
+    expect(user).not.toContain("CANDIDATE FOCUS / AVOID");
+  });
+});
+
 describe("assembleResume", () => {
   test("deterministic fields come from the profile; tailored fields from the model", () => {
     const out = assembleResume(PROFILE, {

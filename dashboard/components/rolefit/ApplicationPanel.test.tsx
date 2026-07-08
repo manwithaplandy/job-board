@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ApplicationPanel, type ApplicationPanelProps } from "./ApplicationPanel";
 import type { JobRow } from "@/lib/types";
 
@@ -53,10 +53,17 @@ function renderPanel(overrides: Partial<ApplicationPanelProps> = {}) {
     resumeCopyLabel: "Copy",
     usingSample: false,
     onOpenProfile: vi.fn(),
+    resumeInstructions: "",
+    onResumeInstructionsChange: () => {},
+    coverInstructions: "",
+    onCoverInstructionsChange: () => {},
     coverState: undefined,
     coverData: undefined,
     onGenerateCover: vi.fn(),
     onRegenerateCover: vi.fn(),
+    coverEditedText: null,
+    onCoverEditSaved: () => {},
+    onCoverEditReset: () => {},
     onPrepare: vi.fn(),
     greenhouseQuestions: null,
     prefilledAnswers: null,
@@ -78,7 +85,7 @@ describe("ApplicationPanel CTA hierarchy", () => {
     expect(applyStyle).toContain("background: var(--accent)");
     expect(applyStyle).not.toContain("var(--bg-surface)");
 
-    const prepare = screen.getByRole("button", { name: /Prepare application/ });
+    const prepare = screen.getByRole("button", { name: /Prefill application/ });
     const prepareStyle = prepare.getAttribute("style") ?? "";
     expect(prepareStyle).toContain("background: var(--bg-surface)");
     expect(prepareStyle).not.toContain("background: var(--accent)");
@@ -90,7 +97,7 @@ describe("ApplicationPanel CTA hierarchy", () => {
     const apply = screen.getByRole("link", { name: /Apply on/ });
     expect(apply.getAttribute("style") ?? "").toContain("background: var(--accent)");
 
-    const prepare = screen.getByRole("button", { name: /Re-prepare/ });
+    const prepare = screen.getByRole("button", { name: /Re-prefill/ });
     expect(prepare.getAttribute("style") ?? "").toContain("background: var(--bg-surface)");
   });
 
@@ -98,7 +105,60 @@ describe("ApplicationPanel CTA hierarchy", () => {
     renderPanel({ job: makeJob({ url: null }), status: null });
 
     expect(screen.queryByRole("link", { name: /Apply on/ })).toBeNull();
-    const prepare = screen.getByRole("button", { name: /Prepare application/ });
+    const prepare = screen.getByRole("button", { name: /Prefill application/ });
     expect(prepare.getAttribute("style") ?? "").toContain("background: var(--accent)");
+  });
+});
+
+describe("ApplicationPanel — Greenhouse Prefill button + collapsible questions", () => {
+  test("Greenhouse job shows a 'Prefill application' button", () => {
+    renderPanel({ job: makeJob({ ats: "greenhouse" }) });
+    expect(screen.getByRole("button", { name: /Prefill application/ })).toBeTruthy();
+    // Greenhouse subtitle advertises prefilled answers (the GH-only behavior).
+    expect(screen.getByText(/prefilled answers/i)).toBeTruthy();
+  });
+
+  test("non-Greenhouse job hides the prefill button (résumé/cover panels remain)", () => {
+    renderPanel({ job: makeJob({ ats: "lever", url: "https://jobs.lever.co/acme/1" }) });
+    expect(screen.queryByRole("button", { name: /Prefill application/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Prepare application/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Generate cover letter/ })).toBeTruthy();
+    // Non-Greenhouse subtitle must NOT claim prefilled answers (prefill is GH-only) —
+    // it advertises only the standalone résumé + cover generation available here.
+    expect(screen.queryByText(/prefilled answers/i)).toBeNull();
+    expect(screen.getByText(/Tailored résumé and cover letter/)).toBeTruthy();
+  });
+
+  test("Greenhouse questions render collapsed by default, expand on click", () => {
+    renderPanel({
+      job: makeJob({ ats: "greenhouse" }),
+      greenhouseQuestions: { questions: [
+        { label: "Why us?", required: true, fields: [{ name: "q0", type: "textarea", options: [] }] },
+        { label: "Cover Letter", required: false, fields: [{ name: "cover_letter", type: "input_file", options: [] }] },
+      ] },
+      prefilledAnswers: null,
+    });
+    // The single toggle button carries the summary; its accessible name (concatenated
+    // child text) uniquely contains "Application questions". Query it specifically to
+    // avoid getByText's multiple-match throw.
+    const toggle = screen.getByRole("button", { name: /Application questions/i });
+    expect(toggle.textContent).toMatch(/cover letter requested/i); // flag shown while collapsed
+    expect(screen.queryByText("Why us?")).toBeNull();               // labels hidden until expanded
+    fireEvent.click(toggle);
+    expect(screen.getByText("Why us?")).toBeTruthy();
+  });
+
+  test("cover-letter-only posting (file field) still shows the panel + flag", () => {
+    renderPanel({
+      job: makeJob({ ats: "greenhouse" }),
+      greenhouseQuestions: { questions: [
+        { label: "Cover Letter", required: false, fields: [{ name: "cover_letter", type: "input_file", options: [] }] },
+      ] },
+      prefilledAnswers: null,
+    });
+    // mergeGreenhouseQuestions drops file fields (ghRows is empty), but the panel must
+    // still render so the charged cover-letter leg is signalled (spec transparency).
+    const toggle = screen.getByRole("button", { name: /Application questions/i });
+    expect(toggle.textContent).toMatch(/cover letter requested/i);
   });
 });

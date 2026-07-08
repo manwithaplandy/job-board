@@ -56,9 +56,10 @@ describe("generateCoverLetter — tracing enabled", () => {
     const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(LETTER) } }] });
     const out = await generateCoverLetter({ ...args, fetchImpl: f });
 
-    // Returned letter is the parsed model output.
-    expect(out.greeting).toBe("Dear Hiring Manager,");
-    expect(out.paragraphs).toEqual(LETTER.paragraphs);
+    // New return shape: the parsed letter plus the parent span's trace id.
+    expect(out.letter.greeting).toBe("Dear Hiring Manager,");
+    expect(out.letter.paragraphs).toEqual(LETTER.paragraphs);
+    expect(out.traceId).toBe("t");
 
     // span.update was called with input carrying the candidate background.
     const inputCall = h.span.update.mock.calls.find((c) => (c[0] as { input?: unknown }).input);

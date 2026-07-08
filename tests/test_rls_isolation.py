@@ -61,6 +61,11 @@ def _seed_two_users(conn):
                 (uid,),
             )
             cur.execute(
+                "INSERT INTO cover_letter_edits (user_id, job_id, edited_text) "
+                "VALUES (%s, 'lever:acme:1', 'Dear Hiring Manager, (edited)')",
+                (uid,),
+            )
+            cur.execute(
                 "INSERT INTO usage_counters (user_id, day, kind, n) "
                 "VALUES (%s, now()::date, 'review', 5)",
                 (uid,),
@@ -76,6 +81,7 @@ _OWNER_TABLES = [
     ("company_reviews", "user_id = %s"),
     ("application_packages", "user_id = %s"),
     ("resume_scores", "user_id = %s"),
+    ("cover_letter_edits", "user_id = %s"),
     ("usage_counters", "user_id = %s"),
 ]
 
@@ -105,6 +111,8 @@ def test_update_delete_of_other_tenant_rows_affects_zero(conn):
             cur.execute("DELETE FROM application_packages WHERE user_id = %s", (B,))
             assert cur.rowcount == 0
             cur.execute("DELETE FROM resume_scores WHERE user_id = %s", (B,))
+            assert cur.rowcount == 0
+            cur.execute("DELETE FROM cover_letter_edits WHERE user_id = %s", (B,))
             assert cur.rowcount == 0
     # B's rows survived untouched (verify as service role).
     with conn.cursor() as cur:
@@ -140,6 +148,8 @@ def test_owner_full_crud_on_own_rows_succeeds(conn):
             cur.execute("UPDATE job_reviews SET verdict = 'deny' WHERE user_id = %s", (A,))
             assert cur.rowcount == 1
             cur.execute("DELETE FROM resume_scores WHERE user_id = %s AND job_id = 'lever:acme:1'", (A,))
+            assert cur.rowcount == 1
+            cur.execute("DELETE FROM cover_letter_edits WHERE user_id = %s AND job_id = 'lever:acme:1'", (A,))
             assert cur.rowcount == 1
 
 
@@ -387,6 +397,9 @@ EXPECTED_RLS = {
     "company_reviews": _OWNER_ALL,
     "application_packages": _OWNER_ALL,
     "resume_scores": _OWNER_ALL,
+    # Cover-letter edit overlay (2026-07-07-cover-letter-edits): owner CRUD; the
+    # dashboard's saveCoverLetterEdit/deleteCoverLetterEdit actions are the only writers.
+    "cover_letter_edits": _OWNER_ALL,
     "usage_counters": _OWNER_ALL,
     # Async-generation status rows (2026-07-05-generation-jobs): owner CRUD; the
     # dashboard's withUserSql create/settle/poll paths are the only writers.
@@ -490,12 +503,14 @@ EXPECTED_GRANTS = {
     "company_reviews":      (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "application_packages": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "resume_scores":        (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "cover_letter_edits":   (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "generation_jobs":      (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "usage_counters":       (_R(), _R({"SELECT"})),               # SELECT-only (B-COST)
     "profiles":             (_R(), _R({"SELECT", "DELETE"})),     # INSERT/UPDATE are column-level
     "subscriptions":        (_R(), _R({"SELECT"})),               # webhook writes; owner reads
     "review_requests":      (_R(), _R({"SELECT", "INSERT"})),     # owner enqueues; worker updates
     "tier_settings":        (_R({"SELECT"}), _R({"SELECT"})),
+    "job_questions":        (_R({"SELECT"}), _R({"SELECT"})),  # shared_read: anon + authenticated SELECT
     # Everything else (invite_codes, invite_redemptions, schema_migrations,
     # account_deletions, openrouter_usage_snapshots) gets NO anon/authenticated grant.
 }

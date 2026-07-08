@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { parseFilters } from "@/lib/filters";
 import {
-  getApplicationPackages, getJobs, getLatestPollRun,
+  getApplicationPackages, getJobs, getJobQuestions, getLatestPollRun,
   getProfile, getRejectedJobs, getReviewStats,
 } from "@/lib/queries";
 import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
@@ -66,6 +66,14 @@ export default async function Page({
       unreviewed: reviewStats.unreviewed,
       reviewed: reviewStats.reviewed,
     };
+    // Job-level Greenhouse question schema (shared job_questions table), keyed by job id.
+    // Static server data — threaded to the board and on to the application panel. Include
+    // rejectedJobs: they're also selectable on the board, so their Greenhouse questions
+    // panel must resolve too (querying only `jobs` left rejected postings with null).
+    const jobQuestions = await getJobQuestions(
+      viewerId,
+      [...jobs, ...rejectedJobs].map((j) => j.id),
+    );
     const initialFilters = parseBoardFilters(profile.board_filters);
     return (
       <RolefitBoard
@@ -86,6 +94,7 @@ export default async function Page({
         currentProfileVersion={profile.profile_version}
         initialPackages={packages}
         initialRejected={rejectedJobs}
+        initialJobQuestions={jobQuestions}
       />
     );
   }
@@ -113,6 +122,7 @@ export default async function Page({
       currentProfileVersion={null}
       initialPackages={[]}
       initialRejected={[]}
+      initialJobQuestions={{}}
     />
   );
 }

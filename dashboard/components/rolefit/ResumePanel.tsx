@@ -8,6 +8,7 @@ import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { ResumeScorePanel } from "@/components/rolefit/ResumeScorePanel";
+import { GenerationInstructions } from "./GenerationInstructions";
 
 function legacyCopy(text: string) {
   try {
@@ -41,6 +42,9 @@ export interface ResumePanelProps {
   copyLabel: string;
   usingSample: boolean;
   onOpenProfile: () => void;
+  // Per-job generation instructions — rides the NEXT generate/regenerate request.
+  instructions: string;
+  onInstructionsChange: (v: string) => void;
   // Single generation lock for this job (résumé/cover/prepare) + cancel.
   generating?: boolean;
   onCancelGeneration?: () => void;
@@ -59,6 +63,8 @@ export function ResumePanel({
   copyLabel,
   usingSample,
   onOpenProfile,
+  instructions,
+  onInstructionsChange,
   generating,
   onCancelGeneration,
 }: ResumePanelProps) {
@@ -166,6 +172,7 @@ export function ResumePanel({
                 for a sharper result.
               </div>
             )}
+            <GenerationInstructions value={instructions} onChange={onInstructionsChange} kind="résumé" />
           </div>
           <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
             <span style={{ fontSize: "15px" }}>✦</span>Generate résumé
@@ -378,6 +385,7 @@ export function ResumePanel({
               <span>↻</span>Regenerate
             </button>
           </div>
+          <GenerationInstructions value={instructions} onChange={onInstructionsChange} kind="résumé" />
           <ResumeScorePanel job={job} resume={data} isAuthed={isAuthed} />
         </div>
       )}

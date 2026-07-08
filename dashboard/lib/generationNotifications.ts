@@ -77,12 +77,12 @@ export interface GenerationToastCopy {
 const READY_TITLE: Record<GenerationJobView["kind"], string> = {
   resume: "Résumé ready",
   cover: "Cover letter ready",
-  prepare: "Application package ready",
+  prepare: "Application prefilled",
 };
 const FAILED_TITLE: Record<GenerationJobView["kind"], string> = {
   resume: "Résumé generation failed",
   cover: "Cover letter generation failed",
-  prepare: "Application preparation failed",
+  prepare: "Prefill failed",
 };
 
 /** Toast copy for a settled generation. `· {company}` identifies the job at a glance. */

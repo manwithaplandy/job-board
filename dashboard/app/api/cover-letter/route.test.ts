@@ -42,6 +42,11 @@ vi.mock("@/lib/rolefit/coverLetterClient", () => ({
   DEFAULT_COVER_MODEL: "default-cover-model",
   generateCoverLetter: mocks.generateCoverLetter,
 }));
+// Plan "pro" = no clamp; empty catalog = fail-open attach. The reasoning-effort
+// resolve is a synchronous-prologue query pair; the resolved value rides into
+// generateCoverLetter in the background callback.
+vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: async () => "pro" }));
+vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 
 import { POST } from "@/app/api/cover-letter/route";
 
@@ -193,6 +198,20 @@ describe("POST /api/cover-letter — cover-specific contract", () => {
     expect(res.status).toBe(202);
     expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["cover"]);
     expect(mocks.afterCallbacks).toHaveLength(0);
+  });
+
+  test("passes the resolved reasoning effort to generateCoverLetter", async () => {
+    mocks.getProfile.mockResolvedValue({
+      resume_text: "resume", full_name: "Ada", model_cover: null,
+      reasoning_effort_resume: null,
+      reasoning_effort_cover: "medium",
+    });
+    const res = await POST(req({ jobId: "job-1" }));
+    expect(res.status).toBe(202);
+    await flushBackground();
+    expect(mocks.generateCoverLetter).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: "medium" }),
+    );
   });
 });
 

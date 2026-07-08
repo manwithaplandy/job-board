@@ -16,6 +16,9 @@ import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillS
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
+import { getViewerPlan } from "@/lib/subscriptions";
+import { getStructuredModels } from "@/lib/openrouter";
+import { resolveReasoningSetting } from "@/lib/rolefit/generationSettings";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
@@ -85,6 +88,23 @@ export async function POST(req: Request) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "application prefill not configured" }, { status: 500 });
+
+  const resumeModel = profile.model_resume ?? DEFAULT_RESUME_MODEL;
+  const coverModel = profile.model_cover ?? DEFAULT_COVER_MODEL;
+  // Plan + catalog resolve each leg's reasoning setting: clamp to the tier, and OMIT
+  // the param (null) for models that can't take it. getStructuredModels is 1h-cached;
+  // [] (fetch failure) fails open. getViewerPlan is one extra query per prepare. The
+  // prefill leg is intentionally excluded — Task 6 hardcoded its reasoning setting.
+  const [plan, catalog] = await Promise.all([
+    getViewerPlan(userId, claims.email),
+    getStructuredModels(),
+  ]);
+  const resumeReasoning = resolveReasoningSetting(
+    plan, profile.reasoning_effort_resume, resumeModel, catalog,
+  );
+  const coverReasoning = resolveReasoningSetting(
+    plan, profile.reasoning_effort_cover, coverModel, catalog,
+  );
 
   // Poll-time question schema (shared). Fall back to an on-demand fetch for a brand-new
   // job not yet backfilled — used IN-MEMORY ONLY; the poller persists it later (this
@@ -161,7 +181,8 @@ export async function POST(req: Request) {
         resumeText,
         instructions: resumeInstructions,
         job: { title: job.title, company: job.company_name, description: job.description },
-        model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
+        model: resumeModel,
+        reasoningEffort: resumeReasoning,
         apiKey,
       });
       resumeTraceId = traceId;
@@ -208,7 +229,8 @@ export async function POST(req: Request) {
               about: job.about, requirements: job.requirements,
               skillGaps: job.skill_gaps, redFlags: job.red_flags,
             },
-            model: profile.model_cover ?? DEFAULT_COVER_MODEL,
+            model: coverModel,
+            reasoningEffort: coverReasoning,
             apiKey,
           });
           coverLetterTraceId = traceId;

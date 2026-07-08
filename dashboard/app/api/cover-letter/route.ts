@@ -8,6 +8,9 @@ import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
+import { getViewerPlan } from "@/lib/subscriptions";
+import { getStructuredModels } from "@/lib/openrouter";
+import { resolveReasoningSetting } from "@/lib/rolefit/generationSettings";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +46,18 @@ export async function POST(req: Request) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "cover letter generation not configured" }, { status: 500 });
+
+  const model = profile.model_cover ?? DEFAULT_COVER_MODEL;
+  // Plan + catalog resolve the reasoning setting: clamp to the tier, and OMIT the
+  // param (null) for models that can't take it. getStructuredModels is 1h-cached;
+  // [] (fetch failure) fails open. getViewerPlan is one extra query per generate.
+  const [plan, catalog] = await Promise.all([
+    getViewerPlan(userId, claims.email),
+    getStructuredModels(),
+  ]);
+  const reasoningEffort = resolveReasoningSetting(
+    plan, profile.reasoning_effort_cover, model, catalog,
+  );
 
   // Tier gate: no plan → 402, exhausted → 429. reserveGenerations ATOMICALLY charges the
   // slot up front (avoids check-then-charge TOCTOU); the background catch refunds on
@@ -97,7 +112,8 @@ export async function POST(req: Request) {
           skillGaps: job.skill_gaps,
           redFlags: job.red_flags,
         },
-        model: profile.model_cover ?? DEFAULT_COVER_MODEL,
+        model,
+        reasoningEffort,
         apiKey,
       });
       await upsertApplicationPackage(userId, jobId, {
@@ -118,7 +134,7 @@ export async function POST(req: Request) {
       // Surface the real cause in the Vercel runtime logs; the stored message is
       // user-safe copy only (mirrors /api/resume).
       console.error("cover letter generation failed", {
-        userId, jobId, model: profile.model_cover ?? DEFAULT_COVER_MODEL, error: msg,
+        userId, jobId, model, error: msg,
       });
       // Reserved-but-failed: refund so a failed generation never burns allowance.
       // Refund BEFORE the status write — if we crash between the two, the row is

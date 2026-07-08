@@ -9,6 +9,9 @@ import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
+import { getViewerPlan } from "@/lib/subscriptions";
+import { getStructuredModels } from "@/lib/openrouter";
+import { resolveReasoningSetting } from "@/lib/rolefit/generationSettings";
 import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +49,18 @@ export async function POST(req: Request) {
   if (!apiKey) return Response.json({ error: "résumé generation not configured" }, { status: 500 });
 
   const { resumeText } = getResumeSource(profile);
+
+  const model = profile.model_resume ?? DEFAULT_RESUME_MODEL;
+  // Plan + catalog resolve the reasoning setting: clamp to the tier, and OMIT the
+  // param (null) for models that can't take it. getStructuredModels is 1h-cached;
+  // [] (fetch failure) fails open. getViewerPlan is one extra query per generate.
+  const [plan, catalog] = await Promise.all([
+    getViewerPlan(userId, claims.email),
+    getStructuredModels(),
+  ]);
+  const reasoningEffort = resolveReasoningSetting(
+    plan, profile.reasoning_effort_resume, model, catalog,
+  );
 
   // Tier gate: no plan → 402, monthly allowance exhausted → 429. reserveGenerations
   // ATOMICALLY charges the slot up front (avoids the check-then-charge TOCTOU); the
@@ -93,7 +108,8 @@ export async function POST(req: Request) {
       const { resume, traceId } = await generateResume({
         resumeText,
         job: { title: job.title, company: job.company_name, description: job.description },
-        model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
+        model,
+        reasoningEffort,
         apiKey,
         instructions,
       });
@@ -115,7 +131,7 @@ export async function POST(req: Request) {
       // user-safe copy only, so without this the actual failure (truncation /
       // timeout / upstream status) is invisible outside Langfuse.
       console.error("resume generation failed", {
-        userId, jobId, model: profile.model_resume ?? DEFAULT_RESUME_MODEL, error: msg,
+        userId, jobId, model, error: msg,
       });
       // Reserved-but-failed: refund so a failed generation never burns allowance.
       // Refund BEFORE the status write — if we crash between the two, the row is

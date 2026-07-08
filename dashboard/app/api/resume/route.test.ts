@@ -49,6 +49,11 @@ vi.mock("@/lib/rolefit/resumeClient", () => ({
   DEFAULT_RESUME_MODEL: "default-resume-model",
   generateResume: mocks.generateResume,
 }));
+// Plan "pro" = no clamp; empty catalog = fail-open attach. The reasoning-effort
+// resolve is a synchronous-prologue query pair; the resolved value rides into
+// generateResume in the background callback.
+vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: async () => "pro" }));
+vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 // NOTE: @/lib/rolefit/resumeSource and @/lib/rolefit/generationFailureMessage are
 // intentionally NOT mocked — both are pure functions.
 
@@ -197,6 +202,20 @@ describe("POST /api/resume — 202 accept + background completion", () => {
     expect(mocks.settleGenerationJob).toHaveBeenCalledWith(USER, GEN_ROW.id, { status: "ready" });
     // A success keeps the reserved slot — never refunded.
     expect(mocks.refundGenerations).not.toHaveBeenCalled();
+  });
+
+  test("passes the resolved reasoning effort to generateResume", async () => {
+    mocks.getProfile.mockResolvedValue({
+      ...profileFixture(),
+      reasoning_effort_resume: "high",
+      reasoning_effort_cover: null,
+    });
+    const res = await POST(req({ jobId: "job-1" }));
+    expect(res.status).toBe(202);
+    await flushBackground();
+    expect(mocks.generateResume).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: "high" }),
+    );
   });
 
   test("duplicate pending row → 202 with the existing row, extra reservation refunded, NO second background run", async () => {

@@ -79,6 +79,11 @@ vi.mock("@/lib/rolefit/greenhouseQuestions", () => ({
   fetchGreenhouseQuestions: mocks.fetchGreenhouseQuestions,
 }));
 vi.mock("@/lib/rolefit/resumeSource", () => ({ getResumeSource: mocks.getResumeSource }));
+// Plan "pro" = no clamp; empty catalog = fail-open attach. The reasoning-effort
+// resolve is a synchronous-prologue query pair; each leg's resolved value rides
+// into its generator in the background callback.
+vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: async () => "pro" }));
+vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 // NOTE: composeResumeText, hasCoverLetterQuestion, stripCoverLetterQuestions,
 // toPrefillQuestions, normalizeInstructions, gateRejectionBody are PURE — NOT mocked.
 
@@ -423,5 +428,23 @@ describe("POST /api/application/prepare — persistence contract", () => {
     expect(pkg.coverLetterInstructions).toBe("C focus");
     expect(pkg.coverLetterTraceId).toBe("ct");
     expect(pkg.profileVersion).toBe("pv-9");
+  });
+
+  test("passes each leg's resolved reasoning effort to its generator", async () => {
+    mocks.getJobQuestion.mockResolvedValue(COVER_Q); // both legs run
+    mocks.getProfile.mockResolvedValue({
+      resume_text: "PROFILE résumé body", full_name: "Ada Lovelace",
+      model_resume: null, model_cover: null, profile_version: "pv-9",
+      reasoning_effort_resume: "low",
+      reasoning_effort_cover: "low",
+    });
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    expect(mocks.generateResume).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: "low" }),
+    );
+    expect(mocks.generateCoverLetter).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: "low" }),
+    );
   });
 });

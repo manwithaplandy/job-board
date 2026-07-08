@@ -41,6 +41,64 @@ export const ENTITLEMENTS: EntitlementMap = {
 export const PLAN_PRICE_USD: Record<Plan, number> = { standard: 5, pro: 20 };
 export const PLAN_LABEL: Record<Plan, string> = { standard: "Standard", pro: "Pro" };
 
+// ── Reasoning effort (résumé / cover-letter generation) ─────────────────────
+// TS-ONLY, intentionally NOT mirrored in reviewer/entitlements.py: generation is
+// dashboard-only, the reviewer never reads these (same precedent as
+// PLAN_PRICE_USD). Kept OUTSIDE the ENTITLEMENTS literal so the parity test's
+// regexes never see it. Compile-time constants, not part of the tierConfig DB
+// overlay — effort tiers are product shape, not a tunable money cap.
+export type ReasoningEffort = "off" | "low" | "medium" | "high";
+
+const EFFORT_ORDER: ReasoningEffort[] = ["off", "low", "medium", "high"];
+
+export const REASONING_EFFORTS: Record<Plan, ReasoningEffort[]> = {
+  standard: ["off", "low"],
+  pro: ["off", "low", "medium", "high"],
+};
+
+/**
+ * Call-time clamp (mirrors resolveStage2Model's hard fallback): the requested
+ * effort if the plan grants it, otherwise the highest granted level below it —
+ * so a Pro→Standard downgrade with a saved "high" degrades to "low", not "off".
+ * null plan → "off" (the routes' 402 gate fires before this ever matters).
+ */
+export function resolveReasoningEffort(
+  plan: Plan | null,
+  requested: ReasoningEffort,
+): ReasoningEffort {
+  if (!plan) return "off";
+  const allowed = REASONING_EFFORTS[plan];
+  for (let i = EFFORT_ORDER.indexOf(requested); i > 0; i--) {
+    if (allowed.includes(EFFORT_ORDER[i])) return EFFORT_ORDER[i];
+  }
+  return "off";
+}
+
+export type ReasoningEffortValidation =
+  | { ok: true; value: "low" | "medium" | "high" | null }
+  | { ok: false; reason: string };
+
+/**
+ * Save-time gate for the profile form (mirrors the stage-2 model gate): ""/"off"
+ * normalize to null (Off, the stored default), low passes on any plan, medium/high
+ * require Pro, anything else (hand-crafted post) is rejected.
+ */
+export function validateReasoningEffort(
+  raw: string,
+  plan: Plan | null,
+): ReasoningEffortValidation {
+  const v = raw.trim().toLowerCase();
+  if (!v || v === "off") return { ok: true, value: null };
+  if (v !== "low" && v !== "medium" && v !== "high") {
+    return { ok: false, reason: `unknown reasoning effort: ${raw}` };
+  }
+  if (v === "low") return { ok: true, value: "low" };
+  if (plan !== "pro") {
+    return { ok: false, reason: "Medium and High reasoning effort require the Pro plan." };
+  }
+  return { ok: true, value: v };
+}
+
 // Subscription is valid for 3 extra days past current_period_end so a webhook lag or
 // renewal-retry doesn't briefly strand a paying user.
 const GRACE_MS = 3 * 24 * 60 * 60 * 1000;

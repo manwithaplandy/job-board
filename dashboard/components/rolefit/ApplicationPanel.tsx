@@ -311,7 +311,7 @@ export function ApplicationPanel({
             style={{ flex: "0 0 auto" }}
           >
             <span style={{ fontSize: "15px" }}>✦</span>
-            {preparing ? "Prefilling… ~30s" : prepared ? "Re-prefill" : "Prefill application"}
+            {preparing ? "Prefilling… ~60s" : prepared ? "Re-prefill" : "Prefill application"}
           </Button>
         )}
         {applyHref && (

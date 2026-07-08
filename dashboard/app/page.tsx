@@ -67,8 +67,13 @@ export default async function Page({
       reviewed: reviewStats.reviewed,
     };
     // Job-level Greenhouse question schema (shared job_questions table), keyed by job id.
-    // Static server data — threaded to the board and on to the application panel.
-    const jobQuestions = await getJobQuestions(viewerId, jobs.map((j) => j.id));
+    // Static server data — threaded to the board and on to the application panel. Include
+    // rejectedJobs: they're also selectable on the board, so their Greenhouse questions
+    // panel must resolve too (querying only `jobs` left rejected postings with null).
+    const jobQuestions = await getJobQuestions(
+      viewerId,
+      [...jobs, ...rejectedJobs].map((j) => j.id),
+    );
     const initialFilters = parseBoardFilters(profile.board_filters);
     return (
       <RolefitBoard

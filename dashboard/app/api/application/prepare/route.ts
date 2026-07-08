@@ -22,17 +22,22 @@ import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 
 export const dynamic = "force-dynamic";
 // Vercel Pro ceiling for the background `after()` work (the 202 returns in ms). The
-// legs now run SEQUENTIALLY, not overlapped: the résumé leg (≤ 2×120s + backoff ≈ 242s,
-// see lib/rolefit/openrouterClient.ts) is followed by the prefill leg, which we bound
-// to ~60s via a shared AbortSignal on generatePrefilledAnswers' fetchImpl so the pair
-// stays under 300s. The cover leg (when the posting asks) runs in parallel with the
-// résumé and is dominated by it. A capped-out prefill is best-effort — the résumé
-// still persists.
+// legs run SEQUENTIALLY, not overlapped: the résumé leg first, then a bounded prefill
+// chained on the generated résumé. Worst-case arithmetic must stay under this 300s:
+//   résumé leg  ≤ 2×120s + ~2s backoff ≈ 242s   (openrouterClient.ts: MAX_ATTEMPTS=2,
+//                                                 PER_ATTEMPT_TIMEOUT_MS=120000)
+//   prefill leg ≤ PREFILL_TIMEOUT_MS + ~2s backoff ≈ 47s (shared AbortSignal below)
+//   persistence   (upsert + settle)              ≈ a few seconds
+//   total       ≈ 242 + 47 + persistence < 300s  (~10s margin)
+// The cover leg (when the posting asks) runs in parallel with the résumé and is dominated
+// by it. Prefill is best-effort: if it caps out, the signal aborts it, the answers are
+// dropped, and the résumé still persists.
 export const maxDuration = 300;
 
-// Hard ceiling on the prefill leg (best-effort). It runs AFTER the résumé, so this
-// keeps résumé + prefill under maxDuration even when the résumé leg is slow.
-const PREFILL_TIMEOUT_MS = 60_000;
+// Hard ceiling on the prefill leg (best-effort). It runs AFTER the résumé, so this keeps
+// résumé (≤242s) + prefill (≤~47s) + persistence under maxDuration=300 even when the
+// résumé leg hits its worst case. Do NOT raise past ~45s without re-checking that budget.
+const PREFILL_TIMEOUT_MS = 45_000;
 
 // User-facing label is "Prefill application"; kind stays 'prepare' (see schema.sql).
 //
@@ -51,7 +56,7 @@ const PREFILL_TIMEOUT_MS = 60_000;
 // leg failed — and 'failed' only when nothing new persisted.
 export async function POST(req: Request) {
   const claims = await getUserClaims();
-  if (!claims) return Response.json({ error: "sign in to prepare an application" }, { status: 401 });
+  if (!claims) return Response.json({ error: "sign in to prefill an application" }, { status: 401 });
   const userId = claims.id;
 
   const { jobId, resumeInstructions: rawResumeInstr, coverLetterInstructions: rawCoverInstr } =
@@ -86,7 +91,15 @@ export async function POST(req: Request) {
   // route has shared_read access via getJobQuestion and never writes job_questions).
   let questions = await getJobQuestion(userId, jobId);
   if (questions == null) {
-    questions = await fetchGreenhouseQuestions({ token: job.company_token, externalId: job.external_id });
+    // On-demand fallback runs in the SYNCHRONOUS prologue (before the 202), so a slow/hung
+    // Greenhouse API would stall the user's click for minutes. Bound it to 8s via an
+    // AbortSignal on fetchImpl → on timeout fetchGreenhouseQuestions swallows the abort and
+    // returns null, degrading to a résumé-only reserve exactly as designed.
+    questions = await fetchGreenhouseQuestions({
+      token: job.company_token,
+      externalId: job.external_id,
+      fetchImpl: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(8000) }),
+    });
   }
   const wantsCover = hasCoverLetterQuestion(questions);
 
@@ -109,7 +122,7 @@ export async function POST(req: Request) {
     console.error("application prepare tracking failed", {
       userId, jobId, error: e instanceof Error ? e.message : String(e),
     });
-    return Response.json({ error: "Preparation couldn’t start — try again." }, { status: 502 });
+    return Response.json({ error: "Prefill couldn’t start — try again." }, { status: 502 });
   }
   const generation = { ...tracked.job, jobTitle: job.title, company: job.company_name };
   if (!tracked.created) {
@@ -274,7 +287,7 @@ export async function POST(req: Request) {
       // the stored user-safe message.
       await refundGenerations(userId, kinds);
       console.error("application prepare failed", e);
-      await settle({ status: "failed", error: "Preparation failed — try again." });
+      await settle({ status: "failed", error: "Prefill failed — try again." });
     }
   });
 

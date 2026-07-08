@@ -11,7 +11,28 @@ vi.mock("@/lib/db", () => ({
 
 import { getJobQuestion, getJobQuestions } from "@/lib/queries";
 
-const GH = { questions: [{ label: "Why us?", required: true, fields: [] }] };
+// Canonical STORED shape (what the poller writes): a select field's option list lives
+// under `options`, not the raw-API `values`. Including a non-empty option list here
+// exercises the read path WITH options end-to-end — a parser that dropped stored options
+// would return `options: []` and fail the toEqual assertions below.
+const GH = {
+  questions: [
+    {
+      label: "Are you authorized to work in the US?",
+      required: true,
+      fields: [
+        {
+          name: "question_0",
+          type: "multi_value_single_select",
+          options: [
+            { value: "0", label: "Yes" },
+            { value: "1", label: "No" },
+          ],
+        },
+      ],
+    },
+  ],
+};
 
 describe("getJobQuestion / getJobQuestions", () => {
   test("parses a stored questions jsonb row", async () => {

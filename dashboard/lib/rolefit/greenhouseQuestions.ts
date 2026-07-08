@@ -59,19 +59,30 @@ function parseFields(fields: unknown): GreenhouseField[] {
   const out: GreenhouseField[] = [];
   for (const f of fields) {
     if (!f || typeof f !== "object") continue;
-    const o = f as { name?: unknown; type?: unknown; values?: unknown };
+    // Accept BOTH shapes: the raw Greenhouse API uses `values`; the canonical stored
+    // shape the poller writes to job_questions uses `options` (see greenhouse.py::
+    // _parse_fields). parseOptions reads .value/.label off each entry and stringifies,
+    // so `[{value:0,label:"Yes"}]` (raw) and `[{value:"0",label:"Yes"}]` (stored) parse
+    // identically. Prefer whichever key is present.
+    const o = f as { name?: unknown; type?: unknown; values?: unknown; options?: unknown };
     const name = asString(o.name);
     const type = asString(o.type);
     if (!name && !type) continue;
-    out.push({ name, type, options: parseOptions(o.values) });
+    out.push({ name, type, options: parseOptions(o.values ?? o.options) });
   }
   return out;
 }
 
 /**
- * Parse a Greenhouse single-job payload (fetched with `?questions=true`) into the
- * typed question shape. Returns null when the payload has no usable `questions`
- * array, so callers can fall back to the generic package. Pure and total.
+ * Parse a Greenhouse single-job payload into the typed question shape. Returns null
+ * when the payload has no usable `questions` array, so callers can fall back to the
+ * generic package. Pure and total over BOTH inputs it must read:
+ *   - the RAW Greenhouse Job Board API response (fetched with `?questions=true`),
+ *     where each field's option list lives under `values`, and
+ *   - the CANONICAL stored shape the poller writes to job_questions.questions,
+ *     where the same list lives under `options` (see greenhouse.py::_parse_fields).
+ * parseGreenhouseQuestionsJsonb (packageCodec.ts) reuses this to read poller-written
+ * job_questions rows, so both key spellings MUST round-trip — see parseFields.
  */
 export function parseGreenhouseQuestions(data: unknown): GreenhouseQuestions | null {
   if (!data || typeof data !== "object") return null;

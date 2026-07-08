@@ -1,7 +1,3 @@
-import json
-
-import pytest
-
 from job_discovery import db
 from tests.conftest import requires_db  # marker: skips when TEST_DATABASE_URL unset
 

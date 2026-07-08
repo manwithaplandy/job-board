@@ -203,7 +203,11 @@ describe("POST /api/application/prepare — Greenhouse guard + conditional reser
     mocks.fetchGreenhouseQuestions.mockResolvedValue(TEXT_Q);
     const res = await POST(req({ jobId: "job-1" }));
     expect(res.status).toBe(202);
-    expect(mocks.fetchGreenhouseQuestions).toHaveBeenCalledWith({ token: "tok", externalId: "ext-1" });
+    // Passes the token/id plus an 8s-bounded fetchImpl (the synchronous-prologue fetch
+    // must not stall the click on a hung Greenhouse API).
+    expect(mocks.fetchGreenhouseQuestions).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "tok", externalId: "ext-1", fetchImpl: expect.any(Function) }),
+    );
     // No cover-letter question in the fetched schema → résumé-only reserve.
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["resume"]);
   });
@@ -390,7 +394,7 @@ describe("POST /api/application/prepare — conditional refund + settle", () => 
       await flushBackground();
       expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume", "cover"]);
       expect(mocks.settleGenerationJob.mock.calls.at(-1)![2]).toEqual({
-        status: "failed", error: "Preparation failed — try again.",
+        status: "failed", error: "Prefill failed — try again.",
       });
     } finally {
       errSpy.mockRestore();

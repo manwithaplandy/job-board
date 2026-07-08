@@ -4,6 +4,7 @@ import {
   parseGreenhouseQuestions,
   fetchGreenhouseQuestions,
 } from "@/lib/rolefit/greenhouseQuestions";
+import { parseGreenhouseQuestionsJsonb } from "@/lib/rolefit/packageCodec";
 
 // Trimmed real-shape payload from boards-api.greenhouse.io/.../jobs/{id}?questions=true
 const FIXTURE = {
@@ -84,6 +85,44 @@ describe("parseGreenhouseQuestions", () => {
     expect(out!.questions[0].required).toBe(false);
     // The option missing a label is dropped; the one missing a value keeps value "".
     expect(out!.questions[0].fields[0].options).toEqual([{ value: "", label: "They/Them" }]);
+  });
+
+  // REGRESSION GUARD (Critical): the STEADY-STATE read path parses a STORED row, whose
+  // fields carry option lists under `options` (the canonical shape the poller writes —
+  // NOT the raw-API `values`). The parser must be identity over that shape: reading it
+  // back preserves every option. A parser that only read `values` would return
+  // `options: []` for the Yes/No select here — silently breaking prefill + the UI — and
+  // this deep-equal would fail. (Before the fix, every job_questions test used `fields: []`,
+  // so no test exercised stored options and the drift shipped unnoticed.)
+  test("round-trips the canonical STORED shape (options survive the read)", () => {
+    const CANONICAL = {
+      questions: [
+        {
+          label: "Are you authorized to work in the US?",
+          required: true,
+          fields: [
+            {
+              name: "question_0",
+              type: "multi_value_single_select",
+              // Canonical stored option list lives under `options`, values already strings.
+              options: [
+                { value: "0", label: "Yes" },
+                { value: "1", label: "No" },
+              ],
+            },
+          ],
+        },
+        {
+          label: "Why do you want to work here?",
+          required: false,
+          fields: [{ name: "question_1", type: "textarea", options: [] }],
+        },
+      ],
+    };
+    // Identity: a stored canonical row reads back byte-for-byte (options preserved).
+    expect(parseGreenhouseQuestions(CANONICAL)).toEqual(CANONICAL);
+    // And the jsonb wrapper the query layer actually uses reaches the same result.
+    expect(parseGreenhouseQuestionsJsonb(CANONICAL)).toEqual(CANONICAL);
   });
 });
 

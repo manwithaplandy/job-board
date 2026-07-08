@@ -46,7 +46,7 @@ Two problems:
 | # | Decision |
 |---|----------|
 | D1 | "Prefill application" is **Greenhouse-only**. Non-Greenhouse jobs show no such button; they keep the existing standalone résumé / cover-letter "Generate" buttons. |
-| D2 | Prefill generates **résumé + prefilled answers**. A **cover letter is generated only if the posting's question schema asks for one**. |
+| D2 | Prefill generates **résumé + prefilled answers**. A **cover letter is generated only if the posting's question schema asks for one** — narrow detection (canonical `cover_letter` field or `/cover letter/i` label), fired when that field is **present** (required or optional), not for free-form essay prompts. |
 | D3 | Prefill uses the **generated** tailored résumé (serialized via `composeResumeText`), not the profile résumé text. Résumé → prefill is therefore **sequential**. |
 | D4 | **Résumé-failure behavior (a1):** if résumé generation fails, prefill is **skipped**; the user retries and both regenerate together. The cover-letter leg (if requested) runs in parallel and can still succeed. |
 | D5 | Greenhouse question schema is fetched at **poll time** and stored **job-level** (shared) in a new `job_questions` table. Prefilled answers stay **per-user** in `application_packages`. |
@@ -102,8 +102,13 @@ The poller (`job_discovery/`) gains a step that, for each open Greenhouse job **
 
 Repurpose the existing route (`dashboard/app/api/application/prepare/route.ts`). The
 internal route path and `generation_jobs.kind = 'prepare'` are **kept as-is** to avoid a
-CHECK-constraint migration and existing-pending-row churn; only user-facing copy changes.
-(A later rename to `'prefill'` is optional and out of scope here.)
+CHECK-constraint migration (`kind IN ('resume','cover','prepare')`) and the dual-value
+transition it would force on existing/in-flight rows; only user-facing copy changes.
+**This must be documented in code:** add a short comment at the `generation_jobs.kind`
+CHECK constraint (schema.sql) **and** at the route explaining *"user-facing label is
+'Prefill application'; internal identifier kept as 'prepare' to avoid a kind-constraint
+migration."* A later rename to `'prefill'` is optional and belongs in a standalone
+follow-up, not this change.
 
 Synchronous prologue (unchanged in spirit): auth, validation, config, profile/job load.
 **Guard:** the route now returns 4xx for non-Greenhouse jobs (the button is Greenhouse-only,
@@ -135,13 +140,29 @@ no usable schema, Prefill degrades to résumé-only (no answers, no cover).
    (when generated). **Not** written: `answers_snapshot`, `greenhouse_questions`.
 4. Settle the tracking row (clean / partial / failed), mirroring today's semantics.
 
-**Cover-letter detection** (on the raw `GreenhouseQuestions`, before `toPrefillQuestions`
-strips file fields): a question is a cover-letter ask if any field's `name === "cover_letter"`
-**or** the question `label` matches `/cover\s*letter/i`. Detected cover-letter questions are
-excluded from the generic prefill set (so they are not double-answered) and instead drive
-the cover-letter leg. Greenhouse's cover-letter field is usually `input_file`, which the
-generic prefill already skips — so today it produces nothing; now it produces a real,
-downloadable cover letter to attach.
+**Cover-letter detection — narrow, present-not-required** (on the raw `GreenhouseQuestions`,
+before `toPrefillQuestions` strips file fields): a question is a cover-letter ask iff any
+field's `name === "cover_letter"` **or** the question `label` matches `/cover\s*letter/i`.
+Detection is deliberately **narrow** — free-form essay prompts ("Why do you want to work
+here?", "Tell us about yourself") are **not** treated as cover-letter asks. Rationale:
+`generateCoverLetter` writes a role-level letter, whereas the generic prefill answers the
+*specific* question; routing an essay to the cover pipeline would ignore its actual prompt,
+and multiple essays can't all map to one letter. Essay questions therefore stay in the
+generic prefill.
+
+Generation fires when a cover-letter field is **present** (required *or* optional), not only
+when required — Greenhouse's standard `cover_letter` field is usually optional, so a
+required-only rule would almost never fire. The collapsed questions panel flags "cover
+letter requested," so the user sees the (charged) cover-letter leg coming before clicking
+Prefill. Detected cover-letter questions are excluded from the generic prefill set (so they
+are not double-answered) and instead drive the cover-letter leg. Greenhouse's cover-letter
+field is usually `input_file`, which the generic prefill already skips — so today it
+produces nothing; now it produces a real, downloadable cover letter to attach.
+
+**Essay-answer quality (non-blocking enhancement):** if generic prefill answers for
+long-form `textarea` questions read too thin, improve them in the **prefill prompt** — it
+already receives each field's type, so it can write fuller answers for `textarea` fields —
+rather than by widening cover-letter detection.
 
 ### 4. UI (`ApplicationPanel.tsx`, `RolefitBoard.tsx`)
 

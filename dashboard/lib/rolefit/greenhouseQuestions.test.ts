@@ -116,3 +116,29 @@ describe("fetchGreenhouseQuestions", () => {
     expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(0);
   });
 });
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+// Drift guard: the SAME fixture the Python parser test asserts (tests/fixtures/
+// greenhouse_questions.json) must parse to the SAME canonical shape here. If the two
+// parsers diverge, one of these tests breaks. Path reaches out of dashboard/ to the repo root.
+const SHARED_FIXTURE = JSON.parse(
+  readFileSync(join(__dirname, "../../../tests/fixtures/greenhouse_questions.json"), "utf8"),
+);
+
+describe("parseGreenhouseQuestions — shared fixture parity", () => {
+  test("parses the shared Python fixture to the canonical shape", () => {
+    expect(parseGreenhouseQuestions(SHARED_FIXTURE)).toEqual({
+      questions: [
+        { label: "Why do you want to work here?", required: true,
+          fields: [{ name: "question_0", type: "textarea", options: [] }] },
+        { label: "Are you authorized to work in the US?", required: true,
+          fields: [{ name: "question_1", type: "multi_value_single_select",
+                     options: [{ value: "0", label: "Yes" }, { value: "1", label: "No" }] }] },
+        { label: "Cover Letter", required: false,
+          fields: [{ name: "cover_letter", type: "input_file", options: [] }] },
+      ],
+    });
+  });
+});

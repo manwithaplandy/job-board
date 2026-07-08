@@ -79,6 +79,12 @@ export interface JobDetailProps {
   coverInstructions: Record<string, string>;
   onResumeInstructionsChange: (jobId: string, v: string) => void;
   onCoverInstructionsChange: (jobId: string, v: string) => void;
+  // The persisted saved-draft values the boxes would reload to (drive Save "dirty"), plus
+  // the per-leg Save handlers. Keyed by job id, owned by the board.
+  savedResumeInstructions: Record<string, string>;
+  savedCoverInstructions: Record<string, string>;
+  onSaveResumeInstructions: (jobId: string) => Promise<void>;
+  onSaveCoverInstructions: (jobId: string) => Promise<void>;
   // Human cover-letter edits (current/non-superseded only), keyed by job id, owned by the board.
   coverEdited: Record<string, string>;
   onCoverEditSaved: (jobId: string, text: string) => void;
@@ -130,6 +136,10 @@ export function JobDetail({
   coverInstructions,
   onResumeInstructionsChange,
   onCoverInstructionsChange,
+  savedResumeInstructions,
+  savedCoverInstructions,
+  onSaveResumeInstructions,
+  onSaveCoverInstructions,
   coverEdited,
   onCoverEditSaved,
   onCoverEditReset,
@@ -645,6 +655,18 @@ export function JobDetail({
             onResumeInstructionsChange={(v) => onResumeInstructionsChange(job.id, v)}
             coverInstructions={coverInstructions[job.id] ?? ""}
             onCoverInstructionsChange={(v) => onCoverInstructionsChange(job.id, v)}
+            resumeInstructionsDirty={(resumeInstructions[job.id] ?? "").trim() !== (savedResumeInstructions[job.id] ?? "").trim()}
+            resumeInstructionsApplied={
+              genState !== "done" ? "none"
+                : (resumeInstructions[job.id] ?? "").trim() === (pkg?.resumeInstructions ?? "").trim() ? "applied" : "pending"
+            }
+            onSaveResumeInstructions={() => onSaveResumeInstructions(job.id)}
+            coverInstructionsDirty={(coverInstructions[job.id] ?? "").trim() !== (savedCoverInstructions[job.id] ?? "").trim()}
+            coverInstructionsApplied={
+              coverState !== "done" ? "none"
+                : (coverInstructions[job.id] ?? "").trim() === (pkg?.coverLetterInstructions ?? "").trim() ? "applied" : "pending"
+            }
+            onSaveCoverInstructions={() => onSaveCoverInstructions(job.id)}
             coverEditedText={coverEdited[job.id] ?? null}
             onCoverEditSaved={onCoverEditSaved}
             onCoverEditReset={onCoverEditReset}

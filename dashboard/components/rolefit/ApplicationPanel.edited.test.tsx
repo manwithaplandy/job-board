@@ -40,6 +40,8 @@ function renderPanel(
       onCoverEditSaved={() => {}} onCoverEditReset={() => {}}
       resumeInstructions="" onResumeInstructionsChange={() => {}}
       coverInstructions="" onCoverInstructionsChange={() => {}}
+      resumeInstructionsDirty={false} resumeInstructionsApplied="none" onSaveResumeInstructions={async () => {}}
+      coverInstructionsDirty={false} coverInstructionsApplied="none" onSaveCoverInstructions={async () => {}}
       {...overrides}
     />,
   );

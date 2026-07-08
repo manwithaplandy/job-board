@@ -457,6 +457,43 @@ export async function getApplicationPackages(userId: string): Promise<Applicatio
   });
 }
 
+// One job's question schema (job-level shared data — shared_read RLS lets the
+// authenticated role SELECT it; no serviceSql needed). Total-parsed, never as-cast.
+export async function getJobQuestion(
+  userId: string,
+  jobId: string,
+): Promise<GreenhouseQuestions | null> {
+  return withUserSql(userId, async (tx) => {
+    const rows = await tx`SELECT questions FROM job_questions WHERE job_id = ${jobId}`;
+    if (rows.length === 0) return null;
+    return parseGreenhouseQuestionsJsonb((rows[0] as { questions: unknown }).questions);
+  });
+}
+
+// Question schemas for a set of jobs, keyed by job_id (malformed rows dropped). Used by
+// the board loader to surface the questions panel on every Greenhouse job.
+export async function getJobQuestions(
+  userId: string,
+  jobIds: string[],
+): Promise<Record<string, GreenhouseQuestions>> {
+  if (jobIds.length === 0) return {};
+  return withUserSql(userId, async (tx) => {
+    const rows = await tx`
+      SELECT job_id, questions FROM job_questions WHERE job_id = ANY(${jobIds})
+    `;
+    const out: Record<string, GreenhouseQuestions> = {};
+    for (const r of rows as unknown as { job_id: string; questions: unknown }[]) {
+      const parsed = parseGreenhouseQuestionsJsonb(r.questions);
+      if (parsed == null) {
+        console.warn(`[job_questions] dropping malformed questions for job ${r.job_id}`);
+        continue;
+      }
+      out[r.job_id] = parsed;
+    }
+    return out;
+  });
+}
+
 // Persist (or refresh) a prepared package. Re-preparing upserts the generated
 // content in place; status / applied_at are deliberately left untouched so a
 // previously "applied" package is never silently downgraded.

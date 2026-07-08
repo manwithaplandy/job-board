@@ -470,6 +470,23 @@ export function JobDetail({
               Reject
             </Button>
           )}
+          {/* Withheld while session-rejected so one click can't create the invalid
+              applied+rejected state the board's reject gating guards against. */}
+          {isAuthed && job.verdict === "approve" && !applied && !isRejected && (
+            <Button
+              variant="secondary"
+              onClick={() => onMarkApplied(job)}
+              style={{
+                fontSize: "12.5px",
+                color: "var(--success)",
+                border: "1px solid var(--success-border)",
+                borderRadius: "9px",
+                padding: "7px 16px",
+              }}
+            >
+              ✓ Mark as applied
+            </Button>
+          )}
         </div>
       )}
 
@@ -678,8 +695,6 @@ export function JobDetail({
             prefilledAnswers={pkg?.prefilledAnswers ?? null}
             status={pkg?.status ?? null}
             appliedAt={pkg?.appliedAt ?? null}
-            onMarkApplied={() => onMarkApplied(job)}
-            isRejected={isRejected}
           />
 
         </>

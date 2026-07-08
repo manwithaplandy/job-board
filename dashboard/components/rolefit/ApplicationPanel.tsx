@@ -81,10 +81,6 @@ export interface ApplicationPanelProps {
   prefilledAnswers: PrefilledAnswer[] | null;
   status: "prepared" | "applied" | null;
   appliedAt: string | null;
-  onMarkApplied: () => void;
-  // Session-rejected: "Mark as applied" is withheld so one click can't create the invalid
-  // applied+rejected state the board's reject gating guards against (un-reject first).
-  isRejected?: boolean;
 }
 
 export function ApplicationPanel({
@@ -126,8 +122,6 @@ export function ApplicationPanel({
   prefilledAnswers,
   status,
   appliedAt,
-  onMarkApplied,
-  isRejected,
 }: ApplicationPanelProps) {
   // Ephemeral "Copied!" feedback for the cover letter + per-field answers.
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -294,27 +288,6 @@ export function ApplicationPanel({
           >
             ✓ Applied{appliedDate ? ` · ${appliedDate}` : ""}
           </Chip>
-        )}
-        {isAuthed && !applied && !isRejected && (
-          <button
-            onClick={onMarkApplied}
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "7px",
-              fontWeight: 700,
-              fontSize: "13.5px",
-              color: "var(--success)",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--success-border)",
-              borderRadius: "11px",
-              padding: "12px 16px",
-              cursor: "pointer",
-            }}
-          >
-            ✓ Mark as applied
-          </button>
         )}
         {isAuthed && job.ats === "greenhouse" && (
           <Button

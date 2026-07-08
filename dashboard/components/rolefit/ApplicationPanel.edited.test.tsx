@@ -35,7 +35,7 @@ function renderPanel(
       onGenerateCover={() => {}} onRegenerateCover={() => {}}
       onPrepare={() => {}}
       greenhouseQuestions={null} prefilledAnswers={null}
-      status="prepared" appliedAt={null} onMarkApplied={() => {}}
+      status="prepared" appliedAt={null}
       coverEditedText={coverEditedText}
       onCoverEditSaved={() => {}} onCoverEditReset={() => {}}
       resumeInstructions="" onResumeInstructionsChange={() => {}}

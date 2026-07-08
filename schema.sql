@@ -283,6 +283,8 @@ CREATE TABLE application_packages (
   cover_letter_trace_id TEXT,
   resume_instructions        TEXT,   -- per-job "Generation instructions" (résumé leg)
   cover_letter_instructions  TEXT,   -- per-job "Generation instructions" (cover-letter leg)
+  resume_instructions_draft        TEXT,   -- saved draft of the résumé instructions box (survives reload; NULL = mirror generated-with)
+  cover_letter_instructions_draft  TEXT,   -- saved draft of the cover-letter instructions box
   profile_version      TEXT,                  -- profiles.profile_version at generation time (NULL = pre-column row)
   status               TEXT NOT NULL DEFAULT 'prepared'
                          CHECK (status IN ('prepared','applied')),

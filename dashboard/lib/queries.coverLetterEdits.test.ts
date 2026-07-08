@@ -11,8 +11,7 @@ vi.mock("@/lib/db", () => {
     return Promise.resolve([
       {
         job_id: "ashby:vetcove:6b80fa7d", status: "prepared",
-        resume_json: null, cover_letter_json: null, answers_snapshot: null,
-        greenhouse_questions: null, prefilled_answers: null, apply_url: null,
+        resume_json: null, cover_letter_json: null, prefilled_answers: null, apply_url: null,
         profile_version: null, resume_instructions: "R focus",
         cover_letter_instructions: "C focus",
         cover_letter_edited_text: "Dear Hiring Manager,\n\nEdited.\n",
@@ -54,7 +53,7 @@ describe("toApplicationPackage", () => {
   test("missing edit/instruction columns (upsert RETURNING path) map to null", () => {
     const pkg = toApplicationPackage({
       job_id: "j", status: "prepared", resume_json: null, cover_letter_json: null,
-      answers_snapshot: null, greenhouse_questions: null, prefilled_answers: null,
+      prefilled_answers: null,
       apply_url: null, profile_version: null, prepared_at: new Date(), applied_at: null,
     });
     expect(pkg.coverLetterEditedText).toBeNull();

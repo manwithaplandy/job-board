@@ -103,8 +103,6 @@ export async function POST(req: Request) {
       await upsertApplicationPackage(userId, jobId, {
         resume: null,
         coverLetter: letter,
-        answersSnapshot: null,
-        greenhouseQuestions: null,
         prefilledAnswers: null,
         applyUrl: null,
         coverLetterTraceId: traceId,

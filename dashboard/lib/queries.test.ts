@@ -26,8 +26,8 @@ describe("bareMarkerPredicate (un-apply marker semantics)", () => {
 
   it("requires every content column to be NULL", () => {
     for (const col of [
-      "resume_json", "cover_letter_json", "greenhouse_questions",
-      "prefilled_answers", "answers_snapshot", "apply_url",
+      "resume_json", "cover_letter_json",
+      "prefilled_answers", "apply_url",
     ]) {
       expect(text).toContain(`${col} is null`);
     }

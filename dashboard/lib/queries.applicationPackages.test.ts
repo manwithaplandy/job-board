@@ -27,8 +27,6 @@ const baseRow = (over: Record<string, unknown>): Record<string, unknown> => ({
   status: "prepared",
   resume_json: null,
   cover_letter_json: null,
-  answers_snapshot: null,
-  greenhouse_questions: null,
   prefilled_answers: null,
   apply_url: null,
   prepared_at: new Date("2026-07-02T20:40:54.000Z"),

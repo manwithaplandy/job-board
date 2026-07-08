@@ -205,8 +205,6 @@ export async function POST(req: Request) {
     await upsertApplicationPackage(userId, jobId, {
       resume,
       coverLetter,
-      answersSnapshot: answers,
-      greenhouseQuestions: gh.greenhouseQuestions,
       prefilledAnswers: gh.prefilledAnswers,
       applyUrl: applyUrl(job.ats, job.url),
       resumeTraceId,

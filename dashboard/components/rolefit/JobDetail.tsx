@@ -647,7 +647,7 @@ export function JobDetail({
             generating={generating}
             onCancelGeneration={onCancelGeneration}
             prepareStatus={prepareStatus}
-            greenhouseQuestions={pkg?.greenhouseQuestions ?? null}
+            greenhouseQuestions={null}
             prefilledAnswers={pkg?.prefilledAnswers ?? null}
             status={pkg?.status ?? null}
             appliedAt={pkg?.appliedAt ?? null}

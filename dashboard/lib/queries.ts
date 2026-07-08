@@ -3,7 +3,7 @@ import type { Sql, TransactionSql } from "postgres";
 import { unstable_cache } from "next/cache";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { ApplicationAnswers, ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, ReviewedJobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
+import type { ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, ReviewedJobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
@@ -18,7 +18,6 @@ import {
   parseTailoredResume,
   parseTailoredCoverLetter,
   parsePrefilledAnswers,
-  parseApplicationAnswers,
   parseGreenhouseQuestionsJsonb,
 } from "@/lib/rolefit/packageCodec";
 
@@ -386,8 +385,6 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
     status: row.status as "prepared" | "applied",
     resume: parseField("resume_json", row.resume_json, parseTailoredResume),
     coverLetter: parseField("cover_letter_json", row.cover_letter_json, parseTailoredCoverLetter),
-    answersSnapshot: parseField("answers_snapshot", row.answers_snapshot, parseApplicationAnswers),
-    greenhouseQuestions: parseField("greenhouse_questions", row.greenhouse_questions, parseGreenhouseQuestionsJsonb),
     prefilledAnswers: parseField("prefilled_answers", row.prefilled_answers, parsePrefilledAnswers),
     applyUrl: (row.apply_url as string | null) ?? null,
     profileVersion: (row.profile_version as string | null) ?? null,
@@ -409,8 +406,7 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
 export function bareMarkerPredicate(tx: Sql | TransactionSql) {
   return tx`
     resume_json IS NULL AND cover_letter_json IS NULL
-      AND greenhouse_questions IS NULL AND prefilled_answers IS NULL
-      AND answers_snapshot IS NULL AND apply_url IS NULL
+      AND prefilled_answers IS NULL AND apply_url IS NULL
   `;
 }
 
@@ -422,8 +418,8 @@ export async function getApplicationPackage(
 ): Promise<ApplicationPackage | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json, ap.answers_snapshot,
-             ap.greenhouse_questions, ap.prefilled_answers, ap.apply_url, ap.profile_version,
+      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json,
+             ap.prefilled_answers, ap.apply_url, ap.profile_version,
              ap.resume_instructions, ap.cover_letter_instructions,
              ap.prepared_at, ap.applied_at,
              e.edited_text AS cover_letter_edited_text
@@ -443,8 +439,8 @@ export async function getApplicationPackage(
 export async function getApplicationPackages(userId: string): Promise<ApplicationPackage[]> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json, ap.answers_snapshot,
-             ap.greenhouse_questions, ap.prefilled_answers, ap.apply_url, ap.profile_version,
+      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json,
+             ap.prefilled_answers, ap.apply_url, ap.profile_version,
              ap.resume_instructions, ap.cover_letter_instructions,
              ap.prepared_at, ap.applied_at,
              e.edited_text AS cover_letter_edited_text
@@ -510,8 +506,6 @@ export async function upsertApplicationPackage(
   data: {
     resume: TailoredResume | null;
     coverLetter: TailoredCoverLetter | null;
-    answersSnapshot: ApplicationAnswers | null;
-    greenhouseQuestions: GreenhouseQuestions | null;
     prefilledAnswers: PrefilledAnswer[] | null;
     applyUrl: string | null;
     resumeTraceId?: string | null;
@@ -535,13 +529,12 @@ export async function upsertApplicationPackage(
   }
   const rows = await tx`
     INSERT INTO application_packages
-      (user_id, job_id, resume_json, cover_letter_json, answers_snapshot,
-       greenhouse_questions, prefilled_answers, apply_url, resume_trace_id,
+      (user_id, job_id, resume_json, cover_letter_json,
+       prefilled_answers, apply_url, resume_trace_id,
        cover_letter_trace_id, resume_instructions, cover_letter_instructions,
        profile_version, status, prepared_at)
     VALUES (${userId}::uuid, ${jobId},
             ${j(data.resume)}::jsonb, ${j(data.coverLetter)}::jsonb,
-            ${j(data.answersSnapshot)}::jsonb, ${j(data.greenhouseQuestions)}::jsonb,
             ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
             ${data.coverLetterTraceId ?? null}, ${data.resumeInstructions ?? null},
             ${data.coverLetterInstructions ?? null},
@@ -549,8 +542,6 @@ export async function upsertApplicationPackage(
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       resume_json          = COALESCE(EXCLUDED.resume_json, application_packages.resume_json),
       cover_letter_json    = COALESCE(EXCLUDED.cover_letter_json, application_packages.cover_letter_json),
-      answers_snapshot     = COALESCE(EXCLUDED.answers_snapshot, application_packages.answers_snapshot),
-      greenhouse_questions = COALESCE(EXCLUDED.greenhouse_questions, application_packages.greenhouse_questions),
       prefilled_answers    = COALESCE(EXCLUDED.prefilled_answers, application_packages.prefilled_answers),
       apply_url            = COALESCE(EXCLUDED.apply_url, application_packages.apply_url),
       -- resume_trace_id and profile_version describe the résumé specifically, so they
@@ -576,8 +567,8 @@ export async function upsertApplicationPackage(
                                        THEN EXCLUDED.cover_letter_instructions
                                        ELSE application_packages.cover_letter_instructions END,
       prepared_at          = now()
-    RETURNING job_id, status, resume_json, cover_letter_json, answers_snapshot,
-              greenhouse_questions, prefilled_answers, apply_url, profile_version,
+    RETURNING job_id, status, resume_json, cover_letter_json,
+              prefilled_answers, apply_url, profile_version,
               resume_instructions, cover_letter_instructions,
               prepared_at, applied_at
   `;

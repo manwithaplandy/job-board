@@ -1046,8 +1046,6 @@ export function RolefitBoard({
           status: "applied",
           resume: null,
           coverLetter: null,
-          answersSnapshot: null,
-          greenhouseQuestions: null,
           prefilledAnswers: null,
           applyUrl: null,
           profileVersion: null,
@@ -1084,8 +1082,7 @@ export function RolefitBoard({
   const handleUnapply = useCallback((job: JobRow) => {
     const prior = packages[job.id];
     const hasContent = Boolean(
-      prior && (prior.resume || prior.coverLetter || prior.answersSnapshot
-        || prior.greenhouseQuestions || prior.prefilledAnswers),
+      prior && (prior.resume || prior.coverLetter || prior.prefilledAnswers),
     );
     setPackages((p) => {
       const next = { ...p };

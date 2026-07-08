@@ -260,7 +260,9 @@ export function ApplicationPanel({
           <div
             style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 500 }}
           >
-            Tailored résumé, prefilled answers, and — when this posting asks — a cover letter.
+            {job.ats === "greenhouse"
+              ? "Tailored résumé, prefilled answers, and — when this posting asks — a cover letter."
+              : `Tailored résumé and cover letter — ready for ${job.company_name}.`}
           </div>
         </div>
         {applied && (

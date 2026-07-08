@@ -115,6 +115,8 @@ describe("ApplicationPanel — Greenhouse Prefill button + collapsible questions
   test("Greenhouse job shows a 'Prefill application' button", () => {
     renderPanel({ job: makeJob({ ats: "greenhouse" }) });
     expect(screen.getByRole("button", { name: /Prefill application/ })).toBeTruthy();
+    // Greenhouse subtitle advertises prefilled answers (the GH-only behavior).
+    expect(screen.getByText(/prefilled answers/i)).toBeTruthy();
   });
 
   test("non-Greenhouse job hides the prefill button (résumé/cover panels remain)", () => {
@@ -122,6 +124,10 @@ describe("ApplicationPanel — Greenhouse Prefill button + collapsible questions
     expect(screen.queryByRole("button", { name: /Prefill application/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Prepare application/ })).toBeNull();
     expect(screen.getByRole("button", { name: /Generate cover letter/ })).toBeTruthy();
+    // Non-Greenhouse subtitle must NOT claim prefilled answers (prefill is GH-only) —
+    // it advertises only the standalone résumé + cover generation available here.
+    expect(screen.queryByText(/prefilled answers/i)).toBeNull();
+    expect(screen.getByText(/Tailored résumé and cover letter/)).toBeTruthy();
   });
 
   test("Greenhouse questions render collapsed by default, expand on click", () => {

@@ -70,6 +70,9 @@ export async function completeOnboarding(
       location: null, workAuthorized: null, needsSponsorship: null,
       eeoGender: null, eeoRace: null, eeoVeteran: null, eeoDisability: null,
       screeningAnswers: {},
+      // Standing generation guidance is edited later on /profile — null at onboarding.
+      resumeGenerationInstructions: null,
+      coverLetterGenerationInstructions: null,
     });
     // Back-fill the invite redemption with the now-known user id.
     if (email) await linkInviteRedemption(email, claims.id);

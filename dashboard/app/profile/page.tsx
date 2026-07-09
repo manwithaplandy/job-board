@@ -21,6 +21,7 @@ import { assertNotDeleted } from "@/lib/tombstone";
 import { resumeObjectPath } from "@/lib/resumeStorage";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
+import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { ResumeUploadField } from "@/components/rolefit/ResumeUploadField";
 import { DangerZone } from "@/components/account/DangerZone";
 import { AppearanceToggle } from "@/components/theme/AppearanceToggle";
@@ -77,6 +78,10 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
     const r = validateModelId(String(formData.get("model_resume") ?? ""), catalogIds);
     const companyInstructions =
       (String(formData.get("company_instructions") ?? "")).trim() || null;
+    const resumeGenNorm = normalizeInstructions(formData.get("resume_generation_instructions"), "résumé generation");
+    if (!resumeGenNorm.ok) return { error: resumeGenNorm.error };
+    const coverGenNorm = normalizeInstructions(formData.get("cover_letter_generation_instructions"), "cover letter generation");
+    if (!coverGenNorm.ok) return { error: coverGenNorm.error };
     const mc = validateModelId(String(formData.get("model_company") ?? ""), catalogIds);
     const cl = validateModelId(String(formData.get("model_cover") ?? ""), catalogIds);
     if (!s2.ok) return { error: s2.reason };
@@ -153,6 +158,8 @@ async function saveProfile(_prev: ProfileSaveState, formData: FormData): Promise
       eeoDisability: trimOrNull(formData.get("eeo_disability")),
       screeningAnswers,
       modelCover: cl.value,
+      resumeGenerationInstructions: resumeGenNorm.value,
+      coverLetterGenerationInstructions: coverGenNorm.value,
     });
     // Return to the page the user came from (threaded through a hidden field captured at
     // GET time — the POST's own referer is /profile).

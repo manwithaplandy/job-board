@@ -63,6 +63,8 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
     eeoDisability: existing?.eeo_disability ?? null,
     screeningAnswers: existing?.screening_answers ?? {},
     modelCover: existing?.model_cover ?? null,
+    resumeGenerationInstructions: existing?.resume_generation_instructions ?? null,
+    coverLetterGenerationInstructions: existing?.cover_letter_generation_instructions ?? null,
   });
   revalidatePath("/");
 }

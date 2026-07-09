@@ -653,6 +653,9 @@ export async function upsertProfile(
     eeoDisability: string | null;
     screeningAnswers: ScreeningAnswers;
     modelCover: string | null;
+    // Standing generation guidance — reviewer-independent (NOT in profile_version).
+    resumeGenerationInstructions: string | null;
+    coverLetterGenerationInstructions: string | null;
   },
 ): Promise<void> {
   // M-RESURRECT-2: a deleted user's JWT stays valid ≤1h after the erasure cascade, so
@@ -672,6 +675,7 @@ export async function upsertProfile(
                           work_authorized, needs_sponsorship,
                           eeo_gender, eeo_race, eeo_veteran, eeo_disability,
                           screening_answers, model_cover,
+                          resume_generation_instructions, cover_letter_generation_instructions,
                           profile_version, updated_at)
     VALUES (${userId}::uuid, ${data.resumeText}, ${data.instructions},
             ${data.resumeFilePath}, ${data.modelStage1}, ${data.modelStage2},
@@ -682,6 +686,7 @@ export async function upsertProfile(
             ${data.workAuthorized}, ${data.needsSponsorship},
             ${data.eeoGender}, ${data.eeoRace}, ${data.eeoVeteran}, ${data.eeoDisability},
             ${JSON.stringify(data.screeningAnswers)}::jsonb, ${data.modelCover},
+            ${data.resumeGenerationInstructions}, ${data.coverLetterGenerationInstructions},
             ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       resume_text             = EXCLUDED.resume_text,
@@ -707,6 +712,8 @@ export async function upsertProfile(
       eeo_disability          = EXCLUDED.eeo_disability,
       screening_answers       = EXCLUDED.screening_answers,
       model_cover             = EXCLUDED.model_cover,
+      resume_generation_instructions       = EXCLUDED.resume_generation_instructions,
+      cover_letter_generation_instructions = EXCLUDED.cover_letter_generation_instructions,
       profile_version         = EXCLUDED.profile_version,
       updated_at              = now()
   `);

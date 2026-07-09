@@ -15,6 +15,7 @@ export async function generateCoverLetter(args: {
   resumeText: string;
   candidateName: string | null;
   instructions: string | null;
+  profileInstructions?: string | null;
   job: CoverLetterJob;
   model: string;
   apiKey: string;
@@ -24,6 +25,7 @@ export async function generateCoverLetter(args: {
     resumeText: args.resumeText,
     candidateName: args.candidateName,
     instructions: args.instructions,
+    profileInstructions: args.profileInstructions ?? null,
     job: args.job,
   });
   const runGeneration = () => callOpenRouterStructured<TailoredCoverLetter>({

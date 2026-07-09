@@ -63,6 +63,15 @@ describe("generateResume", () => {
     expect(body.messages[1].content).toContain("Lead with Kubernetes");
   });
 
+  test("threads profile-level generation instructions into the user prompt", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(TAILORED) } }] });
+    await generateResume({ ...args, fetchImpl: f, profileInstructions: "Keep it to one page" });
+    const call = (f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.messages[1].content).toContain("PROFILE-WIDE GENERATION GUIDANCE");
+    expect(body.messages[1].content).toContain("Keep it to one page");
+  });
+
   test("throws on non-ok response", async () => {
     await expect(generateResume({ ...args, fetchImpl: fakeFetch({}, false) })).rejects.toThrow();
   });

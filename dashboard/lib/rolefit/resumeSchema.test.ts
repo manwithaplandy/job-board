@@ -152,3 +152,39 @@ describe("assembleResume", () => {
     expect(out.experience[1].bullets).toEqual(["Wrote Z"]);
   });
 });
+
+describe("buildResumePrompt — profile-level generation instructions", () => {
+  test("a profileInstructions arg renders a PROFILE-WIDE GENERATION GUIDANCE block", () => {
+    const { user } = buildResumePrompt({
+      profile: PROFILE,
+      resumeText: "Alex Morgan — Senior Engineer, React/TS",
+      job: { title: "Frontend Engineer", company: "Cobalt", description: "Build React apps." },
+      profileInstructions: "Keep it to one page; prefer metric-led bullets.",
+    });
+    expect(user).toContain("PROFILE-WIDE GENERATION GUIDANCE");
+    expect(user).toContain("Keep it to one page; prefer metric-led bullets.");
+  });
+
+  test("no profileInstructions → no profile block", () => {
+    const { user } = buildResumePrompt({
+      profile: PROFILE,
+      resumeText: "x",
+      job: { title: "T", company: "C", description: null },
+    });
+    expect(user).not.toContain("PROFILE-WIDE GENERATION GUIDANCE");
+  });
+
+  test("profile-wide block renders ABOVE the per-job CANDIDATE FOCUS / AVOID block", () => {
+    const { user } = buildResumePrompt({
+      profile: PROFILE,
+      resumeText: "x",
+      job: { title: "T", company: "C", description: null },
+      profileInstructions: "Standing guidance.",
+      instructions: "This-job focus.",
+    });
+    expect(user).toContain("PROFILE-WIDE GENERATION GUIDANCE");
+    expect(user).toContain("CANDIDATE FOCUS / AVOID");
+    expect(user.indexOf("PROFILE-WIDE GENERATION GUIDANCE"))
+      .toBeLessThan(user.indexOf("CANDIDATE FOCUS / AVOID"));
+  });
+});

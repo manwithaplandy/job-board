@@ -68,13 +68,15 @@ Render it as its own labeled block **before** the existing per-job `focusBlock`,
 carrying the same guardrail framing so it cannot license fabrication:
 
 ```
-PROFILE-WIDE GUIDANCE (applies to every application — honor it within the ground
-rules; it never licenses adding unsupported skills or experience):
+PROFILE-WIDE GENERATION GUIDANCE (standing instructions applied to every application —
+honor it within the ground rules; it never licenses adding unsupported skills or experience):
 {profile.resume_generation_instructions}
 
 CANDIDATE FOCUS / AVOID (this application):
 {per-job resume_instructions}
 ```
+
+(The exact block header is `PROFILE-WIDE GENERATION GUIDANCE`, wired identically in both builders.)
 
 - Each block is omitted when its source is null (so today's behavior — per-job only,
   or neither — is unchanged).

@@ -248,7 +248,7 @@ Run (from `dashboard/`):
 npx vitest run lib/rolefit/resumeSchema.test.ts
 ```
 
-Expected: FAIL — the three new tests fail (the block string never appears; TypeScript also flags `profileInstructions` as an unknown property).
+Expected: FAIL — the three new tests fail on their assertions (the block string never appears). `vitest run` strips types without checking, so this is an assertion failure, not a type error.
 
 - [ ] **Step 3: Add the `profileInstructions` arg + block to `buildResumePrompt`**
 
@@ -335,7 +335,7 @@ Append to `dashboard/lib/rolefit/resumeClient.test.ts` inside the `describe("gen
 npx vitest run lib/rolefit/resumeClient.test.ts
 ```
 
-Expected: FAIL — `profileInstructions` isn't forwarded yet (TypeScript flags the unknown arg / the assertion fails).
+Expected: FAIL — the assertion fails because `profileInstructions` isn't forwarded into the prompt yet.
 
 - [ ] **Step 7: Thread `profileInstructions` through `generateResume`**
 
@@ -452,7 +452,7 @@ describe("buildCoverLetterPrompt — profile-level generation instructions", () 
 npx vitest run lib/rolefit/coverLetterSchema.test.ts
 ```
 
-Expected: FAIL — block string absent; `profileInstructions` flagged as unknown property.
+Expected: FAIL — assertions fail (block string absent). `vitest run` strips types, so this is an assertion failure, not a type error.
 
 - [ ] **Step 3: Add the `profileInstructions` arg + block to `buildCoverLetterPrompt`**
 
@@ -631,12 +631,14 @@ git commit -m "feat(rolefit): profile-level generation guidance in the cover-let
 - Modify: `dashboard/lib/queries.ts` — `upsertProfile` (param type 632-656; INSERT columns 668-675; VALUES 676-685; ON CONFLICT SET 686-711)
 - Modify: `dashboard/app/profile/page.tsx` — imports (line 12-23 area) + `saveProfile` action (reads at 70-81, `upsertProfile` call at 136-156)
 - Modify: `dashboard/app/actions/profile.ts` — `saveProfileResume` (`upsertProfile` call at 42-66)
+- Modify: `dashboard/app/actions/onboarding.ts` — `completeOnboarding` (`upsertProfile` call at 61-73)
+- Modify: `dashboard/lib/queries.upsertProfile.test.ts` — the shared `data` fixture (lines 21-29)
 
 **Interfaces:**
 - Consumes: `ProfileRow.resume_generation_instructions` / `cover_letter_generation_instructions` (Task 2); `normalizeInstructions` (`@/lib/rolefit/generationInstructions`).
-- Produces: `upsertProfile` writes `data.resumeGenerationInstructions` / `data.coverLetterGenerationInstructions` (both **required** `string | null` params — every caller must pass them explicitly, so a résumé-only save can't silently null them).
+- Produces: `upsertProfile` writes `data.resumeGenerationInstructions` / `data.coverLetterGenerationInstructions` (both **required** `string | null` params — every caller must pass them explicitly, so a résumé-only or onboarding save can't silently null them).
 
-This task adds REQUIRED params to `upsertProfile` and updates BOTH callers in the same commit so the app keeps compiling.
+This task adds REQUIRED params to `upsertProfile`. Because the params are required, EVERY caller and the shared test fixture must be updated in the SAME commit or the app stops compiling. There are **three** callers — `saveProfile` (profile page, edits the real values), `saveProfileResume` (board modal, preserves), and `completeOnboarding` (onboarding, nulls) — plus the `upsertProfile` unit-test fixture. `tsconfig.json` includes `**/*.ts`, so `npm run typecheck` covers the test fixture too (only `node_modules`/`scripts` are excluded — that's why the `scripts/` gen/calibrate harnesses need no change).
 
 - [ ] **Step 1: Add the params to `upsertProfile` (type + INSERT + VALUES + SET)**
 
@@ -764,7 +766,45 @@ becomes (the modal doesn't edit these — preserve them so a résumé save never
   });
 ```
 
-- [ ] **Step 4: Verify it typechecks (proves every caller was updated)**
+- [ ] **Step 4: Null the fields in `completeOnboarding` (third caller)**
+
+In `dashboard/app/actions/onboarding.ts`, the `upsertProfile` call tail (lines 72-73):
+
+```ts
+      screeningAnswers: {},
+    });
+```
+
+becomes (onboarding sets nulls — these are edited later on /profile):
+
+```ts
+      screeningAnswers: {},
+      // Standing generation guidance is edited later on /profile — null at onboarding.
+      resumeGenerationInstructions: null,
+      coverLetterGenerationInstructions: null,
+    });
+```
+
+- [ ] **Step 5: Add the fields to the `upsertProfile` test fixture**
+
+`dashboard/lib/queries.upsertProfile.test.ts` builds a `data` literal (lines 21-29) passed to the real `upsertProfile`; it must satisfy the now-required param type (it IS typechecked — `**/*.ts`). The fixture tail reads:
+
+```ts
+  screeningAnswers: {}, modelCover: null,
+};
+```
+
+becomes:
+
+```ts
+  screeningAnswers: {}, modelCover: null,
+  resumeGenerationInstructions: null, coverLetterGenerationInstructions: null,
+};
+```
+
+(The other two `upsertProfile`-touching tests need no change: `profileResume.action.test.ts` derives its mock param type via `Parameters<typeof upsertProfile>[1]` and asserts per-field; `queries.test.ts` only references `upsertProfile` in a comment.)
+
+- [ ] **Step 6: Verify it typechecks (proves every caller + fixture was updated)**
 
 Run (from `dashboard/`):
 
@@ -774,20 +814,20 @@ npm run typecheck
 
 Expected: PASS. A missed caller would fail here with "property 'resumeGenerationInstructions' is missing".
 
-- [ ] **Step 5: Run the full test suite (regression check)**
+- [ ] **Step 7: Run the full test suite (regression check)**
 
 ```bash
 npm test
 ```
 
-Expected: PASS (no behavior change to existing suites).
+Expected: PASS (no behavior change to existing suites — the `upsertProfile` fixture change is type-only; the mocked `withUserSql` never runs the SQL).
 
-> Note on cap/blank testing: `saveProfile` reuses `normalizeInstructions`, whose blank→null and over-cap→error behavior is already covered by `dashboard/lib/rolefit/generationInstructions.test.ts`. No new server-action test is added (server actions are awkward to unit-test in isolation); the wiring here is a thin call verified by `typecheck` + the Task 8 smoke.
+> Note on cap/blank testing: `saveProfile` reuses `normalizeInstructions`, whose blank→null and over-cap→error behavior is already covered by `dashboard/lib/rolefit/generationInstructions.test.ts`. No new server-action test is added (server actions are awkward to unit-test in isolation); the field-name wiring is a thin call verified by `typecheck` + the Task 8 round-trip smoke (a `formData.get` name typo would surface there as a value that never persists).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add dashboard/lib/queries.ts dashboard/app/profile/page.tsx dashboard/app/actions/profile.ts
+git add dashboard/lib/queries.ts dashboard/app/profile/page.tsx dashboard/app/actions/profile.ts dashboard/app/actions/onboarding.ts dashboard/lib/queries.upsertProfile.test.ts
 git commit -m "feat(profile): persist generation instructions through all write paths"
 ```
 
@@ -864,14 +904,13 @@ npm run typecheck && npm run build
 
 Expected: PASS (both). `build` catches any JSX/RSC error the type check alone might miss.
 
-- [ ] **Step 3: Verify the card renders and round-trips (browser smoke)**
+- [ ] **Step 3: Verify the card renders (browser smoke — render-only)**
 
 Render `/profile` locally against the real prod DB using the dev auth shim (see the "Local authed-page dev shim" memory: dev-only auth shim + `DEV_USER_ID`, then drive with claude-in-chrome). Confirm:
 - The "Generation instructions" card appears below the reviewer "Instructions (focus / avoid)" field, with the two labeled textareas and the hint.
-- Type text into both, Save, reload — the text persists (round-trips through `upsertProfile`).
-- The reviewer "Instructions (focus / avoid)" field still shows its own separate value (the two are not conflated).
+- The reviewer "Instructions (focus / avoid)" field is still visibly separate (the two are not conflated).
 
-If the local shim isn't available in this environment, note that this step is verified in the Task 8 end-to-end smoke instead and proceed.
+**Do NOT test the Save round-trip here.** `upsertProfile` now names the two new columns, which do not exist in the DB until the migration is applied (Task 8 Step 2). Saving before then fails with Postgres `42703 undefined column` and surfaces as an inline "Save failed". Rendering is safe because `getProfile` uses `SELECT *`, so with the columns absent `profile?.resume_generation_instructions` is just `undefined ?? ""`. The persist/reload round-trip is verified in **Task 8 Step 3**, after the migration. If the shim isn't available here, defer this whole check to Task 8.
 
 - [ ] **Step 4: Commit**
 
@@ -1060,3 +1099,4 @@ Push the branch / open a PR per the normal flow (push-to-main auto-deploys all s
 - The **reviewer-only** `profiles.instructions` field (the "Instructions (focus / avoid)" textarea) is a DIFFERENT thing — leave it alone. The new card sits next to it but never merges with it.
 - `getProfile` uses `SELECT *`, so the new columns flow to `ProfileRow` with no query edit; only the TypeScript interface needs the fields (Task 2).
 - The per-job instruction machinery (`application_packages.*_instructions[_draft]`, the board Save button, `saveGenerationInstructions`) is untouched — profile-level instructions are ordinary profile fields saved by the profile page's own sticky Save bar.
+- **Accepted limitation — cover-letter golden-replay drift:** the cover-letter golden dataset (`dashboard/lib/rolefit/coverLetterScore.ts` `CoverLetterGoldenInput`, replayed by `scripts/calibrate-cover-letter-judge.ts`) captures the generation context to REPLAY `generateCoverLetter`, but it does NOT capture profile-level instructions (`coverLetterEdits.ts` doesn't record the new column). A cover letter edited under standing profile guidance replays WITHOUT that guidance — minor scoring drift. Out of scope for this feature; if profile-level instructions become common in goldens, capture `profileInstructions` in the golden input + replay path. No new drift on the résumé side (its golden input already omits even per-job instructions).

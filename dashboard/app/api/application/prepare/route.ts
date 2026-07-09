@@ -160,6 +160,7 @@ export async function POST(req: Request) {
       const { resume, traceId } = await generateResume({
         resumeText,
         instructions: resumeInstructions,
+        profileInstructions: profile.resume_generation_instructions,
         job: { title: job.title, company: job.company_name, description: job.description },
         model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
         apiKey,
@@ -203,6 +204,7 @@ export async function POST(req: Request) {
             resumeText,
             candidateName: profile.full_name ?? null,
             instructions: coverLetterInstructions,
+            profileInstructions: profile.cover_letter_generation_instructions,
             job: {
               title: job.title, company: job.company_name, description: job.description,
               about: job.about, requirements: job.requirements,

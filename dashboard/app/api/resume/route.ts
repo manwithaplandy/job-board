@@ -96,6 +96,7 @@ export async function POST(req: Request) {
         model: profile.model_resume ?? DEFAULT_RESUME_MODEL,
         apiKey,
         instructions,
+        profileInstructions: profile.resume_generation_instructions,
       });
 
       await upsertApplicationPackage(userId, jobId, {

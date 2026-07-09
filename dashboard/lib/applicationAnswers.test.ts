@@ -32,6 +32,8 @@ function fullProfile(): ProfileRow {
     eeo_disability: null,
     screening_answers: { notice_period: "2w", salary_expectation: null },
     model_cover: "mcv",
+    resume_generation_instructions: "rgi",
+    cover_letter_generation_instructions: "clgi",
     profile_version: "pv",
     updated_at: "2026-01-01",
   };

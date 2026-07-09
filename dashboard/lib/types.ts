@@ -167,6 +167,10 @@ export interface ProfileRow {
   eeo_disability: string | null;
   screening_answers: ScreeningAnswers;
   model_cover: string | null;
+  // Standing generation guidance, layered under the per-job boxes. Reviewer-
+  // independent — not part of profile_version.
+  resume_generation_instructions: string | null;
+  cover_letter_generation_instructions: string | null;
   profile_version: string;
   updated_at: string;
 }

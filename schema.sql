@@ -97,6 +97,10 @@ CREATE TABLE profiles (
   eeo_disability    TEXT,
   screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb,  -- { notice_period, salary_expectation, relocation, … }
   model_cover       TEXT,                     -- OpenRouter model id; NULL = default
+  -- Standing generation guidance, layered UNDER the per-job instruction boxes at
+  -- generate time. Reviewer-independent: NOT part of profile_version.
+  resume_generation_instructions       TEXT,
+  cover_letter_generation_instructions TEXT,
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- Optional per-user override of the env daily review cap (reviewer/config.py
@@ -636,6 +640,7 @@ GRANT INSERT (user_id, resume_text, resume_file_path, instructions, model_stage1
               company_profile_version, model_company, board_filters, full_name, email,
               phone, links, location, work_authorized, needs_sponsorship, eeo_gender,
               eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
+              resume_generation_instructions, cover_letter_generation_instructions,
               profile_version, updated_at)
   ON profiles TO authenticated;
 GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
@@ -643,6 +648,7 @@ GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
               company_profile_version, model_company, board_filters, full_name, email,
               phone, location, links, work_authorized, needs_sponsorship, eeo_gender,
               eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
+              resume_generation_instructions, cover_letter_generation_instructions,
               profile_version, updated_at)
   ON profiles TO authenticated;
 GRANT SELECT ON subscriptions TO authenticated;

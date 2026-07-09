@@ -104,6 +104,7 @@ export async function POST(req: Request) {
         resumeText: profile.resume_text!,
         candidateName: profile.full_name ?? null,
         instructions,
+        profileInstructions: profile.cover_letter_generation_instructions,
         job: {
           title: job.title,
           company: job.company_name,

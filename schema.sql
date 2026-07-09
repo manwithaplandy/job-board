@@ -101,6 +101,10 @@ CREATE TABLE profiles (
   -- medium/high are Pro-gated (dashboard/lib/entitlements.ts, TS-only).
   reasoning_effort_resume TEXT CHECK (reasoning_effort_resume IN ('low', 'medium', 'high')),
   reasoning_effort_cover  TEXT CHECK (reasoning_effort_cover  IN ('low', 'medium', 'high')),
+  -- Standing generation guidance, layered UNDER the per-job instruction boxes at
+  -- generate time. Reviewer-independent: NOT part of profile_version.
+  resume_generation_instructions       TEXT,
+  cover_letter_generation_instructions TEXT,
   profile_version  TEXT NOT NULL,            -- sha256(resume_text || '\0' || instructions)
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- Optional per-user override of the env daily review cap (reviewer/config.py
@@ -641,6 +645,7 @@ GRANT INSERT (user_id, resume_text, resume_file_path, instructions, model_stage1
               phone, links, location, work_authorized, needs_sponsorship, eeo_gender,
               eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
               reasoning_effort_resume, reasoning_effort_cover,
+              resume_generation_instructions, cover_letter_generation_instructions,
               profile_version, updated_at)
   ON profiles TO authenticated;
 GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
@@ -649,6 +654,7 @@ GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
               phone, location, links, work_authorized, needs_sponsorship, eeo_gender,
               eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
               reasoning_effort_resume, reasoning_effort_cover,
+              resume_generation_instructions, cover_letter_generation_instructions,
               profile_version, updated_at)
   ON profiles TO authenticated;
 GRANT SELECT ON subscriptions TO authenticated;

@@ -45,6 +45,9 @@ export function buildCoverLetterPrompt(args: {
   resumeText: string;
   candidateName: string | null;
   instructions: string | null;
+  // Optional PROFILE-LEVEL standing guidance applied to EVERY cover letter,
+  // rendered ABOVE the per-job focus block. Never licenses fabrication.
+  profileInstructions?: string | null;
   job: CoverLetterJob;
 }): { system: string; user: string } {
   const system =
@@ -91,6 +94,9 @@ export function buildCoverLetterPrompt(args: {
     ? `\nINTERNAL REVIEW NOTES (context only — never quote or apologize for these):\n` +
       args.job.redFlags.map((f) => `- ${f}`).join("\n") + "\n"
     : "";
+  const profileBlock = args.profileInstructions
+    ? `\nPROFILE-WIDE GENERATION GUIDANCE (standing instructions applied to every cover letter — honor it within the ground rules; it never licenses fabricating experience):\n${args.profileInstructions}\n`
+    : "";
   const focusBlock = args.instructions
     ? `\nCANDIDATE FOCUS / AVOID:\n${args.instructions}\n`
     : "";
@@ -103,6 +109,7 @@ export function buildCoverLetterPrompt(args: {
     `\nKEY REQUIREMENTS (assessed against the candidate's background — only claim those marked MET):\n${reqLines}\n` +
     gapsBlock +
     notesBlock +
+    profileBlock +
     focusBlock +
     `\nCANDIDATE RÉSUMÉ / BACKGROUND:\n${args.resumeText}`;
   return { system, user };

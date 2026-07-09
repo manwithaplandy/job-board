@@ -170,6 +170,10 @@ export interface ProfileRow {
   // Reasoning effort for generation ('low'|'medium'|'high'); NULL = off (default).
   reasoning_effort_resume: string | null;
   reasoning_effort_cover: string | null;
+  // Standing generation guidance, layered under the per-job boxes. Reviewer-
+  // independent — not part of profile_version.
+  resume_generation_instructions: string | null;
+  cover_letter_generation_instructions: string | null;
   profile_version: string;
   updated_at: string;
 }

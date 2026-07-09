@@ -57,6 +57,44 @@ describe("buildCoverLetterPrompt", () => {
   });
 });
 
+describe("buildCoverLetterPrompt — profile-level generation instructions", () => {
+  test("a profileInstructions arg renders a PROFILE-WIDE GENERATION GUIDANCE block", () => {
+    const { user } = buildCoverLetterPrompt({
+      resumeText: "Alex Morgan — Senior Engineer",
+      candidateName: "Alex Morgan",
+      instructions: null,
+      profileInstructions: "Warm but professional tone.",
+      job: JOB,
+    });
+    expect(user).toContain("PROFILE-WIDE GENERATION GUIDANCE");
+    expect(user).toContain("Warm but professional tone.");
+    // The profile block carries the anti-fabrication guardrail — lock its exact wording
+    // so a future edit can't silently drop the "no fabricating experience" bar.
+    expect(user).toContain("never licenses fabricating experience");
+  });
+
+  test("no profileInstructions → no profile block", () => {
+    const { user } = buildCoverLetterPrompt({
+      resumeText: "x", candidateName: null, instructions: null, job: JOB,
+    });
+    expect(user).not.toContain("PROFILE-WIDE GENERATION GUIDANCE");
+  });
+
+  test("profile-wide block renders ABOVE the per-job CANDIDATE FOCUS / AVOID block", () => {
+    const { user } = buildCoverLetterPrompt({
+      resumeText: "x",
+      candidateName: null,
+      instructions: "This-job focus.",
+      profileInstructions: "Standing guidance.",
+      job: JOB,
+    });
+    expect(user).toContain("PROFILE-WIDE GENERATION GUIDANCE");
+    expect(user).toContain("CANDIDATE FOCUS / AVOID");
+    expect(user.indexOf("PROFILE-WIDE GENERATION GUIDANCE"))
+      .toBeLessThan(user.indexOf("CANDIDATE FOCUS / AVOID"));
+  });
+});
+
 describe("COVER_LETTER_JSON_SCHEMA", () => {
   test("declares the required cover-letter fields", () => {
     const s = JSON.stringify(COVER_LETTER_JSON_SCHEMA);

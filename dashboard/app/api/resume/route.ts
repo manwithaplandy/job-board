@@ -113,6 +113,7 @@ export async function POST(req: Request) {
         reasoningEffort,
         apiKey,
         instructions,
+        profileInstructions: profile.resume_generation_instructions,
       });
 
       await upsertApplicationPackage(userId, jobId, {

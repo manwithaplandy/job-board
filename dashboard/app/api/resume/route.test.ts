@@ -311,3 +311,19 @@ describe("POST /api/resume — per-job instructions", () => {
     expect(mocks.reserveGenerations).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /api/resume — profile-level generation instructions (column binding)", () => {
+  // Cross-wiring guard: the résumé route must feed the RÉSUMÉ profile column into
+  // generateResume. Distinct sentinels on BOTH columns prove it isn't reading the
+  // cover column by mistake — a swap that would still typecheck and pass every other test.
+  test("passes profile.resume_generation_instructions (never the cover column) as profileInstructions", async () => {
+    mocks.getProfile.mockResolvedValue({
+      ...profileFixture(),
+      resume_generation_instructions: "RESUME-GEN-SENTINEL",
+      cover_letter_generation_instructions: "COVER-GEN-SENTINEL",
+    });
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    expect(mocks.generateResume.mock.calls[0][0].profileInstructions).toBe("RESUME-GEN-SENTINEL");
+  });
+});

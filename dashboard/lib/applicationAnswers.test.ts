@@ -34,6 +34,8 @@ function fullProfile(): ProfileRow {
     model_cover: "mcv",
     reasoning_effort_resume: "medium",
     reasoning_effort_cover: "high",
+    resume_generation_instructions: "rgi",
+    cover_letter_generation_instructions: "clgi",
     profile_version: "pv",
     updated_at: "2026-01-01",
   };

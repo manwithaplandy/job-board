@@ -50,6 +50,15 @@ describe("generateCoverLetter", () => {
     expect((call[1] as RequestInit).headers).toMatchObject({ Authorization: "Bearer sk-test" });
   });
 
+  test("threads profile-level generation instructions into the user prompt", async () => {
+    const f = fakeFetch({ choices: [{ message: { content: JSON.stringify(LETTER) } }] });
+    await generateCoverLetter({ ...args, fetchImpl: f, profileInstructions: "Warm but professional" });
+    const call = (f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.messages[1].content).toContain("PROFILE-WIDE GENERATION GUIDANCE");
+    expect(body.messages[1].content).toContain("Warm but professional");
+  });
+
   test("throws on non-ok response", async () => {
     await expect(generateCoverLetter({ ...args, fetchImpl: fakeFetch({}, false) })).rejects.toThrow();
   });

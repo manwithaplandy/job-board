@@ -237,6 +237,23 @@ describe("POST /api/cover-letter — per-job instructions", () => {
   });
 });
 
+describe("POST /api/cover-letter — profile-level generation instructions (column binding)", () => {
+  // Cross-wiring guard: the cover route must feed the COVER profile column into
+  // generateCoverLetter. Distinct sentinels on BOTH columns prove it isn't reading the
+  // résumé column by mistake — a swap that would still typecheck and pass every other test.
+  test("passes profile.cover_letter_generation_instructions (never the résumé column) as profileInstructions", async () => {
+    mocks.getProfile.mockResolvedValue({
+      resume_text: "resume", full_name: "Ada",
+      instructions: "REVIEWER-ONLY — must never reach generation", model_cover: null,
+      resume_generation_instructions: "RESUME-GEN-SENTINEL",
+      cover_letter_generation_instructions: "COVER-GEN-SENTINEL",
+    });
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    expect(mocks.generateCoverLetter.mock.calls[0][0].profileInstructions).toBe("COVER-GEN-SENTINEL");
+  });
+});
+
 describe("POST /api/cover-letter — background failure → refund + user-safe settled error", () => {
   const cases: [string, string][] = [
     ["response truncated", "cut off"],

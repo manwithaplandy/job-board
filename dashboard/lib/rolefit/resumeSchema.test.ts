@@ -163,6 +163,9 @@ describe("buildResumePrompt — profile-level generation instructions", () => {
     });
     expect(user).toContain("PROFILE-WIDE GENERATION GUIDANCE");
     expect(user).toContain("Keep it to one page; prefer metric-led bullets.");
+    // The profile block carries the anti-fabrication guardrail — lock its exact wording
+    // so a future edit can't silently drop the "no unsupported skills/experience" bar.
+    expect(user).toContain("never licenses adding unsupported skills or experience");
   });
 
   test("no profileInstructions → no profile block", () => {

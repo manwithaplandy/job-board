@@ -68,6 +68,9 @@ describe("buildCoverLetterPrompt — profile-level generation instructions", () 
     });
     expect(user).toContain("PROFILE-WIDE GENERATION GUIDANCE");
     expect(user).toContain("Warm but professional tone.");
+    // The profile block carries the anti-fabrication guardrail — lock its exact wording
+    // so a future edit can't silently drop the "no fabricating experience" bar.
+    expect(user).toContain("never licenses fabricating experience");
   });
 
   test("no profileInstructions → no profile block", () => {

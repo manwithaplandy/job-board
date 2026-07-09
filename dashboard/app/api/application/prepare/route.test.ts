@@ -425,3 +425,25 @@ describe("POST /api/application/prepare — persistence contract", () => {
     expect(pkg.profileVersion).toBe("pv-9");
   });
 });
+
+describe("POST /api/application/prepare — profile-level generation instructions (per-leg column binding)", () => {
+  // Cross-wiring guard for the route that runs BOTH legs: the résumé leg must be fed the
+  // RÉSUMÉ profile column and the cover leg the COVER column. Distinct sentinels on BOTH
+  // columns catch a swap (cover leg fed the résumé column, or vice-versa) that would still
+  // typecheck and pass every other test.
+  test("résumé leg gets the RÉSUMÉ column and the cover leg gets the COVER column (not swapped)", async () => {
+    mocks.getJobQuestion.mockResolvedValue(COVER_Q); // wantsCover → both legs run
+    mocks.getProfile.mockResolvedValue({
+      resume_text: "PROFILE résumé body",
+      full_name: "Ada Lovelace",
+      instructions: "REVIEWER-ONLY",
+      model_resume: null, model_cover: null, profile_version: "pv-9",
+      resume_generation_instructions: "RESUME-GEN-SENTINEL",
+      cover_letter_generation_instructions: "COVER-GEN-SENTINEL",
+    });
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    expect(mocks.generateResume.mock.calls[0][0].profileInstructions).toBe("RESUME-GEN-SENTINEL");
+    expect(mocks.generateCoverLetter.mock.calls[0][0].profileInstructions).toBe("COVER-GEN-SENTINEL");
+  });
+});

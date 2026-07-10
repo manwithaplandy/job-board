@@ -31,3 +31,12 @@ All commands ran from `dashboard` with `NODE_OPTIONS='--max-old-space-size=4096 
 ## Concerns
 
 None specific to this change. The repository-wide lint warnings remain unchanged and are outside Task 10 scope.
+
+## Follow-up: 44px interactive targets
+
+- Added target-size tests before production changes. The red run failed for both the theme options and danger-zone controls because `minHeight` was absent.
+- Every Appearance option now has an explicit 44px minimum target, border-box sizing, and centered inline-flex alignment.
+- DangerZone's export link, confirmation input, and delete button now have an explicit 44px minimum target and border-box sizing; link/button alignment is preserved with inline-flex.
+- Focused account/appearance/account-domain verification: 6 files, 46 tests passed.
+- Typecheck passed.
+- Lint passed with the same 9 pre-existing warnings and 0 errors.

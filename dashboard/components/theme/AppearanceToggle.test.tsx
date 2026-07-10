@@ -57,4 +57,15 @@ describe("AppearanceToggle", () => {
     expect(selected.classList.contains("rf-focusable")).toBe(true);
     expect(selected.style.boxShadow).toBe("");
   });
+
+  test("gives every theme option a 44px interactive target", () => {
+    mockMatchMedia(false);
+    renderToggle();
+
+    for (const option of screen.getAllByRole("radio")) {
+      expect(option.style.minHeight).toBe("44px");
+      expect(option.style.boxSizing).toBe("border-box");
+      expect(option.style.alignItems).toBe("center");
+    }
+  });
 });

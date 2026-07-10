@@ -21,13 +21,15 @@ const hintStyle: React.CSSProperties = {
   fontSize: "12px", color: "var(--text-secondary)", margin: "2px 0 10px", lineHeight: 1.5,
 };
 const linkBtnStyle: React.CSSProperties = {
-  display: "inline-block", border: "1px solid var(--border-strong)", background: "var(--bg-surface)",
+  display: "inline-flex", alignItems: "center", minHeight: "44px", boxSizing: "border-box",
+  border: "1px solid var(--border-strong)", background: "var(--bg-surface)",
   borderRadius: "10px", padding: "9px 16px", fontSize: "13px", fontWeight: 600,
   color: "var(--text-primary)", textDecoration: "none",
 };
 const inputStyle: React.CSSProperties = {
   border: "1px solid var(--danger-border)", borderRadius: "10px", padding: "9px 12px",
   fontSize: "13px", fontFamily: "inherit", width: "220px", maxWidth: "100%",
+  minHeight: "44px", boxSizing: "border-box",
 };
 
 export function DangerZone() {
@@ -65,6 +67,8 @@ export function DangerZone() {
           <SubmitButton
             pendingLabel="Deleting…"
             style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              minHeight: "44px", boxSizing: "border-box",
               borderRadius: "10px", padding: "9px 16px", fontSize: "13px",
               background: "var(--danger)", boxShadow: "0 3px 10px rgba(178,59,59,.22)",
             }}

@@ -48,7 +48,9 @@ export function AppearanceToggle() {
             ref={(el) => { btnRefs.current[i] = el; }}
             tabIndex={checked ? 0 : -1} onClick={() => setChoice(o.value)}
             onKeyDown={(e) => onKey(e, i)}
-            style={{ ...swatch(o.value, resolvedDark), padding: "9px 18px", borderRadius: 8,
+            style={{ ...swatch(o.value, resolvedDark), display: "inline-flex", alignItems: "center",
+                     justifyContent: "center", minHeight: 44, boxSizing: "border-box",
+                     padding: "9px 18px", borderRadius: 8,
                      fontSize: 12, fontWeight: 600, cursor: "pointer",
                      ...(checked ? {
                        background: "var(--accent-bg)",

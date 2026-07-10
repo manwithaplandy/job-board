@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 // résumé textarea (`textareaId`) for the user to review before saving — resume_text
 // is the source of truth, the uploaded file is archival. The real <input> stays a
 // form field (visually hidden, name="resume_pdf") so `saveProfile` still archives it
-// and the ProfileFormShell dirty-check (name:size) is unchanged; only the trigger is
+// and the form's file dirty-check (name:size) is unchanged; only the trigger is
 // a styled Button, matching the board's résumé upload UX.
 interface ResumeUploadFieldProps {
   textareaId: string;

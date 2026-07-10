@@ -44,12 +44,16 @@ export function AppearanceToggle() {
         const checked = choice === o.value;
         return (
           <button key={o.value} type="button" role="radio" aria-checked={checked}
+            className="rf-focusable"
             ref={(el) => { btnRefs.current[i] = el; }}
             tabIndex={checked ? 0 : -1} onClick={() => setChoice(o.value)}
             onKeyDown={(e) => onKey(e, i)}
             style={{ ...swatch(o.value, resolvedDark), padding: "9px 18px", borderRadius: 8,
                      fontSize: 12, fontWeight: 600, cursor: "pointer",
-                     boxShadow: checked ? "0 0 0 2px var(--focus-ring)" : "none" }}>
+                     ...(checked ? {
+                       background: "var(--accent-bg)",
+                       border: "1px solid var(--accent-border)",
+                     } : {}) }}>
             {o.label}
           </button>
         );

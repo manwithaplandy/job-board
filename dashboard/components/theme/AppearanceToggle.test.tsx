@@ -45,4 +45,16 @@ describe("AppearanceToggle", () => {
     expect(light.getAttribute("aria-checked")).toBe("true");
     expect(document.activeElement).toBe(light);
   });
+
+  test("keeps selected styling distinct from the shared keyboard focus treatment", () => {
+    mockMatchMedia(false);
+    renderToggle();
+    const selected = screen.getByRole("radio", { name: /system/i });
+
+    expect(selected.getAttribute("aria-checked")).toBe("true");
+    expect(selected.style.background).toBe("var(--accent-bg)");
+    expect(selected.style.border).toBe("1px solid var(--accent-border)");
+    expect(selected.classList.contains("rf-focusable")).toBe(true);
+    expect(selected.style.boxShadow).toBe("");
+  });
 });

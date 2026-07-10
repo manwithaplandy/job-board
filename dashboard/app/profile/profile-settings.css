@@ -21,7 +21,14 @@
   font-weight: 700;
   text-decoration: none;
 }
-.settings-nav a { padding: 9px 12px; border-radius: 9px; }
+.settings-nav-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border-radius: 9px;
+}
 .settings-nav a[aria-current="page"] { color: var(--text-primary); background: var(--accent-bg); }
 .settings-nav a:focus-visible, .settings-card-action:focus-visible, .section-actions button:focus-visible,
 .settings-field :is(input, textarea, select):focus-visible {
@@ -44,7 +51,7 @@
 .settings-card-status { color: var(--text-secondary); font-size: 12px; font-weight: 700; }
 .settings-card-summary { margin: 14px 0 4px; color: var(--text-primary); font-weight: 700; }
 .settings-card-explanation { margin: 0 0 18px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
-.settings-card-action { margin-top: auto; }
+.settings-card-action { display: inline-flex; align-items: center; min-height: 44px; margin-top: auto; }
 
 .settings-field { display: flex; flex-direction: column; min-width: 0; }
 .settings-field label { margin-bottom: 7px; color: var(--text-primary); font-size: 13px; font-weight: 700; }
@@ -66,7 +73,7 @@
 .section-error-summary ul { margin: 8px 0 0; padding-left: 20px; }
 .section-error-summary a { color: inherit; }
 .section-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
-.section-actions button { border-radius: 10px; padding: 10px 14px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.section-actions button { min-height: 44px; border-radius: 10px; padding: 10px 14px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .section-actions button:disabled { cursor: default; opacity: .55; }
 .section-cancel { border: 1px solid var(--border); color: var(--text-primary); background: var(--bg-surface); }
 .section-save { border: 1px solid var(--accent); color: var(--text-on-accent); background: var(--accent); }

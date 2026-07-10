@@ -4,6 +4,7 @@ import {
   createContext,
   type ReactNode,
   useActionState,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -22,9 +23,13 @@ export interface SectionFormShellProps {
 
 interface SectionFormContextValue {
   fieldErrors: Record<string, string>;
+  registerField: (name: string, id: string) => () => void;
 }
 
-const SectionFormContext = createContext<SectionFormContextValue>({ fieldErrors: {} });
+const SectionFormContext = createContext<SectionFormContextValue>({
+  fieldErrors: {},
+  registerField: () => () => {},
+});
 
 export function useSectionFormContext(): SectionFormContextValue {
   return useContext(SectionFormContext);
@@ -43,26 +48,92 @@ function serializeForm(form: HTMLFormElement): string {
   return serializeFormData(new FormData(form));
 }
 
+function updateResetBaseline(form: HTMLFormElement, submitted: FormData) {
+  const values = new Map<string, FormDataEntryValue[]>();
+  for (const [name, value] of submitted.entries()) {
+    const entries = values.get(name) ?? [];
+    entries.push(value);
+    values.set(name, entries);
+  }
+  for (const control of Array.from(form.elements)) {
+    if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement)) continue;
+    const submittedValues = values.get(control.name) ?? [];
+    const strings = submittedValues.filter((value): value is string => typeof value === "string");
+    if (control instanceof HTMLInputElement) {
+      if (control.type === "checkbox" || control.type === "radio") control.defaultChecked = strings.includes(control.value);
+      else if (control.type !== "file") control.defaultValue = strings[0] ?? "";
+    } else if (control instanceof HTMLTextAreaElement) {
+      control.defaultValue = strings[0] ?? "";
+    } else {
+      for (const option of Array.from(control.options)) option.defaultSelected = strings.includes(option.value);
+    }
+  }
+}
+
+function restoreSubmittedValues(form: HTMLFormElement, submitted: FormData) {
+  updateResetBaseline(form, submitted);
+  for (const control of Array.from(form.elements)) {
+    if (control instanceof HTMLInputElement) {
+      if (control.type === "checkbox" || control.type === "radio") control.checked = control.defaultChecked;
+      else if (control.type === "file") control.value = "";
+      else control.value = control.defaultValue;
+    } else if (control instanceof HTMLTextAreaElement) {
+      control.value = control.defaultValue;
+    } else if (control instanceof HTMLSelectElement) {
+      for (const option of Array.from(control.options)) option.selected = option.defaultSelected;
+    }
+  }
+}
+
+function copyFormData(source: FormData): FormData {
+  const copy = new FormData();
+  for (const [name, value] of source.entries()) copy.append(name, value);
+  return copy;
+}
+
 function isPlainSameOriginClick(event: MouseEvent, anchor: HTMLAnchorElement): boolean {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
   if (anchor.target && anchor.target !== "_self") return false;
+  if (anchor.hasAttribute("download")) return false;
   const destination = new URL(anchor.href, window.location.href);
-  return destination.origin === window.location.origin;
+  if (destination.origin !== window.location.origin) return false;
+  const current = new URL(window.location.href);
+  return destination.pathname !== current.pathname || destination.search !== current.search;
 }
 
 export function SectionFormShell({ action, submitLabel, children }: SectionFormShellProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const pristineRef = useRef<string | null>(null);
+  const savedValuesRef = useRef<FormData | null>(null);
+  const [fieldIds, setFieldIds] = useState(() => new Map<string, string>());
   const [dirty, setDirty] = useState(false);
   const [state, formAction, pending] = useActionState(async (previous: SectionSaveState, formData: FormData) => {
     const next = await action(previous, formData);
     if (next.status === "success") {
-      pristineRef.current = serializeFormData(formData);
-      setDirty(false);
+      const savedSnapshot = serializeFormData(formData);
+      const form = formRef.current;
+      if (form) updateResetBaseline(form, formData);
+      savedValuesRef.current = copyFormData(formData);
+      pristineRef.current = savedSnapshot;
+      setDirty(form ? serializeForm(form) !== savedSnapshot : false);
     }
     return next;
   }, INITIAL_SECTION_SAVE_STATE);
   const fieldErrors = state.status === "error" ? state.fieldErrors : {};
+  const registerField = useCallback((name: string, id: string) => {
+    setFieldIds((current) => {
+      if (current.get(name) === id) return current;
+      const next = new Map(current);
+      next.set(name, id);
+      return next;
+    });
+    return () => setFieldIds((current) => {
+      if (current.get(name) !== id) return current;
+      const next = new Map(current);
+      next.delete(name);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const form = formRef.current;
@@ -85,9 +156,9 @@ export function SectionFormShell({ action, submitLabel, children }: SectionFormS
     if (!form) return;
     if (state.status === "error") {
       const firstId = Object.keys(state.fieldErrors)[0];
-      if (firstId) document.getElementById(firstId)?.focus();
+      if (firstId) document.getElementById(fieldIds.get(firstId) ?? firstId)?.focus();
     }
-  }, [state]);
+  }, [fieldIds, state]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -108,20 +179,24 @@ export function SectionFormShell({ action, submitLabel, children }: SectionFormS
   }, [dirty]);
 
   const cancel = () => {
-    formRef.current?.reset();
+    const form = formRef.current;
+    if (!form) return;
+    if (savedValuesRef.current) restoreSubmittedValues(form, savedValuesRef.current);
+    else form.reset();
+    pristineRef.current = serializeForm(form);
     setDirty(false);
   };
 
   return (
-    <SectionFormContext.Provider value={{ fieldErrors }}>
+    <SectionFormContext.Provider value={{ fieldErrors, registerField }}>
       <form ref={formRef} action={formAction} noValidate>
         {state.status === "error" && (
           <div className="section-error-summary" role="alert" aria-labelledby="section-error-title">
             <p id="section-error-title">{state.message}</p>
             {Object.entries(state.fieldErrors).length > 0 && (
               <ul>
-                {Object.entries(state.fieldErrors).map(([id, message]) => (
-                  <li key={id}><a href={`#${id}`}>{message}</a></li>
+                {Object.entries(state.fieldErrors).map(([name, message]) => (
+                  <li key={name}><a href={`#${fieldIds.get(name) ?? name}`}>{message}</a></li>
                 ))}
               </ul>
             )}

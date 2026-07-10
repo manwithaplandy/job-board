@@ -18,7 +18,7 @@ export function SettingsNav() {
   return (
     <nav className="settings-nav" aria-label="Profile settings">
       {PROFILE_LINKS.map(([label, href]) => (
-        <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}>{label}</Link>
+        <Link className="settings-nav-link" key={href} href={href} aria-current={pathname === href ? "page" : undefined}>{label}</Link>
       ))}
     </nav>
   );

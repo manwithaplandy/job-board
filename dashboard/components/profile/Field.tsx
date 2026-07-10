@@ -1,6 +1,6 @@
 "use client";
 
-import { cloneElement, type ReactElement } from "react";
+import { cloneElement, type ReactElement, useEffect } from "react";
 import { useSectionFormContext } from "./SectionFormShell";
 
 interface FieldProps {
@@ -13,7 +13,8 @@ interface FieldProps {
 }
 
 export function Field({ id, name, label, description, required, children }: FieldProps) {
-  const { fieldErrors } = useSectionFormContext();
+  const { fieldErrors, registerField } = useSectionFormContext();
+  useEffect(() => registerField(name, id), [id, name, registerField]);
   const error = fieldErrors[name];
   const describedBy = [description ? `${id}-description` : null, error ? `${id}-error` : null]
     .filter(Boolean).join(" ") || undefined;

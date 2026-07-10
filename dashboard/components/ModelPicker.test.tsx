@@ -48,4 +48,25 @@ describe("ModelPicker", () => {
     expect(onInput).toHaveBeenCalledTimes(1);
     expect(onInput.mock.calls[0][0].target).toBe(hidden);
   });
+
+  test("clears a saved selection and dispatches one bubbling input event from the hidden field", () => {
+    const onInput = vi.fn();
+    const { container } = render(
+      <form onInput={onInput}>
+        <ModelPicker label="Résumé model" name="model_resume" models={models}
+          curated={models.map((model) => model.id)} defaultValue="openai/example"
+          placeholder="Example" />
+      </form>,
+    );
+    const hidden = container.querySelector<HTMLInputElement>('input[name="model_resume"]')!;
+    expect(hidden.value).toBe("openai/example");
+    expect(onInput).not.toHaveBeenCalled();
+
+    fireEvent.focus(screen.getByRole("combobox"));
+    fireEvent.click(screen.getByRole("button", { name: "Clear model (use default)" }));
+
+    expect(hidden.value).toBe("");
+    expect(onInput).toHaveBeenCalledTimes(1);
+    expect(onInput.mock.calls[0][0].target).toBe(hidden);
+  });
 });

@@ -38,12 +38,16 @@ export function ModelPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, open]);
 
-  const choose = (m: ORModel) => {
+  const commitSelection = (value: string) => {
     if (hiddenRef.current) {
-      hiddenRef.current.value = m.id;
+      hiddenRef.current.value = value;
       hiddenRef.current.dispatchEvent(new Event("input", { bubbles: true }));
     }
-    setSelected(m.id);
+    setSelected(value);
+  };
+
+  const choose = (m: ORModel) => {
+    commitSelection(m.id);
     setQuery("");
     setOpen(false);
     setActiveIndex(-1);
@@ -158,7 +162,7 @@ export function ModelPicker({
               fontSize: "inherit",
               lineHeight: "inherit",
             }}
-            onClick={() => setSelected("")}
+            onClick={() => commitSelection("")}
           >
             ×
           </button>

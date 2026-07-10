@@ -138,6 +138,25 @@ describe("shared settings primitives", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled).toBe(true);
   });
 
+  test("reports restored and successfully submitted baselines to controlled consumers", async () => {
+    const onReset = vi.fn();
+    const onSaved = vi.fn();
+    const action = async (): Promise<SectionSaveState> => ({ status: "success", savedAt: "2026-07-10T12:00:00Z" });
+    render(
+      <SectionFormShell action={action} submitLabel="Save" onReset={onReset} onSaved={onSaved}>
+        <Field id="name" name="name" label="Name"><input defaultValue="Andrew" /></Field>
+      </SectionFormShell>,
+    );
+    const input = screen.getByLabelText<HTMLInputElement>("Name");
+    fireEvent.input(input, { target: { value: "Andy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onReset.mock.calls[0][0].get("name")).toBe("Andrew");
+    fireEvent.input(input, { target: { value: "Andy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Changes saved");
+    expect(onSaved.mock.calls[0][0].get("name")).toBe("Andy");
+  });
+
   test("guards dirty same-origin link navigation but leaves external and modified clicks alone", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const stopNavigation = (event: MouseEvent) => event.preventDefault();

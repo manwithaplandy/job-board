@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ProfileRow } from "@/lib/types";
 import { ResumeSettingsForm } from "./ResumeSettingsForm";
 
-vi.mock("@/app/actions/profileSettings", () => ({ saveResumeSettings: vi.fn() }));
+const mocks = vi.hoisted(() => ({ saveResumeSettings: vi.fn() }));
+vi.mock("@/app/actions/profileSettings", () => ({ saveResumeSettings: mocks.saveResumeSettings }));
+
+beforeEach(() => {
+  mocks.saveResumeSettings.mockResolvedValue({ status: "success", savedAt: "2026-07-10T12:00:00Z" });
+});
 
 afterEach(() => {
   cleanup();
@@ -54,5 +59,47 @@ describe("ResumeSettingsForm", () => {
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("Replace your unsaved résumé edits with the extracted PDF text?"));
     expect((screen.getByRole("textbox", { name: /reviewed résumé text/i }) as HTMLTextAreaElement).value).toBe("Unsaved edit");
+  });
+
+  test("Cancel restores an expanded controlled editor to its saved baseline", async () => {
+    render(<ResumeSettingsForm profile={profile} />);
+    fireEvent.click(screen.getByRole("button", { name: /review extracted text/i }));
+    const editor = screen.getByRole<HTMLInputElement>("textbox", { name: /reviewed résumé text/i });
+    fireEvent.change(editor, { target: { value: "Discard me" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(editor.value).toBe("Reviewed experience"));
+  });
+
+  test("Cancel while collapsed discards the edit from both hidden and reopened controls", async () => {
+    const { container } = render(<ResumeSettingsForm profile={profile} />);
+    fireEvent.click(screen.getByRole("button", { name: /review extracted text/i }));
+    fireEvent.change(screen.getByRole("textbox", { name: /reviewed résumé text/i }), { target: { value: "Discard me" } });
+    fireEvent.click(screen.getByRole("button", { name: /hide reviewed text/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect((container.querySelector('input[name="resume_text"]') as HTMLInputElement).value).toBe("Reviewed experience"));
+    fireEvent.click(screen.getByRole("button", { name: /review extracted text/i }));
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: /reviewed résumé text/i }).value).toBe("Reviewed experience");
+  });
+
+  test("successful save advances the extraction-confirmation baseline, while later edits still prompt", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ markdown: "Uploaded text" }), { status: 200 }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { container } = render(<ResumeSettingsForm profile={profile} />);
+    fireEvent.click(screen.getByRole("button", { name: /review extracted text/i }));
+    const editor = screen.getByRole<HTMLInputElement>("textbox", { name: /reviewed résumé text/i });
+    fireEvent.change(editor, { target: { value: "New saved baseline" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save résumé" }));
+    await screen.findByText("Changes saved");
+
+    const upload = (name: string) => fireEvent.change(container.querySelector('input[name="resume_pdf"]')!, {
+      target: { files: [new File(["pdf"], name, { type: "application/pdf" })] },
+    });
+    upload("first.pdf");
+    await screen.findByText(/extracted — review/i);
+    expect(confirm).not.toHaveBeenCalled();
+
+    fireEvent.change(editor, { target: { value: "Another unsaved edit" } });
+    upload("second.pdf");
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("Replace your unsaved résumé edits with the extracted PDF text?"));
   });
 });

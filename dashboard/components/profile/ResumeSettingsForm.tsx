@@ -9,11 +9,23 @@ import { SectionFormShell } from "./SectionFormShell";
 export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
   const initialText = profile.resume_text ?? "";
   const [resumeText, setResumeText] = useState(initialText);
+  const [savedResumeText, setSavedResumeText] = useState(initialText);
   const [reviewing, setReviewing] = useState(false);
   const archiveName = profile.resume_file_path?.split("/").filter(Boolean).at(-1);
 
   return (
-    <SectionFormShell action={saveResumeSettings} submitLabel="Save résumé">
+    <SectionFormShell
+      action={saveResumeSettings}
+      submitLabel="Save résumé"
+      onReset={(values) => {
+        const restored = values.get("resume_text");
+        if (typeof restored === "string") setResumeText(restored);
+      }}
+      onSaved={(values) => {
+        const saved = values.get("resume_text");
+        if (typeof saved === "string") setSavedResumeText(saved);
+      }}
+    >
       <section aria-labelledby="resume-summary-heading" className="settings-card">
         <h2 id="resume-summary-heading">Reviewed résumé text powers matching</h2>
         <p>Rolefit uses the reviewed text below for matching and application writing. The PDF is kept only as an archive.</p>
@@ -27,7 +39,7 @@ export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
         <h2 id="resume-upload-heading">Upload or replace PDF archive</h2>
         <ResumeUploadField
           textareaId="resume_text"
-          hasUnsavedText={resumeText !== initialText}
+          hasUnsavedText={resumeText !== savedResumeText}
           onExtracted={(markdown) => setResumeText(markdown)}
         />
       </section>

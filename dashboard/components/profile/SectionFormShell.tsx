@@ -19,6 +19,8 @@ export interface SectionFormShellProps {
   action: (state: SectionSaveState, formData: FormData) => Promise<SectionSaveState>;
   submitLabel: string;
   children: ReactNode;
+  onReset?: (values: FormData) => void;
+  onSaved?: (values: FormData) => void;
 }
 
 interface SectionFormContextValue {
@@ -112,9 +114,10 @@ function isPlainSameOriginClick(event: MouseEvent, anchor: HTMLAnchorElement): b
   return destination.pathname !== current.pathname || destination.search !== current.search;
 }
 
-export function SectionFormShell({ action, submitLabel, children }: SectionFormShellProps) {
+export function SectionFormShell({ action, submitLabel, children, onReset, onSaved }: SectionFormShellProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const pristineRef = useRef<string | null>(null);
+  const initialValuesRef = useRef<FormData | null>(null);
   const savedValuesRef = useRef<FormData | null>(null);
   const [fieldIds, setFieldIds] = useState(() => new Map<string, string>());
   const [dirty, setDirty] = useState(false);
@@ -127,6 +130,7 @@ export function SectionFormShell({ action, submitLabel, children }: SectionFormS
       savedValuesRef.current = copyFormData(formData);
       pristineRef.current = savedSnapshot;
       setDirty(form ? serializeForm(form) !== savedSnapshot : false);
+      onSaved?.(copyFormData(formData));
     }
     return next;
   }, INITIAL_SECTION_SAVE_STATE);
@@ -149,7 +153,10 @@ export function SectionFormShell({ action, submitLabel, children }: SectionFormS
   useEffect(() => {
     const form = formRef.current;
     if (!form) return;
-    if (pristineRef.current === null) pristineRef.current = serializeForm(form);
+    if (pristineRef.current === null) {
+      pristineRef.current = serializeForm(form);
+      initialValuesRef.current = new FormData(form);
+    }
     const updateDirty = () => {
       const snapshot = pristineRef.current;
       if (snapshot !== null) setDirty(serializeForm(form) !== snapshot);
@@ -192,8 +199,10 @@ export function SectionFormShell({ action, submitLabel, children }: SectionFormS
   const cancel = () => {
     const form = formRef.current;
     if (!form) return;
-    if (savedValuesRef.current) restoreSubmittedValues(form, savedValuesRef.current);
+    const baseline = savedValuesRef.current ?? initialValuesRef.current;
+    if (baseline) restoreSubmittedValues(form, baseline);
     else form.reset();
+    onReset?.(new FormData(form));
     pristineRef.current = serializeForm(form);
     setDirty(false);
   };

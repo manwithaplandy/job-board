@@ -5,6 +5,7 @@ import { filterModels, type ORModel } from "@/lib/openrouter";
 
 export function ModelPicker({
   label, name, models, curated, defaultValue, placeholder, hint,
+  id, ariaInvalid, ariaDescribedBy,
 }: {
   label: string;
   name: string;
@@ -13,6 +14,9 @@ export function ModelPicker({
   defaultValue: string | null;
   placeholder: string;
   hint?: string;
+  id?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
 }) {
   const [selected, setSelected] = useState(defaultValue ?? "");
   const [query, setQuery] = useState("");
@@ -21,8 +25,9 @@ export function ModelPicker({
   // change so it can never point past the freshly filtered list.
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+  const hiddenRef = useRef<HTMLInputElement>(null);
   const results = filterModels(models, curated, query).slice(0, 50);
-  const inputId = `model-picker-${name}`;
+  const inputId = id ?? `model-picker-${name}`;
   const listboxId = `${inputId}-listbox`;
   const optionId = (i: number) => `${inputId}-opt-${i}`;
 
@@ -34,6 +39,10 @@ export function ModelPicker({
   }, [activeIndex, open]);
 
   const choose = (m: ORModel) => {
+    if (hiddenRef.current) {
+      hiddenRef.current.value = m.id;
+      hiddenRef.current.dispatchEvent(new Event("input", { bubbles: true }));
+    }
     setSelected(m.id);
     setQuery("");
     setOpen(false);
@@ -86,7 +95,7 @@ export function ModelPicker({
       {hint && (
         <span style={{ fontSize: "11.5px", fontWeight: 500, color: "var(--text-secondary)", marginTop: "3px" }}>{hint}</span>
       )}
-      <input type="hidden" name={name} value={selected} />
+      <input ref={hiddenRef} type="hidden" name={name} value={selected} />
       <input
         id={inputId}
         type="text"
@@ -95,8 +104,10 @@ export function ModelPicker({
         // Only reference the listbox while it's actually rendered (open with results) —
         // aria-controls/activedescendant pointing at an absent element confuses AT.
         aria-controls={open && results.length > 0 ? listboxId : undefined}
-        aria-expanded={open && results.length > 0}
+        aria-expanded={open}
         aria-autocomplete="list"
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         style={{
           marginTop: "8px",
@@ -168,32 +179,38 @@ export function ModelPicker({
           boxShadow: "0 8px 24px rgba(15,22,35,.1)",
         }}>
           {results.map((m, idx) => (
-            <li key={m.id} id={optionId(idx)} role="option" aria-selected={m.id === selected}>
-              <button
-                type="button"
-                tabIndex={-1}
-                className="rf-picker-option"
-                style={{
-                  display: "block",
-                  width: "100%",
-                  padding: "8px 12px",
-                  textAlign: "left",
-                  border: "none",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  fontSize: "inherit",
-                  lineHeight: "inherit",
-                  color: "inherit",
-                  background: idx === activeIndex ? "var(--accent-bg)" : undefined,
-                }}
-                onClick={() => choose(m)}
-              >
-                <span style={{ color: "var(--text-primary)" }}>{m.name}</span>{" "}
-                <span style={{ color: "var(--text-secondary)" }}>{m.id}</span>
-              </button>
+            <li
+              key={m.id}
+              id={optionId(idx)}
+              role="option"
+              aria-selected={m.id === selected}
+              className="rf-picker-option"
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "8px 12px",
+                boxSizing: "border-box",
+                cursor: "pointer",
+                color: "inherit",
+                background: idx === activeIndex ? "var(--accent-bg)" : undefined,
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                choose(m);
+              }}
+            >
+              <span style={{ color: "var(--text-primary)" }}>{m.name}</span>{" "}
+              <span style={{ color: "var(--text-secondary)" }}>{m.id}</span>
             </li>
           ))}
         </ul>
+      )}
+      {open && (
+        <span role="status" aria-live="polite" className="sr-only">
+          {results.length === 0
+            ? "No matching models"
+            : `${results.length} matching model${results.length === 1 ? "" : "s"}`}
+        </span>
       )}
     </div>
   );

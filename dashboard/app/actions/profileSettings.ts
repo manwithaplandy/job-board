@@ -157,7 +157,7 @@ export async function saveAdvancedAiSettings(
       reasoningEffortResume: resumeEffort.value,
       reasoningEffortCover: coverEffort.value,
     });
-    revalidate("/profile", "/profile/advanced-ai");
+    revalidate("/profile", "/profile/advanced");
     return success();
   } catch (error) {
     return failure(error);

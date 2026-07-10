@@ -28,10 +28,10 @@ describe("ProfileHub", () => {
     const articles = screen.getAllByRole("article");
     expect(articles).toHaveLength(4);
     expect(articles.map((article) => article.querySelector("h2")?.textContent)).toEqual([
-      "Job preferences",
-      "Résumé & experience",
-      "Application details",
-      "Application personalization",
+      "Job Preferences",
+      "Résumé & Experience",
+      "Application Details",
+      "Application Personalization",
     ]);
 
     expect(container.querySelector("form")).toBeNull();

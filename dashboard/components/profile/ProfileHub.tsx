@@ -18,7 +18,7 @@ export function ProfileHub({ readiness }: ProfileHubProps) {
 
       <div className="settings-card-grid">
         <SettingsSectionCard
-          title="Job preferences"
+          title="Job Preferences"
           status={readiness.jobPreferences.status}
           summary={readiness.jobPreferences.summary}
           explanation="Rolefit uses these preferences to find and prioritize matching jobs."
@@ -27,7 +27,7 @@ export function ProfileHub({ readiness }: ProfileHubProps) {
           priority="primary"
         />
         <SettingsSectionCard
-          title="Résumé & experience"
+          title="Résumé & Experience"
           status={readiness.resume.status}
           summary={readiness.resume.summary}
           explanation="Your résumé supports job matching and tailored application materials."
@@ -36,7 +36,7 @@ export function ProfileHub({ readiness }: ProfileHubProps) {
           priority="primary"
         />
         <SettingsSectionCard
-          title="Application details"
+          title="Application Details"
           status={readiness.applicationDetails.status}
           summary={readiness.applicationDetails.summary}
           explanation="Saved details make application preparation faster and more consistent."
@@ -45,7 +45,7 @@ export function ProfileHub({ readiness }: ProfileHubProps) {
           priority="primary"
         />
         <SettingsSectionCard
-          title="Application personalization"
+          title="Application Personalization"
           status={readiness.personalization.status}
           summary={readiness.personalization.summary}
           explanation="Writing preferences guide generated résumés and cover letters."

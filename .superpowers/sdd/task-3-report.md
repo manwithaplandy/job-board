@@ -94,3 +94,63 @@ Tests  1098 passed | 6 skipped (1104)
 ## Concerns
 
 None.
+
+## Review fix: cleanup error observability
+
+### Finding addressed
+
+The résumé rollback path awaited `storage.remove([path])` but did not inspect a resolved
+`{ error }` result. Supabase can report removal failure this way without rejecting, so
+the action could silently leave an orphaned archival PDF after the profile update failed.
+
+### RED
+
+Added a regression where upload succeeds, `updateResumeSource` rejects with an internal
+database error, and `remove` resolves with `{ error: new Error("storage host secret") }`.
+The test requires both the cleanup error and original database error to be observed via
+their safe-error contexts, while the returned state remains the generic original save
+failure.
+
+Ran:
+
+```text
+cd dashboard
+NODE_OPTIONS=--no-experimental-webstorage npx vitest run app/actions/profileSettings.test.ts
+```
+
+Observed exit code 1:
+
+```text
+Test Files  1 failed (1)
+Tests  1 failed | 11 passed (12)
+expected console.error to be called with [profile.resume-cleanup]
+Received only [profile.section-save] with the original DB error
+```
+
+### GREEN and implementation
+
+The rollback now explicitly destructures the removal result and routes a resolved cleanup
+error through `safeErrorMessage("profile.resume-cleanup", cleanupError)`. A rejected removal
+promise uses the same observability path. In either case, cleanup failure does not replace
+the original database failure returned through `failure(error)`, and neither internal error
+is exposed to the user.
+
+Also strengthened the invalid résumé tests to prove `createClient`, upload, and profile
+update are not called, and changed the tombstone test to reject the guard and prove no
+storage client, upload, or profile update occurs.
+
+Ran the fresh verification chain:
+
+```text
+NODE_OPTIONS=--no-experimental-webstorage npx vitest run app/actions/profileSettings.test.ts
+npx tsc --noEmit
+npx eslint app/actions/profileSettings.ts app/actions/profileSettings.test.ts lib/profileSettingsState.ts
+git diff --check
+```
+
+All commands exited 0. Focused result:
+
+```text
+Test Files  1 passed (1)
+Tests  12 passed (12)
+```

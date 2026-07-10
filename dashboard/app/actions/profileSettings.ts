@@ -200,7 +200,12 @@ export async function saveResumeSettings(
     return success();
   } catch (error) {
     if (uploadSucceeded && uploadedPath && storage) {
-      try { await storage.from("resumes").remove([uploadedPath]); } catch { /* preserve original failure */ }
+      try {
+        const { error: cleanupError } = await storage.from("resumes").remove([uploadedPath]);
+        if (cleanupError) safeErrorMessage("profile.resume-cleanup", cleanupError);
+      } catch (cleanupError) {
+        safeErrorMessage("profile.resume-cleanup", cleanupError);
+      }
     }
     return failure(error);
   }

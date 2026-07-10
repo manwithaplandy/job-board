@@ -148,12 +148,19 @@ describe("profile settings actions", () => {
     const tooLarge = new File([new Uint8Array(5 * 1024 * 1024 + 1)], "resume.pdf", { type: "application/pdf" });
     expect(await saveResumeSettings(INITIAL_SECTION_SAVE_STATE, form({ resume_pdf: tooLarge })))
       .toMatchObject({ status: "error", fieldErrors: { resume_pdf: expect.stringContaining("5 MiB") } });
+    expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.updateResumeSource).not.toHaveBeenCalled();
   });
 
-  test("checks deletion before uploading", async () => {
+  test("checks deletion before creating a storage client", async () => {
+    mocks.assertNotDeleted.mockRejectedValue(new Error("account has been deleted"));
     const pdf = new File(["pdf"], "resume.pdf", { type: "application/pdf" });
     await saveResumeSettings(INITIAL_SECTION_SAVE_STATE, form({ resume_pdf: pdf }));
-    expect(mocks.assertNotDeleted.mock.invocationCallOrder[0]).toBeLessThan(mocks.upload.mock.invocationCallOrder[0]);
+    expect(mocks.assertNotDeleted).toHaveBeenCalledWith("u1");
+    expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.updateResumeSource).not.toHaveBeenCalled();
   });
 
   test("removes a newly uploaded file when the profile update fails", async () => {
@@ -162,6 +169,20 @@ describe("profile settings actions", () => {
     const result = await saveResumeSettings(INITIAL_SECTION_SAVE_STATE, form({ resume_pdf: pdf }));
     expect(result).toEqual({ status: "error", message: "Changes were not saved. Please try again.", fieldErrors: {} });
     expect(mocks.remove).toHaveBeenCalledWith([expect.stringContaining("u1/")]);
+  });
+
+  test("observes a resolved cleanup error without replacing the original safe failure", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.updateResumeSource.mockRejectedValue(new Error("db host secret"));
+    mocks.remove.mockResolvedValue({ error: new Error("storage host secret") });
+    const pdf = new File(["pdf"], "resume.pdf", { type: "application/pdf" });
+
+    const result = await saveResumeSettings(INITIAL_SECTION_SAVE_STATE, form({ resume_pdf: pdf }));
+
+    expect(result).toEqual({ status: "error", message: "Changes were not saved. Please try again.", fieldErrors: {} });
+    expect(log).toHaveBeenCalledWith("[profile.resume-cleanup]", expect.objectContaining({ message: "storage host secret" }));
+    expect(log).toHaveBeenCalledWith("[profile.section-save]", expect.objectContaining({ message: "db host secret" }));
+    log.mockRestore();
   });
 
   test("returns a generic safe error from non-upload actions", async () => {

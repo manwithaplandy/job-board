@@ -3,16 +3,18 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireUserId: vi.fn(async () => "u1"),
   getProfile: vi.fn(),
-  upsertProfile: vi.fn(async (_userId: string, _data: Parameters<typeof import("@/lib/queries").upsertProfile>[1]) => {}),
+  updateResumeSource: vi.fn(async () => {}),
   revalidatePath: vi.fn(),
   createClient: vi.fn(),
-  assertNotDeleted: vi.fn(async (_userId: string) => {}),
+  assertNotDeleted: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/auth", () => ({ requireUserId: mocks.requireUserId }));
 vi.mock("@/lib/queries", () => ({
   getProfile: mocks.getProfile,
-  upsertProfile: mocks.upsertProfile,
+}));
+vi.mock("@/lib/profileSettings", () => ({
+  updateResumeSource: mocks.updateResumeSource,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
@@ -41,13 +43,13 @@ describe("saveProfileResume", () => {
     const { saveProfileResume } = await import("@/app/actions/profile");
     await saveProfileResume(fd({ resume_text: "BRAND NEW PASTED TEXT" }));
 
-    expect(mocks.upsertProfile).toHaveBeenCalledTimes(1);
-    const [, arg] = mocks.upsertProfile.mock.calls[0];
-    expect(arg.resumeText).toBe("BRAND NEW PASTED TEXT");
+    expect(mocks.updateResumeSource).toHaveBeenCalledWith("u1", {
+      resumeText: "BRAND NEW PASTED TEXT",
+      resumeFilePath: "u1/old.pdf",
+    });
     // resume_text is now the single source of truth; the archived PDF path is
     // no longer a competing parse source, so a text edit alone leaves it as-is
     // (an upload replaces it; an empty file input never wipes it).
-    expect(arg.resumeFilePath).toBe("u1/old.pdf");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
   });
 
@@ -55,19 +57,21 @@ describe("saveProfileResume", () => {
     const { saveProfileResume } = await import("@/app/actions/profile");
     await saveProfileResume(fd({ resume_text: "OLD EXTRACTED TEXT" }));
 
-    const [, arg] = mocks.upsertProfile.mock.calls[0];
-    expect(arg.resumeFilePath).toBe("u1/old.pdf");
+    expect(mocks.updateResumeSource).toHaveBeenCalledWith("u1", {
+      resumeText: "OLD EXTRACTED TEXT",
+      resumeFilePath: "u1/old.pdf",
+    });
   });
 
-  test("a tombstoned (deleted) user throws before any write — no storage upload, no upsert (M-RESURRECT-2)", async () => {
+  test("a tombstoned (deleted) user throws before any write — no storage upload, no scoped update (M-RESURRECT-2)", async () => {
     mocks.assertNotDeleted.mockRejectedValue(new Error("account has been deleted"));
     const { saveProfileResume } = await import("@/app/actions/profile");
 
     // The shared guard throws (fail-loud); a stale-JWT session must not resurrect the
-    // profile or a stored résumé, and the throw stops before getProfile/upload/upsert.
+    // profile or a stored résumé, and the throw stops before getProfile/upload/update.
     await expect(saveProfileResume(fd({ resume_text: "STALE JWT WRITE" }))).rejects.toThrow(/deleted/);
     expect(mocks.createClient).not.toHaveBeenCalled(); // no storage client → no upload
-    expect(mocks.upsertProfile).not.toHaveBeenCalled();
+    expect(mocks.updateResumeSource).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

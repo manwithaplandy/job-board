@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { getProfile, upsertProfile } from "@/lib/queries";
+import { getProfile } from "@/lib/queries";
+import { updateResumeSource } from "@/lib/profileSettings";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { safeErrorMessage } from "@/lib/safeError";
 import { resumeObjectPath } from "@/lib/resumeStorage";
@@ -12,7 +13,7 @@ import { resumeObjectPath } from "@/lib/resumeStorage";
 // instructions the user set on /profile (the modal doesn't expose them).
 export async function saveProfileResume(formData: FormData): Promise<void> {
   const userId = await requireUserId();
-  // M-RESURRECT-2: a deleted user's JWT stays valid ≤1h. upsertProfile refuses the DB
+  // M-RESURRECT-2: a deleted user's JWT stays valid ≤1h. The scoped service refuses the DB
   // write for a tombstoned user, but this action also uploads a résumé PDF to storage
   // BEFORE that write — bail out here so an erased account can't re-create a stored PDF.
   await assertNotDeleted(userId);
@@ -39,34 +40,8 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
     resumeFilePath = path; // archival only — generation reads resume_text
   }
 
-  await upsertProfile(userId, {
-    resumeText,
-    instructions: existing?.instructions ?? null,
-    resumeFilePath,
-    modelStage1: existing?.model_stage1 ?? null,
-    modelStage2: existing?.model_stage2 ?? null,
-    preferredLocations: existing?.preferred_locations ?? [],
-    modelResume: existing?.model_resume ?? null,
-    companyInstructions: existing?.company_instructions ?? null,
-    modelCompany: existing?.model_company ?? null,
-    // Application answers are edited only on /profile — preserve them here.
-    fullName: existing?.full_name ?? null,
-    email: existing?.email ?? null,
-    phone: existing?.phone ?? null,
-    links: existing?.links ?? {},
-    location: existing?.location ?? null,
-    workAuthorized: existing?.work_authorized ?? null,
-    needsSponsorship: existing?.needs_sponsorship ?? null,
-    eeoGender: existing?.eeo_gender ?? null,
-    eeoRace: existing?.eeo_race ?? null,
-    eeoVeteran: existing?.eeo_veteran ?? null,
-    eeoDisability: existing?.eeo_disability ?? null,
-    screeningAnswers: existing?.screening_answers ?? {},
-    modelCover: existing?.model_cover ?? null,
-    reasoningEffortResume: existing?.reasoning_effort_resume ?? null,
-    reasoningEffortCover: existing?.reasoning_effort_cover ?? null,
-    resumeGenerationInstructions: existing?.resume_generation_instructions ?? null,
-    coverLetterGenerationInstructions: existing?.cover_letter_generation_instructions ?? null,
-  });
+  await updateResumeSource(userId, { resumeText, resumeFilePath });
   revalidatePath("/");
+  revalidatePath("/profile");
+  revalidatePath("/profile/resume");
 }

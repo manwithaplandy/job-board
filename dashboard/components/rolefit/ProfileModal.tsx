@@ -395,6 +395,7 @@ export function ProfileModal({
                     ref={fileInputRef}
                     type="file"
                     name="resume_pdf"
+                    aria-label="Résumé PDF"
                     accept=".pdf,application/pdf"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
@@ -423,8 +424,9 @@ export function ProfileModal({
                     }}
                     style={{ display: "none" }}
                   />
-                  {extractStatus && (
-                    <div
+                  <div
+                      role="status"
+                      aria-live="polite"
                       style={{
                         fontSize: "11.5px",
                         color: "var(--text-secondary)",
@@ -434,7 +436,6 @@ export function ProfileModal({
                     >
                       {extractStatus}
                     </div>
-                  )}
               </div>
             </div>
 

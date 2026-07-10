@@ -9,7 +9,13 @@ import { Button } from "@/components/ui/Button";
 // form field (visually hidden, name="resume_pdf") so `saveProfile` still archives it
 // and the ProfileFormShell dirty-check (name:size) is unchanged; only the trigger is
 // a styled Button, matching the board's résumé upload UX.
-export function ResumeUploadField({ textareaId }: { textareaId: string }) {
+interface ResumeUploadFieldProps {
+  textareaId: string;
+  onExtracted?: (markdown: string) => void;
+  hasUnsavedText?: boolean;
+}
+
+export function ResumeUploadField({ textareaId, onExtracted, hasUnsavedText = false }: ResumeUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
@@ -32,10 +38,18 @@ export function ResumeUploadField({ textareaId }: { textareaId: string }) {
         setStatus("Couldn't read that file — paste your résumé text below instead.");
         return;
       }
-      const ta = document.getElementById(textareaId) as HTMLTextAreaElement | null;
-      if (ta) {
-        ta.value = markdown;
-        ta.dispatchEvent(new Event("input", { bubbles: true }));
+      if (hasUnsavedText && !window.confirm("Replace your unsaved résumé edits with the extracted PDF text?")) {
+        setStatus("Extraction ready — your unsaved résumé edits were kept.");
+        return;
+      }
+      if (onExtracted) {
+        onExtracted(markdown);
+      } else {
+        const ta = document.getElementById(textareaId) as HTMLTextAreaElement | null;
+        if (ta) {
+          ta.value = markdown;
+          ta.dispatchEvent(new Event("input", { bubbles: true }));
+        }
       }
       setStatus("Extracted — review the text below, then Save.");
     } catch {
@@ -49,6 +63,7 @@ export function ResumeUploadField({ textareaId }: { textareaId: string }) {
         <input
           ref={inputRef}
           name="resume_pdf"
+          aria-label="Résumé PDF"
           type="file"
           accept="application/pdf"
           onChange={onChange}
@@ -67,9 +82,7 @@ export function ResumeUploadField({ textareaId }: { textareaId: string }) {
           {fileName ?? "No file chosen"}
         </span>
       </div>
-      {status && (
-        <span style={{ fontSize: "11.5px", fontWeight: 500, color: "var(--text-secondary)" }}>{status}</span>
-      )}
+      <p role="status" aria-live="polite" style={{ minHeight: "17px", margin: 0, fontSize: "11.5px", fontWeight: 500, color: "var(--text-secondary)" }}>{status}</p>
     </div>
   );
 }

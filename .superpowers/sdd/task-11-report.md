@@ -54,3 +54,9 @@ Safe static checks completed:
 ## Remaining concern
 
 Manual authenticated responsive/accessibility verification at 320, 375, 768, 1024, and 1440px in both themes remains outstanding.
+
+## Review follow-up
+
+- Replaced the permissive save-label loop with exact accessible-name assertions for all five form routes and an explicit assertion that Account has no section save action.
+- Filled all five model fields in the route fixture with distinct sentinel IDs. Core and non-Advanced routes assert that neither rendered text nor control values leak any sentinel. Advanced asserts the exact saved values in all four editable comboboxes and backing form controls, and confirms the internal Stage 1 value remains absent.
+- No production regression appeared: the tightened characterization suite passed immediately (33/33). Mutation sensitivity was demonstrated by temporarily expecting `Save all settings` on Job Preferences; the focused suite failed exactly one test because that accessible button was absent. The mutation was reverted, and the final focused suite was rerun green.

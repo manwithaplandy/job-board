@@ -50,13 +50,13 @@ const profile = {
   resume_text: "Experienced engineer",
   resume_file_path: "user-1/resume.pdf",
   instructions: "Prioritize platform roles",
-  model_stage1: null,
-  model_stage2: null,
+  model_stage1: "sentinel/stage-one",
+  model_stage2: "sentinel/stage-two",
   preferred_locations: ["London"],
-  model_resume: null,
+  model_resume: "sentinel/resume",
   company_instructions: "Prefer developer tools",
   company_profile_version: null,
-  model_company: null,
+  model_company: "sentinel/company",
   board_filters: null,
   full_name: "Ada Lovelace",
   email: "ada@example.com",
@@ -70,7 +70,7 @@ const profile = {
   eeo_veteran: null,
   eeo_disability: null,
   screening_answers: {},
-  model_cover: null,
+  model_cover: "sentinel/cover",
   reasoning_effort_resume: null,
   reasoning_effort_cover: null,
   resume_generation_instructions: "Keep it concise",
@@ -87,6 +87,14 @@ const detailRoutes: Route[] = [
   { name: "Application Personalization", renderPage: ApplicationPersonalizationPage },
   { name: "Advanced AI Settings", renderPage: AdvancedPage },
   { name: "Account & App", renderPage: AccountPage },
+];
+const profileRoute = { name: "Profile", renderPage: ProfilePage };
+const modelSentinels = [
+  "sentinel/stage-one",
+  "sentinel/stage-two",
+  "sentinel/resume",
+  "sentinel/company",
+  "sentinel/cover",
 ];
 
 async function renderRoute(route: Route) {
@@ -123,7 +131,7 @@ afterEach(() => {
 });
 
 describe("profile route composition", () => {
-  test.each([{ name: "Profile", renderPage: ProfilePage }, ...detailRoutes])(
+  test.each([profileRoute, ...detailRoutes])(
     "$name has one h1 and sequential heading levels",
     async (route) => {
       const container = await renderRoute(route);
@@ -133,7 +141,7 @@ describe("profile route composition", () => {
   );
 
   test("keeps the four core hub cards in setup order", async () => {
-    await renderRoute({ name: "Profile", renderPage: ProfilePage });
+    await renderRoute(profileRoute);
     expect(screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
       "Job Preferences",
       "Résumé & Experience",
@@ -147,26 +155,49 @@ describe("profile route composition", () => {
     expect(screen.getByRole("link", { name: /back to profile/i }).getAttribute("href")).toBe("/profile");
   });
 
-  test.each(detailRoutes)("$name uses a section-specific submit label", async (route) => {
+  test.each([
+    { ...detailRoutes[0], submitLabel: "Save preferences" },
+    { ...detailRoutes[1], submitLabel: "Save résumé" },
+    { ...detailRoutes[2], submitLabel: "Save details" },
+    { ...detailRoutes[3], submitLabel: "Save writing preferences" },
+    { ...detailRoutes[4], submitLabel: "Save AI settings" },
+  ])("$name exposes its exact section submit label", async ({ submitLabel, ...route }) => {
     await renderRoute(route);
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    for (const button of screen.queryAllByRole("button", { name: /^Save / })) {
-      expect(button.textContent).not.toBe("Save");
-    }
+    expect(screen.getByRole("button", { name: submitLabel })).not.toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Save(?: |$)/ })).toHaveLength(1);
   });
 
-  test.each(detailRoutes.filter(({ name }) => !name.startsWith("Advanced")))(
-    "$name does not expose model identifiers",
+  test("Account & App has no section save action", async () => {
+    await renderRoute(detailRoutes[5]);
+    expect(screen.queryByRole("button", { name: /^Save(?: |$)/ })).toBeNull();
+  });
+
+  test.each([profileRoute, ...detailRoutes.filter(({ name }) => !name.startsWith("Advanced"))])(
+    "$name does not expose stored model identifiers",
     async (route) => {
       const container = await renderRoute(route);
       expect(container.querySelector('[name^="model_"]')).toBeNull();
-      expect(container.textContent).not.toContain("provider/model-one");
+      for (const sentinel of modelSentinels) {
+        expect(container.textContent).not.toContain(sentinel);
+        expect(container.querySelector(`[value="${sentinel}"]`)).toBeNull();
+      }
     },
   );
 
-  test("Advanced alone exposes model controls", async () => {
-    const container = await renderRoute(detailRoutes[4]);
-    expect(container.querySelectorAll('[name^="model_"]').length).toBeGreaterThan(0);
+  test("Advanced exposes each editable saved model selection but not the internal Stage 1 id", async () => {
+    await renderRoute(detailRoutes[4]);
+    const expectedSelections = [
+      ["Stage 2 — full-description review model", profile.model_stage2],
+      ["Company review model", profile.model_company],
+      ["Résumé model", profile.model_resume],
+      ["Cover letter model", profile.model_cover],
+    ] as const;
+    for (const [label, sentinel] of expectedSelections) {
+      expect(screen.getByRole<HTMLInputElement>("combobox", { name: label }).value).toBe(sentinel);
+      expect(document.querySelector<HTMLInputElement>(`input[type="hidden"][value="${sentinel}"]`)?.value).toBe(sentinel);
+    }
+    expect(document.body.textContent).not.toContain(profile.model_stage1);
+    expect(document.querySelector(`[value="${profile.model_stage1}"]`)).toBeNull();
   });
 
   test.each(detailRoutes)("account deletion is scoped away from $name unless it is Account", async (route) => {

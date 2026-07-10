@@ -9,7 +9,7 @@ type LocationOption = { location: string; count: number };
 // out of `options` because its jobs closed). The picks are submitted as a JSON
 // string array in a hidden field — JSON, not CSV, because locations contain commas.
 export function LocationPicker({
-  name, options, defaultValue,
+  name, options, defaultValue, id, ariaInvalid, ariaDescribedBy,
   // The picker owns its own visible <label> (kept associated with the input via htmlFor so
   // it's the combobox's accessible name). Locations are mandatory everywhere the picker is
   // used (onboarding + /profile both reject an empty selection), hence the default copy.
@@ -18,6 +18,9 @@ export function LocationPicker({
   name: string;
   options: LocationOption[];
   defaultValue: string[];
+  id?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
   label?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(defaultValue);
@@ -28,7 +31,7 @@ export function LocationPicker({
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
   const hiddenRef = useRef<HTMLInputElement>(null);
-  const inputId = `location-picker-${name}`;
+  const inputId = id ?? `location-picker-${name}`;
   const listboxId = `${inputId}-listbox`;
   const optionId = (i: number) => `${inputId}-opt-${i}`;
 
@@ -169,6 +172,8 @@ export function LocationPicker({
         aria-controls={open && results.length > 0 ? listboxId : undefined}
         aria-expanded={open}
         aria-autocomplete="list"
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         style={{
           marginTop: "8px",

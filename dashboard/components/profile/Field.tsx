@@ -1,7 +1,7 @@
 "use client";
 
-import { cloneElement, type ReactElement, useEffect } from "react";
-import { useSectionFormContext } from "./SectionFormShell";
+import { cloneElement, type ReactElement } from "react";
+import { useSectionField } from "./SectionFormShell";
 
 interface FieldProps {
   id: string;
@@ -13,16 +13,14 @@ interface FieldProps {
 }
 
 export function Field({ id, name, label, description, required, children }: FieldProps) {
-  const { fieldErrors, registerField } = useSectionFormContext();
-  useEffect(() => registerField(name, id), [id, name, registerField]);
-  const error = fieldErrors[name];
-  const describedBy = [description ? `${id}-description` : null, error ? `${id}-error` : null]
+  const { error, errorId, invalid } = useSectionField(name, id);
+  const describedBy = [description ? `${id}-description` : null, error ? errorId : null]
     .filter(Boolean).join(" ") || undefined;
   const control = cloneElement(children, {
     id,
     name,
     required,
-    "aria-invalid": Boolean(error) || undefined,
+    "aria-invalid": invalid,
     "aria-describedby": describedBy,
   });
 
@@ -31,7 +29,7 @@ export function Field({ id, name, label, description, required, children }: Fiel
       <label htmlFor={id}>{label}{required ? <span aria-hidden="true"> *</span> : null}</label>
       {description ? <p id={`${id}-description`} className="field-description">{description}</p> : null}
       {control}
-      {error ? <p id={`${id}-error`} className="field-error">{error}</p> : null}
+      {error ? <p id={errorId} className="field-error">{error}</p> : null}
     </div>
   );
 }

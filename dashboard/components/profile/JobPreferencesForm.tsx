@@ -4,9 +4,34 @@ import { saveJobPreferences } from "@/app/actions/profileSettings";
 import { LocationPicker } from "@/components/LocationPicker";
 import type { ProfileRow } from "@/lib/types";
 import { Field } from "./Field";
-import { SectionFormShell } from "./SectionFormShell";
+import { SectionFormShell, useSectionField } from "./SectionFormShell";
 
 type LocationOption = { location: string; count: number };
+
+function PreferredLocationsField({
+  locations,
+  defaultValue,
+}: {
+  locations: LocationOption[];
+  defaultValue: string[];
+}) {
+  const name = "preferred_locations";
+  const id = "location-picker-preferred_locations";
+  const { error, errorId, invalid } = useSectionField(name, id);
+  return (
+    <>
+      <LocationPicker
+        id={id}
+        name={name}
+        options={locations}
+        defaultValue={defaultValue}
+        ariaInvalid={invalid}
+        ariaDescribedBy={error ? errorId : undefined}
+      />
+      {error ? <p id={errorId} className="field-error">{error}</p> : null}
+    </>
+  );
+}
 
 export function JobPreferencesForm({
   profile,
@@ -19,11 +44,7 @@ export function JobPreferencesForm({
     <SectionFormShell action={saveJobPreferences} submitLabel="Save preferences">
       <section aria-labelledby="preferred-locations-heading">
         <h2 id="preferred-locations-heading">Where you want to work</h2>
-        <LocationPicker
-          name="preferred_locations"
-          options={locations}
-          defaultValue={profile.preferred_locations}
-        />
+        <PreferredLocationsField locations={locations} defaultValue={profile.preferred_locations} />
       </section>
 
       <section aria-labelledby="priorities-heading">

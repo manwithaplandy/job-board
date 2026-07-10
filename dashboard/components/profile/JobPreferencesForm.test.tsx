@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ProfileRow } from "@/lib/types";
 import { JobPreferencesForm } from "./JobPreferencesForm";
+
+const mocks = vi.hoisted(() => ({ saveJobPreferences: vi.fn() }));
+vi.mock("@/app/actions/profileSettings", () => ({
+  saveJobPreferences: mocks.saveJobPreferences,
+}));
 
 afterEach(cleanup);
 
@@ -49,5 +54,31 @@ describe("JobPreferencesForm", () => {
     ]) {
       expect(container.querySelector(`[name="${name}"]`)).toBeNull();
     }
+  });
+
+  test("maps an empty-location server error to the visible combobox", async () => {
+    mocks.saveJobPreferences.mockResolvedValueOnce({
+      status: "error",
+      message: "Check the highlighted fields.",
+      fieldErrors: { preferred_locations: "Pick at least one location." },
+    });
+    render(
+      <JobPreferencesForm
+        profile={{ ...profile, preferred_locations: ["London"] }}
+        locations={[{ location: "London", count: 12 }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove London" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+
+    const error = await screen.findByText("Pick at least one location.", { selector: ".field-error" });
+    const combobox = screen.getByRole("combobox");
+    const summaryLink = screen.getByRole("link", { name: "Pick at least one location." });
+    await waitFor(() => expect(document.activeElement).toBe(combobox));
+    expect(summaryLink.getAttribute("href")).toBe(`#${combobox.id}`);
+    expect(combobox.getAttribute("aria-invalid")).toBe("true");
+    expect(combobox.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
+    expect(error.id).not.toBe("");
   });
 });

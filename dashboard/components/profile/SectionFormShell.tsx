@@ -35,6 +35,17 @@ export function useSectionFormContext(): SectionFormContextValue {
   return useContext(SectionFormContext);
 }
 
+export function useSectionField(name: string, id: string) {
+  const { fieldErrors, registerField } = useSectionFormContext();
+  useEffect(() => registerField(name, id), [id, name, registerField]);
+  const error = fieldErrors[name];
+  return {
+    error,
+    errorId: `${id}-error`,
+    invalid: Boolean(error) || undefined,
+  };
+}
+
 function serializeFormData(formData: FormData): string {
   return JSON.stringify(Array.from(formData.entries(), ([name, value]) => [
     name,

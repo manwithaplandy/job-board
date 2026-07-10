@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AdvancedAiForm } from "@/components/profile/AdvancedAiForm";
 import { getUserClaims, requireUserId } from "@/lib/auth";
@@ -21,6 +22,7 @@ export default async function AdvancedPage() {
 
   return (
     <main className="profile-detail">
+      <Link href="/profile">← Back to profile</Link>
       <header className="profile-detail-header">
         <h1>Advanced AI Settings</h1>
         <p>Choose the technical settings Rolefit uses for review and document generation.</p>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ApplicationPersonalizationForm } from "@/components/profile/ApplicationPersonalizationForm";
 import { requireUserId } from "@/lib/auth";
@@ -14,6 +15,7 @@ export default async function ApplicationPersonalizationPage() {
 
   return (
     <main className="profile-detail">
+      <Link href="/profile">← Back to profile</Link>
       <header className="profile-detail-header">
         <h1>Application Personalization</h1>
         <p>Set reusable writing preferences for your tailored application materials.</p>

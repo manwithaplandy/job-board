@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ApplicationDetailsForm } from "@/components/profile/ApplicationDetailsForm";
 import { requireUserId } from "@/lib/auth";
@@ -14,6 +15,7 @@ export default async function ApplicationDetailsPage() {
 
   return (
     <main className="profile-detail">
+      <Link href="/profile">← Back to profile</Link>
       <header className="profile-detail-header">
         <h1>Application Details</h1>
         <p>Keep the contact details and common answers used in your applications up to date.</p>

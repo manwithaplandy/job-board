@@ -17,8 +17,8 @@ export interface ProfileReadiness {
 
 const hasText = (value: string | null): boolean => Boolean(value?.trim());
 
-export function formatProfileDate(value: string): string {
-  return value.slice(0, 10);
+export function formatProfileDate(value: string | Date): string {
+  return (value instanceof Date ? value.toISOString() : value).slice(0, 10);
 }
 
 export function deriveProfileReadiness(profile: ProfileRow): ProfileReadiness {

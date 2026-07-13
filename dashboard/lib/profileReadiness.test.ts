@@ -92,4 +92,8 @@ describe("deriveProfileReadiness", () => {
   test("formats profile dates without locale or timezone conversion", () => {
     expect(formatProfileDate("2026-07-09T23:30:00-07:00")).toBe("2026-07-09");
   });
+
+  test("formats Date objects returned by the production database client", () => {
+    expect(formatProfileDate(new Date("2026-07-10T06:30:00.000Z"))).toBe("2026-07-10");
+  });
 });

@@ -9,15 +9,17 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   tone?: "default" | "danger";
 }
 
-export function IconButton({ label, icon, iconSize = 18, size = "md", tone = "default", className, type = "button", ...props }: IconButtonProps) {
+export function IconButton({ label, icon, iconSize, size = "md", tone = "default", className, type = "button", ...props }: IconButtonProps) {
+  const visualSize = size === "sm" ? 36 : 44;
   return (
     <button
       type={type}
       aria-label={label}
+      data-visual-size={visualSize}
       className={["rf-icon-button", "rf-focusable", `rf-icon-button--${size}`, `rf-icon-button--${tone}`, className].filter(Boolean).join(" ")}
       {...props}
     >
-      <Icon name={icon} size={iconSize} />
+      <Icon name={icon} size={iconSize ?? (size === "sm" ? 16 : 18)} />
     </button>
   );
 }

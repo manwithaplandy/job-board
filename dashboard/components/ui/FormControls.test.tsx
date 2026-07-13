@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { FileUpload, SelectField, TextArea, TextField } from "./FormControls";
 
@@ -26,5 +26,31 @@ describe("form controls", () => {
     expect(screen.getByLabelText("Summary").tagName).toBe("TEXTAREA");
     expect(screen.getByLabelText("Seniority").tagName).toBe("SELECT");
     expect(screen.getByLabelText("Résumé").getAttribute("type")).toBe("file");
+  });
+
+  test("merges consumer descriptions while errors remain authoritative for every control", () => {
+    render(
+      <>
+        <div id="external">External help</div>
+        <TextField id="name" label="Name" description="Name help" error="Name error" aria-describedby="external" aria-invalid="false" />
+        <TextArea id="bio" label="Bio" description="Bio help" error="Bio error" aria-describedby="external" aria-invalid="false" />
+        <SelectField id="level" label="Level" description="Level help" error="Level error" aria-describedby="external" aria-invalid="false"><option>Senior</option></SelectField>
+        <FileUpload id="cv" label="CV" description="CV help" error="CV error" aria-describedby="external" aria-invalid="false" />
+      </>,
+    );
+    for (const id of ["name", "bio", "level", "cv"]) {
+      const control = document.getElementById(id)!;
+      expect(control.getAttribute("aria-invalid")).toBe("true");
+      expect(control.getAttribute("aria-describedby")).toBe(`external ${id}-description ${id}-error`);
+    }
+  });
+
+  test("announces the selected filename and preserves the consumer change handler", () => {
+    let changed = false;
+    render(<FileUpload id="resume-file" label="Résumé file" onChange={() => { changed = true; }} />);
+    const input = document.getElementById("resume-file") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(["resume"], "andrew-resume.pdf", { type: "application/pdf" })] } });
+    expect(changed).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain("andrew-resume.pdf");
   });
 });

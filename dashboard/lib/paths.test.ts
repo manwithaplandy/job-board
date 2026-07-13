@@ -34,6 +34,9 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/terms")).toBe(true);
     expect(isPublicPath("/privacy")).toBe(true);
   });
+  test("the primitive gallery is public for unauthenticated visual review", () => {
+    expect(isPublicPath("/ui-gallery")).toBe(true);
+  });
 });
 
 describe("internalPathFromReferer", () => {

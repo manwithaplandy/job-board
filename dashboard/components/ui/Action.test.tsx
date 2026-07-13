@@ -18,11 +18,13 @@ describe("icon actions", () => {
     expect(screen.getByRole("img", { name: "Warning" }).getAttribute("width")).toBe("20");
   });
 
-  test("requires an accessible action name and exposes size contracts", () => {
-    render(<IconButton label="Close dialog" icon="close" size="sm" />);
-    const button = screen.getByRole("button", { name: "Close dialog" });
-    expect(button.className).toContain("rf-icon-button--sm");
-    expect(button.className).toContain("rf-focusable");
-    expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  test("requires an accessible action name and implements distinct visual sizes", () => {
+    render(<><IconButton label="Compact close" icon="close" size="sm" /><IconButton label="Standard close" icon="close" size="md" /></>);
+    const compact = screen.getByRole("button", { name: "Compact close" });
+    const standard = screen.getByRole("button", { name: "Standard close" });
+    expect(compact.querySelector("svg")?.getAttribute("width")).toBe("16");
+    expect(standard.querySelector("svg")?.getAttribute("width")).toBe("18");
+    expect(compact.getAttribute("data-visual-size")).toBe("36");
+    expect(standard.getAttribute("data-visual-size")).toBe("44");
   });
 });

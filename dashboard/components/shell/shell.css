@@ -151,6 +151,8 @@
   .app-header__center { grid-column: 1 / -1; grid-row: 2; }
   .app-header__actions { grid-column: 3; grid-row: 1; }
   .app-header__actions > :not(:last-child) { max-width: min(48vw, 220px); }
-  .profile-section-nav__desktop { display: none; }
+  /* Two classes deliberately outrank the later-loaded legacy `.settings-nav`
+     declaration in profile-settings.css. This keeps exactly one mobile control. */
+  .profile-section-nav .profile-section-nav__desktop { display: none; }
   .profile-section-nav__mobile { display: block; }
 }

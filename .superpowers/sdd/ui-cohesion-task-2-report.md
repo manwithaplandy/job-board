@@ -177,3 +177,45 @@ Tests       1233 passed | 6 skipped (1239)
 - `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
 - Production build with the configured database placeholder and Google font network access: passed.
 - `git diff --check`: passed.
+
+---
+
+## Live-browser cascade fix — mobile profile navigation
+
+Implementation commit: `f38bd87` (`fix(ui): hide desktop profile nav on mobile`)
+
+Live 390px review exposed a cascade collision: `profile-settings.css` is route-loaded after the shared shell CSS, and its `.settings-nav { display: flex }` declaration had equal specificity to `.profile-section-nav__desktop { display: none }`. Both the seven desktop links and the mobile selector therefore appeared.
+
+The mobile shell rule now uses `.profile-section-nav .profile-section-nav__desktop`, deliberately giving it two class selectors so it outranks the later legacy one-class rule regardless of stylesheet order. Desktop behavior is unchanged: at 1440px the desktop links use `display: flex` and `.profile-section-nav__mobile` remains `display: none`. At 390px the desktop nav is hidden and the single Phase 1 `SelectField` remains visible.
+
+### RED
+
+```text
+npm test -- components/shell/ProfileSectionNav.test.tsx
+
+Test Files  1 failed (1)
+Tests       1 failed | 2 passed (3)
+```
+
+The regression test records the later `.settings-nav { display: flex }` declaration and requires a mobile hide selector with greater class specificity. It failed against the original equal-specificity rule.
+
+### GREEN and verification
+
+```text
+npm test -- components/shell/ProfileSectionNav.test.tsx components/profile/SettingsPrimitives.test.tsx components/shell/AppHeader.test.tsx
+
+Test Files  3 passed (3)
+Tests       25 passed (25)
+```
+
+```text
+NODE_OPTIONS=--no-experimental-webstorage npm test -- --run
+
+Test Files  166 passed | 2 skipped (168)
+Tests       1234 passed | 6 skipped (1240)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- Production build passed with configured Google font network access.
+- `git diff --check`: passed.

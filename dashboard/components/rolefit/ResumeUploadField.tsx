@@ -75,14 +75,14 @@ export function ResumeUploadField({ textareaId, onExtracted, hasUnsavedText = fa
         <Button type="button" variant="secondary" size="sm" onClick={() => inputRef.current?.click()}>
           Upload PDF
         </Button>
-        <span style={{
-          fontSize: "12.5px", color: fileName ? "var(--text-primary)" : "var(--text-muted)",
+        <span className="resume-upload-filename" style={{
+          color: fileName ? "var(--text-primary)" : "var(--text-muted)",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
         }}>
           {fileName ?? "No file chosen"}
         </span>
       </div>
-      <p role="status" aria-live="polite" style={{ minHeight: "17px", margin: 0, fontSize: "inherit", fontWeight: 500, color: "var(--text-secondary)" }}>{status}</p>
+      <p className="resume-upload-status" role="status" aria-live="polite" style={{ minHeight: "17px", margin: 0, fontWeight: 500, color: "var(--text-secondary)" }}>{status}</p>
     </div>
   );
 }

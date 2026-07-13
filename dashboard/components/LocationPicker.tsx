@@ -115,7 +115,7 @@ export function LocationPicker({
         }
       }}
     >
-      <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>
+      <label className="rf-picker-label" htmlFor={inputId} style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
         {label}
       </label>
       <input ref={hiddenRef} type="hidden" name={name} value={JSON.stringify(selected)} />
@@ -130,14 +130,13 @@ export function LocationPicker({
           gap: "6px",
         }}>
           {selected.map((loc) => (
-            <li key={loc} style={{
+            <li key={loc} className="rf-picker-chip" style={{
               display: "flex",
               alignItems: "center",
               gap: "6px",
               borderRadius: "8px",
               background: "var(--accent-bg)",
               padding: "4px 10px",
-              fontSize: "12px",
               fontWeight: 600,
               color: "var(--accent)",
             }}>
@@ -169,7 +168,7 @@ export function LocationPicker({
       <input
         id={inputId}
         type="text"
-        className="rf-focusable"
+        className="rf-focusable rf-picker-input"
         role="combobox"
         // Only reference the listbox while it's actually rendered (open with results) —
         // aria-controls/activedescendant pointing at an absent element confuses AT.
@@ -184,7 +183,6 @@ export function LocationPicker({
           borderRadius: "10px",
           border: "1px solid var(--border)",
           padding: "11px 12px",
-          fontSize: "13px",
           color: "var(--text-primary)",
           fontFamily: "inherit",
         }}
@@ -195,7 +193,7 @@ export function LocationPicker({
         onKeyDown={onKeyDown}
       />
       {open && results.length > 0 && (
-        <ul id={listboxId} role="listbox" style={{
+        <ul id={listboxId} role="listbox" className="rf-picker-listbox" style={{
           margin: 0,
           marginTop: "8px",
           padding: 0,
@@ -205,7 +203,6 @@ export function LocationPicker({
           borderRadius: "10px",
           border: "1px solid var(--border)",
           background: "var(--bg-surface)",
-          fontSize: "13px",
           boxShadow: "0 8px 24px rgba(15,22,35,.1)",
         }}>
           {results.map((o, idx) => (

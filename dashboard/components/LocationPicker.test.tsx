@@ -56,4 +56,13 @@ describe("LocationPicker", () => {
     expect(onInput).toHaveBeenCalledTimes(2);
     expect(onInput.mock.calls[1][0].target).toBe(hidden);
   });
+
+  test("exposes context-aware typography hooks for labels, inputs, options, and metadata", () => {
+    render(<div className="profile-detail"><LocationPicker name="preferred_locations" options={options} defaultValue={["London"]} /></div>);
+    expect(screen.getByText(/Locations to include/).classList).toContain("rf-picker-label");
+    expect(screen.getByRole("combobox").classList).toContain("rf-picker-input");
+    expect(screen.getByText("London").closest("li")?.classList).toContain("rf-picker-chip");
+    fireEvent.focus(screen.getByRole("combobox"));
+    expect(screen.getByRole("option", { name: /New York/ }).classList).toContain("rf-picker-option");
+  });
 });

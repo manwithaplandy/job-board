@@ -33,6 +33,8 @@ describe("ResumeSettingsForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /review extracted text/i }));
     expect(screen.getByRole("textbox", { name: /reviewed résumé text/i })).toBeTruthy();
     expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.getByText("No file chosen").classList).toContain("resume-upload-filename");
+    expect(screen.getByRole("status").classList).toContain("resume-upload-status");
   });
 
   test("uploads a replacement and synchronizes extracted text with the submitted value", async () => {

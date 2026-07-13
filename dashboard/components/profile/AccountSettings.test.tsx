@@ -40,4 +40,13 @@ describe("AccountSettings", () => {
     expect(screen.queryByText(/job preferences|résumé|application details|personalization/i)).toBeNull();
     expect(screen.queryByText(/ai settings|model|temperature/i)).toBeNull();
   });
+
+  test("marks explanatory copy as profile secondary text", () => {
+    render(<div className="profile-detail"><AccountSettings /></div>);
+    for (const copy of [
+      /View your current plan/,
+      /Choose how Rolefit looks/,
+      /Download a copy of your data/,
+    ]) expect(screen.getByText(copy).classList).toContain("settings-help-text");
+  });
 });

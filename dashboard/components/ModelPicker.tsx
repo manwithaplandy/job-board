@@ -95,15 +95,15 @@ export function ModelPicker({
         }
       }}
     >
-      <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>{label}</label>
+      <label className="rf-picker-label" htmlFor={inputId} style={{ fontWeight: 600, color: "var(--text-secondary)" }}>{label}</label>
       {hint && (
-        <span style={{ fontSize: "11.5px", fontWeight: 500, color: "var(--text-secondary)", marginTop: "3px" }}>{hint}</span>
+        <span className="rf-picker-help" style={{ fontWeight: 500, color: "var(--text-secondary)", marginTop: "3px" }}>{hint}</span>
       )}
       <input ref={hiddenRef} type="hidden" name={name} value={selected} />
       <input
         id={inputId}
         type="text"
-        className="rf-focusable"
+        className="rf-focusable rf-picker-input"
         role="combobox"
         // Only reference the listbox while it's actually rendered (open with results) —
         // aria-controls/activedescendant pointing at an absent element confuses AT.
@@ -118,7 +118,6 @@ export function ModelPicker({
           borderRadius: "10px",
           border: "1px solid var(--border)",
           padding: "11px 12px",
-          fontSize: "13px",
           color: "var(--text-primary)",
           fontFamily: "inherit",
         }}
@@ -134,7 +133,7 @@ export function ModelPicker({
           value, so the chip would be redundant. Open, it reminds you of the current selection
           and offers the "×" clear. */}
       {selected && open && (
-        <div style={{
+        <div className="rf-picker-chip" style={{
           marginTop: "8px",
           display: "flex",
           alignItems: "center",
@@ -143,7 +142,6 @@ export function ModelPicker({
           borderRadius: "8px",
           background: "var(--accent-bg)",
           padding: "4px 10px",
-          fontSize: "12px",
           fontWeight: 600,
           color: "var(--accent)",
         }}>
@@ -169,7 +167,7 @@ export function ModelPicker({
         </div>
       )}
       {open && results.length > 0 && (
-        <ul id={listboxId} role="listbox" style={{
+        <ul id={listboxId} role="listbox" className="rf-picker-listbox" style={{
           margin: 0,
           marginTop: "8px",
           padding: 0,
@@ -179,7 +177,6 @@ export function ModelPicker({
           borderRadius: "10px",
           border: "1px solid var(--border)",
           background: "var(--bg-surface)",
-          fontSize: "13px",
           boxShadow: "0 8px 24px rgba(15,22,35,.1)",
         }}>
           {results.map((m, idx) => (

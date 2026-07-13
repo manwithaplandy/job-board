@@ -74,3 +74,42 @@ The sandboxed attempt failed solely because Next could not reach Google Fonts. T
 
 - Lint continues to report 9 unrelated existing warnings (0 errors).
 - The first production-build attempt was blocked by sandbox network access; the approved network-enabled rerun passed.
+
+## Follow-up typography and picker-target review
+
+### Scope
+
+- Replaced inline font-size overrides in `LocationPicker`, `ModelPicker`, `AccountSettings` explanatory copy, and `ResumeUploadField` metadata with stable context-aware classes.
+- Preserved compact defaults outside profile details while setting profile-detail picker labels/inputs/options to 16px and help/chips/status/filename to 14px.
+- Added a stable `rf-picker-clear` 44×44 minimum hit area while retaining the compact multiplication glyph.
+- Added rendered class-contract tests for LocationPicker, ModelPicker, AccountSettings, and ResumeUploadField, plus stylesheet minimum assertions.
+
+### RED
+
+Command:
+
+`cd dashboard && npm test -- components/LocationPicker.test.tsx components/ModelPicker.test.tsx components/profile/AccountSettings.test.tsx components/profile/ResumeSettingsForm.test.tsx components/profile/SettingsPrimitives.test.tsx`
+
+Result: expected failure, 5 files failed with 5 targeted failures. Components lacked the new rendered typography hooks, and the stylesheet lacked the scoped minimums and clear-target sizing.
+
+### GREEN
+
+Focused command:
+
+`cd dashboard && npm test -- components/LocationPicker.test.tsx components/ModelPicker.test.tsx components/profile/AccountSettings.test.tsx components/profile/ResumeSettingsForm.test.tsx components/profile/SettingsPrimitives.test.tsx`
+
+Result: 5 files passed; 33 tests passed.
+
+Typecheck: `npm run typecheck` passed.
+
+Lint: `npm run lint` exited 0 with the same 9 unrelated pre-existing warnings and no errors.
+
+Full shared-picker verification:
+
+`NODE_OPTIONS='--max-old-space-size=4096 --no-experimental-webstorage' npm test`
+
+Result: 156 files passed, 2 skipped; 1201 tests passed, 6 skipped.
+
+### Concerns
+
+- The repository continues to have 9 unrelated lint warnings; changed files introduce no lint errors or warnings.

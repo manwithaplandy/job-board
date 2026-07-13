@@ -236,6 +236,10 @@ describe("shared settings primitives", () => {
     expect(css).toMatch(/\.settings-field label\s*\{[^}]*font-size:\s*16px/s);
     expect(css).toMatch(/\.field-description\s*\{[^}]*font-size:\s*14px/s);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.profile-detail-header h1\s*\{[^}]*font-size:\s*28px/s);
+    expect(css).toMatch(/\.profile-detail \.rf-picker-(?:label|input|option)[^{]*\{[^}]*font-size:\s*16px/s);
+    expect(css).toMatch(/\.profile-detail \.rf-picker-(?:help|chip)[^{]*\{[^}]*font-size:\s*14px/s);
+    expect(css).toMatch(/\.rf-picker-clear\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(/\.profile-detail :is\(\.settings-help-text, \.resume-upload-filename, \.resume-upload-status\)[^{]*\{[^}]*font-size:\s*14px/s);
     expect(css).toMatch(/\.section-actions button[^}]*min-height:\s*44px/s);
   });
 });

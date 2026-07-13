@@ -69,4 +69,16 @@ describe("ModelPicker", () => {
     expect(onInput).toHaveBeenCalledTimes(1);
     expect(onInput.mock.calls[0][0].target).toBe(hidden);
   });
+
+  test("exposes profile typography hooks and a touch-sized clear target", () => {
+    render(<div className="profile-detail"><ModelPicker label="Résumé model" hint="Used for drafts" name="model_resume" models={models}
+      curated={models.map((model) => model.id)} defaultValue="openai/example" placeholder="Example" /></div>);
+    expect(screen.getByText("Résumé model").classList).toContain("rf-picker-label");
+    expect(screen.getByText("Used for drafts").classList).toContain("rf-picker-help");
+    expect(screen.getByRole("combobox").classList).toContain("rf-picker-input");
+    fireEvent.focus(screen.getByRole("combobox"));
+    expect(screen.getByRole("button", { name: "Clear model (use default)" }).classList).toContain("rf-picker-clear");
+    expect(screen.getByRole("button", { name: "Clear model (use default)" }).closest("div")?.classList).toContain("rf-picker-chip");
+    expect(screen.getByRole("option", { name: /Other/ }).classList).toContain("rf-picker-option");
+  });
 });

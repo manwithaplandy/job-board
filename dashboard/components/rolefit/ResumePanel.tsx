@@ -368,15 +368,7 @@ export function ResumePanel({
                 cursor: "pointer",
               }}
             >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                <rect x="5.2" y="5.2" width="8.6" height="8.6" rx="2" stroke="currentColor" strokeWidth="1.6" />
-                <path
-                  d="M3 11V3.6C3 2.7 3.7 2 4.6 2H11"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <Icon name="copy" size={16} />
               <span aria-live="polite">{copyLabel}</span>
             </button>
             <button

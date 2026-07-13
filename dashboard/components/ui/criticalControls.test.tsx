@@ -55,4 +55,30 @@ describe("critical control regressions", () => {
     const forbidden = /[←→▾▴▸▼▲✕×✓★✦✎△⤓↻●]/u;
     for (const path of paths) expect(productCode(path), path).not.toMatch(forbidden);
   });
+
+  test("résumé copy uses the shared icon rather than a bespoke inline SVG", () => {
+    const contents = productCode("components/rolefit/ResumePanel.tsx");
+    expect(contents).toContain('<Icon name="copy"');
+    expect(contents).not.toMatch(/<svg\b/);
+  });
+
+  test("scoped board controls contain no other bespoke inline SVG icons", () => {
+    for (const path of [
+      "components/rolefit/ApplicationPanel.tsx",
+      "components/rolefit/CoverLetterEditor.tsx",
+      "components/rolefit/FilterBar.tsx",
+      "components/rolefit/GenerationInstructions.tsx",
+      "components/rolefit/JobCard.tsx",
+      "components/rolefit/ProfileModal.tsx",
+      "components/rolefit/ResumeScorePanel.tsx",
+      "components/rolefit/ReviewPanel.tsx",
+      "components/rolefit/ReviewNowPanel.tsx",
+      "components/rolefit/RolefitBoard.tsx",
+      "components/rolefit/UpsellNotice.tsx",
+    ]) expect(productCode(path), path).not.toMatch(/<svg\b/);
+
+    const jobDetail = productCode("components/rolefit/JobDetail.tsx");
+    expect(jobDetail.match(/<svg\b/g)).toHaveLength(1);
+    expect(jobDetail).toContain('<circle cx="44" cy="44" r="34"');
+  });
 });

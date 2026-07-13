@@ -48,7 +48,7 @@ export function AppHeader({ current, email, isAdmin = false, center, actions, co
       {center && <div className="app-header__center">{center}</div>}
       <div className="app-header__actions">
         {actions}
-        {showNavigation && <AppNavMenu current={current} isAdmin={isAdmin} />}
+        {showNavigation && <AppNavMenu current={current} />}
         {showAccount && (
           <AccountMenu
             email={email}

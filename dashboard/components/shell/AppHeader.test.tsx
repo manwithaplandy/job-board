@@ -20,12 +20,19 @@ describe("AppHeader", () => {
     ["board", "Board"],
     ["analytics", "Analytics"],
     ["companies", "Companies"],
+  ] as const)("marks %s current in the collapsed primary navigation", (current, label) => {
+    render(<AppHeader current={current} email="person@example.com" isAdmin />);
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(screen.getByRole("menuitem", { name: label }).getAttribute("aria-current")).toBe("page");
+  });
+
+  test.each([
     ["profile", "Profile"],
     ["billing", "Billing"],
     ["admin", "Admin"],
-  ] as const)("marks %s current in the collapsed navigation", (current, label) => {
+  ] as const)("marks %s current in the account menu", (current, label) => {
     render(<AppHeader current={current} email="person@example.com" isAdmin />);
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    fireEvent.click(screen.getByRole("button", { name: /Account:/ }));
     expect(screen.getByRole("menuitem", { name: label }).getAttribute("aria-current")).toBe("page");
   });
 
@@ -35,12 +42,13 @@ describe("AppHeader", () => {
     expect(nav.className).toContain("app-header__desktop-nav");
 
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-    expect(screen.getByRole("menuitem", { name: "Board" })).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Analytics" })).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Companies" })).not.toBeNull();
+    const primaryDestinations = screen.getAllByRole("menuitem").map((item) => item.textContent);
+    expect(primaryDestinations).toEqual(["Board", "Analytics", "Companies"]);
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
     fireEvent.click(screen.getByRole("button", { name: /Account:/ }));
-    expect(screen.queryByRole("menuitem", { name: "Board" })).toBeNull();
+    const accountDestinations = screen.getAllByRole("menuitem").map((item) => item.textContent);
+    expect(accountDestinations).toEqual(["Profile", "Billing", "Sign out"]);
+    expect(primaryDestinations.filter((destination) => accountDestinations.includes(destination))).toEqual([]);
 
     const css = readFileSync("components/shell/shell.css", "utf8");
     expect(css).toMatch(/\.app-header__mobile-nav\s*\{[^}]*display:\s*none/s);

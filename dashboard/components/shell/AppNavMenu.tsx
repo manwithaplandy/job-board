@@ -9,13 +9,11 @@ const ITEMS = [
   { key: "board", href: "/", label: "Board" },
   { key: "analytics", href: "/analytics", label: "Analytics" },
   { key: "companies", href: "/companies", label: "Companies" },
-  { key: "profile", href: "/profile", label: "Profile" },
-  { key: "billing", href: "/billing", label: "Billing" },
 ] as const;
 
 const MENU_ID = "app-navigation-menu";
 
-export function AppNavMenu({ current, isAdmin = false }: { current?: AppRoute; isAdmin?: boolean }) {
+export function AppNavMenu({ current }: { current?: AppRoute }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -75,10 +73,6 @@ export function AppNavMenu({ current, isAdmin = false }: { current?: AppRoute; i
     }
   };
 
-  const items = isAdmin
-    ? [...ITEMS, { key: "admin" as const, href: "/admin/tenants", label: "Admin" }]
-    : ITEMS;
-
   return (
     <div
       ref={rootRef}
@@ -98,14 +92,14 @@ export function AppNavMenu({ current, isAdmin = false }: { current?: AppRoute; i
       />
       {open && (
         <div id={MENU_ID} ref={menuRef} role="menu" aria-label="Navigation" className="app-header__mobile-menu" onKeyDown={onMenuKeyDown}>
-          {items.map((item, index) => (
+          {ITEMS.map((item) => (
             <Link
               key={item.key}
               href={item.href}
               role="menuitem"
               tabIndex={-1}
               aria-current={current === item.key ? "page" : undefined}
-              className={["app-header__mobile-menu-item", index === 3 && "app-header__mobile-menu-item--account"].filter(Boolean).join(" ")}
+              className="app-header__mobile-menu-item"
               onClick={() => setOpen(false)}
             >
               {item.label}

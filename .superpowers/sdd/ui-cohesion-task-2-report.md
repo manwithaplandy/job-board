@@ -133,3 +133,47 @@ Tests       1233 passed | 6 skipped (1239)
 - `git diff --check`: passed before commit.
 
 Live light/dark desktop/mobile screenshots and route-level overflow measurements remain for the independent reviewer/controller because this worker still lacks a browser binding.
+
+---
+
+## Second adversarial review fix — responsive information hierarchy
+
+Implementation commit: `fc3bbea` (`fix(ui): separate primary and account navigation`)
+
+The re-review correctly identified that the responsive `AppNavMenu` still repeated Profile, Billing, and Admin beside the account affordance. The ownership contract is now exact at every width:
+
+- Desktop primary navigation and responsive `AppNavMenu` both contain only Board, Analytics, and Companies.
+- `AccountMenu` alone contains Profile, Billing, Admin when authorized, and Sign out.
+- `aria-current="page"` remains available for Board/Analytics/Companies in the primary menu and for Profile/Billing/Admin in the account menu.
+
+### RED
+
+```text
+npm test -- components/shell/AppHeader.test.tsx
+
+Test Files  1 failed (1)
+Tests       1 failed | 9 passed (10)
+```
+
+The new ownership test expected the responsive primary destinations to equal `[Board, Analytics, Companies]`, but received `[Board, Analytics, Companies, Profile, Billing]`, reproducing the reviewer finding. The test also records each menu's destinations and asserts their intersection is empty.
+
+### GREEN and verification
+
+```text
+npm test -- components/shell/AppHeader.test.tsx components/rolefit/AccountMenu.test.tsx components/rolefit/Header.test.tsx components/shell/AppShell.contract.test.tsx components/shell/ProfileSectionNav.test.tsx
+
+Test Files  5 passed (5)
+Tests       36 passed (36)
+```
+
+```text
+NODE_OPTIONS=--no-experimental-webstorage npm test -- --run
+
+Test Files  166 passed | 2 skipped (168)
+Tests       1233 passed | 6 skipped (1239)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- Production build with the configured database placeholder and Google font network access: passed.
+- `git diff --check`: passed.

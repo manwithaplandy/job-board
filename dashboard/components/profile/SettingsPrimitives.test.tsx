@@ -229,6 +229,7 @@ describe("shared settings primitives", () => {
     expect(screen.getByRole("link", { name: "Open account" }).className).toContain("settings-card-action");
     expect(screen.getByRole("button", { name: "Save" }).className).toContain("section-save");
     const css = readFileSync("app/profile/profile-settings.css", "utf8");
+    const globalCss = readFileSync("app/globals.css", "utf8");
     expect(css).toMatch(/\.settings-nav-link[^}]*min-height:\s*44px/s);
     expect(css).toMatch(/\.settings-card-action[^}]*min-height:\s*44px/s);
     expect(css).toMatch(/\.profile-detail\s*\{[^}]*font-size:\s*16px/s);
@@ -238,8 +239,10 @@ describe("shared settings primitives", () => {
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.profile-detail-header h1\s*\{[^}]*font-size:\s*28px/s);
     expect(css).toMatch(/\.profile-detail \.rf-picker-(?:label|input|option)[^{]*\{[^}]*font-size:\s*16px/s);
     expect(css).toMatch(/\.profile-detail \.rf-picker-(?:help|chip)[^{]*\{[^}]*font-size:\s*14px/s);
-    expect(css).toMatch(/\.rf-picker-clear\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s);
+    expect(globalCss).toMatch(/\.rf-picker-clear\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s);
     expect(css).toMatch(/\.profile-detail :is\(\.settings-help-text, \.resume-upload-filename, \.resume-upload-status\)[^{]*\{[^}]*font-size:\s*14px/s);
+    expect(css).not.toMatch(/^\.rf-picker-label, \.rf-picker-input/m);
+    expect(css.indexOf(".profile-detail .rf-picker-label")).toBeLessThan(css.indexOf(".settings-nav"));
     expect(css).toMatch(/\.section-actions button[^}]*min-height:\s*44px/s);
   });
 });

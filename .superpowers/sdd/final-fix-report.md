@@ -113,3 +113,19 @@ Result: 156 files passed, 2 skipped; 1201 tests passed, 6 skipped.
 ### Concerns
 
 - The repository continues to have 9 unrelated lint warnings; changed files introduce no lint errors or warnings.
+
+## Global compact typography ownership follow-up
+
+Moved the stable shared-component compact typography defaults and the shared 44×44 picker-clear target from route-local `profile-settings.css` to globally loaded `globals.css`. Profile CSS now contains only the higher-specificity `.profile-detail` 16px/14px overrides. This makes the intended compact defaults available to onboarding and other non-profile consumers without affecting unrelated elements.
+
+RED command:
+
+`cd dashboard && npm test -- components/LocationPicker.test.tsx components/ModelPicker.test.tsx components/profile/AccountSettings.test.tsx components/profile/ResumeSettingsForm.test.tsx components/profile/SettingsPrimitives.test.tsx components/OnboardingForm.test.tsx`
+
+RED result: 2 targeted failures. The real OnboardingForm rendered the stable hooks, but `globals.css` lacked their compact defaults; the shared clear-target rule was also absent globally.
+
+GREEN command: same focused command.
+
+GREEN result: 6 files passed; 34 tests passed. The paired contracts verify global compact rules on the real onboarding surface and the retained higher-specificity profile-detail overrides.
+
+Typecheck: passed. Lint: exit 0 with the same 9 unrelated existing warnings. No full suite was run because this change only relocates already-tested stable class rules without changing component behavior.

@@ -41,6 +41,15 @@ const failure = (error: unknown): SectionSaveState => ({
   fieldErrors: {},
 });
 const revalidate = (...paths: string[]) => paths.forEach((path) => revalidatePath(path));
+const validEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const validHttpUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 
 export async function saveApplicationDetails(
   _previous: SectionSaveState,
@@ -70,6 +79,18 @@ export async function saveApplicationDetails(
         relocation: text(fd, "screen_relocation"),
       },
     };
+    const fieldErrors: Record<string, string> = {};
+    if (!answers.full_name) fieldErrors.full_name = "Full name is required.";
+    if (!answers.email) fieldErrors.email = "Email is required.";
+    else if (!validEmail(answers.email)) fieldErrors.email = "Enter a valid email address.";
+    for (const [field, value] of [
+      ["link_linkedin", answers.links.linkedin],
+      ["link_github", answers.links.github],
+      ["link_portfolio", answers.links.portfolio],
+    ] as const) {
+      if (value && !validHttpUrl(value)) fieldErrors[field] = "Enter a valid URL beginning with http:// or https://.";
+    }
+    if (Object.keys(fieldErrors).length) return invalid(fieldErrors);
     await updateApplicationDetails(userId, answers);
     revalidate("/profile", "/profile/application-details");
     return success();

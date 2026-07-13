@@ -104,7 +104,7 @@ describe("shared settings primitives", () => {
     await screen.findByText("Saving…");
     fireEvent.input(input, { target: { value: "Andrea" } });
     await act(async () => resolve({ status: "success", savedAt: "2026-07-10T12:00:00Z" }));
-    expect(await screen.findByText("Changes saved")).not.toBeNull();
+    await waitFor(() => expect(screen.queryByText("Changes saved")).toBeNull());
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled).toBe(false);
   });
 
@@ -231,6 +231,11 @@ describe("shared settings primitives", () => {
     const css = readFileSync("app/profile/profile-settings.css", "utf8");
     expect(css).toMatch(/\.settings-nav-link[^}]*min-height:\s*44px/s);
     expect(css).toMatch(/\.settings-card-action[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(/\.profile-detail\s*\{[^}]*font-size:\s*16px/s);
+    expect(css).toMatch(/\.profile-detail-header h1\s*\{[^}]*font-size:\s*(?:32px|2rem)/s);
+    expect(css).toMatch(/\.settings-field label\s*\{[^}]*font-size:\s*16px/s);
+    expect(css).toMatch(/\.field-description\s*\{[^}]*font-size:\s*14px/s);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.profile-detail-header h1\s*\{[^}]*font-size:\s*28px/s);
     expect(css).toMatch(/\.section-actions button[^}]*min-height:\s*44px/s);
   });
 });

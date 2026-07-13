@@ -82,7 +82,7 @@ export function ResumeUploadField({ textareaId, onExtracted, hasUnsavedText = fa
           {fileName ?? "No file chosen"}
         </span>
       </div>
-      <p role="status" aria-live="polite" style={{ minHeight: "17px", margin: 0, fontSize: "11.5px", fontWeight: 500, color: "var(--text-secondary)" }}>{status}</p>
+      <p role="status" aria-live="polite" style={{ minHeight: "17px", margin: 0, fontSize: "inherit", fontWeight: 500, color: "var(--text-secondary)" }}>{status}</p>
     </div>
   );
 }

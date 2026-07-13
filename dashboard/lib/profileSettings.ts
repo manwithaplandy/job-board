@@ -1,6 +1,6 @@
 import type { TransactionSql } from "postgres";
 import { withUserSql } from "@/lib/db";
-import { isAccountDeleted } from "@/lib/tombstone";
+import { AccountDeletedError, isAccountDeleted } from "@/lib/tombstone";
 import { profileVersion } from "@/lib/profileVersion";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import type { ApplicationAnswers } from "@/lib/types";
@@ -108,7 +108,7 @@ async function guarded(
   userId: string,
   write: (tx: TransactionSql) => Promise<void>,
 ): Promise<void> {
-  if (await isAccountDeleted(userId)) return;
+  if (await isAccountDeleted(userId)) throw new AccountDeletedError();
   await withUserSql(userId, write);
 }
 

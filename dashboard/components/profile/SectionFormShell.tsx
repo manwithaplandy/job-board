@@ -53,12 +53,31 @@ function serializeFormData(formData: FormData): string {
     name,
     typeof value === "string"
       ? ["string", value]
-      : ["file", value.name, value.type, value.size, value.lastModified],
+      : ["file", value.name, value.type, value.size, value.size === 0 ? 0 : value.lastModified],
   ]));
 }
 
 function serializeForm(form: HTMLFormElement): string {
-  return serializeFormData(new FormData(form));
+  const values = new FormData(form);
+  for (const input of Array.from(form.querySelectorAll<HTMLInputElement>('input[type="file"][name]'))) {
+    values.delete(input.name);
+    const files = Array.from(input.files ?? []);
+    if (files.length) for (const file of files) values.append(input.name, file);
+    else values.append(input.name, new File([], ""));
+  }
+  return serializeFormData(values);
+}
+
+function serializeFormWithoutFiles(form: HTMLFormElement): string {
+  const values = new FormData(form);
+  for (const input of Array.from(form.querySelectorAll<HTMLInputElement>('input[type="file"][name]'))) values.delete(input.name);
+  return serializeFormData(values);
+}
+
+function serializeDataWithoutFiles(values: FormData): string {
+  const copy = new FormData();
+  for (const [name, value] of values.entries()) if (!(value instanceof File)) copy.append(name, value);
+  return serializeFormData(copy);
 }
 
 function updateResetBaseline(form: HTMLFormElement, submitted: FormData) {
@@ -124,13 +143,25 @@ export function SectionFormShell({ action, submitLabel, children, onReset, onSav
   const [state, formAction, pending] = useActionState(async (previous: SectionSaveState, formData: FormData) => {
     const next = await action(previous, formData);
     if (next.status === "success") {
-      const savedSnapshot = serializeFormData(formData);
       const form = formRef.current;
-      if (form) updateResetBaseline(form, formData);
-      savedValuesRef.current = copyFormData(formData);
+      if (form) {
+        for (const input of Array.from(form.querySelectorAll<HTMLInputElement>('input[type="file"]'))) input.value = "";
+      }
+      const postSaveValues = new FormData();
+      for (const [name, value] of formData.entries()) {
+        if (!(value instanceof File)) postSaveValues.append(name, value);
+      }
+      if (form) {
+        for (const input of Array.from(form.querySelectorAll<HTMLInputElement>('input[type="file"][name]'))) {
+          postSaveValues.append(input.name, new File([], ""));
+        }
+      }
+      const savedSnapshot = serializeFormData(postSaveValues);
+      if (form) updateResetBaseline(form, postSaveValues);
+      savedValuesRef.current = copyFormData(postSaveValues);
       pristineRef.current = savedSnapshot;
-      setDirty(form ? serializeForm(form) !== savedSnapshot : false);
-      onSaved?.(copyFormData(formData));
+      setDirty(form ? serializeFormWithoutFiles(form) !== serializeDataWithoutFiles(formData) : false);
+      onSaved?.(copyFormData(postSaveValues));
     }
     return next;
   }, INITIAL_SECTION_SAVE_STATE);
@@ -229,7 +260,7 @@ export function SectionFormShell({ action, submitLabel, children, onReset, onSav
             {pending ? "Saving…" : submitLabel}
           </button>
           <span className={state.status === "success" ? "section-status success" : "section-status"} aria-live="polite">
-            {state.status === "success" ? "Changes saved" : ""}
+            {state.status === "success" && !dirty ? "Changes saved" : ""}
           </span>
         </div>
       </form>

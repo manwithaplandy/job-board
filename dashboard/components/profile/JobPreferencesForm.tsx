@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { saveJobPreferences } from "@/app/actions/profileSettings";
 import { LocationPicker } from "@/components/LocationPicker";
 import type { ProfileRow } from "@/lib/types";
@@ -11,9 +12,11 @@ type LocationOption = { location: string; count: number };
 function PreferredLocationsField({
   locations,
   defaultValue,
+  onChange,
 }: {
   locations: LocationOption[];
   defaultValue: string[];
+  onChange: (locations: string[]) => void;
 }) {
   const name = "preferred_locations";
   const id = "location-picker-preferred_locations";
@@ -27,6 +30,7 @@ function PreferredLocationsField({
         defaultValue={defaultValue}
         ariaInvalid={invalid}
         ariaDescribedBy={error ? errorId : undefined}
+        onSelectionChange={onChange}
       />
       {error ? <p id={errorId} className="field-error">{error}</p> : null}
     </>
@@ -40,11 +44,27 @@ export function JobPreferencesForm({
   profile: ProfileRow;
   locations: LocationOption[];
 }) {
+  const [preview, setPreview] = useState({
+    locations: profile.preferred_locations,
+    instructions: profile.instructions ?? "",
+    companyInstructions: profile.company_instructions ?? "",
+  });
+  const [pickerKey, setPickerKey] = useState(0);
+  const previewFrom = (values: FormData) => ({
+    locations: (() => { try { return JSON.parse(String(values.get("preferred_locations") ?? "[]")) as string[]; } catch { return []; } })(),
+    instructions: String(values.get("instructions") ?? ""),
+    companyInstructions: String(values.get("company_instructions") ?? ""),
+  });
   return (
-    <SectionFormShell action={saveJobPreferences} submitLabel="Save preferences">
+    <SectionFormShell
+      action={saveJobPreferences}
+      submitLabel="Save preferences"
+      onSaved={(values) => setPreview(previewFrom(values))}
+      onReset={(values) => { setPreview(previewFrom(values)); setPickerKey((value) => value + 1); }}
+    >
       <section aria-labelledby="preferred-locations-heading">
         <h2 id="preferred-locations-heading">Where you want to work</h2>
-        <PreferredLocationsField locations={locations} defaultValue={profile.preferred_locations} />
+        <PreferredLocationsField key={pickerKey} locations={locations} defaultValue={preview.locations} onChange={(next) => setPreview((current) => ({ ...current, locations: next }))} />
       </section>
 
       <section aria-labelledby="priorities-heading">
@@ -55,7 +75,7 @@ export function JobPreferencesForm({
           label="Must-haves and deal-breakers"
           description="Describe the work to prioritize and roles or skills to avoid."
         >
-          <textarea rows={5} defaultValue={profile.instructions ?? ""} />
+          <textarea rows={5} defaultValue={profile.instructions ?? ""} onChange={(event) => setPreview((current) => ({ ...current, instructions: event.target.value }))} />
         </Field>
       </section>
 
@@ -67,19 +87,19 @@ export function JobPreferencesForm({
           label="Companies and industries"
           description="Describe companies or industries to prioritize or skip."
         >
-          <textarea rows={5} defaultValue={profile.company_instructions ?? ""} />
+          <textarea rows={5} defaultValue={profile.company_instructions ?? ""} onChange={(event) => setPreview((current) => ({ ...current, companyInstructions: event.target.value }))} />
         </Field>
       </section>
 
       <section aria-labelledby="rolefit-preview-heading">
         <h2 id="rolefit-preview-heading">Rolefit will</h2>
         <p>Rolefit will use your locations and written guidance when reviewing jobs.</p>
-        {profile.preferred_locations.length > 0 && (
-          <p>Saved locations: {profile.preferred_locations.join(", ")}</p>
+        {preview.locations.length > 0 && (
+          <p>Current locations: {preview.locations.join(", ")}</p>
         )}
-        {profile.instructions && <p>Saved job guidance: {profile.instructions}</p>}
-        {profile.company_instructions && (
-          <p>Saved company guidance: {profile.company_instructions}</p>
+        {preview.instructions && <p>Current job guidance: {preview.instructions}</p>}
+        {preview.companyInstructions && (
+          <p>Current company guidance: {preview.companyInstructions}</p>
         )}
       </section>
     </SectionFormShell>

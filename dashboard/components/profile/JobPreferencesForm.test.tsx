@@ -81,4 +81,22 @@ describe("JobPreferencesForm", () => {
     expect(combobox.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
     expect(error.id).not.toBe("");
   });
+
+  test("updates interpretation preview from live values and keeps save/reset baselines synchronized", async () => {
+    mocks.saveJobPreferences.mockResolvedValue({ status: "success", savedAt: "2026-07-10T12:00:00Z" });
+    render(<JobPreferencesForm profile={profile} locations={[{ location: "London", count: 12 }, { location: "Paris", count: 7 }]} />);
+    fireEvent.focus(screen.getByRole("combobox"));
+    fireEvent.mouseDown(screen.getByRole("option", { name: /Paris/ }));
+    expect(screen.getByText(/London, Paris/)).toBeTruthy();
+    const guidance = screen.getByLabelText("Must-haves and deal-breakers");
+    fireEvent.change(guidance, { target: { value: "Prioritize distributed systems" } });
+    expect(screen.getByText(/Prioritize distributed systems/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+    await screen.findByText("Changes saved");
+    fireEvent.change(guidance, { target: { value: "Temporary edit" } });
+    expect(screen.queryByText("Changes saved")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByText(/Prioritize distributed systems/)).toBeTruthy();
+    expect(screen.getByText(/London, Paris/)).toBeTruthy();
+  });
 });

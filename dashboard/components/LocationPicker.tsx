@@ -14,6 +14,7 @@ export function LocationPicker({
   // it's the combobox's accessible name). Locations are mandatory everywhere the picker is
   // used (onboarding + /profile both reject an empty selection), hence the default copy.
   label = "Locations to include (required — remote roles are always included)",
+  onSelectionChange,
 }: {
   name: string;
   options: LocationOption[];
@@ -22,6 +23,7 @@ export function LocationPicker({
   ariaInvalid?: boolean;
   ariaDescribedBy?: string;
   label?: string;
+  onSelectionChange?: (selected: string[]) => void;
 }) {
   const [selected, setSelected] = useState<string[]>(defaultValue);
   const [query, setQuery] = useState("");
@@ -59,6 +61,7 @@ export function LocationPicker({
     if (selected.includes(loc)) return;
     const next = [...selected, loc];
     setSelected(next);
+    onSelectionChange?.(next);
     announceSelection(next);
     setQuery("");
     setOpen(false);
@@ -68,6 +71,7 @@ export function LocationPicker({
     const next = selected.filter((l) => l !== loc);
     if (next.length === selected.length) return;
     setSelected(next);
+    onSelectionChange?.(next);
     announceSelection(next);
   };
 

@@ -110,13 +110,45 @@ describe("profile settings actions", () => {
 
   test("normalizes and saves reusable application details", async () => {
     await expect(saveApplicationDetails(INITIAL_SECTION_SAVE_STATE, form({
-      full_name: " Jane Doe ", email: " jane@example.com ", link_github: " github ",
+      full_name: " Jane Doe ", email: " jane@example.com ", link_github: " https://github.com/jane ",
       work_authorized: "yes", needs_sponsorship: "no",
     }))).resolves.toMatchObject({ status: "success" });
     expect(mocks.updateApplicationDetails).toHaveBeenCalledWith("u1", expect.objectContaining({
-      full_name: "Jane Doe", email: "jane@example.com", links: expect.objectContaining({ github: "github" }),
+      full_name: "Jane Doe", email: "jane@example.com", links: expect.objectContaining({ github: "https://github.com/jane" }),
       work_authorized: true, needs_sponsorship: false,
     }));
+  });
+
+  test.each([
+    [{ full_name: " ", email: "jane@example.com" }, { full_name: expect.stringContaining("required") }],
+    [{ full_name: "Jane", email: " " }, { email: expect.stringContaining("required") }],
+    [{ full_name: "Jane", email: "not-an-email" }, { email: expect.stringContaining("valid email") }],
+    [{ full_name: "Jane", email: "jane@example.com", link_linkedin: "linkedin" }, { link_linkedin: expect.stringContaining("valid URL") }],
+    [{ full_name: "Jane", email: "jane@example.com", link_github: "github" }, { link_github: expect.stringContaining("valid URL") }],
+    [{ full_name: "Jane", email: "jane@example.com", link_portfolio: "/portfolio" }, { link_portfolio: expect.stringContaining("valid URL") }],
+  ])("rejects invalid application details without writing", async (values, fieldErrors) => {
+    expect(await saveApplicationDetails(INITIAL_SECTION_SAVE_STATE, form(values))).toMatchObject({
+      status: "error", fieldErrors,
+    });
+    expect(mocks.updateApplicationDetails).not.toHaveBeenCalled();
+  });
+
+  test("blank résumé text preserves the canonical saved résumé", async () => {
+    await saveResumeSettings(INITIAL_SECTION_SAVE_STATE, form({ resume_text: "   " }));
+    expect(mocks.updateResumeSource).toHaveBeenCalledWith("u1", {
+      resumeText: "old text", resumeFilePath: "old.pdf",
+    });
+  });
+
+  test.each([
+    ["application details", mocks.updateApplicationDetails, () => saveApplicationDetails(INITIAL_SECTION_SAVE_STATE, form({ full_name: "Jane", email: "jane@example.com" }))],
+    ["job preferences", mocks.updateJobPreferences, () => saveJobPreferences(INITIAL_SECTION_SAVE_STATE, form({ preferred_locations: '["Remote"]' }))],
+    ["personalization", mocks.updateGenerationDefaults, () => saveApplicationPersonalization(INITIAL_SECTION_SAVE_STATE, form({}))],
+    ["advanced settings", mocks.updateModelPreferences, () => saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, form({}))],
+    ["résumé", mocks.updateResumeSource, () => saveResumeSettings(INITIAL_SECTION_SAVE_STATE, form({}))],
+  ])("returns failure, never success, when tombstoned during %s save", async (_name, write, invoke) => {
+    write.mockRejectedValueOnce(new Error("account has been deleted"));
+    expect(await invoke()).toEqual({ status: "error", message: "Changes were not saved. Please try again.", fieldErrors: {} });
   });
 
   test("rejects invalid model ids with field-addressable errors", async () => {
@@ -187,7 +219,7 @@ describe("profile settings actions", () => {
 
   test("returns a generic safe error from non-upload actions", async () => {
     mocks.updateApplicationDetails.mockRejectedValue(new Error("postgres credentials"));
-    expect(await saveApplicationDetails(INITIAL_SECTION_SAVE_STATE, form({}))).toEqual({
+    expect(await saveApplicationDetails(INITIAL_SECTION_SAVE_STATE, form({ full_name: "Jane", email: "jane@example.com" }))).toEqual({
       status: "error", message: "Changes were not saved. Please try again.", fieldErrors: {},
     });
   });

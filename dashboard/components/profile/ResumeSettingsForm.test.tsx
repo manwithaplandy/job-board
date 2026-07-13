@@ -102,4 +102,30 @@ describe("ResumeSettingsForm", () => {
     upload("second.pdf");
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("Replace your unsaved résumé edits with the extracted PDF text?"));
   });
+
+  test("successful file save clears the upload baseline and later saves omit the prior file", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ markdown: "Uploaded text" }), { status: 200 }));
+    const { container } = render(<ResumeSettingsForm profile={profile} />);
+    const input = container.querySelector<HTMLInputElement>('input[name="resume_pdf"]')!;
+    fireEvent.change(input, { target: { files: [new File(["pdf"], "new.pdf", { type: "application/pdf" })] } });
+    await screen.findByText(/extracted — review/i);
+    fireEvent.input(input);
+    fireEvent.click(screen.getByRole("button", { name: "Save résumé" }));
+    await screen.findByText("Changes saved");
+    expect(container.querySelector<HTMLInputElement>('input[name="resume_pdf"]')!.files).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /review extracted text/i }));
+    const editor = screen.getByRole<HTMLInputElement>("textbox", { name: /reviewed résumé text/i });
+    fireEvent.change(editor, { target: { value: "Later edit" } });
+    expect(screen.queryByText("Changes saved")).toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save résumé" }).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(editor.value).toBe("Uploaded text");
+
+    fireEvent.change(editor, { target: { value: "Ordinary edit" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save résumé" }));
+    await waitFor(() => expect(mocks.saveResumeSettings.mock.calls.length).toBeGreaterThanOrEqual(2));
+    const laterForm = mocks.saveResumeSettings.mock.calls.at(-1)![1] as FormData;
+    expect((laterForm.get("resume_pdf") as File).size).toBe(0);
+  });
 });

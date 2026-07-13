@@ -11,6 +11,7 @@ export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
   const [resumeText, setResumeText] = useState(initialText);
   const [savedResumeText, setSavedResumeText] = useState(initialText);
   const [reviewing, setReviewing] = useState(false);
+  const [uploadKey, setUploadKey] = useState(0);
   const archiveName = profile.resume_file_path?.split("/").filter(Boolean).at(-1);
 
   return (
@@ -24,6 +25,7 @@ export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
       onSaved={(values) => {
         const saved = values.get("resume_text");
         if (typeof saved === "string") setSavedResumeText(saved);
+        setUploadKey((value) => value + 1);
       }}
     >
       <section aria-labelledby="resume-summary-heading" className="settings-card">
@@ -38,6 +40,7 @@ export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
       <section aria-labelledby="resume-upload-heading">
         <h2 id="resume-upload-heading">Upload or replace PDF archive</h2>
         <ResumeUploadField
+          key={uploadKey}
           textareaId="resume_text"
           hasUnsavedText={resumeText !== savedResumeText}
           onExtracted={(markdown) => setResumeText(markdown)}

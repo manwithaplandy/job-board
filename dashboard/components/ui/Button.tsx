@@ -1,47 +1,86 @@
-import type { ButtonHTMLAttributes, CSSProperties } from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "sm" | "md";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+export type ButtonSize = "sm" | "md" | "lg";
+
+function buttonClasses(variant: ButtonVariant, size: ButtonSize, className?: string) {
+  return ["rf-button", "rf-focusable", `rf-button--${variant}`, `rf-button--${size}`, className]
+    .filter(Boolean)
+    .join(" ");
 }
 
-// Tokens copied verbatim from the board's canonical CTAs so adopting <Button> is a
-// no-op visually: `primary`+`md` is the big "Generate résumé" / "Prepare" button
-// (ResumePanel), `secondary` is the outline "Copy"/"Regenerate", `sm` is the compact
-// "Download PDF" footprint. Sites that differ pass the delta via `style`.
-export function Button({
-  variant = "primary",
-  size = "md",
-  style,
-  ...props
-}: ButtonProps) {
-  const base: CSSProperties = {
+// Keep the original inline geometry/colors while legacy screens migrate. Product
+// components rely on inline style inspection and may pass small deltas via `style`.
+function legacyButtonStyle(variant: ButtonVariant, size: ButtonSize, disabled: boolean, style?: CSSProperties): CSSProperties {
+  return {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     gap: "8px",
     fontFamily: "inherit",
     fontWeight: 700,
-    cursor: props.disabled ? "not-allowed" : "pointer",
-    opacity: props.disabled ? 0.7 : 1,
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.7 : 1,
     border: variant === "secondary" ? "1px solid var(--border)" : "none",
     borderRadius: size === "sm" ? "10px" : "11px",
     fontSize: size === "sm" ? "13.5px" : "14px",
-    padding: size === "sm" ? "10px 16px" : "12px 20px",
-    ...(variant === "primary" && {
-      background: "var(--accent)",
-      color: "var(--text-on-accent)",
-      boxShadow: "var(--shadow-accent)",
-    }),
-    ...(variant === "secondary" && {
-      background: "var(--bg-surface)",
-      color: "var(--text-secondary)",
-    }),
-    ...(variant === "ghost" && {
-      background: "transparent",
-      color: "var(--accent)",
-    }),
+    padding: size === "sm" ? "10px 16px" : size === "lg" ? "14px 24px" : "12px 20px",
+    ...(variant === "primary" && { background: "var(--accent)", color: "var(--text-on-accent)", boxShadow: "var(--shadow-accent)" }),
+    ...(variant === "secondary" && { background: "var(--bg-surface)", color: "var(--text-secondary)" }),
+    ...(variant === "ghost" && { background: "transparent", color: "var(--accent)" }),
+    ...(variant === "danger" && { background: "var(--danger)", color: "var(--text-on-accent)" }),
     ...style,
   };
-  return <button type="button" style={base} {...props} />;
+}
+
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  loading?: boolean;
+  loadingLabel?: string;
+}
+
+export function Button({
+  variant = "primary",
+  size = "md",
+  loading = false,
+  loadingLabel = "Loading",
+  disabled,
+  className,
+  children,
+  type = "button",
+  style,
+  ...props
+}: ButtonProps) {
+  return (
+    <button
+      type={type}
+      className={buttonClasses(variant, size, className)}
+      disabled={disabled || loading}
+      style={legacyButtonStyle(variant, size, Boolean(disabled || loading), style)}
+      aria-busy={loading || undefined}
+      aria-label={loading ? loadingLabel : props["aria-label"]}
+      {...props}
+    >
+      {loading && <span className="rf-button__spinner" aria-hidden="true" />}
+      {children}
+    </button>
+  );
+}
+
+export interface ButtonLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
+  href: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  children: ReactNode;
+}
+
+export function ButtonLink({
+  variant = "primary",
+  size = "md",
+  className,
+  children,
+  ...props
+}: ButtonLinkProps) {
+  return <a className={buttonClasses(variant, size, className)} {...props}>{children}</a>;
 }

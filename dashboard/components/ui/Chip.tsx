@@ -1,31 +1,24 @@
+import type { CSSProperties, ReactNode } from "react";
+import { Badge, type BadgeTone } from "./Panel";
+
 export interface ChipProps {
-  children: React.ReactNode;
+  children: ReactNode;
   color?: string;
   bg?: string;
   border?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
+  className?: string;
+  tone?: BadgeTone;
 }
 
-// Default text color darkened from the old "#566" (~3.1:1 on #fff) to #5d6673, which
-// clears 4.5:1 at the 11px chip size. Sites that differ (pill radius, weight, padding)
-// pass the delta via `style`, which merges last — same convention as Button/Panel.
-export function Chip({ children, color = "var(--text-secondary)", bg = "var(--bg-surface)", border = "var(--border)", style }: ChipProps) {
+export function Chip({ children, color, bg, border, style, className, tone = "neutral" }: ChipProps) {
   return (
-    <span
-      style={{
-        fontSize: "11px",
-        fontWeight: 600,
-        color,
-        background: bg,
-        border: `1px solid ${border}`,
-        borderRadius: "7px",
-        padding: "2px 8px",
-        display: "inline-flex",
-        alignItems: "center",
-        ...style,
-      }}
+    <Badge
+      tone={tone}
+      className={["rf-chip", className].filter(Boolean).join(" ")}
+      style={{ color, background: bg, borderColor: border, ...style }}
     >
       {children}
-    </span>
+    </Badge>
   );
 }

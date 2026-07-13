@@ -76,7 +76,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
       isAdmin={isAdmin}
       compact={isNarrow}
       showAccount={isAuthed}
-      showPrimaryNav={isAuthed && !isNarrow}
+      showNavigation={isAuthed}
       center={searchControl}
       actions={actions}
     />

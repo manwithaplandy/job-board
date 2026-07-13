@@ -21,6 +21,9 @@ describe("ProfileSectionNav", () => {
     const selectors = screen.getAllByRole("combobox", { name: "Profile section" });
     expect(selectors).toHaveLength(1);
     expect(selectors[0].getAttribute("value") ?? (selectors[0] as HTMLSelectElement).value).toBe("/profile/resume");
+    expect(selectors[0].className).toContain("rf-select");
+    expect(selectors[0].className).toContain("rf-focusable");
+    expect(selectors[0].closest(".rf-select-wrap")?.querySelector(".rf-icon")).not.toBeNull();
   });
 
   test("navigates when the mobile section changes", () => {

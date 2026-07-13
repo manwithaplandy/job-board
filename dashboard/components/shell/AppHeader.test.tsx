@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { AppHeader } from "./AppHeader";
@@ -15,15 +16,51 @@ describe("AppHeader", () => {
     expect(screen.getByRole("button", { name: "Account: person@example.com" })).not.toBeNull();
   });
 
-  test("collapses page navigation into the account menu on narrow screens", () => {
+  test.each([
+    ["board", "Board"],
+    ["analytics", "Analytics"],
+    ["companies", "Companies"],
+    ["profile", "Profile"],
+    ["billing", "Billing"],
+    ["admin", "Admin"],
+  ] as const)("marks %s current in the collapsed navigation", (current, label) => {
+    render(<AppHeader current={current} email="person@example.com" isAdmin />);
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(screen.getByRole("menuitem", { name: label }).getAttribute("aria-current")).toBe("page");
+  });
+
+  test("uses a distinct CSS-switched navigation menu without duplicating links in the account popup", () => {
     render(<AppHeader current="board" email="person@example.com" />);
     const nav = screen.getByRole("navigation", { name: "Primary" });
     expect(nav.className).toContain("app-header__desktop-nav");
 
-    fireEvent.click(screen.getByRole("button", { name: /Account:/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
     expect(screen.getByRole("menuitem", { name: "Board" })).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Analytics" })).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Companies" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    fireEvent.click(screen.getByRole("button", { name: /Account:/ }));
+    expect(screen.queryByRole("menuitem", { name: "Board" })).toBeNull();
+
+    const css = readFileSync("components/shell/shell.css", "utf8");
+    expect(css).toMatch(/\.app-header__mobile-nav\s*\{[^}]*display:\s*none/s);
+    expect(css).toMatch(/@media \(max-width: 1100px\)[\s\S]*\.app-header__desktop-nav[^}]*display:\s*none/s);
+    expect(css).toMatch(/@media \(max-width: 1100px\)[\s\S]*\.app-header__mobile-nav[^}]*display:\s*block/s);
+  });
+
+  test("supports keyboard entry, movement, and escape in the responsive navigation", () => {
+    render(<AppHeader current="board" email="person@example.com" />);
+    const trigger = screen.getByRole("button", { name: "Open navigation" });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const items = screen.getAllByRole("menuitem");
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1], { key: "End" });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    fireEvent.keyDown(items[items.length - 1], { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Navigation" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   test("keeps board-specific content in the shared header slots", () => {

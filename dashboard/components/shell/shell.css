@@ -53,6 +53,7 @@
 
 .app-header__wordmark { font-size: 1.15625rem; font-weight: 800; letter-spacing: -.025rem; }
 .app-header__desktop-nav { display: flex; align-items: center; gap: var(--space-1); }
+.app-header__mobile-nav { display: none; position: relative; }
 
 .app-header__nav-link {
   min-height: var(--target-size);
@@ -88,6 +89,34 @@
 .app-header__health { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; }
 .app-header__reviewed-badge { padding: 3px var(--space-2); border: 1px solid var(--accent-border); border-radius: var(--radius-badge); background: var(--accent-bg); color: var(--accent); font-size: .625rem; font-weight: 800; letter-spacing: .05em; white-space: nowrap; }
 .app-header__auth-actions { display: flex; align-items: center; gap: var(--space-2); }
+.app-header__mobile-menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  min-width: 220px;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
+  z-index: 40;
+}
+.app-header__mobile-menu-item {
+  width: 100%;
+  min-height: var(--target-size);
+  padding: 0 var(--space-3);
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  border-radius: calc(var(--radius-control) - 3px);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  text-decoration: none;
+}
+.app-header__mobile-menu-item:hover { background: var(--bg-muted); }
+.app-header__mobile-menu-item[aria-current="page"] { color: var(--accent); background: var(--accent-bg); }
+.app-header__mobile-menu-item--account { margin-top: var(--space-2); border-top: 1px solid var(--border); border-radius: 0 0 calc(var(--radius-control) - 3px) calc(var(--radius-control) - 3px); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 .profile-section-nav { width: 100%; max-width: var(--content-workspace); margin: 0 auto var(--space-6); }
@@ -112,6 +141,7 @@
   .app-header__desktop-nav,
   .app-header__operator,
   .app-header__reviewed-badge { display: none; }
+  .app-header__mobile-nav { display: block; }
   .app-header__actions { grid-column: 3; }
 }
 
@@ -123,15 +153,5 @@
   .app-header__actions { grid-column: 3; grid-row: 1; }
   .app-header__actions > :not(:last-child) { max-width: min(48vw, 220px); }
   .profile-section-nav__desktop { display: none; }
-  .profile-section-nav__mobile { display: grid; gap: var(--space-2); color: var(--text-secondary); font-size: .75rem; font-weight: 700; }
-  .profile-section-nav__mobile select {
-    width: 100%;
-    min-height: var(--target-size);
-    padding: 0 var(--space-3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    background: var(--bg-surface);
-    color: var(--text-primary);
-    font: inherit;
-  }
+  .profile-section-nav__mobile { display: block; }
 }

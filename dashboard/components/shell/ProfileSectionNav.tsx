@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { SelectField } from "@/components/ui/FormControls";
 
 export const PROFILE_SECTIONS = [
   ["Profile", "/profile"],
@@ -27,12 +28,11 @@ export function ProfileSectionNav() {
           </Link>
         ))}
       </nav>
-      <label className="profile-section-nav__mobile">
-        <span>Profile section</span>
-        <select aria-label="Profile section" value={current} onChange={(event) => router.push(event.target.value)}>
+      <div className="profile-section-nav__mobile">
+        <SelectField label="Profile section" value={current} onChange={(event) => router.push(event.target.value)}>
           {PROFILE_SECTIONS.map(([label, href]) => <option key={href} value={href}>{label}</option>)}
-        </select>
-      </label>
+        </SelectField>
+      </div>
     </div>
   );
 }

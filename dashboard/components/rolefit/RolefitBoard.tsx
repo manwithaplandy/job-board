@@ -1193,6 +1193,10 @@ export function RolefitBoard({
     }, 1600);
   }, []);
 
+  // BOARD_SHELL_COMPOSITE_EXCEPTION: the board must own a viewport-height flex and
+  // overflow boundary around its virtualized list/detail panes. It adopts the shared
+  // shell root/header contracts directly rather than nesting AppShell's content wrapper;
+  // the shell contract test keeps this intentional exception explicit.
   return (
     <div
       className="app-shell app-shell--board"

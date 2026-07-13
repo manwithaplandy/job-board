@@ -74,13 +74,13 @@ describe("Header — narrow collapse", () => {
     expect(screen.getByRole("button", { name: /account/i })).not.toBeNull();
   });
 
-  test("isNarrow=true → flat links + badge + unreviewed link gone, account menu stays", () => {
+  test("isNarrow=true → CSS owns nav collapse while status noise is removed and both menus stay", () => {
     renderHeader({ isNarrow: true, operator: op({ unreviewed: 4, reviewed: 2 }) });
-    expect(screen.queryByRole("link", { name: "Analytics" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Companies" })).toBeNull();
+    expect(screen.getByRole("navigation", { name: "Primary" }).className).toContain("app-header__desktop-nav");
+    expect(screen.getByRole("button", { name: "Open navigation" })).not.toBeNull();
     expect(screen.queryByText("AI-REVIEWED")).toBeNull();
     expect(screen.queryByText(/unreviewed/)).toBeNull();
-    // The account menu trigger (which absorbs the nav at narrow widths) is still present.
+    // Account remains a distinct affordance; navigation uses its own responsive menu.
     expect(screen.getByRole("button", { name: /account/i })).not.toBeNull();
   });
 });

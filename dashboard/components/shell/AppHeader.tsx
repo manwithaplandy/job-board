@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AccountMenu } from "@/components/rolefit/AccountMenu";
+import { AppNavMenu } from "./AppNavMenu";
 
 export type AppRoute = "board" | "analytics" | "companies" | "profile" | "billing" | "admin";
 
@@ -20,10 +21,10 @@ export interface AppHeaderProps {
   actions?: ReactNode;
   compact?: boolean;
   showAccount?: boolean;
-  showPrimaryNav?: boolean;
+  showNavigation?: boolean;
 }
 
-export function AppHeader({ current, email, isAdmin = false, center, actions, compact = false, showAccount = true, showPrimaryNav = true }: AppHeaderProps) {
+export function AppHeader({ current, email, isAdmin = false, center, actions, compact = false, showAccount = true, showNavigation = true }: AppHeaderProps) {
   return (
     <header className={["app-header", compact && "app-header--compact"].filter(Boolean).join(" ")}>
       <Link href="/" className="app-header__brand" aria-label="Rolefit board">
@@ -31,7 +32,7 @@ export function AppHeader({ current, email, isAdmin = false, center, actions, co
         <span className="app-header__wordmark">Rolefit</span>
       </Link>
 
-      {showPrimaryNav && <nav className="app-header__desktop-nav" aria-label="Primary">
+      {showNavigation && <nav className="app-header__desktop-nav" aria-label="Primary">
         {NAV.map((item) => (
           <Link
             key={item.key}
@@ -47,10 +48,10 @@ export function AppHeader({ current, email, isAdmin = false, center, actions, co
       {center && <div className="app-header__center">{center}</div>}
       <div className="app-header__actions">
         {actions}
+        {showNavigation && <AppNavMenu current={current} isAdmin={isAdmin} />}
         {showAccount && (
           <AccountMenu
             email={email}
-            includeNav
             isAdmin={isAdmin}
             current={current === "profile" || current === "billing" || current === "admin" ? current : undefined}
           />

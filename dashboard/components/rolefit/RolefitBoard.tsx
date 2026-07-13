@@ -1195,6 +1195,7 @@ export function RolefitBoard({
 
   return (
     <div
+      className="app-shell app-shell--board"
       style={{
         height: isNarrow ? undefined : "100vh",
         display: "flex",

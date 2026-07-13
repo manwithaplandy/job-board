@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import Link from "next/link";
 
 export interface AccountMenuProps {
   email: string | null;
@@ -156,8 +157,8 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
         onClick={onTriggerClick}
         onKeyDown={onTriggerKeyDown}
         style={{
-          width: "32px",
-          height: "32px",
+          width: "44px",
+          height: "44px",
           borderRadius: "50%",
           background: "var(--accent-bg)",
           border: "1px solid var(--accent-border)",
@@ -217,6 +218,9 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
 
           {includeNav && (
             <>
+              <Link role="menuitem" tabIndex={-1} href="/" className="rf-picker-option" style={itemStyle} onClick={close}>
+                Board
+              </Link>
               <a role="menuitem" tabIndex={-1} href="/analytics" className="rf-picker-option" style={itemStyle} onClick={close}>
                 Analytics
               </a>

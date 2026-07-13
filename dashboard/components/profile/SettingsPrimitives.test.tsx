@@ -10,7 +10,7 @@ import { SettingsNav } from "./SettingsNav";
 import { SettingsSectionCard } from "./SettingsSectionCard";
 
 let pathname = "/profile/job-preferences";
-vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+vi.mock("next/navigation", () => ({ usePathname: () => pathname, useRouter: () => ({ push: vi.fn() }) }));
 
 const idleAction = async (): Promise<SectionSaveState> => ({ status: "idle" });
 

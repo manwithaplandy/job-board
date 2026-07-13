@@ -7,6 +7,7 @@ import { AdminNav } from "@/components/admin/AdminNav";
 import { InviteGenerator } from "@/components/admin/InviteGenerator";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
+import { AppShell } from "@/components/shell/AppShell";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Invites · Admin" };
@@ -80,8 +81,7 @@ export default async function AdminInvitesPage() {
   const invites = await listInvites();
 
   return (
-    <>
-      <SlimHeader current="admin" />
+    <AppShell header={<SlimHeader current="admin" />}>
       <main style={pageStyle}>
         <div style={wrapStyle}>
           <AdminNav active="invites" />
@@ -124,6 +124,6 @@ export default async function AdminInvitesPage() {
           </div>
         </div>
       </main>
-    </>
+    </AppShell>
   );
 }

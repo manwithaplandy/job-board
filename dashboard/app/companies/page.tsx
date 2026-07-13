@@ -7,6 +7,7 @@ import { getCompanyReviews, getCompanyVerdictCounts, getDiscoveryState }
 import { setCompanyOverride, refreshCompanyDiscoveryStatus } from "@/app/actions/companies";
 import { CompanyList } from "@/components/companies/CompanyList";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
+import { AppShell } from "@/components/shell/AppShell";
 import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -61,8 +62,7 @@ export default async function CompaniesPage({
   const hasAnyReviews = counts.include + counts.exclude + counts.unknown > 0;
 
   return (
-    <>
-      <SlimHeader current="companies" />
+    <AppShell header={<SlimHeader current="companies" />}>
       <main style={pageStyle}>
         <div style={cardStyle}>
           <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)" }}>
@@ -100,6 +100,6 @@ export default async function CompaniesPage({
           )}
         </div>
       </main>
-    </>
+    </AppShell>
   );
 }

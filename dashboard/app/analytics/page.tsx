@@ -4,6 +4,7 @@ import { requireUserId } from "@/lib/auth";
 import { getPipelineSnapshot, getRunSeries } from "@/lib/metrics";
 import { PipelineDashboard } from "@/components/analytics/PipelineDashboard";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
+import { AppShell } from "@/components/shell/AppShell";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Analytics · Rolefit" };
@@ -42,9 +43,8 @@ export default async function AnalyticsPage() {
   const snapshot = await cachedSnapshot(userId);
   const series = await cachedRunSeries(userId);
   return (
-    <>
-      <SlimHeader current="analytics" />
+    <AppShell header={<SlimHeader current="analytics" />}>
       <PipelineDashboard snapshot={snapshot} series={series} nowIso={new Date().toISOString()} />
-    </>
+    </AppShell>
   );
 }

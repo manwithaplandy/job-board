@@ -101,15 +101,17 @@ describe("AccountMenu — open contents", () => {
     expect((items[items.length - 1] as HTMLElement).textContent).toBe("Sign out");
   });
 
-  test("includeNav prepends Analytics/Companies menuitems", () => {
+  test("includeNav prepends Board/Analytics/Companies menuitems", () => {
     renderMenu({ includeNav: true });
     openWithClick();
     const analytics = screen.getByRole("menuitem", { name: "Analytics" });
     expect(analytics.getAttribute("href")).toBe("/analytics");
     const companies = screen.getByRole("menuitem", { name: "Companies" });
     expect(companies.getAttribute("href")).toBe("/companies");
-    // They lead the list, ahead of Profile.
-    expect(screen.getAllByRole("menuitem")[0]).toBe(analytics);
+    const board = screen.getByRole("menuitem", { name: "Board" });
+    expect(board.getAttribute("href")).toBe("/");
+    // The shared top-level navigation leads the list, ahead of Profile.
+    expect(screen.getAllByRole("menuitem")[0]).toBe(board);
   });
 });
 

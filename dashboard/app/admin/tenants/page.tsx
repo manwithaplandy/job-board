@@ -6,6 +6,7 @@ import { getTenantMetrics, type TenantMetric } from "@/lib/tenantMetrics";
 import { PLAN_LABEL } from "@/lib/entitlements";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
+import { AppShell } from "@/components/shell/AppShell";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Tenants · Admin" };
@@ -74,8 +75,7 @@ export default async function AdminTenantsPage() {
   const tenants = await getTenantMetrics();
 
   return (
-    <>
-      <SlimHeader current="admin" />
+    <AppShell header={<SlimHeader current="admin" />}>
       <main style={pageStyle}>
         <div style={wrapStyle}>
           <AdminNav active="tenants" />
@@ -120,6 +120,6 @@ export default async function AdminTenantsPage() {
           </div>
         </div>
       </main>
-    </>
+    </AppShell>
   );
 }

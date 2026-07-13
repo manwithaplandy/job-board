@@ -6,6 +6,7 @@ import {
 } from "@/lib/entitlements";
 import { loadTierConfig } from "@/lib/tierConfig";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
+import { AppShell } from "@/components/shell/AppShell";
 import { SubscribeButton, ManageBillingButton } from "@/components/billing/BillingActions";
 
 export const dynamic = "force-dynamic";
@@ -87,8 +88,7 @@ export default async function BillingPage() {
     : null;
 
   return (
-    <>
-      <SlimHeader current="billing" />
+    <AppShell header={<SlimHeader current="billing" />}>
       <main style={pageStyle}>
         <div style={wrapStyle}>
           <div style={cardStyle}>
@@ -138,6 +138,6 @@ export default async function BillingPage() {
           </div>
         </div>
       </main>
-    </>
+    </AppShell>
   );
 }

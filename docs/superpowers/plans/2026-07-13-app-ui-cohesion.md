@@ -22,7 +22,7 @@
 
 ---
 
-### Phase 1: Design tokens and foundational primitives
+### Task 1: Phase 1 — Design tokens and foundational primitives
 
 **Files:**
 - Modify: `dashboard/app/globals.css`
@@ -45,7 +45,7 @@
 - [ ] Capture a local primitive-gallery fixture or existing consumer screenshots in light/dark at desktop/mobile widths.
 - [ ] Commit with `feat(ui): establish cohesive design primitives`.
 
-### Phase 2: Shared authenticated app shell and navigation
+### Task 2: Phase 2 — Shared authenticated app shell and navigation
 
 **Files:**
 - Create: `dashboard/components/shell/AppShell.tsx`
@@ -65,7 +65,7 @@
 - [ ] Capture browser screenshots for board, profile, analytics, companies, billing, and admin at 1440 and 390 pixels.
 - [ ] Commit with `feat(ui): unify authenticated app shell`.
 
-### Phase 3: Critical native-control and icon regressions
+### Task 3: Phase 3 — Critical native-control and icon regressions
 
 **Files:**
 - Modify: `dashboard/components/profile/ResumeSettingsForm.tsx`
@@ -84,7 +84,7 @@
 - [ ] Capture résumé and job-detail screenshots in both themes at desktop/mobile widths.
 - [ ] Commit with `fix(ui): remove native controls and glyph icons`.
 
-### Phase 4: Profile and settings visual convergence
+### Task 4: Phase 4 — Profile and settings visual convergence
 
 **Files:**
 - Modify: `dashboard/app/profile/profile-settings.css`
@@ -102,7 +102,7 @@
 - [ ] Browser-review every profile route in light/dark at 1440 and 390 pixels.
 - [ ] Commit with `refactor(profile): converge settings on design system`.
 
-### Phase 5: Job-board workspace and responsive reconstruction
+### Task 5: Phase 5 — Job-board workspace and responsive reconstruction
 
 **Files:**
 - Modify: `dashboard/components/rolefit/RolefitBoard.tsx`
@@ -122,7 +122,7 @@
 - [ ] Browser-test empty, loading, filtering, selected, rejected, applied, error, generation, and application states.
 - [ ] Commit with `refactor(board): unify responsive job workspace`.
 
-### Phase 6: Companies, Billing, Analytics, and Admin convergence
+### Task 6: Phase 6 — Companies, Billing, Analytics, and Admin convergence
 
 **Files:**
 - Modify components/pages under `dashboard/components/companies`, `dashboard/components/billing`, `dashboard/components/analytics`, and `dashboard/components/admin`
@@ -139,7 +139,7 @@
 - [ ] Browser-review every screen at desktop/mobile widths in both themes.
 - [ ] Commit with `refactor(ui): converge secondary app surfaces`.
 
-### Phase 7: Authentication, onboarding, legal, empty, loading, and error surfaces
+### Task 7: Phase 7 — Authentication, onboarding, legal, empty, loading, and error surfaces
 
 **Files:**
 - Modify auth/onboarding/legal/error pages under `dashboard/app`
@@ -155,7 +155,7 @@
 - [ ] Browser-review public routes in a separate unauthenticated context and protected routes in the authenticated context.
 - [ ] Commit with `refactor(ui): unify entry and system states`.
 
-### Phase 8: Accessibility, interaction polish, and responsive acceptance
+### Task 8: Phase 8 — Accessibility, interaction polish, and responsive acceptance
 
 **Files:**
 - Modify affected UI/shell/screen components
@@ -169,7 +169,7 @@
 - [ ] Perform keyboard-only browser walkthroughs of representative workflows in both themes.
 - [ ] Commit with `fix(ui): complete accessibility and responsive polish`.
 
-### Phase 9: Regression guardrails and final definition-of-done audit
+### Task 9: Phase 9 — Regression guardrails and final definition-of-done audit
 
 **Files:**
 - Create: `dashboard/app/ui-contract.test.ts`

@@ -77,3 +77,59 @@ Browser matrix still required at the adversarial gate:
 1. Browser evidence and measured viewport overflow evidence remain outstanding for the independent reviewer.
 2. The account popup intentionally includes the primary Board/Analytics/Companies destinations at desktop widths as well as mobile widths. This provides one consistent popup and avoids JavaScript viewport branching; the reviewer should assess whether the duplication is aesthetically acceptable.
 3. Off-board route bodies retain their existing page-local styling until their planned convergence phases. This phase changes their shell/header only.
+
+---
+
+## Adversarial review fixes — 2026-07-13
+
+Implementation commit: `00d13dc` (`fix(ui): satisfy phase 2 shell review`)
+
+### Findings resolved
+
+- **I1 — collapsed active route:** added a dedicated `AppNavMenu` whose route contract represents Board, Analytics, Companies, Profile, Billing, and Admin. Every item receives `aria-current="page"` from the shared `AppRoute`, and parameterized tests cover all six states.
+- **I2 — desktop duplication:** primary navigation and the responsive navigation menu now use distinct markup and affordances. CSS shows the desktop links above 1100px and the menu trigger at/below 1100px; no viewport JavaScript determines markup. `AccountMenu` is account-only at every width and no longer accepts or renders primary navigation.
+- **I3 — profile selector primitive:** the single mobile profile selector now composes Phase 1 `SelectField`, including `rf-control`, `rf-select`, `rf-focusable`, `rf-select-wrap`, and the internal SVG chevron. Product-local select geometry was removed.
+- **M1 — responsive contract evidence:** the test now pins the mutually exclusive desktop/mobile display rules at the 1100px breakpoint rather than merely checking for a class, while live browser measurement remains part of the external gate.
+- **M2 — board shell exception:** documented the board's intentional composite exception beside its root: the virtualized viewport-height workspace must own the flex/overflow boundary rather than nest `AppShell`'s content wrapper. A contract test pins both this marker and off-board `AppShell` composition.
+- **M3 — stale account docs:** updated the public contract comment and tests to specify that account and responsive primary navigation are separate affordances.
+- Added keyboard coverage for ArrowDown entry, movement, End, Escape close, and trigger-focus restoration in the responsive navigation.
+
+### Review-fix RED evidence
+
+Before the fixes:
+
+```text
+npm test -- components/shell/AppHeader.test.tsx components/shell/ProfileSectionNav.test.tsx components/shell/AppShell.contract.test.ts
+
+Test Files  2 failed (2)
+Tests       8 failed | 3 passed (11)
+```
+
+Six route-state tests and the distinct responsive-menu test failed because `Open navigation` did not exist. The profile test failed because its combobox had none of the Phase 1 select/focus/icon contracts. The original `.ts` contract filename was then corrected to the repository's collected `.test.tsx` convention so the board exception assertion runs in the suite.
+
+### Review-fix GREEN evidence
+
+Focused shell, route-contract, and affected-consumer run:
+
+```text
+npm test -- components/shell/AppHeader.test.tsx components/shell/ProfileSectionNav.test.tsx components/shell/AppShell.test.tsx components/shell/AppShell.contract.test.tsx components/rolefit/Header.test.tsx components/rolefit/AccountMenu.test.tsx components/profile/SettingsPrimitives.test.tsx components/rolefit/RolefitBoard.test.tsx app/globals.theme.test.ts
+
+Test Files  9 passed (9)
+Tests       55 passed (55)
+```
+
+Required full suite:
+
+```text
+NODE_OPTIONS=--no-experimental-webstorage npm test -- --run
+
+Test Files  166 passed | 2 skipped (168)
+Tests       1233 passed | 6 skipped (1239)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- `env DATABASE_URL=postgresql://test:test@localhost:5432/test npm run build`: passed with Google font network access; every route compiled and static generation completed.
+- `git diff --check`: passed before commit.
+
+Live light/dark desktop/mobile screenshots and route-level overflow measurements remain for the independent reviewer/controller because this worker still lacks a browser binding.

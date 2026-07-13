@@ -87,3 +87,49 @@ The independent reviewer/controller must complete the browser gate against this 
 ## Concern
 
 The required live browser screenshots and interactions are unavailable in this worker because browser discovery returned no backends. Automated behavior, source contracts, typecheck, lint, build, and the full test suite are green; the independent browser reviewer remains the only Phase 3 gate item.
+
+---
+
+## Adversarial review fix — shared résumé copy icon
+
+Implementation commit: `f5cc50f` (`fix(ui): use shared resume copy icon`)
+
+The reviewer found one remaining bespoke 13px inline SVG in the generated résumé Copy action. The action now renders the shared `<Icon name="copy" size={16} />` inside the existing aligned button, preserving its `onCopy` handler, live `copyLabel` status, accessible name, spacing, and button geometry.
+
+### Review-fix RED
+
+The critical-control guard was extended to require the shared copy icon and reject bespoke SVG markup in `ResumePanel`:
+
+```text
+npm test -- components/ui/criticalControls.test.tsx
+
+Test Files  1 failed (1)
+Tests       1 failed | 3 passed (4)
+```
+
+The new assertion failed because `ResumePanel` did not contain `<Icon name="copy"` and still contained `<svg>`.
+
+### Review-fix GREEN and audit
+
+```text
+npm test -- components/ui/criticalControls.test.tsx components/rolefit/ResumePanel.test.tsx components/rolefit/ApplicationPanel.test.tsx components/rolefit/JobDetail.test.tsx components/rolefit/JobCard.test.tsx components/rolefit/ProfileModal.test.tsx components/rolefit/GenerationInstructions.test.tsx
+
+Test Files  6 passed (6)
+Tests       33 passed (33)
+```
+
+The guard now audits every Phase 3 board control source for bespoke SVG icons. The only remaining scoped inline SVG is Job Detail's 88px two-circle fit-score data visualization; a dedicated assertion identifies and allows that non-control visualization. A second source audit found no user-visible forbidden Unicode control glyphs.
+
+Required verification after the review fix:
+
+```text
+NODE_OPTIONS=--no-experimental-webstorage npm test -- --run
+
+Test Files  167 passed | 2 skipped (169)
+Tests       1239 passed | 6 skipped (1245)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- Production build: passed; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.

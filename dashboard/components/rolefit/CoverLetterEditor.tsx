@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { JobRow } from "@/lib/types";
 import { saveCoverLetterEdit, deleteCoverLetterEdit } from "@/app/actions/coverLetterEdits";
+import { Icon } from "@/components/ui/Icon";
 
 export interface CoverLetterEditorProps {
   job: JobRow;
@@ -58,6 +59,7 @@ export function CoverLetterEditor({ job, letterText, hasEdit, isAuthed, onSaved,
   };
 
   const secondaryBtn: React.CSSProperties = {
+    display: "inline-flex", alignItems: "center", gap: "6px",
     fontWeight: 700, fontSize: "12.5px", color: "var(--text-secondary)",
     background: "var(--bg-surface)", border: "1px solid var(--border)",
     borderRadius: "9px", padding: "8px 13px", cursor: "pointer",
@@ -68,7 +70,7 @@ export function CoverLetterEditor({ job, letterText, hasEdit, isAuthed, onSaved,
       {!open ? (
         <div style={{ display: "flex", gap: "9px", alignItems: "center" }}>
           <button type="button" onClick={() => { setText(letterText); setOpen(true); }} style={secondaryBtn}>
-            ✎ Edit letter
+            <Icon name="edit" size={16} /> Edit letter
           </button>
           {hasEdit && (
             <button type="button" onClick={onResetClick} disabled={busy} style={secondaryBtn}>

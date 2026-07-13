@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { IconButton } from "@/components/ui/Action";
+import { Icon } from "@/components/ui/Icon";
 
 export interface ProfileModalProps {
   open: boolean;
@@ -186,26 +188,11 @@ export function ProfileModal({
               Used to tailor résumés. Saved to your account.
             </div>
           </div>
-          <button
-            type="button"
-            aria-label="Close"
+          <IconButton
+            label="Close"
+            icon="close"
             onClick={handleClose}
-            style={{
-              width: "30px",
-              height: "30px",
-              borderRadius: "8px",
-              border: "1px solid var(--border)",
-              background: "var(--bg-surface)",
-              color: "var(--text-secondary)",
-              fontSize: "16px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            ✕
-          </button>
+          />
         </div>
 
         {/* Modal body */}
@@ -226,7 +213,9 @@ export function ProfileModal({
             <a
               href="/login"
               style={{
-                display: "inline-block",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
                 fontWeight: 700,
                 fontSize: "13.5px",
                 color: "var(--text-on-accent)",
@@ -238,7 +227,7 @@ export function ProfileModal({
                 boxShadow: "var(--shadow-accent-md)",
               }}
             >
-              Sign in →
+              Sign in <Icon name="arrow-right" size={16} />
             </a>
           </div>
         ) : (
@@ -380,13 +369,16 @@ export function ProfileModal({
                     {uploadName && (
                       <div
                         style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
                           fontSize: "12.5px",
                           fontWeight: 700,
                           color: "var(--success)",
                           marginTop: "2px",
                         }}
                       >
-                        ✓ {uploadName}
+                        <Icon name="check" size={16} /> {uploadName}
                       </div>
                     )}
                   </label>
@@ -396,6 +388,7 @@ export function ProfileModal({
                     type="file"
                     name="resume_pdf"
                     aria-label="Résumé PDF"
+                    className="rf-file-upload__input"
                     accept=".pdf,application/pdf"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
@@ -422,7 +415,6 @@ export function ProfileModal({
                         setExtractStatus("Couldn't read that file — paste your résumé text instead.");
                       }
                     }}
-                    style={{ display: "none" }}
                   />
                   <div
                       role="status"
@@ -458,6 +450,9 @@ export function ProfileModal({
                   }
                 }}
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
                   fontSize: "12.5px",
                   color: "var(--text-secondary)",
                   fontWeight: 600,
@@ -465,7 +460,7 @@ export function ProfileModal({
                   marginRight: "auto",
                 }}
               >
-                Advanced settings →
+                Advanced settings <Icon name="arrow-right" size={16} />
               </a>
               {saveError && (
                 <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "var(--danger)", fontWeight: 600 }}>

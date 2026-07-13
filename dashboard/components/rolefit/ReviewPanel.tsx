@@ -6,6 +6,7 @@ import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { saveReviewCorrection } from "@/app/actions/corrections";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
+import { Icon } from "@/components/ui/Icon";
 import {
   VERDICTS, EXPERIENCE_MATCH, INDUSTRIES, SUBCATEGORIES_BY_INDUSTRY,
   ROLE_CATEGORIES, SENIORITY, WORK_ARRANGEMENT, CONFIDENCE, taxonomyLabel,
@@ -321,7 +322,7 @@ export function ReviewPanel({
                       flex: "0 0 auto",
                     }}
                   >
-                    ▲
+                    <Icon name="warning" size={16} />
                   </span>
                   <span
                     style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.5, fontWeight: 500 }}

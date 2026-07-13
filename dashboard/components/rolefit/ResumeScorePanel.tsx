@@ -6,6 +6,7 @@ import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import { resumeChecks } from "@/lib/rolefit/resumeChecks";
 import { resumeOverall } from "@/lib/rolefit/resumeScore";
 import { saveResumeScore } from "@/app/actions/resumeScores";
+import { Icon } from "@/components/ui/Icon";
 
 export interface ResumeScorePanelProps {
   job: JobRow;
@@ -75,11 +76,12 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
           type="button"
           onClick={() => setOpen(true)}
           style={{
+            display: "inline-flex", alignItems: "center", gap: "6px",
             fontWeight: 700, fontSize: "12.5px", color: "var(--text-secondary)", background: "var(--bg-surface)",
             border: "1px solid var(--border)", borderRadius: "9px", padding: "8px 13px", cursor: "pointer",
           }}
         >
-          ★ Score résumé
+          <Icon name="star" size={16} /> Score résumé
         </button>
       ) : (
         <div>
@@ -94,13 +96,14 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
                 key={c.id}
                 title={c.detail ?? c.label}
                 style={{
+                  display: "inline-flex", alignItems: "center", gap: "4px",
                   fontSize: "11px", fontWeight: 700, borderRadius: "6px", padding: "3px 8px",
                   color: c.pass ? "var(--success)" : "var(--danger)",
                   background: c.pass ? "var(--success-bg)" : "var(--danger-bg)",
                   border: `1px solid ${c.pass ? "var(--success-border)" : "var(--danger-border)"}`,
                 }}
               >
-                {c.pass ? "✓" : "✕"} {c.label}
+                <Icon name={c.pass ? "check" : "close"} size={16} /> {c.label}
               </span>
             ))}
           </div>

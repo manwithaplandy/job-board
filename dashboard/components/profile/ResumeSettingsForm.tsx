@@ -4,6 +4,8 @@ import { useState } from "react";
 import { saveResumeSettings } from "@/app/actions/profileSettings";
 import type { ProfileRow } from "@/lib/types";
 import { ResumeUploadField } from "@/components/rolefit/ResumeUploadField";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 import { SectionFormShell } from "./SectionFormShell";
 
 export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
@@ -49,9 +51,10 @@ export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
 
       <section aria-labelledby="resume-review-heading">
         <h2 id="resume-review-heading">Experience source</h2>
-        <button type="button" aria-expanded={reviewing} aria-controls="resume-review-editor" onClick={() => setReviewing((value) => !value)}>
+        <Button type="button" variant="outline" aria-expanded={reviewing} aria-controls="resume-review-editor" onClick={() => setReviewing((value) => !value)}>
           {reviewing ? "Hide reviewed text" : "Review extracted text"}
-        </button>
+          <Icon name={reviewing ? "chevron-up" : "chevron-down"} size={16} />
+        </Button>
         {reviewing ? (
           <div id="resume-review-editor" className="settings-field">
             <label htmlFor="resume_text">Reviewed résumé text</label>

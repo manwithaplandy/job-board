@@ -4,6 +4,7 @@ import type { JobRow } from "@/lib/types";
 import { fitColor, initialsOf, fmtPay } from "@/lib/rolefit/fit";
 import { displayEnumLabel } from "@/lib/rolefit/taxonomy";
 import { Chip } from "@/components/ui/Chip";
+import { IconButton } from "@/components/ui/Action";
 
 // Palette from the reference design's getBaseJobs() logoBg array
 const LOGO_COLORS = [
@@ -161,9 +162,11 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
         </div>
       </button>
       {onReject && (
-        <button
-          type="button"
-          aria-label={`Reject ${job.title}`}
+        <IconButton
+          label={`Reject ${job.title}`}
+          icon="close"
+          tone="danger"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             onReject(job.id);
@@ -178,8 +181,8 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
             right: "18px",
             transform: "translateY(-50%)",
             zIndex: 1,
-            width: "24px",
-            height: "24px",
+            width: "44px",
+            height: "44px",
             borderRadius: "6px",
             border: "none",
             // One-off faint neutral overlay for the hover-reveal reject ×; no token
@@ -191,11 +194,8 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "14px",
           }}
-        >
-          ×
-        </button>
+        />
       )}
     </div>
   );

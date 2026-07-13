@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { INSTRUCTIONS_MAX_LENGTH } from "@/lib/rolefit/generationInstructions";
+import { Icon } from "@/components/ui/Icon";
 
 export interface GenerationInstructionsProps {
   /** Current instructions text ("" = none). */
@@ -63,7 +64,7 @@ export function GenerationInstructions({
           borderRadius: "8px", padding: "6px 11px", cursor: "pointer",
         }}
       >
-        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+        <Icon name={open ? "chevron-down" : "chevron-right"} size={16} />
         Generation instructions
         {!open && value.trim() && (
           <span style={{ color: "var(--accent)", fontWeight: 800 }}>·</span>
@@ -101,18 +102,18 @@ export function GenerationInstructions({
               </button>
             )}
             {onSave && justSaved && !dirty && (
-              <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--success)" }} aria-live="polite">
-                ✓ Saved
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: 700, color: "var(--success)" }} aria-live="polite">
+                <Icon name="check" size={16} /> Saved
               </span>
             )}
             {appliedState === "applied" && (
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginLeft: "auto" }}>
-                ✓ Applied to current {kind}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginLeft: "auto" }}>
+                <Icon name="check" size={16} /> Applied to current {kind}
               </span>
             )}
             {appliedState === "pending" && (
-              <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--accent)", marginLeft: "auto" }}>
-                ● Not yet applied — Regenerate to apply
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: 700, color: "var(--accent)", marginLeft: "auto" }}>
+                <Icon name="warning" size={16} /> Not yet applied — Regenerate to apply
               </span>
             )}
           </div>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tierGateNotice, type TierGateNotice } from "@/lib/rolefit/tierGate";
+import { Icon } from "@/components/ui/Icon";
 
 // First-run "your board is being built" affordance (spec F core / T6). Two shapes:
 //   • FULL card — shown on an empty board (firstRun) with the Review-now CTA.
@@ -171,8 +172,8 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
         {gate && (
           <div style={{ fontSize: "12px", color: "var(--text-primary)", marginTop: "4px" }}>
             {gate.message}{" "}
-            <a href="/billing" style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none" }}>
-              {gate.cta} →
+            <a href="/billing" style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--accent)", fontWeight: 700, textDecoration: "none" }}>
+              {gate.cta} <Icon name="arrow-right" size={16} />
             </a>
           </div>
         )}

@@ -1,6 +1,7 @@
 "use client";
 
 import type { TierGateNotice } from "@/lib/rolefit/tierGate";
+import { Icon } from "@/components/ui/Icon";
 
 // Bottom-of-screen tier-gate upsell pill (402 subscribe / 429 monthly allowance /
 // 409 daily review budget). Deliberately mirrors the Undo toast's dark pill + blue
@@ -41,6 +42,9 @@ export function UpsellNotice({
       <a
         href="/billing"
         style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
           fontWeight: 800,
           fontSize: "13px",
           color: "var(--toast-link)",
@@ -49,7 +53,7 @@ export function UpsellNotice({
           flexShrink: 0,
         }}
       >
-        {notice.cta} →
+        {notice.cta} <Icon name="arrow-right" size={16} />
       </a>
       <button
         type="button"

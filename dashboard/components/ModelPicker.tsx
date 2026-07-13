@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { filterModels, type ORModel } from "@/lib/openrouter";
+import { IconButton } from "@/components/ui/Action";
 
 export function ModelPicker({
   label, name, models, curated, defaultValue, placeholder, hint,
@@ -131,7 +132,7 @@ export function ModelPicker({
       />
       {/* Chip appears only while searching (menu open): idle, the input itself is the filled
           value, so the chip would be redundant. Open, it reminds you of the current selection
-          and offers the "×" clear. */}
+          and offers the icon-backed clear action. */}
       {selected && open && (
         <div className="rf-picker-chip" style={{
           marginTop: "8px",
@@ -146,24 +147,13 @@ export function ModelPicker({
           color: "var(--accent)",
         }}>
           <span>{selected}</span>
-          <button
-            type="button"
-            aria-label="Clear model (use default)"
+          <IconButton
+            label="Clear model (use default)"
+            icon="close"
+            size="sm"
             className="rf-picker-clear"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-              margin: 0,
-              fontFamily: "inherit",
-              fontSize: "inherit",
-              lineHeight: "inherit",
-            }}
             onClick={() => commitSelection("")}
-          >
-            ×
-          </button>
+          />
         </div>
       )}
       {open && results.length > 0 && (

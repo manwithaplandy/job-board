@@ -14,6 +14,8 @@ import {
   INITIAL_SECTION_SAVE_STATE,
   type SectionSaveState,
 } from "@/lib/profileSettingsState";
+import { Button } from "@/components/ui/Button";
+import { FormActions } from "@/components/ui/Navigation";
 
 export interface SectionFormShellProps {
   action: (state: SectionSaveState, formData: FormData) => Promise<SectionSaveState>;
@@ -254,15 +256,15 @@ export function SectionFormShell({ action, submitLabel, children, onReset, onSav
           </div>
         )}
         {children}
-        <div className="section-actions">
-          <button type="button" className="section-cancel" onClick={cancel} disabled={!dirty || pending}>Cancel</button>
-          <button type="submit" className="section-save" disabled={!dirty || pending}>
+        <FormActions className="section-actions">
+          <Button type="button" variant="outline" size="sm" className="section-cancel" onClick={cancel} disabled={!dirty || pending}>Cancel</Button>
+          <Button type="submit" variant="primary" size="sm" className="section-save" disabled={!dirty || pending}>
             {pending ? "Saving…" : submitLabel}
-          </button>
+          </Button>
           <span className={state.status === "success" ? "section-status success" : "section-status"} aria-live="polite">
             {state.status === "success" && !dirty ? "Changes saved" : ""}
           </span>
-        </div>
+        </FormActions>
       </form>
     </SectionFormContext.Provider>
   );

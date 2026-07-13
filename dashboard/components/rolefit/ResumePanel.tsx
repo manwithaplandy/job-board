@@ -7,6 +7,7 @@ import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
+import { Icon } from "@/components/ui/Icon";
 import { ResumeScorePanel } from "@/components/rolefit/ResumeScorePanel";
 import { GenerationInstructions } from "./GenerationInstructions";
 
@@ -189,7 +190,7 @@ export function ResumePanel({
             />
           </div>
           <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
-            <span style={{ fontSize: "15px" }}>✦</span>Generate résumé
+            <Icon name="sparkle" size={16} />Generate résumé
           </Button>
         </div>
       )}
@@ -266,7 +267,7 @@ export function ResumePanel({
                 fontWeight: 800,
               }}
             >
-              ✓
+              <Icon name="check" size={16} />
             </span>
             <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
               Résumé ready — tailored to {job.company_name}
@@ -349,7 +350,7 @@ export function ResumePanel({
                 boxShadow: "var(--shadow-accent-md)",
               }}
             >
-              <span>⤓</span>Download PDF
+              <Icon name="download" size={16} />Download PDF
             </button>
             <button
               onClick={onCopy}
@@ -396,7 +397,7 @@ export function ResumePanel({
                 opacity: generating ? 0.6 : 1,
               }}
             >
-              <span>↻</span>Regenerate
+              <Icon name="refresh" size={16} />Regenerate
             </button>
           </div>
           <GenerationInstructions

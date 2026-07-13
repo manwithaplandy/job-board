@@ -7,10 +7,11 @@ type FieldChromeProps = {
   description?: ReactNode;
   error?: ReactNode;
   required?: boolean;
+  labelClassName?: string;
   children: (contract: { id: string; describedBy?: string }) => ReactNode;
 };
 
-function FieldChrome({ id: requestedId, label, description, error, required, children }: FieldChromeProps) {
+function FieldChrome({ id: requestedId, label, description, error, required, labelClassName, children }: FieldChromeProps) {
   const generatedId = useId();
   const id = requestedId ?? generatedId;
   const descriptionId = description ? `${id}-description` : undefined;
@@ -18,7 +19,7 @@ function FieldChrome({ id: requestedId, label, description, error, required, chi
   const describedBy = [descriptionId, errorId].filter(Boolean).join(" ") || undefined;
   return (
     <div className={["rf-field", error && "rf-field--error"].filter(Boolean).join(" ")}>
-      <label className="rf-field__label" htmlFor={id}>{label}{required && <span aria-hidden="true"> *</span>}</label>
+      <label className={["rf-field__label", labelClassName].filter(Boolean).join(" ")} htmlFor={id}>{label}{required && <span aria-hidden="true"> *</span>}</label>
       {description && <div id={descriptionId} className="rf-field__description">{description}</div>}
       {children({ id, describedBy })}
       {error && <div id={errorId} className="rf-field__error" role="alert">{error}</div>}
@@ -71,11 +72,15 @@ export interface FileUploadProps extends Omit<InputHTMLAttributes<HTMLInputEleme
   description?: ReactNode;
   error?: ReactNode;
   actionLabel?: string;
+  emptyLabel?: string;
+  nameClassName?: string;
+  visuallyHideLabel?: boolean;
+  announceFilename?: boolean;
 }
 
-export function FileUpload({ label, description, error, id, className, required, actionLabel = "Choose file", onChange, "aria-describedby": consumerDescribedBy, "aria-invalid": consumerInvalid, ...props }: FileUploadProps) {
-  const [filename, setFilename] = useState("No file selected");
-  return <FieldChrome id={id} label={label} description={description} error={error} required={required}>{({ id: controlId, describedBy }) => (
-    <div className="rf-file-upload"><input {...props} id={controlId} type="file" className={["rf-file-upload__input", className].filter(Boolean).join(" ")} required={required} aria-invalid={error ? true : consumerInvalid} aria-describedby={mergeDescribedBy(consumerDescribedBy, describedBy)} onChange={(event) => { setFilename(event.currentTarget.files?.[0]?.name ?? "No file selected"); onChange?.(event); }} /><label className="rf-button rf-button--outline rf-button--md rf-focusable" htmlFor={controlId}><Icon name="upload" size={18} />{actionLabel}</label><span className="rf-file-upload__name" role="status" aria-live="polite">{filename}</span></div>
+export function FileUpload({ label, description, error, id, className, required, actionLabel = "Choose file", emptyLabel = "No file selected", nameClassName, visuallyHideLabel = false, announceFilename = true, onChange, "aria-describedby": consumerDescribedBy, "aria-invalid": consumerInvalid, ...props }: FileUploadProps) {
+  const [filename, setFilename] = useState(emptyLabel);
+  return <FieldChrome id={id} label={label} description={description} error={error} required={required} labelClassName={visuallyHideLabel ? "sr-only" : undefined}>{({ id: controlId, describedBy }) => (
+    <div className="rf-file-upload"><input {...props} id={controlId} type="file" className={["rf-file-upload__input", className].filter(Boolean).join(" ")} required={required} aria-invalid={error ? true : consumerInvalid} aria-describedby={mergeDescribedBy(consumerDescribedBy, describedBy)} onChange={(event) => { setFilename(event.currentTarget.files?.[0]?.name ?? emptyLabel); onChange?.(event); }} /><label className="rf-button rf-button--outline rf-button--md rf-focusable" htmlFor={controlId}><Icon name="upload" size={18} />{actionLabel}</label><span className={["rf-file-upload__name", nameClassName].filter(Boolean).join(" ")} role={announceFilename ? "status" : undefined} aria-live={announceFilename ? "polite" : undefined}>{filename}</span></div>
   )}</FieldChrome>;
 }

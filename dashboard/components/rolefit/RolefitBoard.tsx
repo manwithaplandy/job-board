@@ -30,6 +30,8 @@ import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
 import { DetailErrorBoundary } from "./DetailErrorBoundary";
 import { saveGenerationInstructions } from "@/app/actions/generationInstructions";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 
 type DetailState =
   | { status: "loading" }
@@ -1308,8 +1310,10 @@ export function RolefitBoard({
             {selectedJobWithDetail ? (
               <>
                 {isNarrow && (
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => setSelectedId(null)}
                     style={{
                       display: "flex",
@@ -1326,8 +1330,8 @@ export function RolefitBoard({
                       cursor: "pointer",
                     }}
                   >
-                    ← Back
-                  </button>
+                    <Icon name="arrow-left" size={16} /> Back
+                  </Button>
                 )}
                 <DetailErrorBoundary key={selectedJobWithDetail.id}>
                   <JobDetail

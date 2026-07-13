@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { atsLabel } from "@/lib/rolefit/ats";
+import { Icon } from "@/components/ui/Icon";
 
 // Static filter definitions — mirrored from reference design renderVals()
 const PAY_DEFS: [number, string][] = [
@@ -247,12 +248,12 @@ export function FilterBar({
   const box = (on: boolean) => ({
     boxBg: on ? "var(--accent)" : "var(--bg-surface)",
     boxBorder: on ? "var(--accent)" : "var(--border-strong)",
-    check: on ? "✓" : "",
+    check: on,
   });
   const radio = (on: boolean) => ({
     bg: on ? "var(--accent-bg)" : "transparent",
     weight: on ? 700 : 500,
-    check: on ? "✓" : "",
+    check: on,
   });
 
   const catItems = Object.entries(categories)
@@ -293,7 +294,7 @@ export function FilterBar({
     padding: "7px 11px",
     cursor: "pointer",
   });
-  const caret = <span style={{ color: "var(--text-muted)", fontSize: "9px" }}>▼</span>;
+  const caret = <Icon name="chevron-down" size={16} />;
 
   return (
     <div
@@ -355,7 +356,7 @@ export function FilterBar({
                 flex: "0 0 auto",
               }}
             >
-              {check}
+              {check && <Icon name="check" size={16} />}
             </span>
             <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
               {cat}
@@ -402,7 +403,7 @@ export function FilterBar({
                 {label}
               </span>
               <span style={{ color: "var(--accent)", fontWeight: 800, fontSize: "12px" }}>
-                {r.check}
+                {r.check && <Icon name="check" size={16} />}
               </span>
             </button>
           );
@@ -444,7 +445,7 @@ export function FilterBar({
                 {label}
               </span>
               <span style={{ color: "var(--accent)", fontWeight: 800, fontSize: "12px" }}>
-                {r.check}
+                {r.check && <Icon name="check" size={16} />}
               </span>
             </button>
           );
@@ -496,7 +497,7 @@ export function FilterBar({
                 flex: "0 0 auto",
               }}
             >
-              {check}
+              {check && <Icon name="check" size={16} />}
             </span>
             <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
               {loc}
@@ -553,7 +554,7 @@ export function FilterBar({
                 flex: "0 0 auto",
               }}
             >
-              {check}
+              {check && <Icon name="check" size={16} />}
             </span>
             <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
               {label}
@@ -732,7 +733,7 @@ export function FilterBar({
                 {label}
               </span>
               <span style={{ color: "var(--accent)", fontWeight: 800, fontSize: "12px" }}>
-                {r.check}
+                {r.check && <Icon name="check" size={16} />}
               </span>
             </button>
           );

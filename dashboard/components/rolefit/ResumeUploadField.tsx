@@ -1,6 +1,6 @@
 "use client";
-import { useRef, useState } from "react";
-import { Button } from "@/components/ui/Button";
+import { useState } from "react";
+import { FileUpload } from "@/components/ui/FormControls";
 
 // Résumé upload as a review-before-commit INPUT METHOD: the file is POSTed to the
 // authed /api/resume/extract route, converted to markdown, and dropped into the
@@ -16,13 +16,10 @@ interface ResumeUploadFieldProps {
 }
 
 export function ResumeUploadField({ textareaId, onExtracted, hasUnsavedText = false }: ResumeUploadFieldProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
 
   async function onChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    setFileName(file?.name ?? null);
     if (!file) return;
     setStatus("Extracting…");
     const body = new FormData();
@@ -59,29 +56,17 @@ export function ResumeUploadField({ textareaId, onExtracted, hasUnsavedText = fa
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <input
-          ref={inputRef}
-          name="resume_pdf"
-          aria-label="Résumé PDF"
-          type="file"
-          accept="application/pdf"
-          onChange={onChange}
-          style={{
-            position: "absolute", width: "1px", height: "1px", padding: 0, margin: "-1px",
-            overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0,
-          }}
-        />
-        <Button type="button" variant="secondary" size="sm" onClick={() => inputRef.current?.click()}>
-          Upload PDF
-        </Button>
-        <span className="resume-upload-filename" style={{
-          color: fileName ? "var(--text-primary)" : "var(--text-muted)",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
-        }}>
-          {fileName ?? "No file chosen"}
-        </span>
-      </div>
+      <FileUpload
+        label="Résumé PDF"
+        visuallyHideLabel
+        announceFilename={false}
+        name="resume_pdf"
+        accept="application/pdf"
+        actionLabel="Upload PDF"
+        emptyLabel="No file chosen"
+        nameClassName="resume-upload-filename"
+        onChange={onChange}
+      />
       <p className="resume-upload-status" role="status" aria-live="polite" style={{ minHeight: "17px", margin: 0, fontWeight: 500, color: "var(--text-secondary)" }}>{status}</p>
     </div>
   );

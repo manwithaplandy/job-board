@@ -14,6 +14,7 @@ import { ApplicationPanel } from "./ApplicationPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { Icon } from "@/components/ui/Icon";
 
 // Generic "Apply" link → the job's ATS posting. Opens a new tab; rel guards the
 // opener. Now only the fallback for not-yet-reviewed roles (which have no
@@ -437,7 +438,7 @@ export function JobDetail({
               border="var(--success-border)"
               style={{ gap: "8px", fontSize: "11.5px", fontWeight: 700, borderRadius: "20px", padding: "4px 11px" }}
             >
-              ✓ Applied · you
+              <Icon name="check" size={16} /> Applied · you
               {onUnapply && (
                 <Button
                   variant="ghost"
@@ -484,7 +485,7 @@ export function JobDetail({
                 padding: "7px 16px",
               }}
             >
-              ✓ Mark as applied
+              <Icon name="check" size={16} /> Mark as applied
             </Button>
           )}
         </div>
@@ -551,7 +552,7 @@ export function JobDetail({
                         fontWeight: 800,
                       }}
                     >
-                      {req.met ? "✓" : "△"}
+                      <Icon name={req.met ? "check" : "warning"} size={16} />
                     </span>
                     <span
                       style={{ fontSize: "13.5px", color: "var(--text-primary)", fontWeight: 500 }}
@@ -710,8 +711,10 @@ export function JobDetail({
         >
           {fullJD && (
             <>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => setShowJD((v) => !v)}
                 style={{
                   display: "inline-flex",
@@ -728,8 +731,8 @@ export function JobDetail({
                 }}
               >
                 {showJD ? "Hide full job description" : "Show full job description"}
-                <span aria-hidden="true">{showJD ? "▴" : "▾"}</span>
-              </button>
+                <Icon name={showJD ? "chevron-up" : "chevron-down"} size={16} />
+              </Button>
               {showJD && (
                 <div
                   style={{

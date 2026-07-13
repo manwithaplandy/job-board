@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { IconButton } from "@/components/ui/Action";
 
 type LocationOption = { location: string; count: number };
 
@@ -141,26 +142,13 @@ export function LocationPicker({
               color: "var(--accent)",
             }}>
               <span>{loc}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${loc}`}
+              <IconButton
+                label={`Remove ${loc}`}
+                icon="close"
+                size="sm"
                 className="location-chip-remove"
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  margin: 0,
-                  fontFamily: "inherit",
-                  fontSize: "inherit",
-                  lineHeight: "inherit",
-                  minHeight: "44px",
-                  minWidth: "44px",
-                }}
                 onClick={() => remove(loc)}
-              >
-                ×
-              </button>
+              />
             </li>
           ))}
         </ul>

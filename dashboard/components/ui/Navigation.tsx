@@ -38,7 +38,10 @@ export function SegmentedControl({ label, items, value, onChange, className }: {
 }
 
 export function BackLink({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
-  return <a href={href} className={["rf-back-link", "rf-focusable", className].filter(Boolean).join(" ")} aria-label={`Back to ${typeof children === "string" ? children : "previous page"}`}><Icon name="arrow-left" size={16} />{children}</a>;
+  const label = typeof children === "string" && children.toLowerCase().startsWith("back ")
+    ? children
+    : `Back to ${typeof children === "string" ? children : "previous page"}`;
+  return <a href={href} className={["rf-back-link", "rf-focusable", className].filter(Boolean).join(" ")} aria-label={label}><Icon name="arrow-left" size={16} />{children}</a>;
 }
 
 export function PageHeader({ title, description, eyebrow, actions, className }: { title: ReactNode; description?: ReactNode; eyebrow?: ReactNode; actions?: ReactNode; className?: string }) {

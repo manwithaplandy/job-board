@@ -49,7 +49,7 @@ describe("GenerationInstructions", () => {
     rerender(
       <GenerationInstructions value="Focus" onChange={() => {}} kind="résumé" onSave={onSave} dirty={false} />,
     );
-    expect(await screen.findByText(/✓ saved/i)).toBeTruthy();
+    expect(await screen.findByText(/^saved$/i)).toBeTruthy();
   });
 
   test("typing during an in-flight save suppresses a false ✓ Saved confirmation", async () => {
@@ -75,7 +75,7 @@ describe("GenerationInstructions", () => {
     // so awaiting the enabled Save button guarantees justSaved has flipped — a deterministic
     // wait with no fake timers. The chip must still be absent.
     await screen.findByRole("button", { name: /^save$/i });
-    expect(screen.queryByText(/✓ saved/i)).toBeNull();
+    expect(screen.queryByText(/^saved$/i)).toBeNull();
   });
 
   test("a rejected onSave shows no Saved confirmation and re-enables the button", async () => {
@@ -89,7 +89,7 @@ describe("GenerationInstructions", () => {
     // only after the catch/finally re-render, so findByRole doubles as the wait.
     const saveButton = (await screen.findByRole("button", { name: /^save$/i })) as HTMLButtonElement;
     expect(onSave).toHaveBeenCalledOnce();
-    expect(screen.queryByText(/✓ saved/i)).toBeNull();
+    expect(screen.queryByText(/^saved$/i)).toBeNull();
     // button re-enabled (still dirty, no longer saving)
     expect(saveButton.disabled).toBe(false);
   });

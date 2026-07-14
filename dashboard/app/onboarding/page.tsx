@@ -4,17 +4,10 @@ import { requireUserId } from "@/lib/auth";
 import { getProfile, getDistinctLocations } from "@/lib/queries";
 import { OnboardingForm } from "@/components/OnboardingForm";
 import { completeOnboarding } from "@/app/actions/onboarding";
+import { EntryShell } from "@/components/ui/SystemStates";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Get started · Rolefit" };
-
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "48px 20px 64px",
-};
-const cardStyle: React.CSSProperties = {
-  maxWidth: "640px", margin: "0 auto", background: "var(--bg-surface)", border: "1px solid var(--border)",
-  borderRadius: "18px", boxShadow: "0 12px 40px rgba(15,22,35,.08)", padding: "30px 32px 32px",
-};
 
 export default async function OnboardingPage() {
   const userId = await requireUserId();
@@ -24,17 +17,12 @@ export default async function OnboardingPage() {
 
   const locations = await getDistinctLocations(userId);
   return (
-    <main style={pageStyle}>
-      <div style={cardStyle}>
-        <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)" }}>
-          Set up your board
-        </h1>
-        <p style={{ margin: "0 0 24px", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-          Add your résumé and the locations you want to search. We&apos;ll start reviewing
-          matching jobs on the next cycle.
-        </p>
-        <OnboardingForm action={completeOnboarding} locationOptions={locations} />
-      </div>
-    </main>
+    <EntryShell
+      wide
+      title="Set up your board"
+      description="Add your résumé and the locations you want to search. We’ll start reviewing matching jobs on the next cycle."
+    >
+      <OnboardingForm action={completeOnboarding} locationOptions={locations} />
+    </EntryShell>
   );
 }

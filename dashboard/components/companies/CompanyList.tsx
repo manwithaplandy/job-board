@@ -7,6 +7,7 @@ import { CompanyCard } from "@/components/companies/CompanyCard";
 import { CreditBanner } from "@/components/companies/CreditBanner";
 import { TextField } from "@/components/ui/FormControls";
 import { Tabs } from "@/components/ui/Navigation";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 type Bucket = "include" | "exclude" | "unknown";
 
@@ -77,9 +78,10 @@ export function CompanyList({
         />
       </div>
       {rows.length === 0 ? (
-        <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "20px 0" }}>
-          {q ? `No companies match “${q}”.` : "No companies here yet."}
-        </div>
+        <EmptyState
+          title={q ? `No companies match “${q}”.` : "No companies here yet."}
+          description={q ? "Try a different company name or clear the search." : "Classified companies will appear here as your board is reviewed."}
+        />
       ) : (
         <>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "10px" }}>

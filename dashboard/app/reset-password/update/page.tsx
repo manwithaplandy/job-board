@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getUserId } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { TextField } from "@/components/ui/FormControls";
+import { Alert, EntryShell } from "@/components/ui/SystemStates";
 import { safeAuthMessage } from "@/lib/safeError";
 
 export const dynamic = "force-dynamic";
@@ -25,24 +27,6 @@ async function updatePassword(formData: FormData) {
   redirect("/");
 }
 
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "var(--bg-page)",
-  display: "flex", alignItems: "center", justifyContent: "center",
-};
-const cardStyle: React.CSSProperties = {
-  width: "360px", maxWidth: "calc(100vw - 32px)", background: "var(--bg-surface)",
-  borderRadius: "18px", border: "1px solid var(--border)",
-  boxShadow: "0 12px 40px rgba(15,22,35,.08)", padding: "32px",
-};
-const labelStyle: React.CSSProperties = {
-  display: "flex", flexDirection: "column", gap: "6px",
-  fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)",
-};
-const inputStyle: React.CSSProperties = {
-  border: "1px solid var(--border)", borderRadius: "10px", padding: "10px 13px",
-  fontSize: "13px", fontFamily: "inherit",
-};
-
 export default async function UpdatePasswordPage({
   searchParams,
 }: {
@@ -55,34 +39,12 @@ export default async function UpdatePasswordPage({
 
   const { error } = await searchParams;
   return (
-    <main style={pageStyle}>
-      <div style={cardStyle}>
-        <h1 style={{ margin: "0 0 18px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
-          Set a new password
-        </h1>
-        <form action={updatePassword} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-          <label style={labelStyle}>
-            New password
-            <input className="rf-focusable" name="password" type="password"
-              autoComplete="new-password" required minLength={8} placeholder="••••••••"
-              style={inputStyle} />
-          </label>
-          {error && (
-            <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "var(--danger)", fontWeight: 600 }}>
-              {error}
-            </p>
-          )}
-          <SubmitButton
-            pendingLabel="Saving…"
-            style={{
-              borderRadius: "10px", padding: "11px 20px", fontSize: "13.5px",
-              boxShadow: "var(--shadow-accent-md)", marginTop: "4px",
-            }}
-          >
-            Update password
-          </SubmitButton>
+    <EntryShell title="Set a new password">
+        <form action={updatePassword} className="rf-entry-form">
+          <TextField label="New password" name="password" type="password" autoComplete="new-password" required minLength={8} placeholder="••••••••" />
+          {error && <Alert tone="danger">{error}</Alert>}
+          <SubmitButton pendingLabel="Saving…">Update password</SubmitButton>
         </form>
-      </div>
-    </main>
+    </EntryShell>
   );
 }

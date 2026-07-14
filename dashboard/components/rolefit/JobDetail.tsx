@@ -15,6 +15,7 @@ import { ReviewPanel } from "./ReviewPanel";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Icon } from "@/components/ui/Icon";
+import { ErrorState, LoadingState } from "@/components/ui/SystemStates";
 
 // Generic "Apply" link → the job's ATS posting. Opens a new tab; rel guards the
 // opener. Now only the fallback for not-yet-reviewed roles (which have no
@@ -619,24 +620,12 @@ export function JobDetail({
 
           {/* Detail-fetch loading shimmer */}
           {detailState?.status === "loading" && (
-            <div style={{ marginTop: "24px" }}>
-              {[120, 80, 60].map((h, i) => (
-                <div key={i} style={{ height: h, background: "var(--bg-muted)", borderRadius: 8, marginTop: 12 }} />
-              ))}
-            </div>
+            <LoadingState className="rf-job-detail-system-state" label="Loading full job details" />
           )}
           {/* Detail-fetch error */}
           {detailState?.status === "error" && (
-            <div style={{ marginTop: "24px", padding: "16px 20px", border: "1px solid var(--border)", borderRadius: "12px", background: "var(--danger-bg)", display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{ flex: 1, fontSize: "13.5px", color: "var(--danger)", fontWeight: 600 }}>
-                Couldn&apos;t load full job details.
-              </div>
-              {onRetryDetail && (
-                <Button variant="ghost" onClick={onRetryDetail} style={{ fontSize: "13px", background: "var(--accent-bg)", border: "1px solid var(--accent-border)", borderRadius: "9px", padding: "7px 14px" }}>
-                  Retry
-                </Button>
-              )}
-            </div>
+            <ErrorState className="rf-job-detail-system-state" title="Couldn’t load full job details" description="The summary is still available. Try loading the full description again."
+              action={onRetryDetail && <Button variant="ghost" onClick={onRetryDetail}>Retry</Button>} />
           )}
 
           {/* Application panel — résumé + cover letter + apply */}

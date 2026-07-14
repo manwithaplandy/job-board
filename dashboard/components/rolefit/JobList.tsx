@@ -5,7 +5,8 @@ import type { RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { JobRow } from "@/lib/types";
 import { JobCard } from "./JobCard";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 export interface JobListProps {
   jobs: JobRow[];
@@ -31,18 +32,6 @@ export interface JobListProps {
   // Hover-revealed reject × on each card (#14). Threaded to every JobCard; absent → no ×.
   onReject?: (id: string) => void;
 }
-
-const pillBtnStyle = {
-  marginTop: "14px",
-  fontWeight: 700,
-  fontSize: "13px",
-  color: "var(--accent)",
-  background: "var(--accent-bg)",
-  border: "1px solid var(--accent-border)",
-  borderRadius: "9px",
-  padding: "8px 14px",
-  cursor: "pointer",
-} as const;
 
 // Windowed list: only the cards near the viewport are mounted, so filtering a ~100k-row
 // board stays cheap. The full (filtered) array stays in memory — virtualization is purely
@@ -146,14 +135,8 @@ export function JobList({
       // with only a "Back to all roles" escape, hides that their filter is the cause.
       if (viewPoolCount > 0) {
         return (
-          <div className="rf-board-empty-state">
-            <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
-              No roles match your filters
-            </div>
-            <Button variant="ghost" onClick={onClearFilters} style={pillBtnStyle}>
-              Clear filters
-            </Button>
-          </div>
+          <EmptyState className="rf-board-empty-state" title="No roles match your filters" description="Try removing one or more filters."
+            action={<Button variant="ghost" onClick={onClearFilters}>Clear filters</Button>} />
         );
       }
       // Empty bucket (viewPoolCount === 0): it isn't "filtered out", it's genuinely empty.
@@ -163,56 +146,27 @@ export function JobList({
           ? "You haven't marked any roles as applied yet."
           : "You haven't rejected any roles yet.";
       return (
-        <div className="rf-board-empty-state">
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>{msg}</div>
-          {onBackToAll && (
-            <Button variant="ghost" onClick={onBackToAll} style={pillBtnStyle}>
-              Back to all roles
-            </Button>
-          )}
-        </div>
+        <EmptyState className="rf-board-empty-state" title={msg}
+          action={onBackToAll && <Button variant="ghost" onClick={onBackToAll}>Back to all roles</Button>} />
       );
     }
     if (!hasUnfilteredJobs) {
       return (
-        <div className="rf-board-empty-state">
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
-            Your board is being built
-          </div>
-          <div style={{ fontSize: "13px", marginTop: "6px" }}>
-            Scored roles land here as they&apos;re reviewed — the card above shows progress
-            or lets you start a review. Check{" "}
-            <a href="/analytics" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
-              pipeline health
-            </a>{" "}
-            if it stays empty.
-          </div>
-        </div>
+        <EmptyState className="rf-board-empty-state" title="Your board is being built"
+          description="Scored roles land here as they’re reviewed. The card above shows progress or lets you start a review."
+          action={<ButtonLink href="/analytics" variant="ghost">Check pipeline health</ButtonLink>} />
       );
     }
     // Jobs exist but every one has been rejected/applied — the "all" pool is empty for a
     // reason filters can't fix, so offer no (no-op) Clear-filters CTA.
     if (viewPoolCount === 0) {
       return (
-        <div className="rf-board-empty-state">
-          <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
-            All caught up
-          </div>
-          <div style={{ fontSize: "13px", marginTop: "6px" }}>
-            You&apos;ve triaged every role.
-          </div>
-        </div>
+        <EmptyState className="rf-board-empty-state" title="All caught up" description="You’ve triaged every role." />
       );
     }
     return (
-      <div className="rf-board-empty-state">
-        <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
-          No roles match your filters
-        </div>
-        <Button variant="ghost" onClick={onClearFilters} style={pillBtnStyle}>
-          Clear filters
-        </Button>
-      </div>
+      <EmptyState className="rf-board-empty-state" title="No roles match your filters" description="Try removing one or more filters."
+        action={<Button variant="ghost" onClick={onClearFilters}>Clear filters</Button>} />
     );
   }
 

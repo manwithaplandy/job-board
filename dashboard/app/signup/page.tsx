@@ -1,32 +1,10 @@
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { TextField } from "@/components/ui/FormControls";
+import { Alert, EntryShell } from "@/components/ui/SystemStates";
 import { SupportLink, supportEmail } from "@/components/SupportLink";
 import { signUp } from "@/app/actions/signup";
 
 export const dynamic = "force-dynamic";
-
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "var(--bg-page)",
-  display: "flex", alignItems: "center", justifyContent: "center",
-};
-const cardStyle: React.CSSProperties = {
-  width: "360px", maxWidth: "calc(100vw - 32px)", background: "var(--bg-surface)",
-  borderRadius: "18px", border: "1px solid var(--border)",
-  boxShadow: "0 12px 40px rgba(15,22,35,.08)", padding: "32px",
-};
-const labelStyle: React.CSSProperties = {
-  display: "flex", flexDirection: "column", gap: "6px",
-  fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)",
-};
-const inputStyle: React.CSSProperties = {
-  border: "1px solid var(--border)", borderRadius: "10px", padding: "10px 13px",
-  fontSize: "13px", fontFamily: "inherit",
-};
-const linkRowStyle: React.CSSProperties = {
-  marginTop: "16px", fontSize: "12.5px", color: "var(--text-secondary)", textAlign: "center",
-};
-const linkStyle: React.CSSProperties = {
-  color: "var(--accent)", fontWeight: 600, textDecoration: "none",
-};
 
 export default async function SignupPage({
   searchParams,
@@ -37,85 +15,37 @@ export default async function SignupPage({
 
   if (sent) {
     return (
-      <main style={pageStyle}>
-        <div style={cardStyle}>
-          <h1 style={{ margin: "0 0 12px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
-            Check your email
-          </h1>
-          <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.6, color: "var(--text-secondary)" }}>
+      <EntryShell title="Check your email">
+          <Alert tone="success">
             We sent a confirmation link to your inbox. Click it to verify your
             account and finish setting up your board.
-          </p>
-          <div style={linkRowStyle}>
-            <a href="/login" style={linkStyle}>Back to sign in</a>
-          </div>
-        </div>
-      </main>
+          </Alert>
+          <a href="/login" className="rf-entry-link">Back to sign in</a>
+      </EntryShell>
     );
   }
 
   return (
-    <main style={pageStyle}>
-      <div style={cardStyle}>
-        <h1 style={{ margin: "0 0 20px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
-          Create account
-        </h1>
-        <form action={signUp} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-          <label style={labelStyle}>
-            Email
-            <input className="rf-focusable" name="email" type="email" autoComplete="email"
-              required placeholder="you@example.com" style={inputStyle} />
-          </label>
-          <label style={labelStyle}>
-            Password
-            <input className="rf-focusable" name="password" type="password"
-              autoComplete="new-password" required minLength={8} placeholder="••••••••"
-              style={inputStyle} />
-          </label>
-          <label style={labelStyle}>
-            Invite code
-            <input className="rf-focusable" name="invite_code" required
-              placeholder="Your invite code" style={inputStyle} />
-            <span style={{ fontSize: "11.5px", fontWeight: 500, lineHeight: 1.5, color: "var(--text-muted)" }}>
-              Rolefit is in invite-only beta — an invite code is required.
-            </span>
-          </label>
-          {error && (
-            <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "var(--danger)", fontWeight: 600 }}>
-              {error}
-            </p>
-          )}
-          <p style={{ margin: "2px 0 0", fontSize: "11.5px", lineHeight: 1.5, color: "var(--text-muted)" }}>
+    <EntryShell
+      title="Create account"
+      footer={<><a href="/terms">Terms</a>{" · "}<a href="/privacy">Privacy</a>{supportEmail() && <>{" · "}<SupportLink label="Support" /></>}</>}
+    >
+        <form action={signUp} className="rf-entry-form">
+          <TextField label="Email" name="email" type="email" autoComplete="email" required placeholder="you@example.com" />
+          <TextField label="Password" name="password" type="password" autoComplete="new-password" required minLength={8} placeholder="••••••••" />
+          <TextField label="Invite code" name="invite_code" required placeholder="Your invite code" description="Rolefit is in invite-only beta — an invite code is required." />
+          {error && <Alert tone="danger">{error}</Alert>}
+          <p className="rf-entry-consent">
             By creating an account you agree to the{" "}
-            <a href="/terms" style={linkStyle}>Terms of Service</a> and{" "}
-            <a href="/privacy" style={linkStyle}>Privacy Policy</a>.
+            <a href="/terms">Terms of Service</a> and{" "}
+            <a href="/privacy">Privacy Policy</a>.
           </p>
-          <SubmitButton
-            pendingLabel="Creating account…"
-            style={{
-              borderRadius: "10px", padding: "11px 20px", fontSize: "13.5px",
-              boxShadow: "var(--shadow-accent-md)", marginTop: "4px",
-            }}
-          >
-            Create account
-          </SubmitButton>
+          <SubmitButton pendingLabel="Creating account…">Create account</SubmitButton>
         </form>
-        <div style={linkRowStyle}>
+        <div className="rf-entry-footer">
           Already have an account?{" "}
-          <a href="/login" style={linkStyle}>Sign in</a>
+          <a href="/login">Sign in</a>
         </div>
-        <div style={{ ...linkRowStyle, marginTop: "10px", fontSize: "11.5px" }}>
-          <a href="/terms" style={linkStyle}>Terms</a>
-          {" · "}
-          <a href="/privacy" style={linkStyle}>Privacy</a>
-          {supportEmail() && (
-            <>
-              {" · "}
-              <SupportLink label="Support" />
-            </>
-          )}
-        </div>
-      </div>
-    </main>
+    </EntryShell>
   );
 }

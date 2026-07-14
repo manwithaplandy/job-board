@@ -1,3 +1,5 @@
+"use client";
+
 import { useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Icon } from "./Icon";
 

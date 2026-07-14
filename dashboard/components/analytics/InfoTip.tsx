@@ -49,13 +49,21 @@ export function InfoTip({
       <span
         tabIndex={0}
         role="button"
+        aria-expanded={open}
         aria-describedby={open ? id : undefined}
         aria-label={`${term}. ${gloss}`}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => {
-          if (e.key === "Escape") setOpen(false);
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setOpen(false);
+          } else if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((current) => !current);
+          }
         }}
+        onClick={() => setOpen((current) => !current)}
         className="rf-info-tip__trigger rf-focusable"
         style={{
           borderBottom: "1px dotted var(--text-muted)",

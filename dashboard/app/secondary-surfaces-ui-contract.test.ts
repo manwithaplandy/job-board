@@ -48,12 +48,17 @@ describe("secondary surface design-system contract", () => {
       source("components/analytics/TrendCharts.tsx"),
       source("components/analytics/InfoTip.tsx"),
       source("components/analytics/Chart.tsx"),
+      source("components/analytics/KpiStrip.tsx"),
     ].join("\n");
     expect(files).toContain("rf-secondary-density--compact");
     expect(files).toContain("<PageHeader");
     expect(files).toContain("<SegmentedControl");
     expect(files).toContain('className="rf-info-tip__trigger rf-focusable"');
     expect(files).toContain('className="rf-analytics-card"');
+    expect(files).toContain('className="rf-analytics-kpi-grid"');
+    expect(files).toContain('className="rf-analytics-kpi"');
+    expect(source("components/analytics/Chart.tsx")).not.toContain("const CARD:");
+    expect(source("components/analytics/KpiStrip.tsx")).not.toContain('background: "var(--bg-surface)"');
     expect(files).not.toMatch(/<button\b/);
   });
 

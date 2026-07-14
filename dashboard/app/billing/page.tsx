@@ -16,7 +16,7 @@ export const metadata: Metadata = { title: "Billing · Rolefit" };
 
 const modelName = (id: string) => (id === PREMIUM_MODEL ? "Haiku 4.5 (premium)" : id === CHEAP_MODEL ? "DeepSeek (cheap)" : id);
 
-function TierCard({
+export function TierCard({
   plan, currentPlan, entitlements, prices,
 }: {
   plan: Plan;
@@ -28,7 +28,10 @@ function TierCard({
   const caps = Object.entries(ent.stage2Models) as [keyof typeof ent.stage2Models, number][];
   return (
     <Card className="rf-billing-plan">
-      <div><Badge tone={currentPlan === plan ? "success" : "neutral"}>{currentPlan === plan ? "Current plan" : PLAN_LABEL[plan]}</Badge></div>
+      <div className="rf-billing-plan__heading">
+        <h2>{PLAN_LABEL[plan]}</h2>
+        {currentPlan === plan && <Badge tone="success">Current plan</Badge>}
+      </div>
       <div className="rf-billing-plan__price">
         ${prices[plan]}
         <span>/mo</span>

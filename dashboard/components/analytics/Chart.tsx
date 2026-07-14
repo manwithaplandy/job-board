@@ -5,21 +5,11 @@ import {
   XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine,
 } from "recharts";
 import type { Bar as BarDatum } from "@/lib/metrics";
+import { Card as SurfaceCard } from "@/components/ui/Panel";
 
 export interface SeriesDef { key: string; name: string; color: string }
 export interface RefLine { y: number; label: string }
 
-const CARD: React.CSSProperties = {
-  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "14px",
-  padding: "16px 18px 8px", marginBottom: "16px",
-};
-const TITLE: React.CSSProperties = {
-  fontSize: "13.5px", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-.2px",
-};
-const SUBTITLE: React.CSSProperties = {
-  fontSize: "11.5px", color: "var(--text-secondary)", marginTop: "3px", lineHeight: 1.4,
-};
-const EMPTY: React.CSSProperties = { fontSize: "12.5px", color: "var(--text-muted)", padding: "28px 0" };
 const AXIS = { fontSize: 11, fill: "var(--text-secondary)" } as const;
 
 // Compact Y-axis ticks: 120000 → "120K", 28000 → "28K" — keeps the axis narrow and
@@ -39,9 +29,9 @@ function formatDateTick(value: string | number): string {
 
 function Head({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div style={{ marginBottom: "12px" }}>
-      <div style={TITLE}>{title}</div>
-      {subtitle && <div style={SUBTITLE}>{subtitle}</div>}
+    <div className="rf-analytics-card__head">
+      <div className="rf-analytics-card__title">{title}</div>
+      {subtitle && <div className="rf-analytics-card__subtitle">{subtitle}</div>}
     </div>
   );
 }
@@ -50,7 +40,7 @@ function ChartCard(
   { title, subtitle, children, style }:
   { title: string; subtitle?: string; children: React.ReactNode; style?: React.CSSProperties },
 ) {
-  return <div className="rf-analytics-card" style={{ ...CARD, ...style }}><Head title={title} subtitle={subtitle} />{children}</div>;
+  return <SurfaceCard className="rf-analytics-card" padding="sm" style={style}><Head title={title} subtitle={subtitle} />{children}</SurfaceCard>;
 }
 
 // recharts 3 sorts the built-in Legend payload alphabetically, which desyncs the
@@ -116,7 +106,7 @@ export function BarsCard(
     empty?: string; refLine?: RefLine; valueFormatter?: (v: number) => string; allTicks?: boolean; weekly?: boolean;
   },
 ) {
-  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></ChartCard>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div className="rf-analytics-card__empty">{empty}</div></ChartCard>;
   return (
     <ChartCard title={title} subtitle={subtitle}>
       <div role="img" aria-label={`${title} — bar chart`}>
@@ -173,7 +163,7 @@ export function LinesCard(
     percent?: boolean; empty?: string; refLine?: RefLine; valueFormatter?: (v: number) => string; weekly?: boolean;
   },
 ) {
-  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></ChartCard>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div className="rf-analytics-card__empty">{empty}</div></ChartCard>;
   const yTickFmt = percent
     ? (v: number) => `${Math.round(v * 100)}%`
     : valueFormatter
@@ -241,7 +231,7 @@ export function HBarCard(
   { title, subtitle, data, color = "var(--chart-stage)", empty = "No data yet." }:
   { title: string; subtitle?: string; data: Array<BarDatum & { title?: string }>; color?: string; empty?: string },
 ) {
-  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></ChartCard>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div className="rf-analytics-card__empty">{empty}</div></ChartCard>;
   const max = Math.max(1, ...data.map((d) => d.count));
   return (
     <ChartCard title={title} subtitle={subtitle}>
@@ -282,7 +272,7 @@ export function SimpleTableCard(
   { title, subtitle, data, empty = "No data yet." }:
   { title: string; subtitle?: string; data: BarDatum[]; empty?: string },
 ) {
-  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></ChartCard>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div className="rf-analytics-card__empty">{empty}</div></ChartCard>;
   return (
     <ChartCard title={title} subtitle={subtitle}>
       <div style={{ paddingBottom: "8px" }}>

@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { expect, test, type Browser } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 import {
   ESTABLISHED_STATE_PATH,
   ONBOARDING_STATE_PATH,
@@ -14,6 +14,22 @@ test("creates isolated established and onboarding sessions", async ({
   const baseURL = validateVisualBaseUrl(process.env.VISUAL_BASE_URL);
   const credentials = readVisualCredentials(process.env);
   await mkdir(VISUAL_AUTH_DIR, { recursive: true });
+
+  async function waitForAuthenticationOutcome(
+    page: Page,
+    expectedURL: string,
+  ) {
+    const alert = page.getByRole("alert");
+    await Promise.race([
+      page.waitForURL(expectedURL),
+      alert.waitFor({ state: "visible" }).then(async () => {
+        const safeMessage = (await alert.innerText()).trim();
+        throw new Error(
+          `Visual authentication failed: ${safeMessage || "Sign in was rejected."}`,
+        );
+      }),
+    ]);
+  }
 
   async function signIn(
     activeBrowser: Browser,
@@ -35,14 +51,15 @@ test("creates isolated established and onboarding sessions", async ({
         .getByRole("button", { name: "Sign in", exact: true })
         .click();
 
+      const expectedURL =
+        expectedPath === "/profile" ? `${baseURL}/` : `${baseURL}/onboarding`;
+      await waitForAuthenticationOutcome(page, expectedURL);
+
       if (expectedPath === "/profile") {
-        await page.waitForURL(`${baseURL}/`);
         await page.goto(`${baseURL}/profile`);
         await expect(
           page.getByRole("heading", { name: "Profile", exact: true }),
         ).toBeVisible();
-      } else {
-        await page.waitForURL(`${baseURL}/onboarding`);
       }
 
       await context.storageState({ path: statePath });

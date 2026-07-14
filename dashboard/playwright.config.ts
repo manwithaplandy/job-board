@@ -22,6 +22,11 @@ export default defineConfig({
     {
       name: "auth-setup",
       testMatch: /auth\.setup\.ts/,
+      use: {
+        trace: "off",
+        screenshot: "off",
+        video: "off",
+      },
     },
     {
       name: "visual",

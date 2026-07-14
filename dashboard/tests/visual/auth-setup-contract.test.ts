@@ -15,6 +15,11 @@ describe("fresh visual authentication setup", () => {
     expect(setup).toContain(
       'getByRole("button", { name: "Sign in", exact: true })',
     );
+    expect(setup).toContain('page.getByRole("alert")');
+    expect(setup).toContain('waitFor({ state: "visible" })');
+    expect(setup).toContain("Promise.race([");
+    expect(setup).toContain("await alert.innerText()");
+    expect(setup).toContain("Visual authentication failed:");
     expect(setup).toContain("credentials.established");
     expect(setup).toContain("credentials.onboarding");
   });
@@ -22,14 +27,15 @@ describe("fresh visual authentication setup", () => {
   test("fails closed unless each identity reaches and renders its expected route", () => {
     const setup = read("tests/visual/auth.setup.ts");
 
-    expect(setup).toContain('await page.waitForURL(`${baseURL}/`)');
+    expect(setup).toContain("page.waitForURL(expectedURL)");
+    expect(setup).toContain(
+      'expectedPath === "/profile" ? `${baseURL}/` : `${baseURL}/onboarding`',
+    );
     expect(setup).toContain('await page.goto(`${baseURL}/profile`)');
     expect(setup).toContain(
       'page.getByRole("heading", { name: "Profile", exact: true })',
     );
-    expect(setup).toContain(
-      'await page.waitForURL(`${baseURL}/onboarding`)',
-    );
+    expect(setup).not.toContain("waitForTimeout");
     expect(setup).not.toMatch(/console\.(?:log|info|debug)/);
   });
 
@@ -48,6 +54,9 @@ describe("fresh visual authentication setup", () => {
 
     expect(config).toContain('name: "auth-setup"');
     expect(config).toMatch(/testMatch:\s*\/auth\\\.setup\\\.ts\//);
+    expect(config).toMatch(
+      /name: "auth-setup",[\s\S]*use:\s*\{[\s\S]*trace: "off",[\s\S]*screenshot: "off",[\s\S]*video: "off",?[\s\S]*\}/,
+    );
     expect(config).toContain('name: "visual"');
     expect(config).toMatch(/testMatch:\s*\/\\\.spec\\\.ts\//);
     expect(config).toMatch(/testIgnore:\s*\/auth\\\.setup\\\.ts\//);
@@ -62,8 +71,12 @@ describe("fresh visual authentication setup", () => {
 
     expect(spec).toContain("ESTABLISHED_STATE_PATH");
     expect(spec).toContain("ONBOARDING_STATE_PATH");
+    expect(spec).toContain("test.beforeAll(() => {");
     expect(spec).toContain("existsSync(ESTABLISHED_STATE_PATH)");
     expect(spec).toContain("existsSync(ONBOARDING_STATE_PATH)");
+    expect(spec.indexOf("test.beforeAll(() => {")).toBeLessThan(
+      spec.indexOf("existsSync(ESTABLISHED_STATE_PATH)"),
+    );
     expect(spec).not.toContain("VISUAL_AUTH_STATE_JSON");
     expect(spec).not.toContain("VISUAL_ONBOARDING_AUTH_STATE_JSON");
     expect(pkg.scripts["test:visual:auth-setup"]).toBe(

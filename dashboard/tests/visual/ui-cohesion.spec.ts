@@ -7,15 +7,6 @@ import {
 import { VISUAL_ROUTES } from "./routes";
 
 const PUBLIC_ONLY = process.env.VISUAL_SCOPE === "public";
-if (
-  !PUBLIC_ONLY &&
-  (!existsSync(ESTABLISHED_STATE_PATH) || !existsSync(ONBOARDING_STATE_PATH))
-) {
-  throw new Error(
-    "Full visual coverage requires fresh established and onboarding state files. Run npm run test:visual:auth-setup first.",
-  );
-}
-
 const NORMAL_AUTH_STATE = PUBLIC_ONLY ? undefined : ESTABLISHED_STATE_PATH;
 const ONBOARDING_AUTH_STATE = PUBLIC_ONLY ? undefined : ONBOARDING_STATE_PATH;
 const THEMES = ["light", "dark"] as const;
@@ -23,6 +14,17 @@ const VIEWPORTS = [
   { id: "desktop", width: 1440, height: 1000 },
   { id: "mobile", width: 390, height: 844 },
 ] as const;
+
+test.beforeAll(() => {
+  if (
+    !PUBLIC_ONLY &&
+    (!existsSync(ESTABLISHED_STATE_PATH) || !existsSync(ONBOARDING_STATE_PATH))
+  ) {
+    throw new Error(
+      "Full visual coverage requires fresh established and onboarding state files. Run npm run test:visual:auth-setup first.",
+    );
+  }
+});
 
 async function assertRuntimeContracts(page: Page) {
   const runtime = await page.evaluate(() => {

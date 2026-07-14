@@ -9,6 +9,7 @@ import { TrendCharts } from "@/components/analytics/TrendCharts";
 import { BreakdownsSection } from "@/components/analytics/BreakdownsSection";
 import { PageHeader } from "@/components/ui/Navigation";
 import { Icon } from "@/components/ui/Icon";
+import { Alert } from "@/components/ui/SystemStates";
 
 const SECTIONS = [
   { id: "overview", label: "Overview" },
@@ -134,17 +135,10 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
         </nav>
 
         {noReviewRuns && (
-          <div style={{
-            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "12px",
-            padding: "16px 18px", marginTop: "8px", display: "flex", alignItems: "center", gap: "12px",
-          }}>
-            <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: "var(--accent)", flexShrink: 0 }} />
-            <div style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-              <strong style={{ color: "var(--text-primary)" }}>No reviews yet.</strong>{" "}
+          <Alert tone="info" title="No reviews yet." className="rf-analytics-empty-alert">
               Once your board is reviewed, the funnel, throughput trends, and breakdowns below
               fill in. Trigger a first pass with “Review my board now” on your board.
-            </div>
-          </div>
+          </Alert>
         )}
 
         <SectionHeading id="funnel">Funnel</SectionHeading>

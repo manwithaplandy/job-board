@@ -38,7 +38,7 @@ export default async function ResetPasswordPage({
           <Alert tone="info">
             If that account exists, we&apos;ve sent a link to reset your password.
           </Alert>
-          <a href="/login" className="rf-entry-link">Back to sign in</a>
+          <a href="/login" className="rf-entry-link rf-focusable">Back to sign in</a>
       </EntryShell>
     );
   }
@@ -49,7 +49,7 @@ export default async function ResetPasswordPage({
           <TextField label="Email" name="email" type="email" autoComplete="email" required placeholder="you@example.com" />
           <SubmitButton pendingLabel="Sending…">Send reset link</SubmitButton>
         </form>
-        <a href="/login" className="rf-entry-link">Back to sign in</a>
+        <a href="/login" className="rf-entry-link rf-focusable">Back to sign in</a>
     </EntryShell>
   );
 }

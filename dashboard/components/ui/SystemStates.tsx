@@ -34,14 +34,16 @@ export function EmptyState({
   description,
   action,
   className,
+  compact = false,
 }: {
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
   className?: string;
+  compact?: boolean;
 }) {
   return (
-    <div className={["rf-empty-state", className].filter(Boolean).join(" ")}>
+    <div className={["rf-empty-state", compact && "rf-empty-state--compact", className].filter(Boolean).join(" ")}>
       <h2 className="rf-empty-state__title">{title}</h2>
       {description && <div className="rf-empty-state__description">{description}</div>}
       {action && <div className="rf-empty-state__action">{action}</div>}

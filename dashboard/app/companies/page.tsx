@@ -9,8 +9,8 @@ import { CompanyList } from "@/components/companies/CompanyList";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
 import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
-import { Card } from "@/components/ui/Panel";
 import { PageHeader } from "@/components/ui/Navigation";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Companies · Rolefit" };
@@ -73,17 +73,18 @@ export default async function CompaniesPage({
               override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus} canRefresh={admin}
             />
           ) : (
-            <Card className="rf-secondary-empty">
-              <strong>No companies classified yet</strong>
-              <div>
+            <EmptyState
+              className="rf-secondary-empty"
+              title="No companies classified yet"
+              description={<>
                 As your board is reviewed, the companies behind those roles are classified
                 against your preferences and appear here. Set your{" "}
                 <a href="/profile" className="rf-secondary-link">
                   company preferences
                 </a>{" "}
                 to steer which ones are surfaced.
-              </div>
-            </Card>
+              </>}
+            />
           )}
         </div>
       </main>

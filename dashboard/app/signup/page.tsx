@@ -20,7 +20,7 @@ export default async function SignupPage({
             We sent a confirmation link to your inbox. Click it to verify your
             account and finish setting up your board.
           </Alert>
-          <a href="/login" className="rf-entry-link">Back to sign in</a>
+          <a href="/login" className="rf-entry-link rf-focusable">Back to sign in</a>
       </EntryShell>
     );
   }

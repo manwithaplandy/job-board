@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import type { Bar as BarDatum } from "@/lib/metrics";
 import { Card as SurfaceCard } from "@/components/ui/Panel";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 export interface SeriesDef { key: string; name: string; color: string }
 export interface RefLine { y: number; label: string }
@@ -106,7 +107,7 @@ export function BarsCard(
     empty?: string; refLine?: RefLine; valueFormatter?: (v: number) => string; allTicks?: boolean; weekly?: boolean;
   },
 ) {
-  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div className="rf-analytics-card__empty">{empty}</div></ChartCard>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   return (
     <ChartCard title={title} subtitle={subtitle}>
       <div role="img" aria-label={`${title} — bar chart`}>
@@ -163,7 +164,7 @@ export function LinesCard(
     percent?: boolean; empty?: string; refLine?: RefLine; valueFormatter?: (v: number) => string; weekly?: boolean;
   },
 ) {
-  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div className="rf-analytics-card__empty">{empty}</div></ChartCard>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   const yTickFmt = percent
     ? (v: number) => `${Math.round(v * 100)}%`
     : valueFormatter
@@ -231,7 +232,7 @@ export function HBarCard(
   { title, subtitle, data, color = "var(--chart-stage)", empty = "No data yet." }:
   { title: string; subtitle?: string; data: Array<BarDatum & { title?: string }>; color?: string; empty?: string },
 ) {
-  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div className="rf-analytics-card__empty">{empty}</div></ChartCard>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   const max = Math.max(1, ...data.map((d) => d.count));
   return (
     <ChartCard title={title} subtitle={subtitle}>
@@ -272,7 +273,7 @@ export function SimpleTableCard(
   { title, subtitle, data, empty = "No data yet." }:
   { title: string; subtitle?: string; data: BarDatum[]; empty?: string },
 ) {
-  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><div className="rf-analytics-card__empty">{empty}</div></ChartCard>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   return (
     <ChartCard title={title} subtitle={subtitle}>
       <div style={{ paddingBottom: "8px" }}>

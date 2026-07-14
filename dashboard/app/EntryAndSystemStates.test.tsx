@@ -54,9 +54,15 @@ describe("entry and system-state design contracts", () => {
     expect(read("app/onboarding/page.tsx")).toContain("action={completeOnboarding}");
   });
 
-  it("standardizes representative board and secondary exceptional states", () => {
+  it("standardizes the complete board and secondary exceptional-state inventory", () => {
     expect(read("components/rolefit/JobList.tsx")).toContain("<EmptyState");
     expect(read("components/companies/CompanyList.tsx")).toContain("<EmptyState");
+    expect(read("app/companies/page.tsx")).toContain("<EmptyState");
+    expect(read("components/analytics/PipelineDashboard.tsx")).toContain("<Alert");
+    const chartSource = read("components/analytics/Chart.tsx");
+    expect(chartSource.match(/<EmptyState/g)).toHaveLength(4);
+    expect(chartSource).not.toContain("rf-analytics-card__empty");
+    expect(read("components/secondary-surfaces.css")).not.toContain("rf-analytics-card__empty");
     expect(read("components/rolefit/JobDetail.tsx")).toContain("<LoadingState");
     expect(read("components/rolefit/DetailErrorBoundary.tsx")).toContain("<ErrorState");
   });
@@ -67,5 +73,20 @@ describe("entry and system-state design contracts", () => {
     expect(css).toContain(".rf-reading-shell");
     expect(css).toContain(".rf-empty-state");
     expect(css).toMatch(/@media \(max-width: 560px\)[\s\S]*\.rf-entry-shell/);
+  });
+
+  it("gives entry, consent, footer, and reading links the themed focus-visible ring", () => {
+    const css = read("components/ui/ui.css");
+    for (const selector of [
+      ".rf-entry-link:focus-visible",
+      ".rf-entry-footer a:focus-visible",
+      ".rf-entry-consent a:focus-visible",
+      ".rf-reading-content a:focus-visible",
+    ]) {
+      expect(css).toContain(selector);
+    }
+    expect(read("app/login/page.tsx")).toContain("rf-entry-link rf-focusable");
+    expect(read("app/signup/page.tsx")).toContain("rf-entry-link rf-focusable");
+    expect(read("app/reset-password/page.tsx")).toContain("rf-entry-link rf-focusable");
   });
 });

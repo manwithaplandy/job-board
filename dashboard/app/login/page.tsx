@@ -57,8 +57,8 @@ export default async function LoginPage({
           <SubmitButton pendingLabel="Signing in…">Sign in</SubmitButton>
         </form>
         <div className="rf-entry-links">
-          <a href="/signup" className="rf-entry-link">Create account</a>
-          <a href="/reset-password" className="rf-entry-link">Forgot password?</a>
+          <a href="/signup" className="rf-entry-link rf-focusable">Create account</a>
+          <a href="/reset-password" className="rf-entry-link rf-focusable">Forgot password?</a>
         </div>
     </EntryShell>
   );

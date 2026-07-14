@@ -40,6 +40,13 @@ describe("shared system states", () => {
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeTruthy();
   });
 
+  it("supports a compact empty state inside fixed-height data cards", () => {
+    render(<EmptyState compact title="No trend data yet" description="Run a review to populate this chart." />);
+
+    expect(screen.getByRole("heading", { name: "No trend data yet" }).parentElement?.className)
+      .toContain("rf-empty-state--compact");
+  });
+
   it("exposes loading progress without using a raw text-only placeholder", () => {
     render(<LoadingState label="Loading role details" />);
 

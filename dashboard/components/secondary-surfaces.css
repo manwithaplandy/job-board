@@ -58,7 +58,6 @@
 .rf-analytics-card__head { margin-bottom: var(--space-3); }
 .rf-analytics-card__title { color: var(--text-primary); font-size: var(--font-size-caption); font-weight: 800; letter-spacing: -.01em; }
 .rf-analytics-card__subtitle { margin-top: var(--space-1); color: var(--text-secondary); font-size: var(--font-size-small); line-height: 1.4; }
-.rf-analytics-card__empty { padding: var(--space-8) 0; color: var(--text-muted); font-size: var(--font-size-caption); }
 .rf-analytics-overview { scroll-margin-top: 70px; }
 .rf-analytics-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: var(--space-3); }
 .rf-analytics-kpi { min-width: 0; }

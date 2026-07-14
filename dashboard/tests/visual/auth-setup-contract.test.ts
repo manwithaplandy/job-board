@@ -79,8 +79,11 @@ describe("fresh visual authentication setup", () => {
     );
     expect(spec).not.toContain("VISUAL_AUTH_STATE_JSON");
     expect(spec).not.toContain("VISUAL_ONBOARDING_AUTH_STATE_JSON");
+    expect(pkg.scripts["test:visual"]).toBe(
+      "PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test",
+    );
     expect(pkg.scripts["test:visual:auth-setup"]).toBe(
-      "playwright test --project=auth-setup",
+      "PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test --project=auth-setup",
     );
     expect(pkg.scripts["test:visual:authenticated"]).toBe(
       "playwright test --project=visual --no-deps",

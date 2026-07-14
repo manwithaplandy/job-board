@@ -79,6 +79,8 @@ Live light/dark desktop/mobile screenshots and interaction measurements remain c
 
 ## Adversarial review fixes — billing identity, compact analytics cards, and InfoTip interaction
 
+Review-fix implementation commits: `5a3d762` and `27ec43c`.
+
 The independent code reviewer held the phase at 0 Critical, 2 Important, and 1 Minor. This repair resolves all three findings without widening scope:
 
 - Every billing tier now keeps its stable `Standard` or `Pro` heading. `Current plan` is a separate success-status badge, so an active plan never loses its identity.

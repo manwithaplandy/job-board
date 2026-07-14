@@ -40,7 +40,7 @@ describe("accessibility and responsive acceptance contracts", () => {
     expect(css).toMatch(/\.rf-icon-button:active:not\(:disabled\)/);
     expect(css).toMatch(/\.rf-segments__item:active:not\(:disabled\)/);
     expect(css).toMatch(/\.rf-icon-button:disabled[^}]*cursor:\s*not-allowed/s);
-    expect(css).toMatch(/\.rf-segments__item\s*\{[^}]*min-height:\s*var\(--target-size\)/s);
+    expect(css).toMatch(/\.rf-segments__item\s*\{[^}]*min-width:\s*var\(--target-size\)[^}]*min-height:\s*var\(--target-size\)/s);
     expect(css).toMatch(/\.rf-tabs__item\s*\{[^}]*min-height:\s*var\(--target-size\)/s);
     expect(css).toMatch(/\.rf-back-link\s*\{[^}]*min-height:\s*var\(--target-size\)/s);
   });

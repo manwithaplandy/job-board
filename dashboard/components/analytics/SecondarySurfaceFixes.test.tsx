@@ -9,6 +9,18 @@ import { KpiStrip } from "./KpiStrip";
 afterEach(cleanup);
 
 describe("analytics compact surface fixes", () => {
+  test("keeps short tooltip triggers at least 44px on both axes", () => {
+    render(<InfoTip term="Errors" gloss="Failed review attempts.">Errors</InfoTip>);
+    const trigger = screen.getByRole("button", { name: "Errors. Failed review attempts." });
+    expect(trigger.className).toContain("rf-info-tip__trigger");
+    expect(readFileSync("components/secondary-surfaces.css", "utf8")).toMatch(/\.rf-info-tip__trigger\s*\{[^}]*min-width:\s*var\(--target-size\)[^}]*min-height:\s*var\(--target-size\)/s);
+  });
+  test("gives secondary navigation links a 44px-high hit area", () => {
+    const css = readFileSync("components/secondary-surfaces.css", "utf8");
+    const companies = readFileSync("app/companies/page.tsx", "utf8");
+    expect(companies).toContain('className="rf-secondary-link"');
+    expect(css).toMatch(/\.rf-secondary-link\s*\{[^}]*min-height:\s*var\(--target-size\)[^}]*display:\s*inline-flex/s);
+  });
   test("uses token-backed inline spacing for the KPI trend icon", () => {
     const source = readFileSync("components/analytics/KpiStrip.tsx", "utf8");
     expect(source).toContain('className="rf-kpi-delta__value"');

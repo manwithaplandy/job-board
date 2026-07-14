@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Header } from "./Header";
 import type { OperatorSignals } from "@/lib/types";
+import { readFileSync } from "node:fs";
 
 afterEach(cleanup);
 
@@ -82,5 +83,19 @@ describe("Header — narrow collapse", () => {
     expect(screen.queryByText(/unreviewed/)).toBeNull();
     // Account remains a distinct affordance; navigation uses its own responsive menu.
     expect(screen.getByRole("button", { name: /account/i })).not.toBeNull();
+  });
+});
+
+describe("Header — search target geometry", () => {
+  test("keeps the native search input at least 44px high inside its themed shell", () => {
+    renderHeader({ isNarrow: true });
+    expect(screen.getByRole("searchbox", { name: "Search roles" })).not.toBeNull();
+    expect(readFileSync("components/shell/shell.css", "utf8")).toMatch(/\.app-header__search input\s*\{[^}]*min-height:\s*var\(--target-size\)/s);
+  });
+
+  test("gives the operator health link a 44px hit area", () => {
+    renderHeader({ operator: op({ unreviewed: 12, reviewed: 3 }) });
+    expect(screen.getByRole("link", { name: "12 unreviewed" })).not.toBeNull();
+    expect(readFileSync("components/shell/shell.css", "utf8")).toMatch(/\.app-header__operator a\s*\{[^}]*min-height:\s*var\(--target-size\)[^}]*display:\s*inline-flex/s);
   });
 });

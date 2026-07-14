@@ -83,9 +83,9 @@
   background: var(--bg-muted);
   color: var(--text-muted);
 }
-.app-header__search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: .84375rem; }
+.app-header__search input { min-width: 0; width: 100%; min-height: var(--target-size); border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: .84375rem; }
 .app-header__operator { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; color: var(--text-secondary); font-size: .75rem; }
-.app-header__operator a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.app-header__operator a { min-height: var(--target-size); display: inline-flex; align-items: center; color: var(--accent); font-weight: 600; text-decoration: none; }
 .app-header__health { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; }
 .app-header__reviewed-badge { padding: 3px var(--space-2); border: 1px solid var(--accent-border); border-radius: var(--radius-badge); background: var(--accent-bg); color: var(--accent); font-size: .625rem; font-weight: 800; letter-spacing: .05em; white-space: nowrap; }
 .app-header__auth-actions { display: flex; align-items: center; gap: var(--space-2); }

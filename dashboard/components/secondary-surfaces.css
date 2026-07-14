@@ -7,7 +7,7 @@
 .rf-secondary-stack { display: grid; gap: var(--space-4); min-width: 0; }
 .rf-secondary-card-list { display: grid; gap: var(--space-3); min-width: 0; }
 .rf-secondary-card { min-width: 0; }
-.rf-secondary-link { color: var(--accent); font-weight: 650; text-decoration: none; }
+.rf-secondary-link { min-height: var(--target-size); display: inline-flex; align-items: center; color: var(--accent); font-weight: 650; text-decoration: none; }
 .rf-secondary-link:hover { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 3px; }
 .rf-secondary-empty { padding: var(--space-8); text-align: center; color: var(--text-secondary); }
 .rf-secondary-empty strong { display: block; margin-bottom: var(--space-2); color: var(--text-primary); }
@@ -65,7 +65,7 @@
 .rf-analytics-kpi__value { color: var(--text-primary); font-size: 24px; font-weight: 800; letter-spacing: -.025em; line-height: 1.05; }
 .rf-analytics-kpi__label { margin-top: var(--space-1); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
 .rf-analytics-summary { max-width: 760px; margin: var(--space-3) var(--space-1) 0; color: var(--text-secondary); font-size: var(--font-size-caption); line-height: 1.55; }
-.rf-info-tip__trigger { min-height: var(--target-size); display: inline-flex; align-items: center; border-bottom: 1px dotted var(--text-muted); cursor: help; }
+.rf-info-tip__trigger { min-width: var(--target-size); min-height: var(--target-size); display: inline-flex; align-items: center; justify-content: center; border-bottom: 1px dotted var(--text-muted); cursor: help; }
 .rf-analytics-toggle-row { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-4); }
 
 @media (max-width: 700px) {

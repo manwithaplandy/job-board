@@ -97,6 +97,12 @@
   while production `ResumePanel` recognizes `busy`. The story now supplies the real state;
   a rendered test requires the production “Tailoring…” copy, responsive busy row, and
   Cancel action, while a structural guard rejects a return to the unsupported key.
+- Authenticated desktop/mobile sweeps exposed hit targets that public fixtures did not:
+  the board search input inherited only its label's height, short analytics tooltip terms
+  and the `All` segment lacked minimum width, and operator/company links lacked minimum
+  height. Production shell, segmented-control, tooltip, and secondary-link contracts now
+  enforce the missing axis with token-backed 44px geometry. Focused tests bind every rule
+  to its real component/class; no runtime exception was added.
 - Added `/reset-password/update` and a filesystem-to-manifest completeness contract.
 - Split authenticated execution into established-user `VISUAL_AUTH_STATE_JSON` and
   profile-less-user `VISUAL_ONBOARDING_AUTH_STATE_JSON`. Each route selects its declared

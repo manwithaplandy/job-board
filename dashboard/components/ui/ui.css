@@ -99,7 +99,7 @@
 .rf-tabs__item[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
 .rf-tabs__item--disabled { color: var(--text-muted); cursor: not-allowed; opacity: .65; }
 .rf-segments { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-muted); }
-.rf-segments__item { min-height: var(--target-size); padding: 0 var(--space-4); border: 0; border-radius: calc(var(--radius-control) - 3px); color: var(--text-secondary); background: transparent; font: inherit; cursor: pointer; }
+.rf-segments__item { min-width: var(--target-size); min-height: var(--target-size); padding: 0 var(--space-4); border: 0; border-radius: calc(var(--radius-control) - 3px); color: var(--text-secondary); background: transparent; font: inherit; cursor: pointer; }
 .rf-segments__item[aria-checked="true"] { color: var(--text-primary); background: var(--bg-surface); box-shadow: var(--shadow-toggle); }
 .rf-segments__item:active:not(:disabled) { transform: translateY(1px); }
 .rf-segments__item:disabled { color: var(--text-muted); cursor: not-allowed; opacity: .55; }

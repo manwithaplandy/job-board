@@ -79,3 +79,50 @@ Capture light/dark screenshots at 1440 and 390 CSS pixels, verify `scrollWidth =
 ## Concern
 
 Live browser screenshots and interaction measurements are intentionally controller-owned. Code contracts, focused/full tests, typecheck, lint, production build, and diff validation are green; an independent adversarial code-and-browser reviewer must clear the phase before Phase 8.
+
+---
+
+## Adversarial review fixes — complete secondary states and focus contracts
+
+Review-fix implementation commit: `aa352a3` (`fix(ui): complete phase 7 system states`).
+
+The independent code review held the phase at 0 Critical, 1 Important, and 2 Minor. The repair resolves the complete findings list without widening scope:
+
+- Companies first-run now renders through `EmptyState`, retaining its full explanatory copy and profile-preferences link.
+- Analytics first-run now renders through the shared informational `Alert`, retaining the “No reviews yet” explanation and board-review instruction.
+- All four empty chart branches (`BarsCard`, `LinesCard`, `HBarCard`, and `SimpleTableCard`) render a compact `EmptyState`; the obsolete bespoke empty class and CSS were removed.
+- `EmptyState` gained a compact presentation that preserves chart-card sizing while retaining the same semantic heading structure.
+- Entry, footer, consent, and legal-reading links now receive the themed focus-visible ring. Explicit entry links also carry `rf-focusable`.
+- The consumer contract covers the complete Task 7 board/secondary inventory rather than representative consumers only.
+- New rendered consumer tests cover all four chart branches, Analytics first-run, Companies first-run, and login/signup/reset/password-update route composition and wiring.
+
+### Review-fix RED
+
+```text
+Test Files  2 failed | 1 passed (3)
+Tests       3 failed | 22 passed (25)
+```
+
+The failures were the intentionally absent complete secondary inventory, compact empty-state class, and themed focus selectors. The four new behavioral auth-route tests passed on their first run and confirmed the already-preserved route wiring.
+
+### Review-fix GREEN and verification
+
+```text
+Test Files  8 passed (8)
+Tests       41 passed (41)
+```
+
+```text
+NODE_OPTIONS=--localstorage-file=/tmp/rolefit-phase7-review-fix \
+  npm test -- --maxWorkers=1
+
+Test Files  177 passed | 2 skipped (179)
+Tests       1291 passed | 6 skipped (1297)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- `DATABASE_URL=postgres://placeholder:placeholder@localhost:5432/placeholder npm run build`: passed with approved font network access; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.
+
+The controller must deploy `aa352a3`, complete the existing browser matrix, and send the full Phase 7 range back to the independent reviewer. This implementation does not claim the adversarial gate is clear.

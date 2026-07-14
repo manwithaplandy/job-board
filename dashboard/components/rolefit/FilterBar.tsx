@@ -69,6 +69,8 @@ function FilterMenu({
   ariaLabel,
   multiselect = false,
   listboxStyle,
+  align = "start",
+  mobileAlign = align,
   children,
 }: {
   name: string;
@@ -79,6 +81,8 @@ function FilterMenu({
   ariaLabel: string;
   multiselect?: boolean;
   listboxStyle: CSSProperties;
+  align?: "start" | "end";
+  mobileAlign?: "start" | "end";
   children: ReactNode;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -140,7 +144,7 @@ function FilterMenu({
   };
 
   return (
-    <div data-menuroot="" style={{ position: "relative" }}>
+    <div data-menuroot="" data-align={align} data-mobile-align={mobileAlign} style={{ position: "relative" }}>
       <button
         ref={triggerRef}
         type="button"
@@ -310,10 +314,13 @@ export function FilterBar({
         multiselect
         trigger={<>Category{catBadge}{caret}</>}
         triggerStyle={triggerStyle(cb.bg, cb.border)}
-        listboxStyle={{ ...dropdownBase, left: 0, width: "248px", maxHeight: "320px", overflow: "auto" }}
+        align="start"
+        mobileAlign="start"
+        listboxStyle={{ ...dropdownBase, width: "248px", maxHeight: "320px", overflow: "auto" }}
       >
         {catItems.map(({ cat, count, boxBg, boxBorder, check }) => (
           <button
+            className="rf-board-filter-option rf-focusable"
             type="button"
             role="option"
             aria-selected={cats.includes(cat)}
@@ -366,12 +373,15 @@ export function FilterBar({
         ariaLabel="Filter by minimum pay"
         trigger={<>Pay{payBadge}{caret}</>}
         triggerStyle={triggerStyle(pb.bg, pb.border)}
-        listboxStyle={{ ...dropdownBase, left: 0, width: "190px" }}
+        align="start"
+        mobileAlign="end"
+        listboxStyle={{ ...dropdownBase, width: "190px" }}
       >
         {PAY_DEFS.map(([v, label]) => {
           const r = radio(payMin === v);
           return (
             <button
+              className="rf-board-filter-option rf-focusable"
               type="button"
               role="option"
               aria-selected={payMin === v}
@@ -408,12 +418,15 @@ export function FilterBar({
         ariaLabel="Filter by minimum match"
         trigger={<>Match{matchBadge}{caret}</>}
         triggerStyle={triggerStyle(mb.bg, mb.border)}
-        listboxStyle={{ ...dropdownBase, left: 0, width: "190px" }}
+        align="start"
+        mobileAlign="start"
+        listboxStyle={{ ...dropdownBase, width: "190px" }}
       >
         {MATCH_DEFS.map(([v, label]) => {
           const r = radio(minFit === v);
           return (
             <button
+              className="rf-board-filter-option rf-focusable"
               type="button"
               role="option"
               aria-selected={minFit === v}
@@ -451,10 +464,13 @@ export function FilterBar({
         multiselect
         trigger={<>Location{locBadge}{caret}</>}
         triggerStyle={triggerStyle(lb.bg, lb.border)}
-        listboxStyle={{ ...dropdownBase, left: 0, width: "230px", maxHeight: "320px", overflow: "auto" }}
+        align="start"
+        mobileAlign="end"
+        listboxStyle={{ ...dropdownBase, width: "230px", maxHeight: "320px", overflow: "auto" }}
       >
         {locItems.map(({ loc, count, boxBg, boxBorder, check }) => (
           <button
+            className="rf-board-filter-option rf-focusable"
             type="button"
             role="option"
             aria-selected={locs.includes(loc)}
@@ -508,10 +524,13 @@ export function FilterBar({
         multiselect
         trigger={<>Source{srcBadge}{caret}</>}
         triggerStyle={triggerStyle(sb.bg, sb.border)}
-        listboxStyle={{ ...dropdownBase, left: 0, width: "230px", maxHeight: "320px", overflow: "auto" }}
+        align="start"
+        mobileAlign="start"
+        listboxStyle={{ ...dropdownBase, width: "230px", maxHeight: "320px", overflow: "auto" }}
       >
         {sourceItems.map(({ ats, label, count, boxBg, boxBorder, check }) => (
           <button
+            className="rf-board-filter-option rf-focusable"
             type="button"
             role="option"
             aria-selected={sources.includes(ats)}
@@ -615,12 +634,15 @@ export function FilterBar({
           padding: "7px 11px",
           cursor: "pointer",
         }}
-        listboxStyle={{ ...dropdownBase, right: 0, width: "188px" }}
+        align="end"
+        mobileAlign="start"
+        listboxStyle={{ ...dropdownBase, width: "188px" }}
       >
         {SORT_DEFS.map(([v, label]) => {
           const r = radio(sort === v);
           return (
             <button
+              className="rf-board-filter-option rf-focusable"
               type="button"
               role="option"
               aria-selected={sort === v}

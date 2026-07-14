@@ -79,5 +79,6 @@ describe("JobCard no-score neutral treatment", () => {
     expect(card.getAttribute("style") ?? "").not.toContain("oklch");
     expect(card.getAttribute("data-selected")).toBe("true");
     expect(screen.getByText("82").getAttribute("style") ?? "").toContain("oklch");
+    expect(card.querySelector(".rf-job-card__score-rail")).toBeNull();
   });
 });

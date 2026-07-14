@@ -62,7 +62,7 @@ export function CoverLetterEditor({ job, letterText, hasEdit, isAuthed, onSaved,
   return (
     <div style={{ marginTop: "13px", borderTop: "1px dashed var(--border)", paddingTop: "13px" }}>
       {!open ? (
-        <div style={{ display: "flex", gap: "9px", alignItems: "center" }}>
+        <div className="rf-generation-actions">
           <Button type="button" variant="outline" size="compact" onClick={() => { setText(letterText); setOpen(true); }}>
             <Icon name="edit" size={16} /> Edit letter
           </Button>
@@ -104,7 +104,7 @@ export function CoverLetterEditor({ job, letterText, hasEdit, isAuthed, onSaved,
               border: "1px solid var(--border)", borderRadius: "9px", boxSizing: "border-box",
             }}
           />
-          <div style={{ display: "flex", gap: "9px", marginTop: "10px", alignItems: "center" }}>
+          <div className="rf-generation-actions" style={{ marginTop: "10px" }}>
             <Button
               type="button"
               onClick={onSave}

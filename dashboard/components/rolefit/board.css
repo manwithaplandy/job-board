@@ -49,6 +49,12 @@
   min-height: var(--target-size);
   white-space: nowrap;
 }
+.rf-board-filter-option {
+  min-height: var(--target-size);
+}
+.rf-board-filter-option:hover { background: var(--accent-bg) !important; }
+[data-menuroot][data-align="start"] > [role="listbox"] { left: 0; right: auto; }
+[data-menuroot][data-align="end"] > [role="listbox"] { right: 0; left: auto; }
 
 .rf-board-filter-group {
   display: inline-flex;
@@ -107,15 +113,6 @@
 .rf-job-card__button[data-selected] {
   border-color: var(--accent);
   box-shadow: inset 3px 0 0 var(--accent), var(--elevation-card);
-}
-
-.rf-job-card__score-rail {
-  position: absolute;
-  left: 7px;
-  top: var(--space-3);
-  bottom: var(--space-3);
-  width: 3px;
-  border-radius: var(--radius-badge);
 }
 
 .rf-job-card__logo {
@@ -194,6 +191,29 @@
   color: var(--text-primary);
   text-align: left;
 }
+.rf-generation-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.rf-generation-actions > * { min-width: 0; }
+.rf-resume-score-row {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) repeat(5, 44px);
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-2);
+}
+.rf-resume-score-row__label {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
 
 .rf-board-empty-state {
   padding: 60px var(--space-6);
@@ -218,7 +238,8 @@
   .rf-board-filter-strip { align-items: stretch; }
   .rf-board-filter-strip > [data-menuroot] { flex: 1 1 calc(50% - var(--space-2)); min-width: 0; }
   .rf-board-filter-strip > [data-menuroot] > [role="listbox"] { max-width: calc(100vw - var(--space-4)); }
-  .rf-board-filter-strip > [data-menuroot]:nth-child(even) > [role="listbox"] { transform: translateX(calc(-100% - var(--space-2))); }
+  [data-menuroot][data-mobile-align="start"] > [role="listbox"] { left: 0; right: auto; }
+  [data-menuroot][data-mobile-align="end"] > [role="listbox"] { right: 0; left: auto; }
   .rf-board-filter-trigger { width: 100%; justify-content: space-between; }
   .rf-board-filter-group { width: 100%; justify-content: space-between; }
   .rf-board-filter-segments { flex: 1; }
@@ -231,6 +252,14 @@
   .rf-job-detail { width: 100%; padding: var(--space-5) var(--space-4) 48px !important; }
   .rf-job-detail > div:first-child { flex-wrap: wrap; }
   .rf-job-detail__actions { justify-content: flex-start !important; }
+}
+
+@media (max-width: 520px) {
+  .rf-resume-score-row {
+    grid-template-columns: repeat(5, minmax(44px, 1fr));
+  }
+  .rf-resume-score-row__label { grid-column: 1 / -1; }
+  .rf-generation-actions > .rf-button { flex: 1 1 auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

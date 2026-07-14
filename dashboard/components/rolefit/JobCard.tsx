@@ -58,13 +58,6 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
           borderColor: selected ? "var(--accent)" : "var(--border)",
         }}
       >
-        {/* Accent bar */}
-        <div
-          className="rf-job-card__score-rail"
-          style={{
-            background: hasReview ? c.strong : "var(--border-strong)",
-          }}
-        />
         {/* Logo */}
         <div
           className="rf-job-card__logo"

@@ -323,7 +323,7 @@ export function ResumePanel({
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
+          <div className="rf-generation-actions" style={{ marginTop: "13px" }}>
             <Button
               type="button"
               onClick={handleDownload}

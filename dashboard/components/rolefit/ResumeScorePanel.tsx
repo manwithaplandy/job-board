@@ -49,8 +49,8 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
   };
 
   const scale = (value: number | null, set: (n: number) => void, label: string) => (
-    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px" }}>
-      <span style={{ width: "150px", fontSize: "12.5px", fontWeight: 700, color: "var(--text-primary)" }}>{label}</span>
+    <div className="rf-resume-score-row">
+      <span className="rf-resume-score-row__label">{label}</span>
       {DIMS.map((n) => (
         <Button
           key={n}
@@ -132,7 +132,7 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
             }}
           />
 
-          <div style={{ display: "flex", gap: "9px", marginTop: "10px", alignItems: "center" }}>
+          <div className="rf-generation-actions" style={{ marginTop: "10px" }}>
             <Button
               type="button"
               onClick={onSave}

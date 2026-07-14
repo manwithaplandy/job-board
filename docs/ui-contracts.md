@@ -46,22 +46,39 @@ Traces, diff output, and HTML reports are disposable and ignored through `.gitig
 Commands:
 
 ```bash
+VISUAL_BASE_URL="https://your-preview.vercel.app" \
+VISUAL_AUTH_EMAIL="..." \
+VISUAL_AUTH_PASSWORD="..." \
+VISUAL_ONBOARDING_EMAIL="..." \
+VISUAL_ONBOARDING_PASSWORD="..." \
+npm run test:visual
 npm run test:visual:public       # committed, always-on public CI subset
 npm run test:visual:update       # intentionally refresh public baselines after review
-VISUAL_AUTH_STATE_JSON="$(cat /secure/established-user.json)" \
-VISUAL_ONBOARDING_AUTH_STATE_JSON="$(cat /secure/profile-less-user.json)" \
-npm run test:visual
 ```
 
-Both variables are Playwright storage-state JSON and must never be committed. The normal
-state belongs to an established user who can render board/profile routes; the onboarding
-state belongs to a profile-less user who can render `/onboarding` without redirecting.
-The full command fails explicitly when either state is missing; authenticated coverage is never
-silently skipped. CI is fail-closed: it unconditionally validates both repository secrets,
-runs the public/deterministic gate, and then runs the complete authenticated matrix. A
-missing or malformed state therefore fails the dashboard job instead
-of downgrading coverage. Until both secrets and real authenticated baselines exist, this
-phase remains externally blocked even when the auth-independent gate passes.
+The four credential variables belong to dedicated synthetic test identities and must never
+be committed. The established identity must render the board and profile routes; the
+profile-less identity must render `/onboarding` without redirecting. The full local command
+creates isolated, disposable Playwright storage states beneath
+`test-results/visual-auth/`, fails explicitly when any credential or expected redirect is
+wrong, runs the comparisons, and leaves the ignored state files available only for local
+cleanup. Delete them after use.
+
+Ordinary pull-request CI continues to run the public/deterministic gate without secrets.
+Authenticated coverage is a separate `deployment_status` workflow for successful Vercel
+Preview deployments. It checks out the exact deployed SHA, validates the HTTPS
+`*.vercel.app` URL, and uses the protected GitHub Environment `visual-test`. That environment
+must define `VISUAL_AUTH_EMAIL`, `VISUAL_AUTH_PASSWORD`, `VISUAL_ONBOARDING_EMAIL`, and
+`VISUAL_ONBOARDING_PASSWORD`; credentials are exposed only to the authentication setup
+step. The comparison step receives only the deployment URL, and an `always()` cleanup
+removes both generated state files. Do not restore the obsolete storage-state JSON secrets.
+
+The first authenticated run is expected to fail when reviewed baselines do not yet exist.
+Download the `authenticated-visual-results` failure artifact, confirm it contains only files
+from `dashboard/test-results/visual/` and no auth JSON, inspect every actual PNG at both
+viewports and themes, and copy only approved images into
+`tests/visual/__screenshots__`. Commit those reviewed baselines normally and rerun the
+deployment workflow. CI never updates snapshots automatically.
 
 Baseline changes are review artifacts: update only after intentional UI changes, inspect
 every changed PNG, and commit the PNGs with the implementation. Never use

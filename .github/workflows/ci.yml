@@ -53,9 +53,6 @@ jobs:
   dashboard:
     name: Dashboard tests
     runs-on: ubuntu-latest
-    env:
-      VISUAL_AUTH_STATE_JSON: ${{ secrets.VISUAL_AUTH_STATE_JSON }}
-      VISUAL_ONBOARDING_AUTH_STATE_JSON: ${{ secrets.VISUAL_ONBOARDING_AUTH_STATE_JSON }}
     defaults:
       run:
         working-directory: dashboard
@@ -74,11 +71,7 @@ jobs:
         run: npm run lint
       - name: Run tests
         run: npm test
-      - name: Require authenticated visual state
-        run: node -e 'for(const name of ["VISUAL_AUTH_STATE_JSON","VISUAL_ONBOARDING_AUTH_STATE_JSON"]){const raw=process.env[name];if(!raw)throw new Error(`${name} is required for fail-closed visual CI`);const value=JSON.parse(raw);if(!Array.isArray(value.cookies))throw new Error(`${name} must be Playwright storage state`)}'
       - name: Install visual regression browser
         run: npx playwright install --with-deps chromium
       - name: Run public visual regression gate
         run: npm run test:visual:public
-      - name: Run authenticated visual regression gate
-        run: npm run test:visual

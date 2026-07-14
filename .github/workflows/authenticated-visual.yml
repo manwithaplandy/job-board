@@ -1,0 +1,64 @@
+name: Authenticated visual
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+
+jobs:
+  authenticated-visual:
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment.creator.login == 'vercel[bot]' &&
+      github.event.deployment.environment == 'Preview' &&
+      startsWith(github.event.deployment_status.environment_url, 'https://') &&
+      contains(github.event.deployment_status.environment_url, '.vercel.app')
+    runs-on: ubuntu-latest
+    environment:
+      name: visual-test
+      url: ${{ github.event.deployment_status.environment_url }}
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.deployment.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Install visual regression browser
+        run: npx playwright install --with-deps chromium
+      - name: Validate deployment URL
+        env:
+          VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+        run: >-
+          node -e 'const raw=process.env.VISUAL_BASE_URL;let url;try{url=new URL(raw)}catch{throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")};if(url.protocol!=="https:"||!url.hostname.endsWith(".vercel.app"))throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")'
+      - name: Create authenticated sessions
+        env:
+          VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          VISUAL_AUTH_EMAIL: ${{ secrets.VISUAL_AUTH_EMAIL }}
+          VISUAL_AUTH_PASSWORD: ${{ secrets.VISUAL_AUTH_PASSWORD }}
+          VISUAL_ONBOARDING_EMAIL: ${{ secrets.VISUAL_ONBOARDING_EMAIL }}
+          VISUAL_ONBOARDING_PASSWORD: ${{ secrets.VISUAL_ONBOARDING_PASSWORD }}
+        run: npm run test:visual:auth-setup
+      - name: Compare authenticated visuals
+        env:
+          VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+        run: npm run test:visual:authenticated
+      - name: Upload visual failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-visual-results
+          path: dashboard/test-results/visual/**
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove authenticated state
+        if: always()
+        run: node -e 'const fs=require("node:fs");for(const p of ["test-results/visual-auth/established.json","test-results/visual-auth/onboarding.json"])fs.rmSync(p,{force:true})'

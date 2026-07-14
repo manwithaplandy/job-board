@@ -116,3 +116,23 @@
   Playwright storage states were available to this implementer. The controller owns the
   live authenticated browser matrix and independent adversarial review; this report
   does not claim the final Phase 9/definition-of-done gate has passed.
+
+## Credential-based deployment workflow
+
+- Replaced ordinary CI's long-lived storage-state JSON inputs with an always-on public
+  visual gate that needs no authenticated secrets.
+- Added an authenticated workflow for successful Vercel Preview `deployment_status`
+  events. It accepts only `vercel[bot]` deployments, checks out the exact deployment SHA,
+  validates the HTTPS `*.vercel.app` URL, and obtains credentials from the protected
+  `visual-test` GitHub Environment.
+- Scoped all four dedicated test-account credentials to the session-creation step. The
+  comparison step receives only the deployment URL and uses the `--no-deps` script, so it
+  cannot rerun authentication. Failure uploads are limited to
+  `dashboard/test-results/visual/**`; cleanup always removes the established and onboarding
+  state JSON files.
+- Documented local credential-backed execution and the initial missing-baseline review
+  process. The workflow never updates snapshots; authenticated PNGs remain manual review
+  artifacts before they are committed.
+- Environment creation, secret entry, pushing, the first deployment run, and authenticated
+  baseline inspection remain controller-owned rollout work and are intentionally not
+  performed by this implementation task.

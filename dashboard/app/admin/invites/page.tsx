@@ -10,6 +10,7 @@ import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
 import { Card } from "@/components/ui/Panel";
 import { PageHeader } from "@/components/ui/Navigation";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Invites · Admin" };
@@ -77,9 +78,7 @@ export default async function AdminInvitesPage() {
 
           <Card style={{ marginTop: "var(--space-4)" }}>
             {invites.length === 0 ? (
-              <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "24px 4px" }}>
-                No invite codes yet.
-              </div>
+              <EmptyState compact title="No invite codes yet." />
             ) : (
               <div className="rf-secondary-table-scroll rf-focusable" tabIndex={0} aria-label="Invite codes table, horizontally scrollable">
                 <table className="rf-secondary-table" style={{ minWidth: "640px" }}>

@@ -59,6 +59,11 @@ describe("entry and system-state design contracts", () => {
     expect(read("components/companies/CompanyList.tsx")).toContain("<EmptyState");
     expect(read("app/companies/page.tsx")).toContain("<EmptyState");
     expect(read("components/analytics/PipelineDashboard.tsx")).toContain("<Alert");
+    for (const adminPage of ["app/admin/invites/page.tsx", "app/admin/tenants/page.tsx"]) {
+      const source = read(adminPage);
+      expect(source).toContain("<EmptyState");
+      expect(source).not.toMatch(/<div style=\{\{[^}]*padding:\s*"24px 4px"/);
+    }
     const chartSource = read("components/analytics/Chart.tsx");
     expect(chartSource.match(/<EmptyState/g)).toHaveLength(4);
     expect(chartSource).not.toContain("rf-analytics-card__empty");

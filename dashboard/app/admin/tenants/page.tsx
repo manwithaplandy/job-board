@@ -9,6 +9,7 @@ import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
 import { Badge, Card } from "@/components/ui/Panel";
 import { PageHeader } from "@/components/ui/Navigation";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Tenants · Admin" };
@@ -67,9 +68,7 @@ export default async function AdminTenantsPage() {
             <PageHeader className="rf-secondary-header" title="Tenants" description="Per-tenant plan, usage, pipeline health, and an estimated 30-day review cost." />
 
             {tenants.length === 0 ? (
-              <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "24px 4px" }}>
-                No tenants yet.
-              </div>
+              <EmptyState compact title="No tenants yet." />
             ) : (
               <div className="rf-secondary-table-scroll rf-focusable" tabIndex={0} aria-label="Tenant metrics table, horizontally scrollable">
                 <table className="rf-secondary-table" style={{ minWidth: "980px" }}>

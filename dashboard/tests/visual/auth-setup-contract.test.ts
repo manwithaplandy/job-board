@@ -4,6 +4,12 @@ import { describe, expect, test } from "vitest";
 const read = (file: string) => readFileSync(file, "utf8");
 
 describe("fresh visual authentication setup", () => {
+  test("disables the Next development indicator in visual screenshots", () => {
+    const nextConfig = read("next.config.mjs");
+
+    expect(nextConfig).toContain("devIndicators: false");
+  });
+
   test("logs both identities in through the real form in isolated contexts", () => {
     const setup = read("tests/visual/auth.setup.ts");
 

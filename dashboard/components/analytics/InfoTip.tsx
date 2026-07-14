@@ -97,7 +97,7 @@ export function InfoTip({
             textAlign: "left",
             padding: "9px 11px",
             borderRadius: "8px",
-            boxShadow: "0 6px 20px rgba(22,29,41,.28)",
+            boxShadow: "var(--shadow-tooltip)",
             pointerEvents: "none",
             whiteSpace: "normal",
           }}

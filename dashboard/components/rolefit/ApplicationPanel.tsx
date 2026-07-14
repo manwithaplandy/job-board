@@ -295,6 +295,7 @@ export function ApplicationPanel({
         {applyHref && (
           <a
             href={applyHref}
+            data-ui-contract-composite="external ATS application action"
             target="_blank"
             rel="noopener noreferrer"
             style={applyLinkStyle}
@@ -419,6 +420,7 @@ export function ApplicationPanel({
             </div>
             <a
               href="/login"
+              data-ui-contract-composite="application sign-in action"
               style={{
                 flex: "0 0 auto",
                 display: "inline-flex",
@@ -575,7 +577,7 @@ export function ApplicationPanel({
               {/* One-off small accent glow (unique geometry 0 3px 10px .26; no shared token —
                   --shadow-accent/-sm differ in geometry). Reads bright-blue on dark; a
                   dark-mode softening is deferred to the later visual pass. */}
-              <Button variant="primary" size="sm" onClick={handleCoverDownload} style={{ boxShadow: "0 3px 10px rgba(59,111,212,.26)" }}>
+              <Button variant="primary" size="sm" onClick={handleCoverDownload} style={{ boxShadow: "var(--shadow-accent-md)" }}>
                 <Icon name="download" size={16} />Download PDF
               </Button>
               <Button

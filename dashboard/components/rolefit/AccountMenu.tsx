@@ -144,7 +144,7 @@ export function AccountMenu({ email, current, isAdmin = false }: AccountMenuProp
       <button
         ref={triggerRef}
         type="button"
-        className="rf-focusable"
+        className="rf-account-trigger rf-focusable"
         aria-haspopup="menu"
         aria-expanded={open}
         // Reference the popup id only while it's actually rendered (house convention).
@@ -187,7 +187,7 @@ export function AccountMenu({ email, current, isAdmin = false }: AccountMenuProp
             background: "var(--bg-surface)",
             border: "1px solid var(--border)",
             borderRadius: "12px",
-            boxShadow: "0 8px 24px rgba(15,22,35,.1)",
+            boxShadow: "var(--shadow-popover)",
             padding: "6px",
             zIndex: 30,
           }}

@@ -31,6 +31,7 @@ export function SupportLink({
   return (
     <a
       href={href}
+      className="rf-support-link"
       style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none", ...style }}
     >
       {label ?? email}

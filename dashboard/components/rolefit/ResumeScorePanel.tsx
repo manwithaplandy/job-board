@@ -122,6 +122,7 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
           )}
 
           <textarea
+            data-ui-contract-composite="resume evaluator comment"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder="Comment (optional)…"

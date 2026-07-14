@@ -83,6 +83,7 @@ export function CoverLetterEditor({ job, letterText, hasEdit, isAuthed, onSaved,
             Edit cover letter
           </div>
           <textarea
+            data-ui-contract-composite="cover letter editor"
             aria-label="Edited cover letter"
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -95,6 +96,7 @@ export function CoverLetterEditor({ job, letterText, hasEdit, isAuthed, onSaved,
             }}
           />
           <input
+            data-ui-contract-composite="cover letter edit comment"
             aria-label="Edit comment"
             value={comment}
             onChange={(e) => setComment(e.target.value)}

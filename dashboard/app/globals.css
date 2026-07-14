@@ -66,6 +66,11 @@
   --shadow-toast: 0 8px 22px rgba(20,28,40,.22);
   /* Raised pill of the analytics segmented toggle (TrendCharts active button). */
   --shadow-toggle: 0 1px 4px rgba(0,0,0,.1);
+  --shadow-popover: 0 8px 24px rgba(15,22,35,.1);
+  --shadow-tooltip: 0 6px 20px rgba(22,29,41,.28);
+  --shadow-menu: 0 16px 40px rgba(20,28,45,.17);
+  --overlay-backdrop: rgba(17,23,33,.46);
+  --shadow-modal: 0 30px 70px rgba(15,22,35,.4);
   --scrollbar-thumb: #d3d9e2;
   --scrollbar-thumb-hover: #bcc4d1;
 
@@ -198,6 +203,11 @@
   --shadow-toast: 0 8px 22px rgba(0,0,0,.5);
   /* Dark: deepen the toggle pill shadow so the raised button still reads on charcoal. */
   --shadow-toggle: 0 1px 4px rgba(0,0,0,.45);
+  --shadow-popover: 0 8px 24px rgba(0,0,0,.42);
+  --shadow-tooltip: 0 6px 20px rgba(0,0,0,.5);
+  --shadow-menu: 0 16px 40px rgba(0,0,0,.5);
+  --overlay-backdrop: rgba(4,7,12,.72);
+  --shadow-modal: 0 30px 70px rgba(0,0,0,.65);
   --scrollbar-thumb: #2c3444;
   --scrollbar-thumb-hover: #3a4150;
 

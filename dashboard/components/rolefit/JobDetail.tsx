@@ -332,7 +332,7 @@ export function JobDetail({
               height: "88px",
             }}
           >
-            <svg width="88" height="88" viewBox="0 0 88 88">
+            <svg data-fit-score-ring="review fit score" width="88" height="88" viewBox="0 0 88 88">
               <circle cx="44" cy="44" r="34" fill="none" stroke="var(--bg-muted)" strokeWidth="9" />
               <circle
                 cx="44"

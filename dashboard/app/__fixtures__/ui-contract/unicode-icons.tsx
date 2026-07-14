@@ -1,3 +1,3 @@
 export function UnicodeIconsFixture() {
-  return <button aria-label="Next">→</button>;
+  return <span aria-label="Next">→</span>;
 }

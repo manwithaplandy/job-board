@@ -90,6 +90,7 @@ describe("entry and system-state design contracts", () => {
     ]) {
       expect(css).toContain(selector);
     }
+    expect(css).toMatch(/\.rf-entry-footer a\s*\{[^}]*min-width:\s*var\(--target-size\)[^}]*min-height:\s*var\(--target-size\)/s);
     expect(read("app/login/page.tsx")).toContain("rf-entry-link rf-focusable");
     expect(read("app/signup/page.tsx")).toContain("rf-entry-link rf-focusable");
     expect(read("app/reset-password/page.tsx")).toContain("rf-entry-link rf-focusable");

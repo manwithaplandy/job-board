@@ -110,7 +110,7 @@ export function BarsCard(
   if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   return (
     <ChartCard title={title} subtitle={subtitle}>
-      <div role="img" aria-label={`${title} — bar chart`}>
+      <div role="img" aria-label={`${title} — bar chart`} data-ui-visual="data-viz">
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
             <CartesianGrid stroke="var(--bg-muted)" vertical={false} />
@@ -178,7 +178,7 @@ export function LinesCard(
       : (v: unknown) => Number(v).toLocaleString();
   return (
     <ChartCard title={title} subtitle={subtitle}>
-      <div role="img" aria-label={`${title} — line chart`}>
+      <div role="img" aria-label={`${title} — line chart`} data-ui-visual="data-viz">
         <ResponsiveContainer width="100%" height={240}>
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
             <CartesianGrid stroke="var(--bg-muted)" vertical={false} />
@@ -236,7 +236,7 @@ export function HBarCard(
   const max = Math.max(1, ...data.map((d) => d.count));
   return (
     <ChartCard title={title} subtitle={subtitle}>
-      <div role="img" aria-label={`${title} — ranked bar list`} style={{ display: "flex", flexDirection: "column", gap: "7px", paddingBottom: "8px" }}>
+      <div role="img" aria-label={`${title} — ranked bar list`} data-ui-visual="data-viz" data-ui-contract-geometry="ranked bar geometry" style={{ display: "flex", flexDirection: "column", gap: "7px", paddingBottom: "8px" }}>
         {data.map((d, i) => (
           <div key={`${d.label}-${i}`} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div

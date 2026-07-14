@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import type { PipelineSnapshot, RunSeries } from "@/lib/metrics";
 import { InfoTip } from "./InfoTip";
 import { KpiStrip } from "./KpiStrip";
@@ -8,6 +9,11 @@ import { KpiStrip } from "./KpiStrip";
 afterEach(cleanup);
 
 describe("analytics compact surface fixes", () => {
+  test("uses token-backed inline spacing for the KPI trend icon", () => {
+    const source = readFileSync("components/analytics/KpiStrip.tsx", "utf8");
+    expect(source).toContain('className="rf-kpi-delta__value"');
+    expect(readFileSync("components/secondary-surfaces.css", "utf8")).toMatch(/\.rf-kpi-delta__value[^}]*display:\s*inline-flex[^}]*gap:\s*var\(--space-1\)/s);
+  });
   test("renders every KPI as a shared compact analytics card", () => {
     const snapshot = {
       funnel: {

@@ -1411,6 +1411,7 @@ export function RolefitBoard({
               <span>{toast.kind === "apply" ? "Applied" : "Rejected"}</span>
               <button
                 type="button"
+                className="rf-toast-action rf-focusable"
                 onClick={handleUndo}
                 style={{
                   fontWeight: 800,
@@ -1458,6 +1459,7 @@ export function RolefitBoard({
               <span>{actionError}</span>
               <button
                 type="button"
+                className="rf-toast-action rf-focusable"
                 onClick={() => setActionError(null)}
                 style={{
                   fontWeight: 800,

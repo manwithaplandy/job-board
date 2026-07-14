@@ -125,7 +125,7 @@ export function ProfileModal({
 
   const tabBg = (active: boolean) => (active ? "var(--bg-surface)" : "transparent");
   const tabColor = (active: boolean) => (active ? "var(--text-primary)" : "var(--text-secondary)");
-  const tabShadow = (active: boolean) => (active ? "0 1px 4px rgba(0,0,0,.1)" : "none");
+  const tabShadow = (active: boolean) => (active ? "var(--shadow-toggle)" : "none");
 
   return (
     <div
@@ -139,7 +139,7 @@ export function ProfileModal({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(17,23,33,.46)",
+        background: "var(--overlay-backdrop)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -159,7 +159,7 @@ export function ProfileModal({
           maxWidth: "100%",
           background: "var(--bg-surface)",
           borderRadius: "18px",
-          boxShadow: "0 30px 70px rgba(15,22,35,.4)",
+          boxShadow: "var(--shadow-modal)",
           overflow: "hidden",
           outline: "none",
         }}
@@ -212,6 +212,7 @@ export function ProfileModal({
             </div>
             <a
               href="/login"
+              data-ui-contract-composite="profile sign-in action"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -246,6 +247,7 @@ export function ProfileModal({
               >
                 <button
                   type="button"
+                  className="rf-profile-tab rf-focusable"
                   onClick={() => setProfileTab("paste")}
                   style={{
                     flex: 1,
@@ -264,6 +266,7 @@ export function ProfileModal({
                 </button>
                 <button
                   type="button"
+                  className="rf-profile-tab rf-focusable"
                   onClick={() => setProfileTab("upload")}
                   style={{
                     flex: 1,
@@ -285,6 +288,7 @@ export function ProfileModal({
               {/* Paste tab — kept mounted so switching to Upload never drops typed text */}
               <div style={{ display: pasteActive ? "block" : "none" }}>
                   <textarea
+                    data-ui-contract-composite="profile resume editor"
                     ref={textareaRef}
                     className="rf-focusable"
                     name="resume_text"
@@ -383,6 +387,7 @@ export function ProfileModal({
                     )}
                   </label>
                   <input
+                    data-ui-contract-composite="profile resume file input"
                     id="rf-file"
                     ref={fileInputRef}
                     type="file"
@@ -443,6 +448,7 @@ export function ProfileModal({
             >
               <a
                 href="/profile"
+                data-ui-contract-composite="profile settings navigation"
                 onClick={(e) => {
                   // Gate navigation behind the same dirty check as Cancel/Escape/backdrop.
                   if (isDirty && !window.confirm("You have unsaved changes. Close anyway?")) {

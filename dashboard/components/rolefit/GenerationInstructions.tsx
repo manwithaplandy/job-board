@@ -76,6 +76,7 @@ export function GenerationInstructions({
       {open && (
         <>
           <textarea
+            data-ui-contract-composite="generation instruction editor"
             value={value}
             onChange={(e) => handleChange(e.target.value)}
             maxLength={INSTRUCTIONS_MAX_LENGTH}

@@ -119,6 +119,7 @@ export function ResumePanel({
           </div>
           <a
             href="/login"
+            data-ui-contract-composite="resume sign-in action"
             style={{
               flex: "0 0 auto",
               display: "inline-flex",

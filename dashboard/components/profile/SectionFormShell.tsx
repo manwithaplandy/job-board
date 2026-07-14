@@ -249,7 +249,7 @@ export function SectionFormShell({ action, submitLabel, children, onReset, onSav
             {Object.entries(state.fieldErrors).length > 0 && (
               <ul>
                 {Object.entries(state.fieldErrors).map(([name, message]) => (
-                  <li key={name}><a className="rf-focusable" href={`#${fieldIds.get(name) ?? name}`}>{message}</a></li>
+                  <li key={name}><a className="rf-profile-error-link rf-focusable" href={`#${fieldIds.get(name) ?? name}`}>{message}</a></li>
                 ))}
               </ul>
             )}

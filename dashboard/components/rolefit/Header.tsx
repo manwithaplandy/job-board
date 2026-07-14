@@ -29,6 +29,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
       <Icon name="search" size={16} />
       <span className="sr-only">Search roles</span>
       <input
+        data-ui-contract-composite="board search field"
         ref={searchRef}
         type="search"
         aria-label="Search roles"
@@ -50,7 +51,7 @@ export function Header({ search, onSearch, isAuthed, hasProfile, operator, viewe
             style={{ background: HEALTH_DOT[operator.health] }}
           />
           {operator.unreviewed > 0 && operator.reviewed > 0 && (
-            <a href="/analytics">{operator.unreviewed} unreviewed</a>
+            <a href="/analytics" data-ui-contract-composite="operator health navigation">{operator.unreviewed} unreviewed</a>
           )}
         </div>
       )}

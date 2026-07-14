@@ -17,7 +17,7 @@ type TriStateSelectProps = {
 
 function TriStateSelect({ value, ...props }: TriStateSelectProps) {
   return (
-    <select {...props} defaultValue={triStateValue(value)}>
+    <select {...props} className="rf-control rf-select rf-focusable" defaultValue={triStateValue(value)}>
       <option value="">Not specified</option>
       <option value="yes">Yes</option>
       <option value="no">No</option>

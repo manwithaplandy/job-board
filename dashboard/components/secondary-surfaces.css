@@ -61,6 +61,7 @@
 .rf-analytics-overview { scroll-margin-top: 70px; }
 .rf-analytics-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: var(--space-3); }
 .rf-analytics-kpi { min-width: 0; }
+.rf-kpi-delta__value { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
 .rf-analytics-kpi__value { color: var(--text-primary); font-size: 24px; font-weight: 800; letter-spacing: -.025em; line-height: 1.05; }
 .rf-analytics-kpi__label { margin-top: var(--space-1); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
 .rf-analytics-summary { max-width: 760px; margin: var(--space-3) var(--space-1) 0; color: var(--text-secondary); font-size: var(--font-size-caption); line-height: 1.55; }

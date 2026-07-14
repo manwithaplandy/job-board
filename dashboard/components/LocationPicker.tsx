@@ -191,7 +191,7 @@ export function LocationPicker({
           borderRadius: "10px",
           border: "1px solid var(--border)",
           background: "var(--bg-surface)",
-          boxShadow: "0 8px 24px rgba(15,22,35,.1)",
+          boxShadow: "var(--shadow-popover)",
         }}>
           {results.map((o, idx) => (
             <li

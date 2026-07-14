@@ -73,10 +73,11 @@ jobs:
         run: npm run lint
       - name: Run tests
         run: npm test
+      - name: Require authenticated visual state
+        run: node -e 'const raw=process.env.VISUAL_AUTH_STATE_JSON;if(!raw)throw new Error("VISUAL_AUTH_STATE_JSON is required for fail-closed visual CI");const value=JSON.parse(raw);if(!Array.isArray(value.cookies))throw new Error("VISUAL_AUTH_STATE_JSON must be Playwright storage state")'
       - name: Install visual regression browser
         run: npx playwright install --with-deps chromium
       - name: Run public visual regression gate
         run: npm run test:visual:public
-      - name: Run authenticated visual regression gate when configured
-        if: ${{ env.VISUAL_AUTH_STATE_JSON != '' }}
+      - name: Run authenticated visual regression gate
         run: npm run test:visual

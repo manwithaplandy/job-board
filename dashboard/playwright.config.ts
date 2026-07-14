@@ -13,10 +13,8 @@ export default defineConfig({
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   outputDir: "test-results/visual",
   snapshotPathTemplate: "{testDir}/__screenshots__/{arg}{ext}",
-  // Shared baselines are reviewed on macOS and enforced by Linux CI. A 2% pixel
-  // budget absorbs rasterizer/font-edge differences while still rejecting layout,
-  // spacing, color-surface, control, and content regressions.
-  expect: { toHaveScreenshot: { animations: "disabled", caret: "hide", threshold: 0.3, maxDiffPixelRatio: 0.02 } },
+  // Dynamic regions must use explicit masks rather than a permissive page budget.
+  expect: { toHaveScreenshot: { animations: "disabled", caret: "hide", threshold: 0.2, maxDiffPixelRatio: 0.005 } },
   use: {
     ...devices["Desktop Chrome"],
     baseURL,

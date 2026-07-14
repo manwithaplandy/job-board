@@ -9,7 +9,7 @@ const VIEWPORTS = [
   { id: "mobile", width: 390, height: 844 },
 ] as const;
 
-async function assertRuntimeContracts(page: Page, authenticated: boolean) {
+async function assertRuntimeContracts(page: Page) {
   const runtime = await page.evaluate(() => {
     const viewport = document.documentElement.clientWidth;
     const visible = (element: Element) => {
@@ -23,8 +23,9 @@ async function assertRuntimeContracts(page: Page, authenticated: boolean) {
         const style = getComputedStyle(element);
         return style.fontFamily === "serif" || style.backgroundColor === "rgb(239, 239, 239)" || (element.tagName === "SELECT" && style.appearance === "auto");
       }).map((element) => element.outerHTML.slice(0, 180));
-    const undersized = [...document.querySelectorAll("button,[role=button],[role=menuitem],[role=tab],[role=radio],input:not([type=hidden]),select,textarea,.rf-button,.rf-icon-button")]
+    const undersized = [...document.querySelectorAll("button,a[href],[role=button],[role=menuitem],[role=tab],[role=radio],input:not([type=hidden]),select,textarea,.rf-button,.rf-icon-button")]
       .filter(visible)
+      .filter((element) => !(element.tagName === "A" && element.closest(".rf-reading-content,.rf-entry-consent")))
       // The 1px native file input delegates its focusable 44px hit target to the
       // immediately following styled label (the documented FileUpload composite).
       .filter((element) => !(element.matches(".rf-file-upload__input") && element.nextElementSibling?.matches("label.rf-button")))
@@ -32,7 +33,7 @@ async function assertRuntimeContracts(page: Page, authenticated: boolean) {
         const rect = element.getBoundingClientRect();
         return rect.width < 44 || rect.height < 44;
       }).map((element) => ({ tag: element.tagName, className: element.getAttribute("class"), label: element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 50) }));
-    const rawSvgs = [...document.querySelectorAll("svg:not(.rf-icon)")].filter((element) => !element.closest("[data-fit-score-ring]"));
+    const rawSvgs = [...document.querySelectorAll("svg:not(.rf-icon)")].filter((element) => !element.hasAttribute("data-fit-score-ring") && !element.closest('[data-ui-visual="data-viz"]'));
     return {
       viewport,
       scrollWidth: document.documentElement.scrollWidth,
@@ -46,7 +47,7 @@ async function assertRuntimeContracts(page: Page, authenticated: boolean) {
   expect(runtime.defaultControls, "browser-default controls").toEqual([]);
   expect(runtime.undersized, "interactive targets under 44px").toEqual([]);
   expect(runtime.rawSvgCount, "SVGs outside the internal icon/data-viz exceptions").toBe(0);
-  if (authenticated) expect(runtime.shellCount, "authenticated route shell").toBe(1);
+  return runtime;
 }
 
 for (const viewport of VIEWPORTS) {
@@ -63,7 +64,9 @@ for (const viewport of VIEWPORTS) {
           }, theme);
           await page.goto(route.path, { waitUntil: "networkidle" });
           await expect(page.locator("body")).toBeVisible();
-          await assertRuntimeContracts(page, route.access === "authenticated");
+          const runtime = await assertRuntimeContracts(page);
+          if (route.shell === "app" || route.shell === "board") expect(runtime.shellCount, `${route.id} authenticated shell`).toBe(1);
+          if (route.shell === "entry") expect(await page.locator(".rf-entry-shell").count(), `${route.id} entry shell`).toBe(1);
           await expect(page).toHaveScreenshot(`${route.id}-${viewport.id}-${theme}.png`, { fullPage: true });
         });
       }

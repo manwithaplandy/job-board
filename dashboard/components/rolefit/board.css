@@ -8,6 +8,7 @@
   overflow: hidden;
 }
 
+/* ui-contract-allow-overflow: desktop list width has mobile overrides below */
 .rf-board-list-pane {
   flex: 0 0 400px;
   width: 400px;

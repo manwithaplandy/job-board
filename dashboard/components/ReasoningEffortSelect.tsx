@@ -40,7 +40,7 @@ export function ReasoningEffortSelect({
         id={selectId}
         name={name}
         defaultValue={selected}
-        className="rf-focusable"
+        className="rf-control rf-select rf-focusable"
         style={{
           marginTop: "8px",
           borderRadius: "10px",

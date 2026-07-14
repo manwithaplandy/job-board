@@ -283,7 +283,7 @@ export function FilterBar({
     borderRadius: "13px",
     // One-off dropdown elevation (unique geometry, no shared token); reads weakly on
     // dark charcoal — a dark-mode deepening is deferred to the later visual pass.
-    boxShadow: "0 16px 40px rgba(20,28,45,.17)",
+    boxShadow: "var(--shadow-menu)",
     padding: "7px",
   };
 

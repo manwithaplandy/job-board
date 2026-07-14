@@ -170,6 +170,9 @@ describe("deployment-triggered authenticated visual workflow", () => {
     );
     expect(comparison).not.toContain("secrets.");
     expect(comparison).toContain("run: npm run test:visual:authenticated");
+    expect(packageJson.scripts["test:visual:authenticated"]).toContain(
+      "VISUAL_DISABLE_TRACE=1",
+    );
     expect(packageJson.scripts["test:visual:authenticated"]).toContain("--no-deps");
     expect(comparison).not.toContain("--update-snapshots");
   });
@@ -179,7 +182,10 @@ describe("deployment-triggered authenticated visual workflow", () => {
     const upload = workflowStep(workflow, "Upload visual failure evidence");
     expect(upload).toContain("if: failure()");
     expect(upload).toContain("name: authenticated-visual-results");
-    expect(upload).toContain("path: dashboard/test-results/visual/**");
+    expect(upload).toContain("dashboard/test-results/visual/**");
+    expect(upload).toContain(
+      "!dashboard/test-results/visual/**/trace.zip",
+    );
     expect(upload).not.toContain("test-results/visual-auth");
   });
 

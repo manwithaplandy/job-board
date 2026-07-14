@@ -80,19 +80,46 @@ describe("fresh visual authentication setup", () => {
     expect(spec).not.toContain("VISUAL_AUTH_STATE_JSON");
     expect(spec).not.toContain("VISUAL_ONBOARDING_AUTH_STATE_JSON");
     expect(pkg.scripts["test:visual"]).toBe(
-      "PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test",
+      "VISUAL_DISABLE_TRACE=1 PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test",
     );
     expect(pkg.scripts["test:visual:auth-setup"]).toBe(
       "PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test --project=auth-setup",
     );
     expect(pkg.scripts["test:visual:authenticated"]).toBe(
-      "playwright test --project=visual --no-deps",
+      "VISUAL_DISABLE_TRACE=1 playwright test --project=visual --no-deps",
     );
     expect(pkg.scripts["test:visual:public"]).toBe(
       "VISUAL_SCOPE=public playwright test --project=visual --no-deps",
     );
     expect(pkg.scripts["test:visual:update"]).toBe(
       "VISUAL_SCOPE=public playwright test --project=visual --no-deps --update-snapshots",
+    );
+  });
+
+  test("disables traces for credential-bearing runs but retains public failure traces", () => {
+    const config = read("playwright.config.ts");
+    const pkg = JSON.parse(read("package.json")) as {
+      scripts: Record<string, string>;
+    };
+
+    expect(config).toContain(
+      'const disableTrace = process.env.VISUAL_DISABLE_TRACE === "1"',
+    );
+    expect(config).toMatch(
+      /name: "visual",[\s\S]*use:\s*\{\s*trace: disableTrace \? "off" : "retain-on-failure"\s*\}/,
+    );
+    expect(config).toMatch(
+      /name: "auth-setup",[\s\S]*trace: "off",[\s\S]*screenshot: "off",[\s\S]*video: "off"/,
+    );
+    expect(pkg.scripts["test:visual"]).toContain("VISUAL_DISABLE_TRACE=1");
+    expect(pkg.scripts["test:visual:authenticated"]).toContain(
+      "VISUAL_DISABLE_TRACE=1",
+    );
+    expect(pkg.scripts["test:visual:public"]).not.toContain(
+      "VISUAL_DISABLE_TRACE",
+    );
+    expect(pkg.scripts["test:visual:update"]).not.toContain(
+      "VISUAL_DISABLE_TRACE",
     );
   });
 });

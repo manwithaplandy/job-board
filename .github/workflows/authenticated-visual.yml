@@ -64,7 +64,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: authenticated-visual-results
-          path: dashboard/test-results/visual/**
+          path: |
+            dashboard/test-results/visual/**
+            !dashboard/test-results/visual/**/trace.zip
           if-no-files-found: ignore
           retention-days: 7
       - name: Remove authenticated state

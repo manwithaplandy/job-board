@@ -32,7 +32,7 @@ The deployment workflow:
 9. Verifies the profile-less account lands on `/onboarding`.
 10. Writes both storage states under ignored, ephemeral `test-results/visual-auth/` paths.
 11. Runs the full authenticated route/theme/viewport matrix using those files.
-12. Uploads traces, diffs, and missing-snapshot actual images on failure, but never uploads storage-state files.
+12. Uploads diffs and missing-snapshot actual images on failure, but never uploads traces or storage-state files.
 13. Deletes the temporary states in an `always()` cleanup step.
 
 ## Playwright structure
@@ -54,7 +54,7 @@ Credentials remain environment variables; generated state files remain ignored a
 
 ## Initial authenticated baselines
 
-The workflow never updates committed screenshots automatically. On the first credential-backed run, missing authenticated baselines will fail and the workflow will upload only the generated actual PNGs, traces, and diff artifacts. Those images are downloaded, inspected, copied into `tests/visual/__screenshots__`, and committed through the normal adversarial review loop. Subsequent runs compare against those reviewed baselines.
+The workflow never updates committed screenshots automatically. On the first credential-backed run, missing authenticated baselines will fail and the workflow will upload only the generated actual PNGs and diff artifacts. Those images are downloaded, inspected, copied into `tests/visual/__screenshots__`, and committed through the normal adversarial review loop. Subsequent runs compare against those reviewed baselines.
 
 ## Security boundaries
 
@@ -68,6 +68,10 @@ The workflow never updates committed screenshots automatically. On the first cre
   userinfo, and non-default ports before credential use or dependency/browser installation.
 - Credential presence is checked before installation using boolean secret expressions;
   raw secret values remain scoped only to the authentication setup step.
+- Playwright tracing is disabled for authentication setup, authenticated comparison, and
+  the aggregate credential-bearing command because traces can contain session material.
+  Public-only comparisons retain failure traces. The authenticated artifact glob also
+  excludes every `trace.zip` as defense in depth.
 - Workflow logs must not echo environment values, form values, cookies, or storage-state contents.
 - Storage-state paths are excluded from artifacts and removed even after failure.
 - Fork or otherwise untrusted deployments do not receive the protected environment and cannot silently downgrade authenticated coverage.
@@ -79,7 +83,8 @@ The workflow never updates committed screenshots automatically. On the first cre
 - Established user redirected to onboarding: fail setup as incorrect fixture identity.
 - Onboarding user redirected to the board: fail setup as incorrect fixture identity.
 - Deployment URL missing, non-HTTPS, or not an approved Vercel host: fail before authentication.
-- Missing baseline or visual mismatch: retain Playwright traces/diffs/actual PNGs, excluding auth state.
+- Missing baseline or visual mismatch: retain diffs and actual PNGs only; authenticated
+  traces and auth state are neither retained nor uploaded.
 - Cleanup runs with `always()` and treats state deletion as mandatory.
 
 ## Testing

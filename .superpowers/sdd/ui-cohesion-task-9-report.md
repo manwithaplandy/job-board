@@ -134,6 +134,10 @@
   cannot rerun authentication. Failure uploads are limited to
   `dashboard/test-results/visual/**`; cleanup always removes the established and onboarding
   state JSON files.
+- Disabled Playwright tracing for authentication setup, authenticated comparison, and the
+  aggregate credential-bearing command while preserving public failure traces. The
+  authenticated artifact glob explicitly excludes every `trace.zip` as defense in depth,
+  preventing retained session material from entering CI artifacts.
 - Documented local credential-backed execution and the initial missing-baseline review
   process. The workflow never updates snapshots; authenticated PNGs remain manual review
   artifacts before they are committed.

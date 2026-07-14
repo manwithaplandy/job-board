@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.VISUAL_BASE_URL ?? "http://127.0.0.1:3100";
 const publicOnly = process.env.VISUAL_SCOPE === "public";
+const disableTrace = process.env.VISUAL_DISABLE_TRACE === "1";
 export default defineConfig({
   testDir: "./tests/visual",
   fullyParallel: false,
@@ -33,6 +34,7 @@ export default defineConfig({
       testMatch: /\.spec\.ts/,
       testIgnore: /auth\.setup\.ts/,
       dependencies: publicOnly ? [] : ["auth-setup"],
+      use: { trace: disableTrace ? "off" : "retain-on-failure" },
     },
   ],
   webServer: process.env.VISUAL_BASE_URL ? undefined : {

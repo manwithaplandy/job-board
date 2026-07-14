@@ -73,13 +73,16 @@ non-default ports before any installation, and uses the protected GitHub Environ
 `VISUAL_ONBOARDING_EMAIL`, and `VISUAL_ONBOARDING_PASSWORD`; a boolean-only presence
 preflight runs before installation, while raw credentials are exposed only to the
 authentication setup step. The comparison step receives only the deployment URL, and an
-`always()` cleanup removes both generated state files. Do not restore the obsolete
-storage-state JSON secrets.
+`always()` cleanup removes both generated state files. Authentication setup, authenticated
+comparison, and the aggregate credential-bearing command disable Playwright tracing so
+session material cannot enter `trace.zip`; public-only comparisons still retain failure
+traces. The authenticated failure artifact explicitly excludes every `trace.zip` as a
+second boundary. Do not restore the obsolete storage-state JSON secrets.
 
 The first authenticated run is expected to fail when reviewed baselines do not yet exist.
 Download the `authenticated-visual-results` failure artifact, confirm it contains only files
-from `dashboard/test-results/visual/` and no auth JSON, inspect every actual PNG at both
-viewports and themes, and copy only approved images into
+from `dashboard/test-results/visual/` with no auth JSON or `trace.zip`, inspect every actual
+PNG at both viewports and themes, and copy only approved images into
 `tests/visual/__screenshots__`. Commit those reviewed baselines normally and rerun the
 deployment workflow. CI never updates snapshots automatically.
 

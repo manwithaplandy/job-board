@@ -365,6 +365,7 @@ export function ApplicationPanel({
         {/* Idle (authed) */}
         {isAuthed && coverIdle && (
           <div
+            className="rf-generation-panel__row"
             style={{
               display: "flex",
               alignItems: "center",
@@ -400,6 +401,7 @@ export function ApplicationPanel({
         {/* Anon: sign-in nudge */}
         {!isAuthed && coverIdle && (
           <div
+            className="rf-generation-panel__row"
             style={{
               display: "flex",
               alignItems: "center",
@@ -573,7 +575,7 @@ export function ApplicationPanel({
                 </div>
               </div>
             )}
-            <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
+            <div className="rf-generation-actions" style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
               {/* One-off small accent glow (unique geometry 0 3px 10px .26; no shared token —
                   --shadow-accent/-sm differ in geometry). Reads bright-blue on dark; a
                   dark-mode softening is deferred to the later visual pass. */}
@@ -619,6 +621,7 @@ export function ApplicationPanel({
         {/* Error */}
         {coverError_ && (
           <div
+            className="rf-generation-panel__row"
             style={{
               display: "flex",
               alignItems: "center",

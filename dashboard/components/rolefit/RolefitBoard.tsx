@@ -1202,6 +1202,7 @@ export function RolefitBoard({
   return (
     <div
       className="app-shell app-shell--board"
+      data-ui-contract-geometry="board viewport shell geometry"
       style={{
         height: isNarrow ? undefined : "100vh",
         display: "flex",
@@ -1358,6 +1359,7 @@ export function RolefitBoard({
               </>
             ) : (
               <div
+                data-ui-contract-geometry="empty detail centering geometry"
                 style={{
                   height: "100%",
                   display: "flex",
@@ -1380,6 +1382,7 @@ export function RolefitBoard({
           is not reliably announced. Only the inner pill toggles. The outer wrapper collapses
           to 0×0 when all are empty, so it never intercepts pointer events. */}
       <div
+        data-ui-contract-geometry="fixed live-region stack geometry"
         style={{
           position: "fixed",
           bottom: "24px",
@@ -1394,6 +1397,7 @@ export function RolefitBoard({
         <div role="status">
           {toast ? (
             <div
+              data-ui-contract-geometry="transient toast pill geometry"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1412,6 +1416,7 @@ export function RolefitBoard({
               <button
                 type="button"
                 className="rf-toast-action rf-focusable"
+                data-ui-contract-geometry="toast text action reset"
                 onClick={handleUndo}
                 style={{
                   fontWeight: 800,
@@ -1440,6 +1445,7 @@ export function RolefitBoard({
         <div role="alert">
           {actionError ? (
             <div
+              data-ui-contract-geometry="transient error pill geometry"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1460,6 +1466,7 @@ export function RolefitBoard({
               <button
                 type="button"
                 className="rf-toast-action rf-focusable"
+                data-ui-contract-geometry="toast text action reset"
                 onClick={() => setActionError(null)}
                 style={{
                   fontWeight: 800,

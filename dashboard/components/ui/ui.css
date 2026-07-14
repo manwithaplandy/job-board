@@ -1,4 +1,5 @@
 .rf-button {
+  min-width: var(--target-size);
   min-height: var(--target-size);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
@@ -198,6 +199,13 @@
 }
 .rf-visual-state { display: grid; gap: var(--space-6); }
 .rf-visual-state__surface { min-height: 280px; display: grid; align-content: center; gap: var(--space-5); }
+.rf-visual-production-board { min-height: 520px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); box-shadow: var(--shadow-card); }
+.rf-visual-board-composition { display: grid; grid-template-columns: minmax(280px, 0.42fr) minmax(0, 1fr); }
+.rf-visual-board-composition > .rf-board-list-pane { padding: var(--space-3); border-right: 1px solid var(--border); background: var(--bg-muted); }
+@media (max-width: 760px) {
+  .rf-visual-board-composition { grid-template-columns: 1fr; }
+  .rf-visual-board-composition > .rf-board-list-pane { border-right: 0; border-bottom: 1px solid var(--border); }
+}
 .rf-visual-state__surface h2, .rf-visual-state__surface p { margin: 0; }
 .rf-visual-bars { height: 240px; display: flex; align-items: end; gap: var(--space-4); padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-muted); }
 .rf-visual-bars > span { flex: 1; min-width: 0; border-radius: var(--radius-control) var(--radius-control) 0 0; background: var(--chart-stage); }

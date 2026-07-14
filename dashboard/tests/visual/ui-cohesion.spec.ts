@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { VISUAL_ROUTES } from "./routes";
 
-const AUTH_AVAILABLE = Boolean(process.env.VISUAL_AUTH_STATE_JSON);
+const NORMAL_AUTH_STATE = process.env.VISUAL_AUTH_STATE_JSON ? JSON.parse(process.env.VISUAL_AUTH_STATE_JSON) : undefined;
+const ONBOARDING_AUTH_STATE = process.env.VISUAL_ONBOARDING_AUTH_STATE_JSON ? JSON.parse(process.env.VISUAL_ONBOARDING_AUTH_STATE_JSON) : undefined;
 const PUBLIC_ONLY = process.env.VISUAL_SCOPE === "public";
 const THEMES = ["light", "dark"] as const;
 const VIEWPORTS = [
@@ -55,19 +56,22 @@ for (const viewport of VIEWPORTS) {
     test.describe(`${viewport.id} ${theme}`, () => {
       test.use({ viewport: { width: viewport.width, height: viewport.height }, colorScheme: theme });
       for (const route of VISUAL_ROUTES) {
-        test(`${route.id}`, async ({ page }) => {
-          if (!PUBLIC_ONLY && !AUTH_AVAILABLE) throw new Error("Full visual coverage requires VISUAL_AUTH_STATE_JSON. Use npm run test:visual:public only for the explicit public CI subset.");
-          test.skip(route.access === "authenticated" && PUBLIC_ONLY, "Explicit public-only screenshot subset.");
-          await page.addInitScript((selectedTheme) => {
-            localStorage.setItem("rolefit-theme", selectedTheme);
-            document.documentElement.dataset.theme = selectedTheme;
-          }, theme);
-          await page.goto(route.path, { waitUntil: "networkidle" });
-          await expect(page.locator("body")).toBeVisible();
-          const runtime = await assertRuntimeContracts(page);
-          if (route.shell === "app" || route.shell === "board") expect(runtime.shellCount, `${route.id} authenticated shell`).toBe(1);
-          if (route.shell === "entry") expect(await page.locator(".rf-entry-shell").count(), `${route.id} entry shell`).toBe(1);
-          await expect(page).toHaveScreenshot(`${route.id}-${viewport.id}-${theme}.png`, { fullPage: true });
+        test.describe(route.id, () => {
+          test.use({ storageState: route.access === "authenticated" ? (route.authState === "onboarding" ? ONBOARDING_AUTH_STATE : NORMAL_AUTH_STATE) : undefined });
+          test(`${route.id}`, async ({ page }) => {
+            if (!PUBLIC_ONLY && (!NORMAL_AUTH_STATE || !ONBOARDING_AUTH_STATE)) throw new Error("Full visual coverage requires both VISUAL_AUTH_STATE_JSON and VISUAL_ONBOARDING_AUTH_STATE_JSON. Use npm run test:visual:public only for the explicit public CI subset.");
+            test.skip(route.access === "authenticated" && PUBLIC_ONLY, "Explicit public-only screenshot subset.");
+            await page.addInitScript((selectedTheme) => {
+              localStorage.setItem("rolefit-theme", selectedTheme);
+              document.documentElement.dataset.theme = selectedTheme;
+            }, theme);
+            await page.goto(route.path, { waitUntil: "networkidle" });
+            await expect(page.locator("body")).toBeVisible();
+            const runtime = await assertRuntimeContracts(page);
+            if (route.shell === "app" || route.shell === "board") expect(runtime.shellCount, `${route.id} authenticated shell`).toBe(1);
+            if (route.shell === "entry") expect(await page.locator(".rf-entry-shell").count(), `${route.id} entry shell`).toBe(1);
+            await expect(page).toHaveScreenshot(`${route.id}-${viewport.id}-${theme}.png`, { fullPage: true });
+          });
         });
       }
     });

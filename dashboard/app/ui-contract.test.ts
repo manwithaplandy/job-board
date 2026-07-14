@@ -24,6 +24,22 @@ describe("cohesive interface source contracts", () => {
     expect(auditSource("components/new-widget.css", `.cta:hover { height: 30px; color: blue } .container { min-width: 600px }`, false).map((v) => v.code)).toEqual(expect.arrayContaining(["raw-theme-value", "undersized-target", "overflow-risk"]));
   });
 
+  test("rejects raw-control and class-prefix bypass forms", () => {
+    const fieldButton = auditSource("components/NewWidget.tsx", `export const X=()=> <Field id="x"><button>Bypass</button></Field>`, false);
+    const prefixedClass = auditSource("components/NewWidget.tsx", `export const X=()=> <button className="rf-control-bypass">Bypass</button>`, false);
+    expect(fieldButton.map((violation) => violation.code)).toContain("raw-control");
+    expect(prefixedClass.map((violation) => violation.code)).toContain("raw-control");
+  });
+
+  test("rejects base-selector and calculated-geometry bypass forms", () => {
+    const baseSelector = auditSource("components/new-widget.css", `.cta { height: 30px; }`, false);
+    const calculatedGeometry = auditSource("components/NewWidget.tsx", `export const X=()=> <div style={{ width: "calc(100% + 40px)" }}>x</div>`, false);
+    expect(baseSelector.map((violation) => violation.code)).toContain("undersized-target");
+    expect(calculatedGeometry.map((violation) => violation.code)).toContain("inline-geometry");
+    const boardMutation = auditSource("components/rolefit/RolefitBoard.tsx", `export function RolefitBoard(){return <div style={{ width: "calc(100% + 40px)" }}>unsafe</div>}`, false);
+    expect(boardMutation.map((violation) => violation.code)).toContain("inline-geometry");
+  });
+
   test("production UI satisfies every source contract", () => {
     expect(auditProductionUi()).toEqual([]);
   });

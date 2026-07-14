@@ -11,6 +11,7 @@ export interface VisualRoute {
   shell: VisualShell;
   source?: string;
   fixtureFor?: VisualFamily;
+  authState?: "normal" | "onboarding";
 }
 
 const fixture = (family: VisualFamily, state: string): VisualRoute => ({
@@ -24,6 +25,7 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   { id: "login-error", path: "/login?error=Something%20went%20wrong.%20Please%20try%20again.", access: "public", family: "entry", state: "error", shell: "entry", source: "app/login/page.tsx" },
   { id: "signup-default", path: "/signup", access: "public", family: "entry", state: "default", shell: "entry", source: "app/signup/page.tsx" },
   { id: "reset-password", path: "/reset-password", access: "public", family: "entry", state: "reset", shell: "entry", source: "app/reset-password/page.tsx" },
+  { id: "reset-password-update", path: "/reset-password/update", access: "authenticated", family: "entry", state: "update", shell: "entry", source: "app/reset-password/update/page.tsx", authState: "normal" },
   { id: "privacy", path: "/privacy", access: "public", family: "legal", state: "default", shell: "none", source: "app/privacy/page.tsx" },
   { id: "terms", path: "/terms", access: "public", family: "legal", state: "default", shell: "none", source: "app/terms/page.tsx" },
   { id: "primitive-and-state-gallery", path: "/ui-gallery", access: "public", family: "system-states", state: "interaction-contracts", shell: "none", source: "app/ui-gallery/page.tsx" },
@@ -40,7 +42,7 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   { id: "profile-account", path: "/profile/account", access: "authenticated", family: "profile", state: "account", shell: "app", source: "app/profile/layout.tsx" },
   { id: "admin-tenants", path: "/admin/tenants", access: "authenticated", family: "admin", state: "default", shell: "app", source: "app/admin/tenants/page.tsx" },
   { id: "admin-invites", path: "/admin/invites", access: "authenticated", family: "admin", state: "invites", shell: "app", source: "app/admin/invites/page.tsx" },
-  { id: "onboarding", path: "/onboarding", access: "authenticated", family: "onboarding", state: "default", shell: "entry", source: "app/onboarding/page.tsx" },
+  { id: "onboarding", path: "/onboarding", access: "authenticated", family: "onboarding", state: "default", shell: "entry", source: "app/onboarding/page.tsx", authState: "onboarding" },
   ...["selected", "filter-empty", "rejected", "applied", "loading", "error-retry", "generation", "application-package"].map((state) => fixture("board", state)),
   fixture("companies", "empty"), fixture("analytics", "data-viz"), fixture("billing", "current"),
   fixture("profile", "error"), fixture("profile", "disabled"), fixture("profile", "destructive"),

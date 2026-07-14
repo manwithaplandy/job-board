@@ -1,10 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.VISUAL_BASE_URL ?? "http://127.0.0.1:3100";
-const authState = process.env.VISUAL_AUTH_STATE_JSON
-  ? JSON.parse(process.env.VISUAL_AUTH_STATE_JSON)
-  : undefined;
-
 export default defineConfig({
   testDir: "./tests/visual",
   fullyParallel: false,
@@ -18,7 +14,6 @@ export default defineConfig({
   use: {
     ...devices["Desktop Chrome"],
     baseURL,
-    storageState: authState,
     colorScheme: "light",
     trace: "retain-on-failure",
   },

@@ -53,6 +53,22 @@ describe("board workspace design contract", () => {
     expect(css).toMatch(/@media\s*\(max-width:\s*520px\)[\s\S]*\.rf-resume-score-row[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(44px,\s*1fr\)\)/s);
   });
 
+  test("stacks production generation headers and artifact actions at phone widths", () => {
+    const css = read("./board.css");
+    const instructions = read("./GenerationInstructions.tsx");
+    const resume = read("./ResumePanel.tsx");
+    const application = read("./ApplicationPanel.tsx");
+
+    expect(instructions).toContain('className="rf-generation-instructions"');
+    expect(resume).toContain('className="rf-generation-panel__row"');
+    expect(application).toContain('className="rf-generation-panel__row"');
+    expect(application.match(/className="rf-generation-actions"/g)?.length).toBeGreaterThanOrEqual(1);
+    expect(css).toMatch(/@media\s*\(max-width:\s*520px\)[\s\S]*\.rf-generation-panel__row\s*\{[^}]*flex-direction:\s*column[^}]*align-items:\s*stretch/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*520px\)[\s\S]*\.rf-generation-actions\s*\{[^}]*flex-direction:\s*column[^}]*align-items:\s*stretch/s);
+    expect(css).toMatch(/\.rf-generation-actions\s*>\s*\.rf-button[^}]*width:\s*100%/s);
+    expect(css).toMatch(/\.rf-generation-instructions\s*>\s*\.rf-button[^}]*width:\s*100%/s);
+  });
+
   test("mobile popups use explicit containment anchors and 44px options", () => {
     const source = read("./FilterBar.tsx");
     const css = read("./board.css");

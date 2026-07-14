@@ -65,6 +65,14 @@ describe("accessibility and responsive acceptance contracts", () => {
     expect(upsell).toContain("<Button");
   });
 
+  test("keeps short themed board actions at least 44px on both axes", () => {
+    const css = read("components/ui/ui.css");
+    const detail = read("components/rolefit/JobDetail.tsx");
+
+    expect(detail).toMatch(/variant="ghost"[\s\S]*?>\s*Undo\s*<\/Button>/);
+    expect(css).toMatch(/\.rf-button\s*\{[^}]*min-width:\s*var\(--target-size\)[^}]*min-height:\s*var\(--target-size\)/s);
+  });
+
   test("keeps shared page, state, and navigation content shrinkable instead of creating route overflow", () => {
     const css = read("components/ui/ui.css");
 

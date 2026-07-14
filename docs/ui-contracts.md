@@ -32,8 +32,11 @@ Playwright's canonical inventory is `tests/visual/routes.ts`; the spec runs ever
 at 1440x1000 and 390x844 in light and dark. Auth-independent fixture routes provide
 deterministic coverage for selected, filtered-empty, rejected, applied, loading,
 error/retry, generation, application-package, empty, data-visualization, disabled, focus,
-and destructive states. These fixtures complement rather than replace real authenticated
-route screenshots. Before every comparison the spec checks document overflow,
+and destructive states. Board stories render the production `JobDetail`/`JobList`
+components with representative typed data, and analytics uses the production chart
+component, so production-surface changes affect their baselines. These stories complement
+rather than replace real authenticated route screenshots. A filesystem contract requires
+every real page (including `/reset-password/update`) in the manifest. Before every comparison the spec checks document overflow,
 browser-default styling, both dimensions of the 44px target, shell count, and exact SVG
 provenance. Committed comparisons use a 0.5% maximum differing-pixel ratio and a 0.2
 per-pixel threshold; dynamic regions must use an explicit, reviewed mask instead of a
@@ -45,16 +48,20 @@ Commands:
 ```bash
 npm run test:visual:public       # committed, always-on public CI subset
 npm run test:visual:update       # intentionally refresh public baselines after review
-VISUAL_AUTH_STATE_JSON="$(cat /secure/storage-state.json)" npm run test:visual
+VISUAL_AUTH_STATE_JSON="$(cat /secure/established-user.json)" \
+VISUAL_ONBOARDING_AUTH_STATE_JSON="$(cat /secure/profile-less-user.json)" \
+npm run test:visual
 ```
 
-`VISUAL_AUTH_STATE_JSON` is Playwright storage-state JSON and must never be committed.
-The full command fails explicitly when state is missing; authenticated coverage is never
-silently skipped. CI is fail-closed: it unconditionally validates the repository secret,
+Both variables are Playwright storage-state JSON and must never be committed. The normal
+state belongs to an established user who can render board/profile routes; the onboarding
+state belongs to a profile-less user who can render `/onboarding` without redirecting.
+The full command fails explicitly when either state is missing; authenticated coverage is never
+silently skipped. CI is fail-closed: it unconditionally validates both repository secrets,
 runs the public/deterministic gate, and then runs the complete authenticated matrix. A
-missing or malformed `VISUAL_AUTH_STATE_JSON` therefore fails the dashboard job instead
-of downgrading coverage. Until that secret and real authenticated baselines exist, this
-phase remains externally blocked even when the deterministic 96-screenshot gate passes.
+missing or malformed state therefore fails the dashboard job instead
+of downgrading coverage. Until both secrets and real authenticated baselines exist, this
+phase remains externally blocked even when the auth-independent gate passes.
 
 Baseline changes are review artifacts: update only after intentional UI changes, inspect
 every changed PNG, and commit the PNGs with the implementation. Never use

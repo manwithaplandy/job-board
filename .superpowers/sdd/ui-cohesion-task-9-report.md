@@ -67,7 +67,46 @@
 
 ## Controller/reviewer gate still required
 
+## Second adversarial remediation
+
+- Added permanent adversarial probes for a raw button inside `Field`, an
+  `rf-control-bypass` lookalike class, a 30px base `.cta`, static `calc()` overflow, and
+  a new `RolefitBoard` geometry mutation. Exact class tokens, tag-specific Field handling,
+  action-class CSS recognition, static CSS-expression parsing, and exact-node board
+  geometry annotations now reject all five while the production scan remains clean.
+- Replaced the eight generic board-state branches with deterministic stories around the
+  production `JobDetail` and `JobList` components using representative typed job,
+  résumé, cover-letter, and application-package data. The analytics story now uses the
+  production `HBarCard`; generic gallery primitives remain supplemental.
+- Selected and rejected stories render the production two-pane composition: `JobList`
+  supplies the real selected `JobCard`, while the adjacent `JobDetail` supplies the real
+  rejected status/actions. A structural contract locks the selected id and rejected view
+  wiring rather than accepting a gallery approximation.
+- Runtime review of the production-backed applied story exposed a short Undo action below
+  the two-axis 44px target. The production `Button` contract guaranteed only minimum
+  height; the applied chip's intentional zero inline padding exposed the missing width.
+  Shared `.rf-button` now guarantees both minimum width and height, with a focused test
+  tied to the real `JobDetail` Undo action. No fixture-only override was introduced.
+- Manual mobile review then exposed two production flex-shrink failures: generation
+  instructions could collapse into a word column beside a fixed CTA, and artifact action
+  labels could shrink into several cramped lines. Production Resume/Application state
+  headers now use a shared responsive row class; generation instructions and artifact
+  actions stack and stretch below 520px, with full-width non-shrinking themed actions that
+  retain 44px targets. A focused structural/style contract covers the actual components.
+- Adversarial runtime review found the deterministic generation story supplied `loading`,
+  while production `ResumePanel` recognizes `busy`. The story now supplies the real state;
+  a rendered test requires the production “Tailoring…” copy, responsive busy row, and
+  Cancel action, while a structural guard rejects a return to the unsupported key.
+- Added `/reset-password/update` and a filesystem-to-manifest completeness contract.
+- Split authenticated execution into established-user `VISUAL_AUTH_STATE_JSON` and
+  profile-less-user `VISUAL_ONBOARDING_AUTH_STATE_JSON`. Each route selects its declared
+  state; CI validates and requires both before its unconditional full matrix.
+- Focused scanner/route contracts and typecheck pass. Updated production-component PNGs
+  still require regeneration and inspection: the browser command was rejected by the
+  execution platform's usage-limit gate, so no stale baseline is being presented as
+  current evidence.
+
 - Real authenticated Playwright baselines were not generated because no exportable
-  Playwright storage state was available to this implementer. The controller owns the
+  Playwright storage states were available to this implementer. The controller owns the
   live authenticated browser matrix and independent adversarial review; this report
   does not claim the final Phase 9/definition-of-done gate has passed.

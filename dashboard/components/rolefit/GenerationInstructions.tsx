@@ -54,7 +54,7 @@ export function GenerationInstructions({
   };
 
   return (
-    <div style={{ marginTop: "10px" }}>
+    <div className="rf-generation-instructions" style={{ marginTop: "10px" }}>
       <Button
         type="button"
         variant="outline"

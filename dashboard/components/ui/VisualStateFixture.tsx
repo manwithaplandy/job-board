@@ -2,8 +2,10 @@ import { Button } from "./Button";
 import { TextField } from "./FormControls";
 import { PageHeader } from "./Navigation";
 import { Badge, Card } from "./Panel";
-import { Alert, EmptyState, ErrorState, LoadingState } from "./SystemStates";
+import { Alert, EmptyState, ErrorState } from "./SystemStates";
 import { Icon } from "./Icon";
+import { VisualBoardState, type VisualBoardStateName } from "@/components/rolefit/VisualBoardState";
+import { HBarCard } from "@/components/analytics/Chart";
 
 const COPY: Record<string, { eyebrow: string; title: string; description: string }> = {
   "board-selected": { eyebrow: "Board · selected", title: "Senior Product Engineer", description: "Acme Systems · Remote · Selected job detail" },
@@ -28,17 +30,18 @@ const COPY: Record<string, { eyebrow: string; title: string; description: string
 export function VisualStateFixture({ state }: { state: string }) {
   const copy = COPY[state];
   if (!copy) return <ErrorState title="Unknown visual state" description={state} />;
+  if (state.startsWith("board-")) {
+    return <main className="rf-gallery rf-visual-state" data-visual-state={state}><PageHeader eyebrow={copy.eyebrow} title={copy.title} description={copy.description} /><VisualBoardState state={state.slice("board-".length) as VisualBoardStateName} /></main>;
+  }
   const content = (() => {
-    if (state === "board-filter-empty" || state === "companies-empty" || state === "admin-empty") return <EmptyState title={copy.title} description={copy.description} action={<Button variant="outline">Clear filters</Button>} />;
-    if (state === "board-loading" || state === "board-generation") return <LoadingState label={copy.description} />;
-    if (state === "board-error-retry") return <ErrorState title={copy.title} description={copy.description} action={<Button>Retry</Button>} reference="Reference UI-409" />;
+    if (state === "companies-empty" || state === "admin-empty") return <EmptyState title={copy.title} description={copy.description} action={<Button variant="outline">Clear filters</Button>} />;
     if (state === "profile-error") return <><Alert tone="danger" title="1 field needs attention">Review the inline message below.</Alert><TextField id="fixture-email" label="Email" error="Enter a valid email address." defaultValue="invalid" /><Button>Save changes</Button></>;
     if (state === "profile-disabled") return <><TextField id="fixture-model" label="Reasoning level" value="High · Pro" disabled readOnly /><Button disabled>Save changes</Button></>;
     if (state === "profile-destructive" || state === "system-states-destructive") return <Alert tone="danger" title={copy.title} action={<Button variant="destructive">Delete permanently</Button>}>{copy.description}</Alert>;
-    if (state === "analytics-data-viz") return <div className="rf-visual-bars" data-ui-visual="data-viz" aria-label="Review throughput bar chart" role="img"><span /><span /><span /><span /><span /></div>;
+    if (state === "analytics-data-viz") return <HBarCard title="Review throughput" subtitle="Seven-day reviewed and approved volume" data={[{ label: "Mon", count: 18 }, { label: "Tue", count: 29 }, { label: "Wed", count: 24 }, { label: "Thu", count: 34 }, { label: "Fri", count: 31 }]} />;
     if (state === "billing-current") return <><div className="rf-gallery__row"><Badge tone="success">Current plan</Badge><Badge>Renews monthly</Badge></div><Button variant="outline">Manage billing</Button></>;
     if (state === "system-states-focus") return <div className="rf-gallery__row"><Button className="rf-visual-force-focus">Focused</Button><Button variant="outline" aria-pressed="true">Selected</Button><Button disabled>Disabled</Button></div>;
-    return <><div className="rf-gallery__row"><Badge tone={state === "board-rejected" ? "danger" : "success"}>{state === "board-rejected" ? "Rejected" : state === "board-applied" ? "Applied" : "Ready"}</Badge><Badge tone="accent">92% fit</Badge></div><Card padding="lg"><h2>{copy.title}</h2><p>{copy.description}</p><div className="rf-gallery__row"><Button><Icon name="sparkle" size={18} />{state === "board-application-package" ? "Review package" : "Primary action"}</Button><Button variant="outline">Secondary action</Button></div></Card></>;
+    return <><div className="rf-gallery__row"><Badge tone="success">Ready</Badge><Badge tone="accent">92% fit</Badge></div><Card padding="lg"><h2>{copy.title}</h2><p>{copy.description}</p><div className="rf-gallery__row"><Button><Icon name="sparkle" size={18} />Primary action</Button><Button variant="outline">Secondary action</Button></div></Card></>;
   })();
   return <main className="rf-gallery rf-visual-state" data-visual-state={state}><PageHeader eyebrow={copy.eyebrow} title={copy.title} description={copy.description} /><Card className="rf-visual-state__surface" padding="lg">{content}</Card></main>;
 }

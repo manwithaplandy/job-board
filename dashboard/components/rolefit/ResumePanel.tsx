@@ -94,6 +94,7 @@ export function ResumePanel({
       {/* ── Anon: sign-in prompt ── */}
       {isAuthed === false && isIdle && (
         <div
+          className="rf-generation-panel__row"
           style={{
             display: "flex",
             alignItems: "center",
@@ -145,6 +146,7 @@ export function ResumePanel({
       {/* ── Idle (authed) ── */}
       {isAuthed !== false && isIdle && (
         <div
+          className="rf-generation-panel__row"
           style={{
             display: "flex",
             alignItems: "center",
@@ -199,6 +201,7 @@ export function ResumePanel({
       {/* ── Busy ── */}
       {isBusy && (
         <div
+          className="rf-generation-panel__row"
           style={{
             display: "flex",
             alignItems: "center",
@@ -363,6 +366,7 @@ export function ResumePanel({
       {/* ── Error ── */}
       {isError && (
         <div
+          className="rf-generation-panel__row"
           style={{
             display: "flex",
             alignItems: "center",

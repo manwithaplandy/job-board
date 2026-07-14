@@ -43,4 +43,16 @@ describe("analytics compact surface fixes", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
+
+  test("an unfocused pointer activation stays open after the browser focus then click sequence", () => {
+    render(<InfoTip term="Open jobs" gloss="Jobs currently open.">Open jobs</InfoTip>);
+    const trigger = screen.getByRole("button", { name: "Open jobs. Jobs currently open." });
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.focus(trigger);
+    fireEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+  });
 });

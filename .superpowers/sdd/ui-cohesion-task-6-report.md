@@ -74,3 +74,46 @@ This worker has no browser backend. The controller/reviewer must deploy `304cbe3
 ## Concern
 
 Live light/dark desktop/mobile screenshots and interaction measurements remain controller-owned. Source contracts, focused/full tests, typecheck, lint, production build, and diff validation are green; an independent adversarial code-and-browser reviewer must clear the phase before Phase 7.
+
+---
+
+## Adversarial review fixes — billing identity, compact analytics cards, and InfoTip interaction
+
+The independent code reviewer held the phase at 0 Critical, 2 Important, and 1 Minor. This repair resolves all three findings without widening scope:
+
+- Every billing tier now keeps its stable `Standard` or `Pro` heading. `Current plan` is a separate success-status badge, so an active plan never loses its identity.
+- KPI tiles now render through the shared `Card` primitive and compact KPI classes. Chart shells now render through the same shared card primitive; legacy inline `CARD`, title, subtitle, and empty-state geometry constants were removed so the secondary compact stylesheet is authoritative.
+- The Analytics contract now includes `KpiStrip`, rejects legacy inline KPI/card geometry, and is backed by rendered structure tests that confirm five style-free shared KPI cards.
+- InfoTip retains hover/focus behavior and now exposes `aria-expanded`, closes on Escape, toggles on Enter/Space, supports same-focus reopening, and handles pointer activation.
+
+### Review-fix RED
+
+```text
+Test Files  3 failed (3)
+Tests       5 failed | 4 passed (9)
+```
+
+The failures covered both active billing tiers, absent shared KPI structure, incomplete tooltip keyboard state, and the insufficient Analytics source contract.
+
+### Review-fix GREEN and verification
+
+```text
+Test Files  7 passed (7)
+Tests       26 passed (26)
+```
+
+```text
+NODE_OPTIONS=--localstorage-file=/tmp/job-board-vitest-phase6-review npm test
+
+Test Files  172 passed | 2 skipped (174)
+Tests       1263 passed | 6 skipped (1269)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- Production build with the non-secret database placeholder and approved font network access: passed; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.
+
+The re-review also reproduced the browser event order for an unfocused pointer/touch activation: focus opened the tip and the subsequent click toggled it closed. A new rendered focus→click regression failed 1/3, then passed 3/3 after pointer activation was made idempotently open; Enter/Space remain the toggle controls and Escape remains the close control.
+
+The controller must deploy the review-fix commit and repeat the existing Phase 6 browser matrix before the independent reviewer clears the browser gate.

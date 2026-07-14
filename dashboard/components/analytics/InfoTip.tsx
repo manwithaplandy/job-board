@@ -63,7 +63,7 @@ export function InfoTip({
             setOpen((current) => !current);
           }
         }}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setOpen(true)}
         className="rf-info-tip__trigger rf-focusable"
         style={{
           borderBottom: "1px dotted var(--text-muted)",

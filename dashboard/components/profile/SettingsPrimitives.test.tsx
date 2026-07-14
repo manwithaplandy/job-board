@@ -240,7 +240,7 @@ describe("shared settings primitives", () => {
     expect(css).toMatch(/\.profile-detail \.rf-picker-(?:label|input|option)[^{]*\{[^}]*font-size:\s*var\(--font-size-body\)/s);
     expect(css).toMatch(/\.profile-detail \.rf-picker-(?:help|chip)[^{]*,[\s\S]*font-size:\s*var\(--font-size-help\)/s);
     expect(globalCss).toMatch(/\.rf-picker-clear\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s);
-    expect(css).toMatch(/\.profile-detail :is\(\.settings-help-text, \.resume-upload-filename, \.resume-upload-status\)[^{]*\{[^}]*font-size:\s*var\(--font-size-help\)/s);
+    expect(css).toMatch(/\.profile-detail \.resume-upload-filename,[\s\S]*\.settings-help-text\s*\{[^}]*font-size:\s*var\(--font-size-help\)/s);
     expect(css).not.toMatch(/^\.rf-picker-label, \.rf-picker-input/m);
     expect(css.indexOf(".profile-detail .rf-picker-label")).toBeLessThan(css.indexOf(".settings-nav"));
     expect(screen.getByRole("button", { name: "Save" }).classList).toContain("rf-button");

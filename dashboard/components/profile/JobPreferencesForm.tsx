@@ -62,12 +62,12 @@ export function JobPreferencesForm({
       onSaved={(values) => setPreview(previewFrom(values))}
       onReset={(values) => { setPreview(previewFrom(values)); setPickerKey((value) => value + 1); }}
     >
-      <section className="profile-form-section" aria-labelledby="preferred-locations-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="preferred-locations-heading">
         <h2 id="preferred-locations-heading">Where you want to work</h2>
         <PreferredLocationsField key={pickerKey} locations={locations} defaultValue={preview.locations} onChange={(next) => setPreview((current) => ({ ...current, locations: next }))} />
       </section>
 
-      <section className="profile-form-section" aria-labelledby="priorities-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="priorities-heading">
         <h2 id="priorities-heading">Priorities and deal-breakers</h2>
         <Field
           id="instructions"
@@ -79,7 +79,7 @@ export function JobPreferencesForm({
         </Field>
       </section>
 
-      <section className="profile-form-section" aria-labelledby="companies-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="companies-heading">
         <h2 id="companies-heading">Companies and industries</h2>
         <Field
           id="company_instructions"
@@ -91,7 +91,7 @@ export function JobPreferencesForm({
         </Field>
       </section>
 
-      <section className="profile-form-section profile-preview-card" aria-labelledby="rolefit-preview-heading">
+      <section className="rf-card rf-card--lg profile-form-section profile-preview-card" aria-labelledby="rolefit-preview-heading">
         <h2 id="rolefit-preview-heading">Rolefit will</h2>
         <p>Rolefit will use your locations and written guidance when reviewing jobs.</p>
         {preview.locations.length > 0 && (

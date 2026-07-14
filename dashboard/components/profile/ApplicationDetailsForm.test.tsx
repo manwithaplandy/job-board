@@ -46,6 +46,11 @@ describe("ApplicationDetailsForm", () => {
     const demographics = container.querySelector("details");
     expect(demographics).not.toBeNull();
     expect(demographics?.open).toBe(false);
+    const summary = demographics?.querySelector("summary");
+    expect(summary?.classList).toContain("rf-focusable");
+    expect(summary?.querySelector(".optional-disclosure__icon.rf-icon")).not.toBeNull();
+    demographics!.open = true;
+    expect(demographics?.open).toBe(true);
     expect(demographics?.textContent).toContain(
       "These answers are optional and are not used to rank jobs.",
     );

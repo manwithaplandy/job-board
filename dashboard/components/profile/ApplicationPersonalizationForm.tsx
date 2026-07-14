@@ -8,7 +8,7 @@ import { SectionFormShell } from "./SectionFormShell";
 export function ApplicationPersonalizationForm({ profile }: { profile: ProfileRow }) {
   return (
     <SectionFormShell action={saveApplicationPersonalization} submitLabel="Save writing preferences">
-      <section className="profile-form-section" aria-labelledby="writing-defaults-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="writing-defaults-heading">
         <h2 id="writing-defaults-heading">Writing defaults</h2>
         <p className="profile-section-intro">
           These defaults apply to every generated document. Per-job instructions layer on top.

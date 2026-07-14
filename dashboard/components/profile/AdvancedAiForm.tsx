@@ -33,7 +33,7 @@ export function AdvancedAiForm({
 }) {
   return (
     <SectionFormShell action={saveAdvancedAiSettings} submitLabel="Save AI settings">
-      <section className="profile-form-section" aria-labelledby="review-models-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="review-models-heading">
         <h2 id="review-models-heading">Job review</h2>
         <div className="rf-field settings-field profile-readonly-field">
           <p><strong>Stage 1 — title and company check</strong></p>
@@ -59,7 +59,7 @@ export function AdvancedAiForm({
         />
       </section>
 
-      <section className="profile-form-section" aria-labelledby="document-models-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="document-models-heading">
         <h2 id="document-models-heading">Application documents</h2>
         <ModelField label="Résumé model" name="model_resume" models={models}
           curated={CURATED_MODELS} defaultValue={profile.model_resume}

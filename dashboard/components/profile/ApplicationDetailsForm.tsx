@@ -1,6 +1,7 @@
 "use client";
 
 import { saveApplicationDetails } from "@/app/actions/profileSettings";
+import { Icon } from "@/components/ui/Icon";
 import type { SelectHTMLAttributes } from "react";
 import type { ProfileRow } from "@/lib/types";
 import { Field } from "./Field";
@@ -27,7 +28,7 @@ function TriStateSelect({ value, ...props }: TriStateSelectProps) {
 export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
   return (
     <SectionFormShell action={saveApplicationDetails} submitLabel="Save details">
-      <section className="profile-form-section" aria-labelledby="contact-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="contact-heading">
         <h2 id="contact-heading">Contact information</h2>
         <div className="field-grid">
           <Field id="full_name" name="full_name" label="Full name" required>
@@ -45,7 +46,7 @@ export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
         </div>
       </section>
 
-      <section className="profile-form-section" aria-labelledby="links-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="links-heading">
         <h2 id="links-heading">Links</h2>
         <div className="field-grid">
           <Field id="link_linkedin" name="link_linkedin" label="LinkedIn">
@@ -60,7 +61,7 @@ export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
         </div>
       </section>
 
-      <section className="profile-form-section" aria-labelledby="eligibility-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="eligibility-heading">
         <h2 id="eligibility-heading">Work eligibility</h2>
         <div className="field-grid">
           <Field id="work_authorized" name="work_authorized" label="Authorized to work?">
@@ -72,7 +73,7 @@ export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
         </div>
       </section>
 
-      <section className="profile-form-section" aria-labelledby="screening-heading">
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="screening-heading">
         <h2 id="screening-heading">Common screening answers</h2>
         <div className="field-grid">
           <Field id="screen_notice_period" name="screen_notice_period" label="Notice period">
@@ -87,8 +88,11 @@ export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
         </div>
       </section>
 
-      <details className="optional-disclosure profile-form-section">
-        <summary><h2>Voluntary demographic information</h2></summary>
+      <details className="optional-disclosure rf-card rf-card--lg profile-form-section">
+        <summary className="optional-disclosure__summary rf-focusable">
+          <h2>Voluntary demographic information</h2>
+          <Icon name="chevron-down" size={18} className="optional-disclosure__icon" />
+        </summary>
         <p>These answers are optional and are not used to rank jobs.</p>
         <div className="field-grid">
           <Field id="eeo_gender" name="eeo_gender" label="Gender">

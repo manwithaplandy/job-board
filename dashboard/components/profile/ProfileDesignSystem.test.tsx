@@ -111,11 +111,46 @@ describe("profile design-system convergence", () => {
 
   test("profile CSS defines token-based page rhythm and a single-column mobile contract", () => {
     const css = source("app/profile/profile-settings.css");
+    const uiCss = source("components/ui/ui.css");
     expect(css).toContain(".profile-page-stack");
     expect(css).toContain(".profile-form-section");
     expect(css).toContain(".profile-action-bar");
+    expect(css).not.toContain(".profile-detail :is(p, li, dt, dd, button, input, textarea, select)");
+    expect(css).toMatch(/\.profile-detail\s+:is\(input, textarea, select\)[^{]*\{[^}]*font-size:\s*var\(--font-size-body\)/s);
+    expect(css).toMatch(/\.settings-help-text[^}]*font-size:\s*var\(--font-size-help\)/s);
+    expect(uiCss).toMatch(/\.rf-button[^}]*font-size:\s*var\(--font-size-control\)/s);
+    expect(uiCss).toMatch(/\.rf-button--sm[^}]*font-size:\s*var\(--font-size-caption\)/s);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.settings-card-grid[^}]*grid-template-columns:\s*1fr/);
     expect(css).not.toMatch(/padding:\s*22px/);
     expect(css).not.toMatch(/border-radius:\s*16px/);
+  });
+
+  test("profile form surfaces inherit shared Card geometry rather than duplicating it", () => {
+    for (const file of [
+      "components/profile/AdvancedAiForm.tsx",
+      "components/profile/ApplicationDetailsForm.tsx",
+      "components/profile/ApplicationPersonalizationForm.tsx",
+      "components/profile/JobPreferencesForm.tsx",
+      "components/profile/ResumeSettingsForm.tsx",
+    ]) {
+      const contents = source(file);
+      for (const match of contents.matchAll(/className="([^"]*profile-form-section[^"]*)"/g)) {
+        expect(match[1], `${file}: ${match[1]}`).toContain("rf-card");
+        expect(match[1], `${file}: ${match[1]}`).toContain("rf-card--lg");
+      }
+    }
+    const css = source("app/profile/profile-settings.css");
+    const sectionRule = css.match(/\.profile-form-section\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(sectionRule).not.toMatch(/(?:padding|border|border-radius|background|box-shadow)\s*:/);
+  });
+
+  test("demographics disclosure uses the internal icon and shared focus contract", () => {
+    const component = source("components/profile/ApplicationDetailsForm.tsx");
+    const css = source("app/profile/profile-settings.css");
+    expect(component).toContain('className="optional-disclosure__summary rf-focusable"');
+    expect(component).toContain('<Icon name="chevron-down"');
+    expect(css).toMatch(/\.optional-disclosure__summary\s*\{[^}]*list-style:\s*none/s);
+    expect(css).toContain(".optional-disclosure__summary::-webkit-details-marker");
+    expect(css).toMatch(/\.optional-disclosure\[open\] \.optional-disclosure__icon[^}]*transform:\s*rotate\(180deg\)/s);
   });
 });

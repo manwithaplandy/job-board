@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { VISUAL_ROUTES } from "@/tests/visual/routes";
+import {
+  ESTABLISHED_STATE_PATH,
+  ONBOARDING_STATE_PATH,
+  VISUAL_AUTH_DIR,
+} from "@/tests/visual/auth";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
@@ -51,14 +56,28 @@ describe("visual regression route inventory", () => {
     expect(fixture).not.toContain('generating ? { [JOB.id]: "loading" }');
   });
 
-  test("requires distinct established-user and onboarding-user browser states", () => {
+  test("requires distinct disposable established-user and onboarding-user browser states", () => {
     const spec = readFileSync("tests/visual/ui-cohesion.spec.ts", "utf8");
-    const workflow = readFileSync("../.github/workflows/ci.yml", "utf8");
-    for (const variable of ["VISUAL_AUTH_STATE_JSON", "VISUAL_ONBOARDING_AUTH_STATE_JSON"]) {
-      expect(spec).toContain(variable);
-      expect(workflow).toContain(variable);
-    }
+    const authHelper = readFileSync("tests/visual/auth.ts", "utf8");
+    expect(ESTABLISHED_STATE_PATH).not.toBe(ONBOARDING_STATE_PATH);
+    expect(ESTABLISHED_STATE_PATH.startsWith(VISUAL_AUTH_DIR)).toBe(true);
+    expect(ONBOARDING_STATE_PATH.startsWith(VISUAL_AUTH_DIR)).toBe(true);
+    expect(authHelper).not.toContain("VISUAL_AUTH_STATE_JSON");
+    expect(authHelper).not.toContain("VISUAL_ONBOARDING_AUTH_STATE_JSON");
     expect(spec).toContain('route.authState === "onboarding"');
+  });
+
+  test("ignores generated visual authentication state", () => {
+    expect(readFileSync(".gitignore", "utf8")).toMatch(
+      /^test-results\/visual-auth\/$/m,
+    );
+  });
+
+  test("discovers visual contract tests without collecting Playwright files", () => {
+    const vitestConfig = readFileSync("vitest.config.ts", "utf8");
+    expect(vitestConfig).toContain('"tests/visual/**/*.test.ts"');
+    expect(vitestConfig).not.toContain('"tests/visual/**/*.spec.ts"');
+    expect(vitestConfig).not.toContain('"tests/visual/**/*.setup.ts"');
   });
 
   test("declares every real page route in the canonical visual inventory", () => {

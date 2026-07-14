@@ -6,5 +6,6 @@ next-env.d.ts
 .vercel
 playwright-report/
 test-results/
+test-results/visual-auth/
 # Local résumé-iteration fixtures (personal data — never commit)
 scripts/fixtures/

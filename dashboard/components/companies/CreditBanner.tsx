@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import type { DiscoveryStateRow } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 
 export function CreditBanner({
   state, refresh, canRefresh,
@@ -10,13 +11,9 @@ export function CreditBanner({
   const [pending, start] = useTransition();
   if (!state.halted_no_credits) return null;
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: "12px",
-      padding: "12px 16px", margin: "0 0 16px",
-      background: "var(--warning-bg)", border: "1px solid var(--warning-border)",
-      borderRadius: "12px", color: "var(--warning)", fontSize: "13px", fontWeight: 600,
-    }}>
-      <span>⚠️ Company scan paused — OpenRouter out of credits.
+    <div className="rf-credit-banner" role="status">
+      <Icon name="warning" size={18} />
+      <span>Company scan paused — OpenRouter out of credits.
         {state.backlog > 0 ? ` ${state.backlog.toLocaleString()} companies still pending.` : ""}
       </span>
       {/* Only admins may unhalt the SHARED discovery pipeline (the server action gates
@@ -26,10 +23,7 @@ export function CreditBanner({
           variant="primary"
           onClick={() => start(async () => { await refresh(); })}
           disabled={pending}
-          style={{
-            marginLeft: "auto", borderRadius: "9px", padding: "8px 14px",
-            fontSize: "12.5px", boxShadow: "none",
-          }}
+          size="sm"
         >
           {pending ? "Refreshing…" : "Refresh"}
         </Button>

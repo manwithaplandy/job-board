@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Plan } from "@/lib/entitlements";
+import { Button } from "@/components/ui/Button";
 
 // Client buttons for the billing page: POST to the checkout/portal routes and follow
 // the returned Stripe URL. Kept tiny — all pricing/copy lives in the server page.
@@ -15,18 +16,6 @@ async function go(url: string, body?: unknown): Promise<string> {
   if (!res.ok || !data.url) throw new Error(data.error || "Something went wrong. Please try again.");
   return data.url;
 }
-
-const btnStyle: React.CSSProperties = {
-  marginTop: "16px",
-  width: "100%",
-  border: "none",
-  borderRadius: "10px",
-  padding: "11px 14px",
-  fontSize: "13px",
-  fontWeight: 700,
-  cursor: "pointer",
-  fontFamily: "inherit",
-};
 
 export function SubscribeButton({ plan, current }: { plan: Plan; current: boolean }) {
   const [busy, setBusy] = useState(false);
@@ -43,21 +32,16 @@ export function SubscribeButton({ plan, current }: { plan: Plan; current: boolea
   };
   return (
     <>
-      <button
-        type="button"
+      <Button
+        variant={current ? "secondary" : "primary"}
         onClick={onClick}
         disabled={busy || current}
-        style={{
-          ...btnStyle,
-          background: current ? "var(--border)" : "var(--accent)",
-          color: current ? "var(--text-secondary)" : "var(--text-on-accent)",
-          cursor: current ? "default" : "pointer",
-          opacity: busy ? 0.7 : 1,
-        }}
+        loading={busy}
+        loadingLabel="Redirecting to checkout"
       >
         {current ? "Current plan" : busy ? "Redirecting…" : `Subscribe to ${plan === "pro" ? "Pro" : "Standard"}`}
-      </button>
-      {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--danger)" }}>{error}</div>}
+      </Button>
+      {error && <div className="rf-action-error" role="alert">{error}</div>}
     </>
   );
 }
@@ -77,15 +61,16 @@ export function ManageBillingButton() {
   };
   return (
     <>
-      <button
-        type="button"
+      <Button
+        variant="outline"
         onClick={onClick}
         disabled={busy}
-        style={{ ...btnStyle, marginTop: 0, background: "var(--bg-page)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+        loading={busy}
+        loadingLabel="Redirecting to billing portal"
       >
         {busy ? "Redirecting…" : "Manage billing"}
-      </button>
-      {error && <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--danger)" }}>{error}</div>}
+      </Button>
+      {error && <div className="rf-action-error" role="alert">{error}</div>}
     </>
   );
 }

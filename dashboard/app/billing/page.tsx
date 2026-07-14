@@ -8,31 +8,12 @@ import { loadTierConfig } from "@/lib/tierConfig";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
 import { SubscribeButton, ManageBillingButton } from "@/components/billing/BillingActions";
+import { Badge, Card } from "@/components/ui/Panel";
+import { PageHeader } from "@/components/ui/Navigation";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Billing · Rolefit" };
 
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "40px 20px 64px",
-};
-const wrapStyle: React.CSSProperties = { maxWidth: "760px", margin: "0 auto" };
-const cardStyle: React.CSSProperties = {
-  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "18px",
-  boxShadow: "0 12px 40px rgba(15,22,35,.08)", padding: "26px 28px",
-};
-const titleStyle: React.CSSProperties = {
-  margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)",
-};
-const subtitleStyle: React.CSSProperties = {
-  fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)", marginBottom: "20px",
-};
-const tierGridStyle: React.CSSProperties = {
-  display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "16px", marginTop: "20px",
-};
-const tierCardStyle: React.CSSProperties = {
-  background: "var(--bg-muted)", border: "1px solid var(--border)", borderRadius: "14px", padding: "20px",
-  display: "flex", flexDirection: "column",
-};
 const modelName = (id: string) => (id === PREMIUM_MODEL ? "Haiku 4.5 (premium)" : id === CHEAP_MODEL ? "DeepSeek (cheap)" : id);
 
 function TierCard({
@@ -46,13 +27,13 @@ function TierCard({
   const ent = entitlements[plan];
   const caps = Object.entries(ent.stage2Models) as [keyof typeof ent.stage2Models, number][];
   return (
-    <div style={tierCardStyle}>
-      <div style={{ fontSize: "16px", fontWeight: 800, color: "var(--text-primary)" }}>{PLAN_LABEL[plan]}</div>
-      <div style={{ fontSize: "26px", fontWeight: 800, color: "var(--text-primary)", margin: "6px 0 2px" }}>
+    <Card className="rf-billing-plan">
+      <div><Badge tone={currentPlan === plan ? "success" : "neutral"}>{currentPlan === plan ? "Current plan" : PLAN_LABEL[plan]}</Badge></div>
+      <div className="rf-billing-plan__price">
         ${prices[plan]}
-        <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>/mo</span>
+        <span>/mo</span>
       </div>
-      <ul style={{ margin: "12px 0 0", padding: 0, listStyle: "none", fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.9 }}>
+      <ul className="rf-billing-plan__features">
         {caps.map(([slot, cap]) => (
           <li key={slot}>
             {cap.toLocaleString()} reviews/day on{" "}
@@ -67,10 +48,10 @@ function TierCard({
             : "Reasoning effort Off / Low on generation"}
         </li>
       </ul>
-      <div style={{ marginTop: "auto" }}>
+      <div className="rf-billing-plan__action">
         <SubscribeButton plan={plan} current={currentPlan === plan} />
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -89,53 +70,49 @@ export default async function BillingPage() {
 
   return (
     <AppShell header={<SlimHeader current="billing" />}>
-      <main style={pageStyle}>
-        <div style={wrapStyle}>
-          <div style={cardStyle}>
-            <h1 style={titleStyle}>Billing</h1>
-            <div style={subtitleStyle}>
-              Your plan sets a per-day review budget, the review model, and your monthly
-              résumé / cover-letter allowance.
-            </div>
+      <main className="rf-secondary-page">
+        <div className="rf-secondary-wrap rf-secondary-stack">
+          <PageHeader
+            className="rf-secondary-header"
+            title="Billing"
+            description="Your plan sets a per-day review budget, the review model, and your monthly résumé / cover-letter allowance."
+          />
 
-            <div style={{
-              background: "var(--bg-muted)", border: "1px solid var(--border)", borderRadius: "12px", padding: "16px 18px",
-            }}>
-              <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>Current plan</div>
-              <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--text-primary)", marginTop: "2px" }}>
+            <Card className="rf-billing-current">
+              <div>
+                <div className="rf-billing-current__meta">Current plan</div>
+                <div>
                 {plan ? PLAN_LABEL[plan] : "None"}
                 {plan && !sub?.plan && (
-                  <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--accent)", marginLeft: "8px" }}>
-                    comped (beta invite)
-                  </span>
+                  <> <Badge tone="accent">Comped beta invite</Badge></>
                 )}
-              </div>
+                </div>
               {sub && (
-                <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "6px" }}>
-                  Status: {sub.status}
+                <div className="rf-billing-current__meta">
+                  Status: <Badge tone={sub.status === "active" ? "success" : "warning"}>{sub.status}</Badge>
                   {renewal && ` · ${sub.cancel_at_period_end ? "ends" : "renews"} ${renewal}`}
                 </div>
               )}
+              </div>
               {sub?.stripe_customer_id && (
-                <div style={{ marginTop: "14px", maxWidth: "220px" }}>
+                <div>
                   <ManageBillingButton />
                 </div>
               )}
-            </div>
+            </Card>
 
-            <div style={tierGridStyle}>
+            <div className="rf-billing-plan-grid">
               <TierCard plan="standard" currentPlan={plan}
                 entitlements={tierConfig.entitlements} prices={tierConfig.prices} />
               <TierCard plan="pro" currentPlan={plan}
                 entitlements={tierConfig.entitlements} prices={tierConfig.prices} />
             </div>
 
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "18px", lineHeight: 1.6 }}>
+            <div className="rf-billing-current__meta">
               Downgrading keeps your current benefits until the period ends. If you save a
               premium model on a plan that no longer includes it, reviews fall back to the
               cheap model automatically — nothing breaks.
             </div>
-          </div>
         </div>
       </main>
     </AppShell>

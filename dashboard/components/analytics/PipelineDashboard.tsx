@@ -7,6 +7,8 @@ import { FunnelSection } from "@/components/analytics/FunnelSection";
 import { HealthCards } from "@/components/analytics/HealthCards";
 import { TrendCharts } from "@/components/analytics/TrendCharts";
 import { BreakdownsSection } from "@/components/analytics/BreakdownsSection";
+import { PageHeader } from "@/components/ui/Navigation";
+import { Icon } from "@/components/ui/Icon";
 
 const SECTIONS = [
   { id: "overview", label: "Overview" },
@@ -98,26 +100,19 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
   // empty-domain gotcha by telling the user rather than rendering degenerate axes).
   const noReviewRuns = snapshot.health.reviewer.totals.runs === 0;
   return (
-    <main style={{ minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "32px 20px 64px" }}>
-      <div style={{ maxWidth: "1040px", margin: "0 auto" }}>
-        <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)" }}>
-          Pipeline analytics
-        </h1>
-        <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "18px" }}>
+    <main className="rf-secondary-page rf-secondary-density--compact">
+      <div className="rf-secondary-wrap rf-secondary-wrap--wide">
+        <PageHeader className="rf-secondary-header" title="Pipeline analytics" description={<>
           Company Discovery, Job Discovery, and reviewer pipelines — totals, throughput, and trends.
           {" "}
           <span style={{ fontWeight: 600 }}>Aggregates refresh at least every 10 minutes.</span>
-        </div>
+        </>} />
 
         <KpiStrip snapshot={snapshot} series={series} nowIso={nowIso} />
 
         <nav
           aria-label="Sections"
-          style={{
-            position: "sticky", top: 0, zIndex: 10, display: "flex", gap: "8px", alignItems: "center",
-            padding: "10px 0", background: "var(--bg-page)", borderBottom: "1px solid var(--border)", margin: "24px 0 8px",
-            flexWrap: "wrap",
-          }}
+          className="rf-analytics-nav rf-tabs"
         >
           {SECTIONS.map((s) => {
             const isActive = active === s.id;
@@ -125,29 +120,17 @@ export function PipelineDashboard({ snapshot, series, nowIso }: { snapshot: Pipe
               <a
                 key={s.id}
                 href={`#${s.id}`}
-                aria-current={isActive ? "true" : undefined}
+                aria-current={isActive ? "page" : undefined}
                 onClick={(e) => go(e, s.id)}
-                onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px var(--focus-ring)"; }}
-                onBlur={(e) => { e.currentTarget.style.boxShadow = "none"; }}
-                style={{
-                  fontSize: "12.5px", fontWeight: 700, textDecoration: "none",
-                  padding: "6px 12px", borderRadius: "8px", outline: "none",
-                  color: isActive ? "var(--text-primary)" : "var(--accent)",
-                  background: isActive ? "var(--accent-bg)" : "transparent",
-                }}
+                className="rf-tabs__item rf-focusable"
               >{s.label}</a>
             );
           })}
           <a
             href="#"
             onClick={goTop}
-            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px var(--focus-ring)"; }}
-            onBlur={(e) => { e.currentTarget.style.boxShadow = "none"; }}
-            style={{
-              marginLeft: "auto", fontSize: "12.5px", fontWeight: 700, textDecoration: "none",
-              padding: "6px 12px", borderRadius: "8px", outline: "none", color: "var(--text-secondary)",
-            }}
-          >↑ Top</a>
+            className="rf-tabs__item rf-focusable"
+          ><Icon name="chevron-up" size={16} />Top</a>
         </nav>
 
         {noReviewRuns && (

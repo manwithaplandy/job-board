@@ -56,10 +56,10 @@ export function InfoTip({
         onKeyDown={(e) => {
           if (e.key === "Escape") setOpen(false);
         }}
+        className="rf-info-tip__trigger rf-focusable"
         style={{
           borderBottom: "1px dotted var(--text-muted)",
           cursor: "help",
-          outline: "none",
           ...labelStyle,
         }}
       >

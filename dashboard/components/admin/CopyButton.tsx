@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 
 // Tiny client leaf so server-rendered admin tables can offer per-row copy.
 // Best-effort: clipboard can be unavailable (http, permissions) — failure is silent
 // and the label simply doesn't flip.
-export function CopyButton({ text, style }: { text: string; style?: React.CSSProperties }) {
+export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button
-      type="button"
+    <Button
+      variant="outline"
+      size="compact"
       aria-label={`Copy ${text}`}
       onClick={async () => {
         try {
@@ -20,20 +23,9 @@ export function CopyButton({ text, style }: { text: string; style?: React.CSSPro
           /* clipboard unavailable — leave the label as "Copy" */
         }
       }}
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: "8px",
-        background: "var(--bg-surface)",
-        color: "var(--text-secondary)",
-        fontSize: "11.5px",
-        fontWeight: 700,
-        padding: "4px 9px",
-        cursor: "pointer",
-        fontFamily: "inherit",
-        ...style,
-      }}
     >
+      <Icon name={copied ? "check" : "copy"} size={16} />
       {copied ? "Copied" : "Copy"}
-    </button>
+    </Button>
   );
 }

@@ -51,7 +51,10 @@ export function validateVisualBaseUrl(raw: string | undefined): string {
 
   if (
     url.protocol !== "https:" ||
-    !url.hostname.endsWith(".vercel.app")
+    !url.hostname.endsWith(".vercel.app") ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.port !== ""
   ) {
     throw new Error("VISUAL_BASE_URL must be an HTTPS Vercel Preview URL");
   }

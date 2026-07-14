@@ -89,12 +89,27 @@ describe("visual authentication configuration", () => {
     }
   });
 
+  test("rejects credential-bearing and non-default-port preview URLs", () => {
+    for (const raw of [
+      "https://visual-user@preview.vercel.app",
+      "https://visual-user:visual-password@preview.vercel.app",
+      "https://preview.vercel.app:8443",
+    ]) {
+      expect(() => validateVisualBaseUrl(raw)).toThrow(
+        "VISUAL_BASE_URL must be an HTTPS Vercel Preview URL",
+      );
+    }
+  });
+
   test("normalizes an HTTPS Vercel preview URL to its origin", () => {
     expect(
       validateVisualBaseUrl(
         "https://job-board-dashboard-git-example.vercel.app/path?query=secret#fragment",
       ),
     ).toBe("https://job-board-dashboard-git-example.vercel.app");
+    expect(validateVisualBaseUrl("https://preview.vercel.app:443/")).toBe(
+      "https://preview.vercel.app",
+    );
   });
 
   test("uses distinct state files beneath the disposable auth directory", () => {

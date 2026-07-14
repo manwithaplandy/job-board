@@ -10,7 +10,7 @@ vi.mock("@/app/actions/account", () => ({
 afterEach(cleanup);
 
 describe("DangerZone", () => {
-  test("gives every interactive control a 44px target", () => {
+  test("composes shared controls whose design-system contract provides 44px targets", () => {
     render(<DangerZone />);
 
     const controls = [
@@ -19,9 +19,9 @@ describe("DangerZone", () => {
       screen.getByRole("button", { name: /delete account/i }),
     ];
 
-    for (const control of controls) {
-      expect(control.style.minHeight).toBe("44px");
-      expect(control.style.boxSizing).toBe("border-box");
-    }
+    expect(controls[0].classList).toContain("rf-button");
+    expect(controls[1].classList).toContain("rf-control");
+    expect(controls[2].classList).toContain("rf-button");
+    expect(controls[2].classList).toContain("rf-button--destructive");
   });
 });

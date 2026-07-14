@@ -30,7 +30,7 @@ export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
         setUploadKey((value) => value + 1);
       }}
     >
-      <section aria-labelledby="resume-summary-heading" className="settings-card">
+      <section aria-labelledby="resume-summary-heading" className="profile-form-section resume-summary-card">
         <h2 id="resume-summary-heading">Reviewed résumé text powers matching</h2>
         <p>Rolefit uses the reviewed text below for matching and application writing. The PDF is kept only as an archive.</p>
         <dl>
@@ -39,7 +39,7 @@ export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
         </dl>
       </section>
 
-      <section aria-labelledby="resume-upload-heading">
+      <section className="profile-form-section" aria-labelledby="resume-upload-heading">
         <h2 id="resume-upload-heading">Upload or replace PDF archive</h2>
         <ResumeUploadField
           key={uploadKey}
@@ -49,16 +49,16 @@ export function ResumeSettingsForm({ profile }: { profile: ProfileRow }) {
         />
       </section>
 
-      <section aria-labelledby="resume-review-heading">
+      <section className="profile-form-section" aria-labelledby="resume-review-heading">
         <h2 id="resume-review-heading">Experience source</h2>
         <Button type="button" variant="outline" aria-expanded={reviewing} aria-controls="resume-review-editor" onClick={() => setReviewing((value) => !value)}>
           {reviewing ? "Hide reviewed text" : "Review extracted text"}
           <Icon name={reviewing ? "chevron-up" : "chevron-down"} size={16} />
         </Button>
         {reviewing ? (
-          <div id="resume-review-editor" className="settings-field">
-            <label htmlFor="resume_text">Reviewed résumé text</label>
-            <textarea id="resume_text" name="resume_text" value={resumeText} onChange={(event) => setResumeText(event.target.value)} rows={16} />
+          <div id="resume-review-editor" className="rf-field settings-field">
+            <label className="rf-field__label" htmlFor="resume_text">Reviewed résumé text</label>
+            <textarea className="rf-control rf-control--textarea rf-focusable" id="resume_text" name="resume_text" value={resumeText} onChange={(event) => setResumeText(event.target.value)} rows={16} />
           </div>
         ) : (
           <input type="hidden" name="resume_text" value={resumeText} />

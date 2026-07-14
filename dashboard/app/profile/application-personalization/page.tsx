@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ApplicationPersonalizationForm } from "@/components/profile/ApplicationPersonalizationForm";
-import { BackLink } from "@/components/ui/Navigation";
+import { BackLink, PageHeader } from "@/components/ui/Navigation";
 import { requireUserId } from "@/lib/auth";
 import { getProfile } from "@/lib/queries";
 
@@ -14,12 +14,9 @@ export default async function ApplicationPersonalizationPage() {
   if (!profile) redirect("/onboarding");
 
   return (
-    <main className="profile-detail">
+    <main className="profile-detail profile-page-stack">
       <BackLink href="/profile">Back to profile</BackLink>
-      <header className="profile-detail-header">
-        <h1>Application Personalization</h1>
-        <p>Set reusable writing preferences for your tailored application materials.</p>
-      </header>
+      <PageHeader title="Application Personalization" description="Set reusable writing preferences for your tailored application materials." />
       <ApplicationPersonalizationForm profile={profile} />
     </main>
   );

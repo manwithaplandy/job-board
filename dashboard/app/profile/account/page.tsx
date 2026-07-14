@@ -1,17 +1,14 @@
 import type { Metadata } from "next";
 import { AccountSettings } from "@/components/profile/AccountSettings";
-import { BackLink } from "@/components/ui/Navigation";
+import { BackLink, PageHeader } from "@/components/ui/Navigation";
 
 export const metadata: Metadata = { title: "Account & App · Rolefit" };
 
 export default function AccountPage() {
   return (
-    <main className="profile-detail">
+    <main className="profile-detail profile-page-stack">
       <BackLink href="/profile">Back to profile</BackLink>
-      <header className="profile-detail-header">
-        <h1>Account &amp; App</h1>
-        <p>Manage your subscription, device appearance, and account data.</p>
-      </header>
+      <PageHeader title="Account & App" description="Manage your subscription, device appearance, and account data." />
       <AccountSettings />
     </main>
   );

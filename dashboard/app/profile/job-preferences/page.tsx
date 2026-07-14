@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { unstable_cache } from "next/cache";
 import { redirect } from "next/navigation";
 import { JobPreferencesForm } from "@/components/profile/JobPreferencesForm";
-import { BackLink } from "@/components/ui/Navigation";
+import { BackLink, PageHeader } from "@/components/ui/Navigation";
 import { requireUserId } from "@/lib/auth";
 import { getDistinctLocations, getProfile } from "@/lib/queries";
 
@@ -24,12 +24,9 @@ export default async function JobPreferencesPage() {
   if (!profile) redirect("/onboarding");
 
   return (
-    <main className="profile-detail">
+    <main className="profile-detail profile-page-stack">
       <BackLink href="/profile">Back to profile</BackLink>
-      <header className="profile-detail-header">
-        <h1>Job Preferences</h1>
-        <p>Choose where to search and describe what Rolefit should prioritize or avoid.</p>
-      </header>
+      <PageHeader title="Job Preferences" description="Choose where to search and describe what Rolefit should prioritize or avoid." />
       <JobPreferencesForm profile={profile} locations={locations} />
     </main>
   );

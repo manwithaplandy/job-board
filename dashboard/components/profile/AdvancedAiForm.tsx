@@ -14,7 +14,7 @@ function ModelField(props: React.ComponentProps<typeof ModelPicker>) {
   const id = `model-picker-${props.name}`;
   const { error, errorId, invalid } = useSectionField(props.name, id);
   return (
-    <div className="settings-field">
+    <div className="rf-field settings-field">
       <ModelPicker {...props} id={id} ariaInvalid={invalid}
         ariaDescribedBy={error ? errorId : undefined} />
       {error ? <p id={errorId} className="field-error">{error}</p> : null}
@@ -33,9 +33,9 @@ export function AdvancedAiForm({
 }) {
   return (
     <SectionFormShell action={saveAdvancedAiSettings} submitLabel="Save AI settings">
-      <section aria-labelledby="review-models-heading">
+      <section className="profile-form-section" aria-labelledby="review-models-heading">
         <h2 id="review-models-heading">Job review</h2>
-        <div className="settings-field">
+        <div className="rf-field settings-field profile-readonly-field">
           <p><strong>Stage 1 — title and company check</strong></p>
           <p className="field-description">Always uses the Rolefit default</p>
         </div>
@@ -59,7 +59,7 @@ export function AdvancedAiForm({
         />
       </section>
 
-      <section aria-labelledby="document-models-heading">
+      <section className="profile-form-section" aria-labelledby="document-models-heading">
         <h2 id="document-models-heading">Application documents</h2>
         <ModelField label="Résumé model" name="model_resume" models={models}
           curated={CURATED_MODELS} defaultValue={profile.model_resume}

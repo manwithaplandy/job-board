@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ApplicationDetailsForm } from "@/components/profile/ApplicationDetailsForm";
-import { BackLink } from "@/components/ui/Navigation";
+import { BackLink, PageHeader } from "@/components/ui/Navigation";
 import { requireUserId } from "@/lib/auth";
 import { getProfile } from "@/lib/queries";
 
@@ -14,12 +14,9 @@ export default async function ApplicationDetailsPage() {
   if (!profile) redirect("/onboarding");
 
   return (
-    <main className="profile-detail">
+    <main className="profile-detail profile-page-stack">
       <BackLink href="/profile">Back to profile</BackLink>
-      <header className="profile-detail-header">
-        <h1>Application Details</h1>
-        <p>Keep the contact details and common answers used in your applications up to date.</p>
-      </header>
+      <PageHeader title="Application Details" description="Keep the contact details and common answers used in your applications up to date." />
       <ApplicationDetailsForm profile={profile} />
     </main>
   );

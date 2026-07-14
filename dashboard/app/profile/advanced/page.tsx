@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AdvancedAiForm } from "@/components/profile/AdvancedAiForm";
-import { BackLink } from "@/components/ui/Navigation";
+import { BackLink, PageHeader } from "@/components/ui/Navigation";
 import { getUserClaims, requireUserId } from "@/lib/auth";
 import { getStructuredModels } from "@/lib/openrouter";
 import { getProfile } from "@/lib/queries";
@@ -21,12 +21,9 @@ export default async function AdvancedPage() {
   if (!profile) redirect("/onboarding");
 
   return (
-    <main className="profile-detail">
+    <main className="profile-detail profile-page-stack">
       <BackLink href="/profile">Back to profile</BackLink>
-      <header className="profile-detail-header">
-        <h1>Advanced AI Settings</h1>
-        <p>Choose the technical settings Rolefit uses for review and document generation.</p>
-      </header>
+      <PageHeader title="Advanced AI Settings" description="Choose the technical settings Rolefit uses for review and document generation." />
       <AdvancedAiForm profile={profile} models={models} isPro={plan === "pro"} />
     </main>
   );

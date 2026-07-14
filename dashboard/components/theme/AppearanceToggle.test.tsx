@@ -46,26 +46,23 @@ describe("AppearanceToggle", () => {
     expect(document.activeElement).toBe(light);
   });
 
-  test("keeps selected styling distinct from the shared keyboard focus treatment", () => {
+  test("uses shared selected and keyboard focus contracts", () => {
     mockMatchMedia(false);
     renderToggle();
     const selected = screen.getByRole("radio", { name: /system/i });
 
     expect(selected.getAttribute("aria-checked")).toBe("true");
-    expect(selected.style.background).toBe("var(--accent-bg)");
-    expect(selected.style.border).toBe("1px solid var(--accent-border)");
+    expect(selected.classList.contains("rf-segments__item")).toBe(true);
     expect(selected.classList.contains("rf-focusable")).toBe(true);
-    expect(selected.style.boxShadow).toBe("");
   });
 
-  test("gives every theme option a 44px interactive target", () => {
+  test("gives every theme option the shared 44px segment contract", () => {
     mockMatchMedia(false);
     renderToggle();
 
     for (const option of screen.getAllByRole("radio")) {
-      expect(option.style.minHeight).toBe("44px");
-      expect(option.style.boxSizing).toBe("border-box");
-      expect(option.style.alignItems).toBe("center");
+      expect(option.classList).toContain("rf-segments__item");
+      expect(option.classList).toContain("rf-focusable");
     }
   });
 });

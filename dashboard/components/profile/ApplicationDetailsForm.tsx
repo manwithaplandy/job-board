@@ -27,7 +27,7 @@ function TriStateSelect({ value, ...props }: TriStateSelectProps) {
 export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
   return (
     <SectionFormShell action={saveApplicationDetails} submitLabel="Save details">
-      <section aria-labelledby="contact-heading">
+      <section className="profile-form-section" aria-labelledby="contact-heading">
         <h2 id="contact-heading">Contact information</h2>
         <div className="field-grid">
           <Field id="full_name" name="full_name" label="Full name" required>
@@ -45,7 +45,7 @@ export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
         </div>
       </section>
 
-      <section aria-labelledby="links-heading">
+      <section className="profile-form-section" aria-labelledby="links-heading">
         <h2 id="links-heading">Links</h2>
         <div className="field-grid">
           <Field id="link_linkedin" name="link_linkedin" label="LinkedIn">
@@ -60,19 +60,19 @@ export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
         </div>
       </section>
 
-      <section aria-labelledby="eligibility-heading">
+      <section className="profile-form-section" aria-labelledby="eligibility-heading">
         <h2 id="eligibility-heading">Work eligibility</h2>
         <div className="field-grid">
           <Field id="work_authorized" name="work_authorized" label="Authorized to work?">
-            <TriStateSelect value={profile.work_authorized} />
+            <TriStateSelect className="rf-select" value={profile.work_authorized} />
           </Field>
           <Field id="needs_sponsorship" name="needs_sponsorship" label="Need sponsorship?">
-            <TriStateSelect value={profile.needs_sponsorship} />
+            <TriStateSelect className="rf-select" value={profile.needs_sponsorship} />
           </Field>
         </div>
       </section>
 
-      <section aria-labelledby="screening-heading">
+      <section className="profile-form-section" aria-labelledby="screening-heading">
         <h2 id="screening-heading">Common screening answers</h2>
         <div className="field-grid">
           <Field id="screen_notice_period" name="screen_notice_period" label="Notice period">
@@ -87,7 +87,7 @@ export function ApplicationDetailsForm({ profile }: { profile: ProfileRow }) {
         </div>
       </section>
 
-      <details className="optional-disclosure">
+      <details className="optional-disclosure profile-form-section">
         <summary><h2>Voluntary demographic information</h2></summary>
         <p>These answers are optional and are not used to rank jobs.</p>
         <div className="field-grid">

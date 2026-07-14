@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHeader } from "@/components/ui/Navigation";
 import type { ProfileReadiness } from "@/lib/profileReadiness";
 import { SettingsSectionCard } from "./SettingsSectionCard";
 
@@ -8,13 +9,15 @@ interface ProfileHubProps {
 
 export function ProfileHub({ readiness }: ProfileHubProps) {
   return (
-    <main className="profile-hub">
-      <header>
-        <h1>Profile</h1>
-        <p>Your profile controls job matching and prepares reusable application information.</p>
+    <main className="profile-hub profile-page-stack">
+      <PageHeader
+        title="Profile"
+        description="Your profile controls job matching and prepares reusable application information."
+      />
+      <div className="profile-readiness" role="status" aria-label="Profile readiness">
         <p className="profile-readiness-overall">{readiness.overall}</p>
         <p>{readiness.readyCount} of {readiness.totalCore} core sections ready</p>
-      </header>
+      </div>
 
       <div className="settings-card-grid">
         <SettingsSectionCard

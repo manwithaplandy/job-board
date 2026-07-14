@@ -16,20 +16,28 @@ export function Field({ id, name, label, description, required, children }: Fiel
   const { error, errorId, invalid } = useSectionField(name, id);
   const describedBy = [description ? `${id}-description` : null, error ? errorId : null]
     .filter(Boolean).join(" ") || undefined;
+  const elementType = typeof children.type === "string" ? children.type : "";
   const control = cloneElement(children, {
     id,
     name,
     required,
+    className: [
+      "rf-control",
+      "rf-focusable",
+      elementType === "textarea" && "rf-control--textarea",
+      elementType === "select" && "rf-select",
+      children.props.className,
+    ].filter(Boolean).join(" "),
     "aria-invalid": invalid,
     "aria-describedby": describedBy,
   });
 
   return (
-    <div className="settings-field">
-      <label htmlFor={id}>{label}{required ? <span aria-hidden="true"> *</span> : null}</label>
-      {description ? <p id={`${id}-description`} className="field-description">{description}</p> : null}
+    <div className="rf-field settings-field">
+      <label className="rf-field__label" htmlFor={id}>{label}{required ? <span aria-hidden="true"> *</span> : null}</label>
+      {description ? <p id={`${id}-description`} className="rf-field__description field-description">{description}</p> : null}
       {control}
-      {error ? <p id={errorId} className="field-error">{error}</p> : null}
+      {error ? <p id={errorId} className="rf-field__error field-error">{error}</p> : null}
     </div>
   );
 }

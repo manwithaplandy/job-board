@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ResumeSettingsForm } from "@/components/profile/ResumeSettingsForm";
-import { BackLink } from "@/components/ui/Navigation";
+import { BackLink, PageHeader } from "@/components/ui/Navigation";
 import { requireUserId } from "@/lib/auth";
 import { getProfile } from "@/lib/queries";
 
@@ -14,12 +14,9 @@ export default async function ResumePage() {
   if (!profile) redirect("/onboarding");
 
   return (
-    <main className="profile-detail">
+    <main className="profile-detail profile-page-stack">
       <BackLink href="/profile">Back to profile</BackLink>
-      <header className="profile-detail-header">
-        <h1>Résumé &amp; Experience</h1>
-        <p>Keep the reviewed experience source Rolefit uses for matching and application writing up to date.</p>
-      </header>
+      <PageHeader title="Résumé & Experience" description="Keep the reviewed experience source Rolefit uses for matching and application writing up to date." />
       <ResumeSettingsForm profile={profile} />
     </main>
   );

@@ -242,21 +242,21 @@ export function SectionFormShell({ action, submitLabel, children, onReset, onSav
 
   return (
     <SectionFormContext.Provider value={{ fieldErrors, registerField }}>
-      <form ref={formRef} action={formAction} noValidate>
+      <form ref={formRef} action={formAction} noValidate className="profile-section-form">
         {state.status === "error" && (
-          <div className="section-error-summary" role="alert" aria-labelledby="section-error-title">
+          <div className="section-error-summary profile-error-summary" role="alert" aria-labelledby="section-error-title">
             <p id="section-error-title">{state.message}</p>
             {Object.entries(state.fieldErrors).length > 0 && (
               <ul>
                 {Object.entries(state.fieldErrors).map(([name, message]) => (
-                  <li key={name}><a href={`#${fieldIds.get(name) ?? name}`}>{message}</a></li>
+                  <li key={name}><a className="rf-focusable" href={`#${fieldIds.get(name) ?? name}`}>{message}</a></li>
                 ))}
               </ul>
             )}
           </div>
         )}
         {children}
-        <FormActions className="section-actions">
+        <FormActions className="section-actions profile-action-bar">
           <Button type="button" variant="outline" size="sm" className="section-cancel" onClick={cancel} disabled={!dirty || pending}>Cancel</Button>
           <Button type="submit" variant="primary" size="sm" className="section-save" disabled={!dirty || pending}>
             {pending ? "Saving…" : submitLabel}

@@ -67,11 +67,14 @@ cleanup. Delete them after use.
 Ordinary pull-request CI continues to run the public/deterministic gate without secrets.
 Authenticated coverage is a separate `deployment_status` workflow for successful Vercel
 Preview deployments. It checks out the exact deployed SHA, validates the HTTPS
-`*.vercel.app` URL, and uses the protected GitHub Environment `visual-test`. That environment
-must define `VISUAL_AUTH_EMAIL`, `VISUAL_AUTH_PASSWORD`, `VISUAL_ONBOARDING_EMAIL`, and
-`VISUAL_ONBOARDING_PASSWORD`; credentials are exposed only to the authentication setup
-step. The comparison step receives only the deployment URL, and an `always()` cleanup
-removes both generated state files. Do not restore the obsolete storage-state JSON secrets.
+`*.vercel.app` URL as the first executable step after checkout, rejecting userinfo and
+non-default ports before any installation, and uses the protected GitHub Environment
+`visual-test`. That environment must define `VISUAL_AUTH_EMAIL`, `VISUAL_AUTH_PASSWORD`,
+`VISUAL_ONBOARDING_EMAIL`, and `VISUAL_ONBOARDING_PASSWORD`; a boolean-only presence
+preflight runs before installation, while raw credentials are exposed only to the
+authentication setup step. The comparison step receives only the deployment URL, and an
+`always()` cleanup removes both generated state files. Do not restore the obsolete
+storage-state JSON secrets.
 
 The first authenticated run is expected to fail when reviewed baselines do not yet exist.
 Download the `authenticated-visual-results` failure artifact, confirm it contains only files

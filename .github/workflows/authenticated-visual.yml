@@ -25,6 +25,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.deployment.sha }}
+      - name: Validate deployment URL
+        env:
+          VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+        run: >-
+          node -e 'const raw=process.env.VISUAL_BASE_URL;let url;try{url=new URL(raw)}catch{throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")};if(url.protocol!=="https:"||!url.hostname.endsWith(".vercel.app")||url.username!==""||url.password!==""||url.port!=="")throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")'
+      - name: Require visual credentials
+        env:
+          HAS_VISUAL_AUTH_EMAIL: ${{ secrets.VISUAL_AUTH_EMAIL != '' }}
+          HAS_VISUAL_AUTH_PASSWORD: ${{ secrets.VISUAL_AUTH_PASSWORD != '' }}
+          HAS_VISUAL_ONBOARDING_EMAIL: ${{ secrets.VISUAL_ONBOARDING_EMAIL != '' }}
+          HAS_VISUAL_ONBOARDING_PASSWORD: ${{ secrets.VISUAL_ONBOARDING_PASSWORD != '' }}
+        run: >-
+          node -e 'for(const [flag,name] of [["HAS_VISUAL_AUTH_EMAIL","VISUAL_AUTH_EMAIL"],["HAS_VISUAL_AUTH_PASSWORD","VISUAL_AUTH_PASSWORD"],["HAS_VISUAL_ONBOARDING_EMAIL","VISUAL_ONBOARDING_EMAIL"],["HAS_VISUAL_ONBOARDING_PASSWORD","VISUAL_ONBOARDING_PASSWORD"]])if(process.env[flag]!=="true")throw new Error(`${name} is required`)'
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -34,11 +47,6 @@ jobs:
         run: npm ci
       - name: Install visual regression browser
         run: npx playwright install --with-deps chromium
-      - name: Validate deployment URL
-        env:
-          VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
-        run: >-
-          node -e 'const raw=process.env.VISUAL_BASE_URL;let url;try{url=new URL(raw)}catch{throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")};if(url.protocol!=="https:"||!url.hostname.endsWith(".vercel.app"))throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")'
       - name: Create authenticated sessions
         env:
           VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}

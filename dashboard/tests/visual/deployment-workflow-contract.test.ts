@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 
 const repositoryRoot = path.resolve(process.cwd(), "..");
@@ -52,12 +53,93 @@ describe("deployment-triggered authenticated visual workflow", () => {
   test("validates the deployment URL before the credential-scoped setup step", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     const validation = workflowStep(workflow, "Validate deployment URL");
+    const validationIndex = workflow.indexOf("- name: Validate deployment URL");
+    const checkoutIndex = workflow.indexOf("- uses: actions/checkout@v7");
+    const setupNodeIndex = workflow.indexOf("- uses: actions/setup-node@v6");
+    const installIndex = workflow.indexOf("- name: Install dependencies");
+    const browserIndex = workflow.indexOf(
+      "- name: Install visual regression browser",
+    );
     const setup = workflowStep(workflow, "Create authenticated sessions");
+    expect(checkoutIndex).toBeLessThan(validationIndex);
+    expect(validationIndex).toBeLessThan(setupNodeIndex);
+    expect(validationIndex).toBeLessThan(installIndex);
+    expect(validationIndex).toBeLessThan(browserIndex);
     expect(workflow.indexOf(validation)).toBeLessThan(workflow.indexOf(setup));
     expect(validation).toContain(
       "VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}",
     );
     expect(validation).not.toContain("secrets.");
+  });
+
+  test("rejects credentialed and non-default-port deployment URLs", () => {
+    const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
+    const validation = workflowStep(workflow, "Validate deployment URL");
+    const script = validation.match(/node -e '([^']+)'/)?.[1];
+    expect(script).toBeDefined();
+
+    const validate = (url: string) =>
+      spawnSync(process.execPath, ["-e", script!], {
+        env: { ...process.env, VISUAL_BASE_URL: url },
+        encoding: "utf8",
+      });
+
+    expect(validate("https://preview.vercel.app").status).toBe(0);
+    for (const url of [
+      "https://user:password@preview.vercel.app",
+      "https://preview.vercel.app:8443",
+    ]) {
+      const result = validate(url);
+      expect(result.status, url).not.toBe(0);
+      expect(result.stderr).not.toContain(url);
+    }
+  });
+
+  test("checks credential presence with booleans before installing dependencies", () => {
+    const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
+    const validationIndex = workflow.indexOf("- name: Validate deployment URL");
+    const preflightIndex = workflow.indexOf("- name: Require visual credentials");
+    const setupNodeIndex = workflow.indexOf("- uses: actions/setup-node@v6");
+    const installIndex = workflow.indexOf("- name: Install dependencies");
+    const browserIndex = workflow.indexOf(
+      "- name: Install visual regression browser",
+    );
+    const preflight = workflowStep(workflow, "Require visual credentials");
+    const names = [
+      "VISUAL_AUTH_EMAIL",
+      "VISUAL_AUTH_PASSWORD",
+      "VISUAL_ONBOARDING_EMAIL",
+      "VISUAL_ONBOARDING_PASSWORD",
+    ];
+
+    expect(validationIndex).toBeLessThan(preflightIndex);
+    expect(preflightIndex).toBeLessThan(setupNodeIndex);
+    expect(preflightIndex).toBeLessThan(installIndex);
+    expect(preflightIndex).toBeLessThan(browserIndex);
+    for (const name of names) {
+      expect(preflight).toContain(`HAS_${name}: \${{ secrets.${name} != '' }}`);
+      expect(preflight).toContain(`"${name}"`);
+      expect(preflight).not.toContain(`\${{ secrets.${name} }}`);
+    }
+    expect(preflight).not.toMatch(/process\.env\[[^\]]+\]\)/);
+
+    const script = preflight.match(/node -e '([^']+)'/)?.[1];
+    expect(script).toBeDefined();
+    const result = spawnSync(process.execPath, ["-e", script!], {
+      env: {
+        ...process.env,
+        ...Object.fromEntries(
+          names.map((name) => [
+            `HAS_${name}`,
+            name === "VISUAL_AUTH_PASSWORD" ? "false" : "true",
+          ]),
+        ),
+      },
+      encoding: "utf8",
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("VISUAL_AUTH_PASSWORD is required");
+    expect(result.stderr).not.toContain("false");
   });
 
   test("scopes all four credentials to setup and none to comparison", () => {
@@ -80,6 +162,7 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(setupVariables).toEqual(expectedSetupVariables);
     for (const variable of expectedSetupVariables.slice(1)) {
       expect(setup).toContain(`${variable}: \${{ secrets.${variable} }}`);
+      expect(workflow.split(`\${{ secrets.${variable} }}`)).toHaveLength(2);
     }
     expect(setup).toContain("run: npm run test:visual:auth-setup");
     expect(comparison).toContain(

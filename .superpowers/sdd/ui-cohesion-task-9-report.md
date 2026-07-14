@@ -123,8 +123,12 @@
   visual gate that needs no authenticated secrets.
 - Added an authenticated workflow for successful Vercel Preview `deployment_status`
   events. It accepts only `vercel[bot]` deployments, checks out the exact deployment SHA,
-  validates the HTTPS `*.vercel.app` URL, and obtains credentials from the protected
-  `visual-test` GitHub Environment.
+  then exactly validates the HTTPS `*.vercel.app` URL before installation, rejecting
+  userinfo and non-default ports. The outer job guard is a deployment/URL heuristic; exact
+  URL validation is the first executable step after checkout.
+- Added a pre-install credential-presence check using boolean secret expressions. It names
+  only a missing variable; raw values remain confined to the authentication setup step in
+  the protected `visual-test` GitHub Environment.
 - Scoped all four dedicated test-account credentials to the session-creation step. The
   comparison step receives only the deployment URL and uses the `--no-deps` script, so it
   cannot rerun authentication. Failure uploads are limited to

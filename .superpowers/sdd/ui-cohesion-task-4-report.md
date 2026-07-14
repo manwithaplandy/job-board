@@ -91,3 +91,54 @@ Each route needs light/dark screenshots at 1440 and 390 CSS pixels, zero documen
 ## Concern
 
 The required live browser matrix is absent because browser discovery exposed no backend in this worker. All source, component, route, behavior, full-suite, typecheck, lint, production-build, and diff checks are green; live visual/interaction evidence remains the independent Phase 4 adversarial gate item.
+
+---
+
+## Adversarial review fix — canonical typography, disclosure, and card geometry
+
+Implementation commit: `f4bdef4` (`fix(profile): resolve design system review findings`)
+
+The independent reviewer reported 0 Critical, 2 Important, and 1 Minor issue. All three are resolved:
+
+- Removed the broad `.profile-detail` descendant font-size override. Only native input, textarea, and select text receives the intentional 16px/iOS-safe body size; shared button sizes remain owned by `rf-button`/`rf-button--sm`, and descriptions/help remain owned by `--font-size-help` roles.
+- Rebuilt the native voluntary-demographics disclosure as a documented styled composite: native `details`/`summary` semantics and keyboard behavior remain, while the summary now uses `rf-focusable`, an internal `Icon`, a suppressed UA marker, a 44px target, and a token-based rotating open-state affordance.
+- Added `rf-card rf-card--lg` to every Profile form surface and removed the duplicate padding, border, radius, background, and elevation declarations from `.profile-form-section`. That class now owns layout only; shared Card owns geometry.
+
+### Review-fix RED
+
+Extended `ProfileDesignSystem.test.tsx` with canonical typography, shared Card ownership, and disclosure icon/focus/open-state contracts:
+
+```text
+NODE_OPTIONS=--no-experimental-webstorage npm test -- \
+  components/profile/ProfileDesignSystem.test.tsx --run
+
+Test Files  1 failed (1)
+Tests       3 failed | 4 passed (7)
+```
+
+The failures independently reproduced each reviewer finding.
+
+### Review-fix GREEN and verification
+
+```text
+NODE_OPTIONS=--no-experimental-webstorage npm test -- \
+  components/profile/ProfileDesignSystem.test.tsx \
+  components/profile/ApplicationDetailsForm.test.tsx \
+  components/profile/SettingsPrimitives.test.tsx \
+  app/profile/profileRoutes.test.tsx --run
+
+Test Files  4 passed (4)
+Tests       53 passed (53)
+```
+
+```text
+NODE_OPTIONS=--no-experimental-webstorage npm test -- --run
+
+Test Files  168 passed | 2 skipped (170)
+Tests       1246 passed | 6 skipped (1252)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings outside Phase 4.
+- Production build with the configured database placeholder and Google-font network access: passed; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.

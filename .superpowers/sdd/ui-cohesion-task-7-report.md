@@ -126,3 +126,35 @@ Tests       1291 passed | 6 skipped (1297)
 - `git diff --check`: passed.
 
 The controller must deploy `aa352a3`, complete the existing browser matrix, and send the full Phase 7 range back to the independent reviewer. This implementation does not claim the adversarial gate is clear.
+
+---
+
+## Final inventory repair — Admin first-run states and auth action identity
+
+Implementation commit: `9020770` (`fix(ui): complete admin empty states`).
+
+The second inventory pass found two remaining secondary first-run branches. Admin Invites and Admin Tenants now use compact shared `EmptyState` components while retaining the exact “No invite codes yet.” and “No tenants yet.” copy. Exact source inventory assertions and rendered route tests cover both branches, alongside the existing admin authorization-gate suites.
+
+`AuthEntryRoutes.test.tsx` now inspects the actual React form `action` props before rendering: signup is asserted by identity against the exported `signUp` server action; login/reset/update are asserted as function actions; and the private reset action is verified stable across route renders. DOM field, alert, button, link, and recovery-session assertions remain in place.
+
+### Final RED and GREEN
+
+```text
+RED:   2 failed files, 3 expected failures; auth action tests passed 5/5
+GREEN: 5 passed files, 30 passed tests
+```
+
+```text
+NODE_OPTIONS=--localstorage-file=/tmp/rolefit-phase7-final-admin \
+  npm test -- --maxWorkers=1
+
+Test Files  178 passed | 2 skipped (180)
+Tests       1294 passed | 6 skipped (1300)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- `DATABASE_URL=postgres://placeholder:placeholder@localhost:5432/placeholder npm run build`: passed; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.
+
+The full Phase 7 code range must still receive independent re-review and controller-owned browser acceptance before the gate is declared clear.

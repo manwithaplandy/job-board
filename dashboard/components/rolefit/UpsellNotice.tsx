@@ -1,13 +1,14 @@
 "use client";
 
 import type { TierGateNotice } from "@/lib/rolefit/tierGate";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 
 // Bottom-of-screen tier-gate upsell pill (402 subscribe / 429 monthly allowance /
 // 409 daily review budget). Deliberately mirrors the Undo toast's dark pill + blue
 // action styling — NOT the red error pill — because a gate rejection is an upgrade
-// moment, not a failure. Plain <a href> matches the board's internal-link idiom
-// (see Header's /analytics link).
+// moment, not a failure. Shared actions preserve the same destinations while keeping
+// focus, pressed, and 44px target behavior consistent with the rest of the app.
 export function UpsellNotice({
   notice,
   marginTop,
@@ -21,6 +22,8 @@ export function UpsellNotice({
   return (
     <div
       data-testid="upsell-notice"
+      role="status"
+      aria-live="polite"
       style={{
         display: "flex",
         alignItems: "center",
@@ -33,44 +36,40 @@ export function UpsellNotice({
         boxShadow: "var(--shadow-toast)",
         fontSize: "13.5px",
         fontWeight: 600,
+        flexWrap: "wrap",
         // Unlike the one-word toasts, the message is a sentence or two — cap the pill
         // and let the text wrap instead of running off narrow viewports.
         maxWidth: "min(640px, calc(100vw - 32px))",
       }}
     >
-      <span>{notice.message}</span>
-      <a
+      <span style={{ minWidth: 0, overflowWrap: "anywhere", flex: "1 1 240px" }}>{notice.message}</span>
+      <ButtonLink
         href="/billing"
+        variant="text-link"
+        size="compact"
         style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "4px",
           fontWeight: 800,
           fontSize: "13px",
           color: "var(--toast-link)",
-          textDecoration: "none",
           whiteSpace: "nowrap",
           flexShrink: 0,
         }}
       >
         {notice.cta} <Icon name="arrow-right" size={16} />
-      </a>
-      <button
-        type="button"
+      </ButtonLink>
+      <Button
+        variant="ghost"
+        size="compact"
         onClick={onDismiss}
         style={{
           fontWeight: 800,
           fontSize: "13px",
           color: "var(--toast-muted)",
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          padding: 0,
           flexShrink: 0,
         }}
       >
         Dismiss
-      </button>
+      </Button>
     </div>
   );
 }

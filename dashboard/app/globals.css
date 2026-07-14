@@ -367,3 +367,15 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
    line needs a rule here because sonner's default muted gray is unreadable on
    the dark toast surface (--toast-bg). */
 [data-sonner-toast] [data-description] { color: #b9c3d4; }
+
+/* Honor the operating-system motion preference across both shared primitives and
+   older route-specific affordances. Keeping a single, final override prevents a
+   newly added transition from accidentally bypassing the reduced-motion contract. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

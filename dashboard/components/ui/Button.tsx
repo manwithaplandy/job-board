@@ -46,6 +46,7 @@ export function Button({
     >
       {loading && <span className="rf-button__spinner" aria-hidden="true" />}
       {children}
+      {loading && loadingLabel && <span className="sr-only" role="status" aria-label={loadingLabel}>{loadingLabel}</span>}
     </button>
   );
 }

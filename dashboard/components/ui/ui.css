@@ -49,6 +49,7 @@
   transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
 }
 .rf-icon-button:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-muted); }
+.rf-icon-button:active:not(:disabled) { transform: translateY(1px); }
 .rf-icon-button--sm { padding: 4px; }
 .rf-icon-button--md { padding: 0; }
 .rf-icon-button--danger { color: var(--danger); }
@@ -92,16 +93,18 @@
 .rf-file-upload__input:focus-visible + label { outline: none; box-shadow: 0 0 0 1px var(--focus-ring), 0 0 0 4px var(--focus-halo); }
 
 .rf-tabs { overflow-x: auto; }
-.rf-tabs__list { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); }
+.rf-tabs__list { min-width: max-content; display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); }
 .rf-tabs__item { min-height: var(--target-size); display: inline-flex; align-items: center; padding: 0 var(--space-3); border-bottom: 2px solid transparent; color: var(--text-secondary); text-decoration: none; white-space: nowrap; }
 .rf-tabs__item[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
 .rf-tabs__item--disabled { color: var(--text-muted); cursor: not-allowed; opacity: .65; }
 .rf-segments { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-muted); }
 .rf-segments__item { min-height: var(--target-size); padding: 0 var(--space-4); border: 0; border-radius: calc(var(--radius-control) - 3px); color: var(--text-secondary); background: transparent; font: inherit; cursor: pointer; }
 .rf-segments__item[aria-checked="true"] { color: var(--text-primary); background: var(--bg-surface); box-shadow: var(--shadow-toggle); }
+.rf-segments__item:active:not(:disabled) { transform: translateY(1px); }
 .rf-segments__item:disabled { color: var(--text-muted); cursor: not-allowed; opacity: .55; }
 .rf-back-link { min-height: var(--target-size); display: inline-flex; align-items: center; gap: var(--space-2); color: var(--accent); text-decoration: none; }
 .rf-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-6); }
+.rf-page-header__copy, .rf-page-header__actions { min-width: 0; }
 .rf-page-header h1 { margin: 0; font-size: var(--font-size-heading); line-height: 1.15; letter-spacing: -.02em; }
 .rf-page-header p { margin: var(--space-2) 0 0; color: var(--text-secondary); }
 .rf-page-header__eyebrow { margin-bottom: var(--space-2); color: var(--text-muted); font-size: var(--font-size-caption); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
@@ -153,6 +156,7 @@
 .rf-reading-content li { margin-bottom: var(--space-2); }
 
 .rf-alert { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-3) var(--space-4); color: var(--text-secondary); background: var(--bg-muted); font-size: var(--font-size-caption); line-height: 1.5; }
+.rf-alert__copy { min-width: 0; }
 .rf-alert--info { color: var(--accent); background: var(--accent-bg); border-color: var(--accent-border); }
 .rf-alert--success { color: var(--success); background: var(--success-bg); border-color: var(--success-border); }
 .rf-alert--warning { color: var(--warning); background: var(--warning-bg); border-color: var(--warning-border); }
@@ -165,7 +169,7 @@
 .rf-empty-state--compact { min-height: 88px; align-content: center; padding: var(--space-4); }
 .rf-empty-state--compact .rf-empty-state__title { color: var(--text-muted); font-size: var(--font-size-caption); font-weight: 600; }
 .rf-empty-state__title, .rf-error-state__title { margin: 0; color: var(--text-primary); font-size: 18px; line-height: 1.35; }
-.rf-empty-state__description, .rf-error-state__description { max-width: 52ch; line-height: 1.55; }
+.rf-empty-state__description, .rf-error-state__description { max-width: 52ch; line-height: 1.55; overflow-wrap: anywhere; }
 .rf-empty-state__action, .rf-error-state__action { margin-top: var(--space-2); display: flex; justify-content: center; gap: var(--space-3); flex-wrap: wrap; }
 .rf-error-state { border: 1px solid var(--danger-border); border-radius: var(--radius-card); background: var(--danger-bg); }
 .rf-error-state__title { color: var(--danger); }

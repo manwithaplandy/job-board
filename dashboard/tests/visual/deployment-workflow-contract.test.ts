@@ -12,12 +12,22 @@ const authenticatedWorkflowPath = path.join(
   repositoryRoot,
   ".github/workflows/authenticated-visual.yml",
 );
+const uiContractsPath = path.join(repositoryRoot, "docs/ui-contracts.md");
 
 function workflowStep(workflow: string, name: string): string {
   const start = workflow.indexOf(`- name: ${name}`);
   expect(start, `workflow step ${name}`).toBeGreaterThanOrEqual(0);
   const next = workflow.indexOf("\n      - name:", start + 1);
   return workflow.slice(start, next === -1 ? undefined : next);
+}
+
+function workflowJob(workflow: string, id: string): string {
+  const start = workflow.indexOf(`  ${id}:`);
+  expect(start, `workflow job ${id}`).toBeGreaterThanOrEqual(0);
+  const nextJob = /\n  [a-zA-Z0-9_-]+:\n/g;
+  nextJob.lastIndex = start + `  ${id}:`.length;
+  const next = nextJob.exec(workflow)?.index;
+  return workflow.slice(start, next);
 }
 
 describe("deployment-triggered authenticated visual workflow", () => {
@@ -30,17 +40,20 @@ describe("deployment-triggered authenticated visual workflow", () => {
   });
 
   test("uses only inert local infrastructure placeholders in ordinary dashboard CI", () => {
-    const dashboardJob = ordinaryCi.slice(ordinaryCi.indexOf("  dashboard:"));
+    const dashboardJob = workflowJob(ordinaryCi, "dashboard");
+    const publicVisualJob = workflowJob(ordinaryCi, "public-visual");
     const authenticatedWorkflow = readFileSync(authenticatedWorkflowPath, "utf8");
 
-    expect(dashboardJob).toContain(
-      "DATABASE_URL: postgresql://test:test@127.0.0.1:1/test",
-    );
-    expect(dashboardJob).toContain(
-      "NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1",
-    );
-    expect(dashboardJob).toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY: test");
-    expect(ordinaryCi.match(/^\s+DATABASE_URL:/gm)).toHaveLength(1);
+    for (const job of [dashboardJob, publicVisualJob]) {
+      expect(job).toContain(
+        "DATABASE_URL: postgresql://test:test@127.0.0.1:1/test",
+      );
+      expect(job).toContain(
+        "NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1",
+      );
+      expect(job).toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY: test");
+    }
+    expect(ordinaryCi.match(/^\s+DATABASE_URL:/gm)).toHaveLength(2);
     for (const variable of [
       "DATABASE_URL",
       "NEXT_PUBLIC_SUPABASE_URL",
@@ -50,19 +63,55 @@ describe("deployment-triggered authenticated visual workflow", () => {
     }
   });
 
-  test("runs established visual baselines on a pinned macOS runner and uploads diffs", () => {
-    const dashboardJob = ordinaryCi.slice(ordinaryCi.indexOf("  dashboard:"));
+  test("keeps platform-independent dashboard checks on Ubuntu", () => {
+    const dashboardJob = workflowJob(ordinaryCi, "dashboard");
+
+    expect(dashboardJob).toContain("name: Dashboard tests");
+    expect(dashboardJob).toContain("runs-on: ubuntu-latest");
+    expect(dashboardJob).toContain("run: npm run typecheck");
+    expect(dashboardJob).toContain("run: npm run lint");
+    expect(dashboardJob).toContain("run: npm test");
+    expect(dashboardJob).not.toContain("playwright install");
+    expect(dashboardJob).not.toContain("test:visual");
+  });
+
+  test("runs public visual baselines in a dedicated pinned macOS job and uploads diffs", () => {
+    const publicVisualJob = workflowJob(ordinaryCi, "public-visual");
     const upload = workflowStep(ordinaryCi, "Upload public visual failure evidence");
 
-    expect(dashboardJob).toContain("runs-on: macos-14");
-    expect(dashboardJob).not.toContain("runs-on: macos-latest");
-    expect(dashboardJob).toContain("run: npx playwright install chromium");
-    expect(dashboardJob).not.toContain("playwright install --with-deps");
+    expect(publicVisualJob).toContain("name: Public visual");
+    expect(publicVisualJob).toContain("runs-on: macos-14");
+    expect(publicVisualJob).not.toContain("runs-on: macos-latest");
+    expect(publicVisualJob).toContain("run: npx playwright install chromium");
+    expect(publicVisualJob).not.toContain("playwright install --with-deps");
+    expect(publicVisualJob).toContain("run: npm run test:visual:public");
+    expect(publicVisualJob).not.toContain("test:visual:authenticated");
     expect(upload).toContain("if: failure()");
     expect(upload).toContain("uses: actions/upload-artifact@v4");
     expect(upload).toContain("name: public-visual-results");
     expect(upload).toContain("dashboard/test-results/visual/**");
     expect(upload).toContain("!dashboard/test-results/visual/**/trace.zip");
+  });
+
+  test("runs deployment visuals on the canonical macOS baseline platform", () => {
+    const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
+    const job = workflowJob(workflow, "authenticated-visual");
+
+    expect(job).toContain("runs-on: macos-14");
+    expect(job).not.toContain("runs-on: macos-latest");
+    expect(job).toContain("run: npx playwright install chromium");
+    expect(job).not.toContain("playwright install --with-deps");
+  });
+
+  test("documents the canonical platform and reviewed baseline update procedure", () => {
+    const docs = readFileSync(uiContractsPath, "utf8");
+
+    expect(docs).toContain(
+      "The canonical screenshot baseline platform is GitHub Actions `macos-14`.",
+    );
+    expect(docs).toContain("Generate baseline updates on `macos-14`");
+    expect(docs).toContain("inspect every changed PNG");
+    expect(docs).toContain("Never loosen screenshot tolerances");
   });
 
   test("accepts only successful Vercel Preview deployment status events", () => {
@@ -208,6 +257,9 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(comparison).toContain("run: npm run test:visual:authenticated");
     expect(packageJson.scripts["test:visual:authenticated"]).toContain(
       "VISUAL_DISABLE_TRACE=1",
+    );
+    expect(packageJson.scripts["test:visual:authenticated"]).toContain(
+      "VISUAL_SCOPE=authenticated",
     );
     expect(packageJson.scripts["test:visual:authenticated"]).toContain("--no-deps");
     expect(comparison).not.toContain("--update-snapshots");

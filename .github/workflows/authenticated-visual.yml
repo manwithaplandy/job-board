@@ -14,7 +14,7 @@ jobs:
       github.event.deployment.environment == 'Preview' &&
       startsWith(github.event.deployment_status.environment_url, 'https://') &&
       contains(github.event.deployment_status.environment_url, '.vercel.app')
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     environment:
       name: visual-test
       url: ${{ github.event.deployment_status.environment_url }}
@@ -46,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Install visual regression browser
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Create authenticated sessions
         env:
           VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}

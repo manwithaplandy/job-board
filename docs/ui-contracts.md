@@ -42,6 +42,9 @@ provenance. Committed comparisons use a 0.5% maximum differing-pixel ratio and a
 per-pixel threshold; dynamic regions must use an explicit, reviewed mask instead of a
 broader global tolerance. Baselines in `tests/visual/__screenshots__` are committed.
 Traces, diff output, and HTML reports are disposable and ignored through `.gitignore`.
+The canonical screenshot baseline platform is GitHub Actions `macos-14`. Both public and
+authenticated CI comparisons run there so committed screenshots are never evaluated with
+an operating system's different font rasterizer.
 
 Commands:
 
@@ -89,3 +92,6 @@ deployment workflow. CI never updates snapshots automatically.
 Baseline changes are review artifacts: update only after intentional UI changes, inspect
 every changed PNG, and commit the PNGs with the implementation. Never use
 `--update-snapshots` merely to make a failing comparison green.
+Generate baseline updates on `macos-14` and download the candidates. Before committing,
+inspect every changed PNG and approve it through normal review. Never loosen screenshot tolerances
+to absorb a platform mismatch; investigate the runner or create separately reviewed baselines.

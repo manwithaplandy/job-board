@@ -7,6 +7,7 @@ import {
 import { VISUAL_ROUTES } from "./routes";
 
 const PUBLIC_ONLY = process.env.VISUAL_SCOPE === "public";
+const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
 const NORMAL_AUTH_STATE = PUBLIC_ONLY ? undefined : ESTABLISHED_STATE_PATH;
 const ONBOARDING_AUTH_STATE = PUBLIC_ONLY ? undefined : ONBOARDING_STATE_PATH;
 const THEMES = ["light", "dark"] as const;
@@ -76,6 +77,7 @@ for (const viewport of VIEWPORTS) {
           test.use({ storageState: route.access === "authenticated" ? (route.authState === "onboarding" ? ONBOARDING_AUTH_STATE : NORMAL_AUTH_STATE) : undefined });
           test(`${route.id}`, async ({ page }) => {
             test.skip(route.access === "authenticated" && PUBLIC_ONLY, "Explicit public-only screenshot subset.");
+            test.skip(route.access === "public" && AUTHENTICATED_ONLY, "Explicit authenticated-only screenshot subset.");
             await page.addInitScript((selectedTheme) => {
               localStorage.setItem("rolefit-theme", selectedTheme);
               document.documentElement.dataset.theme = selectedTheme;

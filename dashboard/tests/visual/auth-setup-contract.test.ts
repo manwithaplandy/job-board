@@ -95,7 +95,7 @@ describe("fresh visual authentication setup", () => {
       "PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test --project=auth-setup",
     );
     expect(pkg.scripts["test:visual:authenticated"]).toBe(
-      "VISUAL_DISABLE_TRACE=1 playwright test --project=visual --no-deps",
+      "VISUAL_SCOPE=authenticated VISUAL_DISABLE_TRACE=1 playwright test --project=visual --no-deps",
     );
     expect(pkg.scripts["test:visual:public"]).toBe(
       "VISUAL_SCOPE=public playwright test --project=visual --no-deps",
@@ -103,6 +103,22 @@ describe("fresh visual authentication setup", () => {
     expect(pkg.scripts["test:visual:update"]).toBe(
       "VISUAL_SCOPE=public playwright test --project=visual --no-deps --update-snapshots",
     );
+  });
+
+  test("selects disjoint public and authenticated route subsets", () => {
+    const spec = read("tests/visual/ui-cohesion.spec.ts");
+
+    expect(spec).toContain(
+      'const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated"',
+    );
+    expect(spec).toContain(
+      'route.access === "authenticated" && PUBLIC_ONLY',
+    );
+    expect(spec).toContain(
+      'route.access === "public" && AUTHENTICATED_ONLY',
+    );
+    expect(spec).toContain("Explicit public-only screenshot subset.");
+    expect(spec).toContain("Explicit authenticated-only screenshot subset.");
   });
 
   test("disables traces for credential-bearing runs but retains public failure traces", () => {

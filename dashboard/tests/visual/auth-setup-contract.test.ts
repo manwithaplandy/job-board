@@ -52,6 +52,9 @@ describe("fresh visual authentication setup", () => {
   test("defines setup and comparison projects without coupling public runs to setup", () => {
     const config = read("playwright.config.ts");
 
+    expect(config).toContain("baseURL,");
+    expect(config).toContain("process.env.VISUAL_BASE_URL ? undefined");
+    expect(config).toContain('url: `${baseURL}/privacy`');
     expect(config).toContain('name: "auth-setup"');
     expect(config).toMatch(/testMatch:\s*\/auth\\\.setup\\\.ts\//);
     expect(config).toMatch(

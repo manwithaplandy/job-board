@@ -29,6 +29,27 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(ordinaryCi).not.toContain("npm run test:visual\n");
   });
 
+  test("uses only inert local infrastructure placeholders in ordinary dashboard CI", () => {
+    const dashboardJob = ordinaryCi.slice(ordinaryCi.indexOf("  dashboard:"));
+    const authenticatedWorkflow = readFileSync(authenticatedWorkflowPath, "utf8");
+
+    expect(dashboardJob).toContain(
+      "DATABASE_URL: postgresql://test:test@127.0.0.1:1/test",
+    );
+    expect(dashboardJob).toContain(
+      "NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1",
+    );
+    expect(dashboardJob).toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY: test");
+    expect(ordinaryCi.match(/^\s+DATABASE_URL:/gm)).toHaveLength(1);
+    for (const variable of [
+      "DATABASE_URL",
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    ]) {
+      expect(authenticatedWorkflow).not.toContain(variable);
+    }
+  });
+
   test("accepts only successful Vercel Preview deployment status events", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     expect(workflow).toMatch(/on:\s*\n\s+deployment_status:/);

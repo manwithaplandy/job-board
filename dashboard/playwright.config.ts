@@ -39,7 +39,7 @@ export default defineConfig({
   ],
   webServer: process.env.VISUAL_BASE_URL ? undefined : {
     command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
-    url: baseURL,
+    url: `${baseURL}/privacy`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

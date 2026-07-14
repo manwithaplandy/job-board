@@ -1,0 +1,72 @@
+import { expect, test, type Page } from "@playwright/test";
+import { VISUAL_ROUTES } from "./routes";
+
+const AUTH_AVAILABLE = Boolean(process.env.VISUAL_AUTH_STATE_JSON);
+const PUBLIC_ONLY = process.env.VISUAL_SCOPE === "public";
+const THEMES = ["light", "dark"] as const;
+const VIEWPORTS = [
+  { id: "desktop", width: 1440, height: 1000 },
+  { id: "mobile", width: 390, height: 844 },
+] as const;
+
+async function assertRuntimeContracts(page: Page, authenticated: boolean) {
+  const runtime = await page.evaluate(() => {
+    const viewport = document.documentElement.clientWidth;
+    const visible = (element: Element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+    };
+    const defaultControls = [...document.querySelectorAll("button,input:not([type=hidden]),select,textarea")]
+      .filter(visible)
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        return style.fontFamily === "serif" || style.backgroundColor === "rgb(239, 239, 239)" || (element.tagName === "SELECT" && style.appearance === "auto");
+      }).map((element) => element.outerHTML.slice(0, 180));
+    const undersized = [...document.querySelectorAll("button,[role=button],[role=menuitem],[role=tab],[role=radio],input:not([type=hidden]),select,textarea,.rf-button,.rf-icon-button")]
+      .filter(visible)
+      // The 1px native file input delegates its focusable 44px hit target to the
+      // immediately following styled label (the documented FileUpload composite).
+      .filter((element) => !(element.matches(".rf-file-upload__input") && element.nextElementSibling?.matches("label.rf-button")))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width < 44 || rect.height < 44;
+      }).map((element) => ({ tag: element.tagName, className: element.getAttribute("class"), label: element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 50) }));
+    const rawSvgs = [...document.querySelectorAll("svg:not(.rf-icon)")].filter((element) => !element.closest("[data-fit-score-ring]"));
+    return {
+      viewport,
+      scrollWidth: document.documentElement.scrollWidth,
+      defaultControls,
+      undersized,
+      rawSvgCount: rawSvgs.length,
+      shellCount: document.querySelectorAll('[data-testid="app-shell"],.app-shell--board').length,
+    };
+  });
+  expect(runtime.scrollWidth, `document overflow: ${JSON.stringify(runtime)}`).toBeLessThanOrEqual(runtime.viewport);
+  expect(runtime.defaultControls, "browser-default controls").toEqual([]);
+  expect(runtime.undersized, "interactive targets under 44px").toEqual([]);
+  expect(runtime.rawSvgCount, "SVGs outside the internal icon/data-viz exceptions").toBe(0);
+  if (authenticated) expect(runtime.shellCount, "authenticated route shell").toBe(1);
+}
+
+for (const viewport of VIEWPORTS) {
+  for (const theme of THEMES) {
+    test.describe(`${viewport.id} ${theme}`, () => {
+      test.use({ viewport: { width: viewport.width, height: viewport.height }, colorScheme: theme });
+      for (const route of VISUAL_ROUTES) {
+        test(`${route.id}`, async ({ page }) => {
+          if (!PUBLIC_ONLY && !AUTH_AVAILABLE) throw new Error("Full visual coverage requires VISUAL_AUTH_STATE_JSON. Use npm run test:visual:public only for the explicit public CI subset.");
+          test.skip(route.access === "authenticated" && PUBLIC_ONLY, "Explicit public-only screenshot subset.");
+          await page.addInitScript((selectedTheme) => {
+            localStorage.setItem("rolefit-theme", selectedTheme);
+            document.documentElement.dataset.theme = selectedTheme;
+          }, theme);
+          await page.goto(route.path, { waitUntil: "networkidle" });
+          await expect(page.locator("body")).toBeVisible();
+          await assertRuntimeContracts(page, route.access === "authenticated");
+          await expect(page).toHaveScreenshot(`${route.id}-${viewport.id}-${theme}.png`, { fullPage: true });
+        });
+      }
+    });
+  }
+}

@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run",
+    "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
+    "test:ui-contract": "NODE_OPTIONS=--no-experimental-webstorage vitest run app/ui-contract.test.ts app/visual-regression-contract.test.ts",
+    "test:visual": "playwright test",
+    "test:visual:public": "VISUAL_SCOPE=public playwright test",
+    "test:visual:update": "VISUAL_SCOPE=public playwright test --update-snapshots",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },
@@ -29,6 +33,7 @@
     "unpdf": "^1.6.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^26.1.0",

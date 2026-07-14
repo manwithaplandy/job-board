@@ -4,6 +4,7 @@ import type { PipelineSnapshot, RunSeries } from "@/lib/metrics";
 import { GLOSSARY } from "@/lib/analyticsLabels";
 import { InfoTip } from "@/components/analytics/InfoTip";
 import { Card } from "@/components/ui/Panel";
+import { Icon } from "@/components/ui/Icon";
 
 const DAY_MS = 86_400_000;
 
@@ -64,7 +65,7 @@ function Delta({ current, prior, noun, spikeDay }: { current: number; prior: num
     <div style={{ fontSize: "11px", fontWeight: 700, color, marginTop: "5px" }}>
       {/* value+noun is one non-breaking unit so "found this week" never splits as "this / week" */}
       <span style={{ whiteSpace: "nowrap" }}>
-        {!spikeDay && <span aria-hidden="true">{up ? "▲" : "▼"} </span>}
+        {!spikeDay && <Icon name={up ? "chevron-up" : "chevron-down"} size={16} />}
         {current.toLocaleString()} {noun}
       </span>
       {spikeDay ? (

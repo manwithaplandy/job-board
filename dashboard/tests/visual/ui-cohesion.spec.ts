@@ -1,9 +1,23 @@
+import { existsSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import {
+  ESTABLISHED_STATE_PATH,
+  ONBOARDING_STATE_PATH,
+} from "./auth";
 import { VISUAL_ROUTES } from "./routes";
 
-const NORMAL_AUTH_STATE = process.env.VISUAL_AUTH_STATE_JSON ? JSON.parse(process.env.VISUAL_AUTH_STATE_JSON) : undefined;
-const ONBOARDING_AUTH_STATE = process.env.VISUAL_ONBOARDING_AUTH_STATE_JSON ? JSON.parse(process.env.VISUAL_ONBOARDING_AUTH_STATE_JSON) : undefined;
 const PUBLIC_ONLY = process.env.VISUAL_SCOPE === "public";
+if (
+  !PUBLIC_ONLY &&
+  (!existsSync(ESTABLISHED_STATE_PATH) || !existsSync(ONBOARDING_STATE_PATH))
+) {
+  throw new Error(
+    "Full visual coverage requires fresh established and onboarding state files. Run npm run test:visual:auth-setup first.",
+  );
+}
+
+const NORMAL_AUTH_STATE = PUBLIC_ONLY ? undefined : ESTABLISHED_STATE_PATH;
+const ONBOARDING_AUTH_STATE = PUBLIC_ONLY ? undefined : ONBOARDING_STATE_PATH;
 const THEMES = ["light", "dark"] as const;
 const VIEWPORTS = [
   { id: "desktop", width: 1440, height: 1000 },
@@ -59,7 +73,6 @@ for (const viewport of VIEWPORTS) {
         test.describe(route.id, () => {
           test.use({ storageState: route.access === "authenticated" ? (route.authState === "onboarding" ? ONBOARDING_AUTH_STATE : NORMAL_AUTH_STATE) : undefined });
           test(`${route.id}`, async ({ page }) => {
-            if (!PUBLIC_ONLY && (!NORMAL_AUTH_STATE || !ONBOARDING_AUTH_STATE)) throw new Error("Full visual coverage requires both VISUAL_AUTH_STATE_JSON and VISUAL_ONBOARDING_AUTH_STATE_JSON. Use npm run test:visual:public only for the explicit public CI subset.");
             test.skip(route.access === "authenticated" && PUBLIC_ONLY, "Explicit public-only screenshot subset.");
             await page.addInitScript((selectedTheme) => {
               localStorage.setItem("rolefit-theme", selectedTheme);

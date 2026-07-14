@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.VISUAL_BASE_URL ?? "http://127.0.0.1:3100";
+const publicOnly = process.env.VISUAL_SCOPE === "public";
 export default defineConfig({
   testDir: "./tests/visual",
   fullyParallel: false,
@@ -17,6 +18,18 @@ export default defineConfig({
     colorScheme: "light",
     trace: "retain-on-failure",
   },
+  projects: [
+    {
+      name: "auth-setup",
+      testMatch: /auth\.setup\.ts/,
+    },
+    {
+      name: "visual",
+      testMatch: /\.spec\.ts/,
+      testIgnore: /auth\.setup\.ts/,
+      dependencies: publicOnly ? [] : ["auth-setup"],
+    },
+  ],
   webServer: process.env.VISUAL_BASE_URL ? undefined : {
     command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
     url: baseURL,

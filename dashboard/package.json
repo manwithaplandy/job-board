@@ -9,8 +9,10 @@
     "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
     "test:ui-contract": "NODE_OPTIONS=--no-experimental-webstorage vitest run app/ui-contract.test.ts app/visual-regression-contract.test.ts",
     "test:visual": "playwright test",
-    "test:visual:public": "VISUAL_SCOPE=public playwright test",
-    "test:visual:update": "VISUAL_SCOPE=public playwright test --update-snapshots",
+    "test:visual:auth-setup": "playwright test --project=auth-setup",
+    "test:visual:authenticated": "playwright test --project=visual --no-deps",
+    "test:visual:public": "VISUAL_SCOPE=public playwright test --project=visual --no-deps",
+    "test:visual:update": "VISUAL_SCOPE=public playwright test --project=visual --no-deps --update-snapshots",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },

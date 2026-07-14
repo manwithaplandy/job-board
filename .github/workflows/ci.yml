@@ -52,7 +52,7 @@ jobs:
 
   dashboard:
     name: Dashboard tests
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     env:
       DATABASE_URL: postgresql://test:test@127.0.0.1:1/test
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1
@@ -76,6 +76,16 @@ jobs:
       - name: Run tests
         run: npm test
       - name: Install visual regression browser
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Run public visual regression gate
         run: npm run test:visual:public
+      - name: Upload public visual failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-visual-results
+          path: |
+            dashboard/test-results/visual/**
+            !dashboard/test-results/visual/**/trace.zip
+          if-no-files-found: ignore
+          retention-days: 7

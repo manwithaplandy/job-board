@@ -50,6 +50,21 @@ describe("deployment-triggered authenticated visual workflow", () => {
     }
   });
 
+  test("runs established visual baselines on a pinned macOS runner and uploads diffs", () => {
+    const dashboardJob = ordinaryCi.slice(ordinaryCi.indexOf("  dashboard:"));
+    const upload = workflowStep(ordinaryCi, "Upload public visual failure evidence");
+
+    expect(dashboardJob).toContain("runs-on: macos-14");
+    expect(dashboardJob).not.toContain("runs-on: macos-latest");
+    expect(dashboardJob).toContain("run: npx playwright install chromium");
+    expect(dashboardJob).not.toContain("playwright install --with-deps");
+    expect(upload).toContain("if: failure()");
+    expect(upload).toContain("uses: actions/upload-artifact@v4");
+    expect(upload).toContain("name: public-visual-results");
+    expect(upload).toContain("dashboard/test-results/visual/**");
+    expect(upload).toContain("!dashboard/test-results/visual/**/trace.zip");
+  });
+
   test("accepts only successful Vercel Preview deployment status events", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     expect(workflow).toMatch(/on:\s*\n\s+deployment_status:/);

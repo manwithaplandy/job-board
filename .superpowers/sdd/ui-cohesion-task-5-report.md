@@ -68,3 +68,54 @@ This worker has no browser backend. The root controller must capture light/dark 
 ## Concern
 
 Live screenshots and interaction measurements remain outstanding because browser access is controller-owned. All source, focused/full tests, typecheck, lint, production build, and diff checks are green; the independent adversarial browser/code reviewer must gate the phase before Phase 6 begins.
+
+---
+
+## Adversarial review fixes — 390px controls, popup containment, and target sizing
+
+Implementation commit: `368080a` (`fix(board): resolve responsive review findings`)
+
+The independent reviewer held the phase at 0 Critical, 3 Important, and 2 Minor. The implementation resolves all Important findings and the selection-treatment Minor:
+
+- Added reusable wrapping action groups to the generated résumé, résumé-score, and cover-letter editor surfaces. Score rows now use a bounded desktop grid and collapse to a label plus five 44px columns below 520px; action/status rows wrap and allow their children to shrink.
+- Replaced DOM-parity (`nth-child`) popup translation with explicit desktop/mobile start/end anchors on every FilterMenu. Sort is explicitly end-anchored on desktop and start-anchored on mobile; Pay/Location are explicitly end-anchored in their mobile right column.
+- Added `rf-board-filter-option rf-focusable` to all six option families, with a shared `min-height: var(--target-size)`, visible hover treatment, and the existing focus ring/roving-focus behavior.
+- Removed the redundant vertical fit rail. Fit remains in the numeric badge, while the selected card retains one accent inset edge and `aria-pressed` state.
+- Strengthened the phase regression suite to encode the fixed-width score contributors, wrapping action groups, explicit popup anchors, absence of parity transforms, 44px targets, and singular selection signal.
+
+### Review-fix RED
+
+```text
+npm test -- components/rolefit/BoardWorkspaceDesign.test.tsx components/rolefit/JobCard.test.tsx
+
+Test Files  2 failed (2)
+Tests       5 failed | 4 passed (9)
+```
+
+### Review-fix GREEN and verification
+
+```text
+npm test -- components/rolefit/BoardWorkspaceDesign.test.tsx \
+  components/rolefit/JobCard.test.tsx \
+  components/rolefit/ApplicationPanel.test.tsx \
+  components/rolefit/CoverLetterEditor.test.tsx \
+  components/rolefit/JobDetail.test.tsx \
+  components/rolefit/RolefitBoard.test.tsx
+
+Test Files  6 passed (6)
+Tests       28 passed (28)
+```
+
+```text
+NODE_OPTIONS=--localstorage-file=/tmp/job-board-vitest-phase5-review npm test
+
+Test Files  169 passed | 2 skipped (171)
+Tests       1253 passed | 6 skipped (1259)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- Production build with the non-secret build-time database placeholder and approved Google-font network access: passed; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.
+
+Root's pre-fix deployed measurement was Sort `left=-103.5`, `right=84.5`, width `188`, with 36–37px option heights at 390px. The committed implementation now expresses the intended acceptance geometry—every open listbox inside `[0, 390]` and every option at least 44px—but the controller/reviewer must remeasure the deployed fix before clearing the browser gate.

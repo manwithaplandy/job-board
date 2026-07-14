@@ -4,7 +4,7 @@
 
 `DONE_WITH_CONCERNS`
 
-Implementation commit: pending at report creation (`refactor(ui): unify entry and system states`)
+Implementation commit: `ad6cd42` (`refactor(ui): unify entry and system states`)
 
 ## Scope delivered
 

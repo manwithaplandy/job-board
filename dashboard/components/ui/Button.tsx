@@ -35,19 +35,26 @@ export function Button({
   "aria-busy": consumerBusy,
   ...props
 }: ButtonProps) {
+  const announcedLoadingLabel = loadingLabel ?? accessibleLabel ?? "Loading";
   return (
-    <button
-      {...props}
-      type={type}
-      className={buttonClasses(variant, size, className)}
-      disabled={disabled || loading}
-      aria-busy={loading ? true : consumerBusy}
-      aria-label={loading ? loadingLabel ?? accessibleLabel ?? "Loading" : accessibleLabel}
-    >
-      {loading && <span className="rf-button__spinner" aria-hidden="true" />}
-      {children}
-      {loading && loadingLabel && <span className="sr-only" role="status" aria-label={loadingLabel}>{loadingLabel}</span>}
-    </button>
+    <>
+      <button
+        {...props}
+        type={type}
+        className={buttonClasses(variant, size, className)}
+        disabled={disabled || loading}
+        aria-busy={loading ? true : consumerBusy}
+        aria-label={loading ? announcedLoadingLabel : accessibleLabel}
+      >
+        {loading && <span className="rf-button__spinner" aria-hidden="true" />}
+        {children}
+      </button>
+      {loadingLabel && (
+        <span className="sr-only rf-button__status" role="status" aria-live="polite" aria-atomic="true">
+          {loading ? announcedLoadingLabel : ""}
+        </span>
+      )}
+    </>
   );
 }
 

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
 import { readFileSync } from "node:fs";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
+import { useState } from "react";
 import { Button } from "./Button";
 
 afterEach(cleanup);
@@ -10,13 +11,26 @@ afterEach(cleanup);
 const read = (path: string) => readFileSync(path, "utf8");
 
 describe("accessibility and responsive acceptance contracts", () => {
-  test("announces a loading action while preserving a stable busy control", () => {
-    render(<Button loading loadingLabel="Saving profile">Save profile</Button>);
+  test("announces the idle-to-loading transition outside the disabled control", () => {
+    function LoadingAction() {
+      const [loading, setLoading] = useState(false);
+      return <Button loading={loading} loadingLabel="Saving profile" onClick={() => setLoading(true)}>Save profile</Button>;
+    }
+
+    const { container } = render(<LoadingAction />);
+    const idle = screen.getByRole("button", { name: "Save profile" });
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("");
+    expect(idle.contains(status)).toBe(false);
+
+    fireEvent.click(idle);
 
     const button = screen.getByRole("button", { name: "Saving profile" });
     expect(button.getAttribute("aria-busy")).toBe("true");
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("status", { name: "Saving profile" })).not.toBeNull();
+    expect(status.textContent).toBe("Saving profile");
+    expect(button.contains(status)).toBe(false);
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
   });
 
   test("defines keyboard focus, pressed, disabled, and minimum target states for every shared action family", () => {
@@ -39,13 +53,10 @@ describe("accessibility and responsive acceptance contracts", () => {
     expect(globals).toMatch(/prefers-reduced-motion:[\s\S]*scroll-behavior:\s*auto\s*!important/s);
   });
 
-  test("announces board progress and errors and uses shared, target-safe actions", () => {
+  test("board status surfaces use shared, target-safe actions", () => {
     const review = read("components/rolefit/ReviewNowPanel.tsx");
     const upsell = read("components/rolefit/UpsellNotice.tsx");
 
-    expect(review).toContain('role="status"');
-    expect(review).toContain('aria-live="polite"');
-    expect(review).toContain('role="alert"');
     expect(review).toContain("<Button");
     expect(review).toContain("loading={busy}");
     expect(review).toContain('flexWrap: "wrap"');

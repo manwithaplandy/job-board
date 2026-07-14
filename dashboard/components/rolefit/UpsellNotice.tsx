@@ -22,8 +22,6 @@ export function UpsellNotice({
   return (
     <div
       data-testid="upsell-notice"
-      role="status"
-      aria-live="polite"
       style={{
         display: "flex",
         alignItems: "center",
@@ -42,7 +40,7 @@ export function UpsellNotice({
         maxWidth: "min(640px, calc(100vw - 32px))",
       }}
     >
-      <span style={{ minWidth: 0, overflowWrap: "anywhere", flex: "1 1 240px" }}>{notice.message}</span>
+      <span role="status" aria-live="polite" style={{ minWidth: 0, overflowWrap: "anywhere", flex: "1 1 240px" }}>{notice.message}</span>
       <ButtonLink
         href="/billing"
         variant="text-link"

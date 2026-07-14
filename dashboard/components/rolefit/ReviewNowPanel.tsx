@@ -158,7 +158,7 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
   if (!firstRun) return null;
 
   return (
-    <div style={cardStyle} role="status" aria-live="polite">
+    <div style={cardStyle}>
       <span style={dot(status === "failed" ? "var(--danger)" : "var(--accent)")} aria-hidden="true" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--text-primary)" }}>
@@ -168,12 +168,12 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
           {status === "failed"
             ? "The last review didn't finish. You can start another below."
             : "Run an AI review now to score the open roles against your profile, or wait for the next scheduled pass."}
-          {remaining != null && ` · ${remaining.toLocaleString()} reviews left in today's budget.`}
+          {remaining != null && <> · <span role="status" aria-live="polite">{remaining.toLocaleString()} reviews left in today&apos;s budget.</span></>}
         </div>
         {error && <div role="alert" style={{ fontSize: "12px", color: "var(--danger)", marginTop: "4px" }}>{error}</div>}
         {gate && (
           <div style={{ fontSize: "12px", color: "var(--text-primary)", marginTop: "4px" }}>
-            {gate.message}{" "}
+            <span role="status" aria-live="polite">{gate.message}</span>{" "}
             <ButtonLink href="/billing" variant="text-link" size="compact" style={{ gap: "4px", fontWeight: 700 }}>
               {gate.cta} <Icon name="arrow-right" size={16} />
             </ButtonLink>

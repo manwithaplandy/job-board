@@ -1262,20 +1262,12 @@ export function RolefitBoard({
       )}
 
       {/* Split pane — left: job list; right: detail */}
-      <div style={{ flex: 1, display: "flex", minHeight: isNarrow ? undefined : 0 }}>
+      <div className="rf-board-workspace" data-mode={isNarrow ? (selectedId ? "detail" : "list") : "split"}>
         {/* List pane */}
         {(!isNarrow || !selectedId) && (
           <div
             ref={listScrollRef}
-            className={isNarrow ? undefined : "rf-scroll"}
-            style={{
-              flex: isNarrow ? undefined : "0 0 426px",
-              width: isNarrow ? "100%" : undefined,
-              overflowY: isNarrow ? undefined : "auto",
-              background: "var(--bg-page)",
-              borderRight: isNarrow ? "none" : "1px solid var(--border)",
-              padding: "13px 2px 24px",
-            }}
+            className="rf-board-list-pane rf-scroll"
           >
             <JobList
               jobs={visibleWithCorrections}
@@ -1304,8 +1296,7 @@ export function RolefitBoard({
             // Programmatically focusable (not in the Tab order) so the selection-change
             // effect can return focus here after an auto-advance remount (see above).
             tabIndex={-1}
-            className={isNarrow ? undefined : "rf-scroll"}
-            style={{ flex: 1, overflowY: isNarrow ? undefined : "auto", background: "var(--bg-surface)", minWidth: 0, outline: "none" }}
+            className="rf-board-detail-pane rf-scroll"
           >
             {selectedJobWithDetail ? (
               <>
@@ -1314,21 +1305,8 @@ export function RolefitBoard({
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="rf-board-mobile-back"
                     onClick={() => setSelectedId(null)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "7px",
-                      margin: "16px 16px 0",
-                      fontWeight: 700,
-                      fontSize: "13px",
-                      color: "var(--accent)",
-                      background: "var(--accent-bg)",
-                      border: "1px solid var(--accent-border)",
-                      borderRadius: "9px",
-                      padding: "8px 14px",
-                      cursor: "pointer",
-                    }}
                   >
                     <Icon name="arrow-left" size={16} /> Back
                   </Button>

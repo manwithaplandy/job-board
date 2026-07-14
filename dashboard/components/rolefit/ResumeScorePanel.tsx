@@ -7,6 +7,7 @@ import { resumeChecks } from "@/lib/rolefit/resumeChecks";
 import { resumeOverall } from "@/lib/rolefit/resumeScore";
 import { saveResumeScore } from "@/app/actions/resumeScores";
 import { Icon } from "@/components/ui/Icon";
+import { Button } from "@/components/ui/Button";
 
 export interface ResumeScorePanelProps {
   job: JobRow;
@@ -51,20 +52,22 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px" }}>
       <span style={{ width: "150px", fontSize: "12.5px", fontWeight: 700, color: "var(--text-primary)" }}>{label}</span>
       {DIMS.map((n) => (
-        <button
+        <Button
           key={n}
           type="button"
+          variant={value === n ? "secondary" : "outline"}
+          size="compact"
+          aria-pressed={value === n}
           onClick={() => set(n)}
           style={{
-            width: "30px", height: "30px", borderRadius: "8px", cursor: "pointer",
-            fontWeight: 700, fontSize: "13px",
+            width: "44px", padding: 0,
             border: value === n ? "2px solid var(--accent)" : "1px solid var(--border)",
             background: value === n ? "var(--accent-bg)" : "var(--bg-surface)",
             color: value === n ? "var(--accent-hover)" : "var(--text-secondary)",
           }}
         >
           {n}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -72,8 +75,10 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
   return (
     <div style={{ marginTop: "13px", borderTop: "1px dashed var(--border)", paddingTop: "13px" }}>
       {!open ? (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="compact"
           onClick={() => setOpen(true)}
           style={{
             display: "inline-flex", alignItems: "center", gap: "6px",
@@ -82,7 +87,7 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
           }}
         >
           <Icon name="star" size={16} /> Score résumé
-        </button>
+        </Button>
       ) : (
         <div>
           <div style={{ fontWeight: 800, fontSize: "13px", color: "var(--text-primary)" }}>
@@ -128,28 +133,20 @@ export function ResumeScorePanel({ job, resume, isAuthed }: ResumeScorePanelProp
           />
 
           <div style={{ display: "flex", gap: "9px", marginTop: "10px", alignItems: "center" }}>
-            <button
+            <Button
               type="button"
               onClick={onSave}
               disabled={!canSave}
-              style={{
-                fontWeight: 700, fontSize: "13px", color: "var(--text-on-accent)",
-                background: canSave ? "var(--accent)" : "var(--accent-border)", border: "none", borderRadius: "9px",
-                padding: "9px 16px", cursor: canSave ? "pointer" : "not-allowed",
-              }}
             >
               {saving ? "Saving…" : "Save score"}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="outline"
               onClick={() => { setOpen(false); setStatus(null); }}
-              style={{
-                fontWeight: 700, fontSize: "13px", color: "var(--text-secondary)", background: "var(--bg-surface)",
-                border: "1px solid var(--border)", borderRadius: "9px", padding: "9px 14px", cursor: "pointer",
-              }}
             >
               Cancel
-            </button>
+            </Button>
             {status && (
               <span style={{ fontSize: "12px", fontWeight: 600, color: status.ok ? "var(--success)" : "var(--danger)" }}>
                 {status.text}

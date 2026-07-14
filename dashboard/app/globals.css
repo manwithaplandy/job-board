@@ -1,5 +1,6 @@
 @import "../components/ui/ui.css";
 @import "../components/shell/shell.css";
+@import "../components/rolefit/board.css";
 
 /* Theme tokens. :root holds the light defaults; :root[data-theme="dark"] overrides
    them. Every color across the app resolves to one of these var(--token) names, so a

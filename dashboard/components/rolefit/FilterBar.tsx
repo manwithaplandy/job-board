@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { atsLabel } from "@/lib/rolefit/ats";
 import { Icon } from "@/components/ui/Icon";
+import { SegmentedControl } from "@/components/ui/Navigation";
 
 // Static filter definitions — mirrored from reference design renderVals()
 const PAY_DEFS: [number, string][] = [
@@ -146,6 +147,7 @@ function FilterMenu({
         onClick={() => onToggle(name)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        className="rf-board-filter-trigger rf-focusable"
         onKeyDown={(e) => {
           if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
             e.preventDefault();
@@ -297,20 +299,8 @@ export function FilterBar({
   const caret = <Icon name="chevron-down" size={16} />;
 
   return (
-    <div
-      style={{
-        flex: "0 0 auto",
-        display: "flex",
-        alignItems: "center",
-        gap: "9px",
-        padding: "10px 22px",
-        background: "var(--bg-surface)",
-        borderBottom: "1px solid var(--border)",
-        flexWrap: "wrap",
-        zIndex: 15,
-        position: "relative",
-      }}
-    >
+    <div className="rf-board-filters">
+      <div className="rf-board-filter-strip">
       {/* Category */}
       <FilterMenu
         name="category"
@@ -567,122 +557,41 @@ export function FilterBar({
       </FilterMenu>
 
       {/* Remote segmented toggle */}
-      <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", marginLeft: "4px" }}>
-        <span
-          style={{
-            fontSize: "11.5px",
-            color: "var(--text-secondary)",
-            fontWeight: 700,
-            letterSpacing: ".2px",
-          }}
-        >
-          REMOTE
-        </span>
-        <div
-          role="group"
-          aria-label="Remote filter"
-          style={{
-            display: "inline-flex",
-            background: "var(--bg-muted)",
-            borderRadius: "9px",
-            padding: "2px",
-          }}
-        >
-          {REMOTE_DEFS.map(([v, label]) => {
-            const on = remote === v;
-            return (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={on}
-                onClick={() => onSetRemote(v)}
-                style={{
-                  border: "none",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: "12px",
-                  padding: "5px 11px",
-                  borderRadius: "7px",
-                  background: on ? "var(--bg-surface)" : "transparent",
-                  // Inactive label sits on the --bg-muted track, where --text-muted is only 4.18:1
-                  // in light; --text-secondary (5.28:1) clears AA — hence the off arm below.
-                  color: on ? "var(--text-primary)" : "var(--text-secondary)",
-                  // One-off toggle-knob elevation (unique geometry, no shared token); reads weakly
-                  // on dark — a dark-mode deepening is deferred to the later visual pass.
-                  boxShadow: on ? "0 1px 3px rgba(20,28,40,.12)" : "none",
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+      <div className="rf-board-filter-group">
+        <span className="rf-board-filter-label">Remote</span>
+        <SegmentedControl
+          label="Remote filter"
+          items={REMOTE_DEFS.map(([value, label]) => ({ value, label }))}
+          value={remote}
+          onChange={(value) => onSetRemote(value as BoardFilterState["remote"])}
+          className="rf-board-filter-segments"
+        />
       </div>
 
       {/* Applied/Rejected view toggles */}
       {onToggleView && (
-        <>
-          <button
-            type="button"
-            aria-pressed={view === "applied"}
-            onClick={() => onToggleView(view === "applied" ? "all" : "applied")}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "7px",
-              fontWeight: 600,
-              fontSize: "12.5px",
-              color: view === "applied" ? "var(--success)" : "var(--text-primary)",
-              background: view === "applied" ? "var(--success-bg)" : "var(--bg-surface)",
-              border: `1px solid ${view === "applied" ? "var(--success-border)" : "var(--border)"}`,
-              borderRadius: "9px",
-              padding: "7px 11px",
-              cursor: "pointer",
-            }}
-          >
-            Applied{appliedCount ? ` · ${appliedCount}` : ""}
-          </button>
-          {(rejectedCount ?? 0) > 0 && (
-            <button
-              type="button"
-              aria-pressed={view === "rejected"}
-              onClick={() => onToggleView(view === "rejected" ? "all" : "rejected")}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "7px",
-                fontWeight: 600,
-                fontSize: "12.5px",
-                color: view === "rejected" ? "var(--danger)" : "var(--text-primary)",
-                background: view === "rejected" ? "var(--danger-bg)" : "var(--bg-surface)",
-                border: `1px solid ${view === "rejected" ? "var(--danger-border)" : "var(--border)"}`,
-                borderRadius: "9px",
-                padding: "7px 11px",
-                cursor: "pointer",
-              }}
-            >
-              Rejected · {rejectedCount}
-            </button>
-          )}
-        </>
+        <SegmentedControl
+          label="Job status view"
+          value={view ?? "all"}
+          onChange={(value) => onToggleView(value as "all" | "applied" | "rejected")}
+          items={[
+            { value: "all", label: "Active" },
+            { value: "applied", label: `Applied${appliedCount ? ` · ${appliedCount}` : ""}` },
+            ...((rejectedCount ?? 0) > 0
+              ? [{ value: "rejected", label: `Rejected · ${rejectedCount}` }]
+              : []),
+          ]}
+          className="rf-board-view-segments"
+        />
       )}
 
-      <div style={{ flex: 1 }} />
+      <div className="rf-board-filter-spacer" />
 
       {/* Result count — fixed, right-aligned slot so its width is constant regardless of the
           digit counts. Toggling Applied/Rejected changes totalInView (e.g. "247 of 6382" →
           "3 of 12"); without a reserved width that shifted the flex-wrap point and made the
           Sort control jump between rows. 128px comfortably fits "6382 of 6382 roles". */}
-      <div
-        style={{
-          fontSize: "12.5px",
-          color: "var(--text-secondary)",
-          fontWeight: 700,
-          whiteSpace: "nowrap",
-          minWidth: "128px",
-          textAlign: "right",
-        }}
-      >
+      <div className="rf-board-result-count" role="status" aria-live="polite">
         {visibleCount} of {totalInView} roles
       </div>
 
@@ -739,6 +648,7 @@ export function FilterBar({
           );
         })}
       </FilterMenu>
+      </div>
     </div>
   );
 }

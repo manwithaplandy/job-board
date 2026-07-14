@@ -135,7 +135,7 @@ export function ReviewPanel({
   const skillGaps = job.skill_gaps ?? [];
 
   return (
-    <Panel style={{ marginTop: "18px" }}>
+    <Panel className="rf-review-panel" style={{ marginTop: "18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
         <span
           style={{

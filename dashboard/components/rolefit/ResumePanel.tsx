@@ -90,7 +90,7 @@ export function ResumePanel({
   };
 
   return (
-    <Panel style={{ marginTop: "24px", padding: 0, overflow: "hidden" }}>
+    <Panel className="rf-generation-panel" style={{ marginTop: "24px", padding: 0, overflow: "hidden" }}>
       {/* ── Anon: sign-in prompt ── */}
       {isAuthed === false && isIdle && (
         <div
@@ -228,23 +228,14 @@ export function ResumePanel({
             </div>
           </div>
           {onCancelGeneration && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={onCancelGeneration}
-              style={{
-                flex: "0 0 auto",
-                fontWeight: 700,
-                fontSize: "12.5px",
-                color: "var(--text-secondary)",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "9px",
-                padding: "8px 14px",
-                cursor: "pointer",
-              }}
             >
               Cancel
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -333,64 +324,28 @@ export function ResumePanel({
             </div>
           </div>
           <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
-            <button
+            <Button
+              type="button"
               onClick={handleDownload}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                fontWeight: 700,
-                fontSize: "13.5px",
-                color: "var(--text-on-accent)",
-                background: "var(--accent)",
-                border: "none",
-                borderRadius: "10px",
-                padding: "10px 17px",
-                cursor: "pointer",
-                boxShadow: "var(--shadow-accent-md)",
-              }}
             >
               <Icon name="download" size={16} />Download PDF
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               onClick={onCopy}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "7px",
-                fontWeight: 700,
-                fontSize: "13.5px",
-                color: "var(--text-secondary)",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "10px",
-                padding: "10px 15px",
-                cursor: "pointer",
-              }}
             >
               <Icon name="copy" size={16} />
               <span aria-live="polite">{copyLabel}</span>
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               onClick={onRegenerate}
               disabled={generating}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "7px",
-                fontWeight: 700,
-                fontSize: "13.5px",
-                color: "var(--text-secondary)",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "10px",
-                padding: "10px 15px",
-                cursor: generating ? "not-allowed" : "pointer",
-                opacity: generating ? 0.6 : 1,
-              }}
             >
               <Icon name="refresh" size={16} />Regenerate
-            </button>
+            </Button>
           </div>
           <GenerationInstructions
             value={instructions}

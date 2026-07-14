@@ -204,18 +204,6 @@ export function ApplicationPanel({
     );
   };
 
-  const cancelBtnStyle: React.CSSProperties = {
-    flex: "0 0 auto",
-    fontWeight: 700,
-    fontSize: "12.5px",
-    color: "var(--text-secondary)",
-    background: "var(--bg-surface)",
-    border: "1px solid var(--border)",
-    borderRadius: "9px",
-    padding: "8px 14px",
-    cursor: "pointer",
-  };
-
   // The external Apply link must be an <a>, so it can't be a <Button>; instead it mirrors
   // <Button>'s primary md tokens. Apply is the panel's primary CTA at ALL times —
   // supersedes #10's prepared-based swap, whose pre-prepare surface/outline state left
@@ -252,6 +240,7 @@ export function ApplicationPanel({
     <div style={{ marginTop: "24px" }}>
       {/* ── Header: title + prepare + apply ── */}
       <Panel
+        className="rf-generation-panel"
         style={{
           display: "flex",
           alignItems: "center",
@@ -332,25 +321,16 @@ export function ApplicationPanel({
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
             {failedLegs.map((leg) => (
-              <button
+              <Button
                 key={leg.key}
                 type="button"
+                variant="outline"
+                size="compact"
                 onClick={leg.onRetry}
                 disabled={generating}
-                style={{
-                  fontWeight: 700,
-                  fontSize: "12.5px",
-                  color: "var(--danger)",
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--danger-border)",
-                  borderRadius: "9px",
-                  padding: "7px 13px",
-                  cursor: generating ? "not-allowed" : "pointer",
-                  opacity: generating ? 0.6 : 1,
-                }}
               >
                 Retry {leg.label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -380,7 +360,7 @@ export function ApplicationPanel({
       />
 
       {/* ── Cover letter ── */}
-      <Panel style={{ marginTop: "18px", padding: 0, overflow: "hidden" }}>
+      <Panel className="rf-generation-panel" style={{ marginTop: "18px", padding: 0, overflow: "hidden" }}>
         {/* Idle (authed) */}
         {isAuthed && coverIdle && (
           <div
@@ -494,9 +474,9 @@ export function ApplicationPanel({
               </div>
             </div>
             {onCancelGeneration && (
-              <button type="button" onClick={onCancelGeneration} style={cancelBtnStyle}>
+              <Button type="button" variant="outline" size="sm" onClick={onCancelGeneration}>
                 Cancel
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -666,12 +646,14 @@ export function ApplicationPanel({
 
       {/* ── Greenhouse application questions (this posting's real form) ── */}
       {isAuthed && (hasGreenhouse || coverRequested) && (
-        <Panel style={{ marginTop: "18px", padding: "17px 19px" }}>
+        <Panel className="rf-generation-panel" style={{ marginTop: "18px", padding: "17px 19px" }}>
           {/* Collapsed by default: a header/toggle carrying the question count + a
               "cover letter requested" flag. Apply stays the top CTA; the operator opens
               the questions on demand. */}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            className="rf-generation-panel__disclosure"
             onClick={() => setQuestionsOpen((v) => !v)}
             aria-expanded={questionsOpen}
             style={{
@@ -714,7 +696,7 @@ export function ApplicationPanel({
                 .join(" · ")}
               {ghRows.length > 0 ? ` · ${questionsOpen ? "Hide" : "Show"}` : ""}
             </div>
-          </button>
+          </Button>
 
           {/* Only the text-answerable questions expand; a cover-letter-only posting has an
               empty ghRows, so the panel is just the summary flag. */}
@@ -770,25 +752,15 @@ export function ApplicationPanel({
                     </span>
                   )}
                   {row.answer != null && (
-                    <button
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="compact"
                       onClick={() => flashCopied(row.key, row.answer as string)}
-                      style={{
-                        flex: "0 0 auto",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        fontWeight: 700,
-                        fontSize: "12px",
-                        color: copiedKey === row.key ? "var(--success)" : "var(--text-secondary)",
-                        background: "var(--bg-surface)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "8px",
-                        padding: "6px 11px",
-                        cursor: "pointer",
-                      }}
+                      style={{ color: copiedKey === row.key ? "var(--success)" : undefined }}
                     >
                       <span aria-live="polite">{copiedKey === row.key ? "Copied!" : "Copy"}</span>
-                    </button>
+                    </Button>
                   )}
                 </div>
                 {row.answer != null ? (

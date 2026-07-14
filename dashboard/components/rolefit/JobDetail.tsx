@@ -12,7 +12,7 @@ import { displayEnumLabel } from "@/lib/rolefit/taxonomy";
 import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
 import { ReviewPanel } from "./ReviewPanel";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Icon } from "@/components/ui/Icon";
 
@@ -21,28 +21,16 @@ import { Icon } from "@/components/ui/Icon";
 // Application panel); reviewed roles apply via "Apply on {provider}" in the panel.
 function ApplyButton({ url }: { url: string }) {
   return (
-    <a
+    <ButtonLink
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        fontWeight: 700,
-        fontSize: "13px",
-        color: "var(--text-on-accent)",
-        background: "var(--accent)",
-        border: "1px solid var(--accent)",
-        borderRadius: "9px",
-        padding: "8px 18px",
-        textDecoration: "none",
-        cursor: "pointer",
-      }}
+      variant="primary"
+      size="sm"
     >
       Apply
-      <span aria-hidden="true">↗</span>
-    </a>
+      <Icon name="arrow-right" size={16} />
+    </ButtonLink>
   );
 }
 
@@ -206,7 +194,7 @@ export function JobDetail({
   const [showJD, setShowJD] = useState(false);
 
   return (
-    <div style={{ maxWidth: "880px", margin: "0 auto", padding: "30px 36px 70px" }}>
+    <div className="rf-job-detail" style={{ maxWidth: "880px", margin: "0 auto", padding: "30px 36px 70px" }}>
 
       {/* ── HEADER ── */}
       <div style={{ display: "flex", gap: "18px", alignItems: "flex-start" }}>
@@ -398,6 +386,7 @@ export function JobDetail({
       {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
       {hasReview && (job.human_override || isRejected || applied || (isAuthed && job.verdict === "approve")) && (
         <div
+          className="rf-job-detail__actions"
           style={{
             display: "flex",
             justifyContent: "flex-end",

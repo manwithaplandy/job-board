@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { JobRow } from "@/lib/types";
 import { saveCoverLetterEdit, deleteCoverLetterEdit } from "@/app/actions/coverLetterEdits";
 import { Icon } from "@/components/ui/Icon";
+import { Button } from "@/components/ui/Button";
 
 export interface CoverLetterEditorProps {
   job: JobRow;
@@ -58,24 +59,17 @@ export function CoverLetterEditor({ job, letterText, hasEdit, isAuthed, onSaved,
     }
   };
 
-  const secondaryBtn: React.CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "6px",
-    fontWeight: 700, fontSize: "12.5px", color: "var(--text-secondary)",
-    background: "var(--bg-surface)", border: "1px solid var(--border)",
-    borderRadius: "9px", padding: "8px 13px", cursor: "pointer",
-  };
-
   return (
     <div style={{ marginTop: "13px", borderTop: "1px dashed var(--border)", paddingTop: "13px" }}>
       {!open ? (
         <div style={{ display: "flex", gap: "9px", alignItems: "center" }}>
-          <button type="button" onClick={() => { setText(letterText); setOpen(true); }} style={secondaryBtn}>
+          <Button type="button" variant="outline" size="compact" onClick={() => { setText(letterText); setOpen(true); }}>
             <Icon name="edit" size={16} /> Edit letter
-          </button>
+          </Button>
           {hasEdit && (
-            <button type="button" onClick={onResetClick} disabled={busy} style={secondaryBtn}>
+            <Button type="button" variant="outline" size="compact" onClick={onResetClick} disabled={busy}>
               Reset to generated
-            </button>
+            </Button>
           )}
           {status && (
             <span style={{ fontSize: "12px", fontWeight: 600, color: status.ok ? "var(--success)" : "var(--danger)" }}>
@@ -111,22 +105,16 @@ export function CoverLetterEditor({ job, letterText, hasEdit, isAuthed, onSaved,
             }}
           />
           <div style={{ display: "flex", gap: "9px", marginTop: "10px", alignItems: "center" }}>
-            <button
+            <Button
               type="button"
               onClick={onSave}
               disabled={busy || !text.trim()}
-              style={{
-                fontWeight: 700, fontSize: "13px", color: "var(--text-on-accent)",
-                background: busy || !text.trim() ? "var(--accent-border)" : "var(--accent)",
-                border: "none", borderRadius: "9px", padding: "9px 16px",
-                cursor: busy || !text.trim() ? "not-allowed" : "pointer",
-              }}
             >
               {busy ? "Saving…" : "Save edit"}
-            </button>
-            <button type="button" onClick={() => { setOpen(false); setStatus(null); }} style={secondaryBtn}>
+            </Button>
+            <Button type="button" variant="outline" onClick={() => { setOpen(false); setStatus(null); }}>
               Cancel
-            </button>
+            </Button>
             {status && (
               <span style={{ fontSize: "12px", fontWeight: 600, color: status.ok ? "var(--success)" : "var(--danger)" }}>
                 {status.text}

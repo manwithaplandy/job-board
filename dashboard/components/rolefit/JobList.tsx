@@ -100,7 +100,7 @@ function VirtualJobList({
   }, [scrollToId, jobs, virtualizer]);
 
   return (
-    <div role="list" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
+    <div className="rf-job-list" role="list" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
       {virtualizer.getVirtualItems().map((vi) => {
         const job = jobs[vi.index];
         return (
@@ -146,7 +146,7 @@ export function JobList({
       // with only a "Back to all roles" escape, hides that their filter is the cause.
       if (viewPoolCount > 0) {
         return (
-          <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+          <div className="rf-board-empty-state">
             <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
               No roles match your filters
             </div>
@@ -163,7 +163,7 @@ export function JobList({
           ? "You haven't marked any roles as applied yet."
           : "You haven't rejected any roles yet.";
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+        <div className="rf-board-empty-state">
           <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>{msg}</div>
           {onBackToAll && (
             <Button variant="ghost" onClick={onBackToAll} style={pillBtnStyle}>
@@ -175,7 +175,7 @@ export function JobList({
     }
     if (!hasUnfilteredJobs) {
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+        <div className="rf-board-empty-state">
           <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
             Your board is being built
           </div>
@@ -194,7 +194,7 @@ export function JobList({
     // reason filters can't fix, so offer no (no-op) Clear-filters CTA.
     if (viewPoolCount === 0) {
       return (
-        <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+        <div className="rf-board-empty-state">
           <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
             All caught up
           </div>
@@ -205,7 +205,7 @@ export function JobList({
       );
     }
     return (
-      <div style={{ padding: "60px 30px", textAlign: "center", color: "var(--text-secondary)" }}>
+      <div className="rf-board-empty-state">
         <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
           No roles match your filters
         </div>

@@ -161,15 +161,27 @@ test("creates isolated established and onboarding sessions", async ({
           timeout: NAVIGATION_TIMEOUT_MS,
         }),
       );
-      const email = page.getByLabel("Email", { exact: true });
-      const password = page.getByLabel("Password", { exact: true });
-      const submit = page.getByRole("button", {
-        name: "Sign in",
-        exact: true,
-      });
+      const loginForm = page.locator("form");
+      const email = loginForm.locator('input[name="email"][type="email"]');
+      const password = loginForm.locator(
+        'input[name="password"][type="password"]',
+      );
+      const submit = loginForm.locator('button[type="submit"]');
       await runPhase("render-form", () =>
         acquireLoginFormWithRetry(
           async () => {
+            await expect(loginForm).toHaveCount(1, {
+              timeout: ACTION_TIMEOUT_MS,
+            });
+            await expect(email).toHaveCount(1, {
+              timeout: ACTION_TIMEOUT_MS,
+            });
+            await expect(password).toHaveCount(1, {
+              timeout: ACTION_TIMEOUT_MS,
+            });
+            await expect(submit).toHaveCount(1, {
+              timeout: ACTION_TIMEOUT_MS,
+            });
             await expect(email).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
             await expect(password).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
             await expect(submit).toBeVisible({ timeout: ACTION_TIMEOUT_MS });

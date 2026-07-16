@@ -16,11 +16,19 @@ describe("fresh visual authentication setup", () => {
     expect(setup.match(/test\(/g)).toHaveLength(1);
     expect(setup).toContain("activeBrowser.newContext({");
     expect(setup).toContain('page!.goto(`${baseURL}/login`,');
-    expect(setup).toContain('getByLabel("Email", { exact: true })');
-    expect(setup).toContain('getByLabel("Password", { exact: true })');
-    expect(setup).toMatch(
-      /getByRole\("button",\s*\{\s*name: "Sign in",\s*exact: true,?\s*\}\)/,
+    expect(setup).toContain('const loginForm = page.locator("form")');
+    expect(setup).toContain(
+      'loginForm.locator(\'input[name="email"][type="email"]\')',
     );
+    expect(setup).toMatch(
+      /loginForm\.locator\(\s*'input\[name="password"\]\[type="password"\]',?\s*\)/,
+    );
+    expect(setup).toContain(
+      'loginForm.locator(\'button[type="submit"]\')',
+    );
+    expect(setup.match(/toHaveCount\(1/g)).toHaveLength(4);
+    expect(setup).not.toContain('getByLabel("Email", { exact: true })');
+    expect(setup).not.toContain('getByLabel("Password", { exact: true })');
     expect(setup).toContain('page.getByRole("alert")');
     expect(setup).toContain('waitFor({ state: "visible", timeout: 0 })');
     expect(setup).toContain("Promise.race([");

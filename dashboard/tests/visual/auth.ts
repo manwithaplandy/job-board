@@ -46,6 +46,27 @@ export async function acquireLoginFormWithRetry(
 }
 
 export type VisualAuthIdentity = "established" | "onboarding";
+export type VisualAuthRejection =
+  | "invalid_credentials"
+  | "email_unconfirmed"
+  | "rate_limited"
+  | "invalid_email"
+  | "generic_or_unknown";
+
+const VISUAL_AUTH_REJECTIONS: Record<string, VisualAuthRejection> = {
+  "Incorrect email or password.": "invalid_credentials",
+  "Please confirm your email address before signing in.": "email_unconfirmed",
+  "Too many attempts. Please wait a moment and try again.": "rate_limited",
+  "Please enter a valid email address.": "invalid_email",
+  "Something went wrong. Please try again.": "generic_or_unknown",
+};
+
+export function classifyVisualAuthRejection(
+  message: string,
+): VisualAuthRejection {
+  return VISUAL_AUTH_REJECTIONS[message.trim()] ?? "generic_or_unknown";
+}
+
 export type VisualAuthPhase =
   | "open-login"
   | "render-form"
@@ -86,12 +107,14 @@ export function formatVisualAuthDiagnostic({
   currentUrl,
   network,
   structure,
+  rejection,
 }: {
   identity: VisualAuthIdentity;
   phase: VisualAuthPhase;
   currentUrl: string;
   network: VisualAuthNetworkEvent[];
   structure?: VisualAuthStructure;
+  rejection?: VisualAuthRejection;
 }): string {
   const events = network.slice(-12).map(({ method, pathname, status }) => {
     const safeMethod = /^[A-Z]+$/.test(method) ? method : "UNKNOWN";
@@ -106,6 +129,7 @@ export function formatVisualAuthDiagnostic({
     structure
       ? `structure=[forms=${structure.forms} inputs=${structure.inputs} buttons=${structure.buttons} headings=${structure.headings}]`
       : undefined,
+    rejection ? `rejection=${rejection}` : undefined,
   ]
     .filter(Boolean)
     .join(" ");

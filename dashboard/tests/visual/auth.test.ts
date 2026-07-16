@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   acquireLoginFormWithRetry,
+  classifyVisualAuthRejection,
   ESTABLISHED_STATE_PATH,
   formatVisualAuthDiagnostic,
   ONBOARDING_STATE_PATH,
@@ -13,6 +14,33 @@ import {
 } from "./auth";
 
 describe("visual authentication configuration", () => {
+  test("classifies only fixed safe login rejection messages", () => {
+    expect(classifyVisualAuthRejection("Incorrect email or password.")).toBe(
+      "invalid_credentials",
+    );
+    expect(
+      classifyVisualAuthRejection(
+        "Please confirm your email address before signing in.",
+      ),
+    ).toBe("email_unconfirmed");
+    expect(
+      classifyVisualAuthRejection(
+        "Too many attempts. Please wait a moment and try again.",
+      ),
+    ).toBe("rate_limited");
+    expect(
+      classifyVisualAuthRejection("Please enter a valid email address."),
+    ).toBe("invalid_email");
+    expect(
+      classifyVisualAuthRejection("Something went wrong. Please try again."),
+    ).toBe("generic_or_unknown");
+    expect(
+      classifyVisualAuthRejection(
+        "unexpected account=user@example.test password=do-not-emit",
+      ),
+    ).toBe("generic_or_unknown");
+  });
+
   test("captures final login-form failure evidence without masking the primary error", async () => {
     let acquisitions = 0;
     let reloads = 0;
@@ -75,6 +103,7 @@ describe("visual authentication configuration", () => {
         { method: "POST", pathname: "/login#private", status: 503 },
       ],
       structure: { forms: 1, inputs: 2, buttons: 1, headings: 2 },
+      rejection: "invalid_credentials",
     });
 
     expect(message).toContain("identity=established");
@@ -85,6 +114,7 @@ describe("visual authentication configuration", () => {
     expect(message).toContain(
       "structure=[forms=1 inputs=2 buttons=1 headings=2]",
     );
+    expect(message).toContain("rejection=invalid_credentials");
     for (const secret of [
       "preview.vercel.app",
       "user",

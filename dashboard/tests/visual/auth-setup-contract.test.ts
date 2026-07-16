@@ -32,7 +32,13 @@ describe("fresh visual authentication setup", () => {
     expect(setup).toContain('page.getByRole("alert")');
     expect(setup).toContain('waitFor({ state: "visible", timeout: 0 })');
     expect(setup).toContain("Promise.race([");
-    expect(setup).not.toContain("alert.innerText()");
+    expect(setup).toMatch(
+      /classifyVisualAuthRejection\(\s*await alert\.innerText\(\),?\s*\)/,
+    );
+    expect(setup).toContain(
+      'diagnostic("authentication-rejected", outcome.classification)',
+    );
+    expect(setup).not.toMatch(/console\.(?:log|info|debug).*innerText/);
     expect(setup).toContain("formatVisualAuthDiagnostic");
     expect(setup).toContain("credentials.established");
     expect(setup).toContain("credentials.onboarding");
@@ -117,6 +123,9 @@ describe("fresh visual authentication setup", () => {
     expect(setup).toContain("EVIDENCE_TIMEOUT_MS");
     expect(evidenceIndex).toBeGreaterThanOrEqual(0);
     expect(credentialFillIndex).toBeGreaterThan(evidenceIndex);
+    expect(setup.lastIndexOf("page.screenshot({")).toBeLessThan(
+      credentialFillIndex,
+    );
     for (const unsafe of [
       "innerHTML",
       "outerHTML",

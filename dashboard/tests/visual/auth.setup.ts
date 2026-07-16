@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import {
   acquireLoginFormWithRetry,
+  classifyVisualAuthRejection,
   ESTABLISHED_STATE_PATH,
   formatVisualAuthDiagnostic,
   ONBOARDING_STATE_PATH,
@@ -13,6 +14,7 @@ import {
   type VisualAuthIdentity,
   type VisualAuthNetworkEvent,
   type VisualAuthPhase,
+  type VisualAuthRejection,
   type VisualAuthStructure,
 } from "./auth";
 
@@ -25,6 +27,11 @@ const VISUAL_FAILURE_SCREENSHOT_DIR = path.resolve(
   process.cwd(),
   "test-results/visual/auth-setup",
 );
+
+type AuthenticationOutcome =
+  | { status: "success" }
+  | { status: "rejected"; classification: VisualAuthRejection }
+  | { status: "timeout" | "closed" };
 
 test.setTimeout(TEST_TIMEOUT_MS);
 
@@ -78,25 +85,40 @@ test("creates isolated established and onboarding sessions", async ({
   async function waitForAuthenticationOutcome(
     page: Page,
     expectedURL: string,
-  ): Promise<"success" | "rejected" | "timeout" | "closed"> {
+  ): Promise<AuthenticationOutcome> {
     const alert = page.getByRole("alert");
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<"timeout">((resolve) => {
-      timeoutId = setTimeout(() => resolve("timeout"), AUTH_OUTCOME_TIMEOUT_MS);
+    const timeout = new Promise<AuthenticationOutcome>((resolve) => {
+      timeoutId = setTimeout(
+        () => resolve({ status: "timeout" }),
+        AUTH_OUTCOME_TIMEOUT_MS,
+      );
     });
 
     try {
       return await Promise.race([
         page
           .waitForURL(expectedURL, { waitUntil: "commit", timeout: 0 })
-          .then(() => "success" as const, () => "closed" as const),
+          .then(
+            () => ({ status: "success" }) as const,
+            () => ({ status: "closed" }) as const,
+          ),
         alert
           .waitFor({ state: "visible", timeout: 0 })
-          .then(() => "rejected" as const, () => "closed" as const),
+          .then(
+            async () => ({
+              status: "rejected" as const,
+              classification: classifyVisualAuthRejection(
+                await alert.innerText(),
+              ),
+            }),
+            () => ({ status: "closed" }) as const,
+          )
+          .catch(() => ({ status: "closed" }) as const),
         timeout,
       ]);
     } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
   }
 
@@ -116,13 +138,17 @@ test("creates isolated established and onboarding sessions", async ({
     let primaryError: unknown;
     try {
       page = await context.newPage();
-      const diagnostic = (phase: VisualAuthPhase) =>
+      const diagnostic = (
+        phase: VisualAuthPhase,
+        rejection?: VisualAuthRejection,
+      ) =>
         formatVisualAuthDiagnostic({
           identity: identityName,
           phase,
           currentUrl: page?.url() ?? baseURL,
           network,
           structure,
+          rejection,
         });
       const runPhase = async <T>(
         phase: VisualAuthPhase,
@@ -212,10 +238,12 @@ test("creates isolated established and onboarding sessions", async ({
         submit.click({ timeout: ACTION_TIMEOUT_MS, noWaitAfter: true }),
       );
       const outcome = await outcomePromise;
-      if (outcome === "rejected") {
-        throw new Error(diagnostic("authentication-rejected"));
+      if (outcome.status === "rejected") {
+        throw new Error(
+          diagnostic("authentication-rejected", outcome.classification),
+        );
       }
-      if (outcome !== "success") {
+      if (outcome.status !== "success") {
         throw new Error(diagnostic("authentication-outcome"));
       }
 

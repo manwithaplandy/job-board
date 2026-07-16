@@ -13,6 +13,10 @@ const authenticatedWorkflowPath = path.join(
   ".github/workflows/authenticated-visual.yml",
 );
 const uiContractsPath = path.join(repositoryRoot, "docs/ui-contracts.md");
+const authenticatedVisualDesignPath = path.join(
+  repositoryRoot,
+  "docs/superpowers/specs/2026-07-14-credential-authenticated-visual-ci-design.md",
+);
 
 function workflowStep(workflow: string, name: string): string {
   const start = workflow.indexOf(`- name: ${name}`);
@@ -115,15 +119,19 @@ describe("deployment-triggered authenticated visual workflow", () => {
   });
 
   test("documents protected-preview bypass setup without URL credentials", () => {
-    const docs = readFileSync(uiContractsPath, "utf8");
+    for (const path of [uiContractsPath, authenticatedVisualDesignPath]) {
+      const docs = readFileSync(path, "utf8");
 
-    expect(docs).toContain("VERCEL_AUTOMATION_BYPASS_SECRET");
-    expect(docs).toContain("`x-vercel-protection-bypass`");
-    expect(docs).toContain("`x-vercel-set-bypass-cookie: true`");
-    expect(docs).toContain("Never put the bypass secret in the preview URL");
-    expect(docs).toContain(
-      "https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation",
-    );
+      expect(docs, path).toContain("VERCEL_AUTOMATION_BYPASS_SECRET");
+      expect(docs, path).toContain("`x-vercel-protection-bypass`");
+      expect(docs, path).toContain("`x-vercel-set-bypass-cookie: true`");
+      expect(docs, path).toContain(
+        "Never put the bypass secret in the preview URL",
+      );
+      expect(docs, path).toContain(
+        "https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation",
+      );
+    }
   });
 
   test("accepts only successful Vercel Preview deployment status events", () => {

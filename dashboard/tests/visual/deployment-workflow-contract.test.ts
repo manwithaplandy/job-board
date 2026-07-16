@@ -155,6 +155,15 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(workflow).toContain("ref: ${{ github.event.deployment.sha }}");
   });
 
+  test("uses visual-test secrets without creating a deployment record", () => {
+    const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
+    const job = workflowJob(workflow, "authenticated-visual");
+    expect(job).toMatch(
+      /environment:\s*\n\s+name: visual-test\s*\n\s+deployment: false/,
+    );
+    expect(job).not.toMatch(/^\s+url:/m);
+  });
+
   test("validates the deployment URL before the credential-scoped setup step", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     const validation = workflowStep(workflow, "Validate deployment URL");

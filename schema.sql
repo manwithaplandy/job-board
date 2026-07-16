@@ -345,6 +345,14 @@ CREATE TABLE invite_codes (
   max_uses   INT NOT NULL DEFAULT 1,
   uses       INT NOT NULL DEFAULT 0 CHECK (uses >= 0 AND uses <= max_uses),
   expires_at TIMESTAMPTZ,
+  -- NULL = operator/admin-minted. Named created_by, NOT the account-id column the erasure
+  -- drift guards + deletion loop key on, deliberately: erasure here is a custom ANONYMIZE
+  -- (see 2026-07-13-user-invites.sql), never that per-account DELETE. (This comment avoids
+  -- the literal column-name token on purpose: the drift guard scans CREATE TABLE bodies
+  -- for it, and this table has no such column — mentioning it here would false-positive.)
+  created_by      UUID,
+  -- Recorded for emailed invites (bookkeeping only — redemption does not enforce it).
+  recipient_email TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -409,6 +417,37 @@ CREATE INDEX idx_review_requests_pending
 CREATE TABLE tier_settings (
   plan       TEXT PRIMARY KEY CHECK (plan IN ('standard','pro')),
   config     JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- User-sent invites (see migrations/2026-07-13-user-invites.sql). The invite_codes
+-- attribution columns (created_by, recipient_email) live in that table above; the RLS
+-- enable/policies/GRANTs for the two tables below sit in the RLS section further down
+-- (they reference public.app_user_id()/the anon+authenticated roles, which are only
+-- defined there — schema.sql builds top-to-bottom on a DROP SCHEMA'd DB).
+
+-- Sender-scoped lookups (deletion scrub, export of "codes I minted").
+CREATE INDEX idx_invite_codes_created_by
+  ON invite_codes (created_by) WHERE created_by IS NOT NULL;
+
+-- Per-user invite budget. Rows are lazy-created on first invite action with the
+-- then-current default (app_settings.invite_default_allowance); `granted` records the
+-- initial grant. Service-write-only (dashboard/lib/invites.ts); the owner may only
+-- SELECT their own count.
+CREATE TABLE invite_allowances (
+  user_id    UUID PRIMARY KEY,
+  remaining  INT NOT NULL CHECK (remaining >= 0),
+  granted    INT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Generic operator key-value config (deliberately separate from tier_settings, whose PK
+-- is CHECK-constrained to plan names). Shared operator RLS like tier_settings; ALL writes
+-- are service-role (admin-gated dashboard/lib/appSettings.ts).
+CREATE TABLE app_settings (
+  key        TEXT PRIMARY KEY,
+  value      JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -520,6 +559,11 @@ ALTER TABLE openrouter_usage_snapshots ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON openrouter_usage_snapshots FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE generation_jobs      ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON generation_jobs      FOR ALL USING (false) WITH CHECK (false);
+-- See migrations/2026-07-13-user-invites.sql.
+ALTER TABLE invite_allowances    ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON invite_allowances    FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE app_settings         ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON app_settings         FOR ALL USING (false) WITH CHECK (false);
 
 -- ── Phase-1 tenant isolation (mirrors migrations/2026-07-03-rls-tenant-isolation.sql
 -- + the per-user policies of 2026-07-03-billing-review-requests.sql) ────────────
@@ -585,6 +629,10 @@ CREATE POLICY owner_access ON usage_counters FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 CREATE POLICY owner_access ON generation_jobs FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+-- Per-user invite budget: owner may READ their own count; writes are service-role
+-- (dashboard/lib/invites.ts). See migrations/2026-07-13-user-invites.sql.
+CREATE POLICY owner_read ON invite_allowances FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()));
 
 -- Shared-read policies (global corpus + pipeline accounting).
 CREATE POLICY shared_read ON jobs      FOR SELECT TO anon, authenticated USING (true);
@@ -609,6 +657,9 @@ CREATE POLICY owner_insert ON review_requests FOR INSERT TO authenticated
 
 -- Tier settings: shared operator policy (not per-user). Writes are service-role only.
 CREATE POLICY shared_read ON tier_settings FOR SELECT TO anon, authenticated USING (true);
+-- app_settings: shared operator config, same shape as tier_settings (values non-secret).
+-- Writes are service-role only. See migrations/2026-07-13-user-invites.sql.
+CREATE POLICY shared_read ON app_settings FOR SELECT TO anon, authenticated USING (true);
 
 -- Grants (table privilege is the outer gate; RLS filters within — a granted table
 -- with no matching policy returns zero rows, not permission-denied). This block is a
@@ -668,6 +719,10 @@ GRANT SELECT ON jobs, companies, job_reviews, review_corrections TO anon;
 GRANT SELECT ON tier_settings TO anon, authenticated;
 -- job_questions: shared read for the board/Prefill route; writes are poller/service-role only.
 GRANT SELECT ON job_questions TO anon, authenticated;
+-- invite_allowances: owner reads own count (writes service-role). app_settings: shared
+-- operator config read (writes service-role). See migrations/2026-07-13-user-invites.sql.
+GRANT SELECT ON invite_allowances TO authenticated;
+GRANT SELECT ON app_settings TO anon, authenticated;
 
 -- Default-privilege deny (mirrors migrations/2026-07-05-default-privileges-revoke.sql,
 -- finding minor 6): the REVOKE above only touches tables that exist NOW. Strip the

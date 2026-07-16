@@ -420,6 +420,12 @@ EXPECTED_RLS = {
         "no_anon_access": _DENY,
         "owner_or_legacy_read": ("SELECT", frozenset({"authenticated"})),
     },
+    # Per-user invite budget (2026-07-13-user-invites): owner may READ their count;
+    # all writes are service-role (dashboard/lib/invites.ts atomic spend).
+    "invite_allowances": {
+        "no_anon_access": _DENY,
+        "owner_read": ("SELECT", frozenset({"authenticated"})),
+    },
     # Service-role-only (no authenticated policy at all): deny-all is the whole contract.
     "invite_redemptions": {"no_anon_access": _DENY},
     "account_deletions": {"no_anon_access": _DENY},
@@ -511,6 +517,8 @@ EXPECTED_GRANTS = {
     "review_requests":      (_R(), _R({"SELECT", "INSERT"})),     # owner enqueues; worker updates
     "tier_settings":        (_R({"SELECT"}), _R({"SELECT"})),
     "job_questions":        (_R({"SELECT"}), _R({"SELECT"})),  # shared_read: anon + authenticated SELECT
+    "invite_allowances":    (_R(), _R({"SELECT"})),           # owner reads own count
+    "app_settings":         (_R({"SELECT"}), _R({"SELECT"})), # shared_read like tier_settings
     # Everything else (invite_codes, invite_redemptions, schema_migrations,
     # account_deletions, openrouter_usage_snapshots) gets NO anon/authenticated grant.
 }

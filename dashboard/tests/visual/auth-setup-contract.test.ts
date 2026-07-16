@@ -15,17 +15,17 @@ describe("fresh visual authentication setup", () => {
 
     expect(setup.match(/test\(/g)).toHaveLength(1);
     expect(setup).toContain("activeBrowser.newContext({");
-    expect(setup).toContain('page.goto(`${baseURL}/login`)');
+    expect(setup).toContain('page!.goto(`${baseURL}/login`,');
     expect(setup).toContain('getByLabel("Email", { exact: true })');
     expect(setup).toContain('getByLabel("Password", { exact: true })');
-    expect(setup).toContain(
-      'getByRole("button", { name: "Sign in", exact: true })',
+    expect(setup).toMatch(
+      /getByRole\("button",\s*\{\s*name: "Sign in",\s*exact: true,?\s*\}\)/,
     );
     expect(setup).toContain('page.getByRole("alert")');
-    expect(setup).toContain('waitFor({ state: "visible" })');
+    expect(setup).toContain('waitFor({ state: "visible", timeout: 0 })');
     expect(setup).toContain("Promise.race([");
-    expect(setup).toContain("await alert.innerText()");
-    expect(setup).toContain("Visual authentication failed:");
+    expect(setup).not.toContain("alert.innerText()");
+    expect(setup).toContain("formatVisualAuthDiagnostic");
     expect(setup).toContain("credentials.established");
     expect(setup).toContain("credentials.onboarding");
   });
@@ -50,16 +50,50 @@ describe("fresh visual authentication setup", () => {
   test("fails closed unless each identity reaches and renders its expected route", () => {
     const setup = read("tests/visual/auth.setup.ts");
 
-    expect(setup).toContain("page.waitForURL(expectedURL)");
+    expect(setup).toContain(".waitForURL(expectedURL, {");
     expect(setup).toContain(
       'expectedPath === "/profile" ? `${baseURL}/` : `${baseURL}/onboarding`',
     );
-    expect(setup).toContain('await page.goto(`${baseURL}/profile`)');
-    expect(setup).toContain(
-      'page.getByRole("heading", { name: "Profile", exact: true })',
+    expect(setup).toContain('page!.goto(`${baseURL}/profile`,');
+    expect(setup).toMatch(
+      /page!\.getByRole\("heading",\s*\{\s*name: "Profile",\s*exact: true,?\s*\}\)/,
     );
     expect(setup).not.toContain("waitForTimeout");
     expect(setup).not.toMatch(/console\.(?:log|info|debug)/);
+  });
+
+  test("uses bounded phases and starts outcome observation before submission", () => {
+    const setup = read("tests/visual/auth.setup.ts");
+    const outcomeIndex = setup.indexOf("const outcomePromise = waitForAuthenticationOutcome");
+    const clickIndex = setup.indexOf('.click({ timeout: ACTION_TIMEOUT_MS, noWaitAfter: true })');
+
+    expect(setup).toContain("test.setTimeout(TEST_TIMEOUT_MS)");
+    expect(setup).toContain("const ACTION_TIMEOUT_MS = 10_000");
+    expect(setup).toContain("const AUTH_OUTCOME_TIMEOUT_MS = 20_000");
+    expect(setup).toContain("timeout: NAVIGATION_TIMEOUT_MS");
+    expect(setup).toContain("waitUntil: \"domcontentloaded\"");
+    expect(outcomeIndex).toBeGreaterThanOrEqual(0);
+    expect(clickIndex).toBeGreaterThan(outcomeIndex);
+  });
+
+  test("reports safe network phases and preserves primary failures during cleanup", () => {
+    const setup = read("tests/visual/auth.setup.ts");
+
+    expect(setup).toContain('page.on("response"');
+    expect(setup).toContain('page.on("requestfailed"');
+    expect(setup).toContain("response.request().method()");
+    expect(setup).toContain("response.status()");
+    expect(setup).toContain("new URL(response.url()).pathname");
+    expect(setup).toContain("formatVisualAuthDiagnostic");
+    expect(setup).toContain("let primaryError: unknown");
+    expect(setup).toContain("primaryError = error");
+    expect(setup).toMatch(
+      /try\s*\{\s*await context\.close\(\);?\s*\}\s*catch\s*\{\s*if\s*\(!primaryError\)/,
+    );
+    expect(setup).not.toMatch(/console\.(?:log|info|debug)/);
+    expect(setup).not.toContain("allHeaders");
+    expect(setup).not.toContain("postData");
+    expect(setup).not.toContain("cookie");
   });
 
   test("writes the exact disposable states and always closes each context", () => {
@@ -68,8 +102,10 @@ describe("fresh visual authentication setup", () => {
     expect(setup).toContain("await mkdir(VISUAL_AUTH_DIR, { recursive: true })");
     expect(setup).toContain("ESTABLISHED_STATE_PATH");
     expect(setup).toContain("ONBOARDING_STATE_PATH");
-    expect(setup).toContain("await context.storageState({ path: statePath })");
-    expect(setup).toMatch(/try\s*\{[\s\S]*\}\s*finally\s*\{\s*await context\.close\(\);?\s*\}/);
+    expect(setup).toContain("context.storageState({ path: statePath })");
+    expect(setup).toMatch(
+      /finally\s*\{\s*try\s*\{\s*await context\.close\(\);?\s*\}/,
+    );
   });
 
   test("defines setup and comparison projects without coupling public runs to setup", () => {

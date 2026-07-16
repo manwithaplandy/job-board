@@ -15,6 +15,56 @@ export const ONBOARDING_STATE_PATH = path.join(
 
 type Env = Record<string, string | undefined>;
 
+export type VisualAuthIdentity = "established" | "onboarding";
+export type VisualAuthPhase =
+  | "open-login"
+  | "render-form"
+  | "fill-form"
+  | "submit-click"
+  | "authentication-rejected"
+  | "authentication-outcome"
+  | "render-profile"
+  | "persist-state"
+  | "cleanup";
+
+export type VisualAuthNetworkEvent = {
+  method: string;
+  pathname: string;
+  status: number | "failed";
+};
+
+function safePathname(raw: string): string {
+  try {
+    return new URL(raw, "https://redacted.invalid").pathname || "/";
+  } catch {
+    return "/invalid";
+  }
+}
+
+export function formatVisualAuthDiagnostic({
+  identity,
+  phase,
+  currentUrl,
+  network,
+}: {
+  identity: VisualAuthIdentity;
+  phase: VisualAuthPhase;
+  currentUrl: string;
+  network: VisualAuthNetworkEvent[];
+}): string {
+  const events = network.slice(-12).map(({ method, pathname, status }) => {
+    const safeMethod = /^[A-Z]+$/.test(method) ? method : "UNKNOWN";
+    return `${safeMethod} ${safePathname(pathname)} ${status}`;
+  });
+  return [
+    "Visual authentication failed:",
+    `identity=${identity}`,
+    `phase=${phase}`,
+    `path=${safePathname(currentUrl)}`,
+    `network=[${events.join(", ") || "none"}]`,
+  ].join(" ");
+}
+
 export function readVercelProtectionBypassHeaders(env: Env) {
   const secret = env.VERCEL_AUTOMATION_BYPASS_SECRET;
   if (!secret) {

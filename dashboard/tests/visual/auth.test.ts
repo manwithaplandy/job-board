@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   ESTABLISHED_STATE_PATH,
+  formatVisualAuthDiagnostic,
   ONBOARDING_STATE_PATH,
   readVercelProtectionBypassHeaders,
   readVisualCredentials,
@@ -11,6 +12,35 @@ import {
 } from "./auth";
 
 describe("visual authentication configuration", () => {
+  test("formats bounded phase diagnostics without hosts, queries, or fragments", () => {
+    const message = formatVisualAuthDiagnostic({
+      identity: "established",
+      phase: "authentication-outcome",
+      currentUrl:
+        "https://user:password@preview.vercel.app/login?token=secret#private",
+      network: [
+        { method: "GET", pathname: "/login?token=secret", status: 200 },
+        { method: "POST", pathname: "/login#private", status: 503 },
+      ],
+    });
+
+    expect(message).toContain("identity=established");
+    expect(message).toContain("phase=authentication-outcome");
+    expect(message).toContain("path=/login");
+    expect(message).toContain("GET /login 200");
+    expect(message).toContain("POST /login 503");
+    for (const secret of [
+      "preview.vercel.app",
+      "user",
+      "password",
+      "token",
+      "private",
+      "secret",
+    ]) {
+      expect(message).not.toContain(secret);
+    }
+  });
+
   test("requires the Vercel automation bypass secret without exposing values", () => {
     expect(() => readVercelProtectionBypassHeaders({})).toThrowError(
       new Error("VERCEL_AUTOMATION_BYPASS_SECRET is required"),

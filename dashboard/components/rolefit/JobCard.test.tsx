@@ -60,15 +60,25 @@ describe("JobCard no-score neutral treatment", () => {
     expect(badgeStyle).not.toContain("oklch");
   });
 
-  test("scored card keeps the computed oklch fitColor tint", () => {
+  test("scored card keeps the computed oklch fitColor on its score signal", () => {
     render(<JobCard job={makeJob({ fit_score: 82 })} selected={false} onSelect={vi.fn()} />);
 
     const card = screen.getByRole("button", { pressed: false });
-    expect(card.getAttribute("style") ?? "").toContain("oklch");
+    expect(card.getAttribute("style") ?? "").not.toContain("oklch");
 
     const badge = screen.getByText("82");
     const badgeStyle = badge.getAttribute("style") ?? "";
     expect(badgeStyle).toContain("oklch");
     expect(badgeStyle).not.toContain("var(--bg-surface)");
+  });
+
+  test("scored card confines fit color to the score signal instead of tinting the selectable surface", () => {
+    render(<JobCard job={makeJob({ fit_score: 82 })} selected onSelect={vi.fn()} />);
+
+    const card = screen.getByRole("button", { pressed: true });
+    expect(card.getAttribute("style") ?? "").not.toContain("oklch");
+    expect(card.getAttribute("data-selected")).toBe("true");
+    expect(screen.getByText("82").getAttribute("style") ?? "").toContain("oklch");
+    expect(card.querySelector(".rf-job-card__score-rail")).toBeNull();
   });
 });

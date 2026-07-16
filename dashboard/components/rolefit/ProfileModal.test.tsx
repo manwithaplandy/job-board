@@ -98,3 +98,12 @@ describe("ProfileModal (M1: editing text clears a not-yet-saved file)", () => {
     expect(saveResume.mock.calls[0][0].get("resume_text")).toBe("text wins");
   });
 });
+
+describe("résumé upload accessibility", () => {
+  test("provides an explicitly named file control and live extraction status", () => {
+    const { fileInput } = renderModal();
+    expect(fileInput().getAttribute("aria-label")).toMatch(/résumé pdf/i);
+    fireEvent.click(screen.getByRole("button", { name: "Upload PDF" }));
+    expect(screen.getByRole("status")).not.toBeNull();
+  });
+});

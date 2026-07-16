@@ -7,29 +7,16 @@ import { AdminNav } from "@/components/admin/AdminNav";
 import { InviteGenerator } from "@/components/admin/InviteGenerator";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
+import { AppShell } from "@/components/shell/AppShell";
+import { Card } from "@/components/ui/Panel";
+import { PageHeader } from "@/components/ui/Navigation";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Invites · Admin" };
 
 // Style tokens mirror app/admin/tenants/page.tsx so the admin consoles read as one
 // surface (narrower wrap — this table has 5 columns, not 11).
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "40px 20px 64px",
-};
-const wrapStyle: React.CSSProperties = { maxWidth: "860px", margin: "0 auto" };
-const cardStyle: React.CSSProperties = {
-  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "16px",
-  boxShadow: "0 12px 40px rgba(15,22,35,.06)", padding: "22px 24px",
-};
-const thStyle: React.CSSProperties = {
-  textAlign: "left", fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)",
-  textTransform: "uppercase", letterSpacing: ".4px", padding: "8px 10px",
-  borderBottom: "1px solid var(--border)", whiteSpace: "nowrap",
-};
-const tdStyle: React.CSSProperties = {
-  fontSize: "12.5px", color: "var(--text-primary)", padding: "9px 10px",
-  borderBottom: "1px solid var(--bg-muted)", whiteSpace: "nowrap",
-};
 
 // UTC calendar date (YYYY-MM-DD). Deterministic on purpose: toLocaleDateString() in a
 // server component would render in the server's timezone (UTC on Vercel), and ISO is
@@ -52,7 +39,6 @@ function Row({ inv }: { inv: InviteCode }) {
     <tr>
       <td
         style={{
-          ...tdStyle,
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
           fontWeight: 600,
           color: "var(--text-primary)",
@@ -61,12 +47,12 @@ function Row({ inv }: { inv: InviteCode }) {
         <span style={{ marginRight: "8px" }}>{inv.code}</span>
         <CopyButton text={inv.code} />
       </td>
-      <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: "140px" }}>{inv.note ?? "—"}</td>
-      <td style={{ ...tdStyle, textAlign: "right", color: exhausted ? "var(--danger)" : undefined }}>
+      <td style={{ whiteSpace: "normal", minWidth: "140px" }}>{inv.note ?? "—"}</td>
+      <td style={{ textAlign: "right", color: exhausted ? "var(--danger)" : undefined }}>
         {inv.uses}/{inv.maxUses}
       </td>
-      <td style={{ ...tdStyle, color: expired ? "var(--danger)" : undefined }}>{fmtDate(inv.expiresAt)}</td>
-      <td style={tdStyle}>{fmtDate(inv.createdAt)}</td>
+      <td style={{ color: expired ? "var(--danger)" : undefined }}>{fmtDate(inv.expiresAt)}</td>
+      <td>{fmtDate(inv.createdAt)}</td>
     </tr>
   );
 }
@@ -80,37 +66,25 @@ export default async function AdminInvitesPage() {
   const invites = await listInvites();
 
   return (
-    <>
-      <SlimHeader current="admin" />
-      <main style={pageStyle}>
-        <div style={wrapStyle}>
+    <AppShell header={<SlimHeader current="admin" />}>
+      <main className="rf-secondary-page rf-secondary-density--compact">
+        <div className="rf-secondary-wrap">
           <AdminNav active="invites" />
 
-          <div style={{ ...cardStyle, marginBottom: "18px" }}>
-            <h1 style={{ margin: "0 0 4px", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
-              Invites
-            </h1>
-            <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: "18px" }}>
-              Generate invite codes for the invite-only beta and track how many uses each has left.
-            </div>
+          <Card className="rf-secondary-stack">
+            <PageHeader title="Invites" description="Generate invite codes for the invite-only beta and track how many uses each has left." />
             <InviteGenerator />
-          </div>
+          </Card>
 
-          <div style={cardStyle}>
+          <Card style={{ marginTop: "var(--space-4)" }}>
             {invites.length === 0 ? (
-              <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "24px 4px" }}>
-                No invite codes yet.
-              </div>
+              <EmptyState compact title="No invite codes yet." />
             ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px" }}>
+              <div className="rf-secondary-table-scroll rf-focusable" tabIndex={0} aria-label="Invite codes table, horizontally scrollable">
+                <table className="rf-secondary-table" style={{ minWidth: "640px" }}>
                   <thead>
                     <tr>
-                      <th style={thStyle}>Code</th>
-                      <th style={thStyle}>Note</th>
-                      <th style={{ ...thStyle, textAlign: "right" }}>Uses</th>
-                      <th style={thStyle}>Expires</th>
-                      <th style={thStyle}>Created</th>
+                      <th>Code</th><th>Note</th><th>Uses</th><th>Expires</th><th>Created</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -121,9 +95,9 @@ export default async function AdminInvitesPage() {
                 </table>
               </div>
             )}
-          </div>
+          </Card>
         </div>
       </main>
-    </>
+    </AppShell>
   );
 }

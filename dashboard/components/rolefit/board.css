@@ -1,0 +1,290 @@
+/* Rolefit's triage workspace is intentionally denser than settings surfaces. Shared
+   tokens still own its rhythm; these classes define the board's split-pane geometry. */
+.rf-board-workspace {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ui-contract-allow-overflow: desktop list width has mobile overrides below */
+.rf-board-list-pane {
+  flex: 0 0 400px;
+  width: 400px;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg-page);
+  border-right: 1px solid var(--border);
+  padding: var(--space-3) var(--space-2) var(--space-6);
+}
+
+.rf-board-detail-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  outline: none;
+}
+
+.rf-board-filters {
+  position: relative;
+  z-index: 15;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.rf-board-filter-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.rf-board-filter-trigger {
+  min-height: var(--target-size);
+  white-space: nowrap;
+}
+.rf-board-filter-option {
+  min-height: var(--target-size);
+}
+.rf-board-filter-option:hover { background: var(--accent-bg) !important; }
+[data-menuroot][data-align="start"] > [role="listbox"] { left: 0; right: auto; }
+[data-menuroot][data-align="end"] > [role="listbox"] { right: 0; left: auto; }
+
+.rf-board-filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rf-board-filter-label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.rf-board-filter-segments .rf-segments__item,
+.rf-board-view-segments .rf-segments__item {
+  padding-inline: var(--space-3);
+  font-size: var(--font-size-caption);
+}
+
+.rf-board-filter-spacer { flex: 1 1 var(--space-4); }
+.rf-board-result-count {
+  min-width: 128px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rf-job-card {
+  position: relative;
+  min-width: 0;
+  margin: 0 var(--space-2) var(--space-2);
+}
+
+.rf-job-card__button {
+  position: relative;
+  display: flex;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--elevation-card);
+  transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
+}
+
+.rf-job-card__button:hover { border-color: var(--border-strong); }
+.rf-job-card__button[data-selected] {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent), var(--elevation-card);
+}
+
+.rf-job-card__logo {
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--text-on-accent);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+.rf-job-card__content { flex: 1; min-width: 0; }
+.rf-job-card__heading { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.rf-job-card__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-job-card__score {
+  flex: none;
+  min-width: 36px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-badge);
+  font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: center;
+}
+.rf-job-card__meta {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-job-card__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+.rf-job-card__reject {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  z-index: 1;
+  transform: translateY(-50%);
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+}
+.rf-job-card:hover > .rf-card-reject,
+.rf-job-card:focus-within > .rf-card-reject { opacity: 1; pointer-events: auto; }
+
+.rf-job-detail__actions { flex-wrap: wrap; }
+
+.rf-job-detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rf-job-detail > * { min-width: 0; }
+.rf-generation-panel,
+.rf-review-panel { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.rf-generation-panel pre,
+.rf-generation-panel textarea { max-width: 100%; }
+.rf-generation-panel__disclosure {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 0;
+  color: var(--text-primary);
+  text-align: left;
+}
+.rf-generation-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.rf-generation-actions > * { min-width: 0; }
+.rf-generation-panel__row > * { min-width: 0; max-width: 100%; }
+.rf-resume-score-row {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) repeat(5, 44px);
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-2);
+}
+.rf-resume-score-row__label {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.rf-board-empty-state {
+  padding: 60px var(--space-6);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.rf-board-mobile-back { margin: var(--space-4) var(--space-4) 0; }
+
+@media (max-width: 760px) {
+  .rf-board-workspace { display: block; width: 100%; overflow: visible; }
+  .rf-board-list-pane,
+  .rf-board-detail-pane {
+    width: 100%;
+    min-width: 0;
+    overflow: visible;
+    border-right: 0;
+    padding-inline: var(--space-2);
+  }
+  .rf-board-detail-pane { padding-inline: 0; }
+  .rf-board-filters { padding: var(--space-2); }
+  .rf-board-filter-strip { align-items: stretch; }
+  .rf-board-filter-strip > [data-menuroot] { flex: 1 1 calc(50% - var(--space-2)); min-width: 0; }
+  .rf-board-filter-strip > [data-menuroot] > [role="listbox"] { max-width: calc(100vw - var(--space-4)); }
+  [data-menuroot][data-mobile-align="start"] > [role="listbox"] { left: 0; right: auto; }
+  [data-menuroot][data-mobile-align="end"] > [role="listbox"] { right: 0; left: auto; }
+  .rf-board-filter-trigger { width: 100%; justify-content: space-between; }
+  .rf-board-filter-group { width: 100%; justify-content: space-between; }
+  .rf-board-filter-segments { flex: 1; }
+  .rf-board-filter-segments .rf-segments__item { flex: 1; min-width: 0; padding-inline: var(--space-2); }
+  .rf-board-view-segments { display: flex; width: 100%; }
+  .rf-board-view-segments .rf-segments__item { flex: 1; min-width: 0; padding-inline: var(--space-2); }
+  .rf-board-filter-spacer { display: none; }
+  .rf-board-result-count { order: 20; flex: 1; min-width: 0; text-align: left; }
+  .rf-job-card { margin-inline: 0; }
+  .rf-job-detail { width: 100%; padding: var(--space-5) var(--space-4) 48px !important; }
+  .rf-job-detail > div:first-child { flex-wrap: wrap; }
+  .rf-job-detail__actions { justify-content: flex-start !important; }
+}
+
+@media (max-width: 520px) {
+  .rf-resume-score-row {
+    grid-template-columns: repeat(5, minmax(44px, 1fr));
+  }
+  .rf-resume-score-row__label { grid-column: 1 / -1; }
+  .rf-generation-panel__row {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+  .rf-generation-actions {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+  .rf-generation-panel__row > .rf-button,
+  .rf-generation-panel__row > a,
+  .rf-generation-actions > .rf-button {
+    width: 100%;
+    min-width: var(--target-size);
+    flex: none !important;
+  }
+  .rf-generation-instructions { width: 100%; min-width: 0; }
+  .rf-generation-instructions > .rf-button {
+    width: 100%;
+    justify-content: flex-start;
+    white-space: normal;
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rf-job-card__button { transition-duration: .01ms; }
+}

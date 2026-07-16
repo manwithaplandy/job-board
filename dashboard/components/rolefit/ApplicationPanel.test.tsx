@@ -92,9 +92,8 @@ describe("ApplicationPanel CTA hierarchy", () => {
     expect(applyStyle).not.toContain("var(--bg-surface)");
 
     const prepare = screen.getByRole("button", { name: /Prefill application/ });
-    const prepareStyle = prepare.getAttribute("style") ?? "";
-    expect(prepareStyle).toContain("background: var(--bg-surface)");
-    expect(prepareStyle).not.toContain("background: var(--accent)");
+    expect(prepare.className).toContain("rf-button--secondary");
+    expect(prepare.getAttribute("style")).toBe("flex: 0 0 auto;");
   });
 
   test("Apply link keeps accent styling once prepared", () => {
@@ -104,7 +103,7 @@ describe("ApplicationPanel CTA hierarchy", () => {
     expect(apply.getAttribute("style") ?? "").toContain("background: var(--accent)");
 
     const prepare = screen.getByRole("button", { name: /Re-prefill/ });
-    expect(prepare.getAttribute("style") ?? "").toContain("background: var(--bg-surface)");
+    expect(prepare.className).toContain("rf-button--secondary");
   });
 
   test("Prepare leads only when the job has no apply url", () => {
@@ -112,7 +111,7 @@ describe("ApplicationPanel CTA hierarchy", () => {
 
     expect(screen.queryByRole("link", { name: /Apply on/ })).toBeNull();
     const prepare = screen.getByRole("button", { name: /Prefill application/ });
-    expect(prepare.getAttribute("style") ?? "").toContain("background: var(--accent)");
+    expect(prepare.className).toContain("rf-button--primary");
   });
 });
 

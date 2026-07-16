@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { filterModels, type ORModel } from "@/lib/openrouter";
+import { IconButton } from "@/components/ui/Action";
 
 export function ModelPicker({
   label, name, models, curated, defaultValue, placeholder, hint,
+  id, ariaInvalid, ariaDescribedBy,
 }: {
   label: string;
   name: string;
@@ -13,6 +15,9 @@ export function ModelPicker({
   defaultValue: string | null;
   placeholder: string;
   hint?: string;
+  id?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
 }) {
   const [selected, setSelected] = useState(defaultValue ?? "");
   const [query, setQuery] = useState("");
@@ -21,8 +26,9 @@ export function ModelPicker({
   // change so it can never point past the freshly filtered list.
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+  const hiddenRef = useRef<HTMLInputElement>(null);
   const results = filterModels(models, curated, query).slice(0, 50);
-  const inputId = `model-picker-${name}`;
+  const inputId = id ?? `model-picker-${name}`;
   const listboxId = `${inputId}-listbox`;
   const optionId = (i: number) => `${inputId}-opt-${i}`;
 
@@ -33,8 +39,16 @@ export function ModelPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, open]);
 
+  const commitSelection = (value: string) => {
+    if (hiddenRef.current) {
+      hiddenRef.current.value = value;
+      hiddenRef.current.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    setSelected(value);
+  };
+
   const choose = (m: ORModel) => {
-    setSelected(m.id);
+    commitSelection(m.id);
     setQuery("");
     setOpen(false);
     setActiveIndex(-1);
@@ -82,28 +96,29 @@ export function ModelPicker({
         }
       }}
     >
-      <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>{label}</label>
+      <label className="rf-picker-label" htmlFor={inputId} style={{ fontWeight: 600, color: "var(--text-secondary)" }}>{label}</label>
       {hint && (
-        <span style={{ fontSize: "11.5px", fontWeight: 500, color: "var(--text-secondary)", marginTop: "3px" }}>{hint}</span>
+        <span className="rf-picker-help" style={{ fontWeight: 500, color: "var(--text-secondary)", marginTop: "3px" }}>{hint}</span>
       )}
-      <input type="hidden" name={name} value={selected} />
+      <input ref={hiddenRef} type="hidden" name={name} value={selected} />
       <input
         id={inputId}
         type="text"
-        className="rf-focusable"
+        className="rf-focusable rf-picker-input"
         role="combobox"
         // Only reference the listbox while it's actually rendered (open with results) —
         // aria-controls/activedescendant pointing at an absent element confuses AT.
         aria-controls={open && results.length > 0 ? listboxId : undefined}
-        aria-expanded={open && results.length > 0}
+        aria-expanded={open}
         aria-autocomplete="list"
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         style={{
           marginTop: "8px",
           borderRadius: "10px",
           border: "1px solid var(--border)",
           padding: "11px 12px",
-          fontSize: "13px",
           color: "var(--text-primary)",
           fontFamily: "inherit",
         }}
@@ -117,9 +132,9 @@ export function ModelPicker({
       />
       {/* Chip appears only while searching (menu open): idle, the input itself is the filled
           value, so the chip would be redundant. Open, it reminds you of the current selection
-          and offers the "×" clear. */}
+          and offers the icon-backed clear action. */}
       {selected && open && (
-        <div style={{
+        <div className="rf-picker-chip" style={{
           marginTop: "8px",
           display: "flex",
           alignItems: "center",
@@ -128,33 +143,21 @@ export function ModelPicker({
           borderRadius: "8px",
           background: "var(--accent-bg)",
           padding: "4px 10px",
-          fontSize: "12px",
           fontWeight: 600,
           color: "var(--accent)",
         }}>
           <span>{selected}</span>
-          <button
-            type="button"
-            aria-label="Clear model (use default)"
+          <IconButton
+            label="Clear model (use default)"
+            icon="close"
+            size="sm"
             className="rf-picker-clear"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-              margin: 0,
-              fontFamily: "inherit",
-              fontSize: "inherit",
-              lineHeight: "inherit",
-            }}
-            onClick={() => setSelected("")}
-          >
-            ×
-          </button>
+            onClick={() => commitSelection("")}
+          />
         </div>
       )}
       {open && results.length > 0 && (
-        <ul id={listboxId} role="listbox" style={{
+        <ul id={listboxId} role="listbox" className="rf-picker-listbox" style={{
           margin: 0,
           marginTop: "8px",
           padding: 0,
@@ -164,36 +167,41 @@ export function ModelPicker({
           borderRadius: "10px",
           border: "1px solid var(--border)",
           background: "var(--bg-surface)",
-          fontSize: "13px",
-          boxShadow: "0 8px 24px rgba(15,22,35,.1)",
+          boxShadow: "var(--shadow-popover)",
         }}>
           {results.map((m, idx) => (
-            <li key={m.id} id={optionId(idx)} role="option" aria-selected={m.id === selected}>
-              <button
-                type="button"
-                tabIndex={-1}
-                className="rf-picker-option"
-                style={{
-                  display: "block",
-                  width: "100%",
-                  padding: "8px 12px",
-                  textAlign: "left",
-                  border: "none",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  fontSize: "inherit",
-                  lineHeight: "inherit",
-                  color: "inherit",
-                  background: idx === activeIndex ? "var(--accent-bg)" : undefined,
-                }}
-                onClick={() => choose(m)}
-              >
-                <span style={{ color: "var(--text-primary)" }}>{m.name}</span>{" "}
-                <span style={{ color: "var(--text-secondary)" }}>{m.id}</span>
-              </button>
+            <li
+              key={m.id}
+              id={optionId(idx)}
+              role="option"
+              aria-selected={m.id === selected}
+              className="rf-picker-option"
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "8px 12px",
+                boxSizing: "border-box",
+                cursor: "pointer",
+                color: "inherit",
+                background: idx === activeIndex ? "var(--accent-bg)" : undefined,
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                choose(m);
+              }}
+            >
+              <span style={{ color: "var(--text-primary)" }}>{m.name}</span>{" "}
+              <span style={{ color: "var(--text-secondary)" }}>{m.id}</span>
             </li>
           ))}
         </ul>
+      )}
+      {open && (
+        <span role="status" aria-live="polite" className="sr-only">
+          {results.length === 0
+            ? "No matching models"
+            : `${results.length} matching model${results.length === 1 ? "" : "s"}`}
+        </span>
       )}
     </div>
   );

@@ -18,6 +18,7 @@ import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { Chip } from "@/components/ui/Chip";
+import { Icon } from "@/components/ui/Icon";
 import type { PrepareLegStatus } from "./RolefitBoard";
 
 function copyToClipboard(text: string) {
@@ -203,18 +204,6 @@ export function ApplicationPanel({
     );
   };
 
-  const cancelBtnStyle: React.CSSProperties = {
-    flex: "0 0 auto",
-    fontWeight: 700,
-    fontSize: "12.5px",
-    color: "var(--text-secondary)",
-    background: "var(--bg-surface)",
-    border: "1px solid var(--border)",
-    borderRadius: "9px",
-    padding: "8px 14px",
-    cursor: "pointer",
-  };
-
   // The external Apply link must be an <a>, so it can't be a <Button>; instead it mirrors
   // <Button>'s primary md tokens. Apply is the panel's primary CTA at ALL times —
   // supersedes #10's prepared-based swap, whose pre-prepare surface/outline state left
@@ -251,6 +240,7 @@ export function ApplicationPanel({
     <div style={{ marginTop: "24px" }}>
       {/* ── Header: title + prepare + apply ── */}
       <Panel
+        className="rf-generation-panel"
         style={{
           display: "flex",
           alignItems: "center",
@@ -286,7 +276,7 @@ export function ApplicationPanel({
               padding: "7px 14px",
             }}
           >
-            ✓ Applied{appliedDate ? ` · ${appliedDate}` : ""}
+            <Icon name="check" size={16} /> Applied{appliedDate ? ` · ${appliedDate}` : ""}
           </Chip>
         )}
         {isAuthed && job.ats === "greenhouse" && (
@@ -298,18 +288,19 @@ export function ApplicationPanel({
             disabled={preparing || generating}
             style={{ flex: "0 0 auto" }}
           >
-            <span style={{ fontSize: "15px" }}>✦</span>
+            <Icon name="sparkle" size={16} />
             {preparing ? "Prefilling… ~60s" : prepared ? "Re-prefill" : "Prefill application"}
           </Button>
         )}
         {applyHref && (
           <a
             href={applyHref}
+            data-ui-contract-composite="external ATS application action"
             target="_blank"
             rel="noopener noreferrer"
             style={applyLinkStyle}
           >
-            Apply on {atsLabel}<span style={{ fontSize: "15px" }}>→</span>
+            Apply on {atsLabel}<Icon name="arrow-right" size={16} />
           </a>
         )}
       </Panel>
@@ -331,25 +322,16 @@ export function ApplicationPanel({
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
             {failedLegs.map((leg) => (
-              <button
+              <Button
                 key={leg.key}
                 type="button"
+                variant="outline"
+                size="compact"
                 onClick={leg.onRetry}
                 disabled={generating}
-                style={{
-                  fontWeight: 700,
-                  fontSize: "12.5px",
-                  color: "var(--danger)",
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--danger-border)",
-                  borderRadius: "9px",
-                  padding: "7px 13px",
-                  cursor: generating ? "not-allowed" : "pointer",
-                  opacity: generating ? 0.6 : 1,
-                }}
               >
                 Retry {leg.label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -379,10 +361,11 @@ export function ApplicationPanel({
       />
 
       {/* ── Cover letter ── */}
-      <Panel style={{ marginTop: "18px", padding: 0, overflow: "hidden" }}>
+      <Panel className="rf-generation-panel" style={{ marginTop: "18px", padding: 0, overflow: "hidden" }}>
         {/* Idle (authed) */}
         {isAuthed && coverIdle && (
           <div
+            className="rf-generation-panel__row"
             style={{
               display: "flex",
               alignItems: "center",
@@ -410,7 +393,7 @@ export function ApplicationPanel({
               />
             </div>
             <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
-              <span style={{ fontSize: "15px" }}>✦</span>Generate cover letter
+              <Icon name="sparkle" size={16} />Generate cover letter
             </Button>
           </div>
         )}
@@ -418,6 +401,7 @@ export function ApplicationPanel({
         {/* Anon: sign-in nudge */}
         {!isAuthed && coverIdle && (
           <div
+            className="rf-generation-panel__row"
             style={{
               display: "flex",
               alignItems: "center",
@@ -438,6 +422,7 @@ export function ApplicationPanel({
             </div>
             <a
               href="/login"
+              data-ui-contract-composite="application sign-in action"
               style={{
                 flex: "0 0 auto",
                 display: "inline-flex",
@@ -493,9 +478,9 @@ export function ApplicationPanel({
               </div>
             </div>
             {onCancelGeneration && (
-              <button type="button" onClick={onCancelGeneration} style={cancelBtnStyle}>
+              <Button type="button" variant="outline" size="sm" onClick={onCancelGeneration}>
                 Cancel
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -518,7 +503,7 @@ export function ApplicationPanel({
                   fontWeight: 800,
                 }}
               >
-                ✓
+                <Icon name="check" size={16} />
               </span>
               <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
                 Cover letter ready — tailored to {job.company_name}
@@ -590,27 +575,19 @@ export function ApplicationPanel({
                 </div>
               </div>
             )}
-            <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
+            <div className="rf-generation-actions" style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
               {/* One-off small accent glow (unique geometry 0 3px 10px .26; no shared token —
                   --shadow-accent/-sm differ in geometry). Reads bright-blue on dark; a
                   dark-mode softening is deferred to the later visual pass. */}
-              <Button variant="primary" size="sm" onClick={handleCoverDownload} style={{ boxShadow: "0 3px 10px rgba(59,111,212,.26)" }}>
-                <span>⤓</span>Download PDF
+              <Button variant="primary" size="sm" onClick={handleCoverDownload} style={{ boxShadow: "var(--shadow-accent-md)" }}>
+                <Icon name="download" size={16} />Download PDF
               </Button>
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => flashCopied("cover", coverEditedText ?? composeCoverLetterText(coverData))}
               >
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                  <rect x="5.2" y="5.2" width="8.6" height="8.6" rx="2" stroke="currentColor" strokeWidth="1.6" />
-                  <path
-                    d="M3 11V3.6C3 2.7 3.7 2 4.6 2H11"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <Icon name="copy" size={16} />
                 <span aria-live="polite">{copiedKey === "cover" ? "Copied!" : "Copy text"}</span>
               </Button>
               <Button
@@ -619,7 +596,7 @@ export function ApplicationPanel({
                 onClick={onRegenerateCover}
                 disabled={generating}
               >
-                <span>↻</span>Regenerate
+                <Icon name="refresh" size={16} />Regenerate
               </Button>
             </div>
             <GenerationInstructions
@@ -644,6 +621,7 @@ export function ApplicationPanel({
         {/* Error */}
         {coverError_ && (
           <div
+            className="rf-generation-panel__row"
             style={{
               display: "flex",
               alignItems: "center",
@@ -673,12 +651,14 @@ export function ApplicationPanel({
 
       {/* ── Greenhouse application questions (this posting's real form) ── */}
       {isAuthed && (hasGreenhouse || coverRequested) && (
-        <Panel style={{ marginTop: "18px", padding: "17px 19px" }}>
+        <Panel className="rf-generation-panel" style={{ marginTop: "18px", padding: "17px 19px" }}>
           {/* Collapsed by default: a header/toggle carrying the question count + a
               "cover letter requested" flag. Apply stays the top CTA; the operator opens
               the questions on demand. */}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            className="rf-generation-panel__disclosure"
             onClick={() => setQuestionsOpen((v) => !v)}
             aria-expanded={questionsOpen}
             style={{
@@ -721,7 +701,7 @@ export function ApplicationPanel({
                 .join(" · ")}
               {ghRows.length > 0 ? ` · ${questionsOpen ? "Hide" : "Show"}` : ""}
             </div>
-          </button>
+          </Button>
 
           {/* Only the text-answerable questions expand; a cover-letter-only posting has an
               empty ghRows, so the panel is just the summary flag. */}
@@ -777,25 +757,15 @@ export function ApplicationPanel({
                     </span>
                   )}
                   {row.answer != null && (
-                    <button
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="compact"
                       onClick={() => flashCopied(row.key, row.answer as string)}
-                      style={{
-                        flex: "0 0 auto",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        fontWeight: 700,
-                        fontSize: "12px",
-                        color: copiedKey === row.key ? "var(--success)" : "var(--text-secondary)",
-                        background: "var(--bg-surface)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "8px",
-                        padding: "6px 11px",
-                        cursor: "pointer",
-                      }}
+                      style={{ color: copiedKey === row.key ? "var(--success)" : undefined }}
                     >
                       <span aria-live="polite">{copiedKey === row.key ? "Copied!" : "Copy"}</span>
-                    </button>
+                    </Button>
                   )}
                 </div>
                 {row.answer != null ? (

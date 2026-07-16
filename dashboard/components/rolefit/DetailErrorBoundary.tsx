@@ -1,6 +1,7 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
+import { ErrorState } from "@/components/ui/SystemStates";
 
 interface Props {
   children: ReactNode;
@@ -27,15 +28,11 @@ export class DetailErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ maxWidth: 880, margin: "40px auto", padding: "24px 36px" }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--danger)" }}>
-            This role couldn&apos;t be displayed
-          </div>
-          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 6, fontWeight: 500, lineHeight: 1.6 }}>
-            Something in this job&apos;s saved data is malformed. The rest of the board is
-            unaffected — pick another role, or reload the page to try again.
-          </div>
-        </div>
+        <ErrorState
+          className="rf-detail-error-state"
+          title="This role couldn't be displayed"
+          description="Something in this job’s saved data is malformed. The rest of the board is unaffected — pick another role, or reload the page to try again."
+        />
       );
     }
     return this.props.children;

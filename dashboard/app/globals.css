@@ -1,8 +1,41 @@
+@import "../components/ui/ui.css";
+@import "../components/shell/shell.css";
+@import "../components/rolefit/board.css";
+@import "../components/secondary-surfaces.css";
+
 /* Theme tokens. :root holds the light defaults; :root[data-theme="dark"] overrides
    them. Every color across the app resolves to one of these var(--token) names, so a
    single attribute flip on <html> repaints the whole surface. Keep the two blocks in
    parity — a token defined here must exist in both (enforced by globals.theme.test.ts). */
 :root {
+  --font-size-small: 11px;
+  --font-size-caption: 13px;
+  --font-size-help: 14px;
+  --font-size-control: 14px;
+  --font-size-body: 16px;
+  --font-size-heading: 32px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-badge: 999px;
+  --radius-control: 11px;
+  --radius-card: 16px;
+  --target-size: 44px;
+  --control-height: 44px;
+  --control-height-compact: 36px;
+  --control-height-lg: 48px;
+  --content-form: 720px;
+  --content-standard: 1200px;
+  --content-workspace: 1600px;
+  --content-reading: 720px;
+  --content-wide: 1200px;
+  --elevation-card: 0 1px 2px rgba(20,28,40,.04);
+  --motion-fast: 140ms;
+  --ease-standard: cubic-bezier(.2,.8,.2,1);
   --bg-page: #f4f6fa;
   --bg-surface: #ffffff;
   --bg-muted: #eef1f5;
@@ -33,6 +66,11 @@
   --shadow-toast: 0 8px 22px rgba(20,28,40,.22);
   /* Raised pill of the analytics segmented toggle (TrendCharts active button). */
   --shadow-toggle: 0 1px 4px rgba(0,0,0,.1);
+  --shadow-popover: 0 8px 24px rgba(15,22,35,.1);
+  --shadow-tooltip: 0 6px 20px rgba(22,29,41,.28);
+  --shadow-menu: 0 16px 40px rgba(20,28,45,.17);
+  --overlay-backdrop: rgba(17,23,33,.46);
+  --shadow-modal: 0 30px 70px rgba(15,22,35,.4);
   --scrollbar-thumb: #d3d9e2;
   --scrollbar-thumb-hover: #bcc4d1;
 
@@ -108,6 +146,34 @@
   --fit-tint-border-l: 0.905;
 }
 :root[data-theme="dark"] {
+  --font-size-small: 11px;
+  --font-size-caption: 13px;
+  --font-size-help: 14px;
+  --font-size-control: 14px;
+  --font-size-body: 16px;
+  --font-size-heading: 32px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-badge: 999px;
+  --radius-control: 11px;
+  --radius-card: 16px;
+  --target-size: 44px;
+  --control-height: 44px;
+  --control-height-compact: 36px;
+  --control-height-lg: 48px;
+  --content-form: 720px;
+  --content-standard: 1200px;
+  --content-workspace: 1600px;
+  --content-reading: 720px;
+  --content-wide: 1200px;
+  --elevation-card: 0 1px 2px rgba(0,0,0,.18);
+  --motion-fast: 140ms;
+  --ease-standard: cubic-bezier(.2,.8,.2,1);
   --bg-page: #12161e;
   --bg-surface: #1a1f2a;
   --bg-muted: #161b24;
@@ -137,6 +203,11 @@
   --shadow-toast: 0 8px 22px rgba(0,0,0,.5);
   /* Dark: deepen the toggle pill shadow so the raised button still reads on charcoal. */
   --shadow-toggle: 0 1px 4px rgba(0,0,0,.45);
+  --shadow-popover: 0 8px 24px rgba(0,0,0,.42);
+  --shadow-tooltip: 0 6px 20px rgba(0,0,0,.5);
+  --shadow-menu: 0 16px 40px rgba(0,0,0,.5);
+  --overlay-backdrop: rgba(4,7,12,.72);
+  --shadow-modal: 0 30px 70px rgba(0,0,0,.65);
   --scrollbar-thumb: #2c3444;
   --scrollbar-thumb-hover: #3a4150;
 
@@ -286,7 +357,19 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
    inputs' placeholder color now comes from the global input::placeholder rule above. */
 .rf-picker-option { background: transparent; }
 .rf-picker-option:hover { background: var(--accent-bg); }
-.rf-picker-clear { color: var(--accent); }
+.rf-picker-label, .rf-picker-input, .rf-picker-listbox { font-size: 13px; }
+.rf-picker-chip { font-size: 12px; }
+.rf-picker-help { font-size: 11.5px; }
+.resume-upload-filename { font-size: 12.5px; }
+.resume-upload-status { font-size: inherit; }
+.rf-picker-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--accent);
+}
 .rf-picker-clear:hover { color: var(--accent-hover); }
 
 /* Sonner completion toasts (GenerationToastProvider): the pill itself is styled
@@ -294,3 +377,15 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
    line needs a rule here because sonner's default muted gray is unreadable on
    the dark toast surface (--toast-bg). */
 [data-sonner-toast] [data-description] { color: #b9c3d4; }
+
+/* Honor the operating-system motion preference across both shared primitives and
+   older route-specific affordances. Keeping a single, final override prevents a
+   newly added transition from accidentally bypassing the reduced-motion contract. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

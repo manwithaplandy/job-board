@@ -5,11 +5,8 @@ import type { CSSProperties } from "react";
 
 export interface AccountMenuProps {
   email: string | null;
-  // Board-only: when true (narrow viewport) Analytics/Companies render as the first
-  // menu items, because Header hides the flat links at that width.
-  includeNav?: boolean;
-  // SlimHeader passes the current page so the matching item carries aria-current="page"
-  // (/profile, /billing, and /admin/* no longer rely on a filled nav pill).
+  // The account popup remains account-specific at every viewport. Responsive primary
+  // navigation is owned by AppNavMenu, a separate affordance in the shared header.
   current?: "profile" | "billing" | "admin";
   // True only for ADMIN_EMAILS viewers (computed server-side from verified claims):
   // reveals an "Admin" link to the otherwise-unadvertised /admin console. Non-admins
@@ -44,7 +41,7 @@ const separatorStyle: CSSProperties = { borderTop: "1px solid var(--bg-muted)", 
 // WAI-ARIA menu-button. The trigger is an initials avatar; the popup is a role=menu whose
 // items are links + a same-origin sign-out form-POST. Sign out MUST stay a real form POST
 // (not fetch/link/action): /auth/signout has a CSRF guard that 403s programmatic POSTs.
-export function AccountMenu({ email, includeNav = false, current, isAdmin = false }: AccountMenuProps) {
+export function AccountMenu({ email, current, isAdmin = false }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -147,7 +144,7 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
       <button
         ref={triggerRef}
         type="button"
-        className="rf-focusable"
+        className="rf-account-trigger rf-focusable"
         aria-haspopup="menu"
         aria-expanded={open}
         // Reference the popup id only while it's actually rendered (house convention).
@@ -156,8 +153,8 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
         onClick={onTriggerClick}
         onKeyDown={onTriggerKeyDown}
         style={{
-          width: "32px",
-          height: "32px",
+          width: "44px",
+          height: "44px",
           borderRadius: "50%",
           background: "var(--accent-bg)",
           border: "1px solid var(--accent-border)",
@@ -190,7 +187,7 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
             background: "var(--bg-surface)",
             border: "1px solid var(--border)",
             borderRadius: "12px",
-            boxShadow: "0 8px 24px rgba(15,22,35,.1)",
+            boxShadow: "var(--shadow-popover)",
             padding: "6px",
             zIndex: 30,
           }}
@@ -212,17 +209,6 @@ export function AccountMenu({ email, includeNav = false, current, isAdmin = fals
                 {email}
               </div>
               <div role="separator" style={separatorStyle} />
-            </>
-          )}
-
-          {includeNav && (
-            <>
-              <a role="menuitem" tabIndex={-1} href="/analytics" className="rf-picker-option" style={itemStyle} onClick={close}>
-                Analytics
-              </a>
-              <a role="menuitem" tabIndex={-1} href="/companies" className="rf-picker-option" style={itemStyle} onClick={close}>
-                Companies
-              </a>
             </>
           )}
 

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tierGateNotice, type TierGateNotice } from "@/lib/rolefit/tierGate";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 
 // First-run "your board is being built" affordance (spec F core / T6). Two shapes:
 //   • FULL card — shown on an empty board (firstRun) with the Review-now CTA.
@@ -22,6 +24,7 @@ const cardStyle: React.CSSProperties = {
   padding: "14px 18px",
   display: "flex",
   alignItems: "center",
+  flexWrap: "wrap",
   gap: "14px",
 };
 
@@ -134,8 +137,8 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
   // COMPACT progress strip while a request runs — stays mounted regardless of job count.
   if (active) {
     return (
-      <div style={cardStyle} data-testid="review-progress">
-        <span style={dot("var(--chart-amber)")} />
+      <div style={cardStyle} data-testid="review-progress" role="status" aria-live="polite">
+        <span style={dot("var(--chart-amber)")} aria-hidden="true" />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--text-primary)" }}>
             Reviewing your board…
@@ -156,7 +159,7 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
 
   return (
     <div style={cardStyle}>
-      <span style={dot(status === "failed" ? "var(--danger)" : "var(--accent)")} />
+      <span style={dot(status === "failed" ? "var(--danger)" : "var(--accent)")} aria-hidden="true" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--text-primary)" }}>
           Your board is being built
@@ -165,38 +168,29 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
           {status === "failed"
             ? "The last review didn't finish. You can start another below."
             : "Run an AI review now to score the open roles against your profile, or wait for the next scheduled pass."}
-          {remaining != null && ` · ${remaining.toLocaleString()} reviews left in today's budget.`}
+          {remaining != null && <> · <span role="status" aria-live="polite">{remaining.toLocaleString()} reviews left in today&apos;s budget.</span></>}
         </div>
-        {error && <div style={{ fontSize: "12px", color: "var(--danger)", marginTop: "4px" }}>{error}</div>}
+        {error && <div role="alert" style={{ fontSize: "12px", color: "var(--danger)", marginTop: "4px" }}>{error}</div>}
         {gate && (
           <div style={{ fontSize: "12px", color: "var(--text-primary)", marginTop: "4px" }}>
-            {gate.message}{" "}
-            <a href="/billing" style={{ color: "var(--accent)", fontWeight: 700, textDecoration: "none" }}>
-              {gate.cta} →
-            </a>
+            <span role="status" aria-live="polite">{gate.message}</span>{" "}
+            <ButtonLink href="/billing" variant="text-link" size="compact" style={{ gap: "4px", fontWeight: 700 }}>
+              {gate.cta} <Icon name="arrow-right" size={16} />
+            </ButtonLink>
           </div>
         )}
       </div>
-      <button
-        type="button"
+      <Button
         onClick={request}
-        disabled={busy}
+        loading={busy}
+        loadingLabel="Starting review"
+        size="compact"
         style={{
-          border: "none",
-          borderRadius: "9px",
-          padding: "9px 14px",
-          fontSize: "13px",
-          fontWeight: 700,
-          color: "var(--text-on-accent)",
-          background: "var(--accent)",
-          cursor: busy ? "default" : "pointer",
-          opacity: busy ? 0.7 : 1,
           flexShrink: 0,
-          fontFamily: "inherit",
         }}
       >
         {busy ? "Starting…" : "Review my board now"}
-      </button>
+      </Button>
     </div>
   );
 }

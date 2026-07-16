@@ -45,4 +45,24 @@ describe("AppearanceToggle", () => {
     expect(light.getAttribute("aria-checked")).toBe("true");
     expect(document.activeElement).toBe(light);
   });
+
+  test("uses shared selected and keyboard focus contracts", () => {
+    mockMatchMedia(false);
+    renderToggle();
+    const selected = screen.getByRole("radio", { name: /system/i });
+
+    expect(selected.getAttribute("aria-checked")).toBe("true");
+    expect(selected.classList.contains("rf-segments__item")).toBe(true);
+    expect(selected.classList.contains("rf-focusable")).toBe(true);
+  });
+
+  test("gives every theme option the shared 44px segment contract", () => {
+    mockMatchMedia(false);
+    renderToggle();
+
+    for (const option of screen.getAllByRole("radio")) {
+      expect(option.classList).toContain("rf-segments__item");
+      expect(option.classList).toContain("rf-focusable");
+    }
+  });
 });

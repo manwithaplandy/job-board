@@ -49,17 +49,25 @@ export function InfoTip({
       <span
         tabIndex={0}
         role="button"
+        aria-expanded={open}
         aria-describedby={open ? id : undefined}
         aria-label={`${term}. ${gloss}`}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => {
-          if (e.key === "Escape") setOpen(false);
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setOpen(false);
+          } else if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((current) => !current);
+          }
         }}
+        onClick={() => setOpen(true)}
+        className="rf-info-tip__trigger rf-focusable"
         style={{
           borderBottom: "1px dotted var(--text-muted)",
           cursor: "help",
-          outline: "none",
           ...labelStyle,
         }}
       >
@@ -89,7 +97,7 @@ export function InfoTip({
             textAlign: "left",
             padding: "9px 11px",
             borderRadius: "8px",
-            boxShadow: "0 6px 20px rgba(22,29,41,.28)",
+            boxShadow: "var(--shadow-tooltip)",
             pointerEvents: "none",
             whiteSpace: "normal",
           }}

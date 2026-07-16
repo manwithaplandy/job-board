@@ -1,83 +1,58 @@
 "use client";
 
 import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import { deleteMyAccount, type DeleteAccountState } from "@/app/actions/account";
-import { SubmitButton } from "@/components/ui/SubmitButton";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { TextField } from "@/components/ui/FormControls";
+import { Card } from "@/components/ui/Panel";
 
-// Profile "Danger zone" (T2 export + T3 deletion). Export is offered FIRST (compliance:
-// let people take their data before erasing it). Deletion requires typing DELETE (or
-// the account email) — the server action re-checks this against the caller's own
-// verified session, so this input is a UX guard, not the security boundary.
-
-const cardStyle: React.CSSProperties = {
-  border: "1px solid var(--danger-border)", background: "var(--danger-bg)", borderRadius: "14px",
-  padding: "18px 20px", marginTop: "24px",
-};
-const legendStyle: React.CSSProperties = {
-  fontSize: "13px", fontWeight: 800, color: "var(--danger)", marginBottom: "6px",
-};
-const rowLabelStyle: React.CSSProperties = { fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" };
-const hintStyle: React.CSSProperties = {
-  fontSize: "12px", color: "var(--text-secondary)", margin: "2px 0 10px", lineHeight: 1.5,
-};
-const linkBtnStyle: React.CSSProperties = {
-  display: "inline-block", border: "1px solid var(--border-strong)", background: "var(--bg-surface)",
-  borderRadius: "10px", padding: "9px 16px", fontSize: "13px", fontWeight: 600,
-  color: "var(--text-primary)", textDecoration: "none",
-};
-const inputStyle: React.CSSProperties = {
-  border: "1px solid var(--danger-border)", borderRadius: "10px", padding: "9px 12px",
-  fontSize: "13px", fontFamily: "inherit", width: "220px", maxWidth: "100%",
-};
+// Export stays ahead of deletion so a user can recover their data before erasing it.
+// The confirmation is a UX guard; the server action remains the security boundary.
+function DeleteAccountButton() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" variant="destructive" loading={pending} loadingLabel="Deleting account">
+      {pending ? "Deleting…" : "Delete account"}
+    </Button>
+  );
+}
 
 export function DangerZone() {
   const [state, action] = useActionState<DeleteAccountState, FormData>(deleteMyAccount, null);
   return (
-    <div style={cardStyle}>
-      <div style={legendStyle}>Danger zone</div>
+    <Card className="danger-zone" padding="lg">
+      <div className="danger-zone__label">Danger zone</div>
 
-      <div style={{ marginBottom: "18px" }}>
-        <div style={rowLabelStyle}>Export my data</div>
-        <div style={hintStyle}>
+      <div className="danger-zone__section">
+        <div className="danger-zone__row-title">Export my data</div>
+        <p className="danger-zone__help">
           Download everything we hold about you (profile, reviews, generated packages, and
           links to your uploaded résumé files) as a JSON file.
-        </div>
-        {/* Content-Disposition: attachment on the route triggers the download. */}
-        <a href="/api/account/export" style={linkBtnStyle}>Export my data</a>
+        </p>
+        <ButtonLink href="/api/account/export" variant="outline" size="sm">Export my data</ButtonLink>
       </div>
 
-      <div>
-        <div style={rowLabelStyle}>Delete my account</div>
-        <div style={hintStyle}>
+      <div className="danger-zone__section danger-zone__section--destructive">
+        <div className="danger-zone__row-title">Delete my account</div>
+        <p className="danger-zone__help">
           Permanently deletes your profile, reviews, generated application packages, and
           archived résumé files, and cancels any active subscription. This cannot be undone.
           Type <strong>DELETE</strong> to confirm.
-        </div>
-        <form action={action} style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-          <input
-            className="rf-focusable"
+        </p>
+        <form action={action} className="danger-zone__form">
+          <TextField
             name="confirm"
+            label="Confirmation"
             placeholder="DELETE"
             autoComplete="off"
             aria-label="Type DELETE to confirm account deletion"
-            style={inputStyle}
+            error={state?.error}
+            className="danger-zone__input"
           />
-          <SubmitButton
-            pendingLabel="Deleting…"
-            style={{
-              borderRadius: "10px", padding: "9px 16px", fontSize: "13px",
-              background: "var(--danger)", boxShadow: "0 3px 10px rgba(178,59,59,.22)",
-            }}
-          >
-            Delete account
-          </SubmitButton>
+          <DeleteAccountButton />
         </form>
-        {state?.error && (
-          <p role="alert" style={{ margin: "10px 0 0", fontSize: "12.5px", color: "var(--danger)", fontWeight: 600 }}>
-            {state.error}
-          </p>
-        )}
       </div>
-    </div>
+    </Card>
   );
 }

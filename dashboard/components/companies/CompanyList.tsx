@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
 import { CompanyCard } from "@/components/companies/CompanyCard";
 import { CreditBanner } from "@/components/companies/CreditBanner";
+import { TextField } from "@/components/ui/FormControls";
+import { Tabs } from "@/components/ui/Navigation";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 type Bucket = "include" | "exclude" | "unknown";
 
@@ -54,46 +57,31 @@ export function CompanyList({
   ];
 
   return (
-    <div>
+    <div className="rf-secondary-stack">
       <CreditBanner state={state} refresh={refresh} canRefresh={canRefresh} />
-      <div style={{ display: "inline-flex", background: "var(--bg-muted)", borderRadius: "10px",
-        padding: "3px", marginBottom: "16px" }}>
-        {tabs.map((t) => {
-          const active = activeBucket === t.key;
-          return (
-            // Switching bucket drops ?q= (search clears) — intentional; these links omit it.
-            <a key={t.key} href={`?bucket=${t.key}`} aria-current={active ? "page" : undefined} style={{
-              textDecoration: "none", cursor: "pointer", fontWeight: 700, fontSize: "13px",
-              padding: "8px 16px", borderRadius: "8px",
-              background: active ? "var(--bg-surface)" : "transparent",
-              // Active tab: --text-primary on the raised --bg-surface pill. Inactive tabs
-              // sit on the --bg-muted bar and use --text-secondary; the count reuses the
-              // same token as its label so they don't split contrast on the inactive tab.
-              color: active ? "var(--text-primary)" : "var(--text-secondary)",
-              boxShadow: active ? "var(--shadow-toggle)" : "none",
-            }}>
-              {t.label} <span style={{ color: "var(--text-secondary)" }}>{t.n}</span>
-            </a>
-          );
-        })}
+      <div className="rf-company-toolbar">
+        <Tabs
+          label="Company verdicts"
+          className="rf-company-tabs"
+          items={tabs.map((t) => ({
+            label: `${t.label} ${t.n}`,
+            href: `?bucket=${t.key}`,
+            active: activeBucket === t.key,
+          }))}
+        />
+        <TextField
+          label="Search by company name"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Search by company name…"
+          className="rf-company-search"
+        />
       </div>
-      <input
-        type="text"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Search by company name…"
-        aria-label="Search by company name"
-        className="rf-focusable"
-        style={{
-          display: "block", width: "100%", maxWidth: "320px", marginBottom: "10px",
-          padding: "8px 12px", fontSize: "13px", color: "var(--text-primary)", background: "var(--bg-surface)",
-          border: "1px solid var(--border)", borderRadius: "8px", outline: "none",
-        }}
-      />
       {rows.length === 0 ? (
-        <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "20px 0" }}>
-          {q ? `No companies match “${q}”.` : "No companies here yet."}
-        </div>
+        <EmptyState
+          title={q ? `No companies match “${q}”.` : "No companies here yet."}
+          description={q ? "Try a different company name or clear the search." : "Classified companies will appear here as your board is reviewed."}
+        />
       ) : (
         <>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "10px" }}>
@@ -103,7 +91,9 @@ export function CompanyList({
                 ? `Showing first ${rows.length} of ${bucketTotal} — search by name to find any company${pending ? " · searching…" : ""}`
                 : `${rows.length} ${rows.length === 1 ? "company" : "companies"}${pending ? " · searching…" : ""}`}
           </div>
-          {rows.map((c) => <CompanyCard key={c.id} company={c} override={override} />)}
+          <div className="rf-secondary-card-list">
+            {rows.map((c) => <CompanyCard key={c.id} company={c} override={override} />)}
+          </div>
         </>
       )}
     </div>

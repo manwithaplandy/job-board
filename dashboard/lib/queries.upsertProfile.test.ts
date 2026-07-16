@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-// upsertProfile is the DEFINITIVE profile write boundary — every writer (onboarding,
-// /profile save, résumé save) funnels through it. It must refuse to write for a
-// tombstoned user so a stale JWT can't resurrect erased PII (M-RESURRECT-2).
+// upsertProfile is the legacy whole-profile write boundary used by onboarding and
+// pre-route-split callers. It must refuse to write for a tombstoned user so a stale
+// JWT can't resurrect erased PII (M-RESURRECT-2).
 const mocks = vi.hoisted(() => ({
   withUserSql: vi.fn(async (_userId: string, _fn: (tx: unknown) => unknown) => undefined),
   isAccountDeleted: vi.fn(async (_userId: string) => false),

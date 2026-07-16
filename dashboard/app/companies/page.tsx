@@ -7,17 +7,13 @@ import { getCompanyReviews, getCompanyVerdictCounts, getDiscoveryState }
 import { setCompanyOverride, refreshCompanyDiscoveryStatus } from "@/app/actions/companies";
 import { CompanyList } from "@/components/companies/CompanyList";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
+import { AppShell } from "@/components/shell/AppShell";
 import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
+import { PageHeader } from "@/components/ui/Navigation";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Companies · Rolefit" };
-
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "40px 20px 64px",
-};
-const cardStyle: React.CSSProperties = {
-  maxWidth: "780px", margin: "0 auto",
-};
 
 const VALID_BUCKETS = ["include", "exclude", "unknown"] as const;
 type Bucket = typeof VALID_BUCKETS[number];
@@ -61,19 +57,15 @@ export default async function CompaniesPage({
   const hasAnyReviews = counts.include + counts.exclude + counts.unknown > 0;
 
   return (
-    <>
-      <SlimHeader current="companies" />
-      <main style={pageStyle}>
-        <div style={cardStyle}>
-          <h1 style={{ margin: "0 0 4px", fontSize: "22px", fontWeight: 800, letterSpacing: "-.4px", color: "var(--text-primary)" }}>
-            Companies
-          </h1>
-          <div style={{ fontSize: "13px", fontWeight: 500, color: "var(--text-muted)", marginBottom: "22px" }}>
+    <AppShell header={<SlimHeader current="companies" />}>
+      <main className="rf-secondary-page">
+        <div className="rf-secondary-wrap">
+          <PageHeader className="rf-secondary-header" title="Companies" description={<>
             AI-classified against your company preferences. Override any decision — it sticks.{" "}
-            <a href="/profile" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
-              Edit preferences →
+            <a href="/profile" className="rf-secondary-link">
+              Edit preferences
             </a>
-          </div>
+          </>} />
           {hasAnyReviews || search ? (
             <CompanyList
               included={included} excluded={excluded} unknown={unknown}
@@ -81,25 +73,21 @@ export default async function CompaniesPage({
               override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus} canRefresh={admin}
             />
           ) : (
-            <div style={{
-              background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "14px",
-              padding: "40px 30px", textAlign: "center", color: "var(--text-secondary)",
-            }}>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-secondary)" }}>
-                No companies classified yet
-              </div>
-              <div style={{ fontSize: "13px", marginTop: "6px", lineHeight: 1.6 }}>
+            <EmptyState
+              className="rf-secondary-empty"
+              title="No companies classified yet"
+              description={<>
                 As your board is reviewed, the companies behind those roles are classified
                 against your preferences and appear here. Set your{" "}
-                <a href="/profile" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+                <a href="/profile" className="rf-secondary-link">
                   company preferences
                 </a>{" "}
                 to steer which ones are surfaced.
-              </div>
-            </div>
+              </>}
+            />
           )}
         </div>
       </main>
-    </>
+    </AppShell>
   );
 }

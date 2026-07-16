@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { INSTRUCTIONS_MAX_LENGTH } from "@/lib/rolefit/generationInstructions";
+import { Icon } from "@/components/ui/Icon";
+import { Button } from "@/components/ui/Button";
 
 export interface GenerationInstructionsProps {
   /** Current instructions text ("" = none). */
@@ -52,9 +54,11 @@ export function GenerationInstructions({
   };
 
   return (
-    <div style={{ marginTop: "10px" }}>
-      <button
+    <div className="rf-generation-instructions" style={{ marginTop: "10px" }}>
+      <Button
         type="button"
+        variant="outline"
+        size="compact"
         onClick={() => setOpen((v) => !v)}
         style={{
           display: "inline-flex", alignItems: "center", gap: "6px",
@@ -63,15 +67,16 @@ export function GenerationInstructions({
           borderRadius: "8px", padding: "6px 11px", cursor: "pointer",
         }}
       >
-        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+        <Icon name={open ? "chevron-down" : "chevron-right"} size={16} />
         Generation instructions
         {!open && value.trim() && (
           <span style={{ color: "var(--accent)", fontWeight: 800 }}>·</span>
         )}
-      </button>
+      </Button>
       {open && (
         <>
           <textarea
+            data-ui-contract-composite="generation instruction editor"
             value={value}
             onChange={(e) => handleChange(e.target.value)}
             maxLength={INSTRUCTIONS_MAX_LENGTH}
@@ -85,34 +90,28 @@ export function GenerationInstructions({
           />
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px", minHeight: "26px" }}>
             {onSave && (
-              <button
+              <Button
                 type="button"
+                size="compact"
                 onClick={handleSave}
                 disabled={!dirty || saving}
-                style={{
-                  fontWeight: 700, fontSize: "12px",
-                  color: "var(--text-on-accent)", background: "var(--accent)",
-                  border: "none", borderRadius: "8px", padding: "6px 14px",
-                  cursor: !dirty || saving ? "not-allowed" : "pointer",
-                  opacity: !dirty || saving ? 0.5 : 1,
-                }}
               >
                 {saving ? "Saving…" : "Save"}
-              </button>
+              </Button>
             )}
             {onSave && justSaved && !dirty && (
-              <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--success)" }} aria-live="polite">
-                ✓ Saved
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: 700, color: "var(--success)" }} aria-live="polite">
+                <Icon name="check" size={16} /> Saved
               </span>
             )}
             {appliedState === "applied" && (
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginLeft: "auto" }}>
-                ✓ Applied to current {kind}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginLeft: "auto" }}>
+                <Icon name="check" size={16} /> Applied to current {kind}
               </span>
             )}
             {appliedState === "pending" && (
-              <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--accent)", marginLeft: "auto" }}>
-                ● Not yet applied — Regenerate to apply
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: 700, color: "var(--accent)", marginLeft: "auto" }}>
+                <Icon name="warning" size={16} /> Not yet applied — Regenerate to apply
               </span>
             )}
           </div>

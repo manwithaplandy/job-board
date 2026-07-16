@@ -7,6 +7,7 @@ import { downloadPdf } from "@/lib/rolefit/downloadPdf";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
+import { Icon } from "@/components/ui/Icon";
 import { ResumeScorePanel } from "@/components/rolefit/ResumeScorePanel";
 import { GenerationInstructions } from "./GenerationInstructions";
 
@@ -89,10 +90,11 @@ export function ResumePanel({
   };
 
   return (
-    <Panel style={{ marginTop: "24px", padding: 0, overflow: "hidden" }}>
+    <Panel className="rf-generation-panel" style={{ marginTop: "24px", padding: 0, overflow: "hidden" }}>
       {/* ── Anon: sign-in prompt ── */}
       {isAuthed === false && isIdle && (
         <div
+          className="rf-generation-panel__row"
           style={{
             display: "flex",
             alignItems: "center",
@@ -118,6 +120,7 @@ export function ResumePanel({
           </div>
           <a
             href="/login"
+            data-ui-contract-composite="resume sign-in action"
             style={{
               flex: "0 0 auto",
               display: "inline-flex",
@@ -143,6 +146,7 @@ export function ResumePanel({
       {/* ── Idle (authed) ── */}
       {isAuthed !== false && isIdle && (
         <div
+          className="rf-generation-panel__row"
           style={{
             display: "flex",
             alignItems: "center",
@@ -189,7 +193,7 @@ export function ResumePanel({
             />
           </div>
           <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
-            <span style={{ fontSize: "15px" }}>✦</span>Generate résumé
+            <Icon name="sparkle" size={16} />Generate résumé
           </Button>
         </div>
       )}
@@ -197,6 +201,7 @@ export function ResumePanel({
       {/* ── Busy ── */}
       {isBusy && (
         <div
+          className="rf-generation-panel__row"
           style={{
             display: "flex",
             alignItems: "center",
@@ -227,23 +232,14 @@ export function ResumePanel({
             </div>
           </div>
           {onCancelGeneration && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={onCancelGeneration}
-              style={{
-                flex: "0 0 auto",
-                fontWeight: 700,
-                fontSize: "12.5px",
-                color: "var(--text-secondary)",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "9px",
-                padding: "8px 14px",
-                cursor: "pointer",
-              }}
             >
               Cancel
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -266,7 +262,7 @@ export function ResumePanel({
                 fontWeight: 800,
               }}
             >
-              ✓
+              <Icon name="check" size={16} />
             </span>
             <div style={{ fontWeight: 800, fontSize: "14.5px", color: "var(--text-primary)" }}>
               Résumé ready — tailored to {job.company_name}
@@ -331,73 +327,29 @@ export function ResumePanel({
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", gap: "10px", marginTop: "13px" }}>
-            <button
+          <div className="rf-generation-actions" style={{ marginTop: "13px" }}>
+            <Button
+              type="button"
               onClick={handleDownload}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                fontWeight: 700,
-                fontSize: "13.5px",
-                color: "var(--text-on-accent)",
-                background: "var(--accent)",
-                border: "none",
-                borderRadius: "10px",
-                padding: "10px 17px",
-                cursor: "pointer",
-                boxShadow: "var(--shadow-accent-md)",
-              }}
             >
-              <span>⤓</span>Download PDF
-            </button>
-            <button
+              <Icon name="download" size={16} />Download PDF
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               onClick={onCopy}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "7px",
-                fontWeight: 700,
-                fontSize: "13.5px",
-                color: "var(--text-secondary)",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "10px",
-                padding: "10px 15px",
-                cursor: "pointer",
-              }}
             >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                <rect x="5.2" y="5.2" width="8.6" height="8.6" rx="2" stroke="currentColor" strokeWidth="1.6" />
-                <path
-                  d="M3 11V3.6C3 2.7 3.7 2 4.6 2H11"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <Icon name="copy" size={16} />
               <span aria-live="polite">{copyLabel}</span>
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               onClick={onRegenerate}
               disabled={generating}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "7px",
-                fontWeight: 700,
-                fontSize: "13.5px",
-                color: "var(--text-secondary)",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "10px",
-                padding: "10px 15px",
-                cursor: generating ? "not-allowed" : "pointer",
-                opacity: generating ? 0.6 : 1,
-              }}
             >
-              <span>↻</span>Regenerate
-            </button>
+              <Icon name="refresh" size={16} />Regenerate
+            </Button>
           </div>
           <GenerationInstructions
             value={instructions}
@@ -414,6 +366,7 @@ export function ResumePanel({
       {/* ── Error ── */}
       {isError && (
         <div
+          className="rf-generation-panel__row"
           style={{
             display: "flex",
             alignItems: "center",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { IconButton } from "@/components/ui/Action";
 
 type LocationOption = { location: string; count: number };
 
@@ -9,16 +10,21 @@ type LocationOption = { location: string; count: number };
 // out of `options` because its jobs closed). The picks are submitted as a JSON
 // string array in a hidden field — JSON, not CSV, because locations contain commas.
 export function LocationPicker({
-  name, options, defaultValue,
+  name, options, defaultValue, id, ariaInvalid, ariaDescribedBy,
   // The picker owns its own visible <label> (kept associated with the input via htmlFor so
   // it's the combobox's accessible name). Locations are mandatory everywhere the picker is
   // used (onboarding + /profile both reject an empty selection), hence the default copy.
   label = "Locations to include (required — remote roles are always included)",
+  onSelectionChange,
 }: {
   name: string;
   options: LocationOption[];
   defaultValue: string[];
+  id?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
   label?: string;
+  onSelectionChange?: (selected: string[]) => void;
 }) {
   const [selected, setSelected] = useState<string[]>(defaultValue);
   const [query, setQuery] = useState("");
@@ -27,7 +33,8 @@ export function LocationPicker({
   // change so it can never point past the freshly filtered list.
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
-  const inputId = `location-picker-${name}`;
+  const hiddenRef = useRef<HTMLInputElement>(null);
+  const inputId = id ?? `location-picker-${name}`;
   const listboxId = `${inputId}-listbox`;
   const optionId = (i: number) => `${inputId}-opt-${i}`;
 
@@ -45,14 +52,29 @@ export function LocationPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, open]);
 
+  const announceSelection = (next: string[]) => {
+    if (!hiddenRef.current) return;
+    hiddenRef.current.value = JSON.stringify(next);
+    hiddenRef.current.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
   const add = (loc: string) => {
-    setSelected((prev) => (prev.includes(loc) ? prev : [...prev, loc]));
+    if (selected.includes(loc)) return;
+    const next = [...selected, loc];
+    setSelected(next);
+    onSelectionChange?.(next);
+    announceSelection(next);
     setQuery("");
     setOpen(false);
     setActiveIndex(-1);
   };
-  const remove = (loc: string) =>
-    setSelected((prev) => prev.filter((l) => l !== loc));
+  const remove = (loc: string) => {
+    const next = selected.filter((l) => l !== loc);
+    if (next.length === selected.length) return;
+    setSelected(next);
+    onSelectionChange?.(next);
+    announceSelection(next);
+  };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
@@ -94,10 +116,10 @@ export function LocationPicker({
         }
       }}
     >
-      <label htmlFor={inputId} style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>
+      <label className="rf-picker-label" htmlFor={inputId} style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
         {label}
       </label>
-      <input type="hidden" name={name} value={JSON.stringify(selected)} />
+      <input ref={hiddenRef} type="hidden" name={name} value={JSON.stringify(selected)} />
       {selected.length > 0 && (
         <ul style={{
           margin: 0,
@@ -109,36 +131,24 @@ export function LocationPicker({
           gap: "6px",
         }}>
           {selected.map((loc) => (
-            <li key={loc} style={{
+            <li key={loc} className="rf-picker-chip" style={{
               display: "flex",
               alignItems: "center",
               gap: "6px",
               borderRadius: "8px",
               background: "var(--accent-bg)",
               padding: "4px 10px",
-              fontSize: "12px",
               fontWeight: 600,
               color: "var(--accent)",
             }}>
               <span>{loc}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${loc}`}
-                className="rf-picker-clear"
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  margin: 0,
-                  fontFamily: "inherit",
-                  fontSize: "inherit",
-                  lineHeight: "inherit",
-                }}
+              <IconButton
+                label={`Remove ${loc}`}
+                icon="close"
+                size="sm"
+                className="location-chip-remove"
                 onClick={() => remove(loc)}
-              >
-                ×
-              </button>
+              />
             </li>
           ))}
         </ul>
@@ -146,20 +156,21 @@ export function LocationPicker({
       <input
         id={inputId}
         type="text"
-        className="rf-focusable"
+        className="rf-focusable rf-picker-input"
         role="combobox"
         // Only reference the listbox while it's actually rendered (open with results) —
         // aria-controls/activedescendant pointing at an absent element confuses AT.
         aria-controls={open && results.length > 0 ? listboxId : undefined}
-        aria-expanded={open && results.length > 0}
+        aria-expanded={open}
         aria-autocomplete="list"
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         style={{
           marginTop: "8px",
           borderRadius: "10px",
           border: "1px solid var(--border)",
           padding: "11px 12px",
-          fontSize: "13px",
           color: "var(--text-primary)",
           fontFamily: "inherit",
         }}
@@ -170,7 +181,7 @@ export function LocationPicker({
         onKeyDown={onKeyDown}
       />
       {open && results.length > 0 && (
-        <ul id={listboxId} role="listbox" style={{
+        <ul id={listboxId} role="listbox" className="rf-picker-listbox" style={{
           margin: 0,
           marginTop: "8px",
           padding: 0,
@@ -180,37 +191,42 @@ export function LocationPicker({
           borderRadius: "10px",
           border: "1px solid var(--border)",
           background: "var(--bg-surface)",
-          fontSize: "13px",
-          boxShadow: "0 8px 24px rgba(15,22,35,.1)",
+          boxShadow: "var(--shadow-popover)",
         }}>
           {results.map((o, idx) => (
-            <li key={o.location} id={optionId(idx)} role="option" aria-selected={false}>
-              <button
-                type="button"
-                tabIndex={-1}
-                className="rf-picker-option"
-                style={{
-                  display: "flex",
-                  width: "100%",
-                  justifyContent: "space-between",
-                  padding: "8px 12px",
-                  textAlign: "left",
-                  border: "none",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  fontSize: "inherit",
-                  lineHeight: "inherit",
-                  color: "inherit",
-                  background: idx === activeIndex ? "var(--accent-bg)" : undefined,
-                }}
-                onClick={() => add(o.location)}
-              >
-                <span style={{ color: "var(--text-primary)" }}>{o.location}</span>
-                <span style={{ color: "var(--text-secondary)" }}>{o.count}</span>
-              </button>
+            <li
+              key={o.location}
+              id={optionId(idx)}
+              role="option"
+              aria-selected={false}
+              className="rf-picker-option"
+              style={{
+                display: "flex",
+                width: "100%",
+                justifyContent: "space-between",
+                padding: "8px 12px",
+                boxSizing: "border-box",
+                cursor: "pointer",
+                color: "inherit",
+                background: idx === activeIndex ? "var(--accent-bg)" : undefined,
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                add(o.location);
+              }}
+            >
+              <span style={{ color: "var(--text-primary)" }}>{o.location}</span>
+              <span style={{ color: "var(--text-secondary)" }}>{o.count}</span>
             </li>
           ))}
         </ul>
+      )}
+      {open && (
+        <span role="status" aria-live="polite" className="sr-only">
+          {results.length === 0
+            ? "No matching locations"
+            : `${results.length} matching location${results.length === 1 ? "" : "s"}`}
+        </span>
       )}
     </div>
   );

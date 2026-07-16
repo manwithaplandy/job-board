@@ -6,6 +6,7 @@ import type { CorrectionForm } from "@/lib/rolefit/correction";
 import { saveReviewCorrection } from "@/app/actions/corrections";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
+import { Icon } from "@/components/ui/Icon";
 import {
   VERDICTS, EXPERIENCE_MATCH, INDUSTRIES, SUBCATEGORIES_BY_INDUSTRY,
   ROLE_CATEGORIES, SENIORITY, WORK_ARRANGEMENT, CONFIDENCE, taxonomyLabel,
@@ -96,6 +97,7 @@ export function ReviewPanel({
     <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
       {label}
       <select
+        data-ui-contract-composite="correction taxonomy select"
         value={(form[k] as string) ?? ""}
         onChange={(e) => set(k, (e.target.value || null) as CorrectionForm[typeof k])}
         style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--border-strong)", fontSize: 13 }}
@@ -110,6 +112,7 @@ export function ReviewPanel({
     <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
       {label}
       <input
+        data-ui-contract-composite="correction numeric score"
         type="number" min={0} max={100}
         value={form[k] ?? ""}
         onChange={(e) => {
@@ -134,7 +137,7 @@ export function ReviewPanel({
   const skillGaps = job.skill_gaps ?? [];
 
   return (
-    <Panel style={{ marginTop: "18px" }}>
+    <Panel className="rf-review-panel" style={{ marginTop: "18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
         <span
           style={{
@@ -186,13 +189,13 @@ export function ReviewPanel({
               </div>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
                 Reasoning
-                <textarea value={form.reasoning ?? ""} rows={3}
+                <textarea data-ui-contract-composite="correction reasoning" value={form.reasoning ?? ""} rows={3}
                   onChange={(e) => set("reasoning", e.target.value || null)}
                   style={{ padding: 8, borderRadius: 8, border: "1px solid var(--border-strong)", fontSize: 13 }} />
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
                 Note (why corrected)
-                <input value={form.note ?? ""}
+                <input data-ui-contract-composite="correction note" value={form.note ?? ""}
                   onChange={(e) => set("note", e.target.value || null)}
                   style={{ padding: 8, borderRadius: 8, border: "1px solid var(--border-strong)", fontSize: 13 }} />
               </label>
@@ -321,7 +324,7 @@ export function ReviewPanel({
                       flex: "0 0 auto",
                     }}
                   >
-                    ▲
+                    <Icon name="warning" size={16} />
                   </span>
                   <span
                     style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.5, fontWeight: 500 }}

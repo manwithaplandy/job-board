@@ -101,15 +101,13 @@ describe("AccountMenu — open contents", () => {
     expect((items[items.length - 1] as HTMLElement).textContent).toBe("Sign out");
   });
 
-  test("includeNav prepends Analytics/Companies menuitems", () => {
-    renderMenu({ includeNav: true });
+  test("stays account-specific rather than duplicating primary navigation", () => {
+    renderMenu();
     openWithClick();
-    const analytics = screen.getByRole("menuitem", { name: "Analytics" });
-    expect(analytics.getAttribute("href")).toBe("/analytics");
-    const companies = screen.getByRole("menuitem", { name: "Companies" });
-    expect(companies.getAttribute("href")).toBe("/companies");
-    // They lead the list, ahead of Profile.
-    expect(screen.getAllByRole("menuitem")[0]).toBe(analytics);
+    expect(screen.queryByRole("menuitem", { name: "Board" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Analytics" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Companies" })).toBeNull();
+    expect(screen.getAllByRole("menuitem")[0]).toBe(screen.getByRole("menuitem", { name: "Profile" }));
   });
 });
 

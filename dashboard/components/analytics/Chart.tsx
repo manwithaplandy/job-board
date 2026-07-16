@@ -5,21 +5,12 @@ import {
   XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine,
 } from "recharts";
 import type { Bar as BarDatum } from "@/lib/metrics";
+import { Card as SurfaceCard } from "@/components/ui/Panel";
+import { EmptyState } from "@/components/ui/SystemStates";
 
 export interface SeriesDef { key: string; name: string; color: string }
 export interface RefLine { y: number; label: string }
 
-const CARD: React.CSSProperties = {
-  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "14px",
-  padding: "16px 18px 8px", marginBottom: "16px",
-};
-const TITLE: React.CSSProperties = {
-  fontSize: "13.5px", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-.2px",
-};
-const SUBTITLE: React.CSSProperties = {
-  fontSize: "11.5px", color: "var(--text-secondary)", marginTop: "3px", lineHeight: 1.4,
-};
-const EMPTY: React.CSSProperties = { fontSize: "12.5px", color: "var(--text-muted)", padding: "28px 0" };
 const AXIS = { fontSize: 11, fill: "var(--text-secondary)" } as const;
 
 // Compact Y-axis ticks: 120000 → "120K", 28000 → "28K" — keeps the axis narrow and
@@ -39,18 +30,18 @@ function formatDateTick(value: string | number): string {
 
 function Head({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div style={{ marginBottom: "12px" }}>
-      <div style={TITLE}>{title}</div>
-      {subtitle && <div style={SUBTITLE}>{subtitle}</div>}
+    <div className="rf-analytics-card__head">
+      <div className="rf-analytics-card__title">{title}</div>
+      {subtitle && <div className="rf-analytics-card__subtitle">{subtitle}</div>}
     </div>
   );
 }
 
-function Card(
+function ChartCard(
   { title, subtitle, children, style }:
   { title: string; subtitle?: string; children: React.ReactNode; style?: React.CSSProperties },
 ) {
-  return <div style={{ ...CARD, ...style }}><Head title={title} subtitle={subtitle} />{children}</div>;
+  return <SurfaceCard className="rf-analytics-card" padding="sm" style={style}><Head title={title} subtitle={subtitle} />{children}</SurfaceCard>;
 }
 
 // recharts 3 sorts the built-in Legend payload alphabetically, which desyncs the
@@ -116,10 +107,10 @@ export function BarsCard(
     empty?: string; refLine?: RefLine; valueFormatter?: (v: number) => string; allTicks?: boolean; weekly?: boolean;
   },
 ) {
-  if (data.length === 0) return <Card title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></Card>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   return (
-    <Card title={title} subtitle={subtitle}>
-      <div role="img" aria-label={`${title} — bar chart`}>
+    <ChartCard title={title} subtitle={subtitle}>
+      <div role="img" aria-label={`${title} — bar chart`} data-ui-visual="data-viz">
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
             <CartesianGrid stroke="var(--bg-muted)" vertical={false} />
@@ -161,7 +152,7 @@ export function BarsCard(
           </BarChart>
         </ResponsiveContainer>
       </div>
-    </Card>
+    </ChartCard>
   );
 }
 
@@ -173,7 +164,7 @@ export function LinesCard(
     percent?: boolean; empty?: string; refLine?: RefLine; valueFormatter?: (v: number) => string; weekly?: boolean;
   },
 ) {
-  if (data.length === 0) return <Card title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></Card>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   const yTickFmt = percent
     ? (v: number) => `${Math.round(v * 100)}%`
     : valueFormatter
@@ -186,8 +177,8 @@ export function LinesCard(
       // Locale-format the raw value so tooltips match the rest of the page (audit R4-P2).
       : (v: unknown) => Number(v).toLocaleString();
   return (
-    <Card title={title} subtitle={subtitle}>
-      <div role="img" aria-label={`${title} — line chart`}>
+    <ChartCard title={title} subtitle={subtitle}>
+      <div role="img" aria-label={`${title} — line chart`} data-ui-visual="data-viz">
         <ResponsiveContainer width="100%" height={240}>
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
             <CartesianGrid stroke="var(--bg-muted)" vertical={false} />
@@ -215,7 +206,7 @@ export function LinesCard(
           </LineChart>
         </ResponsiveContainer>
       </div>
-    </Card>
+    </ChartCard>
   );
 }
 
@@ -225,12 +216,12 @@ export function StateCard({ title, subtitle, note }: { title: string; subtitle?:
   return (
     // alignSelf:'start' keeps a benign-zero card at its own content height instead
     // of stretching to a neighbouring 240px chart's row height (audit P2).
-    <Card title={title} subtitle={subtitle} style={{ alignSelf: "start" }}>
+    <ChartCard title={title} subtitle={subtitle} style={{ alignSelf: "start" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", minHeight: "40px", color: "var(--success)", fontSize: "12.5px", fontWeight: 600 }}>
         <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", background: "var(--chart-good)", flex: "0 0 auto" }} />
         {note}
       </div>
-    </Card>
+    </ChartCard>
   );
 }
 
@@ -241,11 +232,11 @@ export function HBarCard(
   { title, subtitle, data, color = "var(--chart-stage)", empty = "No data yet." }:
   { title: string; subtitle?: string; data: Array<BarDatum & { title?: string }>; color?: string; empty?: string },
 ) {
-  if (data.length === 0) return <Card title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></Card>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   const max = Math.max(1, ...data.map((d) => d.count));
   return (
-    <Card title={title} subtitle={subtitle}>
-      <div role="img" aria-label={`${title} — ranked bar list`} style={{ display: "flex", flexDirection: "column", gap: "7px", paddingBottom: "8px" }}>
+    <ChartCard title={title} subtitle={subtitle}>
+      <div role="img" aria-label={`${title} — ranked bar list`} data-ui-visual="data-viz" data-ui-contract-geometry-scope="ranked bar data geometry" style={{ display: "flex", flexDirection: "column", gap: "7px", paddingBottom: "8px" }}>
         {data.map((d, i) => (
           <div key={`${d.label}-${i}`} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div
@@ -266,7 +257,7 @@ export function HBarCard(
           </div>
         ))}
       </div>
-    </Card>
+    </ChartCard>
   );
 }
 
@@ -282,9 +273,9 @@ export function SimpleTableCard(
   { title, subtitle, data, empty = "No data yet." }:
   { title: string; subtitle?: string; data: BarDatum[]; empty?: string },
 ) {
-  if (data.length === 0) return <Card title={title} subtitle={subtitle}><div style={EMPTY}>{empty}</div></Card>;
+  if (data.length === 0) return <ChartCard title={title} subtitle={subtitle}><EmptyState compact title={empty} /></ChartCard>;
   return (
-    <Card title={title} subtitle={subtitle}>
+    <ChartCard title={title} subtitle={subtitle}>
       <div style={{ paddingBottom: "8px" }}>
         {data.map((row, i) => (
           <div key={`${row.label}-${i}`} style={{
@@ -305,6 +296,6 @@ export function SimpleTableCard(
           </div>
         ))}
       </div>
-    </Card>
+    </ChartCard>
   );
 }

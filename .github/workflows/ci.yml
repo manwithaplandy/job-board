@@ -53,6 +53,10 @@ jobs:
   dashboard:
     name: Dashboard tests
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://test:test@127.0.0.1:1/test
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test
     defaults:
       run:
         working-directory: dashboard
@@ -71,3 +75,37 @@ jobs:
         run: npm run lint
       - name: Run tests
         run: npm test
+
+  public-visual:
+    name: Public visual
+    runs-on: macos-14
+    env:
+      DATABASE_URL: postgresql://test:test@127.0.0.1:1/test
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Install visual regression browser
+        run: npx playwright install chromium
+      - name: Run public visual regression gate
+        run: npm run test:visual:public
+      - name: Upload public visual failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-visual-results
+          path: |
+            dashboard/test-results/visual/**
+            !dashboard/test-results/visual/**/trace.zip
+          if-no-files-found: ignore
+          retention-days: 7

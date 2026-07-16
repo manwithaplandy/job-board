@@ -4,5 +4,8 @@ node_modules/
 next-env.d.ts
 *.tsbuildinfo
 .vercel
+playwright-report/
+test-results/
+test-results/visual-auth/
 # Local résumé-iteration fixtures (personal data — never commit)
 scripts/fixtures/

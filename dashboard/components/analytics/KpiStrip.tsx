@@ -3,6 +3,8 @@
 import type { PipelineSnapshot, RunSeries } from "@/lib/metrics";
 import { GLOSSARY } from "@/lib/analyticsLabels";
 import { InfoTip } from "@/components/analytics/InfoTip";
+import { Card } from "@/components/ui/Panel";
+import { Icon } from "@/components/ui/Icon";
 
 const DAY_MS = 86_400_000;
 
@@ -62,8 +64,8 @@ function Delta({ current, prior, noun, spikeDay }: { current: number; prior: num
   return (
     <div style={{ fontSize: "11px", fontWeight: 700, color, marginTop: "5px" }}>
       {/* value+noun is one non-breaking unit so "found this week" never splits as "this / week" */}
-      <span style={{ whiteSpace: "nowrap" }}>
-        {!spikeDay && <span aria-hidden="true">{up ? "▲" : "▼"} </span>}
+      <span className="rf-kpi-delta__value">
+        {!spikeDay && <Icon name={up ? "chevron-up" : "chevron-down"} size={16} />}
         {current.toLocaleString()} {noun}
       </span>
       {spikeDay ? (
@@ -94,18 +96,16 @@ function Tile({
   delta?: React.ReactNode;
 }) {
   return (
-    <div
+    <Card
       role="group"
       aria-label={`${label}: ${value.toLocaleString()}`}
-      style={{
-        flex: "1 1 170px", minWidth: 0, background: "var(--bg-surface)", border: "1px solid var(--border)",
-        borderRadius: "14px", padding: "14px 16px",
-      }}
+      className="rf-analytics-kpi"
+      padding="sm"
     >
-      <div style={{ fontSize: "24px", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-.6px", lineHeight: 1.05 }}>
+      <div className="rf-analytics-kpi__value">
         {value.toLocaleString()}
       </div>
-      <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "3px", fontWeight: 600 }}>
+      <div className="rf-analytics-kpi__label">
         {gloss ? (
           <InfoTip term={glossTerm ?? label} gloss={gloss} labelStyle={{ color: "var(--text-secondary)" }}>
             {label}
@@ -115,7 +115,7 @@ function Tile({
         )}
       </div>
       {delta}
-    </div>
+    </Card>
   );
 }
 
@@ -134,8 +134,8 @@ export function KpiStrip({ snapshot, series, nowIso }: { snapshot: PipelineSnaps
   const approvedPriorSpike = priorSpikeDay(series.review, "approved", endMs, 13, 6);
 
   return (
-    <div id="overview" style={{ scrollMarginTop: "70px" }}>
-      <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
+    <div id="overview" className="rf-analytics-overview">
+      <div className="rf-analytics-kpi-grid">
         <Tile
           value={j.open}
           label="Open jobs"
@@ -170,7 +170,7 @@ export function KpiStrip({ snapshot, series, nowIso }: { snapshot: PipelineSnaps
         />
       </div>
 
-      <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.55, margin: "12px 2px 0", maxWidth: "760px" }}>
+      <p className="rf-analytics-summary">
         Rolefit is tracking <strong style={{ color: "var(--text-primary)" }}>{j.open.toLocaleString()}</strong> open jobs at{" "}
         <strong style={{ color: "var(--text-primary)" }}>{c.include.toLocaleString()}</strong> companies;{" "}
         <strong style={{ color: "var(--text-primary)" }}>{j.reviewed.toLocaleString()}</strong> have been reviewed,{" "}

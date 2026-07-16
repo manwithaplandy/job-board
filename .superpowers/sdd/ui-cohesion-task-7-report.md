@@ -1,0 +1,160 @@
+# Phase 7 implementation report — entry and system states
+
+## Status
+
+`DONE_WITH_CONCERNS`
+
+Implementation commit: `ad6cd42` (`refactor(ui): unify entry and system states`)
+
+## Scope delivered
+
+- Added shared `EntryShell`, `ReadingShell`, `Alert`, `EmptyState`, `LoadingState`, and `ErrorState` components backed by the existing `Card`, `PageHeader`, action, form, token, focus, and reduced-motion contracts.
+- Migrated login, signup, reset-password, password-update, onboarding, privacy, terms, and the app error boundary away from page-local geometry. All auth server actions, redirects, URLs, account-enumeration protection, anonymous-filter adoption, session gates, and support/error privacy behavior are unchanged.
+- Migrated onboarding fields and actions to `TextArea`, `FormActions`, `Alert`, and the shared upload/picker components while preserving action-state validation and the `completeOnboarding` server action.
+- Standardized representative exceptional states: job-list and company-list empty states, job-detail loading/fetch-error states, and the detail render error boundary.
+- Added responsive mobile layouts for entry cards, reading surfaces, alerts, actions, and exceptional states. All colors resolve through existing semantic theme tokens.
+
+## TDD evidence
+
+### RED
+
+The initial focused run failed 13 of 14 source/behavior contracts and could not resolve the intentionally absent `SystemStates` module. Failures covered duplicated inline geometry across nine entry surfaces, absent entry/form/status primitives, absent board/secondary state consumers, and absent responsive CSS.
+
+```text
+Test Files  2 failed (2)
+Tests       13 failed | 1 passed (14)
+```
+
+The auth/routing preservation test passed during RED, establishing that presentation work must retain the existing sign-in, sign-up, reset, update-password, and onboarding flows.
+
+### GREEN
+
+```text
+npm test -- components/ui/SystemStates.test.tsx \
+  app/EntryAndSystemStates.test.tsx \
+  components/OnboardingForm.test.tsx \
+  app/error.test.tsx \
+  components/rolefit/DetailErrorBoundary.test.tsx \
+  components/rolefit/JobDetail.test.tsx
+
+Test Files  6 passed (6)
+Tests       32 passed (32)
+```
+
+## Required verification
+
+```text
+NODE_OPTIONS=--localstorage-file=/tmp/rolefit-phase7-localstorage-final \
+  npm test -- --maxWorkers=1
+
+Test Files  174 passed | 2 skipped (176)
+Tests       1282 passed | 6 skipped (1288)
+```
+
+- The first parallel full-suite run found one real regression in the pre-existing reduced-motion selector; splitting the button and loading-indicator declarations restored its contract. Theme/toast failures in the default Node 26 environment were caused by unavailable `localStorage`; the standard backing-file workaround plus one worker avoids cross-worker storage races and passed cleanly.
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- `DATABASE_URL=postgres://placeholder:placeholder@localhost:5432/placeholder npm run build`: passed with approved font network access; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.
+
+## Authenticated/unauthenticated browser matrix
+
+Browser work remains controller-owned. Use a separate unauthenticated context for public routes and the existing authenticated context for protected routes.
+
+| Context | Route/state | Required assertions |
+| --- | --- | --- |
+| Unauthenticated | `/login`, default/error/deleted | shared Rolefit card and fields; danger/success alerts; create/reset/legal/support links; sign-in still reaches `/` |
+| Unauthenticated | `/signup`, default/error/sent | invite helper and consent copy; error alert; confirmation status; sign-up action and sign-in/legal/support links unchanged |
+| Unauthenticated | `/reset-password`, default/sent | email field and neutral anti-enumeration confirmation; reset link returns to login |
+| Unauthenticated | `/reset-password/update` without recovery session | existing redirect to login with the reset-link instruction |
+| Authenticated recovery session | `/reset-password/update`, default/error | password requirements, safe error alert, pending action, successful redirect to `/` |
+| Authenticated new account | `/onboarding` | wide responsive entry card; résumé upload/extraction, text, locations, instructions, field/form alerts, pending submit; completion reaches the board |
+| Authenticated existing profile | `/onboarding` | existing redirect to `/` |
+| Either | `/privacy`, `/terms` | readable shared long-form card, working inline links/support, no content or processor/billing statement changes |
+| Either | app error boundary | no raw error message; digest reference only; Retry performs refresh plus reset; support mail subject contains digest |
+| Authenticated | board/company empty, job loading/fetch/render errors | shared state hierarchy, specific next action where applicable, no layout shift or document overflow |
+
+Capture light/dark screenshots at 1440 and 390 CSS pixels, verify `scrollWidth === clientWidth`, keyboard focus order, 44px standalone actions, and an empty console for every applicable row.
+
+## Concern
+
+Live browser screenshots and interaction measurements are intentionally controller-owned. Code contracts, focused/full tests, typecheck, lint, production build, and diff validation are green; an independent adversarial code-and-browser reviewer must clear the phase before Phase 8.
+
+---
+
+## Adversarial review fixes — complete secondary states and focus contracts
+
+Review-fix implementation commit: `aa352a3` (`fix(ui): complete phase 7 system states`).
+
+The independent code review held the phase at 0 Critical, 1 Important, and 2 Minor. The repair resolves the complete findings list without widening scope:
+
+- Companies first-run now renders through `EmptyState`, retaining its full explanatory copy and profile-preferences link.
+- Analytics first-run now renders through the shared informational `Alert`, retaining the “No reviews yet” explanation and board-review instruction.
+- All four empty chart branches (`BarsCard`, `LinesCard`, `HBarCard`, and `SimpleTableCard`) render a compact `EmptyState`; the obsolete bespoke empty class and CSS were removed.
+- `EmptyState` gained a compact presentation that preserves chart-card sizing while retaining the same semantic heading structure.
+- Entry, footer, consent, and legal-reading links now receive the themed focus-visible ring. Explicit entry links also carry `rf-focusable`.
+- The consumer contract covers the complete Task 7 board/secondary inventory rather than representative consumers only.
+- New rendered consumer tests cover all four chart branches, Analytics first-run, Companies first-run, and login/signup/reset/password-update route composition and wiring.
+
+### Review-fix RED
+
+```text
+Test Files  2 failed | 1 passed (3)
+Tests       3 failed | 22 passed (25)
+```
+
+The failures were the intentionally absent complete secondary inventory, compact empty-state class, and themed focus selectors. The four new behavioral auth-route tests passed on their first run and confirmed the already-preserved route wiring.
+
+### Review-fix GREEN and verification
+
+```text
+Test Files  8 passed (8)
+Tests       41 passed (41)
+```
+
+```text
+NODE_OPTIONS=--localstorage-file=/tmp/rolefit-phase7-review-fix \
+  npm test -- --maxWorkers=1
+
+Test Files  177 passed | 2 skipped (179)
+Tests       1291 passed | 6 skipped (1297)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- `DATABASE_URL=postgres://placeholder:placeholder@localhost:5432/placeholder npm run build`: passed with approved font network access; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.
+
+The controller must deploy `aa352a3`, complete the existing browser matrix, and send the full Phase 7 range back to the independent reviewer. This implementation does not claim the adversarial gate is clear.
+
+---
+
+## Final inventory repair — Admin first-run states and auth action identity
+
+Implementation commit: `9020770` (`fix(ui): complete admin empty states`).
+
+The second inventory pass found two remaining secondary first-run branches. Admin Invites and Admin Tenants now use compact shared `EmptyState` components while retaining the exact “No invite codes yet.” and “No tenants yet.” copy. Exact source inventory assertions and rendered route tests cover both branches, alongside the existing admin authorization-gate suites.
+
+`AuthEntryRoutes.test.tsx` now inspects the actual React form `action` props before rendering: signup is asserted by identity against the exported `signUp` server action; login/reset/update are asserted as function actions; and the private reset action is verified stable across route renders. DOM field, alert, button, link, and recovery-session assertions remain in place.
+
+### Final RED and GREEN
+
+```text
+RED:   2 failed files, 3 expected failures; auth action tests passed 5/5
+GREEN: 5 passed files, 30 passed tests
+```
+
+```text
+NODE_OPTIONS=--localstorage-file=/tmp/rolefit-phase7-final-admin \
+  npm test -- --maxWorkers=1
+
+Test Files  178 passed | 2 skipped (180)
+Tests       1294 passed | 6 skipped (1300)
+```
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed with 0 errors and the same 9 pre-existing warnings.
+- `DATABASE_URL=postgres://placeholder:placeholder@localhost:5432/placeholder npm run build`: passed; all routes compiled and all eight static pages generated.
+- `git diff --check`: passed.
+
+The full Phase 7 code range must still receive independent re-review and controller-owned browser acceptance before the gate is declared clear.

@@ -1,47 +1,70 @@
-import type { ButtonHTMLAttributes, CSSProperties } from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "react";
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "sm" | "md";
+export type CanonicalButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "destructive" | "text-link";
+/** `danger` is retained as a compatibility alias for the canonical destructive action. */
+export type ButtonVariant = CanonicalButtonVariant | "danger";
+export type ButtonSize = "compact" | "sm" | "md" | "lg";
+
+function canonicalVariant(variant: ButtonVariant): CanonicalButtonVariant {
+  return variant === "danger" ? "destructive" : variant;
 }
 
-// Tokens copied verbatim from the board's canonical CTAs so adopting <Button> is a
-// no-op visually: `primary`+`md` is the big "Generate résumé" / "Prepare" button
-// (ResumePanel), `secondary` is the outline "Copy"/"Regenerate", `sm` is the compact
-// "Download PDF" footprint. Sites that differ pass the delta via `style`.
+function buttonClasses(variant: ButtonVariant, size: ButtonSize, className?: string) {
+  return ["rf-button", "rf-focusable", `rf-button--${canonicalVariant(variant)}`, `rf-button--${size}`, className]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  loading?: boolean;
+  loadingLabel?: string;
+}
+
 export function Button({
   variant = "primary",
   size = "md",
-  style,
+  loading = false,
+  loadingLabel,
+  disabled,
+  className,
+  children,
+  type = "button",
+  "aria-label": accessibleLabel,
+  "aria-busy": consumerBusy,
   ...props
 }: ButtonProps) {
-  const base: CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-    fontFamily: "inherit",
-    fontWeight: 700,
-    cursor: props.disabled ? "not-allowed" : "pointer",
-    opacity: props.disabled ? 0.7 : 1,
-    border: variant === "secondary" ? "1px solid var(--border)" : "none",
-    borderRadius: size === "sm" ? "10px" : "11px",
-    fontSize: size === "sm" ? "13.5px" : "14px",
-    padding: size === "sm" ? "10px 16px" : "12px 20px",
-    ...(variant === "primary" && {
-      background: "var(--accent)",
-      color: "var(--text-on-accent)",
-      boxShadow: "var(--shadow-accent)",
-    }),
-    ...(variant === "secondary" && {
-      background: "var(--bg-surface)",
-      color: "var(--text-secondary)",
-    }),
-    ...(variant === "ghost" && {
-      background: "transparent",
-      color: "var(--accent)",
-    }),
-    ...style,
-  };
-  return <button type="button" style={base} {...props} />;
+  const announcedLoadingLabel = loadingLabel ?? accessibleLabel ?? "Loading";
+  return (
+    <>
+      <button
+        {...props}
+        type={type}
+        className={buttonClasses(variant, size, className)}
+        disabled={disabled || loading}
+        aria-busy={loading ? true : consumerBusy}
+        aria-label={loading ? announcedLoadingLabel : accessibleLabel}
+      >
+        {loading && <span className="rf-button__spinner" aria-hidden="true" />}
+        {children}
+      </button>
+      {loadingLabel && (
+        <span className="sr-only rf-button__status" role="status" aria-live="polite" aria-atomic="true">
+          {loading ? announcedLoadingLabel : ""}
+        </span>
+      )}
+    </>
+  );
+}
+
+export interface ButtonLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
+  href: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  children: ReactNode;
+}
+
+export function ButtonLink({ variant = "primary", size = "md", className, children, ...props }: ButtonLinkProps) {
+  return <a className={buttonClasses(variant, size, className)} {...props}>{children}</a>;
 }

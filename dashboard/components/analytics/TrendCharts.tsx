@@ -5,6 +5,7 @@ import type { RunSeries } from "@/lib/metrics";
 import { fillDays, toWeekly, sliceWindow, rate, weekStart } from "@/lib/trend";
 import { JOB_DISCOVERY_FAILURE_WARN_RATE } from "@/lib/status";
 import { LinesCard, BarsCard, StateCard } from "@/components/analytics/Chart";
+import { SegmentedControl } from "@/components/ui/Navigation";
 
 type Gran = "day" | "week";
 type Win = 30 | 90;
@@ -69,25 +70,15 @@ function Toggle<T extends string | number>(
   { value: T; onChange: (v: T) => void; options: { v: T; label: string }[]; label: string },
 ) {
   return (
-    <div role="group" aria-label={label} style={{ display: "inline-flex", background: "var(--bg-muted)", borderRadius: "9px", padding: "3px" }}>
-      {options.map((o) => {
-        const active = o.v === value;
-        return (
-          <button
-            key={String(o.v)}
-            onClick={() => onChange(o.v)}
-            aria-pressed={active}
-            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px var(--focus-ring)"; }}
-            onBlur={(e) => { e.currentTarget.style.boxShadow = active ? "var(--shadow-toggle)" : "none"; }}
-            style={{
-              border: "none", cursor: "pointer", fontWeight: 700, fontSize: "12.5px", padding: "6px 14px",
-              borderRadius: "7px", background: active ? "var(--bg-surface)" : "transparent",
-              color: active ? "var(--text-primary)" : "var(--text-secondary)", boxShadow: active ? "var(--shadow-toggle)" : "none",
-            }}
-          >{o.label}</button>
-        );
-      })}
-    </div>
+    <SegmentedControl
+      label={label}
+      value={String(value)}
+      items={options.map((option) => ({ value: String(option.v), label: option.label }))}
+      onChange={(next) => {
+        const match = options.find((option) => String(option.v) === next);
+        if (match) onChange(match.v);
+      }}
+    />
   );
 }
 
@@ -186,7 +177,7 @@ export function TrendCharts({ series, nowIso }: { series: RunSeries; nowIso: str
 
   return (
     <div>
-      <div style={{ display: "flex", gap: "12px", marginBottom: "14px", flexWrap: "wrap" }}>
+      <div className="rf-analytics-toggle-row">
         <Toggle value={gran} onChange={setGran} label="Granularity"
           options={[{ v: "day", label: "Daily" }, { v: "week", label: "Weekly" }]} />
         <Toggle value={win} onChange={setWin} label="Time window"

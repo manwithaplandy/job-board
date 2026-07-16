@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { SupportLink } from "@/components/SupportLink";
+import { EntryShell, ErrorState } from "@/components/ui/SystemStates";
 
 export default function ErrorPage({
   error,
@@ -35,57 +36,18 @@ export default function ErrorPage({
     });
   };
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "var(--bg-page)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <div style={{ textAlign: "center", padding: "40px 20px" }}>
-        <div
-          style={{
-            fontSize: "16px",
-            fontWeight: 800,
-            color: "var(--text-primary)",
-            marginBottom: "8px",
-          }}
-        >
-          Something went wrong
-        </div>
-        <div
-          style={{
-            fontSize: "13px",
-            color: "var(--text-secondary)",
-            marginBottom: "20px",
-            fontWeight: 500,
-          }}
-        >
-          An unexpected error occurred. Please try again.
-        </div>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={retry}
-          disabled={isPending}
-          style={{ padding: "10px 20px", boxShadow: "var(--shadow-accent-md)" }}
-        >
-          {isPending ? "Retrying..." : "Try again"}
-        </Button>
-        {digest && (
-          <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "18px", fontWeight: 500 }}>
-            Reference: <code>{digest}</code>
-          </div>
-        )}
-        <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "10px", fontWeight: 500 }}>
-          <SupportLink
-            label="Contact support"
-            subject={digest ? `Error report (ref ${digest})` : "Error report"}
-          />
-        </div>
-      </div>
-    </main>
+    <EntryShell title="Something went wrong">
+      <ErrorState
+        title="An unexpected error occurred"
+        description="Please try again. If the problem continues, contact support and include the reference below."
+        action={<>
+          <Button variant="primary" onClick={retry} disabled={isPending}>
+            {isPending ? "Retrying..." : "Try again"}
+          </Button>
+          <SupportLink label="Contact support" subject={digest ? `Error report (ref ${digest})` : "Error report"} />
+        </>}
+        reference={digest && <>Reference: <code>{digest}</code></>}
+      />
+    </EntryShell>
   );
 }

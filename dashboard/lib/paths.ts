@@ -21,7 +21,7 @@
 // logged out (they're linked from the signup consent line and the auth footers); the
 // auth proxy would otherwise 307 an anon visitor to /login (T4).
 const PUBLIC_PREFIXES = [
-  "/", "/login", "/signup", "/auth", "/reset-password", "/terms", "/privacy",
+  "/", "/login", "/signup", "/auth", "/reset-password", "/terms", "/privacy", "/ui-gallery",
   "/api/board-filters", "/api/jobs", "/api/stripe/webhook",
 ];
 

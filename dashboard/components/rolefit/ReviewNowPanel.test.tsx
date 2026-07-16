@@ -63,6 +63,17 @@ describe("ReviewNowPanel (T6)", () => {
     expect(screen.getByText(/Review my board now/)).toBeTruthy();
   });
 
+  test("keeps idle live messages separate from review and billing actions", async () => {
+    nextResponse = { status: null, remaining: 400 };
+    render(<ReviewNowPanel firstRun />);
+    await flush(0);
+
+    const button = screen.getByRole("button", { name: "Review my board now" });
+    const statuses = screen.getAllByRole("status");
+    expect(statuses.some((status) => status.textContent?.includes("400 reviews left"))).toBe(true);
+    expect(statuses.every((status) => !status.contains(button))).toBe(true);
+  });
+
   test("populated board (not firstRun) with no active request renders nothing", async () => {
     nextResponse = { status: null };
     const { container } = render(<ReviewNowPanel firstRun={false} />);
@@ -126,7 +137,9 @@ describe("ReviewNowPanel — tier-gate upsell (402 / 409 → /billing)", () => {
   test("non-gate failures keep the generic retry copy and get NO billing link", async () => {
     mockPostRejection(500, { error: "boom" });
     await clickReviewNow();
-    expect(screen.getByText("boom")).toBeTruthy();
+    const error = screen.getByRole("alert");
+    expect(error.textContent).toBe("boom");
+    expect(error.closest('[role="status"]')).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
   });
 });

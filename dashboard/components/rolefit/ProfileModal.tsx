@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { IconButton } from "@/components/ui/Action";
+import { Icon } from "@/components/ui/Icon";
 
 export interface ProfileModalProps {
   open: boolean;
@@ -123,7 +125,7 @@ export function ProfileModal({
 
   const tabBg = (active: boolean) => (active ? "var(--bg-surface)" : "transparent");
   const tabColor = (active: boolean) => (active ? "var(--text-primary)" : "var(--text-secondary)");
-  const tabShadow = (active: boolean) => (active ? "0 1px 4px rgba(0,0,0,.1)" : "none");
+  const tabShadow = (active: boolean) => (active ? "var(--shadow-toggle)" : "none");
 
   return (
     <div
@@ -137,7 +139,7 @@ export function ProfileModal({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(17,23,33,.46)",
+        background: "var(--overlay-backdrop)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -157,7 +159,7 @@ export function ProfileModal({
           maxWidth: "100%",
           background: "var(--bg-surface)",
           borderRadius: "18px",
-          boxShadow: "0 30px 70px rgba(15,22,35,.4)",
+          boxShadow: "var(--shadow-modal)",
           overflow: "hidden",
           outline: "none",
         }}
@@ -186,26 +188,11 @@ export function ProfileModal({
               Used to tailor résumés. Saved to your account.
             </div>
           </div>
-          <button
-            type="button"
-            aria-label="Close"
+          <IconButton
+            label="Close"
+            icon="close"
             onClick={handleClose}
-            style={{
-              width: "30px",
-              height: "30px",
-              borderRadius: "8px",
-              border: "1px solid var(--border)",
-              background: "var(--bg-surface)",
-              color: "var(--text-secondary)",
-              fontSize: "16px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            ✕
-          </button>
+          />
         </div>
 
         {/* Modal body */}
@@ -225,8 +212,11 @@ export function ProfileModal({
             </div>
             <a
               href="/login"
+              data-ui-contract-composite="profile sign-in action"
               style={{
-                display: "inline-block",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
                 fontWeight: 700,
                 fontSize: "13.5px",
                 color: "var(--text-on-accent)",
@@ -238,7 +228,7 @@ export function ProfileModal({
                 boxShadow: "var(--shadow-accent-md)",
               }}
             >
-              Sign in →
+              Sign in <Icon name="arrow-right" size={16} />
             </a>
           </div>
         ) : (
@@ -257,6 +247,7 @@ export function ProfileModal({
               >
                 <button
                   type="button"
+                  className="rf-profile-tab rf-focusable"
                   onClick={() => setProfileTab("paste")}
                   style={{
                     flex: 1,
@@ -275,6 +266,7 @@ export function ProfileModal({
                 </button>
                 <button
                   type="button"
+                  className="rf-profile-tab rf-focusable"
                   onClick={() => setProfileTab("upload")}
                   style={{
                     flex: 1,
@@ -296,6 +288,7 @@ export function ProfileModal({
               {/* Paste tab — kept mounted so switching to Upload never drops typed text */}
               <div style={{ display: pasteActive ? "block" : "none" }}>
                   <textarea
+                    data-ui-contract-composite="profile resume editor"
                     ref={textareaRef}
                     className="rf-focusable"
                     name="resume_text"
@@ -380,21 +373,27 @@ export function ProfileModal({
                     {uploadName && (
                       <div
                         style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
                           fontSize: "12.5px",
                           fontWeight: 700,
                           color: "var(--success)",
                           marginTop: "2px",
                         }}
                       >
-                        ✓ {uploadName}
+                        <Icon name="check" size={16} /> {uploadName}
                       </div>
                     )}
                   </label>
                   <input
+                    data-ui-contract-composite="profile resume file input"
                     id="rf-file"
                     ref={fileInputRef}
                     type="file"
                     name="resume_pdf"
+                    aria-label="Résumé PDF"
+                    className="rf-file-upload__input"
                     accept=".pdf,application/pdf"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
@@ -421,10 +420,10 @@ export function ProfileModal({
                         setExtractStatus("Couldn't read that file — paste your résumé text instead.");
                       }
                     }}
-                    style={{ display: "none" }}
                   />
-                  {extractStatus && (
-                    <div
+                  <div
+                      role="status"
+                      aria-live="polite"
                       style={{
                         fontSize: "11.5px",
                         color: "var(--text-secondary)",
@@ -434,7 +433,6 @@ export function ProfileModal({
                     >
                       {extractStatus}
                     </div>
-                  )}
               </div>
             </div>
 
@@ -450,6 +448,7 @@ export function ProfileModal({
             >
               <a
                 href="/profile"
+                data-ui-contract-composite="profile settings navigation"
                 onClick={(e) => {
                   // Gate navigation behind the same dirty check as Cancel/Escape/backdrop.
                   if (isDirty && !window.confirm("You have unsaved changes. Close anyway?")) {
@@ -457,6 +456,9 @@ export function ProfileModal({
                   }
                 }}
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
                   fontSize: "12.5px",
                   color: "var(--text-secondary)",
                   fontWeight: 600,
@@ -464,7 +466,7 @@ export function ProfileModal({
                   marginRight: "auto",
                 }}
               >
-                Advanced settings →
+                Advanced settings <Icon name="arrow-right" size={16} />
               </a>
               {saveError && (
                 <p role="alert" style={{ margin: 0, fontSize: "12.5px", color: "var(--danger)", fontWeight: 600 }}>

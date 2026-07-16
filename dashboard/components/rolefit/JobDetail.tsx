@@ -12,36 +12,26 @@ import { displayEnumLabel } from "@/lib/rolefit/taxonomy";
 import { applyUrl as normalizeApplyUrl } from "@/lib/rolefit/applyUrl";
 import { ApplicationPanel } from "./ApplicationPanel";
 import { ReviewPanel } from "./ReviewPanel";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { Icon } from "@/components/ui/Icon";
+import { ErrorState, LoadingState } from "@/components/ui/SystemStates";
 
 // Generic "Apply" link → the job's ATS posting. Opens a new tab; rel guards the
 // opener. Now only the fallback for not-yet-reviewed roles (which have no
 // Application panel); reviewed roles apply via "Apply on {provider}" in the panel.
 function ApplyButton({ url }: { url: string }) {
   return (
-    <a
+    <ButtonLink
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        fontWeight: 700,
-        fontSize: "13px",
-        color: "var(--text-on-accent)",
-        background: "var(--accent)",
-        border: "1px solid var(--accent)",
-        borderRadius: "9px",
-        padding: "8px 18px",
-        textDecoration: "none",
-        cursor: "pointer",
-      }}
+      variant="primary"
+      size="sm"
     >
       Apply
-      <span aria-hidden="true">↗</span>
-    </a>
+      <Icon name="arrow-right" size={16} />
+    </ButtonLink>
   );
 }
 
@@ -205,7 +195,7 @@ export function JobDetail({
   const [showJD, setShowJD] = useState(false);
 
   return (
-    <div style={{ maxWidth: "880px", margin: "0 auto", padding: "30px 36px 70px" }}>
+    <div className="rf-job-detail" style={{ maxWidth: "880px", margin: "0 auto", padding: "30px 36px 70px" }}>
 
       {/* ── HEADER ── */}
       <div style={{ display: "flex", gap: "18px", alignItems: "flex-start" }}>
@@ -342,7 +332,7 @@ export function JobDetail({
               height: "88px",
             }}
           >
-            <svg width="88" height="88" viewBox="0 0 88 88">
+            <svg data-fit-score-ring="review fit score" width="88" height="88" viewBox="0 0 88 88">
               <circle cx="44" cy="44" r="34" fill="none" stroke="var(--bg-muted)" strokeWidth="9" />
               <circle
                 cx="44"
@@ -397,6 +387,7 @@ export function JobDetail({
       {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
       {hasReview && (job.human_override || isRejected || applied || (isAuthed && job.verdict === "approve")) && (
         <div
+          className="rf-job-detail__actions"
           style={{
             display: "flex",
             justifyContent: "flex-end",
@@ -437,7 +428,7 @@ export function JobDetail({
               border="var(--success-border)"
               style={{ gap: "8px", fontSize: "11.5px", fontWeight: 700, borderRadius: "20px", padding: "4px 11px" }}
             >
-              ✓ Applied · you
+              <Icon name="check" size={16} /> Applied · you
               {onUnapply && (
                 <Button
                   variant="ghost"
@@ -484,7 +475,7 @@ export function JobDetail({
                 padding: "7px 16px",
               }}
             >
-              ✓ Mark as applied
+              <Icon name="check" size={16} /> Mark as applied
             </Button>
           )}
         </div>
@@ -551,7 +542,7 @@ export function JobDetail({
                         fontWeight: 800,
                       }}
                     >
-                      {req.met ? "✓" : "△"}
+                      <Icon name={req.met ? "check" : "warning"} size={16} />
                     </span>
                     <span
                       style={{ fontSize: "13.5px", color: "var(--text-primary)", fontWeight: 500 }}
@@ -629,24 +620,12 @@ export function JobDetail({
 
           {/* Detail-fetch loading shimmer */}
           {detailState?.status === "loading" && (
-            <div style={{ marginTop: "24px" }}>
-              {[120, 80, 60].map((h, i) => (
-                <div key={i} style={{ height: h, background: "var(--bg-muted)", borderRadius: 8, marginTop: 12 }} />
-              ))}
-            </div>
+            <LoadingState className="rf-job-detail-system-state" label="Loading full job details" />
           )}
           {/* Detail-fetch error */}
           {detailState?.status === "error" && (
-            <div style={{ marginTop: "24px", padding: "16px 20px", border: "1px solid var(--border)", borderRadius: "12px", background: "var(--danger-bg)", display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{ flex: 1, fontSize: "13.5px", color: "var(--danger)", fontWeight: 600 }}>
-                Couldn&apos;t load full job details.
-              </div>
-              {onRetryDetail && (
-                <Button variant="ghost" onClick={onRetryDetail} style={{ fontSize: "13px", background: "var(--accent-bg)", border: "1px solid var(--accent-border)", borderRadius: "9px", padding: "7px 14px" }}>
-                  Retry
-                </Button>
-              )}
-            </div>
+            <ErrorState className="rf-job-detail-system-state" title="Couldn’t load full job details" description="The summary is still available. Try loading the full description again."
+              action={onRetryDetail && <Button variant="ghost" onClick={onRetryDetail}>Retry</Button>} />
           )}
 
           {/* Application panel — résumé + cover letter + apply */}
@@ -710,8 +689,10 @@ export function JobDetail({
         >
           {fullJD && (
             <>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => setShowJD((v) => !v)}
                 style={{
                   display: "inline-flex",
@@ -728,8 +709,8 @@ export function JobDetail({
                 }}
               >
                 {showJD ? "Hide full job description" : "Show full job description"}
-                <span aria-hidden="true">{showJD ? "▴" : "▾"}</span>
-              </button>
+                <Icon name={showJD ? "chevron-up" : "chevron-down"} size={16} />
+              </Button>
               {showJD && (
                 <div
                   style={{

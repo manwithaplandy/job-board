@@ -4,32 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createInviteAction } from "@/app/actions/invites";
 import { CopyButton } from "./CopyButton";
+import { Button } from "@/components/ui/Button";
+import { TextField } from "@/components/ui/FormControls";
 
 // Admin invite-minting form (rendered inside the isAdmin-gated /admin/invites page;
 // the server action re-gates independently). On success it shows the minted code
 // with a copy affordance and router.refresh()es so the server-rendered list below
 // picks up the new row.
-
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: "11px",
-  fontWeight: 700,
-  color: "var(--text-secondary)",
-  textTransform: "uppercase",
-  letterSpacing: ".4px",
-  marginBottom: "4px",
-};
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  fontSize: "13px",
-  color: "var(--text-primary)",
-  background: "var(--bg-muted)",
-  border: "1px solid var(--border)",
-  borderRadius: "9px",
-  padding: "8px 10px",
-  fontFamily: "inherit",
-};
 
 export function InviteGenerator() {
   const router = useRouter();
@@ -76,120 +57,68 @@ export function InviteGenerator() {
 
   return (
     <form onSubmit={submit}>
-      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "flex-end" }}>
-        <div style={{ flex: "1 1 220px", minWidth: "180px" }}>
-          <label htmlFor="invite-note" style={labelStyle}>Note</label>
-          <input
+      <div className="rf-admin-form-grid">
+          <TextField
             id="invite-note"
+            label="Note"
             type="text"
             value={note}
             maxLength={200}
             placeholder="Who is this for?"
             onChange={(e) => setNote(e.target.value)}
-            style={inputStyle}
           />
-        </div>
-        <div style={{ flex: "0 0 110px" }}>
-          <label htmlFor="invite-max-uses" style={labelStyle}>Max uses</label>
-          <input
+          <TextField
             id="invite-max-uses"
+            label="Max uses"
             type="number"
             min={1}
             max={1000}
             value={maxUses}
             onChange={(e) => setMaxUses(e.target.value)}
-            style={inputStyle}
           />
-        </div>
-        <div style={{ flex: "0 0 160px" }}>
-          <label htmlFor="invite-expires" style={labelStyle}>Expires</label>
-          <input
+          <TextField
             id="invite-expires"
+            label="Expires"
             type="date"
             value={expires}
             onChange={(e) => setExpires(e.target.value)}
-            style={inputStyle}
           />
-        </div>
-        <button
+        <Button
           type="submit"
-          disabled={busy}
-          style={{
-            border: "none",
-            borderRadius: "9px",
-            padding: "9px 16px",
-            fontSize: "13px",
-            fontWeight: 700,
-            color: "var(--text-on-accent)",
-            background: "var(--accent)",
-            boxShadow: "var(--shadow-accent)",
-            cursor: busy ? "default" : "pointer",
-            opacity: busy ? 0.7 : 1,
-            fontFamily: "inherit",
-            flexShrink: 0,
-          }}
+          loading={busy}
+          loadingLabel="Generating invite"
         >
           {busy ? "Generating…" : "Generate invite"}
-        </button>
+        </Button>
       </div>
 
       {showCustom ? (
-        <div style={{ marginTop: "10px", maxWidth: "280px" }}>
-          <label htmlFor="invite-custom-code" style={labelStyle}>Custom code</label>
-          <input
+        <div className="rf-admin-form-custom">
+          <TextField
             id="invite-custom-code"
+            label="Custom code"
             type="text"
             value={customCode}
             placeholder="e.g. TEAM-2026"
             onChange={(e) => setCustomCode(e.target.value)}
-            style={inputStyle}
           />
         </div>
       ) : (
-        <button
-          type="button"
+        <Button
+          variant="text-link"
           onClick={() => setShowCustom(true)}
-          style={{
-            marginTop: "10px",
-            border: "none",
-            background: "transparent",
-            color: "var(--accent)",
-            fontSize: "12px",
-            fontWeight: 700,
-            cursor: "pointer",
-            padding: 0,
-            fontFamily: "inherit",
-          }}
         >
           Use a custom code
-        </button>
+        </Button>
       )}
 
       {error && (
-        <div style={{ marginTop: "10px", fontSize: "12.5px", color: "var(--danger)" }}>{error}</div>
+        <div className="rf-action-error" role="alert">{error}</div>
       )}
 
       {minted && (
-        <div
-          style={{
-            marginTop: "12px",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "10px",
-            background: "var(--accent-bg)",
-            border: "1px solid var(--accent-border)",
-            borderRadius: "10px",
-            padding: "9px 12px",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontWeight: 700,
-              fontSize: "14px",
-              color: "var(--text-primary)",
-            }}
-          >
+        <div className="rf-admin-minted">
+          <span className="rf-admin-code">
             {minted}
           </span>
           <CopyButton text={minted} />

@@ -30,7 +30,7 @@ function stripComments(src: string): string {
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const p = path.join(dir, name);
-    if (statSync(p).isDirectory()) { if (name !== "node_modules") walk(p, out); }
+    if (statSync(p).isDirectory()) { if (name !== "node_modules" && name !== "__fixtures__") walk(p, out); }
     else if (/\.(tsx?|css)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p);
   }
   return out;

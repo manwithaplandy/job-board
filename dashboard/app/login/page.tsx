@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { saveBoardFilters } from "@/lib/queries";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { TextField } from "@/components/ui/FormControls";
+import { Alert, EntryShell } from "@/components/ui/SystemStates";
 import { safeAuthMessage } from "@/lib/safeError";
 import { SupportLink, supportEmail } from "@/components/SupportLink";
 
@@ -39,163 +41,25 @@ export default async function LoginPage({
 }) {
   const { error, deleted } = await searchParams;
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "var(--bg-page)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
+    <EntryShell
+      title="Sign in"
+      footer={<><a href="/terms">Terms</a>{" · "}<a href="/privacy">Privacy</a>{supportEmail() && <>{" · "}<SupportLink label="Support" /></>}</>}
     >
-      <div
-        style={{
-          width: "360px",
-          maxWidth: "calc(100vw - 32px)",
-          background: "var(--bg-surface)",
-          borderRadius: "18px",
-          border: "1px solid var(--border)",
-          boxShadow: "0 12px 40px rgba(15,22,35,.08)",
-          padding: "32px",
-        }}
-      >
-        <h1
-          style={{
-            margin: "0 0 20px",
-            fontSize: "20px",
-            fontWeight: 800,
-            color: "var(--text-primary)",
-          }}
-        >
-          Sign in
-        </h1>
         {deleted && (
-          <p
-            role="status"
-            style={{
-              margin: "0 0 16px", fontSize: "12.5px", lineHeight: 1.5,
-              color: "var(--success)", fontWeight: 600,
-            }}
-          >
+          <Alert tone="success">
             Your account and data have been permanently deleted.
-          </p>
+          </Alert>
         )}
-        <form
-          action={signIn}
-          style={{ display: "flex", flexDirection: "column", gap: "14px" }}
-        >
-          <label
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "6px",
-              fontSize: "13px",
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-            }}
-          >
-            Email
-            <input
-              className="rf-focusable"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              placeholder="you@example.com"
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "10px",
-                padding: "10px 13px",
-                fontSize: "13px",
-                fontFamily: "inherit",
-              }}
-            />
-          </label>
-          <label
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "6px",
-              fontSize: "13px",
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-            }}
-          >
-            Password
-            <input
-              className="rf-focusable"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              placeholder="••••••••"
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "10px",
-                padding: "10px 13px",
-                fontSize: "13px",
-                fontFamily: "inherit",
-              }}
-            />
-          </label>
-          {error && (
-            <p
-              role="alert"
-              style={{
-                margin: 0,
-                fontSize: "12.5px",
-                color: "var(--danger)",
-                fontWeight: 600,
-              }}
-            >
-              {error}
-            </p>
-          )}
-          <SubmitButton
-            pendingLabel="Signing in…"
-            style={{
-              borderRadius: "10px",
-              padding: "11px 20px",
-              fontSize: "13.5px",
-              boxShadow: "var(--shadow-accent-md)",
-              marginTop: "4px",
-            }}
-          >
-            Sign in
-          </SubmitButton>
+        <form action={signIn} className="rf-entry-form">
+          <TextField label="Email" name="email" type="email" autoComplete="email" required placeholder="you@example.com" />
+          <TextField label="Password" name="password" type="password" autoComplete="current-password" required placeholder="••••••••" />
+          {error && <Alert tone="danger">{error}</Alert>}
+          <SubmitButton pendingLabel="Signing in…">Sign in</SubmitButton>
         </form>
-        <div
-          style={{
-            marginTop: "16px",
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: "12.5px",
-            color: "var(--text-secondary)",
-          }}
-        >
-          <a href="/signup" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
-            Create account
-          </a>
-          <a href="/reset-password" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
-            Forgot password?
-          </a>
+        <div className="rf-entry-links">
+          <a href="/signup" className="rf-entry-link rf-focusable">Create account</a>
+          <a href="/reset-password" className="rf-entry-link rf-focusable">Forgot password?</a>
         </div>
-        <div
-          style={{
-            marginTop: "12px", fontSize: "11.5px", color: "var(--text-muted)", textAlign: "center",
-          }}
-        >
-          <a href="/terms" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>Terms</a>
-          {" · "}
-          <a href="/privacy" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>Privacy</a>
-          {supportEmail() && (
-            <>
-              {" · "}
-              <SupportLink label="Support" />
-            </>
-          )}
-        </div>
-      </div>
-    </main>
+    </EntryShell>
   );
 }

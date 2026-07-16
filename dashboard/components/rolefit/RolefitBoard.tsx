@@ -30,6 +30,8 @@ import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
 import { DetailErrorBoundary } from "./DetailErrorBoundary";
 import { saveGenerationInstructions } from "@/app/actions/generationInstructions";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 
 type DetailState =
   | { status: "loading" }
@@ -1193,8 +1195,14 @@ export function RolefitBoard({
     }, 1600);
   }, []);
 
+  // BOARD_SHELL_COMPOSITE_EXCEPTION: the board must own a viewport-height flex and
+  // overflow boundary around its virtualized list/detail panes. It adopts the shared
+  // shell root/header contracts directly rather than nesting AppShell's content wrapper;
+  // the shell contract test keeps this intentional exception explicit.
   return (
     <div
+      className="app-shell app-shell--board"
+      data-ui-contract-geometry="board viewport shell geometry"
       style={{
         height: isNarrow ? undefined : "100vh",
         display: "flex",
@@ -1255,20 +1263,12 @@ export function RolefitBoard({
       )}
 
       {/* Split pane — left: job list; right: detail */}
-      <div style={{ flex: 1, display: "flex", minHeight: isNarrow ? undefined : 0 }}>
+      <div className="rf-board-workspace" data-mode={isNarrow ? (selectedId ? "detail" : "list") : "split"}>
         {/* List pane */}
         {(!isNarrow || !selectedId) && (
           <div
             ref={listScrollRef}
-            className={isNarrow ? undefined : "rf-scroll"}
-            style={{
-              flex: isNarrow ? undefined : "0 0 426px",
-              width: isNarrow ? "100%" : undefined,
-              overflowY: isNarrow ? undefined : "auto",
-              background: "var(--bg-page)",
-              borderRight: isNarrow ? "none" : "1px solid var(--border)",
-              padding: "13px 2px 24px",
-            }}
+            className="rf-board-list-pane rf-scroll"
           >
             <JobList
               jobs={visibleWithCorrections}
@@ -1297,32 +1297,20 @@ export function RolefitBoard({
             // Programmatically focusable (not in the Tab order) so the selection-change
             // effect can return focus here after an auto-advance remount (see above).
             tabIndex={-1}
-            className={isNarrow ? undefined : "rf-scroll"}
-            style={{ flex: 1, overflowY: isNarrow ? undefined : "auto", background: "var(--bg-surface)", minWidth: 0, outline: "none" }}
+            className="rf-board-detail-pane rf-scroll"
           >
             {selectedJobWithDetail ? (
               <>
                 {isNarrow && (
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rf-board-mobile-back"
                     onClick={() => setSelectedId(null)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "7px",
-                      margin: "16px 16px 0",
-                      fontWeight: 700,
-                      fontSize: "13px",
-                      color: "var(--accent)",
-                      background: "var(--accent-bg)",
-                      border: "1px solid var(--accent-border)",
-                      borderRadius: "9px",
-                      padding: "8px 14px",
-                      cursor: "pointer",
-                    }}
                   >
-                    ← Back
-                  </button>
+                    <Icon name="arrow-left" size={16} /> Back
+                  </Button>
                 )}
                 <DetailErrorBoundary key={selectedJobWithDetail.id}>
                   <JobDetail
@@ -1371,6 +1359,7 @@ export function RolefitBoard({
               </>
             ) : (
               <div
+                data-ui-contract-geometry="empty detail centering geometry"
                 style={{
                   height: "100%",
                   display: "flex",
@@ -1393,6 +1382,7 @@ export function RolefitBoard({
           is not reliably announced. Only the inner pill toggles. The outer wrapper collapses
           to 0×0 when all are empty, so it never intercepts pointer events. */}
       <div
+        data-ui-contract-geometry="fixed live-region stack geometry"
         style={{
           position: "fixed",
           bottom: "24px",
@@ -1407,6 +1397,7 @@ export function RolefitBoard({
         <div role="status">
           {toast ? (
             <div
+              data-ui-contract-geometry="transient toast pill geometry"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1424,6 +1415,8 @@ export function RolefitBoard({
               <span>{toast.kind === "apply" ? "Applied" : "Rejected"}</span>
               <button
                 type="button"
+                className="rf-toast-action rf-focusable"
+                data-ui-contract-geometry="toast text action reset"
                 onClick={handleUndo}
                 style={{
                   fontWeight: 800,
@@ -1452,6 +1445,7 @@ export function RolefitBoard({
         <div role="alert">
           {actionError ? (
             <div
+              data-ui-contract-geometry="transient error pill geometry"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1471,6 +1465,8 @@ export function RolefitBoard({
               <span>{actionError}</span>
               <button
                 type="button"
+                className="rf-toast-action rf-focusable"
+                data-ui-contract-geometry="toast text action reset"
                 onClick={() => setActionError(null)}
                 style={{
                   fontWeight: 800,

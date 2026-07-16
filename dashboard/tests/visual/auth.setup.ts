@@ -20,6 +20,7 @@ const TEST_TIMEOUT_MS = 240_000;
 const NAVIGATION_TIMEOUT_MS = 15_000;
 const ACTION_TIMEOUT_MS = 10_000;
 const AUTH_OUTCOME_TIMEOUT_MS = 20_000;
+const EVIDENCE_TIMEOUT_MS = 5_000;
 const VISUAL_FAILURE_SCREENSHOT_DIR = path.resolve(
   process.cwd(),
   "test-results/visual/auth-setup",
@@ -41,31 +42,36 @@ test("creates isolated established and onboarding sessions", async ({
     identityName: VisualAuthIdentity,
   ): Promise<VisualAuthStructure | undefined> {
     let structure: VisualAuthStructure | undefined;
-    try {
-      const [forms, inputs, buttons, headings] = await Promise.all([
-        page.locator("form").count(),
-        page.locator("input").count(),
-        page.locator("button").count(),
-        page.locator("h1, h2, h3, h4, h5, h6").count(),
-      ]);
-      structure = { forms, inputs, buttons, headings };
-    } catch {
-      // The screenshot and primary form diagnostic remain independently useful.
-    }
-
-    try {
-      await mkdir(VISUAL_FAILURE_SCREENSHOT_DIR, { recursive: true });
-      await page.screenshot({
-        path: path.join(
-          VISUAL_FAILURE_SCREENSHOT_DIR,
-          `${identityName}-login-form-failure.png`,
-        ),
-        fullPage: true,
-        timeout: ACTION_TIMEOUT_MS,
-      });
-    } catch {
-      // A missing screenshot must not mask the primary acquisition diagnostic.
-    }
+    await Promise.all([
+      (async () => {
+        try {
+          const [forms, inputs, buttons, headings] = await Promise.all([
+            page.locator("form").count(),
+            page.locator("input").count(),
+            page.locator("button").count(),
+            page.locator("h1, h2, h3, h4, h5, h6").count(),
+          ]);
+          structure = { forms, inputs, buttons, headings };
+        } catch {
+          // The screenshot and primary diagnostic remain independently useful.
+        }
+      })(),
+      (async () => {
+        try {
+          await mkdir(VISUAL_FAILURE_SCREENSHOT_DIR, { recursive: true });
+          await page.screenshot({
+            path: path.join(
+              VISUAL_FAILURE_SCREENSHOT_DIR,
+              `${identityName}-login-form-failure.png`,
+            ),
+            fullPage: true,
+            timeout: EVIDENCE_TIMEOUT_MS,
+          });
+        } catch {
+          // A missing screenshot must not mask the primary diagnostic.
+        }
+      })(),
+    ]);
     return structure;
   }
 
@@ -179,6 +185,7 @@ test("creates isolated established and onboarding sessions", async ({
               identityName,
             );
           },
+          EVIDENCE_TIMEOUT_MS,
         ),
       );
       await runPhase("fill-form", async () => {

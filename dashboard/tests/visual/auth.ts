@@ -19,6 +19,7 @@ export async function acquireLoginFormWithRetry(
   acquire: () => Promise<void>,
   reload: () => Promise<unknown>,
   captureFinalFailure: () => Promise<void>,
+  evidenceTimeoutMs: number,
 ): Promise<void> {
   try {
     await acquire();
@@ -27,10 +28,17 @@ export async function acquireLoginFormWithRetry(
     try {
       await acquire();
     } catch (primaryError) {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const capture = Promise.resolve()
+        .then(captureFinalFailure)
+        .catch(() => undefined);
+      const deadline = new Promise<void>((resolve) => {
+        timeoutId = setTimeout(resolve, evidenceTimeoutMs);
+      });
       try {
-        await captureFinalFailure();
-      } catch {
-        // Evidence collection must never replace the acquisition failure.
+        await Promise.race([capture, deadline]);
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
       }
       throw primaryError;
     }
@@ -112,6 +120,7 @@ export function readVercelProtectionBypassHeaders(env: Env) {
   return {
     "x-vercel-protection-bypass": secret,
     "x-vercel-set-bypass-cookie": "true",
+    "x-vercel-skip-toolbar": "1",
   };
 }
 

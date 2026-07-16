@@ -33,12 +33,35 @@ describe("visual authentication configuration", () => {
           captures += 1;
           throw new Error("screenshot unavailable");
         },
+        50,
       ),
     ).rejects.toThrow("still unavailable");
 
     expect(acquisitions).toBe(2);
     expect(reloads).toBe(1);
     expect(captures).toBe(1);
+  });
+
+  test("promptly rethrows the acquisition error when evidence never settles", async () => {
+    const result = await Promise.race([
+      acquireLoginFormWithRetry(
+        async () => {
+          throw new Error("still unavailable");
+        },
+        async () => undefined,
+        () => new Promise<void>(() => undefined),
+        5,
+      ).then(
+        () => "unexpected success",
+        (error: unknown) =>
+          error instanceof Error ? error.message : "unexpected error",
+      ),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve("external timeout"), 100);
+      }),
+    ]);
+
+    expect(result).toBe("still unavailable");
   });
 
   test("formats bounded phase diagnostics without hosts, queries, or fragments", () => {
@@ -87,6 +110,7 @@ describe("visual authentication configuration", () => {
     ).toEqual({
       "x-vercel-protection-bypass": secret,
       "x-vercel-set-bypass-cookie": "true",
+      "x-vercel-skip-toolbar": "1",
     });
   });
 

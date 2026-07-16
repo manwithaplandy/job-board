@@ -33,11 +33,13 @@ describe("fresh visual authentication setup", () => {
   test("sends Vercel protection bypass headers in every protected preview context", () => {
     const config = read("playwright.config.ts");
     const setup = read("tests/visual/auth.setup.ts");
+    const auth = read("tests/visual/auth.ts");
 
     expect(config).toContain("readVercelProtectionBypassHeaders");
     expect(config).toContain("extraHTTPHeaders: protectionBypassHeaders");
     expect(config).toContain('credentialBearing ? "github"');
     expect(setup).toContain("readVercelProtectionBypassHeaders(process.env)");
+    expect(auth).toContain('"x-vercel-skip-toolbar": "1"');
     expect(setup).toMatch(
       /activeBrowser\.newContext\(\{\s*extraHTTPHeaders: protectionBypassHeaders,?\s*\}\)/,
     );
@@ -96,6 +98,7 @@ describe("fresh visual authentication setup", () => {
     const credentialFillIndex = setup.indexOf("identity.email");
 
     expect(setup).toContain('"test-results/visual/auth-setup"');
+    expect(setup).toContain("const EVIDENCE_TIMEOUT_MS = 5_000");
     expect(setup).toContain('`${identityName}-login-form-failure.png`');
     expect(setup).toContain("page.screenshot({");
     expect(setup).toContain('page.locator("form").count()');
@@ -103,6 +106,7 @@ describe("fresh visual authentication setup", () => {
     expect(setup).toContain('page.locator("button").count()');
     expect(setup).toContain('page.locator("h1, h2, h3, h4, h5, h6").count()');
     expect(setup).toContain("structure,");
+    expect(setup).toContain("EVIDENCE_TIMEOUT_MS");
     expect(evidenceIndex).toBeGreaterThanOrEqual(0);
     expect(credentialFillIndex).toBeGreaterThan(evidenceIndex);
     for (const unsafe of [

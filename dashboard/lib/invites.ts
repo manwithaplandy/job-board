@@ -1,4 +1,4 @@
-import { serviceSql } from "@/lib/db";
+import { serviceSql, withUserSql } from "@/lib/db";
 
 // Invite-code gating for public signup (Phase 0 — invite-only beta).
 //
@@ -133,8 +133,15 @@ export type InviteCode = {
   uses: number;
   expiresAt: Date | null;
   createdAt: Date;
+  createdBy: string | null;       // null = operator/admin-minted
+  recipientEmail: string | null;  // recorded for emailed invites (not enforced)
+  creatorEmail: string | null;    // joined from profiles for the admin list; null elsewhere
 };
 
+// The attribution columns are OPTIONAL on the row because the admin-minting SELECTs
+// (createInvite RETURNING, and any pre-existing caller) don't project them — only
+// listInvites (join) and listInvitesCreatedBy do. toInviteCode `?? null`-fills them so
+// a row without those columns maps cleanly rather than surfacing `undefined`.
 type InviteRow = {
   code: string;
   note: string | null;
@@ -142,6 +149,9 @@ type InviteRow = {
   uses: number;
   expires_at: Date | null;
   created_at: Date;
+  created_by?: string | null;
+  recipient_email?: string | null;
+  creator_email?: string | null;
 };
 
 const toInviteCode = (r: InviteRow): InviteCode => ({
@@ -151,6 +161,9 @@ const toInviteCode = (r: InviteRow): InviteCode => ({
   uses: r.uses,
   expiresAt: r.expires_at,
   createdAt: r.created_at,
+  createdBy: r.created_by ?? null,
+  recipientEmail: r.recipient_email ?? null,
+  creatorEmail: r.creator_email ?? null,
 });
 
 /** A caller-supplied custom code already exists — surfaced legibly by the action. */
@@ -233,10 +246,149 @@ export async function createInvite(opts: CreateInviteOpts = {}): Promise<InviteC
  */
 export async function listInvites(): Promise<InviteCode[]> {
   const rows = (await serviceSql`
-    SELECT code, note, max_uses, uses, expires_at, created_at
-    FROM invite_codes
-    ORDER BY created_at DESC
+    SELECT ic.code, ic.note, ic.max_uses, ic.uses, ic.expires_at, ic.created_at,
+           ic.created_by, ic.recipient_email, p.email AS creator_email
+    FROM invite_codes ic
+    LEFT JOIN profiles p ON p.user_id = ic.created_by
+    ORDER BY ic.created_at DESC
     LIMIT 1000
+  `) as unknown as InviteRow[];
+  return rows.map(toInviteCode);
+}
+
+// ── User-sent invites (spec 2026-07-13) ─────────────────────────────────────
+// Same serviceSql justification as the header: invite_codes and the
+// invite_allowances WRITE path have no authenticated policy by design; correctness
+// of the spend rests on the atomic UPDATE … WHERE remaining > 0 RETURNING guard,
+// the same idiom as redeemInvite. Callers (app/actions/userInvites.ts) gate on an
+// authenticated session + non-null effective plan BEFORE reaching this file.
+
+export const USER_INVITE_EXPIRY_DAYS = 30;
+
+export type InviteAllowance = { remaining: number; granted: number };
+
+/**
+ * Read-only allowance view. A user with no row yet sees the CURRENT configured
+ * default (rows are lazy-created at first spend, not at first look, so raising the
+ * default later benefits users who never opened the modal). Owner-read RLS applies.
+ */
+export async function getInviteAllowance(
+  userId: string,
+  defaultAllowance: number,
+): Promise<InviteAllowance> {
+  const rows = await withUserSql(userId, async (tx) => {
+    const r = await tx`
+      SELECT remaining, granted FROM invite_allowances WHERE user_id = ${userId}::uuid
+    `;
+    return r as unknown as { remaining: number; granted: number }[];
+  });
+  if (rows.length > 0) return { remaining: rows[0].remaining, granted: rows[0].granted };
+  return { remaining: defaultAllowance, granted: defaultAllowance };
+}
+
+export type UserInviteResult =
+  | { ok: true; invite: InviteCode }
+  | { ok: false; reason: "exhausted" | "error" };
+
+/**
+ * Spend one invite and mint an attributed single-use code, in ONE transaction:
+ *   1. lazy-init the allowance row with the configured default (ON CONFLICT DO NOTHING);
+ *   2. UPDATE … SET remaining = remaining - 1 WHERE remaining > 0 RETURNING — the
+ *      atomic guard: two racing spends of the last invite cannot both pass;
+ *   3. INSERT the code (max_uses 1, USER_INVITE_EXPIRY_DAYS lifetime, created_by,
+ *      recipient_email).
+ * A 23505 on the code PK (astronomically rare) rolls the whole tx back — allowance
+ * untouched — and retries with a fresh code, mirroring createInvite.
+ */
+export async function createUserInvite(
+  userId: string,
+  opts: { defaultAllowance: number; recipientEmail?: string | null },
+): Promise<UserInviteResult> {
+  try {
+    for (let i = 0; i < MAX_GENERATION_ATTEMPTS; i++) {
+      const code = generateInviteCode();
+      try {
+        const row = await serviceSql.begin(async (tx) => {
+          await tx`
+            INSERT INTO invite_allowances (user_id, remaining, granted)
+            VALUES (${userId}::uuid, ${opts.defaultAllowance}, ${opts.defaultAllowance})
+            ON CONFLICT (user_id) DO NOTHING
+          `;
+          const dec = await tx`
+            UPDATE invite_allowances
+            SET remaining = remaining - 1, updated_at = now()
+            WHERE user_id = ${userId}::uuid AND remaining > 0
+            RETURNING remaining
+          `;
+          if (dec.length === 0) return null;
+          const rows = await tx`
+            INSERT INTO invite_codes (code, note, max_uses, expires_at, created_by, recipient_email)
+            VALUES (${code}, NULL, 1, now() + make_interval(days => ${USER_INVITE_EXPIRY_DAYS}),
+                    ${userId}::uuid, ${opts.recipientEmail ?? null})
+            RETURNING code, note, max_uses, uses, expires_at, created_at, created_by, recipient_email
+          `;
+          return rows[0];
+        });
+        if (row === null) return { ok: false, reason: "exhausted" };
+        return { ok: true, invite: toInviteCode(row as unknown as InviteRow) };
+      } catch (err) {
+        if ((err as { code?: string }).code !== "23505") throw err;
+        // code collision — tx rolled back (spend undone); regenerate and retry
+      }
+    }
+    throw new Error(`Couldn't generate a unique invite code after ${MAX_GENERATION_ATTEMPTS} attempts.`);
+  } catch (err) {
+    console.error("createUserInvite failed", err);
+    return { ok: false, reason: "error" };
+  }
+}
+
+/**
+ * Compensation when the email send that followed a mint fails: delete the code IF it
+ * is still unused and belongs to this minter, and refund the spend. An invite is only
+ * "spent" once the email actually handed off to SES. Never throws (mirrors releaseInvite).
+ */
+export async function releaseUserInvite(code: string, userId: string): Promise<void> {
+  try {
+    await serviceSql.begin(async (tx) => {
+      const del = await tx`
+        DELETE FROM invite_codes
+        WHERE code = ${code} AND created_by = ${userId}::uuid AND uses = 0
+        RETURNING code
+      `;
+      if (del.length > 0) {
+        await tx`
+          UPDATE invite_allowances
+          SET remaining = remaining + 1, updated_at = now()
+          WHERE user_id = ${userId}::uuid
+        `;
+      }
+    });
+  } catch (err) {
+    console.error("releaseUserInvite failed", err);
+  }
+}
+
+/**
+ * Admin top-up/claw-back (must be called ONLY from isAdmin-gated actions). Sets
+ * `remaining` outright; `granted` seeds on first insert and is never overwritten —
+ * it stays the audit record of the initial grant.
+ */
+export async function setInviteAllowance(userId: string, remaining: number): Promise<void> {
+  await serviceSql`
+    INSERT INTO invite_allowances (user_id, remaining, granted)
+    VALUES (${userId}::uuid, ${remaining}, ${remaining})
+    ON CONFLICT (user_id) DO UPDATE SET remaining = EXCLUDED.remaining, updated_at = now()
+  `;
+}
+
+/** The codes a user minted (account export). Attribution columns, no profile join. */
+export async function listInvitesCreatedBy(userId: string): Promise<InviteCode[]> {
+  const rows = (await serviceSql`
+    SELECT code, note, max_uses, uses, expires_at, created_at, created_by, recipient_email
+    FROM invite_codes
+    WHERE created_by = ${userId}::uuid
+    ORDER BY created_at DESC
   `) as unknown as InviteRow[];
   return rows.map(toInviteCode);
 }

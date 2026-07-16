@@ -1,5 +1,6 @@
 import { withUserSql } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
+import { listInvitesCreatedBy } from "@/lib/invites";
 import {
   USER_DELETE_TABLES,
   USER_ANONYMIZE_TABLES,
@@ -35,6 +36,7 @@ export interface AccountExport {
   subscriptions: unknown;
   review_requests: unknown[];
   invite_redemptions: unknown[];
+  created_invite_codes: unknown[];
   generation_jobs: unknown[];
   invite_allowances: unknown;
   review_runs: unknown[];
@@ -83,7 +85,7 @@ export async function listResumeFiles(userId: string, expiresIn = 300): Promise<
   return refs;
 }
 
-async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions">> {
+async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes">> {
   return withUserSql(userId, async (tx) => {
     const [
       profiles, jobReviews, reviewCorrections, companyReviews,
@@ -149,6 +151,16 @@ async function collectInviteRedemptions(userId: string): Promise<unknown[]> {
   }
 }
 
+/** Codes this user minted (service-role read via lib/invites; guarded like redemptions). */
+async function collectCreatedInviteCodes(userId: string): Promise<unknown[]> {
+  try {
+    return await listInvitesCreatedBy(userId);
+  } catch (e) {
+    console.error("account export: created invite codes could not be listed", e);
+    return [];
+  }
+}
+
 /**
  * Build the full export payload for `userId`. `resumeFiles` is injectable so the lib
  * test can supply a stub without a storage backend; the route uses the default
@@ -159,9 +171,10 @@ export async function buildAccountExport(
   email: string | null,
   resumeFiles: (uid: string) => Promise<ResumeFileRef[]> = listResumeFiles,
 ): Promise<AccountExport> {
-  const [rows, invites, filesResult] = await Promise.all([
+  const [rows, invites, createdCodes, filesResult] = await Promise.all([
     collectUserRows(userId),
     collectInviteRedemptions(userId),
+    collectCreatedInviteCodes(userId),
     // Capture a storage failure as a GENERIC marker rather than swallowing it to [] — an
     // empty list must mean "no files", not "we couldn't read them". The full error is
     // logged server-side; the marker shipped in the export is a fixed string, never the
@@ -179,6 +192,7 @@ export async function buildAccountExport(
     email,
     ...rows,
     invite_redemptions: invites,
+    created_invite_codes: createdCodes,
     resume_files: filesResult.files,
     resume_files_error: filesResult.error,
   };

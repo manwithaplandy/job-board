@@ -19,7 +19,7 @@ vi.mock("@/lib/db", () => {
   sql.begin = async (cb) => cb(sql);
   sql.__calls = calls;
   sql.__queue = queue;
-  return { serviceSql: sql };
+  return { serviceSql: sql, withUserSql: async (_uid: string, cb: (tx: unknown) => unknown) => cb(sql) };
 });
 
 import { serviceSql as sql } from "@/lib/db";
@@ -30,6 +30,10 @@ import {
   generateInviteCode,
   InviteCodeExistsError,
   listInvites,
+  createUserInvite,
+  releaseUserInvite,
+  getInviteAllowance,
+  setInviteAllowance,
 } from "@/lib/invites";
 
 const calls = (sql as unknown as { __calls: { strings: readonly string[]; values: unknown[] }[] }).__calls;
@@ -137,7 +141,9 @@ describe("createInvite", () => {
     expect(calls[0].values[1]).toBeNull();
     expect(calls[0].values[2]).toBe(1);
     expect(calls[0].values[3]).toBeNull();
-    // The snake_case row comes back mapped to the camelCase InviteCode shape.
+    // The snake_case row comes back mapped to the camelCase InviteCode shape. The
+    // admin-mint RETURNING doesn't project the attribution columns, so toInviteCode
+    // `?? null`-fills createdBy/recipientEmail/creatorEmail.
     expect(created).toEqual({
       code: "RF-AAAA-AAAA",
       note: null,
@@ -145,6 +151,9 @@ describe("createInvite", () => {
       uses: 0,
       expiresAt: null,
       createdAt: new Date("2026-07-04T00:00:00Z"),
+      createdBy: null,
+      recipientEmail: null,
+      creatorEmail: null,
     });
   });
 
@@ -210,7 +219,7 @@ describe("listInvites", () => {
     const out = await listInvites();
     expect(calls).toHaveLength(1);
     expect(text()).toContain("from invite_codes");
-    expect(text()).toContain("order by created_at desc");
+    expect(text()).toContain("order by ic.created_at desc"); // aliased for the profiles join
     expect(out).toEqual([
       {
         code: "RF-CCCC-DDDD",
@@ -219,6 +228,9 @@ describe("listInvites", () => {
         uses: 0,
         expiresAt: null,
         createdAt: new Date("2026-07-04T12:00:00Z"),
+        createdBy: null,
+        recipientEmail: null,
+        creatorEmail: null,
       },
       {
         code: "FOUNDER-01",
@@ -227,6 +239,9 @@ describe("listInvites", () => {
         uses: 1,
         expiresAt: null,
         createdAt: new Date("2026-07-03T12:00:00Z"),
+        createdBy: null,
+        recipientEmail: null,
+        creatorEmail: null,
       },
     ]);
   });
@@ -234,5 +249,96 @@ describe("listInvites", () => {
   test("returns [] when no codes exist", async () => {
     stage([]);
     expect(await listInvites()).toEqual([]);
+  });
+});
+
+describe("createUserInvite", () => {
+  test("lazy-inits the allowance, decrements atomically, mints an attributed 30-day code", async () => {
+    stage(
+      [],                       // INSERT … ON CONFLICT DO NOTHING (lazy-init)
+      [{ remaining: 2 }],       // UPDATE … remaining - 1 … RETURNING
+      [{ code: "RF-AAAA-2222", note: null, max_uses: 1, uses: 0,
+         expires_at: new Date("2026-08-12"), created_at: new Date() }],
+    );
+    const r = await createUserInvite("u-1", { defaultAllowance: 3, recipientEmail: "friend@x.com" });
+    expect(r.ok).toBe(true);
+    const t = text();
+    // The atomic-spend guard is in the SQL, not JS.
+    expect(t).toContain("remaining > 0");
+    expect(t).toContain("on conflict (user_id) do nothing");
+    // Attribution + bounded lifetime ride on the insert.
+    expect(t).toContain("created_by");
+    expect(t).toContain("recipient_email");
+    expect(t).toContain("make_interval");
+    expect(calls.some((c) => c.values.includes("friend@x.com"))).toBe(true);
+  });
+
+  test("zero-row decrement → exhausted, and NO code insert happens", async () => {
+    stage([], []); // lazy-init, then UPDATE matches nothing
+    const r = await createUserInvite("u-1", { defaultAllowance: 3 });
+    expect(r).toEqual({ ok: false, reason: "exhausted" });
+    expect(text()).not.toContain("insert into invite_codes");
+  });
+
+  test("a 23505 code collision retries with a fresh code (allowance untouched by rollback)", async () => {
+    const dup = Object.assign(new Error("dup"), { code: "23505" });
+    stage(
+      [], [{ remaining: 2 }], dup,                       // attempt 1: insert collides → tx rolls back
+      [], [{ remaining: 2 }],                            // attempt 2 succeeds
+      [{ code: "RF-BBBB-3333", note: null, max_uses: 1, uses: 0, expires_at: null, created_at: new Date() }],
+    );
+    const r = await createUserInvite("u-1", { defaultAllowance: 3 });
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("releaseUserInvite", () => {
+  test("deletes an UNUSED own code and refunds the allowance", async () => {
+    stage([{ code: "RF-AAAA-2222" }], []); // DELETE returned a row → UPDATE refund
+    await releaseUserInvite("RF-AAAA-2222", "u-1");
+    const t = text();
+    expect(t).toContain("uses = 0");            // only an unredeemed code is refundable
+    expect(t).toContain("created_by");          // only the minter's own code
+    expect(t).toContain("remaining = remaining + 1");
+  });
+  test("a redeemed/foreign code deletes nothing and refunds nothing", async () => {
+    stage([]); // DELETE matched no rows
+    await releaseUserInvite("RF-AAAA-2222", "u-2");
+    expect(text()).not.toContain("remaining = remaining + 1");
+  });
+});
+
+describe("getInviteAllowance", () => {
+  test("existing row wins", async () => {
+    stage([{ remaining: 1, granted: 3 }]);
+    expect(await getInviteAllowance("u-1", 5)).toEqual({ remaining: 1, granted: 3 });
+  });
+  test("no row → the configured default, WITHOUT creating a row", async () => {
+    stage([]);
+    expect(await getInviteAllowance("u-1", 5)).toEqual({ remaining: 5, granted: 5 });
+    expect(text()).not.toContain("insert");
+  });
+});
+
+describe("setInviteAllowance", () => {
+  test("upserts remaining; granted only seeds on first insert", async () => {
+    stage([]);
+    await setInviteAllowance("u-1", 7);
+    const t = text();
+    expect(t).toContain("on conflict (user_id) do update");
+    expect(t).toContain("remaining = excluded.remaining");
+    // granted is NOT overwritten on update (audit value keeps the initial grant).
+    expect(t).not.toContain("granted = excluded.granted");
+  });
+});
+
+describe("listInvites attribution", () => {
+  test("selects created_by/recipient_email and joins the creator's profile email", async () => {
+    stage([]);
+    await listInvites();
+    const t = text();
+    expect(t).toContain("created_by");
+    expect(t).toContain("recipient_email");
+    expect(t).toContain("left join profiles");
   });
 });

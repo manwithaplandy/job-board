@@ -26,6 +26,20 @@ _GRACE = timedelta(days=3)
 # only when a paid-trial product deliberately grants full-plan access during the trial.
 _TRIAL_GRANTS_FULL_PLAN = False
 
+# Invite comp plan (user-sent invites, spec 2026-07-13). Mirrors
+# DEFAULT_INVITE_COMP_PLAN in entitlements.ts (parity-guarded). DB-overridable via
+# app_settings.invite_comp_plan (db.load_invite_comp_plan, read once per run).
+DEFAULT_INVITE_COMP_PLAN = "standard"
+
+
+def parse_comp_plan(v):
+    """The invite comp plan from an app_settings jsonb value: 'standard' | 'pro' |
+    'none'. Anything else (absent row, malformed write) -> the compiled default.
+    Mirrors lib/appSettings.ts parseCompPlan."""
+    if isinstance(v, str) and v in ("standard", "pro", "none"):
+        return v
+    return DEFAULT_INVITE_COMP_PLAN
+
 
 def _pos_int(v):
     """A positive int (caps/allowances) or None. Rejects bool, float, str, <=0.
@@ -87,7 +101,7 @@ def model_slot(model):
     return None
 
 
-def resolve_plan(sub, invited, now=None):
+def resolve_plan(sub, invited, now=None, comp_plan=DEFAULT_INVITE_COMP_PLAN):
     """The user's effective plan under the chargeable-beta policy.
 
     sub: mapping with keys plan, status, current_period_end (a tz-aware datetime or
@@ -95,7 +109,7 @@ def resolve_plan(sub, invited, now=None):
     invite proof. Returns 'standard' | 'pro' | None with semantics identical to
     resolvePlan in entitlements.ts:
       - active|trialing subscription within (current_period_end + 3-day grace) -> its plan
-      - else invited (comped Phase-0 beta) -> 'standard'
+      - else invited (comped beta) -> comp_plan ('none' disables comping)
       - else -> None
     """
     if now is None:
@@ -111,8 +125,8 @@ def resolve_plan(sub, invited, now=None):
                 if status == "trialing" and not _TRIAL_GRANTS_FULL_PLAN and plan == "pro":
                     return "standard"
                 return plan
-    if invited:
-        return "standard"
+    if invited and comp_plan in ("standard", "pro"):
+        return comp_plan
     return None
 
 

@@ -90,3 +90,10 @@ def test_overlay_field_name_parity():
     # priceUsd is the display-only knob and must live ONLY on the TS side.
     assert "priceUsd" in ts
     assert "priceUsd" not in py
+
+
+def test_invite_comp_plan_default_parity():
+    """The invite-comp default must match across runtimes: a drift would comp invited
+    users on the dashboard but skip them in the reviewer (or vice versa)."""
+    text = _TS.read_text()
+    assert _const("DEFAULT_INVITE_COMP_PLAN", text) == py_ent.DEFAULT_INVITE_COMP_PLAN

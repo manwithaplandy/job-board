@@ -62,9 +62,9 @@ def process_one(conn) -> bool:
             return True
         # _review_user manages its own review_runs row + commits (incl. the cap/skip
         # notes). It catches per-user errors internally, so this mostly closes 'done'.
-        # Load the DB-overlaid tier config (T1) per request so a retune is honored
-        # without a worker restart.
-        run._review_user(conn, profile, db.load_tier_settings(conn))
+        # Load the DB-overlaid tier config (T1) and invite comp plan per request so a
+        # retune is honored without a worker restart.
+        run._review_user(conn, profile, db.load_tier_settings(conn), db.load_invite_comp_plan(conn))
         db.finish_review_request(conn, req_id, "done")
         conn.commit()
     except Exception as exc:  # belt-and-braces: never let one request kill the loop

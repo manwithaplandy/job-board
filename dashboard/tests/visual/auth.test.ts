@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
+  acquireLoginFormWithRetry,
   ESTABLISHED_STATE_PATH,
   formatVisualAuthDiagnostic,
   ONBOARDING_STATE_PATH,
@@ -12,6 +13,28 @@ import {
 } from "./auth";
 
 describe("visual authentication configuration", () => {
+  test("reloads once and stops after a second login-form acquisition failure", async () => {
+    let acquisitions = 0;
+    let reloads = 0;
+
+    await expect(
+      acquireLoginFormWithRetry(
+        async () => {
+          acquisitions += 1;
+          throw new Error(
+            acquisitions === 1 ? "transient bootstrap" : "still unavailable",
+          );
+        },
+        async () => {
+          reloads += 1;
+        },
+      ),
+    ).rejects.toThrow("still unavailable");
+
+    expect(acquisitions).toBe(2);
+    expect(reloads).toBe(1);
+  });
+
   test("formats bounded phase diagnostics without hosts, queries, or fragments", () => {
     const message = formatVisualAuthDiagnostic({
       identity: "established",

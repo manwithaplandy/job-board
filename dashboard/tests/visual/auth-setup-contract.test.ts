@@ -68,12 +68,51 @@ describe("fresh visual authentication setup", () => {
     const clickIndex = setup.indexOf('.click({ timeout: ACTION_TIMEOUT_MS, noWaitAfter: true })');
 
     expect(setup).toContain("test.setTimeout(TEST_TIMEOUT_MS)");
+    expect(setup).toContain("const TEST_TIMEOUT_MS = 240_000");
     expect(setup).toContain("const ACTION_TIMEOUT_MS = 10_000");
     expect(setup).toContain("const AUTH_OUTCOME_TIMEOUT_MS = 20_000");
     expect(setup).toContain("timeout: NAVIGATION_TIMEOUT_MS");
     expect(setup).toContain("waitUntil: \"domcontentloaded\"");
     expect(outcomeIndex).toBeGreaterThanOrEqual(0);
     expect(clickIndex).toBeGreaterThan(outcomeIndex);
+  });
+
+  test("retries login-form acquisition once before entering credentials", () => {
+    const setup = read("tests/visual/auth.setup.ts");
+    const acquisitionIndex = setup.indexOf("acquireLoginFormWithRetry(");
+    const credentialFillIndex = setup.indexOf("identity.email");
+
+    expect(setup).toContain("acquireLoginFormWithRetry");
+    expect(setup).toContain("page!.reload({");
+    expect(setup).toContain("waitUntil: \"domcontentloaded\"");
+    expect(setup).toContain("timeout: NAVIGATION_TIMEOUT_MS");
+    expect(acquisitionIndex).toBeGreaterThanOrEqual(0);
+    expect(credentialFillIndex).toBeGreaterThan(acquisitionIndex);
+  });
+
+  test("verifies established and onboarding invite redemption without mutation", () => {
+    const setup = read("tests/visual/auth.setup.ts");
+    const outcomeIndex = setup.indexOf("const outcome = await outcomePromise");
+    const establishedProofIndex = setup.indexOf('page!.goto(`${baseURL}/billing`,');
+    const profileIndex = setup.indexOf('page!.goto(`${baseURL}/profile`,');
+    const onboardingProbeIndex = setup.indexOf(
+      '`${baseURL}/api/resume/extract`',
+    );
+
+    expect(setup).toContain(
+      'getByText("Comped beta invite", { exact: true })',
+    );
+    expect(setup).toContain("multipart: {}");
+    expect(setup).toContain("context.request.post(");
+    expect(setup).toContain('pathname: "/api/resume/extract"');
+    expect(setup).toContain('method: "POST"');
+    expect(setup).toContain('status() !== 400');
+    expect(setup).toContain('error !== "no file provided"');
+    expect(establishedProofIndex).toBeGreaterThan(outcomeIndex);
+    expect(profileIndex).toBeGreaterThan(establishedProofIndex);
+    expect(onboardingProbeIndex).toBeGreaterThan(outcomeIndex);
+    expect(setup).not.toContain("response.text()");
+    expect(setup).not.toContain("response.body()");
   });
 
   test("reports safe network phases and preserves primary failures during cleanup", () => {

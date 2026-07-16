@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import {
+  acquireLoginFormWithRetry,
   ESTABLISHED_STATE_PATH,
   formatVisualAuthDiagnostic,
   ONBOARDING_STATE_PATH,
@@ -13,7 +14,7 @@ import {
   type VisualAuthPhase,
 } from "./auth";
 
-const TEST_TIMEOUT_MS = 120_000;
+const TEST_TIMEOUT_MS = 240_000;
 const NAVIGATION_TIMEOUT_MS = 15_000;
 const ACTION_TIMEOUT_MS = 10_000;
 const AUTH_OUTCOME_TIMEOUT_MS = 20_000;
@@ -119,11 +120,20 @@ test("creates isolated established and onboarding sessions", async ({
         name: "Sign in",
         exact: true,
       });
-      await runPhase("render-form", async () => {
-        await expect(email).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
-        await expect(password).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
-        await expect(submit).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
-      });
+      await runPhase("render-form", () =>
+        acquireLoginFormWithRetry(
+          async () => {
+            await expect(email).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
+            await expect(password).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
+            await expect(submit).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
+          },
+          () =>
+            page!.reload({
+              waitUntil: "domcontentloaded",
+              timeout: NAVIGATION_TIMEOUT_MS,
+            }),
+        ),
+      );
       await runPhase("fill-form", async () => {
         await email.fill(identity.email, { timeout: ACTION_TIMEOUT_MS });
         await password.fill(identity.password, { timeout: ACTION_TIMEOUT_MS });
@@ -144,6 +154,15 @@ test("creates isolated established and onboarding sessions", async ({
       }
 
       if (expectedPath === "/profile") {
+        await runPhase("verify-established-redemption", async () => {
+          await page!.goto(`${baseURL}/billing`, {
+            waitUntil: "domcontentloaded",
+            timeout: NAVIGATION_TIMEOUT_MS,
+          });
+          await expect(
+            page!.getByText("Comped beta invite", { exact: true }),
+          ).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
+        });
         await runPhase("render-profile", async () => {
           await page!.goto(`${baseURL}/profile`, {
             waitUntil: "domcontentloaded",
@@ -152,6 +171,25 @@ test("creates isolated established and onboarding sessions", async ({
           await expect(
             page!.getByRole("heading", { name: "Profile", exact: true }),
           ).toBeVisible({ timeout: ACTION_TIMEOUT_MS });
+        });
+      } else {
+        await runPhase("verify-onboarding-redemption", async () => {
+          const response = await context.request.post(
+            `${baseURL}/api/resume/extract`,
+            {
+              multipart: {},
+              timeout: NAVIGATION_TIMEOUT_MS,
+            },
+          );
+          record({
+            method: "POST",
+            pathname: "/api/resume/extract",
+            status: response.status(),
+          });
+          const { error } = (await response.json()) as { error?: unknown };
+          if (response.status() !== 400 || error !== "no file provided") {
+            throw new Error("Unexpected onboarding redemption probe response");
+          }
         });
       }
 

@@ -15,6 +15,18 @@ export const ONBOARDING_STATE_PATH = path.join(
 
 type Env = Record<string, string | undefined>;
 
+export async function acquireLoginFormWithRetry(
+  acquire: () => Promise<void>,
+  reload: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await acquire();
+  } catch {
+    await reload();
+    await acquire();
+  }
+}
+
 export type VisualAuthIdentity = "established" | "onboarding";
 export type VisualAuthPhase =
   | "open-login"
@@ -23,6 +35,8 @@ export type VisualAuthPhase =
   | "submit-click"
   | "authentication-rejected"
   | "authentication-outcome"
+  | "verify-established-redemption"
+  | "verify-onboarding-redemption"
   | "render-profile"
   | "persist-state"
   | "cleanup";

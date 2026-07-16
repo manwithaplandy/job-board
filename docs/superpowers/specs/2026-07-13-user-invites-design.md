@@ -67,7 +67,10 @@ Modeled on the generation-jobs migration per the new-user_id-table checklist.
      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
    );
    ```
-   Service-only (no authenticated policies/grants). Initial keys:
+   RLS: deny-all + `shared_read` SELECT for anon + authenticated (mirrors
+   tier_settings — shared operator policy, values non-secret), so the dashboard
+   loader reads via withAnonSql; WRITES are service-role only, through the
+   admin-gated `lib/appSettings.ts` (serviceSql-allowlisted). Initial keys:
    - `invite_comp_plan`: `"standard"` — valid values `"standard" | "pro" | "none"`.
      Drives the ONE shared resolvePlan comp path, so changing it affects **all**
      invited users, including Phase-0/FOUNDER invitees (accepted trade-off;

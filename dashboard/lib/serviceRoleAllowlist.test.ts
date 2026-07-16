@@ -14,6 +14,7 @@ import path from "node:path";
 // or — only if it genuinely operates across all tenants (a backend/admin/webhook
 // path) — add it here WITH a reviewed justification.
 const ALLOWLIST = [
+  "lib/appSettings.ts", // admin-gated app_settings writes (operator config); reads go through withAnonSql
   "lib/db.ts", // defines serviceSql
   "lib/invites.ts", // pre-auth signup redemption (no JWT/session yet)
   "app/actions/companies.ts", // global discovery_state refresh (shared operator control)

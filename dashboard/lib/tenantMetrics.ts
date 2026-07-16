@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { serviceSql } from "@/lib/db";
 import { resolvePlan, type Plan } from "@/lib/entitlements";
+import { loadAppSettings } from "@/lib/appSettings";
 
 // Blended cheap-model cost per reviewed job (spec 2026-07-03 Economics: gate + 0.235 ×
 // stage2 on deepseek). A coarse cost proxy so a runaway tenant stands out — NOT billing.
@@ -102,11 +103,14 @@ ORDER BY reviews_30d DESC, profile_updated_at DESC NULLS LAST
 
 /** Every tenant's plan, usage, spend proxy, and pipeline health (operator-only). */
 export async function getTenantMetrics(): Promise<TenantMetric[]> {
+  const settings = await loadAppSettings();
   const rows = (await serviceSql.unsafe(_SQL)) as unknown as Row[];
   return rows.map((r) => {
     const plan = resolvePlan(
       { plan: r.plan, status: r.status, current_period_end: r.current_period_end },
       r.invited,
+      new Date(),
+      settings.inviteCompPlan,
     );
     return {
       userId: r.user_id,

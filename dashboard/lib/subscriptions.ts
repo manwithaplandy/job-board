@@ -11,6 +11,7 @@ import { serviceSql, withUserSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { resolvePlan, type Plan } from "@/lib/entitlements";
 import { isInvitedUser } from "@/lib/invites";
+import { loadAppSettings } from "@/lib/appSettings";
 
 // The local mirror of Stripe truth (subsystem C). The Stripe webhook is the SOLE
 // writer of subscription STATE (service role); everything else reads the viewer's own
@@ -44,11 +45,12 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
  * plan, a comped Phase-0 invitee gets Standard, everyone else gets null.
  */
 export async function getViewerPlan(userId: string, email: string | null): Promise<Plan | null> {
-  const [sub, invited] = await Promise.all([
+  const [sub, invited, settings] = await Promise.all([
     getSubscription(userId),
     email ? isInvitedUser(email) : Promise.resolve(false),
+    loadAppSettings(),
   ]);
-  return resolvePlan(sub, invited);
+  return resolvePlan(sub, invited, new Date(), settings.inviteCompPlan);
 }
 
 /**

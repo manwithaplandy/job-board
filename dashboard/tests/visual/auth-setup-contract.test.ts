@@ -90,6 +90,32 @@ describe("fresh visual authentication setup", () => {
     expect(credentialFillIndex).toBeGreaterThan(acquisitionIndex);
   });
 
+  test("captures only safe pre-credential evidence on final form failure", () => {
+    const setup = read("tests/visual/auth.setup.ts");
+    const evidenceIndex = setup.indexOf("captureLoginFormFailureEvidence");
+    const credentialFillIndex = setup.indexOf("identity.email");
+
+    expect(setup).toContain('"test-results/visual/auth-setup"');
+    expect(setup).toContain('`${identityName}-login-form-failure.png`');
+    expect(setup).toContain("page.screenshot({");
+    expect(setup).toContain('page.locator("form").count()');
+    expect(setup).toContain('page.locator("input").count()');
+    expect(setup).toContain('page.locator("button").count()');
+    expect(setup).toContain('page.locator("h1, h2, h3, h4, h5, h6").count()');
+    expect(setup).toContain("structure,");
+    expect(evidenceIndex).toBeGreaterThanOrEqual(0);
+    expect(credentialFillIndex).toBeGreaterThan(evidenceIndex);
+    for (const unsafe of [
+      "innerHTML",
+      "outerHTML",
+      "textContent",
+      "inputValue",
+      "getAttribute",
+    ]) {
+      expect(setup).not.toContain(unsafe);
+    }
+  });
+
   test("verifies established and onboarding invite redemption without mutation", () => {
     const setup = read("tests/visual/auth.setup.ts");
     const outcomeIndex = setup.indexOf("const outcome = await outcomePromise");

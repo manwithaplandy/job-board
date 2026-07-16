@@ -13,9 +13,10 @@ import {
 } from "./auth";
 
 describe("visual authentication configuration", () => {
-  test("reloads once and stops after a second login-form acquisition failure", async () => {
+  test("captures final login-form failure evidence without masking the primary error", async () => {
     let acquisitions = 0;
     let reloads = 0;
+    let captures = 0;
 
     await expect(
       acquireLoginFormWithRetry(
@@ -28,11 +29,16 @@ describe("visual authentication configuration", () => {
         async () => {
           reloads += 1;
         },
+        async () => {
+          captures += 1;
+          throw new Error("screenshot unavailable");
+        },
       ),
     ).rejects.toThrow("still unavailable");
 
     expect(acquisitions).toBe(2);
     expect(reloads).toBe(1);
+    expect(captures).toBe(1);
   });
 
   test("formats bounded phase diagnostics without hosts, queries, or fragments", () => {
@@ -45,6 +51,7 @@ describe("visual authentication configuration", () => {
         { method: "GET", pathname: "/login?token=secret", status: 200 },
         { method: "POST", pathname: "/login#private", status: 503 },
       ],
+      structure: { forms: 1, inputs: 2, buttons: 1, headings: 2 },
     });
 
     expect(message).toContain("identity=established");
@@ -52,6 +59,9 @@ describe("visual authentication configuration", () => {
     expect(message).toContain("path=/login");
     expect(message).toContain("GET /login 200");
     expect(message).toContain("POST /login 503");
+    expect(message).toContain(
+      "structure=[forms=1 inputs=2 buttons=1 headings=2]",
+    );
     for (const secret of [
       "preview.vercel.app",
       "user",

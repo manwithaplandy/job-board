@@ -18,12 +18,22 @@ type Env = Record<string, string | undefined>;
 export async function acquireLoginFormWithRetry(
   acquire: () => Promise<void>,
   reload: () => Promise<unknown>,
+  captureFinalFailure: () => Promise<void>,
 ): Promise<void> {
   try {
     await acquire();
   } catch {
     await reload();
-    await acquire();
+    try {
+      await acquire();
+    } catch (primaryError) {
+      try {
+        await captureFinalFailure();
+      } catch {
+        // Evidence collection must never replace the acquisition failure.
+      }
+      throw primaryError;
+    }
   }
 }
 
@@ -47,6 +57,13 @@ export type VisualAuthNetworkEvent = {
   status: number | "failed";
 };
 
+export type VisualAuthStructure = {
+  forms: number;
+  inputs: number;
+  buttons: number;
+  headings: number;
+};
+
 function safePathname(raw: string): string {
   try {
     return new URL(raw, "https://redacted.invalid").pathname || "/";
@@ -60,11 +77,13 @@ export function formatVisualAuthDiagnostic({
   phase,
   currentUrl,
   network,
+  structure,
 }: {
   identity: VisualAuthIdentity;
   phase: VisualAuthPhase;
   currentUrl: string;
   network: VisualAuthNetworkEvent[];
+  structure?: VisualAuthStructure;
 }): string {
   const events = network.slice(-12).map(({ method, pathname, status }) => {
     const safeMethod = /^[A-Z]+$/.test(method) ? method : "UNKNOWN";
@@ -76,7 +95,12 @@ export function formatVisualAuthDiagnostic({
     `phase=${phase}`,
     `path=${safePathname(currentUrl)}`,
     `network=[${events.join(", ") || "none"}]`,
-  ].join(" ");
+    structure
+      ? `structure=[forms=${structure.forms} inputs=${structure.inputs} buttons=${structure.buttons} headings=${structure.headings}]`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function readVercelProtectionBypassHeaders(env: Env) {

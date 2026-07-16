@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import {
   acquireLoginFormWithRetry,
@@ -12,12 +13,17 @@ import {
   type VisualAuthIdentity,
   type VisualAuthNetworkEvent,
   type VisualAuthPhase,
+  type VisualAuthStructure,
 } from "./auth";
 
 const TEST_TIMEOUT_MS = 240_000;
 const NAVIGATION_TIMEOUT_MS = 15_000;
 const ACTION_TIMEOUT_MS = 10_000;
 const AUTH_OUTCOME_TIMEOUT_MS = 20_000;
+const VISUAL_FAILURE_SCREENSHOT_DIR = path.resolve(
+  process.cwd(),
+  "test-results/visual/auth-setup",
+);
 
 test.setTimeout(TEST_TIMEOUT_MS);
 
@@ -29,6 +35,39 @@ test("creates isolated established and onboarding sessions", async ({
   const protectionBypassHeaders =
     readVercelProtectionBypassHeaders(process.env);
   await mkdir(VISUAL_AUTH_DIR, { recursive: true });
+
+  async function captureLoginFormFailureEvidence(
+    page: Page,
+    identityName: VisualAuthIdentity,
+  ): Promise<VisualAuthStructure | undefined> {
+    let structure: VisualAuthStructure | undefined;
+    try {
+      const [forms, inputs, buttons, headings] = await Promise.all([
+        page.locator("form").count(),
+        page.locator("input").count(),
+        page.locator("button").count(),
+        page.locator("h1, h2, h3, h4, h5, h6").count(),
+      ]);
+      structure = { forms, inputs, buttons, headings };
+    } catch {
+      // The screenshot and primary form diagnostic remain independently useful.
+    }
+
+    try {
+      await mkdir(VISUAL_FAILURE_SCREENSHOT_DIR, { recursive: true });
+      await page.screenshot({
+        path: path.join(
+          VISUAL_FAILURE_SCREENSHOT_DIR,
+          `${identityName}-login-form-failure.png`,
+        ),
+        fullPage: true,
+        timeout: ACTION_TIMEOUT_MS,
+      });
+    } catch {
+      // A missing screenshot must not mask the primary acquisition diagnostic.
+    }
+    return structure;
+  }
 
   async function waitForAuthenticationOutcome(
     page: Page,
@@ -66,6 +105,7 @@ test("creates isolated established and onboarding sessions", async ({
       extraHTTPHeaders: protectionBypassHeaders,
     });
     const network: VisualAuthNetworkEvent[] = [];
+    let structure: VisualAuthStructure | undefined;
     let page: Page | undefined;
     let primaryError: unknown;
     try {
@@ -76,6 +116,7 @@ test("creates isolated established and onboarding sessions", async ({
           phase,
           currentUrl: page?.url() ?? baseURL,
           network,
+          structure,
         });
       const runPhase = async <T>(
         phase: VisualAuthPhase,
@@ -132,6 +173,12 @@ test("creates isolated established and onboarding sessions", async ({
               waitUntil: "domcontentloaded",
               timeout: NAVIGATION_TIMEOUT_MS,
             }),
+          async () => {
+            structure = await captureLoginFormFailureEvidence(
+              page!,
+              identityName,
+            );
+          },
         ),
       );
       await runPhase("fill-form", async () => {

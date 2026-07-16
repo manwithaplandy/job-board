@@ -114,6 +114,18 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(docs).toContain("Never loosen screenshot tolerances");
   });
 
+  test("documents protected-preview bypass setup without URL credentials", () => {
+    const docs = readFileSync(uiContractsPath, "utf8");
+
+    expect(docs).toContain("VERCEL_AUTOMATION_BYPASS_SECRET");
+    expect(docs).toContain("`x-vercel-protection-bypass`");
+    expect(docs).toContain("`x-vercel-set-bypass-cookie: true`");
+    expect(docs).toContain("Never put the bypass secret in the preview URL");
+    expect(docs).toContain(
+      "https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation",
+    );
+  });
+
   test("accepts only successful Vercel Preview deployment status events", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     expect(workflow).toMatch(/on:\s*\n\s+deployment_status:/);
@@ -195,6 +207,7 @@ describe("deployment-triggered authenticated visual workflow", () => {
       "VISUAL_AUTH_PASSWORD",
       "VISUAL_ONBOARDING_EMAIL",
       "VISUAL_ONBOARDING_PASSWORD",
+      "VERCEL_AUTOMATION_BYPASS_SECRET",
     ];
 
     expect(validationIndex).toBeLessThan(preflightIndex);
@@ -216,18 +229,20 @@ describe("deployment-triggered authenticated visual workflow", () => {
         ...Object.fromEntries(
           names.map((name) => [
             `HAS_${name}`,
-            name === "VISUAL_AUTH_PASSWORD" ? "false" : "true",
+            name === "VERCEL_AUTOMATION_BYPASS_SECRET" ? "false" : "true",
           ]),
         ),
       },
       encoding: "utf8",
     });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("VISUAL_AUTH_PASSWORD is required");
+    expect(result.stderr).toContain(
+      "VERCEL_AUTOMATION_BYPASS_SECRET is required",
+    );
     expect(result.stderr).not.toContain("false");
   });
 
-  test("scopes all four credentials to setup and none to comparison", () => {
+  test("scopes identity credentials to setup and the bypass secret to protected browser steps", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     const packageJson = JSON.parse(
       readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
@@ -240,6 +255,7 @@ describe("deployment-triggered authenticated visual workflow", () => {
       "VISUAL_AUTH_PASSWORD",
       "VISUAL_ONBOARDING_EMAIL",
       "VISUAL_ONBOARDING_PASSWORD",
+      "VERCEL_AUTOMATION_BYPASS_SECRET",
     ];
     const setupVariables = [...setup.matchAll(/^\s{10}([A-Z_]+):/gm)].map(
       ([, variable]) => variable,
@@ -247,13 +263,24 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(setupVariables).toEqual(expectedSetupVariables);
     for (const variable of expectedSetupVariables.slice(1)) {
       expect(setup).toContain(`${variable}: \${{ secrets.${variable} }}`);
-      expect(workflow.split(`\${{ secrets.${variable} }}`)).toHaveLength(2);
     }
+    for (const variable of expectedSetupVariables.slice(1, -1)) {
+      expect(workflow.split(`\${{ secrets.${variable} }}`)).toHaveLength(2);
+      expect(comparison).not.toContain(variable);
+    }
+    expect(workflow.split("${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}"))
+      .toHaveLength(3);
     expect(setup).toContain("run: npm run test:visual:auth-setup");
     expect(comparison).toContain(
       "VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}",
     );
-    expect(comparison).not.toContain("secrets.");
+    expect(comparison).toContain(
+      "VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}",
+    );
+    expect(comparison).not.toContain("VISUAL_AUTH_EMAIL");
+    expect(comparison).not.toContain("VISUAL_AUTH_PASSWORD");
+    expect(comparison).not.toContain("VISUAL_ONBOARDING_EMAIL");
+    expect(comparison).not.toContain("VISUAL_ONBOARDING_PASSWORD");
     expect(comparison).toContain("run: npm run test:visual:authenticated");
     expect(packageJson.scripts["test:visual:authenticated"]).toContain(
       "VISUAL_DISABLE_TRACE=1",
@@ -270,10 +297,14 @@ describe("deployment-triggered authenticated visual workflow", () => {
     const upload = workflowStep(workflow, "Upload visual failure evidence");
     expect(upload).toContain("if: failure()");
     expect(upload).toContain("name: authenticated-visual-results");
-    expect(upload).toContain("dashboard/test-results/visual/**");
+    expect(upload).toContain("dashboard/test-results/visual/**/*.png");
+    expect(upload).not.toMatch(
+      /^\s+dashboard\/test-results\/visual\/\*\*$/m,
+    );
     expect(upload).toContain(
       "!dashboard/test-results/visual/**/trace.zip",
     );
+    expect(upload).not.toContain("error-context.md");
     expect(upload).not.toContain("test-results/visual-auth");
   });
 

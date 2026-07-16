@@ -3,6 +3,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import {
   ESTABLISHED_STATE_PATH,
   ONBOARDING_STATE_PATH,
+  readVercelProtectionBypassHeaders,
   readVisualCredentials,
   validateVisualBaseUrl,
   VISUAL_AUTH_DIR,
@@ -13,6 +14,8 @@ test("creates isolated established and onboarding sessions", async ({
 }) => {
   const baseURL = validateVisualBaseUrl(process.env.VISUAL_BASE_URL);
   const credentials = readVisualCredentials(process.env);
+  const protectionBypassHeaders =
+    readVercelProtectionBypassHeaders(process.env);
   await mkdir(VISUAL_AUTH_DIR, { recursive: true });
 
   async function waitForAuthenticationOutcome(
@@ -37,7 +40,9 @@ test("creates isolated established and onboarding sessions", async ({
     statePath: string,
     expectedPath: "/profile" | "/onboarding",
   ) {
-    const context = await activeBrowser.newContext();
+    const context = await activeBrowser.newContext({
+      extraHTTPHeaders: protectionBypassHeaders,
+    });
     try {
       const page = await context.newPage();
       await page.goto(`${baseURL}/login`);

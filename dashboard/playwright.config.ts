@@ -1,14 +1,22 @@
 import { defineConfig, devices } from "@playwright/test";
+import { readVercelProtectionBypassHeaders } from "./tests/visual/auth";
 
 const baseURL = process.env.VISUAL_BASE_URL ?? "http://127.0.0.1:3100";
 const publicOnly = process.env.VISUAL_SCOPE === "public";
 const disableTrace = process.env.VISUAL_DISABLE_TRACE === "1";
+const protectedPreview = Boolean(process.env.VISUAL_BASE_URL) && !publicOnly;
+const protectionBypassHeaders = protectedPreview
+  ? readVercelProtectionBypassHeaders(process.env)
+  : undefined;
+const credentialBearing = Boolean(protectionBypassHeaders);
 export default defineConfig({
   testDir: "./tests/visual",
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
+  reporter: process.env.CI
+    ? credentialBearing ? "github" : [["github"], ["html", { open: "never" }]]
+    : "list",
   outputDir: "test-results/visual",
   snapshotPathTemplate: "{testDir}/__screenshots__/{arg}{ext}",
   // Dynamic regions must use explicit masks rather than a permissive page budget.
@@ -17,6 +25,7 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     baseURL,
     colorScheme: "light",
+    extraHTTPHeaders: protectionBypassHeaders,
     trace: "retain-on-failure",
   },
   projects: [
@@ -34,7 +43,10 @@ export default defineConfig({
       testMatch: /\.spec\.ts/,
       testIgnore: /auth\.setup\.ts/,
       dependencies: publicOnly ? [] : ["auth-setup"],
-      use: { trace: disableTrace ? "off" : "retain-on-failure" },
+      use: {
+        trace: disableTrace ? "off" : "retain-on-failure",
+        video: "off",
+      },
     },
   ],
   webServer: process.env.VISUAL_BASE_URL ? undefined : {

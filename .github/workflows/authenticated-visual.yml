@@ -36,8 +36,9 @@ jobs:
           HAS_VISUAL_AUTH_PASSWORD: ${{ secrets.VISUAL_AUTH_PASSWORD != '' }}
           HAS_VISUAL_ONBOARDING_EMAIL: ${{ secrets.VISUAL_ONBOARDING_EMAIL != '' }}
           HAS_VISUAL_ONBOARDING_PASSWORD: ${{ secrets.VISUAL_ONBOARDING_PASSWORD != '' }}
+          HAS_VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET != '' }}
         run: >-
-          node -e 'for(const [flag,name] of [["HAS_VISUAL_AUTH_EMAIL","VISUAL_AUTH_EMAIL"],["HAS_VISUAL_AUTH_PASSWORD","VISUAL_AUTH_PASSWORD"],["HAS_VISUAL_ONBOARDING_EMAIL","VISUAL_ONBOARDING_EMAIL"],["HAS_VISUAL_ONBOARDING_PASSWORD","VISUAL_ONBOARDING_PASSWORD"]])if(process.env[flag]!=="true")throw new Error(`${name} is required`)'
+          node -e 'for(const [flag,name] of [["HAS_VISUAL_AUTH_EMAIL","VISUAL_AUTH_EMAIL"],["HAS_VISUAL_AUTH_PASSWORD","VISUAL_AUTH_PASSWORD"],["HAS_VISUAL_ONBOARDING_EMAIL","VISUAL_ONBOARDING_EMAIL"],["HAS_VISUAL_ONBOARDING_PASSWORD","VISUAL_ONBOARDING_PASSWORD"],["HAS_VERCEL_AUTOMATION_BYPASS_SECRET","VERCEL_AUTOMATION_BYPASS_SECRET"]])if(process.env[flag]!=="true")throw new Error(`${name} is required`)'
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -54,10 +55,12 @@ jobs:
           VISUAL_AUTH_PASSWORD: ${{ secrets.VISUAL_AUTH_PASSWORD }}
           VISUAL_ONBOARDING_EMAIL: ${{ secrets.VISUAL_ONBOARDING_EMAIL }}
           VISUAL_ONBOARDING_PASSWORD: ${{ secrets.VISUAL_ONBOARDING_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: npm run test:visual:auth-setup
       - name: Compare authenticated visuals
         env:
           VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: npm run test:visual:authenticated
       - name: Upload visual failure evidence
         if: failure()
@@ -65,7 +68,7 @@ jobs:
         with:
           name: authenticated-visual-results
           path: |
-            dashboard/test-results/visual/**
+            dashboard/test-results/visual/**/*.png
             !dashboard/test-results/visual/**/trace.zip
           if-no-files-found: ignore
           retention-days: 7

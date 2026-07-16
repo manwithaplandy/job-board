@@ -15,6 +15,18 @@ export const ONBOARDING_STATE_PATH = path.join(
 
 type Env = Record<string, string | undefined>;
 
+export function readVercelProtectionBypassHeaders(env: Env) {
+  const secret = env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  if (!secret) {
+    throw new Error("VERCEL_AUTOMATION_BYPASS_SECRET is required");
+  }
+
+  return {
+    "x-vercel-protection-bypass": secret,
+    "x-vercel-set-bypass-cookie": "true",
+  };
+}
+
 export function readVisualCredentials(env: Env) {
   const names = [
     "VISUAL_AUTH_EMAIL",

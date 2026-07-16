@@ -1,14 +1,32 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   ESTABLISHED_STATE_PATH,
   ONBOARDING_STATE_PATH,
+  readVercelProtectionBypassHeaders,
   readVisualCredentials,
   validateVisualBaseUrl,
   VISUAL_AUTH_DIR,
 } from "./auth";
 
 describe("visual authentication configuration", () => {
+  test("requires the Vercel automation bypass secret without exposing values", () => {
+    expect(() => readVercelProtectionBypassHeaders({})).toThrowError(
+      new Error("VERCEL_AUTOMATION_BYPASS_SECRET is required"),
+    );
+
+    const secret = "bypass-secret-must-stay-redacted";
+    expect(
+      readVercelProtectionBypassHeaders({
+        VERCEL_AUTOMATION_BYPASS_SECRET: secret,
+      }),
+    ).toEqual({
+      "x-vercel-protection-bypass": secret,
+      "x-vercel-set-bypass-cookie": "true",
+    });
+  });
+
   test("requires credentials in a fixed order", () => {
     expect(() => readVisualCredentials({})).toThrowError(
       new Error("VISUAL_AUTH_EMAIL is required"),
@@ -70,6 +88,13 @@ describe("visual authentication configuration", () => {
 
     expect(error).toEqual(new Error("VISUAL_ONBOARDING_PASSWORD is required"));
     for (const secret of secrets) expect(String(error)).not.toContain(secret);
+  });
+
+  test("does not place the Vercel bypass secret in a URL", () => {
+    const source = readFileSync("tests/visual/auth.ts", "utf8");
+
+    expect(source).not.toContain("searchParams");
+    expect(source).not.toContain("x-vercel-protection-bypass=");
   });
 
   test("rejects missing, non-HTTPS, and non-Vercel base URLs", () => {

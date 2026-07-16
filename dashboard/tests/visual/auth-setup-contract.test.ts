@@ -14,7 +14,7 @@ describe("fresh visual authentication setup", () => {
     const setup = read("tests/visual/auth.setup.ts");
 
     expect(setup.match(/test\(/g)).toHaveLength(1);
-    expect(setup).toContain("activeBrowser.newContext()");
+    expect(setup).toContain("activeBrowser.newContext({");
     expect(setup).toContain('page.goto(`${baseURL}/login`)');
     expect(setup).toContain('getByLabel("Email", { exact: true })');
     expect(setup).toContain('getByLabel("Password", { exact: true })');
@@ -28,6 +28,23 @@ describe("fresh visual authentication setup", () => {
     expect(setup).toContain("Visual authentication failed:");
     expect(setup).toContain("credentials.established");
     expect(setup).toContain("credentials.onboarding");
+  });
+
+  test("sends Vercel protection bypass headers in every protected preview context", () => {
+    const config = read("playwright.config.ts");
+    const setup = read("tests/visual/auth.setup.ts");
+
+    expect(config).toContain("readVercelProtectionBypassHeaders");
+    expect(config).toContain("extraHTTPHeaders: protectionBypassHeaders");
+    expect(config).toContain('credentialBearing ? "github"');
+    expect(setup).toContain("readVercelProtectionBypassHeaders(process.env)");
+    expect(setup).toMatch(
+      /activeBrowser\.newContext\(\{\s*extraHTTPHeaders: protectionBypassHeaders,?\s*\}\)/,
+    );
+    for (const source of [config, setup]) {
+      expect(source).not.toContain("x-vercel-protection-bypass=");
+      expect(source).not.toContain("searchParams");
+    }
   });
 
   test("fails closed unless each identity reaches and renders its expected route", () => {
@@ -131,7 +148,10 @@ describe("fresh visual authentication setup", () => {
       'const disableTrace = process.env.VISUAL_DISABLE_TRACE === "1"',
     );
     expect(config).toMatch(
-      /name: "visual",[\s\S]*use:\s*\{\s*trace: disableTrace \? "off" : "retain-on-failure"\s*\}/,
+      /name: "visual",[\s\S]*use:\s*\{[\s\S]*trace: disableTrace \? "off" : "retain-on-failure"/,
+    );
+    expect(config).toMatch(
+      /name: "visual",[\s\S]*use:\s*\{[\s\S]*video: "off"/,
     );
     expect(config).toMatch(
       /name: "auth-setup",[\s\S]*trace: "off",[\s\S]*screenshot: "off",[\s\S]*video: "off"/,

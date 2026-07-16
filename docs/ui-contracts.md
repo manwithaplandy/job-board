@@ -54,13 +54,14 @@ VISUAL_AUTH_EMAIL="..." \
 VISUAL_AUTH_PASSWORD="..." \
 VISUAL_ONBOARDING_EMAIL="..." \
 VISUAL_ONBOARDING_PASSWORD="..." \
+VERCEL_AUTOMATION_BYPASS_SECRET="..." \
 npm run test:visual
 npm run test:visual:public       # committed, always-on public CI subset
 npm run test:visual:update       # intentionally refresh public baselines after review
 ```
 
-The four credential variables belong to dedicated synthetic test identities and must never
-be committed. The established identity must render the board and profile routes; the
+The four identity credential variables belong to dedicated synthetic test identities and
+must never be committed. The established identity must render the board and profile routes; the
 profile-less identity must render `/onboarding` without redirecting. The full local command
 creates isolated, disposable Playwright storage states beneath
 `test-results/visual-auth/`, fails explicitly when any credential or expected redirect is
@@ -73,18 +74,25 @@ Preview deployments. It checks out the exact deployed SHA, validates the HTTPS
 `*.vercel.app` URL as the first executable step after checkout, rejecting userinfo and
 non-default ports before any installation, and uses the protected GitHub Environment
 `visual-test`. That environment must define `VISUAL_AUTH_EMAIL`, `VISUAL_AUTH_PASSWORD`,
-`VISUAL_ONBOARDING_EMAIL`, and `VISUAL_ONBOARDING_PASSWORD`; a boolean-only presence
+`VISUAL_ONBOARDING_EMAIL`, `VISUAL_ONBOARDING_PASSWORD`, and
+`VERCEL_AUTOMATION_BYPASS_SECRET`; a boolean-only presence
 preflight runs before installation, while raw credentials are exposed only to the
-authentication setup step. The comparison step receives only the deployment URL, and an
-`always()` cleanup removes both generated state files. Authentication setup, authenticated
+browser steps that need them. Identity credentials remain exclusive to authentication setup;
+the setup and comparison steps receive the deployment URL and Vercel bypass secret. Following
+[Vercel's Protection Bypass for Automation guidance](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation),
+Playwright sends `x-vercel-protection-bypass` and
+`x-vercel-set-bypass-cookie: true` as HTTP headers so navigation and follow-up browser requests
+reach the protected preview. Never put the bypass secret in the preview URL. An `always()`
+cleanup removes both generated state files. Authentication setup, authenticated
 comparison, and the aggregate credential-bearing command disable Playwright tracing so
-session material cannot enter `trace.zip`; public-only comparisons still retain failure
-traces. The authenticated failure artifact explicitly excludes every `trace.zip` as a
-second boundary. Do not restore the obsolete storage-state JSON secrets.
+session material cannot enter `trace.zip`; video is also disabled and credential-bearing CI
+does not generate an HTML report. Public-only comparisons still retain failure traces. The
+authenticated failure artifact uploads PNG comparison evidence only, excluding error context,
+headers, traces, and authentication state. Do not restore the obsolete storage-state JSON secrets.
 
 The first authenticated run is expected to fail when reviewed baselines do not yet exist.
-Download the `authenticated-visual-results` failure artifact, confirm it contains only files
-from `dashboard/test-results/visual/` with no auth JSON or `trace.zip`, inspect every actual
+Download the `authenticated-visual-results` failure artifact, confirm it contains only PNGs
+from `dashboard/test-results/visual/` with no auth JSON, error context, or `trace.zip`, inspect every actual
 PNG at both viewports and themes, and copy only approved images into
 `tests/visual/__screenshots__`. Commit those reviewed baselines normally and rerun the
 deployment workflow. CI never updates snapshots automatically.

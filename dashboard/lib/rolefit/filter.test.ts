@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { applyFilters, facetCounts, filterByApplied, filterByView, mergeRejectedPool, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
 import type { JobRow } from "@/lib/types";
 
@@ -114,7 +114,10 @@ describe("sortJobs", () => {
 
 describe("facetCounts", () => {
   test("counts categories and locations", () => {
-    const jobs = [job({ role_category: "Backend", location: "NYC" }), job({ role_category: "Backend", location: "SF" })];
+    const jobs = [
+      job({ role_category: "Backend", location: "NYC", remote: false }),
+      job({ role_category: "Backend", location: "SF", remote: false }),
+    ];
     const f = facetCounts(jobs);
     expect(f.categories).toEqual({ Backend: 2 });
     expect(f.locations).toEqual({ NYC: 1, SF: 1 });
@@ -122,6 +125,44 @@ describe("facetCounts", () => {
   test("counts sources", () => {
     const jobs = [job({ ats: "greenhouse" }), job({ ats: "greenhouse" }), job({ ats: "workday" })];
     expect(facetCounts(jobs).sources).toEqual({ greenhouse: 2, workday: 1 });
+  });
+});
+
+describe("canonical location filtering (remote opt-in)", () => {
+  // build from the file's job() factory, overriding only these fields
+  const phx = job({ id: "phx", location: "Phoenix Arizona",
+    location_canonicals: ["Phoenix, AZ"], remote: false });
+  const multi = job({ id: "multi", location: "NYC or Remote",
+    location_canonicals: ["New York City, NY", "Remote"], remote: true });
+  const remoteFlag = job({ id: "rflag", location: "Austin, TX",
+    location_canonicals: ["Austin, TX"], remote: true });
+  const unstamped = job({ id: "raw", location: "Phoenix, AZ",
+    location_canonicals: null, remote: false });
+  const all = [phx, multi, remoteFlag, unstamped];
+
+  it("matches on canonicals, not the raw string", () => {
+    const out = applyFilters(all, { ...ST, locs: ["Phoenix, AZ"] });
+    expect(out.map((j) => j.id).sort()).toEqual(["phx", "raw"]);
+  });
+
+  it("multi-location rows match any of their canonicals", () => {
+    const out = applyFilters(all, { ...ST, locs: ["New York City, NY"] });
+    expect(out.map((j) => j.id)).toEqual(["multi"]);
+  });
+
+  it("Remote facet matches the remote flag, including city-listed remote jobs", () => {
+    const out = applyFilters(all, { ...ST, locs: ["Remote"] });
+    expect(out.map((j) => j.id).sort()).toEqual(["multi", "rflag"]);
+  });
+
+  it("facetCounts unnests canonicals and computes Remote from the flag", () => {
+    const { locations } = facetCounts(all);
+    expect(locations).toEqual({
+      "Phoenix, AZ": 2,          // phx (canonical) + unstamped (raw fallback)
+      "New York City, NY": 1,
+      "Austin, TX": 1,
+      Remote: 2,                 // multi + rflag via the remote flag
+    });
   });
 });
 

@@ -28,6 +28,13 @@ function arrangementOf(j: JobRow): string {
   return "unknown";
 }
 
+// A job's filterable location values: stamped canonicals, else the raw string —
+// mirroring SQL's COALESCE(j.location_canonicals, ARRAY[j.location]).
+function locationsOf(j: JobRow): string[] {
+  if (j.location_canonicals?.length) return j.location_canonicals;
+  return j.location ? [j.location] : [];
+}
+
 export function applyFilters(jobs: JobRow[], st: BoardFilterState): JobRow[] {
   const q = st.search.trim().toLowerCase();
   return jobs.filter((j) => {
@@ -36,7 +43,12 @@ export function applyFilters(jobs: JobRow[], st: BoardFilterState): JobRow[] {
       if (!hay.includes(q)) return false;
     }
     if (st.cats.length && !(j.role_category && st.cats.includes(j.role_category))) return false;
-    if (st.locs.length && !(j.location && st.locs.includes(j.location))) return false;
+    if (st.locs.length) {
+      const locs = locationsOf(j);
+      const hit = st.locs.some((l) => locs.includes(l)) ||
+        (st.locs.includes("Remote") && j.remote === true);
+      if (!hit) return false;
+    }
     if (st.sources.length && !st.sources.includes(j.ats)) return false;
     if (st.remote !== "all" && arrangementOf(j) !== st.remote) return false;
     if (st.minFit && (j.fit_score ?? 0) < st.minFit) return false;
@@ -69,7 +81,10 @@ export function facetCounts(jobs: JobRow[]): {
   const sources: Record<string, number> = {};
   for (const j of jobs) {
     if (j.role_category) categories[j.role_category] = (categories[j.role_category] ?? 0) + 1;
-    if (j.location) locations[j.location] = (locations[j.location] ?? 0) + 1;
+    for (const l of locationsOf(j)) {
+      if (l !== "Remote") locations[l] = (locations[l] ?? 0) + 1;
+    }
+    if (j.remote === true) locations["Remote"] = (locations["Remote"] ?? 0) + 1;
     if (j.ats) sources[j.ats] = (sources[j.ats] ?? 0) + 1;
   }
   return { categories, locations, sources };

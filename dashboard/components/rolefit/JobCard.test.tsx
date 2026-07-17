@@ -143,6 +143,9 @@ describe("JobCard - reject affordance", () => {
     // "Reject" is contained in it - WCAG 2.5.3 label-in-name).
     expect(reject.textContent).toBe("Reject");
     expect(reject.querySelector("svg")).toBeNull();
+    // Pin the class board.css keys on: without it the pill silently loses all its
+    // styling (absolute slot, danger tint, hidden-at-rest) yet every other check passes.
+    expect(reject.className).toContain("rf-job-card__reject");
     fireEvent.click(reject);
     expect(onReject).toHaveBeenCalledTimes(1);
     expect(onReject).toHaveBeenCalledWith("job-1");

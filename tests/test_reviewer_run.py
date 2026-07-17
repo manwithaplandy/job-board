@@ -293,6 +293,107 @@ def test_review_batch_aborts_when_user_deleted_midrun(monkeypatch):
     assert client.stage2_calls == [], "stage 2 never runs once the user is deleted"
 
 
+def test_review_batch_streams_each_chunk_before_next_stage1(monkeypatch):
+    """Core streaming behavior: a chunk's results are emitted via on_results BEFORE the
+    next chunk's stage-1 runs — not batched until the end. With STAGE1_BATCH_SIZE=2 and
+    4 candidates (2 chunks), the interleaved event log proves chunk 0 emits before
+    chunk 1 is screened. Against the old all-stage-1-first shape this fails (both
+    stage-1 calls would precede any emission)."""
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+    events = []
+
+    class LoggingClient(StubClient):
+        async def stage1_batch(self, *, profile_block, jobs):
+            events.append("stage1")
+            return await super().stage1_batch(profile_block=profile_block, jobs=jobs)
+
+    client = LoggingClient()
+    cands = [_cand(f"SRE{i}") for i in range(4)]
+
+    results, halted = asyncio.run(review_batch(
+        cands, "P", client, concurrency=2,
+        on_results=lambda chunk: events.append("emit")))
+
+    assert not halted
+    assert events == ["stage1", "emit", "stage1", "emit"]
+
+
+def test_emitted_chunks_identity_equal_returned_results(monkeypatch):
+    """When a callback is supplied, the concatenation of emitted chunks must equal the
+    returned results — the SAME objects, same order (object identity, not field equality)."""
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+    client = StubClient()
+    cands = [_cand(f"SRE{i}") for i in range(5)]  # 3 chunks: 2, 2, 1
+    collected = []
+
+    results, halted = asyncio.run(review_batch(
+        cands, "P", client, concurrency=2,
+        on_results=lambda chunk: collected.append(chunk)))
+
+    flat = [r for chunk in collected for r in chunk]
+    assert [id(r) for r in flat] == [id(r) for r in results]
+
+
+def test_each_emitted_chunk_groups_its_own_results(monkeypatch):
+    """Each emitted chunk carries only its own gate-rejects, error rows, and approvals —
+    nothing from another chunk leaks in."""
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+    client = StubClient()
+    # chunk 0: gate-reject + stage-2 error; chunk 1: missing decision + approval.
+    cands = [_cand("Forklift Operator"), _cand("BOOM2"),
+             _cand("MISSING-1"), _cand("SRE")]
+    collected = []
+
+    results, halted = asyncio.run(review_batch(
+        cands, "P", client, concurrency=2,
+        on_results=lambda chunk: collected.append(list(chunk))))
+
+    assert not halted
+    assert len(collected) == 2
+    c0 = {r.job_id.split(":")[-1]: r for r in collected[0]}
+    c1 = {r.job_id.split(":")[-1]: r for r in collected[1]}
+    assert set(c0) == {"Forklift Operator", "BOOM2"}
+    assert set(c1) == {"MISSING-1", "SRE"}
+    # chunk 0 content is its own reject + its own stage-2 error
+    assert c0["Forklift Operator"].stage1_decision == "reject"
+    assert c0["BOOM2"].error is not None and "stage2 down" in c0["BOOM2"].error
+    # chunk 1 content is its own missing-decision error + its own approval
+    assert c1["MISSING-1"].error is not None and c1["MISSING-1"].verdict is None
+    assert c1["SRE"].verdict == "approve"
+
+
+def test_402_in_later_chunk_keeps_earlier_emissions(monkeypatch):
+    """A 402 in a later chunk halts the pipeline but keeps chunks already emitted:
+    chunk 0 is emitted, chunk 1's stage-1 raises 402 → halt, chunk 2 never runs."""
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+
+    class LaterCreditsClient(StubClient):
+        async def stage1_batch(self, *, profile_block, jobs):
+            self.stage1_batch_calls += 1
+            if self.stage1_batch_calls >= 2:
+                raise _Status402("insufficient credits")  # 402-shaped, second chunk on
+            return [Stage1Decision(job_id=j["id"], decision="pass", reason="r")
+                    for j in jobs]
+
+    client = LaterCreditsClient()
+    cands = [_cand(f"SRE{i}") for i in range(6)]  # 3 chunks of 2
+    collected = []
+
+    results, halted = asyncio.run(review_batch(
+        cands, "P", client, concurrency=2,
+        on_results=lambda chunk: collected.append(chunk)))
+
+    assert halted is True
+    assert len(collected) == 1, "only the first chunk emitted before the 402"
+    assert [id(r) for r in results] == [id(r) for r in collected[0]], \
+        "returned results are exactly the one emitted chunk"
+    assert client.stage1_batch_calls == 2, "the third chunk's stage-1 never ran"
+
+
 USER = "22222222-2222-2222-2222-222222222222"
 
 

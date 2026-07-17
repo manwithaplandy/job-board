@@ -196,70 +196,46 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
                        concurrency: int, *, user_id: str | None = None,
                        run_id=None,
                        deleted_check: Callable[[], bool] | None = None,
+                       on_results: Callable[[list["ReviewResult"]], None] | None = None,
                        ) -> tuple[list[ReviewResult], bool]:
-    """Gate candidates through a batched stage-1 call, then run stage 2 for passes.
+    """Gate candidates through batched stage-1 calls, streaming each chunk's results.
 
-    Returns (results, halted). Never-attempted jobs stay retryable: a 402 halt
-    skips them entirely (no row), a whole-batch stage-1 failure and a per-id
-    missing decision each yield a retryable error row. halted=True means a 402 was
-    encountered and remaining candidates were skipped.
+    Per-chunk pipeline: each STAGE1_BATCH_SIZE-sized chunk is stage-1 screened, then its
+    own passers run stage 2, then the chunk's terminal results are emitted — BEFORE the
+    next chunk's stage-1 runs. This lets the caller persist/surface a chunk's results as
+    soon as they exist, instead of waiting for the whole run. STAGE1_BATCH_SIZE is read
+    at call time (tests monkeypatch it). Chunks serialize (chunk k's stage-2 completes
+    before chunk k+1's stage-1) but peak LLM concurrency is unchanged: ONE semaphore is
+    created before the loop and shared by every chunk.
 
-    deleted_check, when supplied, is a cheap predicate polled ONCE per stage-1 chunk
-    (and once before the stage-2 fan-out) — not once per row. If it returns True the
+    Returns (results, halted). Never-attempted jobs stay retryable: a 402 halt skips
+    them entirely (no row), a whole-batch stage-1 failure and a per-id missing decision
+    each yield a retryable error row, and a stage-1 pass whose stage 2 never ran (halt,
+    or a deferred JD-less job) also stays retryable (no row). halted=True means a 402 was
+    encountered (in any chunk's stage 1 or stage 2) or the user was deleted mid-run, and
+    the remaining candidates were skipped.
+
+    on_results, when supplied, is a plain SYNCHRONOUS callable (list[ReviewResult]) ->
+    None, invoked from inside the async pipeline once per chunk with that chunk's terminal
+    results — but only when the chunk produced at least one result. The concatenation of
+    all emitted chunks equals the returned `results` (same objects, same order). Any
+    exception it raises propagates out of review_batch; the caller owns its failure
+    envelope. It does NOT change the (results, halted) contract for no-callback callers.
+
+    Halt semantics: a 402 in chunk k breaks the loop — chunks 0..k-1 are fully emitted,
+    chunk k emits only its terminal results (completed stage-2 + rejects + errors), and
+    chunks k+1.. are never stage-1'd (no rows, retryable).
+
+    deleted_check, when supplied, is a cheap predicate polled ONCE per stage-1 chunk (and
+    once before each chunk's stage-2 fan-out) — not once per row. If it returns True the
     user was deleted mid-run, so the batch halts early: no further LLM calls are issued
-    and remaining jobs stay retryable (no rows). The caller re-checks the tombstone at
-    its write boundary and skips all writes.
+    and remaining jobs stay retryable (no rows). The caller re-checks the tombstone at its
+    write boundary and skips all writes.
     """
     halt = asyncio.Event()
     results: list[ReviewResult] = []
-    passed: list[tuple[dict, ReviewResult]] = []
-
-    for start in range(0, len(candidates), config.STAGE1_BATCH_SIZE):
-        if halt.is_set():
-            break
-        if deleted_check is not None and deleted_check():
-            log.info("user deleted mid-run; aborting stage-1 gate before further LLM calls")
-            halt.set()
-            break
-        batch = candidates[start:start + config.STAGE1_BATCH_SIZE]
-        try:
-            decisions = await client.stage1_batch(profile_block=profile_block, jobs=batch)
-        except OutOfCreditsError:
-            halt.set()
-            break
-        except Exception as exc:
-            if _is_out_of_credits(exc):
-                halt.set()
-                break
-            # Whole-batch failure: every job stays retryable via its error row.
-            log.warning("stage1_batch failed for %s job(s): %s", len(batch), exc)
-            for c in batch:
-                results.append(ReviewResult(
-                    job_id=c["id"], model_stage1=client.model_stage1,
-                    error=f"stage1_batch {type(exc).__name__}: {exc}"))
-            continue
-        by_decision = {d.job_id: d for d in decisions}
-        for c in batch:
-            d = by_decision.get(c["id"])
-            if d is None:  # missing per-id decision → retryable error (spec B6/B1)
-                results.append(ReviewResult(
-                    job_id=c["id"], model_stage1=client.model_stage1,
-                    error="stage1_batch returned no decision"))
-                continue
-            res = ReviewResult(
-                job_id=c["id"], model_stage1=client.model_stage1,
-                stage1_decision=d.decision, stage1_reason=d.reason)
-            if d.decision == "reject":
-                results.append(res)
-            else:
-                passed.append((c, res))
-
-    # One more check before the (expensive) stage-2 fan-out: if the user was deleted
-    # while stage 1 ran, skip stage 2 entirely rather than issue its LLM calls.
-    if deleted_check is not None and not halt.is_set() and deleted_check():
-        log.info("user deleted mid-run; skipping stage-2 for %s passed job(s)", len(passed))
-        halt.set()
-
+    # ONE semaphore per run, shared across chunks: chunks serialize, but peak in-flight
+    # stage-2 LLM calls stay bounded by `concurrency` exactly as the non-streamed shape.
     sem = asyncio.Semaphore(concurrency)
 
     async def _run_stage2(candidate: dict, res: ReviewResult) -> ReviewResult | None:
@@ -278,8 +254,71 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
                 halt.set()
                 return None
 
-    stage2 = await asyncio.gather(*[_run_stage2(c, r) for c, r in passed])
-    results.extend(r for r in stage2 if r is not None)
+    def _emit(chunk_results: list[ReviewResult]) -> None:
+        # Accumulate then hand THIS chunk's terminal results to the caller. The extend
+        # keeps `results` == concat(emitted chunks); the callback fires only for a
+        # non-empty chunk so an all-deferred/halted chunk emits nothing.
+        results.extend(chunk_results)
+        if on_results is not None and chunk_results:
+            on_results(chunk_results)
+
+    for start in range(0, len(candidates), config.STAGE1_BATCH_SIZE):
+        if halt.is_set():
+            break
+        if deleted_check is not None and deleted_check():
+            log.info("user deleted mid-run; aborting stage-1 gate before further LLM calls")
+            halt.set()
+            break
+        batch = candidates[start:start + config.STAGE1_BATCH_SIZE]
+        try:
+            decisions = await client.stage1_batch(profile_block=profile_block, jobs=batch)
+        except OutOfCreditsError:
+            halt.set()
+            break
+        except Exception as exc:
+            if _is_out_of_credits(exc):
+                halt.set()
+                break
+            # Whole-batch failure: every job stays retryable via its error row. These
+            # rows ARE this chunk's emission; then continue to the next chunk (not halt).
+            log.warning("stage1_batch failed for %s job(s): %s", len(batch), exc)
+            _emit([ReviewResult(
+                job_id=c["id"], model_stage1=client.model_stage1,
+                error=f"stage1_batch {type(exc).__name__}: {exc}") for c in batch])
+            continue
+
+        by_decision = {d.job_id: d for d in decisions}
+        chunk_results: list[ReviewResult] = []
+        passed: list[tuple[dict, ReviewResult]] = []
+        for c in batch:
+            d = by_decision.get(c["id"])
+            if d is None:  # missing per-id decision → retryable error (spec B6/B1)
+                chunk_results.append(ReviewResult(
+                    job_id=c["id"], model_stage1=client.model_stage1,
+                    error="stage1_batch returned no decision"))
+                continue
+            res = ReviewResult(
+                job_id=c["id"], model_stage1=client.model_stage1,
+                stage1_decision=d.decision, stage1_reason=d.reason)
+            if d.decision == "reject":
+                chunk_results.append(res)
+            else:
+                passed.append((c, res))
+
+        # One more check before THIS chunk's (expensive) stage-2 fan-out: if the user was
+        # deleted while stage 1 ran, skip stage 2 rather than issue its LLM calls.
+        if deleted_check is not None and not halt.is_set() and deleted_check():
+            log.info("user deleted mid-run; skipping stage-2 for %s passed job(s)", len(passed))
+            halt.set()
+
+        if not halt.is_set() and passed:
+            stage2 = await asyncio.gather(*[_run_stage2(c, r) for c, r in passed])
+            # Drop the Nones: passers whose stage 2 never ran (halt) stay retryable —
+            # no row — exactly the non-streamed per-item semantics.
+            chunk_results.extend(r for r in stage2 if r is not None)
+
+        _emit(chunk_results)
+
     return results, halt.is_set()
 
 

@@ -314,14 +314,20 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             return
 
         # Tier gate (spec subsystem C/D). Resolve the user's plan from their
-        # subscription mirror + invite proof (loaded by db.load_profiles). No plan →
-        # skip entirely: zero candidate selection, zero LLM calls.
+        # subscription mirror + invite proof + operator pin (all loaded by
+        # db.load_profiles). No plan → skip entirely: zero candidate selection,
+        # zero LLM calls.
         sub = {
             "plan": profile.get("sub_plan"),
             "status": profile.get("sub_status"),
             "current_period_end": profile.get("sub_current_period_end"),
         }
-        plan = entitlements.resolve_plan(sub, bool(profile.get("invited")), comp_plan=comp_plan)
+        override = None
+        if profile.get("ov_plan"):
+            override = {"plan": profile.get("ov_plan"), "expires_at": profile.get("ov_expires_at")}
+        plan = entitlements.resolve_plan(
+            sub, bool(profile.get("invited")), comp_plan=comp_plan, override=override
+        )
         if plan is None:
             notes = "no active subscription"
             log.info("no active subscription for %s; skipping", user_id)

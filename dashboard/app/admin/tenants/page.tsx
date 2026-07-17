@@ -7,6 +7,7 @@ import { loadAppSettings } from "@/lib/appSettings";
 import { PLAN_LABEL } from "@/lib/entitlements";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { AllowanceEditor } from "@/components/admin/AllowanceEditor";
+import { PlanOverrideControl } from "@/components/admin/PlanOverrideControl";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
 import { Badge, Card } from "@/components/ui/Panel";
@@ -20,6 +21,12 @@ function fmtDate(d: Date | null): string {
   return d ? new Date(d).toLocaleDateString() : "—";
 }
 
+// An override entitles only while unexpired; a lapsed row is still handed to the
+// editor (so the admin can clear/renew) but must not read as active here.
+function overrideActive(t: TenantMetric): boolean {
+  return t.overridePlan != null && (t.overrideExpiresAt == null || new Date(t.overrideExpiresAt).getTime() > Date.now());
+}
+
 function Row({ t, defaultAllowance }: { t: TenantMetric; defaultAllowance: number }) {
   return (
     <tr>
@@ -29,9 +36,22 @@ function Row({ t, defaultAllowance }: { t: TenantMetric; defaultAllowance: numbe
       </td>
       <td>
         {t.plan ? PLAN_LABEL[t.plan] : "None"}
-        {t.plan && t.invited && !t.subStatus && (
+        {overrideActive(t) && (
+          <> <Badge tone="accent" title={t.overrideNote ?? undefined}>
+            Pinned{t.overrideExpiresAt ? ` until ${fmtDate(t.overrideExpiresAt)}` : ""}
+          </Badge></>
+        )}
+        {t.plan && t.invited && !t.subStatus && !overrideActive(t) && (
           <> <Badge tone="accent">Comped</Badge></>
         )}
+      </td>
+      <td>
+        <PlanOverrideControl
+          userId={t.userId}
+          plan={t.overridePlan ?? ""}
+          expiresAt={t.overrideExpiresAt ? new Date(t.overrideExpiresAt).toISOString().slice(0, 10) : ""}
+          note={t.overrideNote ?? ""}
+        />
       </td>
       <td>{t.subStatus ? <Badge tone={t.subStatus === "active" ? "success" : "warning"}>{t.subStatus}</Badge> : "—"}</td>
       <td>{fmtDate(t.currentPeriodEnd)}</td>
@@ -71,16 +91,16 @@ export default async function AdminTenantsPage() {
         <div className="rf-secondary-wrap rf-secondary-wrap--admin">
           <AdminNav active="tenants" />
           <Card>
-            <PageHeader className="rf-secondary-header" title="Tenants" description="Per-tenant plan, usage, pipeline health, and an estimated 30-day review cost." />
+            <PageHeader className="rf-secondary-header" title="Tenants" description="Per-tenant plan, tier pin, usage, pipeline health, and an estimated 30-day review cost." />
 
             {tenants.length === 0 ? (
               <EmptyState compact title="No tenants yet." />
             ) : (
               <div className="rf-secondary-table-scroll rf-focusable" tabIndex={0} aria-label="Tenant metrics table, horizontally scrollable">
-                <table className="rf-secondary-table" style={{ minWidth: "1080px" }}>
+                <table className="rf-secondary-table" style={{ minWidth: "1400px" }}>
                   <thead>
                     <tr>
-                      <th>Tenant</th><th>Plan</th><th>Status</th><th>Renews</th>
+                      <th>Tenant</th><th>Plan</th><th>Override</th><th>Status</th><th>Renews</th>
                       <th>Rev today</th><th>Rev 30d</th><th>Résumé/Cover mo</th>
                       <th>Invites left</th>
                       <th>Last run</th><th>Errors</th><th>Req act/fail</th><th>Est 30d $</th>

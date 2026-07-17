@@ -29,6 +29,7 @@ CREATE TABLE jobs (
   location      TEXT,
   department    TEXT,
   remote        BOOLEAN,
+  location_canonicals TEXT[],                 -- stamped from locations.canonicals; NULL = not yet resolved
   first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   closed_at     TIMESTAMPTZ,                  -- set when role drops out of feed
@@ -44,6 +45,18 @@ CREATE INDEX idx_jobs_open ON jobs (closed_at) WHERE closed_at IS NULL;
 CREATE INDEX idx_jobs_closed_at ON jobs (closed_at);
 -- Poller: get_open_external_ids / close_jobs filter WHERE company_id = $1 AND closed_at IS NULL.
 CREATE INDEX idx_jobs_company_open ON jobs (company_id) WHERE closed_at IS NULL;
+CREATE INDEX idx_jobs_location_canonicals ON jobs USING GIN (location_canonicals);
+
+-- Raw->canonical location cache, poller-owned (service-only: RLS on, no policies,
+-- no grants). See docs/superpowers/specs/2026-07-16-location-dedupe-design.md.
+CREATE TABLE locations (
+  raw         TEXT PRIMARY KEY,
+  canonicals  TEXT[] NOT NULL,
+  components  JSONB NOT NULL,
+  source      TEXT NOT NULL CHECK (source IN ('rule','llm','manual')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE locations ENABLE ROW LEVEL SECURITY;
 
 -- Per-job application question schema, fetched once at poll time (Greenhouse only
 -- today). GLOBAL/shared job data — no user_id; keyed by jobs.id. Populated by the

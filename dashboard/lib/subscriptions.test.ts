@@ -50,6 +50,12 @@ vi.mock("@/lib/db", () => {
 
 vi.mock("@/lib/invites", () => ({ isInvitedUser: vi.fn(async () => false) }));
 
+// getViewerPlan also calls getOwnPlanOverride, which uses withUserSql — the shared tx mock
+// above serves dbState.userRows to EVERY query, so an un-mocked override read would swallow
+// the staged subscription row as a pin and silently switch the resolvePlan branch under test.
+// Pin behavior is covered by lib/getViewerPlan.test.ts; here the override is always absent.
+vi.mock("@/lib/planOverrides", () => ({ getOwnPlanOverride: vi.fn(async () => null) }));
+
 import { POST } from "@/app/api/stripe/webhook/route";
 import { getViewerPlan } from "@/lib/subscriptions";
 import { isInvitedUser } from "@/lib/invites";

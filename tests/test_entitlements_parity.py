@@ -7,7 +7,14 @@ from datetime import timedelta
 from pathlib import Path
 
 from reviewer import entitlements as py_ent
-from reviewer.entitlements import CHEAP_MODEL, ENTITLEMENTS, PREMIUM_MODEL
+from reviewer.entitlements import (
+    CHEAP_MODEL,
+    DEFAULT_STAGE2_MODEL_TIER,
+    ENTITLEMENTS,
+    PLAN_TIER,
+    PREMIUM_MODEL,
+    STAGE2_MODEL_TIER,
+)
 
 _TS = Path(__file__).resolve().parent.parent / "dashboard" / "lib" / "entitlements.ts"
 
@@ -97,3 +104,34 @@ def test_invite_comp_plan_default_parity():
     users on the dashboard but skip them in the reviewer (or vice versa)."""
     text = _TS.read_text()
     assert _const("DEFAULT_INVITE_COMP_PLAN", text) == py_ent.DEFAULT_INVITE_COMP_PLAN
+
+
+def test_tier_map_parity():
+    """The access-tier maps (spec 2026-07-17) must match across runtimes, or a model
+    would be Pro-gated on one runtime and open on the other."""
+    text = _TS.read_text()
+    consts = {"CHEAP_MODEL": CHEAP_MODEL, "PREMIUM_MODEL": PREMIUM_MODEL}
+
+    # NOTE: every regex is left-anchored on `export const NAME` (mirroring the _const
+    # precedent at line 16). A bare `NAME\b[^=]*=` would first match the constant's
+    # name inside a comment, then let [^=]* run to the NEXT const's `=` and capture the
+    # wrong object — a silent false failure. Keep the `export const` anchor.
+    m = re.search(r"export const PLAN_TIER\b[^=]*=\s*\{([^}]*)\}", text)
+    assert m, "PLAN_TIER not found in entitlements.ts"
+    ts_plan_tier = {k: int(v) for k, v in re.findall(r"(\w+):\s*(\d+)", m.group(1))}
+    assert ts_plan_tier == PLAN_TIER
+
+    m = re.search(r"export const DEFAULT_STAGE2_MODEL_TIER\s*=\s*(\d+)", text)
+    assert m, "DEFAULT_STAGE2_MODEL_TIER not found in entitlements.ts"
+    assert int(m.group(1)) == DEFAULT_STAGE2_MODEL_TIER
+
+    m = re.search(r"export const STAGE2_MODEL_TIER\b[^=]*=\s*\{([^}]*)\}", text)
+    assert m, "STAGE2_MODEL_TIER not found in entitlements.ts"
+    body = m.group(1)
+    ts_model_tier = {}
+    for key, val in re.findall(r"\[(\w+)\]:\s*(\d+)", body):      # computed-key entries [CONST]: N
+        assert key in consts, f"unknown computed key {key!r} in STAGE2_MODEL_TIER"
+        ts_model_tier[consts[key]] = int(val)
+    for key, val in re.findall(r'"([^"]+)":\s*(\d+)', body):       # string-literal entries "id": N
+        ts_model_tier[key] = int(val)
+    assert ts_model_tier == STAGE2_MODEL_TIER

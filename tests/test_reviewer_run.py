@@ -823,6 +823,24 @@ def test_pro_premium_stage2_and_cheap_gate_always(conn, monkeypatch):
 
 
 @requires_db
+def test_pro_arbitrary_model_stage2_honored(conn, monkeypatch):
+    """A Pro user who requests an ARBITRARY catalog model (not the whitelisted premium id)
+    gets it for stage 2 — the tier gate grants any model at/below the Pro rank, fixing the
+    old two-model whitelist that clamped e.g. Gemini to cheap while blaming the user's plan."""
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, plan="pro", model_stage2="google/gemini-3.5-flash")
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT model_stage1, model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
+        row = cur.fetchone()
+        # Stage 1 is always the cheap gate; stage 2 honors the requested arbitrary model.
+        assert row["model_stage1"] == entitlements.CHEAP_MODEL
+        assert row["model_stage2"] == "google/gemini-3.5-flash"
+
+
+@requires_db
 def test_standard_non_entitled_premium_falls_back_to_cheap(conn, monkeypatch):
     """A Standard user who requests the premium model has stage 2 fall back to cheap."""
     cid = _seed_company(conn)

@@ -418,7 +418,7 @@ export function RolefitBoard({
   }, []);
 
   // Shared focus-return: many actions unmount the control the user just activated — a card
-  // hover-×, a toast's Undo, the error banner's Dismiss, the detail action-row buttons — and
+  // Reject pill, a toast's Undo, the error banner's Dismiss, the detail action-row buttons — and
   // React then drops focus to <body>, so the next Tab restarts at the top of the page. Return
   // it to the (programmatically focusable) detail container, but ONLY when focus actually fell
   // to <body>, so we never steal it from an input / menu / toast the user is still using.
@@ -736,7 +736,7 @@ export function RolefitBoard({
     if (detailRef.current) detailRef.current.scrollTop = 0;
     if (isNarrow && selectedId) window.scrollTo(0, 0);
     // Keyboard reject/mark-applied auto-advance remounts JobDetail (its DetailErrorBoundary
-    // key changes) and unmounts the card hover-×, so focus can silently drop to <body> and
+    // key changes) and unmounts the card Reject pill, so focus can silently drop to <body> and
     // the next Tab restarts at the top of the page. Return it to the detail container —
     // mirroring FilterBar's selection-close focus-return. No `selectedId &&` guard: marking
     // the LAST visible job applied auto-advances the selection to null, and on wide layouts
@@ -748,7 +748,7 @@ export function RolefitBoard({
   // Companion to the effect above for the unmounts it can't see — actions that unmount the
   // focused control WITHOUT changing selectedId, so the [selectedId] effect never fires and
   // focus silently drops to <body> (the next Tab then restarts at the top of the page):
-  //   • rejectedIds — the keyboard-reachable hover-× on a non-selected list card (revealed on
+  //   • rejectedIds — the keyboard-reachable card Reject pill on a non-selected list card (revealed on
   //     :focus-within) or its toast's Undo; un-reject from the Rejected view.
   //   • packages    — un-apply from the detail action row / Applied chip (handleUnapply), and
   //     the apply toast's Undo (handleUndo's apply branch mutates only packages + toast).
@@ -786,7 +786,7 @@ export function RolefitBoard({
     }
   }, [rejectJob, showActionError, visibleIds]);
 
-  // The hover-× on a card (#14) hands back only the id; resolve the row from the rejected
+  // The card Reject pill on a card (#14) hands back only the id; resolve the row from the rejected
   // pool (a superset of `jobs`) and route through handleReject so it shares the same
   // optimistic-update + Undo-toast + auto-advance path as the detail-pane reject.
   const handleRejectById = useCallback((id: string) => {

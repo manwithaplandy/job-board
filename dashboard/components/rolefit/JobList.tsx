@@ -29,7 +29,7 @@ export interface JobListProps {
   // nav's scroll-into-view (#3) and the deep-linked ?job= seed (#5). No-op in the
   // non-virtualized narrow list (page scroll is handled separately).
   scrollToId?: string | null;
-  // Hover-revealed reject × on each card (#14). Threaded to every JobCard; absent → no ×.
+  // Card Reject pill on each card (#14). Threaded to every JobCard; absent → no pill.
   onReject?: (id: string) => void;
   // Live population: ids that streamed in within the last ~2.6s — each matching card
   // renders with the arrival entrance (JobCard isNew).
@@ -74,7 +74,7 @@ function VirtualJobList({
 
   // Keyboard nav / deep-link seed sets scrollToId; bring that card into view. Only scroll
   // when the TARGET actually changes (or first appears): any OTHER list-identity change —
-  // rejecting a non-selected card via its hover-×, a search keystroke, a facet toggle —
+  // rejecting a non-selected card via its card Reject pill, a search keystroke, a facet toggle —
   // would otherwise re-run scrollToIndex on the unchanged selection and yank the pane back
   // to the card the user deliberately scrolled away from. `lastScrolledRef` gates that; the
   // `jobs` dep then only serves the deep-link case where the id wasn't in the list yet

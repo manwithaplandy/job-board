@@ -4,7 +4,7 @@ import type { JobRow } from "@/lib/types";
 import { fitColor, initialsOf, fmtPay } from "@/lib/rolefit/fit";
 import { displayEnumLabel } from "@/lib/rolefit/taxonomy";
 import { Chip } from "@/components/ui/Chip";
-import { IconButton } from "@/components/ui/Action";
+import { Button } from "@/components/ui/Button";
 
 // Palette from the reference design's getBaseJobs() logoBg array
 const LOGO_COLORS = [
@@ -23,7 +23,8 @@ export interface JobCardProps {
   job: JobRow;
   selected: boolean;
   onSelect: (id: string) => void;
-  // Hover/focus-revealed reject × on the card (#14). Absent → no × is rendered.
+  // Hover/focus-revealed "Reject" pill on the card (#14, redesigned 2026-07-17: labeled
+  // pill in a slot the chips row reserves - see board.css). Absent -> not rendered.
   onReject?: (id: string) => void;
   // Live population: TRUE for ~2.6s after this row streamed in mid-review — plays the
   // pop-in + arrival-glow entrance (app/globals.css .rf-job-card--new).
@@ -48,8 +49,14 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
   const companyLine = [job.company_name, job.location].filter(Boolean).join(" · ");
   const logoBg = logoColor(job.company_name);
 
+  const wrapperClass = [
+    "rf-job-card",
+    isNew && "rf-job-card--new",
+    onReject && "rf-job-card--rejectable",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={isNew ? "rf-job-card rf-job-card--new" : "rf-job-card"} data-selected={selected || undefined}>
+    <div className={wrapperClass} data-selected={selected || undefined}>
       <button
         type="button"
         onClick={() => onSelect(job.id)}
@@ -102,17 +109,18 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
         </div>
       </button>
       {onReject && (
-        <IconButton
-          label={`Reject ${job.title}`}
-          icon="close"
-          tone="danger"
+        <Button
+          variant="secondary"
           size="sm"
+          aria-label={`Reject ${job.title}`}
           onClick={(e) => {
             e.stopPropagation();
             onReject(job.id);
           }}
-          className="rf-card-reject rf-job-card__reject"
-        />
+          className="rf-job-card__reject"
+        >
+          Reject
+        </Button>
       )}
     </div>
   );

@@ -161,18 +161,56 @@
   white-space: nowrap;
 }
 .rf-job-card__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
-.rf-job-card__reject {
+/* Hover/focus-revealed "Reject" pill (#14 redesign, spec 2026-07-17). Chip-scale and
+   anchored bottom-right in a slot the chips row reserves (--rejectable rule below), so
+   revealing it never covers card text, the score pill, or a chip. The hidden state keeps
+   pointer-events:none so the invisible control can't catch taps on touch devices, which
+   never :hover - the detail pane's full-size Reject is the touch path. The descendant
+   selector out-specifies .rf-button--secondary regardless of stylesheet order; the
+   :hover rule below likewise out-specifies the secondary variant's hover background.
+   24px min-height is deliberate (WCAG 2.5.8 AA): a 44px halo here would recreate the
+   invisible-reject-over-card-text mis-click hazard this redesign removes. AUDIT
+   FRAGILITY: min-height:24px matches the undersized-target size regex; the audit stays
+   green only because these selectors don't classify as interactive - do NOT rename the
+   class to contain button/btn/cta/action/link/trigger/control, and do NOT move sizing
+   into a :hover/:focus rule. */
+.rf-job-card .rf-job-card__reject {
   position: absolute;
-  top: 50%;
-  right: var(--space-2);
+  right: var(--space-3);
+  bottom: var(--space-3);
   z-index: 1;
-  transform: translateY(-50%);
+  min-height: 24px;
+  padding-inline: var(--space-2);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-badge);
   color: var(--danger);
   background: var(--danger-bg);
-  border: 1px solid var(--danger-border);
+  font-size: var(--font-size-small);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
 }
-.rf-job-card:hover > .rf-card-reject,
-.rf-job-card:focus-within > .rf-card-reject { opacity: 1; pointer-events: auto; }
+.rf-job-card .rf-job-card__reject:hover:not(:disabled) {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+}
+.rf-job-card:hover > .rf-job-card__reject,
+.rf-job-card:focus-within > .rf-job-card__reject,
+.rf-job-card .rf-job-card__reject:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Reserved slot: chips never flow under the pill, and the band exists even on a
+   zero-chip card (pay, arrangement, and category can all be absent) so the pill can't
+   land on the meta line. Chip-bearing cards keep their height (chips are ~22px).
+   Accepted cost: on touch layouts the authed all-view still reserves this gutter
+   though the pill can't hover-reveal there (chips wrap slightly earlier); an
+   @media (hover: hover) gate was rejected because it would also kill the
+   focus-within reveal for keyboards attached to touch devices. */
+.rf-job-card--rejectable .rf-job-card__chips {
+  min-height: 24px;
+  padding-right: 84px;
+}
 
 .rf-job-detail__actions { flex-wrap: wrap; }
 

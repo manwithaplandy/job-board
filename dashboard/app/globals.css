@@ -340,16 +340,6 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
   box-shadow: 0 0 0 1px var(--focus-ring), 0 0 0 4px var(--focus-halo);
 }
 
-/* Hover-revealed reject × on job cards (#14). Inline styles can't express a parent's
-   :hover, so the reveal lives here; keyboard focus reveals it too. `pointer-events: none`
-   on the hidden state keeps the invisible (opacity:0) × from being a tappable target on
-   touch devices, which never :hover — without it a tap near the fit-score badge would
-   reject the job instead of opening it. */
-.rf-card-reject { opacity: 0; pointer-events: none; transition: opacity .12s; }
-.rf-card:hover > .rf-card-reject,
-.rf-card:focus-within > .rf-card-reject,
-.rf-card-reject:focus-visible { opacity: 1; pointer-events: auto; }
-
 /* Live board population (spec 2026-07-16): a match streamed in mid-review pops in and
    its surface glows before decaying to the resting inline background. from-only
    keyframes animate toward each card's own computed style, and a CSS animation
@@ -367,7 +357,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 
 /* ModelPicker / LocationPicker menus: pseudo-states inline styles can't express
    (option/clear hover), preserved through the Tailwind removal — same rationale as
-   .rf-focusable / .rf-card-reject above. Base bg/color live here too so the :hover
+   .rf-focusable above. Base bg/color live here too so the :hover
    rule isn't shadowed by an inline value and survives preflight removal. The picker
    inputs' placeholder color now comes from the global input::placeholder rule above. */
 .rf-picker-option { background: transparent; }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { JobCard } from "./JobCard";
 import type { JobRow } from "@/lib/types";
 
@@ -125,5 +125,35 @@ describe("JobCard — live-arrival highlight", () => {
     );
     expect(container.querySelector(".rf-job-card")).toBeTruthy();
     expect(container.querySelector(".rf-job-card--new")).toBeNull();
+  });
+});
+
+describe("JobCard - reject affordance", () => {
+  test("with onReject: labeled Reject pill, reserved-slot modifier, reject-not-select on click", () => {
+    const onReject = vi.fn();
+    const onSelect = vi.fn();
+    const { container } = render(
+      <JobCard job={makeJob({ fit_score: 82 })} selected={false} onSelect={onSelect} onReject={onReject} />,
+    );
+    // Reserved-slot modifier drives the chips-row gutter in board.css.
+    expect(container.querySelector(".rf-job-card.rf-job-card--rejectable")).toBeTruthy();
+    const reject = screen.getByRole("button", { name: "Reject Staff Engineer" });
+    // Visible text label (not an icon-only control); accessible name keeps the job
+    // title so screen readers hear which job each pill rejects (and the visible
+    // "Reject" is contained in it - WCAG 2.5.3 label-in-name).
+    expect(reject.textContent).toBe("Reject");
+    expect(reject.querySelector("svg")).toBeNull();
+    fireEvent.click(reject);
+    expect(onReject).toHaveBeenCalledTimes(1);
+    expect(onReject).toHaveBeenCalledWith("job-1");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  test("without onReject: no reject control and no reserved-slot modifier", () => {
+    const { container } = render(
+      <JobCard job={makeJob({ fit_score: 82 })} selected={false} onSelect={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: /Reject/ })).toBeNull();
+    expect(container.querySelector(".rf-job-card--rejectable")).toBeNull();
   });
 });

@@ -193,6 +193,41 @@ export function RolefitBoard({
   // applied on top of both the board row and the cached detail so the card + detail
   // pane reflect it immediately. `revalidatePath` alone can't reach this client state.
   const [corrections, setCorrections] = useState<Record<string, Partial<JobRow>>>({});
+
+  // Live-population overlay (spec 2026-07-16): matches streamed in by ReviewNowPanel's
+  // cursor poll while a review runs. Props win — boardJobs drops any entry whose id is
+  // already in `jobs`, so the settle-time router.refresh() naturally supersedes the
+  // overlay (entries are retained until unmount; render-time dedupe is the prune, kept
+  // out of an effect so no setState-on-props-change cascade).
+  const [liveMatches, setLiveMatches] = useState<Record<string, JobRow>>({});
+  // Ids that arrived within the last ~2.6s — drives the card's pop-in highlight.
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  const freshTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  useEffect(() => {
+    const timers = freshTimersRef.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+    };
+  }, []);
+  const handleNewMatches = useCallback((rows: JobRow[]) => {
+    setLiveMatches((prev) => {
+      const next = { ...prev };
+      for (const r of rows) next[r.id] = r;
+      return next;
+    });
+    const ids = rows.map((r) => r.id);
+    setFreshIds((prev) => new Set([...prev, ...ids]));
+    const timer = setTimeout(() => {
+      freshTimersRef.current.delete(timer);
+      setFreshIds((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+    }, 2_600);
+    freshTimersRef.current.add(timer);
+  }, []);
+
   const [toast, setToast] = useState<
     | { kind: "reject"; jobId: string; priorVerdict: string | null }
     | { kind: "apply"; jobId: string; prior: ApplicationPackage | undefined }
@@ -479,31 +514,38 @@ export function RolefitBoard({
     );
   }, [selectedId, view]);
 
+  // The board's working list: server rows plus live-streamed arrivals not yet in props.
+  const boardJobs = useMemo(() => {
+    const ids = new Set(jobs.map((j) => j.id));
+    const extras = Object.values(liveMatches).filter((m) => !ids.has(m.id));
+    return extras.length ? [...jobs, ...extras] : jobs;
+  }, [jobs, liveMatches]);
+
   const appliedSet = useMemo(
-    () => new Set(jobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
-    [jobs, packages],
+    () => new Set(boardJobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
+    [boardJobs, packages],
   );
 
-  // Facet counts scan every job; memoize on `jobs` so they aren't recomputed on every
+  // Facet counts scan every job; memoize on `boardJobs` so they aren't recomputed on every
   // keystroke/render (FilterBar used to recompute them internally each render).
-  const facets = useMemo(() => facetCounts(jobs), [jobs]);
+  const facets = useMemo(() => facetCounts(boardJobs), [boardJobs]);
 
   // The Rejected view draws from the approve list plus the server rejects (the latter
-  // aren't in `jobs`); every other view draws from `jobs` alone so server rejects can't
-  // leak into "all"/"applied".
+  // aren't in `boardJobs`); every other view draws from `boardJobs` alone so server rejects
+  // can't leak into "all"/"applied".
   const rejectedPool = useMemo(
-    () => mergeRejectedPool(jobs, initialRejected),
-    [jobs, initialRejected],
+    () => mergeRejectedPool(boardJobs, initialRejected),
+    [boardJobs, initialRejected],
   );
 
   const visible = useMemo(
     () => filterByView(
-      sortJobs(applyFilters(view === "rejected" ? rejectedPool : jobs, filterState), filterState.sort),
+      sortJobs(applyFilters(view === "rejected" ? rejectedPool : boardJobs, filterState), filterState.sort),
       view,
       rejectedIds,
       appliedSet,
     ),
-    [jobs, rejectedPool, filterState, rejectedIds, appliedSet, view],
+    [boardJobs, rejectedPool, filterState, rejectedIds, appliedSet, view],
   );
 
   // Visible ids in render order — the input to selectionAfterRemoval so reject/apply can
@@ -561,8 +603,8 @@ export function RolefitBoard({
   // `visible`, minus `applyFilters`. This is the "N of M" counter's denominator so the
   // Rejected/Applied views read against their own totals, not the all-jobs total (#13).
   const totalInView = useMemo(
-    () => filterByView(view === "rejected" ? rejectedPool : jobs, view, rejectedIds, appliedSet).length,
-    [jobs, rejectedPool, view, rejectedIds, appliedSet],
+    () => filterByView(view === "rejected" ? rejectedPool : boardJobs, view, rejectedIds, appliedSet).length,
+    [boardJobs, rejectedPool, view, rejectedIds, appliedSet],
   );
 
   // Display-only overlay of `corrections` on top of the filtered/sorted/bucketed
@@ -1259,7 +1301,11 @@ export function RolefitBoard({
           full "being built" CTA on an empty board, and refreshes the board when a request
           settles. Benign pending state → neutral status card, not a warning banner. */}
       {isAuthed && (operator?.unreviewed ?? 0) > 0 && (
-        <ReviewNowPanel firstRun={jobs.length === 0} onSettled={() => router.refresh()} />
+        <ReviewNowPanel
+          firstRun={boardJobs.length === 0}
+          onSettled={() => router.refresh()}
+          onNewMatches={handleNewMatches}
+        />
       )}
 
       {/* Split pane — left: job list; right: detail */}
@@ -1277,8 +1323,9 @@ export function RolefitBoard({
               onClearFilters={clearFilters}
               view={view}
               onBackToAll={() => setView("all")}
-              hasUnfilteredJobs={jobs.length > 0}
+              hasUnfilteredJobs={boardJobs.length > 0}
               viewPoolCount={totalInView}
+              freshIds={freshIds}
               scrollParentRef={isNarrow ? undefined : listScrollRef}
               scrollToId={selectedId}
               // The hover-× is a triage affordance — only the "all" view is the triage

@@ -14,6 +14,9 @@ const rr = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/reviewRequests", () => rr);
 
+const q = vi.hoisted(() => ({ getReviewFeed: vi.fn() }));
+vi.mock("@/lib/queries", () => q);
+
 const { GET, POST } = await import("@/app/api/review/request/route");
 
 beforeEach(() => {
@@ -23,13 +26,15 @@ beforeEach(() => {
   rr.getLatestReviewRequest.mockReset();
   rr.remainingDailyBudget.mockReset();
   rr.reviewsChargedToday.mockReset();
+  q.getReviewFeed.mockReset();
+  q.getReviewFeed.mockResolvedValue({ cursor: "2026-07-16T12:00:00.000Z", newMatches: [] });
 });
 afterEach(() => vi.restoreAllMocks());
 
 describe("GET /api/review/request", () => {
   test("401 for anon", async () => {
     auth.getUserClaims.mockResolvedValue(null);
-    const res = await GET();
+    const res = await GET(new Request("http://test/api/review/request"));
     expect(res.status).toBe(401);
   });
 
@@ -40,11 +45,14 @@ describe("GET /api/review/request", () => {
     rr.remainingDailyBudget.mockResolvedValue(7);
     rr.reviewsChargedToday.mockResolvedValue(3);
 
-    const res = await GET();
+    const res = await GET(new Request("http://test/api/review/request"));
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     const body = await res.json();
-    expect(body).toEqual({ status: "running", remaining: 7, plan: "standard", reviewedToday: 3 });
+    expect(body).toEqual({
+      status: "running", remaining: 7, plan: "standard", reviewedToday: 3,
+      cursor: "2026-07-16T12:00:00.000Z", newMatches: [],
+    });
   });
 
   test("null latest request → status null, progress figure still present", async () => {
@@ -54,10 +62,48 @@ describe("GET /api/review/request", () => {
     rr.remainingDailyBudget.mockResolvedValue(0);
     rr.reviewsChargedToday.mockResolvedValue(0);
 
-    const res = await GET();
+    const res = await GET(new Request("http://test/api/review/request"));
     const body = await res.json();
     expect(body.status).toBeNull();
     expect(body.reviewedToday).toBe(0);
+  });
+
+  test("no since param → feed called with null (cursor-establishing poll)", async () => {
+    auth.getUserClaims.mockResolvedValue({ id: "u1", email: "u1@x.com" });
+    subs.getViewerPlan.mockResolvedValue("standard");
+    rr.getLatestReviewRequest.mockResolvedValue({ status: "running" });
+    rr.remainingDailyBudget.mockResolvedValue(7);
+    rr.reviewsChargedToday.mockResolvedValue(3);
+    await GET(new Request("http://test/api/review/request"));
+    expect(q.getReviewFeed).toHaveBeenCalledWith("u1", null);
+  });
+
+  test("valid since is forwarded and newMatches pass through", async () => {
+    auth.getUserClaims.mockResolvedValue({ id: "u1", email: "u1@x.com" });
+    subs.getViewerPlan.mockResolvedValue("standard");
+    rr.getLatestReviewRequest.mockResolvedValue({ status: "running" });
+    rr.remainingDailyBudget.mockResolvedValue(7);
+    rr.reviewsChargedToday.mockResolvedValue(3);
+    q.getReviewFeed.mockResolvedValue({
+      cursor: "2026-07-16T12:00:05.000Z",
+      newMatches: [{ id: "greenhouse:acme:1" }],
+    });
+    const since = encodeURIComponent("2026-07-16T12:00:00.000Z");
+    const res = await GET(new Request(`http://test/api/review/request?since=${since}`));
+    expect(q.getReviewFeed).toHaveBeenCalledWith("u1", "2026-07-16T12:00:00.000Z");
+    const body = await res.json();
+    expect(body.cursor).toBe("2026-07-16T12:00:05.000Z");
+    expect(body.newMatches).toEqual([{ id: "greenhouse:acme:1" }]);
+  });
+
+  test("unparseable since is treated as absent (cursor re-established, no delta)", async () => {
+    auth.getUserClaims.mockResolvedValue({ id: "u1", email: "u1@x.com" });
+    subs.getViewerPlan.mockResolvedValue("standard");
+    rr.getLatestReviewRequest.mockResolvedValue({ status: "running" });
+    rr.remainingDailyBudget.mockResolvedValue(7);
+    rr.reviewsChargedToday.mockResolvedValue(3);
+    await GET(new Request("http://test/api/review/request?since=not-a-date"));
+    expect(q.getReviewFeed).toHaveBeenCalledWith("u1", null);
   });
 });
 

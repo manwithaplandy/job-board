@@ -1,7 +1,11 @@
 # Admin plan override — design
 
 **Date:** 2026-07-16
-**Status:** approved (brainstorm with owner; storage approach A chosen)
+**Status:** approved (brainstorm with owner; storage approach A chosen).
+Rev 2: rebased on origin/main 497bc34 (user-invites merge) — `resolvePlan` now
+carries a 4th `compPlan` param, the tenants page already hosts an inline per-row
+editor (`AllowanceEditor`), and `invite_allowances` provides the exact RLS
+template (deny-all + `owner_read` SELECT + authenticated SELECT grant).
 
 ## Problem
 
@@ -50,22 +54,23 @@ CREATE TABLE IF NOT EXISTS plan_overrides (
 `user_id` is deliberately not FK'd to `auth.users` (house convention, see
 `profiles`).
 
-**RLS:** deny-all + an owner **SELECT-only** policy (`user_id = auth.uid()`), and
-`GRANT SELECT` to `authenticated` — no INSERT/UPDATE/DELETE policies or grants, so
-the service role is the only writer. This is the `generation_jobs` pattern
-restricted to reads: the owner may see their own override (it already surfaces as
-their effective plan), and `getViewerPlan` can read it inside the existing
-`withUserSql` RLS session without widening the service-role allowlist for reads.
+**RLS:** deny-all + an owner **SELECT-only** `owner_read` policy
+(`user_id = (SELECT public.app_user_id())`), and `GRANT SELECT` to
+`authenticated` — no INSERT/UPDATE/DELETE policies or grants, so the service role
+is the only writer. This is exactly the `invite_allowances` pattern: the owner may
+see their own override (it already surfaces as their effective plan), and
+`getViewerPlan` can read it inside the existing `withUserSql` RLS session without
+widening the service-role allowlist for reads.
 
 ## Plan resolution (both languages, kept in lockstep)
 
 `dashboard/lib/entitlements.ts` and `reviewer/entitlements.py`:
 
-- `resolvePlan(sub, invited, override?, now?)` / `resolve_plan(sub, invited,
-  override=None, now=None)`. `override` is `{ plan, expires_at }` or null.
-  `override` slots in as the third parameter (before `now`), so the existing
-  test call sites that pass `now` positionally get a mechanical update; Python
-  callers already use `now=` as a keyword, and `run.py` passes two positionals.
+- `resolvePlan(sub, invited, now?, compPlan?, override?)` / `resolve_plan(sub,
+  invited, now=None, comp_plan=…, override=None)`. `override` is
+  `{ plan, expires_at }` or null, appended as the LAST parameter so every
+  existing call site (which already passes `now`/`compPlan` positionally or by
+  keyword) compiles unchanged.
 - If `override.plan` is `standard`/`pro` and (`expires_at` is null or
   `expires_at > now`) → return `override.plan`. Otherwise proceed with the
   existing subscription → invite → null logic unchanged.
@@ -91,33 +96,40 @@ Wired at the three existing chokepoints — no new resolution paths:
 
 ## Admin write path
 
-`dashboard/app/actions/planOverrides.ts` — `setPlanOverrideAction`:
+Split following the invites precedent (SQL in an allowlisted lib, gate in the
+action):
 
-- Re-gates on `isAdmin(await getUserClaims())` server-side (never trusts the
-  client), exactly like `createInviteAction`.
-- Input: target `userId`, `plan` (`"standard" | "pro" | ""` where empty = clear),
-  optional `expiresAt` (date, must be in the future when present), optional
-  `note`.
-- Clear → `DELETE FROM plan_overrides WHERE user_id = …`; set → upsert
-  (`ON CONFLICT (user_id) DO UPDATE`, refreshing `updated_at`).
-- Writes via `serviceSql` with the standard allowlist justification header
-  (admin-only, isAdmin-gated, cross-tenant by design — same argument as
-  `tenantMetrics`); `lib/serviceRoleAllowlist.test.ts` gets the new entry.
-- `revalidatePath("/admin/tenants")` on success.
+- `dashboard/lib/planOverrides.ts` — `getOwnPlanOverride` (owner-read via
+  `withUserSql`, for `getViewerPlan`), `setPlanOverride` (upsert,
+  `ON CONFLICT (user_id) DO UPDATE`, refreshing `updated_at`) and
+  `clearPlanOverride` (DELETE) via `serviceSql`, with the standard allowlist
+  justification header (admin-only, isAdmin-gated, cross-tenant by design — same
+  argument as `tenantMetrics`); `lib/serviceRoleAllowlist.test.ts` gets the new
+  entry.
+- `setPlanOverrideAction` added to the existing
+  `dashboard/app/actions/adminSettings.ts` (isAdmin re-gate FIRST, then
+  validation, mirroring `setInviteAllowanceAction`). Input: target `userId`,
+  `plan` (`"standard" | "pro" | ""` where empty = clear), `expiresAt`
+  (`""` or `YYYY-MM-DD`, must be a future date, stored as midnight UTC), `note`
+  (`""` → stored NULL, ≤200 chars). The client calls `router.refresh()` on
+  success (AllowanceEditor pattern) rather than the action revalidating a path.
 
 ## UI (`/admin/tenants`)
 
-- New **Override** column in the tenants table. Each row renders
-  `components/admin/PlanOverrideControl.tsx` (client component, `InviteGenerator`
-  styling): a compact select — *No override / Standard / Pro* — an expiry date
-  input and a note input (both shown only when a plan is selected), and a Save
-  button that calls the server action and surfaces errors inline.
-- The **Plan** column keeps showing the *effective* plan (now
-  override-aware via `resolvePlan`) and gains an `Override` badge — with
-  `until <date>` when expiring, and the note as its tooltip — alongside the
-  existing `Comped` badge logic. An expired override shows nothing special in
-  Plan; the control simply reflects the stored (lapsed) row so the admin can
-  clear or renew it.
+- New **Override** column in the tenants table, right after **Plan**. Each row
+  renders `components/admin/PlanOverrideControl.tsx` (client component, modeled
+  on `AllowanceEditor`): a compact select — *No override / Standard / Pro* — an
+  expiry date input and a note input (both shown only when a plan is selected),
+  and a Set button that calls the server action, `router.refresh()`es on
+  success, and surfaces errors inline. Styling via `rf-control` primitives +
+  `.rf-override-editor` classes in `components/secondary-surfaces.css` (the
+  ui-contract audit forbids raw controls/inline geometry).
+- The **Plan** column keeps showing the *effective* plan (now override-aware via
+  `resolvePlan`) and gains a `Pinned` badge — with `until <date>` when expiring,
+  and the note as its tooltip. The `Comped` badge is suppressed while a pin is
+  active (the plan no longer comes from the invite comp). An expired override
+  shows nothing special in Plan; the control simply reflects the stored (lapsed)
+  row so the admin can clear or renew it.
 
 ## Ripple work (house checklists)
 

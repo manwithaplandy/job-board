@@ -1,3 +1,5 @@
+import threading
+import time
 import uuid
 
 import psycopg
@@ -89,6 +91,61 @@ def test_second_claimer_gets_nothing_when_only_row_is_locked(conn):
         conn2.commit()
     finally:
         conn2.close()
+
+
+@requires_db
+def test_k_parallel_loops_never_double_claim(conn):
+    # Generalizes the two-connection SKIP LOCKED tests above to K real loops. Enqueue a
+    # request per distinct user (the partial unique index forbids two active per user)
+    # with an entitled-but-budget-exhausted profile so _review_user makes ZERO LLM calls
+    # (no API key needed). Three threads, EACH with its OWN connection, drain the queue
+    # via process_one. FOR UPDATE SKIP LOCKED + the in-flight registry must guarantee
+    # every request is claimed by exactly one loop: each ends 'done' with exactly one
+    # review_runs row, none processed twice, none left pending/running.
+    users = [str(uuid.uuid4()) for _ in range(4)]
+    rids = []
+    for u in users:
+        _entitle_profile(conn, u, cap=5)
+        rdb.add_daily_spend(conn, u, 5)  # pre-exhaust today's budget → zero LLM calls
+        rids.append(_enqueue(conn, u))
+    conn.commit()
+
+    errors: list[BaseException] = []
+
+    def _drain():
+        thread_conn = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            while worker.process_one(thread_conn):
+                pass
+        except BaseException as exc:  # surface a loop crash as a test failure, not a hang
+            errors.append(exc)
+        finally:
+            thread_conn.close()
+
+    threads = [threading.Thread(target=_drain, name=f"drain-{i}") for i in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not any(t.is_alive() for t in threads), "a drain loop hung"
+    assert errors == [], f"drain loop(s) raised: {errors}"
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status, count(*) AS n FROM review_requests WHERE id = ANY(%s) GROUP BY status",
+            (rids,),
+        )
+        by_status = {r["status"]: r["n"] for r in cur.fetchall()}
+        assert by_status == {"done": len(rids)}, by_status  # all done, none pending/running
+        # Exactly one review_runs row per user → no request processed twice.
+        cur.execute(
+            "SELECT user_id, count(*) AS n FROM review_runs "
+            "WHERE user_id = ANY(%s) GROUP BY user_id",
+            ([uuid.UUID(u) for u in users],),
+        )
+        runs = {str(r["user_id"]): r["n"] for r in cur.fetchall()}
+    assert runs == {u: 1 for u in users}, runs
 
 
 @requires_db
@@ -267,6 +324,11 @@ def test_main_loop_reconnects_after_a_cycle_error(monkeypatch):
     monkeypatch.setattr(worker.jdb, "connect", _fake_connect)
     monkeypatch.setattr(worker, "process_one", _fake_process_one)
     monkeypatch.setattr(worker.config, "REVIEW_WORKER_POLL_SECONDS", 0)
+    # Pin the K=1 (single main-thread loop) path: this test's whole point is to prove
+    # that path still behaves EXACTLY like the historical single-loop worker — same
+    # call sequence, same SystemExit propagation. With the default K=3 main() would
+    # spawn threads and this test's SystemExit-based stop would not escape main().
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_PARALLELISM", 1)
     monkeypatch.setattr(worker.config, "has_api_key", lambda: True)
 
     with pytest.raises(SystemExit):
@@ -333,3 +395,104 @@ def test_in_flight_snapshot_is_a_copy():
     snap = worker._in_flight_snapshot()
     snap.add(1000)
     assert worker._in_flight_snapshot() == {999}
+
+
+# ── threaded main(): K>1 spawn / signal drain / fatal exit (no DB needed) ────────
+class _SignalStub:
+    """Stand-in for the `signal` module inside worker's namespace so main()'s
+    signal.signal(...) never installs a real process handler (which only works on the
+    interpreter's main thread and would clobber pytest's own handling). It just
+    captures the handlers so a test can fire them by hand."""
+
+    SIGTERM = 15
+    SIGINT = 2
+
+    def __init__(self):
+        self.handlers: dict[int, object] = {}
+
+    def signal(self, sig, handler):
+        self.handlers[sig] = handler
+
+
+class _FakeConn:
+    def close(self):
+        pass
+
+
+def _review_loop_threads():
+    return [t for t in threading.enumerate() if t.name.startswith("review-loop-")]
+
+
+def test_signal_drain_stops_all_k_loops(monkeypatch):
+    """K>1: a single SIGTERM drains every parallel loop. main() spawns 3 loops (each
+    opening its OWN connection), then a helper fires the captured SIGTERM handler; every
+    loop finishes its top-of-loop check and exits, main() returns normally (no
+    SystemExit), and no loop thread is left alive."""
+    sig = _SignalStub()
+    connects = {"n": 0}
+    connect_lock = threading.Lock()
+
+    def _fake_connect():
+        with connect_lock:
+            connects["n"] += 1
+        return _FakeConn()
+
+    monkeypatch.setattr(worker, "signal", sig)
+    monkeypatch.setattr(worker.jdb, "connect", _fake_connect)
+    monkeypatch.setattr(worker, "process_one", lambda _conn: False)  # queue always empty
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_POLL_SECONDS", 0)  # range(0) → no sleep
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_PARALLELISM", 3)
+    monkeypatch.setattr(worker.config, "has_api_key", lambda: True)
+
+    def _fire_sigterm():
+        time.sleep(0.3)  # let all 3 loops spin up + connect first
+        sig.handlers[sig.SIGTERM]()  # == stop.request → stop.stop = True → loops drain
+
+    firer = threading.Thread(target=_fire_sigterm, name="sigterm-firer")
+    firer.start()
+    try:
+        worker.main()  # blocks until the helper's SIGTERM drains the loops
+    finally:
+        firer.join(timeout=5)
+
+    assert connects["n"] == 3               # one connection per loop, no reconnects
+    assert not firer.is_alive()
+    assert _review_loop_threads() == []     # every review-loop-* thread joined + gone
+
+
+def test_fatal_loop_drains_siblings_and_exits_one(monkeypatch):
+    """K>1: one loop's reconnect giving up (DB genuinely down) sets `fatal`, which drains
+    the siblings, and main() exits nonzero so Railway restarts the service. The first 3
+    connects (the initial per-loop connections) rendezvous at a barrier so the count is
+    deterministic — calls 1-3 succeed (initial), calls 4+ (reconnect attempts) raise."""
+    sig = _SignalStub()
+    connects = {"n": 0}
+    connect_lock = threading.Lock()
+    initial_barrier = threading.Barrier(3)
+
+    def _fake_connect():
+        with connect_lock:
+            connects["n"] += 1
+            n = connects["n"]
+        if n <= 3:
+            # Initial per-loop connect: block until all 3 loops hold a connection, so no
+            # loop reaches its (failing) reconnect until the 3 initial connects are done.
+            initial_barrier.wait(timeout=10)
+            return _FakeConn()
+        raise RuntimeError("db down")  # a reconnect attempt → reconnect() does sys.exit(1)
+
+    def _always_raises(_conn):
+        raise RuntimeError("cycle boom")  # every cycle errors → each loop hits reconnect
+
+    monkeypatch.setattr(worker, "signal", sig)
+    monkeypatch.setattr(worker.jdb, "connect", _fake_connect)
+    monkeypatch.setattr(worker, "process_one", _always_raises)
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_POLL_SECONDS", 0)
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_PARALLELISM", 3)
+    monkeypatch.setattr(worker.config, "has_api_key", lambda: True)
+
+    with pytest.raises(SystemExit) as exc:
+        worker.main()
+    assert exc.value.code == 1
+    assert connects["n"] >= 4               # 3 initial + at least one failed reconnect
+    assert _review_loop_threads() == []     # all loops joined before main() exited

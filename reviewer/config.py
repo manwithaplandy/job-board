@@ -20,6 +20,10 @@ PERSIST_CHUNK_SIZE = _int_env("REVIEW_PERSIST_CHUNK", 20)
 # On-demand review worker (reviewer.worker): seconds to sleep when the
 # review_requests queue is empty before polling again.
 REVIEW_WORKER_POLL_SECONDS = _int_env("REVIEW_WORKER_POLL_SECONDS", 15)
+# On-demand review worker: number of concurrent worker loops (threads) it runs. K=1
+# behaves exactly like the historical single-loop worker; default 3 turns parallelism
+# on without any Railway env change.
+REVIEW_WORKER_PARALLELISM = _int_env("REVIEW_WORKER_PARALLELISM", 3)
 
 
 def has_api_key() -> bool:

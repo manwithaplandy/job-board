@@ -350,6 +350,21 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .rf-card:focus-within > .rf-card-reject,
 .rf-card-reject:focus-visible { opacity: 1; pointer-events: auto; }
 
+/* Live board population (spec 2026-07-16): a match streamed in mid-review pops in and
+   its surface glows before decaying to the resting inline background. from-only
+   keyframes animate toward each card's own computed style, and a CSS animation
+   outranks the button's inline background while it plays — no inline coordination
+   needed. Both animations collapse under the global prefers-reduced-motion override
+   below (motion gone, a sub-frame of glow — effectively appear-in-place). */
+@keyframes rf-card-pop-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+@keyframes rf-card-arrival-glow {
+  from { background: var(--accent-bg); }
+}
+.rf-job-card--new { animation: rf-card-pop-in .35s ease-out; }
+.rf-job-card--new .rf-job-card__button { animation: rf-card-arrival-glow 2.5s ease-out; }
+
 /* ModelPicker / LocationPicker menus: pseudo-states inline styles can't express
    (option/clear hover), preserved through the Tailwind removal — same rationale as
    .rf-focusable / .rf-card-reject above. Base bg/color live here too so the :hover

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { JobRow } from "@/lib/types";
 import { tierGateNotice, type TierGateNotice } from "@/lib/rolefit/tierGate";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -43,9 +44,13 @@ export interface ReviewNowPanelProps {
   // Called once when an active request settles as 'done' — the board refreshes so the
   // new matches render (replacing the old reload-on-next-visit behavior).
   onSettled?: () => void;
+  // Live population: called with each poll's newly approved matches (never empty) so
+  // the board can merge them in while the run is still going. Pass a STABLE callback —
+  // it participates in the poll closure's deps.
+  onNewMatches?: (rows: JobRow[]) => void;
 }
 
-export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelProps) {
+export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: ReviewNowPanelProps) {
   const [status, setStatus] = useState<Status>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [reviewedToday, setReviewedToday] = useState<number | null>(null);
@@ -55,6 +60,9 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
   // invitation with a /billing link, not through the red `error` line.
   const [gate, setGate] = useState<TierGateNotice | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Server-issued reviewed_at cursor (GET's `cursor` field), echoed back as ?since= on
+  // the next poll. Server clock only — the client never contributes a timestamp.
+  const cursorRef = useRef<string | null>(null);
   // Tracks whether we've observed an active request, so we only fire onSettled on a real
   // active→done transition (not a stale 'done' seen on the very first poll).
   const wasActiveRef = useRef(false);
@@ -64,17 +72,24 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
 
   const poll = useCallback(async () => {
     try {
-      const res = await fetch("/api/review/request", { method: "GET" });
+      const url = cursorRef.current
+        ? `/api/review/request?since=${encodeURIComponent(cursorRef.current)}`
+        : "/api/review/request";
+      const res = await fetch(url, { method: "GET" });
       const data = (await res.json().catch(() => ({}))) as {
         status?: Status; remaining?: number; reviewedToday?: number;
+        cursor?: string; newMatches?: JobRow[];
       };
       setStatus(data.status ?? null);
       if (typeof data.remaining === "number") setRemaining(data.remaining);
       if (typeof data.reviewedToday === "number") setReviewedToday(data.reviewedToday);
+      if (typeof data.cursor === "string") cursorRef.current = data.cursor;
+      if (Array.isArray(data.newMatches) && data.newMatches.length > 0) onNewMatches?.(data.newMatches);
     } catch {
-      /* transient — the next poll or a manual retry recovers */
+      /* transient — the next poll or a manual retry recovers; the cursor is unchanged,
+         so the 10s overlap + settle-refresh make the skipped tick harmless */
     }
-  }, []);
+  }, [onNewMatches]);
 
   // Initial status load. Wrapped in an inline async IIFE so the awaited fetch (not a
   // synchronous setState) is what runs in the effect body — poll only setState()s after
@@ -85,15 +100,30 @@ export function ReviewNowPanel({ firstRun = false, onSettled }: ReviewNowPanelPr
     })();
   }, [poll]);
 
-  // Poll every ~10s WHILE a request is active; stop when it settles.
+  // Poll WHILE a request is active — every 4s while running (matches arrive in
+  // concurrency-5 bursts, so this is effectively per-burst live), 10s while queued
+  // (nothing to stream yet). The chain re-arms ITSELF after each poll resolves, because a
+  // stable running streak changes none of this effect's deps — an unchanged
+  // setStatus("running") is a React no-op, reviewedToday isn't a dep, and the cursor is a
+  // ref — so a one-shot timer would fire only once. A deps change (status transition or a
+  // new poll identity) cancels the running chain via the cleanup's `cancelled` flag before
+  // arming a fresh one; the !active branch stops everything when the request settles.
   useEffect(() => {
     if (!active) {
       if (timerRef.current) clearTimeout(timerRef.current);
       return;
     }
     wasActiveRef.current = true;
-    timerRef.current = setTimeout(() => void poll(), 10_000);
+    let cancelled = false;
+    const arm = () => {
+      timerRef.current = setTimeout(async () => {
+        await poll();
+        if (!cancelled) arm();
+      }, status === "running" ? 4_000 : 10_000);
+    };
+    arm();
     return () => {
+      cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [active, status, poll]);

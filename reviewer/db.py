@@ -182,8 +182,8 @@ def get_daily_spend(conn, user_id: str, kind: str = "review") -> int:
 def add_daily_spend(conn, user_id: str, n: int, kind: str = "review") -> None:
     """Charge n jobs to this user's daily budget (UTC day, upserted in place).
 
-    Committed by the caller in the same transaction as the persisted review rows,
-    so spend and rows move together.
+    The caller commits this in its own transaction right after the review rows' own
+    chunked commits, so spend lands just behind the persisted rows (see _persist_chunk).
     """
     if n <= 0:
         return

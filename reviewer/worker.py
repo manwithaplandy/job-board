@@ -203,8 +203,12 @@ def main() -> None:
     if k <= 1:
         # Single loop on the main thread: a SystemExit from reconnect propagates out
         # exactly as it did historically (preserves Railway restart semantics and the
-        # existing reconnect tests). No thread wrapper, no fatal conversion.
+        # existing reconnect tests). No thread wrapper, no fatal conversion. On a clean
+        # shutdown (stop set) _run_loop returns and we log the same stop line the K>1 path
+        # and the historical single-loop worker emit; a SystemExit skips it (as does the
+        # K>1 path's sys.exit), keeping behavior otherwise identical.
         _run_loop(stop, fatal, 0)
+        log.info("review worker stopped")
         return
 
     def _thread_body(idx):

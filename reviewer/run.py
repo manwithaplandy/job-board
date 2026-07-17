@@ -196,7 +196,7 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
                        concurrency: int, *, user_id: str | None = None,
                        run_id=None,
                        deleted_check: Callable[[], bool] | None = None,
-                       on_results: Callable[[list["ReviewResult"]], None] | None = None,
+                       on_results: Callable[[list[ReviewResult]], None] | None = None,
                        ) -> tuple[list[ReviewResult], bool]:
     """Gate candidates through batched stage-1 calls, streaming each chunk's results.
 
@@ -468,12 +468,17 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             # stage1_decision NULL) are excluded so an outage can't burn a day's budget.
             spent = sum(1 for r in chunk if r.stage1_decision is not None)
             db.add_daily_spend(conn, user_id, spent)
-            # Commit this chunk's rows + spend NOW (not at end of run) so they're visible
-            # to the dashboard's cursor poll immediately. Per-chunk commits do NOT release
-            # the session advisory lock — only unlock_user_review does (M-TOCTOU).
+            # _persist_rows already committed this chunk's job_reviews (per-PERSIST_CHUNK_SIZE
+            # commits + a tail commit inside it); this commit lands the spend immediately
+            # after, in its own separate transaction. A crash BETWEEN the two leaves at most
+            # one chunk persisted-but-uncharged — a self-limiting under-charge, never a
+            # double-charge, because the persisted rows block that chunk's re-selection. This
+            # commit is what makes the chunk visible to the dashboard's cursor poll (not at
+            # end of run). Per-chunk commits do NOT release the session advisory lock — only
+            # unlock_user_review does (M-TOCTOU).
             conn.commit()
 
-        results, halted = asyncio.run(review_batch(
+        _, halted = asyncio.run(review_batch(
             candidates, profile_block, client, config.CONCURRENCY,
             user_id=user_id, run_id=run_id,
             # Cheap per-chunk poll so a mid-run deletion stops issuing LLM calls instead

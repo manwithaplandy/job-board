@@ -1076,8 +1076,10 @@ def test_deletion_between_chunks_keeps_chunk_one_and_deletion_note_wins(conn, mo
     with the deletion note winning over the (also-set) halt note. STAGE1_BATCH=2 + 4
     jobs. A spy inserts the account_deletions tombstone through the SAME conn right after
     the first chunk's spend — it joins that in-flight transaction and commits with the
-    chunk's commit (cadence-independent). The next chunk's write boundary then re-reads
-    the tombstone and skips."""
+    chunk's commit (cadence-independent). review_batch's top-of-loop deleted_check then
+    sees the committed tombstone and halts BEFORE chunk 2 is ever emitted, so
+    _persist_chunk never sees a chunk 2 (the loop halts first — the per-chunk write-
+    boundary guard is not what stops the write here)."""
     from reviewer import config
     monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
     cid = _seed_company(conn)
@@ -1108,3 +1110,65 @@ def test_deletion_between_chunks_keeps_chunk_one_and_deletion_note_wins(conn, mo
     assert rr["reviewed"] == 2, "chunk 1's counts are kept"
     assert rr["notes"] == "account deleted mid-run; skipped writes"
     assert rdb.get_daily_spend(conn, USER) == 2, "only chunk 1 charged before the deletion"
+
+
+@requires_db
+def test_persist_chunk_tombstone_guard_discards_chunk_two_at_write_boundary(conn, monkeypatch):
+    """Pin _persist_chunk's OWN tombstone guard in its true window — the one M-RESURRECT-2
+    path (a deletion that becomes visible only at a chunk's write boundary, after that
+    chunk's stage-2 already ran) that no other test exercises. Every user_deleted call in
+    the review path funnels through the one patched db.user_deleted, which returns False for
+    polls 1-5 and True from poll 6 on. With STAGE1_BATCH=2 and 4 reviewable jobs the cadence
+    is exactly:
+        1  chunk-1 top-of-loop     (review_batch deleted_check)   -> False
+        2  chunk-1 pre-stage-2     (review_batch deleted_check)   -> False
+        3  chunk-1 persist-guard   (_persist_chunk)               -> False
+        4  chunk-2 top-of-loop     (review_batch deleted_check)   -> False
+        5  chunk-2 pre-stage-2     (review_batch deleted_check)   -> False
+        6  chunk-2 persist-guard   (_persist_chunk)               -> True   (discard chunk 2)
+        7  final post-batch check  (_review_user note)            -> True
+    Because polls 4 and 5 still return False, review_batch does NOT halt before chunk 2 — its
+    stage-2 DID run (stage2_calls == 4); the guard discards its rows only at the write
+    boundary (poll 6). This intentionally pins the per-chunk write-boundary guard: neuter it
+    (comment out `if db.user_deleted(...): return` in _persist_chunk) and poll 6 disappears,
+    so chunk 2 persists AND the final check lands at poll 5 (< 6, still False) — reviewed and
+    spend become 4 and the deletion note never sets."""
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+    cid = _seed_company(conn)
+    for i in range(4):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=10)
+
+    import reviewer.run as run_module
+
+    checks = {"n": 0}
+
+    def guard(_conn, _uid):
+        checks["n"] += 1
+        return checks["n"] >= 6  # False for polls 1-5; True at chunk-2's write boundary on
+
+    monkeypatch.setattr(run_module.db, "user_deleted", guard)
+
+    made = []
+
+    def _factory(**kw):
+        made.append(StubClient(**kw))
+        return made[-1]
+
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(run_module, "ReviewClient", _factory)
+    run_module.review_all(conn)
+
+    # Chunk 2's stage-2 ran (2 jobs per chunk x 2 chunks) before the guard discarded its rows.
+    assert made and len(made[0].stage2_calls) == 4, "chunk 2's stage-2 ran before the write-boundary guard"
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 2, "only chunk 1 persisted; the guard discarded chunk 2's rows"
+        cur.execute("SELECT reviewed, notes FROM review_runs WHERE user_id = %s "
+                    "ORDER BY id DESC LIMIT 1", (USER,))
+        rr = cur.fetchone()
+    assert rr["reviewed"] == 2, "chunk 1's counts only"
+    assert rr["notes"] == "account deleted mid-run; skipped writes"
+    assert rdb.get_daily_spend(conn, USER) == 2, "only chunk 1 charged; chunk 2's spend discarded"

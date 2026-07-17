@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import { listInvites, type InviteCode } from "@/lib/invites";
+import { loadAppSettings } from "@/lib/appSettings";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { InviteGenerator } from "@/components/admin/InviteGenerator";
+import { InviteSettings } from "@/components/admin/InviteSettings";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 
@@ -16,7 +18,7 @@ export const metadata: Metadata = { title: "Invites · Admin" };
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "40px 20px 64px",
 };
-const wrapStyle: React.CSSProperties = { maxWidth: "860px", margin: "0 auto" };
+const wrapStyle: React.CSSProperties = { maxWidth: "1000px", margin: "0 auto" };
 const cardStyle: React.CSSProperties = {
   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "16px",
   boxShadow: "0 12px 40px rgba(15,22,35,.06)", padding: "22px 24px",
@@ -62,6 +64,8 @@ function Row({ inv }: { inv: InviteCode }) {
         <CopyButton text={inv.code} />
       </td>
       <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: "140px" }}>{inv.note ?? "—"}</td>
+      <td style={tdStyle}>{inv.createdBy ? (inv.creatorEmail ?? inv.createdBy.slice(0, 8)) : "Operator"}</td>
+      <td style={tdStyle}>{inv.recipientEmail ?? "—"}</td>
       <td style={{ ...tdStyle, textAlign: "right", color: exhausted ? "var(--danger)" : undefined }}>
         {inv.uses}/{inv.maxUses}
       </td>
@@ -78,6 +82,7 @@ export default async function AdminInvitesPage() {
   if (!isAdmin(claims)) notFound();
 
   const invites = await listInvites();
+  const settings = await loadAppSettings();
 
   return (
     <>
@@ -96,6 +101,19 @@ export default async function AdminInvitesPage() {
             <InviteGenerator />
           </div>
 
+          <div style={{ ...cardStyle, marginBottom: "18px" }}>
+            <h2 style={{ margin: "0 0 4px", fontSize: "15px", fontWeight: 800, color: "var(--text-primary)" }}>
+              Invite settings
+            </h2>
+            <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: "14px" }}>
+              What invited users are comped, and how many invites each user gets.
+            </div>
+            <InviteSettings
+              initialCompPlan={settings.inviteCompPlan}
+              initialDefaultAllowance={settings.inviteDefaultAllowance}
+            />
+          </div>
+
           <div style={cardStyle}>
             {invites.length === 0 ? (
               <div style={{ fontSize: "13px", color: "var(--text-secondary)", padding: "24px 4px" }}>
@@ -103,11 +121,13 @@ export default async function AdminInvitesPage() {
               </div>
             ) : (
               <div style={{ overflowX: "auto" }}>
-                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "860px" }}>
                   <thead>
                     <tr>
                       <th style={thStyle}>Code</th>
                       <th style={thStyle}>Note</th>
+                      <th style={thStyle}>Created by</th>
+                      <th style={thStyle}>Sent to</th>
                       <th style={{ ...thStyle, textAlign: "right" }}>Uses</th>
                       <th style={thStyle}>Expires</th>
                       <th style={thStyle}>Created</th>

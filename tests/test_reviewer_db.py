@@ -38,8 +38,28 @@ def test_load_profiles(conn):
          "preferred_locations": [], "daily_review_cap": None,
          # Phase 1: LEFT JOIN subscriptions (none here) + the invite-proof flag.
          "sub_plan": None, "sub_status": None, "sub_current_period_end": None,
-         "invited": False}
+         "invited": False,
+         # Operator pin (plan_overrides) — none for this user.
+         "ov_plan": None, "ov_expires_at": None}
     ]
+
+
+@requires_db
+def test_load_profiles_carries_plan_override(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'v1')",
+            (USER,),
+        )
+        cur.execute(
+            "INSERT INTO plan_overrides (user_id, plan, note) VALUES (%s, 'pro', 'beta comp')",
+            (USER,),
+        )
+    conn.commit()
+    profiles = rdb.load_profiles(conn)
+    assert profiles[0]["ov_plan"] == "pro"
+    assert profiles[0]["ov_expires_at"] is None
 
 
 @requires_db

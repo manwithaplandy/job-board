@@ -4,6 +4,7 @@ import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import { saveInviteSettings } from "@/lib/appSettings";
 import { setInviteAllowance } from "@/lib/invites";
+import { clearPlanOverride, setPlanOverride } from "@/lib/planOverrides";
 
 // Admin-only operator settings. SECURITY: independently reachable regardless of the
 // admin pages' gates, so each action re-gates on isAdmin FIRST — before validation,
@@ -55,5 +56,58 @@ export async function setInviteAllowanceAction(input: {
   } catch (err) {
     console.error("setInviteAllowanceAction failed", err);
     return { ok: false, error: "Couldn't update the allowance. Please try again." };
+  }
+}
+
+/**
+ * Pin (or clear) a tenant's effective tier (plan_overrides, spec 2026-07-16).
+ * plan "" = clear the pin; expiresAt "" = pinned until cleared, else a FUTURE
+ * YYYY-MM-DD stored as midnight UTC (the pin lapses at the start of that UTC day).
+ */
+export async function setPlanOverrideAction(input: {
+  userId: string;
+  plan: string;
+  expiresAt: string;
+  note: string;
+}): Promise<AdminActionResult> {
+  if (!isAdmin(await getUserClaims())) throw new Error("not authorized");
+
+  if (!UUID_RE.test(input.userId)) return { ok: false, error: "Invalid user id." };
+
+  const plan = input.plan.trim().toLowerCase();
+  if (plan === "") {
+    try {
+      await clearPlanOverride(input.userId);
+      return { ok: true };
+    } catch (err) {
+      console.error("setPlanOverrideAction clear failed", err);
+      return { ok: false, error: "Couldn't clear the override. Please try again." };
+    }
+  }
+  if (plan !== "standard" && plan !== "pro") {
+    return { ok: false, error: "Override must be Standard, Pro, or No override." };
+  }
+
+  let expiresAt: Date | null = null;
+  const rawExpiry = input.expiresAt.trim();
+  if (rawExpiry !== "") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawExpiry)) {
+      return { ok: false, error: "Expiry must be a date (YYYY-MM-DD)." };
+    }
+    expiresAt = new Date(`${rawExpiry}T00:00:00Z`);
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+      return { ok: false, error: "Expiry must be in the future." };
+    }
+  }
+
+  const note = input.note.trim();
+  if (note.length > 200) return { ok: false, error: "Note must be 200 characters or fewer." };
+
+  try {
+    await setPlanOverride(input.userId, plan, expiresAt, note === "" ? null : note);
+    return { ok: true };
+  } catch (err) {
+    console.error("setPlanOverrideAction failed", err);
+    return { ok: false, error: "Couldn't save the override. Please try again." };
   }
 }

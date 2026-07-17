@@ -8,7 +8,7 @@
 // notFound(), never data.
 // ─────────────────────────────────────────────────────────────────────────────
 import { serviceSql } from "@/lib/db";
-import { resolvePlan, type Plan } from "@/lib/entitlements";
+import { resolvePlan, type Plan, type PlanOverrideLike } from "@/lib/entitlements";
 import { loadAppSettings } from "@/lib/appSettings";
 
 // Blended cheap-model cost per reviewed job (spec 2026-07-03 Economics: gate + 0.235 ×
@@ -33,6 +33,11 @@ export interface TenantMetric {
   profileUpdatedAt: Date | null;
   estCost30dUsd: number;
   invitesRemaining: number | null; // null = no invite_allowances row yet → sees the default
+  // Operator pin (plan_overrides). Surfaced even when lapsed so the row editor can
+  // show/clear it; `plan` above only reflects an ACTIVE pin (resolvePlan decides).
+  overridePlan: Plan | null;
+  overrideExpiresAt: Date | null;
+  overrideNote: string | null;
 }
 
 interface Row {
@@ -52,6 +57,9 @@ interface Row {
   failed_requests: number;
   profile_updated_at: Date | null;
   invites_remaining: number | null;
+  override_plan: string | null;
+  override_expires_at: Date | null;
+  override_note: string | null;
 }
 
 // One aggregate pass per metric group (CTEs), then a single join over profiles — no
@@ -94,7 +102,8 @@ SELECT
   COALESCE(r.active_requests, 0)::int AS active_requests,
   COALESCE(r.failed_requests, 0)::int AS failed_requests,
   p.updated_at   AS profile_updated_at,
-  ia.remaining AS invites_remaining
+  ia.remaining AS invites_remaining,
+  po.plan AS override_plan, po.expires_at AS override_expires_at, po.note AS override_note
 FROM profiles p
 LEFT JOIN subscriptions s ON s.user_id = p.user_id
 LEFT JOIN usage u  ON u.user_id = p.user_id
@@ -102,6 +111,7 @@ LEFT JOIN last_run lr ON lr.user_id = p.user_id
 LEFT JOIN reqs r   ON r.user_id = p.user_id
 LEFT JOIN inv      ON inv.user_id = p.user_id
 LEFT JOIN invite_allowances ia ON ia.user_id = p.user_id
+LEFT JOIN plan_overrides po ON po.user_id = p.user_id
 ORDER BY reviews_30d DESC, profile_updated_at DESC NULLS LAST
 `;
 
@@ -110,11 +120,14 @@ export async function getTenantMetrics(): Promise<TenantMetric[]> {
   const settings = await loadAppSettings();
   const rows = (await serviceSql.unsafe(_SQL)) as unknown as Row[];
   return rows.map((r) => {
+    const override: PlanOverrideLike | null =
+      r.override_plan != null ? { plan: r.override_plan, expires_at: r.override_expires_at } : null;
     const plan = resolvePlan(
       { plan: r.plan, status: r.status, current_period_end: r.current_period_end },
       r.invited,
       new Date(),
       settings.inviteCompPlan,
+      override,
     );
     return {
       userId: r.user_id,
@@ -134,6 +147,9 @@ export async function getTenantMetrics(): Promise<TenantMetric[]> {
       profileUpdatedAt: r.profile_updated_at,
       estCost30dUsd: r.reviews_30d * BLENDED_COST_PER_REVIEW_USD,
       invitesRemaining: r.invites_remaining,
+      overridePlan: r.override_plan === "standard" || r.override_plan === "pro" ? r.override_plan : null,
+      overrideExpiresAt: r.override_expires_at,
+      overrideNote: r.override_note,
     };
   });
 }

@@ -93,6 +93,47 @@ export async function getRejectedJobs(
   });
 }
 
+// Live board population (spec 2026-07-16): the viewer's approved matches reviewed
+// after `since`, in the exact lean JobRow shape the board list renders, plus a fresh
+// server-issued cursor. The cursor is captured BEFORE the delta query so a row
+// committing between the two statements is returned now AND on the next tick — the
+// 10s overlap in buildJobsQuery plus the client's dedupe-by-id make delivery
+// at-least-once, never gapped. since=null (the client's first poll) only establishes
+// the cursor. The stream is cosmetic-best-effort: the settle-time router.refresh()
+// re-runs the authoritative board query, so a missed tick can't persist wrong state.
+export async function getReviewFeed(
+  userId: string,
+  since: string | null,
+): Promise<{ cursor: string; newMatches: ReviewedJobRow[] }> {
+  return withUserSql(userId, async (tx) => {
+    const crow = await tx`SELECT now() AS cursor`;
+    const raw = (crow[0] as { cursor: Date | string }).cursor;
+    const cursor = raw instanceof Date ? raw.toISOString() : String(raw);
+    if (!since) return { cursor, newMatches: [] };
+    // Same location pre-filter as the server-rendered board (app/page.tsx passes the
+    // viewer's preferred_locations into getJobs) — resolved here so the route stays
+    // one call.
+    const prow = await tx`
+      SELECT preferred_locations FROM profiles WHERE user_id = ${userId}::uuid
+    `;
+    const viewerLocations =
+      (prow[0] as { preferred_locations: string[] } | undefined)?.preferred_locations ?? [];
+    const f: Filters = {
+      companies: [], include: [], exclude: [], remoteOnly: false,
+      status: "open", verdict: "approve",
+      experience: "", industry: "", subcategory: "", location: "",
+    };
+    const { text, values } = buildJobsQuery(f, userId, viewerLocations, {
+      reviewedSince: since,
+    });
+    const rows = await tx.unsafe(text, values as never[]);
+    return {
+      cursor,
+      newMatches: (rows as unknown as Record<string, unknown>[]).map(toJobRow),
+    };
+  });
+}
+
 // postgres.js delivers jsonb columns as parsed JS values; normalize a detail row
 // into the typed shape at the boundary instead of an `as unknown as` cast.
 function toJobReviewDetail(row: Record<string, unknown>): JobReviewDetail {

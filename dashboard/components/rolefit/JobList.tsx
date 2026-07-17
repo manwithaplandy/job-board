@@ -31,6 +31,9 @@ export interface JobListProps {
   scrollToId?: string | null;
   // Hover-revealed reject × on each card (#14). Threaded to every JobCard; absent → no ×.
   onReject?: (id: string) => void;
+  // Live population: ids that streamed in within the last ~2.6s — each matching card
+  // renders with the arrival entrance (JobCard isNew).
+  freshIds?: Set<string>;
 }
 
 // Windowed list: only the cards near the viewport are mounted, so filtering a ~100k-row
@@ -44,6 +47,7 @@ function VirtualJobList({
   scrollParentRef,
   scrollToId,
   onReject,
+  freshIds,
 }: {
   jobs: JobRow[];
   selectedId: string | null;
@@ -51,6 +55,7 @@ function VirtualJobList({
   scrollParentRef: RefObject<HTMLDivElement | null>;
   scrollToId?: string | null;
   onReject?: (id: string) => void;
+  freshIds?: Set<string>;
 }) {
   // The scroll element is an ancestor (the board's list pane), whose ref attaches after
   // this child's layout effect — so getScrollElement() is null on the first commit. Force
@@ -106,7 +111,7 @@ function VirtualJobList({
               transform: `translateY(${vi.start}px)`,
             }}
           >
-            <JobCard job={job} selected={job.id === selectedId} onSelect={onSelect} onReject={onReject} />
+            <JobCard job={job} selected={job.id === selectedId} onSelect={onSelect} onReject={onReject} isNew={freshIds?.has(job.id) ?? false} />
           </div>
         );
       })}
@@ -126,6 +131,7 @@ export function JobList({
   scrollParentRef,
   scrollToId,
   onReject,
+  freshIds,
 }: JobListProps) {
   if (jobs.length === 0) {
     if (view !== "all") {
@@ -179,6 +185,7 @@ export function JobList({
         scrollParentRef={scrollParentRef}
         scrollToId={scrollToId}
         onReject={onReject}
+        freshIds={freshIds}
       />
     );
   }
@@ -192,6 +199,7 @@ export function JobList({
             selected={job.id === selectedId}
             onSelect={onSelect}
             onReject={onReject}
+            isNew={freshIds?.has(job.id) ?? false}
           />
         </div>
       ))}

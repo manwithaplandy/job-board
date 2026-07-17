@@ -83,3 +83,46 @@ describe("JobCard no-score neutral treatment", () => {
     expect(card.querySelector(".rf-job-card__score-rail")).toBeNull();
   });
 });
+
+describe("JobCard — live-arrival highlight", () => {
+  const popJob: JobRow = {
+    id: "greenhouse:acme:1",
+    title: "Staff Engineer",
+    location: "Phoenix, AZ",
+    remote: true,
+    first_seen_at: "2026-07-01T00:00:00.000Z",
+    closed_at: null,
+    company_name: "Acme",
+    ats: "greenhouse",
+    human_override: false,
+    verdict: "approve",
+    role_category: "engineering",
+    seniority: "staff",
+    work_arrangement: "remote",
+    pay_min: 150000,
+    pay_max: 200000,
+    pay_currency: "USD",
+    pay_period: "year",
+    headcount: null,
+    skills_score: 8,
+    experience_score: 8,
+    comp_score: 8,
+    fit_score: 88,
+    skill_gaps: [],
+  };
+
+  test("isNew adds the arrival class to the card root", () => {
+    const { container } = render(
+      <JobCard job={popJob} selected={false} onSelect={() => {}} isNew />,
+    );
+    expect(container.querySelector(".rf-job-card.rf-job-card--new")).toBeTruthy();
+  });
+
+  test("without isNew the arrival class is absent", () => {
+    const { container } = render(
+      <JobCard job={popJob} selected={false} onSelect={() => {}} />,
+    );
+    expect(container.querySelector(".rf-job-card")).toBeTruthy();
+    expect(container.querySelector(".rf-job-card--new")).toBeNull();
+  });
+});

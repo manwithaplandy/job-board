@@ -213,4 +213,32 @@ describe("buildJobsQuery", () => {
       "COALESCE(c.display_name, c.name) AS company_name",
     );
   });
+
+  test("reviewedSince adds an overlapped reviewed_at predicate bound as a parameter", () => {
+    const q = buildJobsQuery(base, UID, [], { reviewedSince: "2026-07-16T00:00:00.000Z" });
+    expect(q.text).toContain(
+      "r.reviewed_at > $2::timestamptz - interval '10 seconds'",
+    );
+    expect(q.values).toEqual([UID, "2026-07-16T00:00:00.000Z"]);
+  });
+
+  test("reviewedSince composes with viewer locations (placeholders stay aligned)", () => {
+    const q = buildJobsQuery(base, UID, ["Phoenix, AZ"], {
+      reviewedSince: "2026-07-16T00:00:00.000Z",
+    });
+    // reviewedSince is pushed in the review-scoped block ($2); locations follow ($3).
+    expect(q.text).toContain("r.reviewed_at > $2::timestamptz - interval '10 seconds'");
+    expect(q.text).toContain("(j.remote IS TRUE OR j.location = ANY($3))");
+    expect(q.values).toEqual([UID, "2026-07-16T00:00:00.000Z", ["Phoenix, AZ"]]);
+  });
+
+  test("reviewedSince without a viewer is a programmer error", () => {
+    expect(() =>
+      buildJobsQuery(base, null, [], { reviewedSince: "2026-07-16T00:00:00.000Z" }),
+    ).toThrow(/reviewedSince requires a viewer/);
+  });
+
+  test("no reviewedSince → no reviewed_at clause", () => {
+    expect(buildJobsQuery(base, UID).text).not.toContain("reviewed_at");
+  });
 });

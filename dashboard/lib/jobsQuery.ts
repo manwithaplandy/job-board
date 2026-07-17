@@ -9,12 +9,17 @@ export function buildJobsQuery(
   f: Filters,
   userId: string | null,
   viewerLocations: string[] = [],
-  opts: { humanOverrideOnly?: boolean } = {},
+  opts: { humanOverrideOnly?: boolean; reviewedSince?: string } = {},
 ): SqlQuery {
   const values: unknown[] = [];
   const ph = () => `$${values.length + 1}`;
   const where: string[] = [];
   const hasReviews = userId !== null;
+
+  // reviewedSince filters the viewer's review join — meaningless without a viewer.
+  if (opts.reviewedSince && !hasReviews) {
+    throw new Error("buildJobsQuery: reviewedSince requires a viewer (userId)");
+  }
 
   // The review join binds the VIEWER's own user_id. Capture its placeholder before
   // seeding the value (so it resolves to $1, with values still empty), so the
@@ -34,6 +39,14 @@ export function buildJobsQuery(
     // Rejected-view recovery (getRejectedJobs): restrict to the operator's deliberate
     // rejects so AI denies — the bulk of deny rows — don't flood the view.
     if (opts.humanOverrideOnly) where.push("r.human_override IS TRUE");
+    // Live-population delta (getReviewFeed): only reviews newer than the client's
+    // cursor. The 10s overlap re-sends rows near the boundary — the client dedupes by
+    // id, so delivery is at-least-once rather than gapped (in-flight upserts whose
+    // reviewed_at predates the cursor snapshot would otherwise be lost).
+    if (opts.reviewedSince) {
+      where.push(`r.reviewed_at > ${ph()}::timestamptz - interval '10 seconds'`);
+      values.push(opts.reviewedSince);
+    }
   }
 
   // --- plain job filters (apply with or without an owner) ---

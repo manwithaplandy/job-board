@@ -455,6 +455,18 @@ CREATE TABLE invite_allowances (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Operator-pinned effective tier (see migrations/2026-07-16-plan-overrides.sql).
+-- An ACTIVE row (expires_at NULL or future) wins over subscription + invite comp in
+-- resolvePlan/resolve_plan. Service-write-only; owner may SELECT their own pin.
+CREATE TABLE plan_overrides (
+  user_id    UUID PRIMARY KEY,
+  plan       TEXT NOT NULL CHECK (plan IN ('standard','pro')),
+  expires_at TIMESTAMPTZ,          -- NULL = pinned until cleared
+  note       TEXT,                 -- operator memo ("comped for feedback")
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Generic operator key-value config (deliberately separate from tier_settings, whose PK
 -- is CHECK-constrained to plan names). Shared operator RLS like tier_settings; ALL writes
 -- are service-role (admin-gated dashboard/lib/appSettings.ts).
@@ -575,6 +587,9 @@ CREATE POLICY no_anon_access ON generation_jobs      FOR ALL USING (false) WITH 
 -- See migrations/2026-07-13-user-invites.sql.
 ALTER TABLE invite_allowances    ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON invite_allowances    FOR ALL USING (false) WITH CHECK (false);
+-- See migrations/2026-07-16-plan-overrides.sql.
+ALTER TABLE plan_overrides       ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON plan_overrides       FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE app_settings         ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON app_settings         FOR ALL USING (false) WITH CHECK (false);
 
@@ -645,6 +660,10 @@ CREATE POLICY owner_access ON generation_jobs FOR ALL TO authenticated
 -- Per-user invite budget: owner may READ their own count; writes are service-role
 -- (dashboard/lib/invites.ts). See migrations/2026-07-13-user-invites.sql.
 CREATE POLICY owner_read ON invite_allowances FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()));
+-- Operator-pinned effective tier: owner may READ their own pin; writes are service-role
+-- (dashboard/lib/planOverrides.ts). See migrations/2026-07-16-plan-overrides.sql.
+CREATE POLICY owner_read ON plan_overrides FOR SELECT TO authenticated
   USING (user_id = (SELECT public.app_user_id()));
 
 -- Shared-read policies (global corpus + pipeline accounting).
@@ -735,6 +754,9 @@ GRANT SELECT ON job_questions TO anon, authenticated;
 -- invite_allowances: owner reads own count (writes service-role). app_settings: shared
 -- operator config read (writes service-role). See migrations/2026-07-13-user-invites.sql.
 GRANT SELECT ON invite_allowances TO authenticated;
+-- plan_overrides: owner reads own pin (writes service-role). See
+-- migrations/2026-07-16-plan-overrides.sql.
+GRANT SELECT ON plan_overrides TO authenticated;
 GRANT SELECT ON app_settings TO anon, authenticated;
 
 -- Default-privilege deny (mirrors migrations/2026-07-05-default-privileges-revoke.sql,

@@ -40,14 +40,17 @@ _PROFILE_COLUMNS = """
     p.model_stage1, p.model_stage2, p.preferred_locations, p.daily_review_cap,
     s.plan AS sub_plan, s.status AS sub_status,
     s.current_period_end AS sub_current_period_end,
-    EXISTS(SELECT 1 FROM invite_redemptions ir WHERE ir.user_id = p.user_id) AS invited
+    EXISTS(SELECT 1 FROM invite_redemptions ir WHERE ir.user_id = p.user_id) AS invited,
+    po.plan AS ov_plan, po.expires_at AS ov_expires_at
 """
 # LEFT JOIN the subscription mirror + compute the server-side invite proof so
-# run._review_user can resolve each user's tier entitlement (plan → model + daily cap).
+# run._review_user can resolve each user's tier entitlement (plan → model + daily cap),
+# including the operator pin (plan_overrides).
 _LOAD_PROFILES_SQL = f"""
     SELECT {_PROFILE_COLUMNS}
     FROM profiles p
     LEFT JOIN subscriptions s ON s.user_id = p.user_id
+    LEFT JOIN plan_overrides po ON po.user_id = p.user_id
 """
 
 
@@ -179,8 +182,8 @@ def get_daily_spend(conn, user_id: str, kind: str = "review") -> int:
 def add_daily_spend(conn, user_id: str, n: int, kind: str = "review") -> None:
     """Charge n jobs to this user's daily budget (UTC day, upserted in place).
 
-    Committed by the caller in the same transaction as the persisted review rows,
-    so spend and rows move together.
+    The caller commits this in its own transaction right after the review rows' own
+    chunked commits, so spend lands just behind the persisted rows (see _persist_chunk).
     """
     if n <= 0:
         return
@@ -344,18 +347,27 @@ def finish_review_request(conn, req_id: int, status: str, notes: str | None = No
         )
 
 
-def recover_stale_review_requests(conn, minutes: int = 30) -> int:
+def recover_stale_review_requests(conn, minutes: int = 30, exclude_ids=None) -> int:
     """Fail requests stuck 'running' longer than `minutes` so a crashed worker can't
     wedge a user's only active slot (the partial unique index counts 'running').
+
+    `exclude_ids` (any iterable of bigint request ids, or None) protects those ids
+    from recovery no matter how old their `started_at` is — parallel worker loops pass
+    their in-flight ids so they don't reap each other's healthy long-running reviews.
+    None (the default) and an empty iterable both reap every aged 'running' row.
+
     Returns the number recovered. Caller commits."""
+    ex = list(exclude_ids) if exclude_ids is not None else None
     with conn.cursor() as cur:
         cur.execute(
             """
             UPDATE review_requests SET status = 'failed', finished_at = now(),
                    notes = 'worker timeout — re-request'
-            WHERE status = 'running' AND started_at < now() - make_interval(mins => %s)
+            WHERE status = 'running'
+              AND started_at < now() - make_interval(mins => %(mins)s)
+              AND (%(ex)s::bigint[] IS NULL OR id <> ALL(%(ex)s::bigint[]))
             """,
-            (minutes,),
+            {"mins": minutes, "ex": ex},
         )
         return cur.rowcount
 

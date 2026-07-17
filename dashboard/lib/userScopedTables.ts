@@ -31,6 +31,9 @@ export const USER_DELETE_TABLES = [
   // Per-user invite budget (user-sent invites). The codes a user MINTED are handled
   // separately in accountDeletion.ts (anonymized, never deleted).
   "invite_allowances",
+  // Operator-pinned effective tier. Deleting the row with the account is correct:
+  // a pin for an erased user is meaningless, and absence is the well-defined state.
+  "plan_overrides",
 ] as const;
 
 /** Tables whose rows are kept but de-identified (user_id → NULL) on deletion. */

@@ -195,11 +195,24 @@ export function RolefitBoard({
   const [corrections, setCorrections] = useState<Record<string, Partial<JobRow>>>({});
 
   // Live-population overlay (spec 2026-07-16): matches streamed in by ReviewNowPanel's
-  // cursor poll while a review runs. Props win — boardJobs drops any entry whose id is
-  // already in `jobs`, so the settle-time router.refresh() naturally supersedes the
-  // overlay (entries are retained until unmount; render-time dedupe is the prune, kept
-  // out of an effect so no setState-on-props-change cascade).
+  // cursor poll while a review runs. Props win — an overlay entry is DELETED the moment a
+  // props refresh delivers its id (prune-on-confirmation, below), so a later re-review that
+  // flips the row to deny and drops it from props can't resurrect the stale approve copy.
+  // A row that never lands in props (an accepted transient) lingers until unmount. Render-
+  // time dedupe in `boardJobs` stays as the same-commit safety net.
   const [liveMatches, setLiveMatches] = useState<Record<string, JobRow>>({});
+  // Prune-on-confirmation via React's adjust-state-during-render pattern (lint-safe, no
+  // setState-in-effect, no flicker: the pruned entries render identically from props in the
+  // SAME commit). When `jobs` changes, drop any overlay entry whose id now appears in props.
+  const [prevJobs, setPrevJobs] = useState(jobs);
+  if (jobs !== prevJobs) {
+    setPrevJobs(jobs);
+    const inProps = new Set(jobs.map((j) => j.id));
+    if (Object.keys(liveMatches).some((id) => inProps.has(id))) {
+      setLiveMatches((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([id]) => !inProps.has(id))));
+    }
+  }
   // Ids that arrived within the last ~2.6s — drives the card's pop-in highlight.
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
   const freshTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());

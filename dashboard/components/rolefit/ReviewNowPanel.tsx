@@ -84,7 +84,7 @@ export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: Re
       if (typeof data.remaining === "number") setRemaining(data.remaining);
       if (typeof data.reviewedToday === "number") setReviewedToday(data.reviewedToday);
       if (typeof data.cursor === "string") cursorRef.current = data.cursor;
-      if (data.newMatches && data.newMatches.length > 0) onNewMatches?.(data.newMatches);
+      if (Array.isArray(data.newMatches) && data.newMatches.length > 0) onNewMatches?.(data.newMatches);
     } catch {
       /* transient — the next poll or a manual retry recovers; the cursor is unchanged,
          so the 10s overlap + settle-refresh make the skipped tick harmless */

@@ -145,4 +145,28 @@ describe("RolefitBoard — live population", () => {
     expect(screen.getByText("Staff Engineer")).toBeTruthy();
     expect(screen.getByText("Platform Engineer")).toBeTruthy();
   });
+
+  test("reconcile: a confirmed match is pruned from the overlay and cannot resurrect when props later drop it", async () => {
+    const streamed = makeJob("greenhouse:acme:1", "Staff Engineer");
+    nextResponse = { status: "running", reviewedToday: 0, cursor: "C1", newMatches: [] };
+    const { rerender } = render(<RolefitBoard {...baseProps} />);
+    await flush(0);
+
+    nextResponse = {
+      status: "running", reviewedToday: 1, cursor: "C2", newMatches: [streamed],
+    };
+    await flush(4_000); // streamed into the overlay
+    expect(screen.getByText("Staff Engineer")).toBeTruthy();
+
+    // Settle-time refresh confirms the row in props — it renders once (from props), and the
+    // overlay copy is pruned on confirmation (no double render).
+    nextResponse = { status: "running", reviewedToday: 1, cursor: "C3", newMatches: [] };
+    rerender(<RolefitBoard {...baseProps} jobs={[streamed]} />);
+    expect(screen.getAllByText("Staff Engineer")).toHaveLength(1);
+
+    // A later re-review flips the row to deny → the next refresh drops it from props. With
+    // the overlay pruned at confirmation, nothing resurrects the stale approve row.
+    rerender(<RolefitBoard {...baseProps} jobs={[]} />);
+    expect(screen.queryByText("Staff Engineer")).toBeNull();
+  });
 });

@@ -71,6 +71,56 @@ describe("resolvePlan", () => {
   });
 });
 
+describe("resolvePlan operator override (pin semantics)", () => {
+  test("active pin DOWNGRADES below a paying subscription", () => {
+    expect(
+      resolvePlan(
+        { plan: "pro", status: "active", current_period_end: future(10) },
+        false, NOW, "standard", { plan: "standard", expires_at: null },
+      ),
+    ).toBe("standard");
+  });
+
+  test("active pin comps a stranger (no sub, not invited) to pro", () => {
+    expect(resolvePlan(null, false, NOW, "standard", { plan: "pro", expires_at: null })).toBe("pro");
+  });
+
+  test("pin wins even when invite comping is off (compPlan none)", () => {
+    expect(resolvePlan(null, true, NOW, "none", { plan: "standard", expires_at: null })).toBe("standard");
+  });
+
+  test("future-dated pin is active; expired pin falls through", () => {
+    expect(resolvePlan(null, false, NOW, "standard", { plan: "pro", expires_at: future(1) })).toBe("pro");
+    // expired + invited → back to the natural comp
+    expect(resolvePlan(null, true, NOW, "standard", { plan: "pro", expires_at: future(-1) })).toBe("standard");
+    // expired + stranger → null
+    expect(resolvePlan(null, false, NOW, "standard", { plan: "pro", expires_at: future(-1) })).toBeNull();
+  });
+
+  test("string expiry (DB/json round-trip) works; junk plan or junk date is inert", () => {
+    expect(
+      resolvePlan(null, false, NOW, "standard", { plan: "pro", expires_at: future(2).toISOString() }),
+    ).toBe("pro");
+    expect(resolvePlan(null, false, NOW, "standard", { plan: "platinum", expires_at: null })).toBeNull();
+    expect(resolvePlan(null, false, NOW, "standard", { plan: "pro", expires_at: "not-a-date" })).toBeNull();
+  });
+
+  test("a pin is NOT trial-clamped — pro pin + trialing pro sub stays pro", () => {
+    expect(
+      resolvePlan(
+        { plan: "pro", status: "trialing", current_period_end: future(5) },
+        false, NOW, "standard", { plan: "pro", expires_at: null },
+      ),
+    ).toBe("pro");
+  });
+
+  test("null/absent override preserves existing behavior exactly", () => {
+    expect(
+      resolvePlan({ plan: "pro", status: "active", current_period_end: future(10) }, false, NOW, "standard", null),
+    ).toBe("pro");
+  });
+});
+
 describe("resolveStage2Model", () => {
   test("standard cannot run premium — falls back to cheap", () => {
     expect(resolveStage2Model("standard", PREMIUM_MODEL)).toBe(CHEAP_MODEL);

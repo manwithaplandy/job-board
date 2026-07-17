@@ -12,6 +12,14 @@ UA = "aaaa1111-1111-1111-1111-111111111111"
 UB = "bbbb2222-2222-2222-2222-222222222222"
 
 
+@pytest.fixture(autouse=True)
+def _reset_in_flight_registry():
+    """The in-flight id registry is process-global module state. Clear it after every
+    test so a marked id never leaks into another test's recovery sweep."""
+    yield
+    worker._in_flight_ids.clear()
+
+
 def _enqueue(conn, user_id) -> int:
     with conn.cursor() as cur:
         cur.execute(
@@ -266,3 +274,62 @@ def test_main_loop_reconnects_after_a_cycle_error(monkeypatch):
 
     assert calls["n"] == 2           # cycle ran again AFTER the error (didn't wedge)
     assert connects["n"] == 2        # initial connect + one reconnect
+
+
+# ── in-flight registry: process_one excludes marked ids + clears after terminal ──
+@requires_db
+def test_process_one_skips_recovery_for_in_flight_id(conn):
+    # A row THIS process is actively working (marked in-flight) must survive
+    # process_one's own recovery sweep, however old its started_at. Once un-marked, the
+    # next sweep reaps it as a stale claim.
+    rid = _seed_aged_running(conn, UA)
+    worker._mark_in_flight(rid)
+
+    assert worker.process_one(conn) is False  # queue has no pending rows → False
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM review_requests WHERE id = %s", (rid,))
+        assert cur.fetchone()["status"] == "running"  # excluded → not reaped
+
+    worker._clear_in_flight(rid)
+    assert worker.process_one(conn) is False
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM review_requests WHERE id = %s", (rid,))
+        assert cur.fetchone()["status"] == "failed"  # no longer excluded → reaped
+
+
+@requires_db
+def test_process_one_clears_registry_on_done(conn):
+    # After a request completes 'done', its id is cleared from the registry — proving
+    # the clear runs AFTER the terminal transition, not instead of it. Cap pre-spent so
+    # _review_user makes zero LLM calls (no API key needed).
+    _entitle_profile(conn, UA, cap=5)
+    rdb.add_daily_spend(conn, UA, 5)
+    conn.commit()
+    rid = _enqueue(conn, UA)
+
+    assert worker.process_one(conn) is True
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM review_requests WHERE id = %s", (rid,))
+        assert cur.fetchone()["status"] == "done"
+    assert worker._in_flight_snapshot() == set()
+
+
+@requires_db
+def test_process_one_clears_registry_on_failure(conn):
+    # The failure branch clears the id too: UA has no profile row, so process_one takes
+    # the `profile is None` → 'failed' path.
+    rid = _enqueue(conn, UA)
+
+    assert worker.process_one(conn) is True
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM review_requests WHERE id = %s", (rid,))
+        assert cur.fetchone()["status"] == "failed"
+    assert worker._in_flight_snapshot() == set()
+
+
+def test_in_flight_snapshot_is_a_copy():
+    # The snapshot is a defensive copy: mutating it must not touch the registry.
+    worker._mark_in_flight(999)
+    snap = worker._in_flight_snapshot()
+    snap.add(1000)
+    assert worker._in_flight_snapshot() == {999}

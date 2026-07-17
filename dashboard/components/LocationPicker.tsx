@@ -14,7 +14,7 @@ export function LocationPicker({
   // The picker owns its own visible <label> (kept associated with the input via htmlFor so
   // it's the combobox's accessible name). Locations are mandatory everywhere the picker is
   // used (onboarding + /profile both reject an empty selection), hence the default copy.
-  label = "Locations to include (required — remote roles are always included)",
+  label = "Locations to include (required — add \"Remote\" to include remote roles)",
   onSelectionChange,
 }: {
   name: string;

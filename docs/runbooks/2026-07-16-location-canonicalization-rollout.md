@@ -24,9 +24,9 @@ Verify:
 Spot-check ~20 mappings: SELECT raw, canonicals, source FROM locations
   ORDER BY random() LIMIT 20;  -- fix any bad row via UPDATE ... source='manual'
 
-## 3. Run the prefs migration (after 2)
+## 3. Run the prefs backfill (after 2)
     DATABASE_URL=... python3 -m job_discovery.prefs_backfill
-Every profile gets canonical prefs + 'Remote' appended (feed-preserving).
+Every profile gets canonical prefs + 'Remote' ensured (prepended) (feed-preserving).
 Verify: SELECT user_id, preferred_locations FROM profiles;  -- all contain 'Remote'
 Idempotent — safe to rerun.
 

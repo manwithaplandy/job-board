@@ -113,12 +113,14 @@ export interface ReviewAgg {
 // regression test (lib/queries.locationScoping.db.test.ts) can drive the ACTUAL query.
 // Scoped to the viewer's review pool — open jobs whose canonical locations (raw-string
 // COALESCE fallback) overlap preferred_locations, plus remote jobs when 'Remote' is
-// selected (opt-in) — kept in LOCKSTEP with reviewStatsWith (lib/queries.ts) and
-// lib/jobsQuery.ts. The preferred_locations subquery MUST be COALESCE'd to an empty array
-// so `&&` / `= ANY(...)` receives an array EXPRESSION (array form); the bare subquery form
-// `&& (SELECT ...)` / `= ANY((SELECT ...))` compares against whole text[] rows → Postgres
-// 42883 (operator does not exist: text[] && text / text = text[]), a plan-time error that
-// 500'd every authenticated render (fixed in b0a2689). Empty/missing prefs → empty pool.
+// selected (opt-in). Its predicate BODY matches reviewStatsWith (lib/queries.ts) and
+// lib/jobsQuery.ts; the empty-prefs handling deliberately diverges (board/reviewer: no
+// filter). The preferred_locations subquery MUST be COALESCE'd to an empty array, which is
+// load-bearing twice over: (a) the `= ANY((SELECT ...))` bare-subquery form is a plan-time
+// 42883 (operator does not exist: text = text[]) that 500'd every authenticated render (the
+// b0a2689 incident) — the array-form COALESCE makes it legal; (b) bare `&&` against a
+// subquery IS legal, but a 0-row subquery yields NULL so the row drops only implicitly —
+// COALESCE to '{}' makes `&&` definitively false. Empty/missing prefs → empty pool.
 export async function reviewAggWith(tx: TransactionSql, userId: string): Promise<ReviewAgg> {
   const rows = await tx`
       SELECT count(*) FILTER (WHERE r.job_id IS NOT NULL)::int AS reviewed,

@@ -44,8 +44,8 @@ export function OnboardingForm({
             the cost-bounding rationale sits below it as helper text. */}
         <LocationPicker name="preferred_locations" options={locationOptions} defaultValue={[]} />
         <div className="rf-field__description">
-          Your board only reviews jobs in these locations (plus remote). This is required —
-          it keeps your board focused and your review costs bounded.
+          Your board only reviews jobs in these locations — add &quot;Remote&quot; to include
+          remote roles. This is required — it keeps your board focused and your review costs bounded.
         </div>
         {errors.locations && <div className="rf-field__error" role="alert">{errors.locations}</div>}
       </div>

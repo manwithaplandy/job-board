@@ -1,5 +1,6 @@
 """One-time rollout migration: remap every profile's preferred_locations
-through the locations table and append 'Remote'.
+through the locations table and ensure 'Remote' (prepended so the
+MAX_LOCATIONS cap can never drop it).
 
 Run against a database:  DATABASE_URL=... python -m job_discovery.prefs_backfill
 

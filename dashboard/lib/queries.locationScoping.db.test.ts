@@ -5,8 +5,10 @@ import { reviewAggWith } from "@/lib/metrics";
 
 // Real-Postgres guard for the location-scoping predicate (and heir to the
 // b0a2689 42883 regression test): the profile subquery MUST stay in ARRAY form
-// — COALESCE((SELECT ...), '{}'::text[]) — never the bare-subquery form of
-// ANY/&&, which Postgres rejects at plan time (text = text[] / text[] && text).
+// — COALESCE((SELECT ...), '{}'::text[]). Bare `= ANY((SELECT ...))` is what
+// Postgres rejects at plan time (42883: text = text[]); bare `&&` is legal, but
+// COALESCE to '{}' still matters — a 0-row subquery yields NULL so the row would
+// drop only implicitly, whereas '{}' makes an empty pool definitively false.
 //
 // Contract under test (spec 2026-07-16-location-dedupe-design.md):
 //   COALESCE(j.location_canonicals, ARRAY[j.location]) && prefs

@@ -177,10 +177,11 @@ function toReviewStats(row: Record<string, unknown>): ReviewStats {
 //
 // The pool is scoped to the viewer's review pool — open jobs whose canonical locations
 // (raw-string COALESCE fallback for not-yet-stamped jobs) overlap preferred_locations,
-// plus remote jobs when the viewer selected 'Remote' (opt-in) — mirroring
-// lib/jobsQuery.ts and reviewer/db.py select_candidates EXACTLY (the reviewer only ever
-// scores that pool, so counting the whole ~114k corpus overstated "unreviewed"). Empty
-// or missing preferred_locations → empty pool. `reviewed` is the same pool's reviewed
+// plus remote jobs when the viewer selected 'Remote' (opt-in) — its predicate BODY mirrors
+// lib/jobsQuery.ts and reviewer/db.py select_candidates (the reviewer only ever scores that
+// pool, so counting the whole ~114k corpus overstated "unreviewed"); the empty-prefs
+// handling deliberately diverges (board/reviewer: no filter). Empty or missing
+// preferred_locations → empty pool. `reviewed` is the same pool's reviewed
 // side; the header uses it to stay hidden until the viewer's first review lands (see
 // components/rolefit/Header.tsx).
 export async function reviewStatsWith(tx: TransactionSql, userId: string): Promise<ReviewStats> {

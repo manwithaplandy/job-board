@@ -141,7 +141,8 @@ describe("buildJobsQuery", () => {
 
   test("empty owner preferred locations add no baseline clause", () => {
     const q = buildJobsQuery(base, UID, []);
-    expect(q.text).not.toContain("j.location = ANY(");
+    expect(q.text).not.toContain("&& $");
+    expect(q.text).not.toContain("'Remote' = ANY");
   });
 
   test("owner preferred locations apply without an owner, binding from $1", () => {

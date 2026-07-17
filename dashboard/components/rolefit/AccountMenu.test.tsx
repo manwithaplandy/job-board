@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
 import { type ComponentProps } from "react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { AccountMenu } from "./AccountMenu";
+
+// AccountMenu now transitively imports the "use server" actions module (via InviteModal),
+// which pulls in next/headers. Stub it so the jsdom render doesn't touch server internals.
+vi.mock("@/app/actions/userInvites", () => ({
+  getInviteStatusAction: vi.fn(async () => ({ ok: true, remaining: 3, granted: 3, emailConfigured: true })),
+  sendInvitesAction: vi.fn(),
+  generateInviteCodeAction: vi.fn(),
+}));
 
 afterEach(cleanup);
 
@@ -151,5 +159,19 @@ describe("AccountMenu — keyboard + dismissal", () => {
     expect(screen.getByRole("menu")).not.toBeNull();
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+});
+
+describe("AccountMenu — Invite item", () => {
+  test("renders an Invite menuitem between Billing and Admin; selecting it closes the menu and opens the modal", () => {
+    renderMenu({ isAdmin: true });
+    openWithClick();
+    const items = screen.getAllByRole("menuitem").map((el) => el.textContent);
+    expect(items.indexOf("Invite")).toBeGreaterThan(items.indexOf("Billing"));
+    expect(items.indexOf("Invite")).toBeLessThan(items.indexOf("Admin"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Invite" }));
+    expect(screen.queryByRole("menu")).toBeNull(); // menu closed
+    expect(screen.getByRole("dialog")).not.toBeNull(); // modal open
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 });

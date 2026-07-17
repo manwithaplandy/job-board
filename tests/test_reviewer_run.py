@@ -978,3 +978,133 @@ def test_multi_user_disjoint_location_scoped_reviews_in_one_pass(conn, monkeypat
     assert "lever:acme:nyc" not in b_jobs
     # One attributable run row per user.
     assert run_users == {USER_A, USER_B}
+
+
+# --- Per-chunk streaming persistence (spec §B2 Task 5) ---
+
+
+@requires_db
+def test_spend_and_rows_committed_per_chunk_visible_cross_connection(conn, monkeypatch):
+    """Headline behavior: each chunk's job_reviews rows + daily spend are COMMITTED the
+    moment the chunk finishes — not batched to end of run — so the dashboard's cursor
+    poll (a separate connection) sees them mid-run. STAGE1_BATCH=2 + 5 jobs → 3 chunks
+    (2, 2, 1). A spy on add_daily_spend records each chunk's n and, before returning,
+    reads COMMITTED job_reviews through a SECOND connection (exactly what the poll sees).
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+
+    cid = _seed_company(conn)
+    for i in range(5):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=10)
+
+    spend_n = []
+    committed_rows = []
+    original = rdb.add_daily_spend
+    # A separate session, autocommit so every read gets the latest committed snapshot.
+    side = psycopg.connect(os.environ["TEST_DATABASE_URL"], row_factory=dict_row,
+                           autocommit=True)
+
+    def spy(c, user_id, n, kind="review"):
+        spend_n.append(n)
+        original(c, user_id, n, kind)
+        # This chunk's rows were committed by _persist_rows BEFORE this spend call, so a
+        # DIFFERENT connection already sees them — the cross-connection visibility proof.
+        with side.cursor() as cur:
+            cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s",
+                        (user_id,))
+            committed_rows.append(cur.fetchone()["n"])
+
+    monkeypatch.setattr(rdb, "add_daily_spend", spy)
+    try:
+        _run_review_all(conn, monkeypatch)
+    finally:
+        side.close()
+
+    assert spend_n == [2, 2, 1], "spend ticks once per chunk, not once at end of run"
+    assert committed_rows == [2, 4, 5], "each chunk's rows are visibly committed mid-run"
+    assert rdb.get_daily_spend(conn, USER) == 5
+    with conn.cursor() as cur:
+        cur.execute("SELECT reviewed, approved FROM review_runs WHERE user_id = %s "
+                    "ORDER BY id DESC LIMIT 1", (USER,))
+        rr = cur.fetchone()
+    assert rr["reviewed"] == 5 and rr["approved"] == 5
+
+
+@requires_db
+def test_halt_midrun_keeps_earlier_chunk_rows_and_note(conn, monkeypatch):
+    """A 402 in a later chunk halts the run but keeps the chunk(s) already committed:
+    chunk 1 (2 jobs) persists + charges before chunk 2's stage-1 raises 402. The other
+    2 jobs get no row (retryable) and the run records the credits-halt note."""
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+    cid = _seed_company(conn)
+    for i in range(4):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=10)
+
+    class HaltingClient(StubClient):
+        async def stage1_batch(self, *, profile_block, jobs):
+            self.stage1_batch_calls += 1
+            if self.stage1_batch_calls >= 2:
+                raise _Status402("insufficient credits")  # 402 on the second chunk
+            return await super().stage1_batch(profile_block=profile_block, jobs=jobs)
+
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    import reviewer.run as run_module
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: HaltingClient(**kw))
+    run_module.review_all(conn)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 2, "only the first chunk's rows survive the halt"
+        cur.execute("SELECT reviewed, notes FROM review_runs WHERE user_id = %s "
+                    "ORDER BY id DESC LIMIT 1", (USER,))
+        rr = cur.fetchone()
+    assert rr["reviewed"] == 2
+    assert "halted: out of credits" in rr["notes"]
+    assert rdb.get_daily_spend(conn, USER) == 2, "only the first chunk was charged"
+
+
+@requires_db
+def test_deletion_between_chunks_keeps_chunk_one_and_deletion_note_wins(conn, monkeypatch):
+    """Erasure landing mid-run keeps the chunk already committed and skips the rest,
+    with the deletion note winning over the (also-set) halt note. STAGE1_BATCH=2 + 4
+    jobs. A spy inserts the account_deletions tombstone through the SAME conn right after
+    the first chunk's spend — it joins that in-flight transaction and commits with the
+    chunk's commit (cadence-independent). The next chunk's write boundary then re-reads
+    the tombstone and skips."""
+    from reviewer import config
+    monkeypatch.setattr(config, "STAGE1_BATCH_SIZE", 2)
+    cid = _seed_company(conn)
+    for i in range(4):
+        _seed_reviewable_job(conn, cid, f"j{i}")
+    _insert_profile(conn, USER, cap=10)
+
+    original = rdb.add_daily_spend
+    calls = {"n": 0}
+
+    def spy(c, user_id, n, kind="review"):
+        original(c, user_id, n, kind)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Tombstone joins THIS in-flight transaction; committed with the chunk commit.
+            with c.cursor() as cur:
+                cur.execute("INSERT INTO account_deletions (user_id) VALUES (%s)", (user_id,))
+
+    monkeypatch.setattr(rdb, "add_daily_spend", spy)
+    _run_review_all(conn, monkeypatch)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*)::int AS n FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["n"] == 2, "chunk 1 kept; chunk 2 skipped at the tombstone"
+        cur.execute("SELECT reviewed, notes FROM review_runs WHERE user_id = %s "
+                    "ORDER BY id DESC LIMIT 1", (USER,))
+        rr = cur.fetchone()
+    assert rr["reviewed"] == 2, "chunk 1's counts are kept"
+    assert rr["notes"] == "account deleted mid-run; skipped writes"
+    assert rdb.get_daily_spend(conn, USER) == 2, "only chunk 1 charged before the deletion"

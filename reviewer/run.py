@@ -420,20 +420,71 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             model_stage1=entitlements.CHEAP_MODEL,   # cheap gate always (see above)
             model_stage2=resolved_stage2,
         )
+
+        def _persist_chunk(chunk: list[ReviewResult]) -> None:
+            # Persist + count + charge THIS chunk the moment review_batch emits it (once
+            # per non-empty chunk), so the dashboard's cursor poll sees committed rows +
+            # spend as they land instead of only at end of run. Accumulates into the same
+            # `counts` the finally reports; because Task 4 guarantees the emitted chunks
+            # concatenate to `results`, the cross-chunk totals equal the old single pass.
+
+            # M-RESURRECT-2 (now per chunk): the account can be erased mid-run (profile
+            # loaded before the deletion cascade; the LLM work is slow). Re-check the
+            # tombstone at this write boundary — BEFORE persisting job_reviews or charging
+            # usage_counters — so a purge that landed during this run isn't undone by
+            # recreated PII / spend rows. Covers BOTH the cron (review_all) and the
+            # on-demand worker, since both funnel their writes through here. review_batch's
+            # own deleted_check halts further LLM work at its next poll; this guard is the
+            # write-boundary protection for the chunk already in hand. Cheap EXISTS.
+            if db.user_deleted(conn, user_id):
+                return
+
+            rows_this_chunk = []
+            for r in chunk:
+                if r.error:
+                    counts["errors"] += 1
+                elif r.stage1_decision == "reject":
+                    counts["reviewed"] += 1
+                    counts["gate_rejected"] += 1
+                elif r.verdict is not None:
+                    counts["reviewed"] += 1
+                    if r.verdict == "approve":
+                        counts["approved"] += 1
+                    elif r.verdict == "deny":
+                        counts["denied"] += 1
+                else:
+                    # Stage-1 passed but stage 2 was deferred (no JD yet): no terminal
+                    # outcome. A verdict=NULL/error=NULL row is unreachable by every
+                    # re-selection predicate at this profile_version and would stick the
+                    # job forever, so skip persisting it — the absent row keeps the job
+                    # re-selectable once a JD is refilled.
+                    continue
+                rows_this_chunk.append(r.as_row(user_id=user_id, profile_version=pv))
+            _persist_rows(conn, rows_this_chunk, config.PERSIST_CHUNK_SIZE)
+
+            # Charge the daily budget for jobs that actually consumed LLM budget: any
+            # result carrying a stage-1 decision (gate-reject, stage-2-complete, or
+            # JD-deferred). Error-only rows (stage1_batch transport failures leave
+            # stage1_decision NULL) are excluded so an outage can't burn a day's budget.
+            spent = sum(1 for r in chunk if r.stage1_decision is not None)
+            db.add_daily_spend(conn, user_id, spent)
+            # Commit this chunk's rows + spend NOW (not at end of run) so they're visible
+            # to the dashboard's cursor poll immediately. Per-chunk commits do NOT release
+            # the session advisory lock — only unlock_user_review does (M-TOCTOU).
+            conn.commit()
+
         results, halted = asyncio.run(review_batch(
             candidates, profile_block, client, config.CONCURRENCY,
             user_id=user_id, run_id=run_id,
             # Cheap per-chunk poll so a mid-run deletion stops issuing LLM calls instead
             # of grinding all ≤cap jobs whose writes the tombstone guard then discards.
             deleted_check=lambda: db.user_deleted(conn, user_id),
+            on_results=_persist_chunk,
         ))
 
-        # M-RESURRECT-2: the account can be erased mid-run (profile loaded before the
-        # deletion cascade; the LLM work above is slow). Re-check the tombstone at the
-        # write boundary — BEFORE persisting job_reviews or charging usage_counters — so
-        # a purge that landed during this run isn't undone by recreated PII / spend rows.
-        # Covers BOTH the cron (review_all) and the on-demand worker, since both funnel
-        # their writes through here. Checked BEFORE the credits-halt note so a
+        # M-RESURRECT-2 (final note): the account can be erased mid-run. The per-chunk
+        # guard already skips writes; here we set the run note. The deletion note REPLACES
+        # any overflow note and is checked BEFORE the credits-halt note so a
         # deletion-aborted run (which also sets halt) isn't mislabeled "out of credits".
         # Cheap EXISTS; the run row still closes below.
         if db.user_deleted(conn, user_id):
@@ -444,37 +495,6 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         if halted:
             notes = (f"{notes}; " if notes else "") + "halted: out of credits"
             log.warning("review halted (no credits) for %s", user_id)
-
-        rows_to_persist = []
-        for r in results:
-            if r.error:
-                counts["errors"] += 1
-            elif r.stage1_decision == "reject":
-                counts["reviewed"] += 1
-                counts["gate_rejected"] += 1
-            elif r.verdict is not None:
-                counts["reviewed"] += 1
-                if r.verdict == "approve":
-                    counts["approved"] += 1
-                elif r.verdict == "deny":
-                    counts["denied"] += 1
-            else:
-                # Stage-1 passed but stage 2 was deferred (no JD yet): no terminal
-                # outcome. A verdict=NULL/error=NULL row is unreachable by every
-                # re-selection predicate at this profile_version and would stick the
-                # job forever, so skip persisting it — the absent row keeps the job
-                # re-selectable once a JD is refilled.
-                continue
-            rows_to_persist.append(r.as_row(user_id=user_id, profile_version=pv))
-        _persist_rows(conn, rows_to_persist, config.PERSIST_CHUNK_SIZE)
-
-        # Charge the daily budget for jobs that actually consumed LLM budget: any
-        # result carrying a stage-1 decision (gate-reject, stage-2-complete, or
-        # JD-deferred). Error-only rows (stage1_batch transport failures leave
-        # stage1_decision NULL) are excluded so an outage can't burn a day's budget.
-        # Committed together with finish_review_run in the finally's single commit.
-        spent = sum(1 for r in results if r.stage1_decision is not None)
-        db.add_daily_spend(conn, user_id, spent)
     except Exception:
         conn.rollback()
         notes = (f"{notes}; " if notes else "") + "review phase errored; see logs"

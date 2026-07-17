@@ -227,8 +227,12 @@ describe("buildJobsQuery", () => {
       reviewedSince: "2026-07-16T00:00:00.000Z",
     });
     // reviewedSince is pushed in the review-scoped block ($2); locations follow ($3).
+    // The canonical-overlap predicate calls ph() once and reuses $3 twice (one value push).
     expect(q.text).toContain("r.reviewed_at > $2::timestamptz - interval '10 seconds'");
-    expect(q.text).toContain("(j.remote IS TRUE OR j.location = ANY($3))");
+    expect(q.text).toContain(
+      "(COALESCE(j.location_canonicals, ARRAY[j.location]) && $3" +
+      " OR ('Remote' = ANY($3) AND j.remote IS TRUE))",
+    );
     expect(q.values).toEqual([UID, "2026-07-16T00:00:00.000Z", ["Phoenix, AZ"]]);
   });
 

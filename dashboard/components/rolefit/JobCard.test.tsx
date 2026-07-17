@@ -89,6 +89,7 @@ describe("JobCard — live-arrival highlight", () => {
     id: "greenhouse:acme:1",
     title: "Staff Engineer",
     location: "Phoenix, AZ",
+    location_canonicals: null,
     remote: true,
     first_seen_at: "2026-07-01T00:00:00.000Z",
     closed_at: null,

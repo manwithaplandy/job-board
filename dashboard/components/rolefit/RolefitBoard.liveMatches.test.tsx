@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({
 function makeJob(id: string, title: string): JobRow {
   return {
     id, title,
-    location: "Phoenix, AZ", remote: true,
+    location: "Phoenix, AZ", location_canonicals: null, remote: true,
     first_seen_at: "2026-07-01T00:00:00.000Z", closed_at: null,
     company_name: "Acme", ats: "greenhouse", human_override: false,
     verdict: "approve", role_category: "engineering", seniority: "staff",

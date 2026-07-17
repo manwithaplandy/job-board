@@ -113,3 +113,16 @@ def test_resolve_fields_country_only():
 
 def test_resolve_fields_nothing_given():
     assert resolve_fields(None, None, None) is None
+
+
+def test_resolve_fields_blank_city_rejected():
+    assert resolve_fields("   ", None, "US") is None
+
+
+def test_resolve_fields_blank_city_with_valid_state_resolves_state():
+    r = resolve_fields("  ", "Texas", "US")
+    assert r is not None and r.canonical == "Texas" and r.kind == "state"
+
+
+def test_resolve_fields_state_conflicting_country_rejected():
+    assert resolve_fields(None, "TX", "Canada") is None

@@ -223,21 +223,33 @@ def resolve_fields(city: str | None, state: str | None, country: str | None,
     if remote:
         return REMOTE
     gc, countries, states = _gazetteer()
+    # Normalize: strip each field; a whitespace-only value is absent for
+    # resolution. But a city that was *provided* yet blank is still a failed
+    # city attempt (city_present) — it must not silently downgrade to its bare
+    # country: ("   ", None, "US") is rejected, not read as the United States.
+    city_present = city is not None
+    city = (city or "").strip()
+    state = (state or "").strip()
+    country = (country or "").strip()
     iso2 = admin1 = None
     if country:
-        hit = countries.get(country.strip().lower())
+        hit = countries.get(country.lower())
         if hit is None:
             return None
         iso2 = hit[0]
     if state:
-        s = states.get(state.strip().lower())
+        s = states.get(state.lower())
         if s is not None:
             admin1 = s[0]
         # a non-US "state" (e.g. Bavaria) is ignored; the country constrains
     if city:
-        return _city(gc, city.strip(), admin1=admin1, country=iso2)
+        return _city(gc, city, admin1=admin1, country=iso2)
     if admin1:
-        return _state_resolved(states[state.strip().lower()])
-    if iso2:
-        return _country_resolved(countries[country.strip().lower()])
+        # A US-state resolution can't coexist with a stated non-US country
+        # ("TX" + "Canada"): reject rather than drop the country.
+        if iso2 is not None and iso2 != "US":
+            return None
+        return _state_resolved(states[state.lower()])
+    if iso2 and not city_present:
+        return _country_resolved(countries[country.lower()])
     return None

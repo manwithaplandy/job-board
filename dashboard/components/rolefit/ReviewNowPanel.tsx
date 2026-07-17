@@ -102,15 +102,28 @@ export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: Re
 
   // Poll WHILE a request is active — every 4s while running (matches arrive in
   // concurrency-5 bursts, so this is effectively per-burst live), 10s while queued
-  // (nothing to stream yet). Stops when it settles.
+  // (nothing to stream yet). The chain re-arms ITSELF after each poll resolves, because a
+  // stable running streak changes none of this effect's deps — an unchanged
+  // setStatus("running") is a React no-op, reviewedToday isn't a dep, and the cursor is a
+  // ref — so a one-shot timer would fire only once. A deps change (status transition or a
+  // new poll identity) cancels the running chain via the cleanup's `cancelled` flag before
+  // arming a fresh one; the !active branch stops everything when the request settles.
   useEffect(() => {
     if (!active) {
       if (timerRef.current) clearTimeout(timerRef.current);
       return;
     }
     wasActiveRef.current = true;
-    timerRef.current = setTimeout(() => void poll(), status === "running" ? 4_000 : 10_000);
+    let cancelled = false;
+    const arm = () => {
+      timerRef.current = setTimeout(async () => {
+        await poll();
+        if (!cancelled) arm();
+      }, status === "running" ? 4_000 : 10_000);
+    };
+    arm();
     return () => {
+      cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [active, status, poll]);

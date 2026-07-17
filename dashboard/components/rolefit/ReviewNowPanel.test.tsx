@@ -211,4 +211,42 @@ describe("ReviewNowPanel — live-population cursor poll", () => {
     await flush(4_000);       // running: 4s cadence
     expect(fetchUrls).toHaveLength(3);
   });
+
+  test("the 4s running cadence recurs across a stable streak (reviewedToday keeps updating)", async () => {
+    nextResponse = { status: "running", reviewedToday: 1, cursor: "C1", newMatches: [] };
+    render(<ReviewNowPanel firstRun={false} />);
+    await flush(0);           // initial poll
+    expect(fetchUrls).toHaveLength(1);
+    expect(screen.getByText(/1 role scored so far/)).toBeTruthy();
+
+    // Status stays "running" (a React no-op) — the poll must still re-arm itself.
+    nextResponse = { status: "running", reviewedToday: 2, cursor: "C2", newMatches: [] };
+    await flush(4_000);
+    expect(fetchUrls).toHaveLength(2);
+
+    nextResponse = { status: "running", reviewedToday: 3, cursor: "C3", newMatches: [] };
+    await flush(4_000);
+    expect(fetchUrls).toHaveLength(3);
+    expect(screen.getByText(/3 roles scored so far/)).toBeTruthy();
+  });
+
+  test("settles after several running ticks — onSettled fires once and the strip unmounts", async () => {
+    const onSettled = vi.fn();
+    nextResponse = { status: "running", reviewedToday: 1, cursor: "C1", newMatches: [] };
+    render(<ReviewNowPanel firstRun={false} onSettled={onSettled} />);
+    await flush(0);
+    expect(screen.getByTestId("review-progress")).toBeTruthy();
+
+    nextResponse = { status: "running", reviewedToday: 2, cursor: "C2", newMatches: [] };
+    await flush(4_000);
+    nextResponse = { status: "running", reviewedToday: 3, cursor: "C3", newMatches: [] };
+    await flush(4_000);
+    expect(onSettled).not.toHaveBeenCalled();
+
+    // The next running tick reports the run finished.
+    nextResponse = { status: "done" };
+    await flush(4_000);
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("review-progress")).toBeNull();
+  });
 });

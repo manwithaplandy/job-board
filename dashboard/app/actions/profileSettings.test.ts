@@ -54,6 +54,8 @@ const form = (values: Record<string, string | File>) => {
   return fd;
 };
 
+const GEMINI = "google/gemini-3.5-flash";
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireUserId.mockResolvedValue("u1");
@@ -63,6 +65,7 @@ beforeEach(() => {
     { id: "deepseek/deepseek-v4-flash" },
     { id: "anthropic/claude-haiku-4.5" },
     { id: "openai/gpt-5.5" },
+    { id: GEMINI, name: "Gemini Flash 3.5" },
   ]);
   mocks.getViewerPlan.mockResolvedValue("pro");
   mocks.assertNotDeleted.mockResolvedValue(undefined);
@@ -163,6 +166,24 @@ describe("profile settings actions", () => {
       model_stage2: "anthropic/claude-haiku-4.5",
     }));
     expect(result).toMatchObject({ status: "error", fieldErrors: { model_stage2: expect.stringContaining("requires the Pro plan") } });
+  });
+
+  test("Pro user can save Gemini Flash 3.5 as the stage-2 model", async () => {
+    mocks.getViewerPlan.mockResolvedValue("pro");
+    const fd = form({ model_stage2: GEMINI });
+    const result = await saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, fd);
+    expect(result.status).toBe("success");
+  });
+
+  test("Standard user selecting Gemini gets an accurate Pro message + upgrade CTA", async () => {
+    mocks.getViewerPlan.mockResolvedValue("standard");
+    const fd = form({ model_stage2: GEMINI });
+    const result = await saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, fd);
+    expect(result.status).toBe("error");
+    if (result.status !== "error") throw new Error("expected error");
+    expect(result.fieldErrors.model_stage2).toMatch(/requires the Pro plan\.$/);
+    expect(result.fieldErrors.model_stage2).not.toContain("google/gemini"); // friendly name, not raw id
+    expect(result.upgrade).toEqual({ href: "/billing", label: "Upgrade to Pro" });
   });
 
   test("rejects invalid and unentitled reasoning effort by field", async () => {

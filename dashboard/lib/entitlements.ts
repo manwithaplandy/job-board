@@ -41,6 +41,12 @@ export const ENTITLEMENTS: EntitlementMap = {
 export const PLAN_PRICE_USD: Record<Plan, number> = { standard: 5, pro: 20 };
 export const PLAN_LABEL: Record<Plan, string> = { standard: "Standard", pro: "Pro" };
 
+/** CTA label for a tier-gate upsell link (→ /billing). A Standard subscriber has a real
+ *  upgrade to sell; Pro/null get the neutral label — never a false "Upgrade to Pro". */
+export function upgradeCtaLabel(plan: Plan | null): string {
+  return plan === "standard" ? `Upgrade to ${PLAN_LABEL.pro}` : "View billing";
+}
+
 // ── Extensible access tiers (spec 2026-07-17 "Stage-2 model tiers") ───────────
 // A plan's RANK and a model's MINIMUM required rank. resolveStage2Model grants a
 // stage-2 model when planTier(plan) >= stage2ModelTier(model). Models NOT explicitly

@@ -41,6 +41,6 @@ describe("AdvancedAiForm", () => {
     expect(screen.getByText("Always uses the Rolefit default")).not.toBeNull();
     expect(container.querySelector('[name="model_stage1"]')).toBeNull();
     expect(container.textContent).not.toMatch(/cheap gate/i);
-    expect(container.textContent).toMatch(/Available on Pro/);
+    expect(container.textContent).toMatch(/require the Pro plan/);
   });
 });

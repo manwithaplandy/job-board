@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUserId, getUserClaims } from "@/lib/auth";
-import { validateReasoningEffort, resolveStage2Model, PREMIUM_MODEL } from "@/lib/entitlements";
+import {
+  validateReasoningEffort, resolveStage2Model, stage2ModelTier, planForTier,
+  upgradeCtaLabel, PLAN_LABEL,
+} from "@/lib/entitlements";
 import { getStructuredModels, validateModelId } from "@/lib/openrouter";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import {
@@ -12,7 +15,7 @@ import {
   updateModelPreferences,
   updateResumeSource,
 } from "@/lib/profileSettings";
-import type { SectionSaveState } from "@/lib/profileSettingsState";
+import type { SectionSaveState, UpgradeCta } from "@/lib/profileSettingsState";
 import { getProfile } from "@/lib/queries";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { resumeObjectPath } from "@/lib/resumeStorage";
@@ -32,8 +35,12 @@ const triState = (fd: FormData, key: string): boolean | null => {
 const success = (): SectionSaveState => ({
   status: "success", savedAt: new Date().toISOString(),
 });
-const invalid = (fieldErrors: Record<string, string>): SectionSaveState => ({
+const invalid = (fieldErrors: Record<string, string>, upgrade?: UpgradeCta): SectionSaveState => ({
   status: "error", message: "Check the highlighted fields.", fieldErrors,
+  ...(upgrade ? { upgrade } : {}),
+});
+const upsell = (plan: Parameters<typeof upgradeCtaLabel>[0]): UpgradeCta => ({
+  href: "/billing", label: upgradeCtaLabel(plan),
 });
 const failure = (error: unknown): SectionSaveState => ({
   status: "error",
@@ -148,7 +155,8 @@ export async function saveAdvancedAiSettings(
 ): Promise<SectionSaveState> {
   try {
     const userId = await requireUserId();
-    const catalogIds = (await getStructuredModels()).map((model) => model.id);
+    const structured = await getStructuredModels();
+    const catalogIds = structured.map((model) => model.id);
     const fields = ["model_stage2", "model_resume", "model_company", "model_cover"] as const;
     const models = Object.fromEntries(fields.map((field) => [
       field, validateModelId(String(fd.get(field) ?? ""), catalogIds),
@@ -161,14 +169,22 @@ export async function saveAdvancedAiSettings(
     const plan = await getViewerPlan(userId, claims?.email ?? null);
     const stage2 = models.model_stage2;
     if (stage2.ok && stage2.value && resolveStage2Model(plan, stage2.value) !== stage2.value) {
-      const name = stage2.value === PREMIUM_MODEL ? "Haiku 4.5" : stage2.value;
-      return invalid({ model_stage2: `${name} requires the Pro plan.` });
+      const requiredPlan = planForTier(stage2ModelTier(stage2.value));
+      const label = structured.find((m) => m.id === stage2.value)?.name ?? stage2.value;
+      return invalid(
+        { model_stage2: `${label} requires the ${PLAN_LABEL[requiredPlan]} plan.` },
+        upsell(plan),
+      );
     }
     const resumeEffort = validateReasoningEffort(String(fd.get("reasoning_effort_resume") ?? ""), plan);
     const coverEffort = validateReasoningEffort(String(fd.get("reasoning_effort_cover") ?? ""), plan);
     if (!resumeEffort.ok) fieldErrors.reasoning_effort_resume = resumeEffort.reason;
     if (!coverEffort.ok) fieldErrors.reasoning_effort_cover = coverEffort.reason;
-    if (!resumeEffort.ok || !coverEffort.ok) return invalid(fieldErrors);
+    if (!resumeEffort.ok || !coverEffort.ok) {
+      const tierGated =
+        (!resumeEffort.ok && resumeEffort.tierGated) || (!coverEffort.ok && coverEffort.tierGated);
+      return invalid(fieldErrors, tierGated ? upsell(plan) : undefined);
+    }
 
     await updateModelPreferences(userId, {
       modelStage2: models.model_stage2.ok ? models.model_stage2.value : null,

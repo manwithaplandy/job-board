@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ReviewNowPanel } from "./ReviewNowPanel";
+import type { JobRow } from "@/lib/types";
 
 // Flush the panel's async poll (fetch → json → setState) and any due timers, inside act
 // so React applies the resulting state before assertions.
@@ -14,14 +15,42 @@ async function flush(ms = 0) {
 // A single mutable "next response" the mocked fetch returns; tests set it before
 // advancing timers to drive the panel through its poll transitions.
 let nextResponse: Record<string, unknown> = { status: null };
+let fetchUrls: string[] = [];
+
+const matchRow: JobRow = {
+  id: "greenhouse:acme:1",
+  title: "Staff Engineer",
+  location: "Phoenix, AZ",
+  remote: true,
+  first_seen_at: "2026-07-01T00:00:00.000Z",
+  closed_at: null,
+  company_name: "Acme",
+  ats: "greenhouse",
+  human_override: false,
+  verdict: "approve",
+  role_category: "engineering",
+  seniority: "staff",
+  work_arrangement: "remote",
+  pay_min: 150000,
+  pay_max: 200000,
+  pay_currency: "USD",
+  pay_period: "year",
+  headcount: null,
+  skills_score: 8,
+  experience_score: 8,
+  comp_score: 8,
+  fit_score: 88,
+  skill_gaps: [],
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
   nextResponse = { status: null };
-  global.fetch = vi.fn(async () => ({
-    ok: true,
-    json: async () => nextResponse,
-  })) as unknown as typeof fetch;
+  fetchUrls = [];
+  global.fetch = vi.fn(async (url: unknown) => {
+    fetchUrls.push(String(url));
+    return { ok: true, json: async () => nextResponse };
+  }) as unknown as typeof fetch;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -141,5 +170,45 @@ describe("ReviewNowPanel — tier-gate upsell (402 / 409 → /billing)", () => {
     expect(error.textContent).toBe("boom");
     expect(error.closest('[role="status"]')).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
+  });
+});
+
+describe("ReviewNowPanel — live-population cursor poll", () => {
+  test("first poll carries no since; the server cursor threads into the next poll", async () => {
+    nextResponse = { status: "running", reviewedToday: 1, cursor: "C1", newMatches: [] };
+    render(<ReviewNowPanel firstRun={false} />);
+    await flush(0);
+    expect(fetchUrls[0]).toBe("/api/review/request");
+
+    nextResponse = { status: "running", reviewedToday: 2, cursor: "C2", newMatches: [] };
+    await flush(4_000);
+    expect(fetchUrls[1]).toBe("/api/review/request?since=C1");
+  });
+
+  test("forwards non-empty newMatches to onNewMatches; empty ticks stay silent", async () => {
+    const onNewMatches = vi.fn();
+    nextResponse = { status: "running", reviewedToday: 1, cursor: "C1", newMatches: [] };
+    render(<ReviewNowPanel firstRun={false} onNewMatches={onNewMatches} />);
+    await flush(0);
+    expect(onNewMatches).not.toHaveBeenCalled();
+
+    nextResponse = { status: "running", reviewedToday: 2, cursor: "C2", newMatches: [matchRow] };
+    await flush(4_000);
+    expect(onNewMatches).toHaveBeenCalledTimes(1);
+    expect(onNewMatches).toHaveBeenCalledWith([matchRow]);
+  });
+
+  test("polls every 4s while running, but keeps 10s while pending", async () => {
+    nextResponse = { status: "pending", cursor: "C1" };
+    render(<ReviewNowPanel firstRun={false} />);
+    await flush(0);           // initial poll
+    expect(fetchUrls).toHaveLength(1);
+    await flush(4_000);       // pending: 4s is NOT enough
+    expect(fetchUrls).toHaveLength(1);
+    nextResponse = { status: "running", cursor: "C2" };
+    await flush(6_000);       // pending tick fires at 10s → status flips to running
+    expect(fetchUrls).toHaveLength(2);
+    await flush(4_000);       // running: 4s cadence
+    expect(fetchUrls).toHaveLength(3);
   });
 });

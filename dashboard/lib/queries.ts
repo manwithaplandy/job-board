@@ -220,20 +220,37 @@ export async function getCompanies(userId: string): Promise<CompanyRow[]> {
   });
 }
 
-export async function getDistinctLocations(userId: string): Promise<{ location: string; count: number }[]> {
-  // Distinct non-empty locations from open jobs, most common first — the option
-  // set for the profile LocationPicker. Capped so the payload stays bounded.
-  return withUserSql(userId, async (tx) => {
-    const rows = await tx`
-      SELECT location, count(*)::int AS count
-      FROM jobs
-      WHERE closed_at IS NULL AND location IS NOT NULL AND location <> ''
-      GROUP BY location
-      ORDER BY count DESC, location ASC
-      LIMIT 500
-    `;
-    return rows as unknown as { location: string; count: number }[];
-  });
+// Executor-taking impl (mirrors reviewStatsWith) so the real-DB scoping test can
+// drive the actual query. Distinct CANONICAL locations from open jobs (raw-string
+// fallback for not-yet-stamped rows), most common first — the option set for the
+// profile LocationPicker. The 'Remote' row is computed from the remote flag (not
+// the unnest) so its count reflects exactly what selecting "Remote" matches;
+// canonical 'Remote' elements are excluded from the unnest to avoid a double row.
+export async function distinctLocationsWith(
+  tx: TransactionSql,
+): Promise<{ location: string; count: number }[]> {
+  const rows = await tx`
+    SELECT location, count FROM (
+      SELECT loc AS location, count(*)::int AS count
+      FROM jobs j
+      CROSS JOIN LATERAL unnest(COALESCE(j.location_canonicals, ARRAY[j.location])) AS loc
+      WHERE j.closed_at IS NULL AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
+      GROUP BY loc
+      UNION ALL
+      SELECT 'Remote', count(*)::int FROM jobs
+      WHERE closed_at IS NULL AND remote IS TRUE
+      HAVING count(*) > 0
+    ) t
+    ORDER BY count DESC, location ASC
+    LIMIT 500
+  `;
+  return rows as unknown as { location: string; count: number }[];
+}
+
+export async function getDistinctLocations(
+  userId: string,
+): Promise<{ location: string; count: number }[]> {
+  return withUserSql(userId, (tx) => distinctLocationsWith(tx));
 }
 
 export async function getLatestPollRun(userId: string): Promise<PollRunRow | null> {

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
-import { reviewStatsWith } from "@/lib/queries";
+import { distinctLocationsWith, reviewStatsWith } from "@/lib/queries";
 import { reviewAggWith } from "@/lib/metrics";
 
 // Real-Postgres guard for the location-scoping predicate (and heir to the
@@ -98,5 +98,18 @@ describe.skipIf(!TEST_DSN)("location-scoping predicate — real Postgres", () =>
     expect(agg).toEqual({
       reviewed: 0, gate_rejected: 0, approved: 0, denied: 0, manual_rejected: 0,
     });
+  });
+
+  // Facet list: unnest canonicals (raw fallback), Remote computed from the flag.
+  // Open jobs -> Phoenix, AZ ×3 (phx, phx2, unmapped-phx), Remote ×3 (flag),
+  // San Diego, CA ×2, Anywhere ×1 (unstamped raw). Ties break location ASC.
+  it("distinctLocationsWith unnests canonicals and computes the Remote row", async () => {
+    const rows = await sql.begin((tx) => distinctLocationsWith(tx));
+    expect(rows).toEqual([
+      { location: "Phoenix, AZ", count: 3 },
+      { location: "Remote", count: 3 },
+      { location: "San Diego, CA", count: 2 },
+      { location: "Anywhere", count: 1 },
+    ]);
   });
 });

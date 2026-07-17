@@ -297,9 +297,17 @@ async function getDistributions(tx: TransactionSql, userId: string): Promise<Dis
     companiesByAts, companiesBySource, includedByIndustry, topTechTags, topRedFlags,
     otherRedFlags,
   ] = await dbLimit([
-    () => tx`SELECT location AS label, count(*)::int AS count FROM jobs
-        WHERE closed_at IS NULL AND location IS NOT NULL AND location <> ''
-        GROUP BY location ORDER BY count DESC LIMIT ${TOP_N}`,
+    () => tx`SELECT location AS label, count FROM (
+        SELECT loc AS location, count(*)::int AS count
+        FROM jobs j
+        CROSS JOIN LATERAL unnest(COALESCE(j.location_canonicals, ARRAY[j.location])) AS loc
+        WHERE j.closed_at IS NULL AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
+        GROUP BY loc
+        UNION ALL
+        SELECT 'Remote', count(*)::int FROM jobs
+        WHERE closed_at IS NULL AND remote IS TRUE
+        HAVING count(*) > 0
+      ) t ORDER BY count DESC LIMIT ${TOP_N}`,
     () => tx`SELECT department AS label, count(*)::int AS count FROM jobs
         WHERE closed_at IS NULL AND department IS NOT NULL AND department <> ''
         GROUP BY department ORDER BY count DESC LIMIT ${TOP_N}`,

@@ -114,6 +114,66 @@ def test_stale_running_recovery(conn):
     assert row["status"] == "failed" and row["notes"] == "worker timeout — re-request"
 
 
+def _seed_aged_running(conn, user_id) -> int:
+    """Enqueue a request and force it into a stale 'running' state (started 31 min ago)."""
+    rid = _enqueue(conn, user_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE review_requests SET status = 'running', started_at = now() - interval '31 minutes' "
+            "WHERE id = %s",
+            (rid,),
+        )
+    conn.commit()
+    return rid
+
+
+@requires_db
+def test_stale_recovery_excluded_id_survives(conn):
+    # An id in exclude_ids is never reaped, however old its started_at. Pass a set to
+    # confirm psycopg-adapted non-list iterables are normalized inside the function.
+    rid = _seed_aged_running(conn, UA)
+    n = rdb.recover_stale_review_requests(conn, 30, exclude_ids={rid})
+    conn.commit()
+    assert n == 0
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, notes FROM review_requests WHERE id = %s", (rid,))
+        row = cur.fetchone()
+    assert row["status"] == "running" and row["notes"] is None
+
+
+@requires_db
+def test_stale_recovery_exclusion_is_selective(conn):
+    # Two aged running rows (distinct users — the partial unique index forbids two
+    # active per user). Excluding only one reaps exactly the other.
+    kept = _seed_aged_running(conn, UA)
+    reaped = _seed_aged_running(conn, UB)
+    n = rdb.recover_stale_review_requests(conn, 30, exclude_ids=[kept])
+    conn.commit()
+    assert n == 1
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, notes FROM review_requests WHERE id = %s", (kept,))
+        kept_row = cur.fetchone()
+        cur.execute("SELECT status, notes FROM review_requests WHERE id = %s", (reaped,))
+        reaped_row = cur.fetchone()
+    assert kept_row["status"] == "running" and kept_row["notes"] is None
+    assert reaped_row["status"] == "failed"
+    assert reaped_row["notes"] == "worker timeout — re-request"
+
+
+@requires_db
+def test_stale_recovery_empty_exclude_reaps(conn):
+    # exclude_ids=[] excludes nothing (id <> ALL('{}') is TRUE for every id) — reaps
+    # exactly as the default None path does.
+    rid = _seed_aged_running(conn, UA)
+    n = rdb.recover_stale_review_requests(conn, 30, exclude_ids=[])
+    conn.commit()
+    assert n == 1
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, notes FROM review_requests WHERE id = %s", (rid,))
+        row = cur.fetchone()
+    assert row["status"] == "failed" and row["notes"] == "worker timeout — re-request"
+
+
 @requires_db
 def test_process_one_exhausted_budget_completes_done(conn):
     # A request for a user whose daily budget is spent: _review_user skips (zero LLM

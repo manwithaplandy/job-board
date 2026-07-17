@@ -41,6 +41,46 @@ export const ENTITLEMENTS: EntitlementMap = {
 export const PLAN_PRICE_USD: Record<Plan, number> = { standard: 5, pro: 20 };
 export const PLAN_LABEL: Record<Plan, string> = { standard: "Standard", pro: "Pro" };
 
+/** CTA label for a tier-gate upsell link (→ /billing). A Standard subscriber has a real
+ *  upgrade to sell; Pro/null get the neutral label — never a false "Upgrade to Pro". */
+export function upgradeCtaLabel(plan: Plan | null): string {
+  return plan === "standard" ? `Upgrade to ${PLAN_LABEL.pro}` : "View billing";
+}
+
+// ── Extensible access tiers (spec 2026-07-17 "Stage-2 model tiers") ───────────
+// A plan's RANK and a model's MINIMUM required rank. resolveStage2Model grants a
+// stage-2 model when planTier(plan) >= stage2ModelTier(model). Models NOT explicitly
+// assigned default to DEFAULT_STAGE2_MODEL_TIER (Pro) — so any catalog model is
+// Pro-available, and (via modelSlot below) meters at the conservative premium cap.
+// Mirrored field-for-field in reviewer/entitlements.py and parity-guarded
+// (tests/test_entitlements_parity.py) — keep the bare literal shapes.
+//
+// Extending: add a plan to PLAN_TIER with its rank; assign a model a lower tier in
+// STAGE2_MODEL_TIER to widen its availability (and drop it to the cheap cap); change
+// DEFAULT_STAGE2_MODEL_TIER to move where unassigned models land.
+export const PLAN_TIER: Record<Plan, number> = { standard: 1, pro: 2 };
+export const DEFAULT_STAGE2_MODEL_TIER = 2;
+export const STAGE2_MODEL_TIER: Record<string, number> = {
+  [CHEAP_MODEL]: 1,
+};
+
+/** Rank of a plan (null = 0, below every paid tier). */
+export function planTier(plan: Plan | null): number {
+  return plan ? PLAN_TIER[plan] : 0;
+}
+
+/** Minimum plan-rank required to run `model` for stage-2. Unassigned → the default. */
+export function stage2ModelTier(model: string | null | undefined): number {
+  const t = model ? STAGE2_MODEL_TIER[model] : undefined;
+  return t ?? DEFAULT_STAGE2_MODEL_TIER;
+}
+
+/** The lowest plan whose rank satisfies `tier` (for accurate gate messaging). */
+export function planForTier(tier: number): Plan {
+  const plans = (Object.keys(PLAN_TIER) as Plan[]).sort((a, b) => PLAN_TIER[a] - PLAN_TIER[b]);
+  return plans.find((p) => PLAN_TIER[p] >= tier) ?? plans[plans.length - 1];
+}
+
 // ── Invite comp plan (user-sent invites, spec 2026-07-13) ────────────────────
 // What an invited-but-not-paying user is comped. DB-overridable via
 // app_settings.invite_comp_plan (lib/appSettings.ts); this compiled constant is the
@@ -85,7 +125,7 @@ export function resolveReasoningEffort(
 
 export type ReasoningEffortValidation =
   | { ok: true; value: "low" | "medium" | "high" | null }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; tierGated?: boolean };
 
 /**
  * Save-time gate for the profile form (mirrors the stage-2 model gate): ""/"off"
@@ -103,7 +143,7 @@ export function validateReasoningEffort(
   }
   if (v === "low") return { ok: true, value: "low" };
   if (plan !== "pro") {
-    return { ok: false, reason: "Medium and High reasoning effort require the Pro plan." };
+    return { ok: false, reason: "Medium and High reasoning effort require the Pro plan.", tierGated: true };
   }
   return { ok: true, value: v };
 }
@@ -121,11 +161,11 @@ const GRACE_MS = 3 * 24 * 60 * 60 * 1000;
 // grants full-plan access during the trial window. Mirrored in entitlements.py.
 const TRIAL_GRANTS_FULL_PLAN = false;
 
-/** Which entitlement slot a concrete OpenRouter model id maps to (null = neither). */
-export function modelSlot(model: string | null | undefined): ModelSlot | null {
-  if (model === PREMIUM_MODEL) return "premium";
-  if (model === CHEAP_MODEL) return "cheap";
-  return null;
+/** Cost slot for a stage-2 model: tier-1 models meter at the cheap cap, tier ≥2 at the
+ *  premium cap. Derived from the access tier (was a two-id whitelist), so every model
+ *  is priced and unassigned models take the conservative premium cap. */
+export function modelSlot(model: string | null | undefined): ModelSlot {
+  return stage2ModelTier(model) <= 1 ? "cheap" : "premium";
 }
 
 export interface SubscriptionLike {
@@ -203,9 +243,9 @@ export function resolveStage2Model(
   requestedModel: string | null | undefined,
   ent: EntitlementMap = ENTITLEMENTS,
 ): string {
-  if (plan) {
+  if (plan && requestedModel && planTier(plan) >= stage2ModelTier(requestedModel)) {
     const slot = modelSlot(requestedModel);
-    if (slot && ent[plan].stage2Models[slot] != null) return requestedModel!;
+    if (ent[plan].stage2Models[slot] != null) return requestedModel;
   }
   return CHEAP_MODEL;
 }
@@ -218,7 +258,7 @@ export function dailyReviewCap(
 ): number {
   if (!plan) return 0;
   const e = ent[plan];
-  const slot = modelSlot(model) ?? "cheap";
+  const slot = modelSlot(model);
   return e.stage2Models[slot] ?? e.stage2Models.cheap ?? 0;
 }
 

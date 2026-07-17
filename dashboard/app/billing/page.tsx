@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { getSubscription, getViewerPlan } from "@/lib/subscriptions";
 import {
-  PLAN_LABEL, CHEAP_MODEL, PREMIUM_MODEL, type Plan, type EntitlementMap,
+  PLAN_LABEL, type Plan, type EntitlementMap,
 } from "@/lib/entitlements";
 import { loadTierConfig } from "@/lib/tierConfig";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
@@ -14,7 +14,10 @@ import { PageHeader } from "@/components/ui/Navigation";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Billing · Rolefit" };
 
-const modelName = (id: string) => (id === PREMIUM_MODEL ? "Haiku 4.5 (premium)" : id === CHEAP_MODEL ? "DeepSeek (cheap)" : id);
+// Model-agnostic slot copy: the premium slot unlocks any of the smarter frontier
+// models for review (not a single named model); the cheap slot is the standard model.
+const slotLabel = (slot: string) =>
+  slot === "premium" ? "smarter frontier models" : "the standard review model";
 
 export function TierCard({
   plan, currentPlan, entitlements, prices,
@@ -39,8 +42,7 @@ export function TierCard({
       <ul className="rf-billing-plan__features">
         {caps.map(([slot, cap]) => (
           <li key={slot}>
-            {cap.toLocaleString()} reviews/day on{" "}
-            {slot === "premium" ? modelName(PREMIUM_MODEL) : modelName(CHEAP_MODEL)}
+            {cap.toLocaleString()} reviews/day on {slotLabel(slot)}
           </li>
         ))}
         <li>{ent.monthlyResume} résumés / mo</li>
@@ -114,7 +116,7 @@ export default async function BillingPage() {
             <div className="rf-billing-current__meta">
               Downgrading keeps your current benefits until the period ends. If you save a
               premium model on a plan that no longer includes it, reviews fall back to the
-              cheap model automatically — nothing breaks.
+              standard model automatically — nothing breaks.
             </div>
         </div>
       </main>

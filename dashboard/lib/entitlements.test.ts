@@ -8,6 +8,9 @@ import {
   dailyReviewCap,
   monthlyAllowance,
   modelSlot,
+  planTier,
+  stage2ModelTier,
+  planForTier,
   REASONING_EFFORTS,
   resolveReasoningEffort,
   validateReasoningEffort,
@@ -15,6 +18,7 @@ import {
 
 const NOW = new Date("2026-07-03T00:00:00Z");
 const future = (days: number) => new Date(NOW.getTime() + days * 86400_000);
+const GEMINI = "google/gemini-3.5-flash";
 
 describe("resolvePlan", () => {
   test("active subscription within period returns its plan", () => {
@@ -128,8 +132,10 @@ describe("resolveStage2Model", () => {
   test("pro runs premium when requested", () => {
     expect(resolveStage2Model("pro", PREMIUM_MODEL)).toBe(PREMIUM_MODEL);
   });
-  test("unknown/blank requested model falls back to cheap", () => {
-    expect(resolveStage2Model("pro", "some/other-model")).toBe(CHEAP_MODEL);
+  test("pro runs an arbitrary catalog model; only blank/null falls back to cheap", () => {
+    // Was: any non-whitelist id clamped to cheap. Now the tier gate grants any catalog
+    // model to Pro (that IS the feature); only a null/absent request falls back.
+    expect(resolveStage2Model("pro", "some/other-model")).toBe("some/other-model");
     expect(resolveStage2Model("pro", null)).toBe(CHEAP_MODEL);
   });
   test("null plan is always cheap", () => {
@@ -159,11 +165,69 @@ describe("monthlyAllowance", () => {
 });
 
 describe("modelSlot", () => {
-  test("maps model ids to slots", () => {
+  test("maps model ids to slots (tier-derived; unassigned → premium, never null)", () => {
+    // Was a two-id whitelist returning null for anything else; now derived from the
+    // access tier, so an unassigned id/null meters at the conservative premium slot.
     expect(modelSlot(CHEAP_MODEL)).toBe("cheap");
     expect(modelSlot(PREMIUM_MODEL)).toBe("premium");
-    expect(modelSlot("x")).toBeNull();
-    expect(modelSlot(null)).toBeNull();
+    expect(modelSlot("x")).toBe("premium");
+    expect(modelSlot(null)).toBe("premium");
+  });
+});
+
+describe("extensible plan tiers (spec 2026-07-17 'Stage-2 model tiers')", () => {
+  test("plan tier ranks: null < standard < pro", () => {
+    expect(planTier(null)).toBe(0);
+    expect(planTier("standard")).toBe(1);
+    expect(planTier("pro")).toBe(2);
+  });
+
+  test("stage2 model tier: explicit tier-1 model, everything else defaults to tier 2", () => {
+    expect(stage2ModelTier(CHEAP_MODEL)).toBe(1);
+    expect(stage2ModelTier(GEMINI)).toBe(2);
+    expect(stage2ModelTier(PREMIUM_MODEL)).toBe(2);
+    expect(stage2ModelTier(null)).toBe(2);
+  });
+
+  test("planForTier returns the lowest plan meeting the tier", () => {
+    expect(planForTier(1)).toBe("standard");
+    expect(planForTier(2)).toBe("pro");
+  });
+
+  test("resolveStage2Model: Pro can run any catalog model (Gemini), Standard cannot", () => {
+    expect(resolveStage2Model("pro", GEMINI)).toBe(GEMINI);
+    expect(resolveStage2Model("pro", PREMIUM_MODEL)).toBe(PREMIUM_MODEL);
+    expect(resolveStage2Model("pro", CHEAP_MODEL)).toBe(CHEAP_MODEL);
+    expect(resolveStage2Model("standard", GEMINI)).toBe(CHEAP_MODEL);
+    expect(resolveStage2Model("standard", PREMIUM_MODEL)).toBe(CHEAP_MODEL);
+    expect(resolveStage2Model("standard", CHEAP_MODEL)).toBe(CHEAP_MODEL);
+    expect(resolveStage2Model(null, GEMINI)).toBe(CHEAP_MODEL);
+  });
+
+  test("modelSlot: tier-1 → cheap, tier-2+ → premium (never null)", () => {
+    expect(modelSlot(CHEAP_MODEL)).toBe("cheap");
+    expect(modelSlot(PREMIUM_MODEL)).toBe("premium");
+    expect(modelSlot(GEMINI)).toBe("premium");
+  });
+
+  test("dailyReviewCap: a Pro Gemini review meters at the premium (conservative) cap", () => {
+    expect(dailyReviewCap("pro", GEMINI)).toBe(100);
+    expect(dailyReviewCap("pro", CHEAP_MODEL)).toBe(1000);
+    expect(dailyReviewCap("standard", CHEAP_MODEL)).toBe(400);
+    expect(dailyReviewCap(null, GEMINI)).toBe(0);
+  });
+
+  // Guard against a recurrence of the exact bug this change fixes: if a plan GRANTS a
+  // model's tier but does not FUND that model's cost slot, resolveStage2Model would
+  // silently clamp while the save gate blames the user's OWN plan ("requires the <your
+  // plan> plan"). Pins the entitlement data so a future tier can't reintroduce it.
+  test("invariant: granting a model's tier implies funding its cost slot (no self-contradiction)", () => {
+    const plans: import("@/lib/entitlements").Plan[] = ["standard", "pro"];
+    for (const p of plans) {
+      for (const m of [CHEAP_MODEL, PREMIUM_MODEL, GEMINI]) {
+        if (planTier(p) >= stage2ModelTier(m)) expect(resolveStage2Model(p, m)).toBe(m);
+      }
+    }
   });
 });
 
@@ -234,10 +298,10 @@ describe("validateReasoningEffort", () => {
     expect(validateReasoningEffort("medium", "pro")).toEqual({ ok: true, value: "medium" });
     expect(validateReasoningEffort("high", "pro")).toEqual({ ok: true, value: "high" });
     expect(validateReasoningEffort("medium", "standard")).toEqual({
-      ok: false, reason: "Medium and High reasoning effort require the Pro plan.",
+      ok: false, reason: "Medium and High reasoning effort require the Pro plan.", tierGated: true,
     });
     expect(validateReasoningEffort("high", null)).toEqual({
-      ok: false, reason: "Medium and High reasoning effort require the Pro plan.",
+      ok: false, reason: "Medium and High reasoning effort require the Pro plan.", tierGated: true,
     });
   });
 

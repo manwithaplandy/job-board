@@ -3,7 +3,6 @@
 import { saveAdvancedAiSettings } from "@/app/actions/profileSettings";
 import { ModelPicker } from "@/components/ModelPicker";
 import { ReasoningEffortSelect } from "@/components/ReasoningEffortSelect";
-import { PREMIUM_MODEL } from "@/lib/entitlements";
 import { CURATED_MODELS, DEFAULT_MODEL_ID, type ORModel } from "@/lib/openrouter";
 import { DEFAULT_COVER_MODEL } from "@/lib/rolefit/coverLetterClient";
 import { DEFAULT_RESUME_MODEL } from "@/lib/rolefit/resumeClient";
@@ -46,7 +45,7 @@ export function AdvancedAiForm({
           curated={CURATED_MODELS}
           defaultValue={profile.model_stage2}
           placeholder={DEFAULT_MODEL_ID}
-          hint={isPro ? "Choose the model used for detailed job review." : `${PREMIUM_MODEL} — Available on Pro`}
+          hint={isPro ? "Choose the model used for detailed job review." : "Choose the review model — some models require the Pro plan."}
         />
         <ModelField
           label="Company review model"

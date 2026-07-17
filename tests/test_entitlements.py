@@ -11,12 +11,15 @@ from reviewer.entitlements import (
     model_slot,
     monthly_allowance,
     overlay_entitlements,
+    plan_tier,
     resolve_plan,
     resolve_stage2_model,
+    stage2_model_tier,
 )
 from tests.conftest import requires_db
 
 NOW = datetime(2026, 7, 3, tzinfo=timezone.utc)
+GEMINI = "google/gemini-3.5-flash"
 
 
 def _sub(plan, status, days):
@@ -103,8 +106,11 @@ def test_resolve_stage2_model_pro_premium():
     assert resolve_stage2_model("pro", PREMIUM_MODEL) == PREMIUM_MODEL
 
 
-def test_resolve_stage2_model_unknown():
-    assert resolve_stage2_model("pro", "some/other") == CHEAP_MODEL
+def test_resolve_stage2_model_arbitrary_and_blank():
+    # Was: a non-whitelist model clamped to CHEAP even for Pro. Now Pro's tier grants any
+    # catalog model; Standard is still clamped; a blank request or null plan falls back.
+    assert resolve_stage2_model("pro", "some/other") == "some/other"
+    assert resolve_stage2_model("standard", "some/other") == CHEAP_MODEL
     assert resolve_stage2_model("pro", None) == CHEAP_MODEL
     assert resolve_stage2_model(None, PREMIUM_MODEL) == CHEAP_MODEL
 
@@ -125,10 +131,46 @@ def test_monthly_allowance():
 
 
 def test_model_slot():
+    # Tier-derived (was a two-id whitelist): tier-1 -> cheap, everything else -> premium,
+    # never None.
     assert model_slot(CHEAP_MODEL) == "cheap"
     assert model_slot(PREMIUM_MODEL) == "premium"
-    assert model_slot("x") is None
-    assert model_slot(None) is None
+    assert model_slot("x") == "premium"
+    assert model_slot(None) == "premium"
+
+
+def test_plan_tier_ranks():
+    assert plan_tier(None) == 0
+    assert plan_tier("standard") == 1
+    assert plan_tier("pro") == 2
+
+
+def test_stage2_model_tier_default_is_pro():
+    assert stage2_model_tier(CHEAP_MODEL) == 1
+    assert stage2_model_tier(GEMINI) == 2
+    assert stage2_model_tier(PREMIUM_MODEL) == 2
+    assert stage2_model_tier(None) == 2
+
+
+def test_resolve_stage2_pro_runs_any_model_standard_clamped():
+    assert resolve_stage2_model("pro", GEMINI) == GEMINI
+    assert resolve_stage2_model("pro", PREMIUM_MODEL) == PREMIUM_MODEL
+    assert resolve_stage2_model("standard", GEMINI) == CHEAP_MODEL
+    assert resolve_stage2_model("standard", PREMIUM_MODEL) == CHEAP_MODEL
+    assert resolve_stage2_model(None, GEMINI) == CHEAP_MODEL
+
+
+def test_model_slot_tier_derived():
+    assert model_slot(CHEAP_MODEL) == "cheap"
+    assert model_slot(GEMINI) == "premium"
+    assert model_slot(PREMIUM_MODEL) == "premium"
+
+
+def test_daily_cap_pro_gemini_is_premium_cap():
+    assert daily_review_cap("pro", GEMINI) == 100
+    assert daily_review_cap("pro", CHEAP_MODEL) == 1000
+    assert daily_review_cap("standard", CHEAP_MODEL) == 400
+    assert daily_review_cap(None, GEMINI) == 0
 
 
 # ── T1: DB-overridable tier config (overlay_entitlements + load_tier_settings) ──

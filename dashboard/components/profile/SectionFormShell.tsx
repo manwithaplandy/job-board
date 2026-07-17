@@ -14,7 +14,7 @@ import {
   INITIAL_SECTION_SAVE_STATE,
   type SectionSaveState,
 } from "@/lib/profileSettingsState";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { FormActions } from "@/components/ui/Navigation";
 
 export interface SectionFormShellProps {
@@ -252,6 +252,13 @@ export function SectionFormShell({ action, submitLabel, children, onReset, onSav
                   <li key={name}><a className="rf-profile-error-link rf-focusable" href={`#${fieldIds.get(name) ?? name}`}>{message}</a></li>
                 ))}
               </ul>
+            )}
+            {state.upgrade && (
+              <p className="section-error-upgrade">
+                <ButtonLink href={state.upgrade.href} variant="primary" size="sm">
+                  {state.upgrade.label}
+                </ButtonLink>
+              </p>
             )}
           </div>
         )}

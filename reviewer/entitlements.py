@@ -32,6 +32,23 @@ _TRIAL_GRANTS_FULL_PLAN = False
 # app_settings.invite_comp_plan (db.load_invite_comp_plan, read once per run).
 DEFAULT_INVITE_COMP_PLAN = "standard"
 
+# Extensible access tiers (spec 2026-07-17). Mirrors PLAN_TIER / STAGE2_MODEL_TIER /
+# DEFAULT_STAGE2_MODEL_TIER in entitlements.ts (parity-guarded). Unassigned models
+# default to tier 2 (Pro) — Pro-available, priced at the premium cap via model_slot.
+PLAN_TIER = {"standard": 1, "pro": 2}
+DEFAULT_STAGE2_MODEL_TIER = 2
+STAGE2_MODEL_TIER = {CHEAP_MODEL: 1}
+
+
+def plan_tier(plan):
+    """Rank of a plan (None -> 0, below every paid tier)."""
+    return PLAN_TIER.get(plan, 0) if plan else 0
+
+
+def stage2_model_tier(model):
+    """Minimum plan-rank required to run `model` for stage-2. Unassigned -> default."""
+    return STAGE2_MODEL_TIER.get(model, DEFAULT_STAGE2_MODEL_TIER)
+
 
 def parse_comp_plan(v):
     """The invite comp plan from an app_settings jsonb value: 'standard' | 'pro' |
@@ -104,12 +121,9 @@ def overlay_entitlements(rows):
 
 
 def model_slot(model):
-    """Entitlement slot for a concrete OpenRouter model id (None = neither)."""
-    if model == PREMIUM_MODEL:
-        return "premium"
-    if model == CHEAP_MODEL:
-        return "cheap"
-    return None
+    """Cost slot for a stage-2 model: tier-1 -> cheap cap, tier >=2 -> premium cap.
+    Derived from the access tier (was a two-id whitelist); never None."""
+    return "cheap" if stage2_model_tier(model) <= 1 else "premium"
 
 
 def resolve_plan(sub, invited, now=None, comp_plan=DEFAULT_INVITE_COMP_PLAN, override=None):
@@ -153,12 +167,12 @@ def resolve_plan(sub, invited, now=None, comp_plan=DEFAULT_INVITE_COMP_PLAN, ove
 
 
 def resolve_stage2_model(plan, requested_model, ent=None):
-    """The entitled stage-2 model: the requested one if the plan grants its slot,
+    """The entitled stage-2 model: the requested one if the plan's tier grants it,
     else CHEAP_MODEL. `ent` overrides the compiled ENTITLEMENTS map (T1 overlay)."""
     ent = ent if ent is not None else ENTITLEMENTS
-    if plan:
+    if plan and requested_model and plan_tier(plan) >= stage2_model_tier(requested_model):
         slot = model_slot(requested_model)
-        if slot and ent[plan]["stage2_models"].get(slot) is not None:
+        if ent[plan]["stage2_models"].get(slot) is not None:
             return requested_model
     return CHEAP_MODEL
 

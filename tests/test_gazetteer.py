@@ -1,4 +1,4 @@
-from job_discovery.gazetteer import REMOTE, Resolved, resolve_fields, resolve_location
+from job_discovery.gazetteer import REMOTE, resolve_fields, resolve_location
 
 
 def canonicals(raw):

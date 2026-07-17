@@ -118,6 +118,36 @@ def test_manual_correction_propagates_on_restamp(conn):
 
 
 @requires_db
+def test_llm_all_hallucinations_become_unmappable(conn):
+    jid = _seed_job(conn, "1", "Atlantis District")
+    fake = FakeParseClient({"Atlantis District": [
+        ParsedLocation(city="Atlantisville", country="US"),
+        ParsedLocation(city="Fooville", country="Canada"),
+    ]})
+    counts = resolve_new_locations(conn, parse_client=fake)
+    assert counts["unmappable"] == 1 and counts["llm"] == 0
+    assert _canonicals(conn, jid) == ["Atlantis District"]
+
+
+@requires_db
+def test_multi_batch_llm_pass(conn):
+    poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
+        cid = cur.fetchone()["id"]
+    raws = [f"Obscureville Sector {i}" for i in range(41)]  # BATCH_SIZE=40 -> 2 batches
+    for i, raw in enumerate(raws):
+        poller_db.upsert_job(conn, cid, "lever", "acme",
+                             Posting(external_id=str(i), title="Eng", url="https://x",
+                                     location=raw))
+    conn.commit()
+    fake = FakeParseClient({raw: [] for raw in raws})  # every answer: no real place
+    counts = resolve_new_locations(conn, parse_client=fake)
+    assert fake.calls == 2  # two batches, one event loop
+    assert counts["unmappable"] == 41 and counts["stamped"] == 41
+
+
+@requires_db
 def test_already_mapped_raws_not_reprocessed(conn):
     _seed_job(conn, "1", "Austin Texas")
     fake = FakeParseClient()

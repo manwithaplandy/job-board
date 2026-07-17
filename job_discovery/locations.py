@@ -74,6 +74,36 @@ def _validated(places) -> list[Resolved]:
     return out
 
 
+async def _llm_pass(conn, client, leftovers: list[str], counts: dict) -> None:
+    """Batch the leftovers through the LLM under ONE event loop.
+
+    A single asyncio.run wraps this coroutine so the client's httpx pool stays
+    bound to one loop across every batch (per-batch asyncio.run would close the
+    loop and break the pool on the next call). Batch-local counters fold into
+    `counts` only AFTER that batch's commit, so a mid-batch throw can't inflate
+    the returned counts past what was actually committed. Blocking the loop on
+    the sync conn.commit() between batches is fine in this cron context.
+    """
+    from job_discovery.location_llm import BATCH_SIZE
+    for start in range(0, len(leftovers), BATCH_SIZE):
+        batch = leftovers[start:start + BATCH_SIZE]
+        answers = await client.parse_batch(batch)
+        batch_counts = {"llm": 0, "unmappable": 0}
+        for i, raw in enumerate(batch):
+            if i not in answers:
+                continue  # unanswered -> retry on a later run
+            resolved = _validated(answers[i])
+            if resolved:
+                _insert(conn, raw, resolved, "llm")
+                batch_counts["llm"] += 1
+            else:
+                _insert_unmappable(conn, raw)
+                batch_counts["unmappable"] += 1
+        conn.commit()
+        counts["llm"] += batch_counts["llm"]
+        counts["unmappable"] += batch_counts["unmappable"]
+
+
 def resolve_new_locations(conn, parse_client=None) -> dict:
     """Resolve every raw jobs.location that has no locations row, then re-stamp.
 
@@ -100,22 +130,9 @@ def resolve_new_locations(conn, parse_client=None) -> dict:
 
     if leftovers:
         try:
-            from job_discovery.location_llm import BATCH_SIZE, LocationParseClient
+            from job_discovery.location_llm import LocationParseClient
             client = parse_client or LocationParseClient()
-            for start in range(0, len(leftovers), BATCH_SIZE):
-                batch = leftovers[start:start + BATCH_SIZE]
-                answers = asyncio.run(client.parse_batch(batch))
-                for i, raw in enumerate(batch):
-                    if i not in answers:
-                        continue  # unanswered -> retry on a later run
-                    resolved = _validated(answers[i])
-                    if resolved:
-                        _insert(conn, raw, resolved, "llm")
-                        counts["llm"] += 1
-                    else:
-                        _insert_unmappable(conn, raw)
-                        counts["unmappable"] += 1
-                conn.commit()
+            asyncio.run(_llm_pass(conn, client, leftovers, counts))
         except Exception:
             conn.rollback()
             log.exception("location LLM pass failed; %s unresolved raws retry next run",

@@ -76,6 +76,16 @@ describe("sendInvitesAction", () => {
     expect(invites.createUserInvite).not.toHaveBeenCalled();
   });
 
+  test("zero invites left → rejected up front, NO per-address membership-oracle work", async () => {
+    invites.getInviteAllowance.mockResolvedValue({ remaining: 0, granted: 3 });
+    const r = await sendInvitesAction("a@b.com c@d.com member@x.com");
+    expect(r).toEqual({ ok: false, error: "You've used all your invites." });
+    // None of the per-address probes/mints/sends ran — no free membership oracle.
+    expect(invites.isInvitedUser).not.toHaveBeenCalled();
+    expect(invites.createUserInvite).not.toHaveBeenCalled();
+    expect(mail.sendInviteEmail).not.toHaveBeenCalled();
+  });
+
   test("zero-spend pre-checks: invalid, disposable, already-member — nothing minted", async () => {
     invites.isInvitedUser.mockImplementation(async (e: string) => e === "member@x.com");
     const r = await sendInvitesAction("not-an-email member@x.com a@mailinator.com");

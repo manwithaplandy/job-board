@@ -9,7 +9,10 @@ import {
 // Data export (T2, spec subsystem E): a one-click download of everything we hold on a
 // user, so export ships BEFORE deletion (T3 links here). EVERY read runs under
 // withUserSql so RLS enforces tenancy — a stray missing predicate can't leak another
-// tenant's rows, and no serviceSql allowlist change is needed. The payload has a
+// tenant's rows, and no serviceSql allowlist change is needed. The ONE exception is
+// collectCreatedInviteCodes, which reads via the serviceSql-backed listInvitesCreatedBy;
+// that helper is safe because it filters WHERE created_by = the caller's own verified id,
+// so it can only ever return the caller's own rows. The payload has a
 // top-level key for every user-scoped table (asserted against the same
 // userScopedTables lists the T3 drift-guard uses, so export/deletion can't diverge),
 // plus short-lived signed URLs for the caller's archived résumé files.

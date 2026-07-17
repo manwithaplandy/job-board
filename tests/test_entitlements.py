@@ -186,6 +186,11 @@ def test_parse_comp_plan_total():
     from reviewer.entitlements import parse_comp_plan, DEFAULT_INVITE_COMP_PLAN
     assert parse_comp_plan("pro") == "pro"
     assert parse_comp_plan("none") == "none"
-    # Absent row / malformed writes all degrade to the compiled default.
-    for bad in (None, "", "platinum", 3, {"x": 1}, True):
+    # A double-encoded jsonb string scalar is unwrapped one level (mirrors TS parseCompPlan)
+    # so a double-encoded row comps identically across runtimes.
+    assert parse_comp_plan('"pro"') == "pro"
+    assert parse_comp_plan('"none"') == "none"
+    # Absent row / malformed writes (incl. a double-encoded INVALID value and non-JSON
+    # garbage) all degrade to the compiled default.
+    for bad in (None, "", "platinum", '"platinum"', "not-json", 3, {"x": 1}, True):
         assert parse_comp_plan(bad) == DEFAULT_INVITE_COMP_PLAN

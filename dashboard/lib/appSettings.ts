@@ -1,11 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // serviceSql JUSTIFICATION (RLS-bypass allowlist — lib/serviceRoleAllowlist.test.ts):
 // app_settings is service-write-only (shared_read SELECT for reads, no authenticated
-// write policy — mirrors tier_settings). saveAppSetting is the ONE write path and is
-// called ONLY from isAdmin-gated actions (app/actions/adminSettings.ts). Reads go
-// through withAnonSql (shared_read), NOT serviceSql.
+// write policy — mirrors tier_settings). saveInviteSettings (atomic two-key upsert) and
+// saveAppSetting (single-key primitive) are the write paths and are called ONLY from
+// isAdmin-gated actions (app/actions/adminSettings.ts). Reads go through withAnonSql
+// (shared_read), NOT serviceSql.
 // ─────────────────────────────────────────────────────────────────────────────
-import { unstable_cache } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { serviceSql, withAnonSql } from "@/lib/db";
 import { DEFAULT_INVITE_COMP_PLAN, type InviteCompPlan } from "@/lib/entitlements";
 
@@ -84,9 +85,27 @@ async function fetchAppSettings(): Promise<AppSettings> {
   }
 }
 
+const CACHE_TAG = "app-settings";
+
 const _cached = unstable_cache(fetchAppSettings, ["app-settings"], {
   revalidate: CACHE_TTL_SECONDS,
+  tags: [CACHE_TAG],
 });
+
+/**
+ * Bust the loadAppSettings cache after a write so an admin sees fresh values immediately
+ * (not up to CACHE_TTL_SECONDS stale under a "Saved." message). The "max" second arg is
+ * Next 16's required cache-life profile (a bare one-arg call is deprecated and warns).
+ * revalidateTag THROWS outside a Next request context (unit tests, scripts) — degrade
+ * silently there; the TTL still refreshes the value.
+ */
+function revalidateAppSettings(): void {
+  try {
+    revalidateTag(CACHE_TAG, "max");
+  } catch {
+    // Not in a request context — fall back to the ~60s TTL.
+  }
+}
 
 /** The DB-overlaid operator settings, cached ~60s. Degrades to compiled defaults. */
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -112,4 +131,30 @@ export async function saveAppSetting(
     VALUES (${key}, ${JSON.stringify(value)}::jsonb, now())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
   `;
+  revalidateAppSettings();
+}
+
+/**
+ * Upsert BOTH invite operator settings ATOMICALLY (one transaction) so a half-applied
+ * pair — e.g. comp plan written, allowance not — can never persist. Callers MUST be
+ * isAdmin-gated (same serviceSql-escape-hatch contract as saveAppSetting). Values are
+ * stored as jsonb scalars; overlayAppSettings re-validates on read.
+ */
+export async function saveInviteSettings(
+  compPlan: string,
+  defaultAllowance: number,
+): Promise<void> {
+  await serviceSql.begin(async (tx) => {
+    await tx`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('invite_comp_plan', ${JSON.stringify(compPlan)}::jsonb, now())
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+    `;
+    await tx`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('invite_default_allowance', ${JSON.stringify(defaultAllowance)}::jsonb, now())
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+    `;
+  });
+  revalidateAppSettings();
 }

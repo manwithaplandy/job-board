@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({ getUserClaims: vi.fn() }));
 vi.mock("@/lib/auth", () => auth);
-const settings = vi.hoisted(() => ({ saveAppSetting: vi.fn(async () => {}) }));
+const settings = vi.hoisted(() => ({ saveInviteSettings: vi.fn(async () => {}) }));
 vi.mock("@/lib/appSettings", () => settings);
 const invites = vi.hoisted(() => ({ setInviteAllowance: vi.fn(async () => {}) }));
 vi.mock("@/lib/invites", () => invites);
@@ -25,23 +25,23 @@ describe("admin gate FIRST (mirrors createInviteAction)", () => {
     auth.getUserClaims.mockResolvedValue({ id: "u-x", email: "stranger@x.com" });
     await expect(saveInviteSettingsAction({ compPlan: "standard", defaultAllowance: 3 })).rejects.toThrow();
     await expect(setInviteAllowanceAction({ userId: "8f14e45f-ceea-4a7b-9c6d-3d1c2b4a5e6f", remaining: 5 })).rejects.toThrow();
-    expect(settings.saveAppSetting).not.toHaveBeenCalled();
+    expect(settings.saveInviteSettings).not.toHaveBeenCalled();
     expect(invites.setInviteAllowance).not.toHaveBeenCalled();
   });
 });
 
 describe("saveInviteSettingsAction", () => {
-  test("valid input writes both keys", async () => {
+  test("valid input writes both keys atomically (one call, both values)", async () => {
     const r = await saveInviteSettingsAction({ compPlan: "pro", defaultAllowance: 5 });
     expect(r).toEqual({ ok: true });
-    expect(settings.saveAppSetting).toHaveBeenCalledWith("invite_comp_plan", "pro");
-    expect(settings.saveAppSetting).toHaveBeenCalledWith("invite_default_allowance", 5);
+    expect(settings.saveInviteSettings).toHaveBeenCalledTimes(1);
+    expect(settings.saveInviteSettings).toHaveBeenCalledWith("pro", 5);
   });
   test("bad comp plan / bad allowance → legible errors, no writes", async () => {
     expect((await saveInviteSettingsAction({ compPlan: "platinum", defaultAllowance: 3 })).ok).toBe(false);
     expect((await saveInviteSettingsAction({ compPlan: "standard", defaultAllowance: 2.5 })).ok).toBe(false);
     expect((await saveInviteSettingsAction({ compPlan: "standard", defaultAllowance: -1 })).ok).toBe(false);
-    expect(settings.saveAppSetting).not.toHaveBeenCalled();
+    expect(settings.saveInviteSettings).not.toHaveBeenCalled();
   });
   test("'none' is a valid comp plan", async () => {
     expect((await saveInviteSettingsAction({ compPlan: "none", defaultAllowance: 0 })).ok).toBe(true);

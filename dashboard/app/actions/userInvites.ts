@@ -83,8 +83,18 @@ export async function sendInvitesAction(rawEmails: string): Promise<SendInvitesR
     return { ok: false, error: `At most ${MAX_ADDRESSES_PER_SEND} addresses per send.` };
   }
 
-  const origin = await requestOrigin();
   const settings = await loadAppSettings();
+  // Membership-oracle guard: with zero invites left, do NO per-address work. A plan-holder
+  // must not be able to probe up to MAX_ADDRESSES_PER_SEND addresses for "already a member"
+  // signals for free. (Residual probing with remaining > 0 is bounded by the allowance +
+  // plan gate and accepted; the per-address copy is unchanged.) The final re-read below
+  // still reflects post-send state.
+  const upfront = await getInviteAllowance(viewer.userId, settings.inviteDefaultAllowance);
+  if (upfront.remaining === 0) {
+    return { ok: false, error: "You've used all your invites." };
+  }
+
+  const origin = await requestOrigin();
   const results: SendResult[] = [];
   let exhausted = false;
 

@@ -2,7 +2,7 @@
 
 import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
-import { saveAppSetting } from "@/lib/appSettings";
+import { saveInviteSettings } from "@/lib/appSettings";
 import { setInviteAllowance } from "@/lib/invites";
 
 // Admin-only operator settings. SECURITY: independently reachable regardless of the
@@ -28,8 +28,8 @@ export async function saveInviteSettingsAction(input: {
     return { ok: false, error: "Default allowance must be a whole number between 0 and 1000." };
   }
   try {
-    await saveAppSetting("invite_comp_plan", compPlan);
-    await saveAppSetting("invite_default_allowance", n);
+    // Atomic two-key upsert: never half-apply the (comp plan, allowance) pair.
+    await saveInviteSettings(compPlan, n);
     return { ok: true };
   } catch (err) {
     console.error("saveInviteSettingsAction failed", err);

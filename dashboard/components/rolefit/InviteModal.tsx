@@ -94,6 +94,37 @@ export function InviteModal({ open, onClose }: InviteModalProps) {
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
+  // Focus trap — keep Tab within the dialog while it's open (aria-modal promises this;
+  // same focusables query + shift/Tab wraparound semantics as ProfileModal.tsx). The
+  // offsetParent filter drops hidden elements; shift+Tab from the dialog root itself
+  // (initial focus, tabIndex=-1) wraps to the last focusable just like from the first.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusables = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === root)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open]);
+
   if (!open) return null;
 
   const ready = status.state === "ready" ? status : null;

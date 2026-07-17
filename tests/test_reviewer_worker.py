@@ -496,3 +496,27 @@ def test_fatal_loop_drains_siblings_and_exits_one(monkeypatch):
     assert exc.value.code == 1
     assert connects["n"] >= 4               # 3 initial + at least one failed reconnect
     assert _review_loop_threads() == []     # all loops joined before main() exited
+
+
+def test_startup_outage_fails_closed_exits_one(monkeypatch):
+    """K>1: if the DB is down at STARTUP, each loop's initial jdb.connect() raises a plain
+    (non-SystemExit) exception — it is NOT routed through reconnect(). The thread wrapper
+    must fail CLOSED: any exception escaping _run_loop sets `fatal` so main() exits nonzero
+    for a Railway restart, instead of letting the threads die quietly (fatal unset →
+    main() returns 0 → worker stays silently down after a startup blip)."""
+    sig = _SignalStub()
+
+    def _connect_down():
+        raise RuntimeError("db down at startup")  # every connect fails, incl. the initial
+
+    monkeypatch.setattr(worker, "signal", sig)
+    monkeypatch.setattr(worker.jdb, "connect", _connect_down)
+    monkeypatch.setattr(worker, "process_one", lambda _conn: False)  # never reached
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_POLL_SECONDS", 0)
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_PARALLELISM", 3)
+    monkeypatch.setattr(worker.config, "has_api_key", lambda: True)
+
+    with pytest.raises(SystemExit) as exc:
+        worker.main()
+    assert exc.value.code == 1
+    assert _review_loop_threads() == []     # all loops joined before main() exited

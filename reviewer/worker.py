@@ -208,10 +208,19 @@ def main() -> None:
         return
 
     def _thread_body(idx):
+        # Fail CLOSED: ANY exception escaping _run_loop must set `fatal` so main() exits
+        # nonzero for a Railway restart — otherwise a thread that dies silently (e.g. the
+        # initial jdb.connect() at loop entry raising when the DB is down at startup, which
+        # is NOT routed through reconnect) would leave `fatal` unset and the process exit 0,
+        # staying down. Keep the arms separate: SystemExit is a BaseException (from
+        # reconnect, already logged there); the Exception arm needs its own log.exception.
         try:
             _run_loop(stop, fatal, idx)
         except SystemExit:
             fatal.set()  # a loop's reconnect gave up → whole process must restart
+        except Exception:
+            log.exception("review loop %s crashed; draining siblings for a restart", idx)
+            fatal.set()
 
     threads = [
         threading.Thread(target=_thread_body, args=(i,), name=f"review-loop-{i}", daemon=False)

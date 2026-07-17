@@ -63,6 +63,38 @@ def test_resolve_plan_none_current_period_end():
     assert resolve_plan({"plan": "pro", "status": "active", "current_period_end": None}, False, NOW) is None
 
 
+def test_resolve_plan_override_downgrades_paying_sub():
+    ov = {"plan": "standard", "expires_at": None}
+    assert resolve_plan(_sub("pro", "active", 10), False, NOW, override=ov) == "standard"
+
+
+def test_resolve_plan_override_comps_stranger_to_pro():
+    ov = {"plan": "pro", "expires_at": None}
+    assert resolve_plan(None, False, NOW, override=ov) == "pro"
+
+
+def test_resolve_plan_override_beats_comp_plan_none():
+    ov = {"plan": "standard", "expires_at": None}
+    assert resolve_plan(None, True, NOW, comp_plan="none", override=ov) == "standard"
+
+
+def test_resolve_plan_override_expiry():
+    active = {"plan": "pro", "expires_at": NOW + timedelta(days=1)}
+    lapsed = {"plan": "pro", "expires_at": NOW - timedelta(days=1)}
+    assert resolve_plan(None, False, NOW, override=active) == "pro"
+    assert resolve_plan(None, True, NOW, override=lapsed) == "standard"  # falls back to comp
+    assert resolve_plan(None, False, NOW, override=lapsed) is None
+
+
+def test_resolve_plan_override_junk_plan_is_inert():
+    assert resolve_plan(None, False, NOW, override={"plan": "platinum", "expires_at": None}) is None
+
+
+def test_resolve_plan_override_not_trial_clamped():
+    ov = {"plan": "pro", "expires_at": None}
+    assert resolve_plan(_sub("pro", "trialing", 5), False, NOW, override=ov) == "pro"
+
+
 def test_resolve_stage2_model_standard_falls_back():
     assert resolve_stage2_model("standard", PREMIUM_MODEL) == CHEAP_MODEL
 

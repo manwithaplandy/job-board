@@ -12,6 +12,7 @@ import type { Sql, TransactionSql } from "postgres";
 import { resolvePlan, type Plan } from "@/lib/entitlements";
 import { isInvitedUser } from "@/lib/invites";
 import { loadAppSettings } from "@/lib/appSettings";
+import { getOwnPlanOverride } from "@/lib/planOverrides";
 
 // The local mirror of Stripe truth (subsystem C). The Stripe webhook is the SOLE
 // writer of subscription STATE (service role); everything else reads the viewer's own
@@ -41,16 +42,18 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
 /**
  * The viewer's effective plan — the ONE helper every gate (reviewer excepted; it
  * has its own Python resolver) calls. Composes the subscription mirror + the
- * server-side invite proof through resolvePlan (T6): a paying subscriber gets their
- * plan, a comped Phase-0 invitee gets Standard, everyone else gets null.
+ * server-side invite proof + the operator pin (plan_overrides) through resolvePlan
+ * (T6): a paying subscriber gets their plan, a comped Phase-0 invitee gets Standard,
+ * everyone else gets null.
  */
 export async function getViewerPlan(userId: string, email: string | null): Promise<Plan | null> {
-  const [sub, invited, settings] = await Promise.all([
+  const [sub, invited, settings, override] = await Promise.all([
     getSubscription(userId),
     email ? isInvitedUser(email) : Promise.resolve(false),
     loadAppSettings(),
+    getOwnPlanOverride(userId),
   ]);
-  return resolvePlan(sub, invited, new Date(), settings.inviteCompPlan);
+  return resolvePlan(sub, invited, new Date(), settings.inviteCompPlan, override);
 }
 
 /**

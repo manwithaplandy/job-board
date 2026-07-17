@@ -426,6 +426,13 @@ EXPECTED_RLS = {
         "no_anon_access": _DENY,
         "owner_read": ("SELECT", frozenset({"authenticated"})),
     },
+    # Operator-pinned effective tier (2026-07-16-plan-overrides): owner may READ their
+    # own pin; all writes are service-role (isAdmin-gated admin action →
+    # dashboard/lib/planOverrides.ts).
+    "plan_overrides": {
+        "no_anon_access": _DENY,
+        "owner_read": ("SELECT", frozenset({"authenticated"})),
+    },
     # Service-role-only (no authenticated policy at all): deny-all is the whole contract.
     "invite_redemptions": {"no_anon_access": _DENY},
     "account_deletions": {"no_anon_access": _DENY},
@@ -518,6 +525,7 @@ EXPECTED_GRANTS = {
     "tier_settings":        (_R({"SELECT"}), _R({"SELECT"})),
     "job_questions":        (_R({"SELECT"}), _R({"SELECT"})),  # shared_read: anon + authenticated SELECT
     "invite_allowances":    (_R(), _R({"SELECT"})),           # owner reads own count
+    "plan_overrides":       (_R(), _R({"SELECT"})),           # owner reads own pin
     "app_settings":         (_R({"SELECT"}), _R({"SELECT"})), # shared_read like tier_settings
     # Everything else (invite_codes, invite_redemptions, schema_migrations,
     # account_deletions, openrouter_usage_snapshots) gets NO anon/authenticated grant.

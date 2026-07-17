@@ -42,6 +42,7 @@ export interface AccountExport {
   created_invite_codes: unknown[];
   generation_jobs: unknown[];
   invite_allowances: unknown;
+  plan_overrides: unknown;
   review_runs: unknown[];
   resume_files: ResumeFileRef[];
   // Non-null when the résumé-object listing FAILED (storage error / down). Distinguishes
@@ -93,7 +94,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
     const [
       profiles, jobReviews, reviewCorrections, companyReviews,
       applicationPackages, resumeScores, coverLetterEdits, usageCounters, subscriptions,
-      reviewRequests, generationJobs, inviteAllowances, reviewRuns,
+      reviewRequests, generationJobs, inviteAllowances, planOverrides, reviewRuns,
     ] = await Promise.all([
       tx`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`,
       tx`SELECT r.*, j.title AS job_title, COALESCE(c.display_name, c.name) AS company_name, j.url AS job_url
@@ -117,6 +118,9 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       // owner_read RLS grants this SELECT under withUserSql
       tx`SELECT remaining, granted, created_at, updated_at
          FROM invite_allowances WHERE user_id = ${userId}::uuid`,
+      // owner_read RLS grants this SELECT under withUserSql
+      tx`SELECT plan, expires_at, note, created_at, updated_at
+         FROM plan_overrides WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM review_runs WHERE user_id = ${userId}::uuid ORDER BY started_at DESC`,
     ]);
     return {
@@ -132,6 +136,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       review_requests: reviewRequests as unknown[],
       generation_jobs: generationJobs as unknown[],
       invite_allowances: (inviteAllowances[0] as unknown) ?? null,
+      plan_overrides: (planOverrides[0] as unknown) ?? null,
       review_runs: reviewRuns as unknown[],
     };
   });

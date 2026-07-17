@@ -112,19 +112,30 @@ def model_slot(model):
     return None
 
 
-def resolve_plan(sub, invited, now=None, comp_plan=DEFAULT_INVITE_COMP_PLAN):
+def resolve_plan(sub, invited, now=None, comp_plan=DEFAULT_INVITE_COMP_PLAN, override=None):
     """The user's effective plan under the chargeable-beta policy.
 
     sub: mapping with keys plan, status, current_period_end (a tz-aware datetime or
     None), or None when the user has no subscription row. invited: server-side
     invite proof. Returns 'standard' | 'pro' | None with semantics identical to
     resolvePlan in entitlements.ts:
+      - an ACTIVE operator override (plan_overrides row; expires_at None or in the
+        future) -> exactly its plan, winning over subscription AND invite comp; the
+        trialing clamp does not apply (a pin is explicit operator intent)
       - active|trialing subscription within (current_period_end + 3-day grace) -> its plan
       - else invited (comped beta) -> comp_plan ('none' disables comping)
       - else -> None
     """
     if now is None:
         now = datetime.now(timezone.utc)
+    # Operator pin (plan_overrides, spec 2026-07-16). Mirrors resolvePlan in
+    # entitlements.ts: active pin wins over everything; expired/junk pins are inert.
+    if override is not None:
+        ov_plan = override.get("plan")
+        if ov_plan in ("standard", "pro"):
+            exp = override.get("expires_at")
+            if exp is None or exp > now:
+                return ov_plan
     if sub is not None:
         status = sub.get("status")
         plan = sub.get("plan")

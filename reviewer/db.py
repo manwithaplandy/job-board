@@ -40,14 +40,17 @@ _PROFILE_COLUMNS = """
     p.model_stage1, p.model_stage2, p.preferred_locations, p.daily_review_cap,
     s.plan AS sub_plan, s.status AS sub_status,
     s.current_period_end AS sub_current_period_end,
-    EXISTS(SELECT 1 FROM invite_redemptions ir WHERE ir.user_id = p.user_id) AS invited
+    EXISTS(SELECT 1 FROM invite_redemptions ir WHERE ir.user_id = p.user_id) AS invited,
+    po.plan AS ov_plan, po.expires_at AS ov_expires_at
 """
 # LEFT JOIN the subscription mirror + compute the server-side invite proof so
-# run._review_user can resolve each user's tier entitlement (plan → model + daily cap).
+# run._review_user can resolve each user's tier entitlement (plan → model + daily cap),
+# including the operator pin (plan_overrides).
 _LOAD_PROFILES_SQL = f"""
     SELECT {_PROFILE_COLUMNS}
     FROM profiles p
     LEFT JOIN subscriptions s ON s.user_id = p.user_id
+    LEFT JOIN plan_overrides po ON po.user_id = p.user_id
 """
 
 

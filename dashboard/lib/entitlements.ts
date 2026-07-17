@@ -134,6 +134,13 @@ export interface SubscriptionLike {
   current_period_end: Date | string | null;
 }
 
+/** Shape of a plan_overrides row as resolvePlan consumes it (Task boundary: the
+ * operator pin). expires_at tolerates the string form a JSON/DB round-trip yields. */
+export interface PlanOverrideLike {
+  plan: Plan | string | null;
+  expires_at: Date | string | null;
+}
+
 /**
  * The user's effective plan under the chargeable-beta policy:
  *   - a paying subscriber (status active|trialing AND current_period_end + grace >
@@ -142,13 +149,25 @@ export interface SubscriptionLike {
  *     comp plan (default Standard) — a deliberate choice so trusted testers keep
  *     working through the beta;
  *   - a stranger with neither gets null (no entitlement → gated everywhere).
+ *   — unless an operator override pins the plan (plan_overrides; see spec 2026-07-16).
  */
 export function resolvePlan(
   sub: SubscriptionLike | null,
   invited: boolean,
   now: Date = new Date(),
   compPlan: InviteCompPlan = DEFAULT_INVITE_COMP_PLAN as InviteCompPlan,
+  override: PlanOverrideLike | null = null,
 ): Plan | null {
+  // Operator pin (plan_overrides, spec 2026-07-16): an ACTIVE override returns exactly
+  // its plan — it wins over the subscription AND the invite comp, and the trialing
+  // clamp below does not apply (a pin is explicit operator intent). Expired, junk, or
+  // absent overrides are inert. Mirrored in entitlements.py resolve_plan.
+  if (override && (override.plan === "standard" || override.plan === "pro")) {
+    if (override.expires_at == null) return override.plan;
+    const exp =
+      override.expires_at instanceof Date ? override.expires_at : new Date(override.expires_at);
+    if (!Number.isNaN(exp.getTime()) && exp.getTime() > now.getTime()) return override.plan;
+  }
   if (
     sub &&
     (sub.status === "active" || sub.status === "trialing") &&

@@ -60,6 +60,38 @@ describe("getTenantMetrics", () => {
     expect(metrics[0].invitesRemaining).toBe(1);
     expect(metrics[1].invitesRemaining).toBeNull();
   });
+
+  test("an ACTIVE override pins the effective plan and surfaces its fields", async () => {
+    rows.value = [{
+      user_id: "u3", email: "c@x.com",
+      plan: null, status: null, current_period_end: null, invited: false,
+      reviews_today: 0, reviews_30d: 0, resume_month: 0, cover_month: 0,
+      last_run_at: null, last_run_errors: null,
+      active_requests: 0, failed_requests: 0, profile_updated_at: null,
+      invites_remaining: null,
+      override_plan: "pro", override_expires_at: null, override_note: "beta comp",
+    }];
+    const out = await getTenantMetrics();
+    expect(out[0].plan).toBe("pro"); // stranger, no sub — the pin alone entitles
+    expect(out[0].overridePlan).toBe("pro");
+    expect(out[0].overrideExpiresAt).toBeNull();
+    expect(out[0].overrideNote).toBe("beta comp");
+  });
+
+  test("an EXPIRED override does not entitle but is still surfaced for the editor", async () => {
+    rows.value = [{
+      user_id: "u4", email: "d@x.com",
+      plan: null, status: null, current_period_end: null, invited: true,
+      reviews_today: 0, reviews_30d: 0, resume_month: 0, cover_month: 0,
+      last_run_at: null, last_run_errors: null,
+      active_requests: 0, failed_requests: 0, profile_updated_at: null,
+      invites_remaining: null,
+      override_plan: "pro", override_expires_at: new Date("2000-01-01"), override_note: null,
+    }];
+    const out = await getTenantMetrics();
+    expect(out[0].plan).toBe("standard"); // falls back to the invite comp
+    expect(out[0].overridePlan).toBe("pro"); // lapsed row still shown so admin can clear/renew
+  });
 });
 
 // tenantMetrics uses the RLS-bypassing serviceSql, so it must be imported ONLY from the

@@ -207,6 +207,23 @@ describe("deleteUserRowsTx", () => {
     // Ledger insert is idempotent.
     expect(joined).toMatch(/INSERT INTO account_deletions[\s\S]*ON CONFLICT \(user_id\) DO NOTHING/);
   });
+
+  test("scrubs invite_codes attribution both directions (sender + recipient), never deletes codes", async () => {
+    await deleteUserRowsTx("00000000-0000-0000-0000-000000000001", "gone@example.com");
+    const sqls = s.txSql.map((sql) => sql.replace(/\s+/g, " "));
+    // Sender direction: codes this user minted are anonymized, not deleted.
+    expect(sqls.some((sql) =>
+      sql.includes("UPDATE invite_codes SET created_by = NULL, recipient_email = NULL") &&
+      sql.includes("created_by = $1"),
+    )).toBe(true);
+    // Recipient direction: codes OTHERS minted for this email drop the address.
+    expect(sqls.some((sql) =>
+      sql.includes("UPDATE invite_codes SET recipient_email = NULL") &&
+      sql.includes("lower(recipient_email)"),
+    )).toBe(true);
+    // No DELETE ever touches invite_codes.
+    expect(sqls.some((sql) => sql.includes("DELETE FROM invite_codes"))).toBe(false);
+  });
 });
 
 // ── Stripe already-gone tolerance (T3 fix) ───────────────────────────────────

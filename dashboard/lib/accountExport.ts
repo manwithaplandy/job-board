@@ -1,5 +1,6 @@
 import { withUserSql } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
+import { listInvitesCreatedBy } from "@/lib/invites";
 import {
   USER_DELETE_TABLES,
   USER_ANONYMIZE_TABLES,
@@ -8,7 +9,10 @@ import {
 // Data export (T2, spec subsystem E): a one-click download of everything we hold on a
 // user, so export ships BEFORE deletion (T3 links here). EVERY read runs under
 // withUserSql so RLS enforces tenancy — a stray missing predicate can't leak another
-// tenant's rows, and no serviceSql allowlist change is needed. The payload has a
+// tenant's rows, and no serviceSql allowlist change is needed. The ONE exception is
+// collectCreatedInviteCodes, which reads via the serviceSql-backed listInvitesCreatedBy;
+// that helper is safe because it filters WHERE created_by = the caller's own verified id,
+// so it can only ever return the caller's own rows. The payload has a
 // top-level key for every user-scoped table (asserted against the same
 // userScopedTables lists the T3 drift-guard uses, so export/deletion can't diverge),
 // plus short-lived signed URLs for the caller's archived résumé files.
@@ -35,7 +39,9 @@ export interface AccountExport {
   subscriptions: unknown;
   review_requests: unknown[];
   invite_redemptions: unknown[];
+  created_invite_codes: unknown[];
   generation_jobs: unknown[];
+  invite_allowances: unknown;
   review_runs: unknown[];
   resume_files: ResumeFileRef[];
   // Non-null when the résumé-object listing FAILED (storage error / down). Distinguishes
@@ -82,12 +88,12 @@ export async function listResumeFiles(userId: string, expiresIn = 300): Promise<
   return refs;
 }
 
-async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions">> {
+async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes">> {
   return withUserSql(userId, async (tx) => {
     const [
       profiles, jobReviews, reviewCorrections, companyReviews,
       applicationPackages, resumeScores, coverLetterEdits, usageCounters, subscriptions,
-      reviewRequests, generationJobs, reviewRuns,
+      reviewRequests, generationJobs, inviteAllowances, reviewRuns,
     ] = await Promise.all([
       tx`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`,
       tx`SELECT r.*, j.title AS job_title, COALESCE(c.display_name, c.name) AS company_name, j.url AS job_url
@@ -108,6 +114,9 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
          FROM subscriptions WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM review_requests WHERE user_id = ${userId}::uuid ORDER BY requested_at DESC`,
       tx`SELECT * FROM generation_jobs WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+      // owner_read RLS grants this SELECT under withUserSql
+      tx`SELECT remaining, granted, created_at, updated_at
+         FROM invite_allowances WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM review_runs WHERE user_id = ${userId}::uuid ORDER BY started_at DESC`,
     ]);
     return {
@@ -122,6 +131,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       subscriptions: (subscriptions[0] as unknown) ?? null,
       review_requests: reviewRequests as unknown[],
       generation_jobs: generationJobs as unknown[],
+      invite_allowances: (inviteAllowances[0] as unknown) ?? null,
       review_runs: reviewRuns as unknown[],
     };
   });
@@ -144,6 +154,16 @@ async function collectInviteRedemptions(userId: string): Promise<unknown[]> {
   }
 }
 
+/** Codes this user minted (service-role read via lib/invites; guarded like redemptions). */
+async function collectCreatedInviteCodes(userId: string): Promise<unknown[]> {
+  try {
+    return await listInvitesCreatedBy(userId);
+  } catch (e) {
+    console.error("account export: created invite codes could not be listed", e);
+    return [];
+  }
+}
+
 /**
  * Build the full export payload for `userId`. `resumeFiles` is injectable so the lib
  * test can supply a stub without a storage backend; the route uses the default
@@ -154,9 +174,10 @@ export async function buildAccountExport(
   email: string | null,
   resumeFiles: (uid: string) => Promise<ResumeFileRef[]> = listResumeFiles,
 ): Promise<AccountExport> {
-  const [rows, invites, filesResult] = await Promise.all([
+  const [rows, invites, createdCodes, filesResult] = await Promise.all([
     collectUserRows(userId),
     collectInviteRedemptions(userId),
+    collectCreatedInviteCodes(userId),
     // Capture a storage failure as a GENERIC marker rather than swallowing it to [] — an
     // empty list must mean "no files", not "we couldn't read them". The full error is
     // logged server-side; the marker shipped in the export is a fixed string, never the
@@ -174,6 +195,7 @@ export async function buildAccountExport(
     email,
     ...rows,
     invite_redemptions: invites,
+    created_invite_codes: createdCodes,
     resume_files: filesResult.files,
     resume_files_error: filesResult.error,
   };

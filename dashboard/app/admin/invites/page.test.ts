@@ -22,6 +22,13 @@ vi.mock("@/lib/auth", () => auth);
 const invites = vi.hoisted(() => ({ listInvites: vi.fn(async () => []) }));
 vi.mock("@/lib/invites", () => invites);
 
+// The page now loads operator settings for the InviteSettings card; stub it so the
+// gate suite stays a pure unit (no real DB connect during the "admin proceeds" case).
+const appSettings = vi.hoisted(() => ({
+  loadAppSettings: vi.fn(async () => ({ inviteCompPlan: "standard", inviteDefaultAllowance: 3 })),
+}));
+vi.mock("@/lib/appSettings", () => appSettings);
+
 const OLD = process.env.ADMIN_EMAILS;
 const { default: AdminInvitesPage } = await import("@/app/admin/invites/page");
 

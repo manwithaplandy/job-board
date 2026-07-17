@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import { getTenantMetrics, type TenantMetric } from "@/lib/tenantMetrics";
+import { loadAppSettings } from "@/lib/appSettings";
 import { PLAN_LABEL } from "@/lib/entitlements";
 import { AdminNav } from "@/components/admin/AdminNav";
+import { AllowanceEditor } from "@/components/admin/AllowanceEditor";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
 import { Badge, Card } from "@/components/ui/Panel";
@@ -18,7 +20,7 @@ function fmtDate(d: Date | null): string {
   return d ? new Date(d).toLocaleDateString() : "—";
 }
 
-function Row({ t }: { t: TenantMetric }) {
+function Row({ t, defaultAllowance }: { t: TenantMetric; defaultAllowance: number }) {
   return (
     <tr>
       <td style={{ whiteSpace: "normal", minWidth: "160px" }}>
@@ -37,6 +39,9 @@ function Row({ t }: { t: TenantMetric }) {
       <td style={{ textAlign: "right" }}>{t.reviews30d.toLocaleString()}</td>
       <td style={{ textAlign: "right" }}>
         {t.resumeMonth} / {t.coverMonth}
+      </td>
+      <td style={{ textAlign: "right" }}>
+        <AllowanceEditor userId={t.userId} remaining={t.invitesRemaining} defaultAllowance={defaultAllowance} />
       </td>
       <td>{fmtDate(t.lastRunAt)}</td>
       <td style={{ textAlign: "right", color: (t.lastRunErrors ?? 0) > 0 ? "var(--danger)" : undefined }}>
@@ -58,6 +63,7 @@ export default async function AdminTenantsPage() {
   if (!isAdmin(claims)) notFound();
 
   const tenants = await getTenantMetrics();
+  const settings = await loadAppSettings();
 
   return (
     <AppShell header={<SlimHeader current="admin" />}>
@@ -71,17 +77,18 @@ export default async function AdminTenantsPage() {
               <EmptyState compact title="No tenants yet." />
             ) : (
               <div className="rf-secondary-table-scroll rf-focusable" tabIndex={0} aria-label="Tenant metrics table, horizontally scrollable">
-                <table className="rf-secondary-table" style={{ minWidth: "980px" }}>
+                <table className="rf-secondary-table" style={{ minWidth: "1080px" }}>
                   <thead>
                     <tr>
                       <th>Tenant</th><th>Plan</th><th>Status</th><th>Renews</th>
                       <th>Rev today</th><th>Rev 30d</th><th>Résumé/Cover mo</th>
+                      <th>Invites left</th>
                       <th>Last run</th><th>Errors</th><th>Req act/fail</th><th>Est 30d $</th>
                     </tr>
                   </thead>
                   <tbody>
                     {tenants.map((t) => (
-                      <Row key={t.userId} t={t} />
+                      <Row key={t.userId} t={t} defaultAllowance={settings.inviteDefaultAllowance} />
                     ))}
                   </tbody>
                 </table>

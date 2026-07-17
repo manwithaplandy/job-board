@@ -51,6 +51,21 @@
 .rf-admin-minted { display: inline-flex; align-items: center; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--accent-bg); border: 1px solid var(--accent-border); border-radius: var(--radius-control); }
 .rf-admin-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; }
 
+/* Per-tenant allowance editor: a compact inline number field + Set button. The field
+   keeps a shared 44px control target even inside the compact-density Tenants table. */
+.rf-allowance-editor { display: inline-flex; align-items: center; gap: var(--space-2); }
+.rf-allowance-editor__input { width: 72px; min-width: 0; text-align: right; }
+
+/* Invite settings card: comp-plan + default-allowance form (Invites admin page). */
+.rf-invite-settings-fields { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 150px) auto; gap: var(--space-3); align-items: end; }
+.rf-invite-settings-note { margin-top: var(--space-3); color: var(--text-muted); font-size: var(--font-size-caption); line-height: 1.5; }
+.rf-invite-settings-message { margin-top: var(--space-3); }
+
+@media (max-width: 560px) {
+  .rf-invite-settings-fields { grid-template-columns: minmax(0, 1fr); }
+  .rf-invite-settings-fields .rf-button { width: 100%; }
+}
+
 .rf-analytics-nav { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: var(--space-2); overflow-x: auto; margin: var(--space-6) 0 var(--space-2); padding: var(--space-2) 0; background: var(--bg-page); border-bottom: 1px solid var(--border); }
 .rf-analytics-nav .rf-tabs__list { width: max-content; min-width: 100%; }
 .rf-analytics-nav .rf-tabs__item:last-child { margin-left: auto; }

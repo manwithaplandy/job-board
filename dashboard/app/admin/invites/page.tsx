@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import { listInvites, type InviteCode } from "@/lib/invites";
+import { loadAppSettings } from "@/lib/appSettings";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { InviteGenerator } from "@/components/admin/InviteGenerator";
+import { InviteSettings } from "@/components/admin/InviteSettings";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
@@ -48,6 +50,8 @@ function Row({ inv }: { inv: InviteCode }) {
         <CopyButton text={inv.code} />
       </td>
       <td style={{ whiteSpace: "normal", minWidth: "140px" }}>{inv.note ?? "—"}</td>
+      <td>{inv.createdBy ? (inv.creatorEmail ?? inv.createdBy.slice(0, 8)) : "Operator"}</td>
+      <td>{inv.recipientEmail ?? "—"}</td>
       <td style={{ textAlign: "right", color: exhausted ? "var(--danger)" : undefined }}>
         {inv.uses}/{inv.maxUses}
       </td>
@@ -64,6 +68,7 @@ export default async function AdminInvitesPage() {
   if (!isAdmin(claims)) notFound();
 
   const invites = await listInvites();
+  const settings = await loadAppSettings();
 
   return (
     <AppShell header={<SlimHeader current="admin" />}>
@@ -77,14 +82,22 @@ export default async function AdminInvitesPage() {
           </Card>
 
           <Card style={{ marginTop: "var(--space-4)" }}>
+            <PageHeader title="Invite settings" description="What invited users are comped, and how many invites each user gets." />
+            <InviteSettings
+              initialCompPlan={settings.inviteCompPlan}
+              initialDefaultAllowance={settings.inviteDefaultAllowance}
+            />
+          </Card>
+
+          <Card style={{ marginTop: "var(--space-4)" }}>
             {invites.length === 0 ? (
               <EmptyState compact title="No invite codes yet." />
             ) : (
               <div className="rf-secondary-table-scroll rf-focusable" tabIndex={0} aria-label="Invite codes table, horizontally scrollable">
-                <table className="rf-secondary-table" style={{ minWidth: "640px" }}>
+                <table className="rf-secondary-table" style={{ minWidth: "860px" }}>
                   <thead>
                     <tr>
-                      <th>Code</th><th>Note</th><th>Uses</th><th>Expires</th><th>Created</th>
+                      <th>Code</th><th>Note</th><th>Created by</th><th>Sent to</th><th>Uses</th><th>Expires</th><th>Created</th>
                     </tr>
                   </thead>
                   <tbody>

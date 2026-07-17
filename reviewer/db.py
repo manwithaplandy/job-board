@@ -68,6 +68,21 @@ def load_tier_settings(conn) -> dict:
     return _entitlements.overlay_entitlements(rows)
 
 
+def load_invite_comp_plan(conn) -> str:
+    """app_settings.invite_comp_plan, read once per run (same lifecycle as
+    load_tier_settings) and threaded into resolve_plan, so an operator's comp-plan
+    change is honored on the next run with no redeploy. Degrades to the compiled
+    default on any read failure."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM app_settings WHERE key = 'invite_comp_plan'")
+            row = cur.fetchone()
+    except Exception:
+        conn.rollback()
+        return _entitlements.DEFAULT_INVITE_COMP_PLAN
+    return _entitlements.parse_comp_plan(row["value"] if row else None)
+
+
 def load_profiles(conn) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(_LOAD_PROFILES_SQL)

@@ -164,3 +164,33 @@ def test_load_tier_settings_override_and_fallback(conn):
     conn.commit()
     ent2 = reviewer_db.load_tier_settings(conn)
     assert daily_review_cap("standard", CHEAP_MODEL, ent2) == 400
+
+
+def test_resolve_plan_comp_plan_variants():
+    from reviewer.entitlements import resolve_plan
+    # Default: invited -> standard (unchanged Phase-0 behavior).
+    assert resolve_plan(None, True) == "standard"
+    # Operator-configured comp plans.
+    assert resolve_plan(None, True, comp_plan="pro") == "pro"
+    assert resolve_plan(None, True, comp_plan="none") is None
+    # A live subscription still wins over comp config.
+    from datetime import datetime, timedelta, timezone
+    sub = {"plan": "pro", "status": "active",
+           "current_period_end": datetime.now(timezone.utc) + timedelta(days=10)}
+    assert resolve_plan(sub, True, comp_plan="none") == "pro"
+    # Not invited: comp plan is irrelevant.
+    assert resolve_plan(None, False, comp_plan="pro") is None
+
+
+def test_parse_comp_plan_total():
+    from reviewer.entitlements import parse_comp_plan, DEFAULT_INVITE_COMP_PLAN
+    assert parse_comp_plan("pro") == "pro"
+    assert parse_comp_plan("none") == "none"
+    # A double-encoded jsonb string scalar is unwrapped one level (mirrors TS parseCompPlan)
+    # so a double-encoded row comps identically across runtimes.
+    assert parse_comp_plan('"pro"') == "pro"
+    assert parse_comp_plan('"none"') == "none"
+    # Absent row / malformed writes (incl. a double-encoded INVALID value and non-JSON
+    # garbage) all degrade to the compiled default.
+    for bad in (None, "", "platinum", '"platinum"', "not-json", 3, {"x": 1}, True):
+        assert parse_comp_plan(bad) == DEFAULT_INVITE_COMP_PLAN

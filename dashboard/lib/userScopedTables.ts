@@ -28,6 +28,9 @@ export const USER_DELETE_TABLES = [
   "invite_redemptions",
   // Async-generation status rows (transient; most are pruned within a day anyway).
   "generation_jobs",
+  // Per-user invite budget (user-sent invites). The codes a user MINTED are handled
+  // separately in accountDeletion.ts (anonymized, never deleted).
+  "invite_allowances",
 ] as const;
 
 /** Tables whose rows are kept but de-identified (user_id → NULL) on deletion. */

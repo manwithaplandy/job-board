@@ -288,3 +288,112 @@
 @media (prefers-reduced-motion: reduce) {
   .rf-job-card__button { transition-duration: .01ms; }
 }
+
+/* Invite modal (rolefit/InviteModal). Mirrors ProfileModal's overlay + card system via
+   shared tokens; all geometry and color live here so the component stays free of inline
+   geometry and raw theme values. The card width uses min() (not a literal >390px width)
+   so it never needs an overflow annotation and stays responsive. */
+.rf-invite-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--overlay-backdrop);
+}
+.rf-invite-card {
+  width: min(440px, 100%);
+  max-height: min(640px, calc(100vh - 48px));
+  overflow-y: auto;
+  padding: var(--space-6);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-modal);
+  outline: none;
+}
+.rf-invite-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+.rf-invite-title { margin: 0; color: var(--text-primary); font-size: 17px; font-weight: 800; }
+.rf-invite-count {
+  margin-bottom: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+.rf-invite-muted { color: var(--text-secondary); font-size: var(--font-size-caption); line-height: 1.5; }
+.rf-invite-zero {
+  margin: 0 0 var(--space-2);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  line-height: 1.5;
+}
+.rf-invite-section { margin-bottom: var(--space-5); }
+.rf-invite-send-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+.rf-invite-hint { color: var(--text-muted); font-size: var(--font-size-small); }
+.rf-invite-hint--warn { color: var(--danger); }
+.rf-invite-note {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+}
+.rf-invite-results { list-style: none; margin: var(--space-3) 0 0; padding: 0; }
+.rf-invite-result { padding: 3px 0; font-size: var(--font-size-caption); }
+.rf-invite-result__email { color: var(--text-primary); font-weight: 600; }
+.rf-invite-result__status { display: inline-flex; align-items: center; gap: var(--space-1); }
+.rf-invite-result__status--sent { color: var(--accent); }
+.rf-invite-result__status--failed { color: var(--danger); }
+.rf-invite-result__status--skipped { color: var(--text-secondary); }
+.rf-invite-divider { margin: var(--space-4) 0; border: 0; border-top: 1px solid var(--bg-muted); }
+.rf-invite-eyebrow {
+  margin-bottom: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+}
+.rf-invite-minted {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-control);
+}
+.rf-invite-minted__row { display: flex; align-items: center; gap: var(--space-3); }
+.rf-invite-minted__row + .rf-invite-minted__row { margin-top: var(--space-2); }
+.rf-invite-code {
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  font-weight: 700;
+}
+.rf-invite-url {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-invite-error { margin-top: var(--space-3); }
+
+@media (max-width: 560px) {
+  .rf-invite-overlay { padding: var(--space-4); }
+  .rf-invite-card { padding: var(--space-5); }
+}

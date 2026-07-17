@@ -2,10 +2,11 @@
 
 MIRRORS dashboard/lib/entitlements.ts field-for-field; tests/test_entitlements_parity.py
 regex-extracts the TS values and asserts equality with the constants here. Keep the
-two in lockstep. Stdlib only (datetime) so the reviewer can import it anywhere.
+two in lockstep. Stdlib only (datetime, json) so the reviewer can import it anywhere.
 
 Pricing: spec 2026-07-03 "Pricing & tiers".
 """
+import json
 from datetime import datetime, timedelta, timezone
 
 CHEAP_MODEL = "deepseek/deepseek-v4-flash"
@@ -25,6 +26,30 @@ _GRACE = timedelta(days=3)
 # so a zero-cost trial can never unlock Pro's premium-model daily budget. Flip to True
 # only when a paid-trial product deliberately grants full-plan access during the trial.
 _TRIAL_GRANTS_FULL_PLAN = False
+
+# Invite comp plan (user-sent invites, spec 2026-07-13). Mirrors
+# DEFAULT_INVITE_COMP_PLAN in entitlements.ts (parity-guarded). DB-overridable via
+# app_settings.invite_comp_plan (db.load_invite_comp_plan, read once per run).
+DEFAULT_INVITE_COMP_PLAN = "standard"
+
+
+def parse_comp_plan(v):
+    """The invite comp plan from an app_settings jsonb value: 'standard' | 'pro' |
+    'none'. Anything else (absent row, malformed write) -> the compiled default.
+    Mirrors lib/appSettings.ts parseCompPlan, INCLUDING its one-level unwrap of a
+    double-encoded jsonb string scalar ('"pro"' -> 'pro') so a double-encoded row comps
+    identically across the TS and Python runtimes. Total: never raises."""
+    if isinstance(v, str):
+        if v in ("standard", "pro", "none"):
+            return v
+        # Unwrap one level (postgres can hand back a double-encoded write as '"pro"').
+        try:
+            unwrapped = json.loads(v)
+        except (ValueError, TypeError):
+            unwrapped = None
+        if isinstance(unwrapped, str) and unwrapped in ("standard", "pro", "none"):
+            return unwrapped
+    return DEFAULT_INVITE_COMP_PLAN
 
 
 def _pos_int(v):
@@ -87,7 +112,7 @@ def model_slot(model):
     return None
 
 
-def resolve_plan(sub, invited, now=None):
+def resolve_plan(sub, invited, now=None, comp_plan=DEFAULT_INVITE_COMP_PLAN):
     """The user's effective plan under the chargeable-beta policy.
 
     sub: mapping with keys plan, status, current_period_end (a tz-aware datetime or
@@ -95,7 +120,7 @@ def resolve_plan(sub, invited, now=None):
     invite proof. Returns 'standard' | 'pro' | None with semantics identical to
     resolvePlan in entitlements.ts:
       - active|trialing subscription within (current_period_end + 3-day grace) -> its plan
-      - else invited (comped Phase-0 beta) -> 'standard'
+      - else invited (comped beta) -> comp_plan ('none' disables comping)
       - else -> None
     """
     if now is None:
@@ -111,8 +136,8 @@ def resolve_plan(sub, invited, now=None):
                 if status == "trialing" and not _TRIAL_GRANTS_FULL_PLAN and plan == "pro":
                     return "standard"
                 return plan
-    if invited:
-        return "standard"
+    if invited and comp_plan in ("standard", "pro"):
+        return comp_plan
     return None
 
 

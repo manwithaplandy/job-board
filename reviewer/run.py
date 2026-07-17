@@ -283,10 +283,13 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
     return results, halt.is_set()
 
 
-def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
+def _review_user(conn, profile: dict, ent: dict | None = None,
+                 comp_plan: str = entitlements.DEFAULT_INVITE_COMP_PLAN) -> None:
     # `ent` is the DB-overlaid entitlements map (T1). review_all loads it once per run;
     # the on-demand worker passes None so it is loaded per request. None → compiled
-    # defaults inside the entitlement helpers.
+    # defaults inside the entitlement helpers. `comp_plan` is the DB-configured invite
+    # comp plan (db.load_invite_comp_plan), likewise read once per run and threaded into
+    # resolve_plan; the default keeps standalone callers on the compiled default.
     user_id = str(profile["user_id"])
     pv = profile["profile_version"]
     run_id = db.start_review_run(conn, user_id)
@@ -318,7 +321,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None) -> None:
             "status": profile.get("sub_status"),
             "current_period_end": profile.get("sub_current_period_end"),
         }
-        plan = entitlements.resolve_plan(sub, bool(profile.get("invited")))
+        plan = entitlements.resolve_plan(sub, bool(profile.get("invited")), comp_plan=comp_plan)
         if plan is None:
             notes = "no active subscription"
             log.info("no active subscription for %s; skipping", user_id)
@@ -456,8 +459,9 @@ def review_all(conn) -> None:
     # cap/model resolution. An operator's `UPDATE tier_settings` is honored on the next
     # run with no redeploy.
     ent = db.load_tier_settings(conn)
+    comp_plan = db.load_invite_comp_plan(conn)
     try:
         for profile in profiles:
-            _review_user(conn, profile, ent)
+            _review_user(conn, profile, ent, comp_plan)
     finally:
         tracing.flush()

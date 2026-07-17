@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; sent?: string }>;
+  searchParams: Promise<{ error?: string; sent?: string; code?: string }>;
 }) {
-  const { error, sent } = await searchParams;
+  const { error, sent, code } = await searchParams;
 
   if (sent) {
     return (
@@ -33,7 +33,8 @@ export default async function SignupPage({
         <form action={signUp} className="rf-entry-form">
           <TextField label="Email" name="email" type="email" autoComplete="email" required placeholder="you@example.com" />
           <TextField label="Password" name="password" type="password" autoComplete="new-password" required minLength={8} placeholder="••••••••" />
-          <TextField label="Invite code" name="invite_code" required placeholder="Your invite code" description="Rolefit is in invite-only beta — an invite code is required." />
+          {/* defaultValue: the /signup?code= invite-link landing pre-fills the code (still editable + required). */}
+          <TextField label="Invite code" name="invite_code" required defaultValue={code ?? ""} placeholder="Your invite code" description="Rolefit is in invite-only beta — an invite code is required." />
           {error && <Alert tone="danger">{error}</Alert>}
           <p className="rf-entry-consent">
             By creating an account you agree to the{" "}

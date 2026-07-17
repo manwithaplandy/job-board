@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { InviteModal } from "./InviteModal";
 
 export interface AccountMenuProps {
   email: string | null;
@@ -43,6 +44,7 @@ const separatorStyle: CSSProperties = { borderTop: "1px solid var(--bg-muted)", 
 // (not fetch/link/action): /auth/signout has a CSRF guard that 403s programmatic POSTs.
 export function AccountMenu({ email, current, isAdmin = false }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -235,6 +237,25 @@ export function AccountMenu({ email, current, isAdmin = false }: AccountMenuProp
             Billing
           </a>
 
+          {/* Invite (user-sent invites): opens the modal — a button, not a link.
+              The action re-gates on plan server-side; this is discoverability only.
+              As a <button role="menuitem"> it auto-joins the querySelectorAll-driven
+              keyboard nav (no count/order wiring needed). onClick closes the menu
+              (keeps aria-expanded honest) then opens the modal, whose state is separate. */}
+          <button
+            type="button"
+            role="menuitem"
+            tabIndex={-1}
+            className="rf-picker-option"
+            style={itemStyle}
+            onClick={() => {
+              setOpen(false);
+              setInviteOpen(true);
+            }}
+          >
+            Invite
+          </button>
+
           {/* Admin console (ADMIN_EMAILS viewers only) — the sole UI entry point to the
               otherwise-unadvertised /admin/* pages. Lands on Tenants; its sub-nav reaches
               Invites. The pages re-gate on isAdmin, so hiding this is UX, not security. */}
@@ -265,6 +286,10 @@ export function AccountMenu({ email, current, isAdmin = false }: AccountMenuProp
           </form>
         </div>
       )}
+
+      {/* Invite modal — position:fixed, so it renders correctly from inside the root div.
+          The root's onBlur only toggles the MENU's `open`; the modal owns its own state. */}
+      <InviteModal open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </div>
   );
 }

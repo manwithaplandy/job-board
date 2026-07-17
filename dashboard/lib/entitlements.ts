@@ -41,6 +41,15 @@ export const ENTITLEMENTS: EntitlementMap = {
 export const PLAN_PRICE_USD: Record<Plan, number> = { standard: 5, pro: 20 };
 export const PLAN_LABEL: Record<Plan, string> = { standard: "Standard", pro: "Pro" };
 
+// ── Invite comp plan (user-sent invites, spec 2026-07-13) ────────────────────
+// What an invited-but-not-paying user is comped. DB-overridable via
+// app_settings.invite_comp_plan (lib/appSettings.ts); this compiled constant is the
+// fallback AND the parity-guarded default — tests/test_entitlements_parity.py
+// regex-extracts it and asserts equality with reviewer/entitlements.py, so keep the
+// bare `export const NAME = "value";` shape.
+export type InviteCompPlan = Plan | "none";
+export const DEFAULT_INVITE_COMP_PLAN = "standard";
+
 // ── Reasoning effort (résumé / cover-letter generation) ─────────────────────
 // TS-ONLY, intentionally NOT mirrored in reviewer/entitlements.py: generation is
 // dashboard-only, the reviewer never reads these (same precedent as
@@ -129,14 +138,16 @@ export interface SubscriptionLike {
  * The user's effective plan under the chargeable-beta policy:
  *   - a paying subscriber (status active|trialing AND current_period_end + grace >
  *     now) gets their subscribed plan;
- *   - otherwise a Phase-0 invitee (invited === true) is COMPED at Standard — a
- *     deliberate choice so trusted testers keep working through the beta;
+ *   - otherwise a Phase-0 invitee (invited === true) is comped at the configured
+ *     comp plan (default Standard) — a deliberate choice so trusted testers keep
+ *     working through the beta;
  *   - a stranger with neither gets null (no entitlement → gated everywhere).
  */
 export function resolvePlan(
   sub: SubscriptionLike | null,
   invited: boolean,
   now: Date = new Date(),
+  compPlan: InviteCompPlan = DEFAULT_INVITE_COMP_PLAN as InviteCompPlan,
 ): Plan | null {
   if (
     sub &&
@@ -157,7 +168,9 @@ export function resolvePlan(
       return sub.plan;
     }
   }
-  if (invited) return "standard";
+  // Comped plan is operator-configurable (app_settings.invite_comp_plan); "none"
+  // switches comping off entirely — invited users then need a real subscription.
+  if (invited && compPlan !== "none") return compPlan;
   return null;
 }
 

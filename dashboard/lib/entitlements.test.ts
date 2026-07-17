@@ -197,3 +197,23 @@ describe("validateReasoningEffort", () => {
     });
   });
 });
+
+describe("resolvePlan comp plan (invite comp config)", () => {
+  const now = new Date("2026-07-13T00:00:00Z");
+  test("invited + default comp → standard (unchanged behavior)", () => {
+    expect(resolvePlan(null, true, now)).toBe("standard");
+  });
+  test("invited + compPlan pro → pro", () => {
+    expect(resolvePlan(null, true, now, "pro")).toBe("pro");
+  });
+  test("invited + compPlan none → null (comping switched off)", () => {
+    expect(resolvePlan(null, true, now, "none")).toBeNull();
+  });
+  test("a paying subscription still wins over the comp plan", () => {
+    const sub = { plan: "pro", status: "active", current_period_end: new Date("2026-08-01") };
+    expect(resolvePlan(sub, true, now, "none")).toBe("pro");
+  });
+  test("not invited → compPlan irrelevant, null", () => {
+    expect(resolvePlan(null, false, now, "pro")).toBeNull();
+  });
+});

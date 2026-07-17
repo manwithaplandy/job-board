@@ -118,6 +118,20 @@ export async function deleteUserRowsTx(userId: string, email: string | null): Pr
       `DELETE FROM invite_redemptions WHERE user_id = $1::uuid OR ($2::text IS NOT NULL AND lower(email) = lower($2))`,
       [userId, email],
     );
+    // User-minted invite codes: ANONYMIZE, never delete — a code already in someone's
+    // inbox must keep redeeming. Two directions: codes this user minted (drop the
+    // sender link AND the recipient address together), and codes OTHERS minted for
+    // this user's email (drop just the address).
+    await tx.unsafe(
+      `UPDATE invite_codes SET created_by = NULL, recipient_email = NULL
+       WHERE created_by = $1::uuid`,
+      [userId],
+    );
+    await tx.unsafe(
+      `UPDATE invite_codes SET recipient_email = NULL
+       WHERE $1::text IS NOT NULL AND lower(recipient_email) = lower($1)`,
+      [email],
+    );
     // Anonymize (not delete) review_runs — pipeline stats survive the user.
     await tx.unsafe(`UPDATE review_runs SET user_id = NULL WHERE user_id = $1::uuid`, [userId]);
     await tx.unsafe(

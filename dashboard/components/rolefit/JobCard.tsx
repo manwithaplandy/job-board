@@ -25,9 +25,12 @@ export interface JobCardProps {
   onSelect: (id: string) => void;
   // Hover/focus-revealed reject × on the card (#14). Absent → no × is rendered.
   onReject?: (id: string) => void;
+  // Live population: TRUE for ~2.6s after this row streamed in mid-review — plays the
+  // pop-in + arrival-glow entrance (app/globals.css .rf-job-card--new).
+  isNew?: boolean;
 }
 
-export const JobCard = React.memo(function JobCard({ job, selected, onSelect, onReject }: JobCardProps) {
+export const JobCard = React.memo(function JobCard({ job, selected, onSelect, onReject, isNew }: JobCardProps) {
   // A null fit_score means "not yet reviewed" — same gate JobDetail uses (`hasReview`).
   // fitColor(0) bottoms out at the red end of its red→green scale, so an unscored card
   // would read as a misleading RED. Instead give it the SAME neutral-grey treatment as
@@ -46,7 +49,7 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
   const logoBg = logoColor(job.company_name);
 
   return (
-    <div className="rf-job-card" data-selected={selected || undefined}>
+    <div className={isNew ? "rf-job-card rf-job-card--new" : "rf-job-card"} data-selected={selected || undefined}>
       <button
         type="button"
         onClick={() => onSelect(job.id)}

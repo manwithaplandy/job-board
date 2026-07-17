@@ -170,6 +170,48 @@ def test_run_survives_review_phase_error(conn, monkeypatch):
 
 
 @requires_db
+def test_run_invokes_location_resolution(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Good", "ats": "greenhouse", "token": "good"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="1", title="Engineer", url="u")])
+
+    import job_discovery.locations as locations_mod
+    calls = {"n": 0}
+
+    def fake_resolve(conn):
+        calls["n"] += 1
+        return {}
+
+    # run.py imports resolve_new_locations inside run() at call time, so patching
+    # the attribute on the locations module is what the poll actually invokes.
+    monkeypatch.setattr(locations_mod, "resolve_new_locations", fake_resolve)
+
+    run_module.run()  # must not raise
+    assert calls["n"] == 1
+
+
+@requires_db
+def test_run_survives_location_resolution_error(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets",
+                        lambda: [{"name": "Good", "ats": "greenhouse", "token": "good"}])
+    monkeypatch.setitem(ADAPTERS, "greenhouse",
+                        lambda token: [Posting(external_id="1", title="Engineer", url="u")])
+
+    import job_discovery.locations as locations_mod
+
+    def boom(conn):
+        raise RuntimeError("resolution down")
+
+    monkeypatch.setattr(locations_mod, "resolve_new_locations", boom)
+
+    result = run_module.run()  # resolution error must not abort the poll
+    assert result["failed"] == 0
+
+
+@requires_db
 def test_run_invokes_prune(conn, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setattr(run_module, "load_targets",

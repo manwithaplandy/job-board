@@ -169,6 +169,19 @@ def run(dsn: str | None = None) -> dict:
         log.info("run complete: ok=%s failed=%s new=%s closed=%s",
                  ok, failed, new_jobs, closed_jobs)
 
+        # Location canonicalization: resolve any raw location strings first
+        # seen this poll, then re-stamp jobs.location_canonicals (also
+        # propagates manual corrections). Runs before the review phase so
+        # tonight's reviews filter on fresh canonicals. Failure is isolated —
+        # unresolved raws just retry tomorrow.
+        try:
+            from job_discovery.locations import resolve_new_locations
+            resolve_new_locations(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            log.exception("location resolution failed; poll results unaffected")
+
         try:
             from reviewer.run import review_all
             review_all(conn)

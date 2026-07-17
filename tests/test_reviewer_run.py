@@ -869,9 +869,10 @@ def test_multi_user_disjoint_location_scoped_reviews_in_one_pass(conn, monkeypat
         cur.execute("SELECT DISTINCT user_id FROM review_runs WHERE user_id IS NOT NULL")
         run_users = {str(r["user_id"]) for r in cur.fetchall()}
 
-    # Each user sees only their location + remote; the other metro is filtered out.
-    assert a_jobs == {"lever:acme:nyc", "lever:acme:rem"}
-    assert b_jobs == {"lever:acme:sf", "lever:acme:rem"}
+    # Each user sees only their location; neither opted into Remote, so the
+    # remote job is filtered out (spec 2026-07-16: remote is now opt-in).
+    assert a_jobs == {"lever:acme:nyc"}
+    assert b_jobs == {"lever:acme:sf"}
     # A user's board carries none of the other's metro-specific rows.
     assert "lever:acme:sf" not in a_jobs
     assert "lever:acme:nyc" not in b_jobs

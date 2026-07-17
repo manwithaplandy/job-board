@@ -204,8 +204,10 @@ def select_candidates(
     full stale set before LIMIT when the window-aggregate approach would do.
     """
     # Empty/None preference list = no location pre-filter (the `NOT has_prefs`
-    # guard makes the whole OR true). When set, keep remote jobs always and
-    # otherwise require an exact location match; blank locations are dropped.
+    # guard makes the whole OR true). When set: match the job's canonical
+    # locations (array overlap; falls back to the raw string for jobs not yet
+    # stamped), and remote jobs ONLY when the user opted in by selecting
+    # 'Remote' (spec 2026-07-16: remote no longer bypasses the filter).
     prefs = preferred_locations or []
     _where = """
         FROM jobs j
@@ -225,7 +227,9 @@ def select_candidates(
           -- unreviewed jobs still pass through correctly.
           AND (r.verdict IS DISTINCT FROM 'deny')
           AND NOT COALESCE(j.description_pruned, FALSE)
-          AND (NOT %(has_prefs)s OR j.remote IS TRUE OR j.location = ANY(%(prefs)s::text[]))
+          AND (NOT %(has_prefs)s
+               OR COALESCE(j.location_canonicals, ARRAY[j.location]) && %(prefs)s::text[]
+               OR ('Remote' = ANY(%(prefs)s::text[]) AND j.remote IS TRUE))
     """
     params = {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,
               "has_prefs": bool(prefs), "prefs": prefs}

@@ -90,12 +90,13 @@ def test_candidate_company_name_prefers_display_name(conn):
     assert cands[0]["company_name"] == "Acme, Inc."
 
 
-def _seed_loc(conn, ext, location, remote):
+def _seed_loc(conn, ext, location, remote, canonicals=None):
     job_id = _seed_job(conn, ext)
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE jobs SET location = %s, remote = %s WHERE id = %s",
-            (location, remote, job_id),
+            "UPDATE jobs SET location = %s, remote = %s, location_canonicals = %s "
+            "WHERE id = %s",
+            (location, remote, canonicals, job_id),
         )
     conn.commit()
     return job_id
@@ -103,24 +104,41 @@ def _seed_loc(conn, ext, location, remote):
 
 @requires_db
 def test_candidates_filtered_by_preferred_locations(conn):
-    berlin = _seed_loc(conn, "1", "Berlin, Germany", False)
-    ny = _seed_loc(conn, "2", "New York, NY", False)
-    blank = _seed_loc(conn, "3", None, False)
-    remote = _seed_loc(conn, "4", "Anywhere", True)
+    berlin = _seed_loc(conn, "1", "Berlin, Germany", False,
+                       canonicals=["Berlin, Germany"])
+    # raw differs from pref; only the stamped canonicals can match it
+    berlin_raw = _seed_loc(conn, "2", "Berlin Germany", False,
+                           canonicals=["Berlin, Germany"])
+    # deliberately unstamped (canonicals NULL): exercises the COALESCE raw fallback
+    ny = _seed_loc(conn, "3", "New York, NY", False)
+    blank = _seed_loc(conn, "4", None, False)
+    # remote flag set, city location, not yet stamped (canonicals NULL)
+    remote = _seed_loc(conn, "5", "Anywhere", True)
 
-    # no preference -> every open job is a candidate
+    # no preference -> every open job is a candidate (NOT has_prefs branch)
     rows, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
-    assert {c["id"] for c in rows} == {berlin, ny, blank, remote}
+    assert {c["id"] for c in rows} == {berlin, berlin_raw, ny, blank, remote}
 
-    # include-list -> exact match + remote pass; non-match and blank dropped
+    # include-list without 'Remote' -> canonicals-overlap only; remote job EXCLUDED
     rows2, _ = rdb.select_candidates(
         conn, USER, "v1", limit=10, preferred_locations=["Berlin, Germany"])
-    assert {c["id"] for c in rows2} == {berlin, remote}
+    assert {c["id"] for c in rows2} == {berlin, berlin_raw}
+
+    # 'Remote' in the include-list -> remote-flagged jobs come back (opt-in)
+    rows3, _ = rdb.select_candidates(
+        conn, USER, "v1", limit=10,
+        preferred_locations=["Berlin, Germany", "Remote"])
+    assert {c["id"] for c in rows3} == {berlin, berlin_raw, remote}
+
+    # unstamped job (canonicals NULL) still matches by raw via the COALESCE fallback
+    rows4, _ = rdb.select_candidates(
+        conn, USER, "v1", limit=10, preferred_locations=["New York, NY"])
+    assert {c["id"] for c in rows4} == {ny}
 
     # empty list behaves like no preference
-    rows3, _ = rdb.select_candidates(
+    rows5, _ = rdb.select_candidates(
         conn, USER, "v1", limit=10, preferred_locations=[])
-    assert {c["id"] for c in rows3} == {berlin, ny, blank, remote}
+    assert {c["id"] for c in rows5} == {berlin, berlin_raw, ny, blank, remote}
 
 
 @requires_db

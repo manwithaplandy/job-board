@@ -100,7 +100,8 @@ const CERT_RE =
  */
 export async function extractPdfItems(bytes: Uint8Array): Promise<PdfItem[]> {
   if (bytes.length === 0) return [];
-  const pdf = await getDocumentProxy(bytes);
+  // pdf.js transfers (detaches) the buffer it's given — copy so the caller keeps ownership.
+  const pdf = await getDocumentProxy(bytes.slice());
   const items: PdfItem[] = [];
   const numPages: number = pdf.numPages;
   for (let p = 1; p <= numPages; p++) {

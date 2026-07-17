@@ -46,7 +46,15 @@ const mutedTextStyle: React.CSSProperties = {
   fontSize: "12.5px", color: "var(--text-secondary)", lineHeight: 1.5,
 };
 
+// Mount gate: the dialog content mounts fresh on each open, so every useState initial
+// value IS the per-open reset (no synchronous setState-in-effect → no cascading
+// renders), and unmounting on close tears every listener down. Public API unchanged.
 export function InviteModal({ open, onClose }: InviteModalProps) {
+  if (!open) return null;
+  return <InviteModalContent onClose={onClose} />;
+}
+
+function InviteModalContent({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<Status>({ state: "loading" });
   const [emails, setEmails] = useState("");
   const [busy, setBusy] = useState<"send" | "generate" | null>(null);
@@ -60,15 +68,10 @@ export function InviteModal({ open, onClose }: InviteModalProps) {
   // not close the dialog).
   const mouseDownTargetRef = useRef<EventTarget | null>(null);
 
-  // Fetch allowance on each open; reset transient state on close.
+  // On mount (= each open): remember the opener, fetch the allowance, focus the dialog;
+  // unmount (= close) restores focus to the opener.
   useEffect(() => {
-    if (!open) return;
     previousFocusRef.current = document.activeElement as HTMLElement;
-    setStatus({ state: "loading" });
-    setResults(null);
-    setMinted(null);
-    setActionError(null);
-    setEmails("");
     let cancelled = false;
     getInviteStatusAction().then((r) => {
       if (cancelled) return;
@@ -82,24 +85,22 @@ export function InviteModal({ open, onClose }: InviteModalProps) {
       clearTimeout(timer);
       previousFocusRef.current?.focus();
     };
-  }, [open]);
+  }, []);
 
   // Escape closes.
   useEffect(() => {
-    if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [onClose]);
 
   // Focus trap — keep Tab within the dialog while it's open (aria-modal promises this;
   // same focusables query + shift/Tab wraparound semantics as ProfileModal.tsx). The
   // offsetParent filter drops hidden elements; shift+Tab from the dialog root itself
   // (initial focus, tabIndex=-1) wraps to the last focusable just like from the first.
   useEffect(() => {
-    if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
       const root = dialogRef.current;
@@ -123,9 +124,7 @@ export function InviteModal({ open, onClose }: InviteModalProps) {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open]);
-
-  if (!open) return null;
+  }, []);
 
   const ready = status.state === "ready" ? status : null;
   const remaining = ready?.remaining ?? 0;

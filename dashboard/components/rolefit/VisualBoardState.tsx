@@ -12,7 +12,7 @@ const noop = () => {};
 const noopSave = async () => {};
 const JOB: JobRow = {
   id: "visual-job-1", title: "Senior Product Engineer", company_name: "Acme Systems",
-  location: "Remote", remote: true, first_seen_at: "2026-07-01T00:00:00.000Z", closed_at: null,
+  location: "Remote", location_canonicals: null, remote: true, first_seen_at: "2026-07-01T00:00:00.000Z", closed_at: null,
   ats: "greenhouse", human_override: false, verdict: "approve", role_category: "engineering",
   seniority: "senior", work_arrangement: "remote", pay_min: 175000, pay_max: 210000,
   pay_currency: "USD", pay_period: "year", headcount: null, skills_score: 94,

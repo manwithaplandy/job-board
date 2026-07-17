@@ -4,7 +4,7 @@ import type { JobRow } from "@/lib/types";
 
 function job(p: Partial<JobRow>): JobRow {
   return {
-    id: "x", title: "Engineer", url: "u", location: "Remote (US)", remote: true,
+    id: "x", title: "Engineer", url: "u", location: "Remote (US)", location_canonicals: null, remote: true,
     first_seen_at: "2026-06-20T00:00:00Z", closed_at: null, company_name: "Acme", ats: "lever",
     verdict: "approve", human_override: false, experience_match: "match", industry: null, industry_subcategory: null,
     confidence: "high", reasoning: null, stage1_decision: "pass", stage1_reason: null,

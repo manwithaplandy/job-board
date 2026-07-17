@@ -125,10 +125,18 @@ describe("buildJobsQuery", () => {
     expect(q.values).toEqual(["%berlin%"]);
   });
 
-  test("owner preferred locations add a remote-or-exact-match clause at $2", () => {
-    const q = buildJobsQuery(base, UID, ["Berlin, Germany", "Remote"]);
-    expect(q.text).toContain("(j.remote IS TRUE OR j.location = ANY($2))");
-    expect(q.values).toEqual([UID, ["Berlin, Germany", "Remote"]]);
+  test("owner preferred locations add a canonical-overlap clause with remote opt-in", () => {
+    const q = buildJobsQuery(base, UID, ["Austin, TX", "Remote"]);
+    expect(q.text).toContain(
+      "(COALESCE(j.location_canonicals, ARRAY[j.location]) && $2" +
+      " OR ('Remote' = ANY($2) AND j.remote IS TRUE))",
+    );
+    expect(q.values[1]).toEqual(["Austin, TX", "Remote"]);
+  });
+
+  test("board rows select location_canonicals", () => {
+    const q = buildJobsQuery(base, null);
+    expect(q.text).toContain("j.location_canonicals");
   });
 
   test("empty owner preferred locations add no baseline clause", () => {
@@ -138,7 +146,10 @@ describe("buildJobsQuery", () => {
 
   test("owner preferred locations apply without an owner, binding from $1", () => {
     const q = buildJobsQuery(base, null, ["Berlin, Germany"]);
-    expect(q.text).toContain("(j.remote IS TRUE OR j.location = ANY($1))");
+    expect(q.text).toContain(
+      "(COALESCE(j.location_canonicals, ARRAY[j.location]) && $1" +
+      " OR ('Remote' = ANY($1) AND j.remote IS TRUE))",
+    );
     expect(q.values).toEqual([["Berlin, Germany"]]);
   });
 

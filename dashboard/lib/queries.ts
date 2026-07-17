@@ -27,6 +27,10 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
     id: row.id as string,
     title: row.title as string,
     location: (row.location as string | null) ?? null,
+    location_canonicals: Array.isArray(row.location_canonicals)
+      ? (row.location_canonicals as unknown[]).filter(
+          (v): v is string => typeof v === "string")
+      : null,
     remote: (row.remote as boolean | null) ?? null,
     first_seen_at: iso(row.first_seen_at),
     closed_at: row.closed_at != null ? iso(row.closed_at) : null,

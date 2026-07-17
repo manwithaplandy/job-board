@@ -33,6 +33,9 @@ export interface JobRowBase {
   id: string;
   title: string;
   location: string | null;
+  // Canonical location strings stamped by the poller (locations.canonicals);
+  // null = not yet resolved (filters fall back to the raw location string).
+  location_canonicals: string[] | null;
   remote: boolean | null;
   first_seen_at: string | Date;
   closed_at: string | Date | null;

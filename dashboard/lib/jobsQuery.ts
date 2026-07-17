@@ -57,11 +57,18 @@ export function buildJobsQuery(
     where.push(`j.location ILIKE ${ph()}`);
     values.push(`%${f.location}%`);
   }
-  // The viewer's location include-list (set on their profile). Mirrors the
-  // reviewer pre-filter: keep remote jobs always, else require an exact match.
-  // Empty list => no clause (everything shows). Applies with or without reviews.
+  // The viewer's location include-list (profile.preferred_locations, canonical
+  // values). Mirrors the reviewer pre-filter (reviewer/db.py select_candidates)
+  // EXACTLY: canonical-array overlap with a raw-string COALESCE fallback for
+  // not-yet-stamped jobs, and remote jobs only when the viewer selected
+  // "Remote" (opt-in — remote no longer bypasses the filter). Empty list =>
+  // no clause. Applies with or without reviews.
   if (viewerLocations.length) {
-    where.push(`(j.remote IS TRUE OR j.location = ANY(${ph()}))`);
+    const p = ph();
+    where.push(
+      `(COALESCE(j.location_canonicals, ARRAY[j.location]) && ${p}` +
+      ` OR ('Remote' = ANY(${p}) AND j.remote IS TRUE))`,
+    );
     values.push(viewerLocations);
   }
 
@@ -93,7 +100,7 @@ export function buildJobsQuery(
   // for the (currently UI-dormant) dimension filters — it's selecting them that was
   // unnecessary, not filtering on them.
   const selectCols = [
-    "j.id", "j.title", "j.location", "j.remote",
+    "j.id", "j.title", "j.location", "j.location_canonicals", "j.remote",
     "j.first_seen_at", "j.closed_at", "COALESCE(c.display_name, c.name) AS company_name",
     "c.ats",
   ];

@@ -1341,11 +1341,14 @@ export function RolefitBoard({
               freshIds={freshIds}
               scrollParentRef={isNarrow ? undefined : listScrollRef}
               scrollToId={selectedId}
-              // The hover-× is a triage affordance — only the "all" view is the triage
-              // queue. Withholding it in Applied/Rejected prevents rejecting an
+              // The card reject is a triage affordance — only the "all" view is the
+              // triage queue. Withholding it in Applied/Rejected prevents rejecting an
               // already-applied job (leaving it applied+rejected) or re-rejecting a
               // rejected one; those views carry their own detail-pane actions instead.
-              onReject={view === "all" ? handleRejectById : undefined}
+              // Authed-only: for anon visitors rejectJob's requireUserId redirects to
+              // /login mid-toast, so the control must not render at all (the
+              // detail-pane Reject is already isAuthed-gated).
+              onReject={isAuthed && view === "all" ? handleRejectById : undefined}
             />
           </div>
         )}

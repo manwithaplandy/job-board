@@ -31,9 +31,9 @@ const linkStyle: React.CSSProperties = {
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; sent?: string }>;
+  searchParams: Promise<{ error?: string; sent?: string; code?: string }>;
 }) {
-  const { error, sent } = await searchParams;
+  const { error, sent, code } = await searchParams;
 
   if (sent) {
     return (
@@ -75,6 +75,7 @@ export default async function SignupPage({
           <label style={labelStyle}>
             Invite code
             <input className="rf-focusable" name="invite_code" required
+              defaultValue={code ?? ""}
               placeholder="Your invite code" style={inputStyle} />
             <span style={{ fontSize: "11.5px", fontWeight: 500, lineHeight: 1.5, color: "var(--text-muted)" }}>
               Rolefit is in invite-only beta — an invite code is required.

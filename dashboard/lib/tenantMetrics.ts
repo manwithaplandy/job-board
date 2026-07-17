@@ -32,6 +32,7 @@ export interface TenantMetric {
   failedRequests: number;
   profileUpdatedAt: Date | null;
   estCost30dUsd: number;
+  invitesRemaining: number | null; // null = no invite_allowances row yet → sees the default
 }
 
 interface Row {
@@ -50,6 +51,7 @@ interface Row {
   active_requests: number;
   failed_requests: number;
   profile_updated_at: Date | null;
+  invites_remaining: number | null;
 }
 
 // One aggregate pass per metric group (CTEs), then a single join over profiles — no
@@ -91,13 +93,15 @@ SELECT
   lr.errors      AS last_run_errors,
   COALESCE(r.active_requests, 0)::int AS active_requests,
   COALESCE(r.failed_requests, 0)::int AS failed_requests,
-  p.updated_at   AS profile_updated_at
+  p.updated_at   AS profile_updated_at,
+  ia.remaining AS invites_remaining
 FROM profiles p
 LEFT JOIN subscriptions s ON s.user_id = p.user_id
 LEFT JOIN usage u  ON u.user_id = p.user_id
 LEFT JOIN last_run lr ON lr.user_id = p.user_id
 LEFT JOIN reqs r   ON r.user_id = p.user_id
 LEFT JOIN inv      ON inv.user_id = p.user_id
+LEFT JOIN invite_allowances ia ON ia.user_id = p.user_id
 ORDER BY reviews_30d DESC, profile_updated_at DESC NULLS LAST
 `;
 
@@ -129,6 +133,7 @@ export async function getTenantMetrics(): Promise<TenantMetric[]> {
       failedRequests: r.failed_requests,
       profileUpdatedAt: r.profile_updated_at,
       estCost30dUsd: r.reviews_30d * BLENDED_COST_PER_REVIEW_USD,
+      invitesRemaining: r.invites_remaining,
     };
   });
 }

@@ -10,6 +10,10 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new NotFoundError();
   },
+  // The page imports AllowanceEditor, which imports useRouter from this module.
+  // It is never CALLED here (the gate suite never renders JSX), but the mocked
+  // module must still define the export or vitest errors on access.
+  useRouter: () => ({ refresh: () => {} }),
 }));
 
 const auth = vi.hoisted(() => ({ getUserClaims: vi.fn() }));
@@ -17,6 +21,13 @@ vi.mock("@/lib/auth", () => auth);
 
 const metrics = vi.hoisted(() => ({ getTenantMetrics: vi.fn(async () => []) }));
 vi.mock("@/lib/tenantMetrics", () => metrics);
+
+// The page now loads operator settings for the per-tenant AllowanceEditor default;
+// stub it so the gate suite stays a pure unit (no real DB connect on "admin proceeds").
+const appSettings = vi.hoisted(() => ({
+  loadAppSettings: vi.fn(async () => ({ inviteCompPlan: "standard", inviteDefaultAllowance: 3 })),
+}));
+vi.mock("@/lib/appSettings", () => appSettings);
 
 const OLD = process.env.ADMIN_EMAILS;
 const { default: AdminTenantsPage } = await import("@/app/admin/tenants/page");

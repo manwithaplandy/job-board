@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
 import { getTenantMetrics, type TenantMetric } from "@/lib/tenantMetrics";
+import { loadAppSettings } from "@/lib/appSettings";
 import { PLAN_LABEL } from "@/lib/entitlements";
 import { AdminNav } from "@/components/admin/AdminNav";
+import { AllowanceEditor } from "@/components/admin/AllowanceEditor";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +34,7 @@ function fmtDate(d: Date | null): string {
   return d ? new Date(d).toLocaleDateString() : "—";
 }
 
-function Row({ t }: { t: TenantMetric }) {
+function Row({ t, defaultAllowance }: { t: TenantMetric; defaultAllowance: number }) {
   return (
     <tr>
       <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: "160px" }}>
@@ -51,6 +53,9 @@ function Row({ t }: { t: TenantMetric }) {
       <td style={{ ...tdStyle, textAlign: "right" }}>{t.reviews30d.toLocaleString()}</td>
       <td style={{ ...tdStyle, textAlign: "right" }}>
         {t.resumeMonth} / {t.coverMonth}
+      </td>
+      <td style={{ ...tdStyle, textAlign: "right" }}>
+        <AllowanceEditor userId={t.userId} remaining={t.invitesRemaining} defaultAllowance={defaultAllowance} />
       </td>
       <td style={tdStyle}>{fmtDate(t.lastRunAt)}</td>
       <td style={{ ...tdStyle, textAlign: "right", color: (t.lastRunErrors ?? 0) > 0 ? "var(--danger)" : undefined }}>
@@ -72,6 +77,7 @@ export default async function AdminTenantsPage() {
   if (!isAdmin(claims)) notFound();
 
   const tenants = await getTenantMetrics();
+  const settings = await loadAppSettings();
 
   return (
     <>
@@ -93,7 +99,7 @@ export default async function AdminTenantsPage() {
               </div>
             ) : (
               <div style={{ overflowX: "auto" }}>
-                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "980px" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1080px" }}>
                   <thead>
                     <tr>
                       <th style={thStyle}>Tenant</th>
@@ -103,6 +109,7 @@ export default async function AdminTenantsPage() {
                       <th style={{ ...thStyle, textAlign: "right" }}>Rev today</th>
                       <th style={{ ...thStyle, textAlign: "right" }}>Rev 30d</th>
                       <th style={{ ...thStyle, textAlign: "right" }}>Résumé/Cover mo</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Invites left</th>
                       <th style={thStyle}>Last run</th>
                       <th style={{ ...thStyle, textAlign: "right" }}>Errors</th>
                       <th style={{ ...thStyle, textAlign: "right" }}>Req act/fail</th>
@@ -111,7 +118,7 @@ export default async function AdminTenantsPage() {
                   </thead>
                   <tbody>
                     {tenants.map((t) => (
-                      <Row key={t.userId} t={t} />
+                      <Row key={t.userId} t={t} defaultAllowance={settings.inviteDefaultAllowance} />
                     ))}
                   </tbody>
                 </table>

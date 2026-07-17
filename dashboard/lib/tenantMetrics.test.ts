@@ -44,6 +44,22 @@ describe("getTenantMetrics", () => {
     rows.value = [];
     expect(await getTenantMetrics()).toEqual([]);
   });
+
+  test("maps invites_remaining through (null = never initialized)", async () => {
+    const base = {
+      plan: null, status: null, current_period_end: null, invited: false,
+      reviews_today: 0, reviews_30d: 0, resume_month: 0, cover_month: 0,
+      last_run_at: null, last_run_errors: null,
+      active_requests: 0, failed_requests: 0, profile_updated_at: null,
+    };
+    rows.value = [
+      { ...base, user_id: "u-1", email: "a@x.com", invites_remaining: 1 },
+      { ...base, user_id: "u-2", email: "b@x.com", invites_remaining: null },
+    ];
+    const metrics = await getTenantMetrics();
+    expect(metrics[0].invitesRemaining).toBe(1);
+    expect(metrics[1].invitesRemaining).toBeNull();
+  });
 });
 
 // tenantMetrics uses the RLS-bypassing serviceSql, so it must be imported ONLY from the

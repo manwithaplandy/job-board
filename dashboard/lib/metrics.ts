@@ -111,12 +111,14 @@ export interface ReviewAgg {
 // Executor-taking impl (mirrors reviewStatsWith / companyVerdictCountsWith) so the
 // /analytics funnel runs it within its single withUserSql tx; exported so the real-DB
 // regression test (lib/queries.locationScoping.db.test.ts) can drive the ACTUAL query.
-// Scoped to the viewer's review pool — open jobs that are remote OR in preferred_locations
-// — kept in LOCKSTEP with reviewStatsWith (lib/queries.ts). The preferred_locations
-// subquery MUST be COALESCE'd to an empty array so `= ANY(...)` receives an array
-// EXPRESSION (array form); the bare subquery form `= ANY((SELECT ...))` compares text
-// against whole text[] rows → Postgres 42883 (operator does not exist: text = text[]),
-// a plan-time error that 500'd every authenticated render (fixed in b0a2689).
+// Scoped to the viewer's review pool — open jobs whose canonical locations (raw-string
+// COALESCE fallback) overlap preferred_locations, plus remote jobs when 'Remote' is
+// selected (opt-in) — kept in LOCKSTEP with reviewStatsWith (lib/queries.ts) and
+// lib/jobsQuery.ts. The preferred_locations subquery MUST be COALESCE'd to an empty array
+// so `&&` / `= ANY(...)` receives an array EXPRESSION (array form); the bare subquery form
+// `&& (SELECT ...)` / `= ANY((SELECT ...))` compares against whole text[] rows → Postgres
+// 42883 (operator does not exist: text[] && text / text = text[]), a plan-time error that
+// 500'd every authenticated render (fixed in b0a2689). Empty/missing prefs → empty pool.
 export async function reviewAggWith(tx: TransactionSql, userId: string): Promise<ReviewAgg> {
   const rows = await tx`
       SELECT count(*) FILTER (WHERE r.job_id IS NOT NULL)::int AS reviewed,
@@ -127,8 +129,14 @@ export async function reviewAggWith(tx: TransactionSql, userId: string): Promise
       FROM jobs j
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.closed_at IS NULL
-        AND (j.remote IS TRUE OR j.location = ANY(COALESCE(
-              (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid), '{}'::text[])))
+        AND (
+          COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(
+            (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid),
+            '{}'::text[])
+          OR ('Remote' = ANY(COALESCE(
+            (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid),
+            '{}'::text[])) AND j.remote IS TRUE)
+        )
     `;
   return (rows[0] as unknown as ReviewAgg)
     ?? { reviewed: 0, gate_rejected: 0, approved: 0, denied: 0, manual_rejected: 0 };

@@ -175,12 +175,14 @@ function toReviewStats(row: Record<string, unknown>): ReviewStats {
 // Executor-taking impl so the /analytics fan-out (metrics.ts) can run this within
 // its single withUserSql transaction instead of opening a nested one.
 //
-// The pool is scoped to the viewer's review pool — open jobs that are remote OR in their
-// preferred locations — mirroring lib/jobsQuery.ts:64 exactly (the reviewer only ever
+// The pool is scoped to the viewer's review pool — open jobs whose canonical locations
+// (raw-string COALESCE fallback for not-yet-stamped jobs) overlap preferred_locations,
+// plus remote jobs when the viewer selected 'Remote' (opt-in) — mirroring
+// lib/jobsQuery.ts and reviewer/db.py select_candidates EXACTLY (the reviewer only ever
 // scores that pool, so counting the whole ~114k corpus overstated "unreviewed"). Empty
-// preferred_locations → only remote jobs counted (locations are mandatory, so a non-issue).
-// `reviewed` is the same pool's reviewed side; the header uses it to stay hidden until the
-// viewer's first review lands (see components/rolefit/Header.tsx).
+// or missing preferred_locations → empty pool. `reviewed` is the same pool's reviewed
+// side; the header uses it to stay hidden until the viewer's first review lands (see
+// components/rolefit/Header.tsx).
 export async function reviewStatsWith(tx: TransactionSql, userId: string): Promise<ReviewStats> {
   const rows = await tx`
     SELECT
@@ -190,8 +192,14 @@ export async function reviewStatsWith(tx: TransactionSql, userId: string): Promi
     FROM jobs j
     LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
     WHERE j.closed_at IS NULL
-      AND (j.remote IS TRUE OR j.location = ANY(COALESCE(
-            (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid), '{}'::text[])))
+      AND (
+        COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(
+          (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid),
+          '{}'::text[])
+        OR ('Remote' = ANY(COALESCE(
+          (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid),
+          '{}'::text[])) AND j.remote IS TRUE)
+      )
   `;
   const row = rows[0] as Record<string, unknown> | undefined;
   return row ? toReviewStats(row) : { unreviewed: 0, reviewed: 0, errors: 0 };

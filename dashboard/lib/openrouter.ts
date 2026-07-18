@@ -82,15 +82,24 @@ export async function getStructuredModels(
 }
 
 // Letter-by-letter client-side filter. Empty query -> the curated shortlist (in
-// curated order); a curated id absent from the catalog falls back to id-as-name.
+// curated order) INTERSECTED with the live catalog: a curated id the catalog no
+// longer lists is dropped, because the save gate validates against this same live
+// catalog and would reject it as "unknown model" (offered-but-unsavable). When the
+// catalog is empty the live fetch failed, so we can't authoritatively prune —
+// degrade to the full curated list as id-as-name rather than an empty picker
+// (mirrors validateModelId's fail-open on an empty catalog).
 export function filterModels(
   models: ORModel[], curated: string[], query: string,
 ): ORModel[] {
   const q = query.trim().toLowerCase();
   if (!q) {
+    if (models.length === 0) {
+      return curated.map((id) => ({ id, name: id, pricing: { prompt: "", completion: "" } }));
+    }
     const byId = new Map(models.map((m) => [m.id, m]));
-    return curated.map((id) => byId.get(id)
-      ?? { id, name: id, pricing: { prompt: "", completion: "" } });
+    return curated
+      .map((id) => byId.get(id))
+      .filter((m): m is ORModel => m !== undefined);
   }
   return models.filter((m) =>
     m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));

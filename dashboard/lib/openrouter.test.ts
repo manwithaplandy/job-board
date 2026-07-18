@@ -63,9 +63,22 @@ describe("filterModels", () => {
     expect(out.map((m) => m.id)).toEqual(["openai/gpt-4o-mini", "anthropic/claude-haiku-4.5"]);
   });
 
-  test("curated id missing from catalog falls back to id-as-name", () => {
-    const out = filterModels(models, ["zzz/unknown"], "");
-    expect(out[0]).toEqual({ id: "zzz/unknown", name: "zzz/unknown", pricing: { prompt: "", completion: "" } });
+  test("curated id absent from a populated catalog is dropped (intersected out)", () => {
+    // A populated live catalog is authoritative: a curated id it no longer lists would be
+    // offered-but-unsavable (the save gate validates against this same catalog and rejects
+    // it as "unknown model"), so the empty-query shortlist drops it instead of id-as-name.
+    const out = filterModels(models, ["anthropic/claude-haiku-4.5", "zzz/unknown"], "");
+    expect(out.map((m) => m.id)).toEqual(["anthropic/claude-haiku-4.5"]);
+  });
+
+  test("empty catalog (live fetch failed) keeps the full curated list as id-as-name", () => {
+    // No live catalog => we can't authoritatively prune, so degrade to every curated
+    // default rather than an empty picker (mirrors validateModelId's fail-open).
+    const out = filterModels([], ["openai/gpt-4o-mini", "anthropic/claude-haiku-4.5"], "");
+    expect(out).toEqual([
+      { id: "openai/gpt-4o-mini", name: "openai/gpt-4o-mini", pricing: { prompt: "", completion: "" } },
+      { id: "anthropic/claude-haiku-4.5", name: "anthropic/claude-haiku-4.5", pricing: { prompt: "", completion: "" } },
+    ]);
   });
 
   test("non-empty query matches id or name, case-insensitive", () => {

@@ -665,6 +665,14 @@ git add dashboard/lib/queries.ts dashboard/lib/rolefit/boardFilters.ts dashboard
 git commit -m "fix(board-filters): store board_filters as a jsonb object, not a double-encoded string"
 ```
 
+### Deviation (2026-07-19)
+
+Step 5 as written ("do not cast the value") did not resolve the actual typecheck failure. `npm run typecheck` failed with **TS2345** at the `tx.json(filters)` bind: postgres.js's `json(value: JSONValue)` requires a string index signature that the `BoardFilterState` **interface** lacks (`Index signature for type 'string' is missing`). This is a value-shape mismatch, not the `Sql | TransactionSql` union issue the step anticipated, so its remediation did not apply.
+
+**Authorized resolution** (team lead; repo precedent `app/actions/corrections.ts`): a **write-side parameter-type widening** of the in-process typed value — `tx.json(filters as unknown as Parameters<typeof tx.json>[0])`. This is NOT a boundary-read cast, so it does not violate the `dashboard/CLAUDE.md` jsonb rule (that rule governs jsonb *reads* crossing into typed shapes; this is a *write* of an already-typed value). `BoardFilterState` was **not** converted to a type alias and was left unchanged.
+
+Sub-detail: the literal single cast `filters as Parameters<typeof tx.json>[0]` then hit **TS2352** ("neither type sufficiently overlaps") because a concrete interface has no overlap with `JSONValue`. The corrections.ts precedent compiles with a single `as` only because its source (`s.model_snapshot`) is already typed `unknown`; a concrete-typed source must route through `unknown` first (exactly what TS2352 instructs), yielding `as unknown as Parameters<typeof tx.json>[0]` — the same authorized technique, faithful to the precedent. Committed in `fix(board-filters): store board_filters as a jsonb object…`.
+
 ---
 
 ## Stage 4: Live verification via the dev-auth shim (NOT committed)

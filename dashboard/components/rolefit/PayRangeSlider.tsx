@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { CSSProperties } from "react";
 import { PAY_CEIL, PAY_FLOOR, PAY_STEP, fmtPayRange } from "@/lib/rolefit/filter";
 
@@ -26,6 +26,9 @@ function pct(k: number): number {
   return ((k - PAY_FLOOR) / (PAY_CEIL - PAY_FLOOR)) * 100;
 }
 
+const fmtMinField = (v: number) => (v > 0 ? `$${v}k` : "");
+const fmtMaxField = (v: number | null) => (v == null ? "" : `$${v}k`);
+
 export interface PayRangeSliderProps {
   min: number;
   max: number | null;
@@ -35,43 +38,37 @@ export interface PayRangeSliderProps {
 }
 
 export function PayRangeSlider({ min, max, includeUndisclosed, onChange, onToggleUndisclosed }: PayRangeSliderProps) {
-  // Draft thumb positions in $k. draftMax === PAY_CEIL represents the unbounded "+" state.
-  const [draftMin, setDraftMin] = useState(min);
-  const [draftMax, setDraftMax] = useState(max ?? PAY_CEIL);
-  // Editable text mirrors of the two fields, resynced when committed props change.
-  const [minText, setMinText] = useState("");
-  const [maxText, setMaxText] = useState("");
+  const maxPos = max ?? PAY_CEIL;
 
-  useEffect(() => { setDraftMin(min); }, [min]);
-  useEffect(() => { setDraftMax(max ?? PAY_CEIL); }, [max]);
-  useEffect(() => { setMinText(min > 0 ? `$${min}k` : ""); }, [min]);
-  useEffect(() => { setMaxText(max == null ? "" : `$${max}k`); }, [max]);
+  // Editable text mirrors of the fields. Resynced from the committed props when they change
+  // (slider drag, Clear filters) via the prev-prop render pattern — NOT an effect, which would
+  // trip the cascading-render lint. While the user types, the prop is unchanged, so the mirror
+  // is left alone; on commit/drag the prop changes and the mirror reformats.
+  const [minText, setMinText] = useState(() => fmtMinField(min));
+  const [maxText, setMaxText] = useState(() => fmtMaxField(max));
+  const [prevMin, setPrevMin] = useState(min);
+  const [prevMax, setPrevMax] = useState<number | null>(max);
+  if (min !== prevMin) { setPrevMin(min); setMinText(fmtMinField(min)); }
+  if (max !== prevMax) { setPrevMax(max); setMaxText(fmtMaxField(max)); }
 
   const emit = (lo: number, hiPos: number) => onChange(lo, hiPos >= PAY_CEIL ? null : hiPos);
-
-  const onMinRange = (v: number) => { const lo = Math.min(v, draftMax); setDraftMin(lo); emit(lo, draftMax); };
-  const onMaxRange = (v: number) => { const hi = Math.max(v, draftMin); setDraftMax(hi); emit(draftMin, hi); };
+  const onMinRange = (v: number) => emit(Math.min(v, maxPos), maxPos);
+  const onMaxRange = (v: number) => emit(min, Math.max(v, min));
 
   const commitMinText = () => {
     const parsed = parsePayInput(minText);
-    const lo = Math.min(parsed ?? PAY_FLOOR, draftMax);
-    setDraftMin(lo); emit(lo, draftMax);
+    emit(Math.min(parsed ?? PAY_FLOOR, maxPos), maxPos);
   };
   const commitMaxText = () => {
     const parsed = parsePayInput(maxText);
-    const hi = parsed == null ? PAY_CEIL : Math.max(parsed, draftMin);
-    setDraftMax(hi); emit(draftMin, hi);
+    emit(min, parsed == null ? PAY_CEIL : Math.max(parsed, min));
   };
   const onFieldKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, commit: () => void) => {
     if (e.key === "Enter") { e.preventDefault(); commit(); }
   };
 
-  const topOpen = draftMax >= PAY_CEIL;
-  const summary = fmtPayRange(draftMin, topOpen ? null : draftMax) ?? "Any pay";
-  const fillStyle = {
-    "--rf-pay-fill-start": `${pct(draftMin)}%`,
-    "--rf-pay-fill-end": `${pct(draftMax)}%`,
-  } as CSSProperties;
+  const summary = fmtPayRange(min, max) ?? "Any pay";
+  const fillStyle = { "--rf-pay-fill-start": `${pct(min)}%`, "--rf-pay-fill-end": `${pct(maxPos)}%` } as CSSProperties;
 
   return (
     <div
@@ -87,22 +84,22 @@ export function PayRangeSlider({ min, max, includeUndisclosed, onChange, onToggl
           type="range"
           className="rf-pay__range rf-focusable"
           aria-label="Minimum pay"
-          aria-valuetext={draftMin > 0 ? `$${draftMin}k` : "No minimum"}
+          aria-valuetext={min > 0 ? `$${min}k` : "No minimum"}
           min={PAY_FLOOR}
           max={PAY_CEIL}
           step={PAY_STEP}
-          value={draftMin}
+          value={min}
           onChange={(e) => onMinRange(Number(e.currentTarget.value))}
         />
         <input
           type="range"
           className="rf-pay__range rf-focusable"
           aria-label="Maximum pay"
-          aria-valuetext={topOpen ? "No maximum" : `$${draftMax}k`}
+          aria-valuetext={max == null ? "No maximum" : `$${max}k`}
           min={PAY_FLOOR}
           max={PAY_CEIL}
           step={PAY_STEP}
-          value={draftMax}
+          value={maxPos}
           onChange={(e) => onMaxRange(Number(e.currentTarget.value))}
         />
       </div>

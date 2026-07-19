@@ -1,11 +1,11 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { parseFilters } from "@/lib/filters";
+import { serverBoardFilters } from "@/lib/filters";
 import {
   getApplicationPackages, getJobs, getJobQuestions, getLatestPollRun,
   getProfile, getRejectedJobs, getReviewStats,
 } from "@/lib/queries";
-import { DEFAULT_INCLUDE_KEYWORDS, STALE_HEALTH_HOURS } from "@/lib/config";
+import { STALE_HEALTH_HOURS } from "@/lib/config";
 import { computeHealth } from "@/lib/status";
 import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
@@ -29,7 +29,6 @@ export default async function Page({
   const claims = await getUserClaims();
   const viewerId = claims?.id ?? null;
   await searchParams; // filters now client-side; keep the param contract
-  const filters = parseFilters({}, { include: DEFAULT_INCLUDE_KEYWORDS });
 
   if (viewerId) {
     // Data-dependency flip: the viewer's OWN profile drives their location
@@ -38,6 +37,9 @@ export default async function Page({
     const profile = await getProfile(viewerId);
     if (profile == null) redirect("/onboarding");
     const viewerLocations = profile.preferred_locations ?? [];
+    // Authed board: the reviewer's approve join already curates it, so no title
+    // prefilter (include: []). See lib/filters.ts serverBoardFilters.
+    const filters = serverBoardFilters("authed");
     const jobsP = getJobs(filters, viewerId, viewerLocations);
 
     // The jobs query runs alongside a bounded-2 batch of the remaining authed
@@ -100,6 +102,8 @@ export default async function Page({
   }
 
   // Anonymous viewer: plain open jobs, no review join, no operator telemetry.
+  // The public board keeps the deliberate engineer-only editorial curation.
+  const filters = serverBoardFilters("anon");
   const jobs = await getJobs(filters, null, []);
   const store = await cookies();
   const initialFilters = parseBoardFilters(store.get("board_filters")?.value);

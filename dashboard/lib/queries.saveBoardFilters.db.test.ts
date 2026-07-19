@@ -26,9 +26,12 @@ describe.skipIf(!TEST_DSN)("saveBoardFilters storage shape — real Postgres", (
     await sql?.end({ timeout: 5 });
   });
 
+  // Pay values are $k within the parser's [PAY_FLOOR, PAY_CEIL] clamp window, non-default
+  // so the round-trip proves persistence rather than default-fill.
   const state: BoardFilterState = {
     search: "react", cats: ["Engineering"], locs: ["Remote"], sources: ["greenhouse"],
-    remote: "remote", minFit: 70, payMin: 100000, sort: "pay",
+    remote: "remote", minFit: 70, payMin: 100, payMax: 200, payIncludeUndisclosed: true,
+    sort: "pay",
   };
 
   it("stores a jsonb OBJECT, not a double-encoded string scalar", async () => {

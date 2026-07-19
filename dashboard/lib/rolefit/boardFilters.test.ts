@@ -68,9 +68,11 @@ describe("parseBoardFilters", () => {
     });
   });
 
-  test("payMax round-trips and clamps to the ceiling", () => {
+  test("payMax round-trips; values at or above the ceiling collapse to unbounded", () => {
     expect(parseBoardFilters({ payMin: 80, payMax: 120 })).toMatchObject({ payMin: 80, payMax: 120 });
-    expect(parseBoardFilters({ payMax: 999 }).payMax).toBe(400);
+    expect(parseBoardFilters({ payMax: 390 }).payMax).toBe(390);
+    expect(parseBoardFilters({ payMax: 400 }).payMax).toBeNull();
+    expect(parseBoardFilters({ payMax: 999 }).payMax).toBeNull();
   });
 
   test("payMin clamps to the ceiling", () => {

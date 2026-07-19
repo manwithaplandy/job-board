@@ -26,12 +26,13 @@ function payFloor(v: unknown): number {
   return Math.min(nonNegNum(v), PAY_CEIL);
 }
 
-// Pay ceiling in $k: a finite number in [PAY_FLOOR, PAY_CEIL], or null for "no upper limit"
-// (absent, non-numeric, or an incoherent value below the resolved floor).
+// Pay ceiling in $k: a finite number in [PAY_FLOOR, PAY_CEIL), or null for "no upper limit"
+// (absent, non-numeric, incoherently below the resolved floor, or at/above PAY_CEIL — the
+// slider renders PAY_CEIL as the unbounded "+" sentinel, so the parser mirrors it).
 function payCeiling(v: unknown, floor: number): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v < PAY_FLOOR) return null;
   const clamped = Math.min(Math.max(v, PAY_FLOOR), PAY_CEIL);
-  return clamped < floor ? null : clamped;
+  return clamped < floor || clamped === PAY_CEIL ? null : clamped;
 }
 
 function defaults(): BoardFilterState {

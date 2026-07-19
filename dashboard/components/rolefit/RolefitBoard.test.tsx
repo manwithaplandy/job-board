@@ -155,15 +155,18 @@ describe("pay range filter wiring", () => {
   test("a persisted range hides out-of-range jobs and labels the Pay pill", () => {
     stubMatchMedia();
     mockFetch({ status: 200, body: {} }); // benign: no generation is driven here
-    render(
+    const { container } = render(
       <RolefitBoard
         {...baseProps}
         jobs={[job, lowPay]}
         initialFilters={{ ...DEFAULT_FILTERS, payMin: 100, payMax: null }}
       />,
     );
-    expect(screen.getByText("Staff Engineer")).toBeTruthy();
-    expect(screen.queryByText("Junior Engineer")).toBeNull();
+    // Load-bearing: the FilterBar result-count is layout-independent (unlike the virtualized
+    // JobList, which renders no card rows in jsdom, and the auto-selected detail pane). It
+    // reads `visibleCount of totalInView roles` where visibleCount is the count AFTER the pay
+    // filter — so "1 of 2" proves the payMin:100 filter actually dropped the 60–80k job.
+    expect(container.querySelector(".rf-board-result-count")?.textContent).toBe("1 of 2 roles");
     // Pay trigger reflects the active lower bound.
     expect(screen.getByRole("button", { name: /Pay.*\$100k\+/ })).toBeTruthy();
   });

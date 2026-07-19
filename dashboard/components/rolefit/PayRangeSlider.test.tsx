@@ -62,6 +62,22 @@ describe("PayRangeSlider", () => {
     expect(onChange).toHaveBeenLastCalledWith(80, 150);
   });
 
+  test("a full-dollar max value (>= 1000) is read as dollars and rescaled to thousands", () => {
+    const { onChange } = setup({ min: 80 });
+    const field = screen.getByLabelText("Maximum pay, in thousands");
+    fireEvent.change(field, { target: { value: "120000" } });
+    fireEvent.blur(field);
+    expect(onChange).toHaveBeenLastCalledWith(80, 120);
+  });
+
+  test("a bare-number max value (< 1000) is read as thousands as-is", () => {
+    const { onChange } = setup({ min: 80 });
+    const field = screen.getByLabelText("Maximum pay, in thousands");
+    fireEvent.change(field, { target: { value: "120" } });
+    fireEvent.blur(field);
+    expect(onChange).toHaveBeenLastCalledWith(80, 120);
+  });
+
   test("clearing the max field means unbounded (+)", () => {
     const { onChange } = setup({ min: 80, max: 150 });
     const field = screen.getByLabelText("Maximum pay, in thousands");

@@ -1,5 +1,5 @@
 import { describe, expect, it, test } from "vitest";
-import { applyFilters, facetCounts, filterByApplied, filterByView, mergeRejectedPool, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
+import { applyFilters, facetCounts, filterByApplied, filterByView, fmtPayRange, mergeRejectedPool, sortJobs, type BoardFilterState } from "@/lib/rolefit/filter";
 import type { JobRow } from "@/lib/types";
 
 function job(p: Partial<JobRow>): JobRow {
@@ -14,7 +14,7 @@ function job(p: Partial<JobRow>): JobRow {
     red_flags: [], skill_gaps: ["Go"], benefits: [], requirements: null, ...p,
   };
 }
-const ST: BoardFilterState = { search: "", cats: [], locs: [], sources: [], remote: "all", minFit: 0, payMin: 0, sort: "match" };
+const ST: BoardFilterState = { search: "", cats: [], locs: [], sources: [], remote: "all", minFit: 0, payMin: 0, payMax: null, payIncludeUndisclosed: false, sort: "match" };
 
 describe("applyFilters", () => {
   test("category filter", () => {
@@ -35,14 +35,6 @@ describe("applyFilters", () => {
   test("minFit excludes lower scores", () => {
     const jobs = [job({ id: "a", fit_score: 90 }), job({ id: "b", fit_score: 60 })];
     expect(applyFilters(jobs, { ...ST, minFit: 75 }).map((j) => j.id)).toEqual(["a"]);
-  });
-  test("payMin excludes undisclosed and hourly", () => {
-    const jobs = [
-      job({ id: "a", pay_max: 200000, pay_period: "year" }),
-      job({ id: "b", pay_min: null, pay_max: null, pay_period: null }),
-      job({ id: "c", pay_max: 300000, pay_period: "hour" }),
-    ];
-    expect(applyFilters(jobs, { ...ST, payMin: 180 }).map((j) => j.id)).toEqual(["a"]);
   });
   test("remote arrangement filter", () => {
     const jobs = [job({ id: "a", work_arrangement: "hybrid" }), job({ id: "b", work_arrangement: "remote" })];
@@ -81,6 +73,77 @@ describe("applyFilters", () => {
     expect(applyFilters(jobs, { ...ST, sources: ["greenhouse"], cats: ["Backend"] }).map((j) => j.id))
       .toEqual(["a"]);
   });
+});
+
+describe("pay range filter", () => {
+  const band = (id: string, min: number | null, max: number | null, period = "year") =>
+    job({ id, pay_min: min, pay_max: max, pay_period: period });
+
+  test("inactive (0 / null) keeps everything, including undisclosed", () => {
+    const jobs = [
+      band("a", 100000, 140000),
+      band("b", null, null, "year"),
+      job({ id: "c", pay_min: null, pay_max: null, pay_period: null }),
+    ];
+    expect(applyFilters(jobs, ST).map((j) => j.id)).toEqual(["a", "b", "c"]);
+  });
+
+  test("band overlaps window: keeps inside, straddling top, and straddling bottom", () => {
+    const jobs = [
+      band("inside", 90000, 110000),
+      band("straddle-top", 100000, 140000),
+      band("straddle-bottom", 60000, 85000),
+      band("above", 130000, 160000),
+      band("below", 50000, 70000),
+    ];
+    const out = applyFilters(jobs, { ...ST, payMin: 80, payMax: 120 });
+    expect(out.map((j) => j.id)).toEqual(["inside", "straddle-top", "straddle-bottom"]);
+  });
+
+  test("lower-bound-only ($100k+) matches today's max>=threshold rule", () => {
+    const jobs = [band("meets", 120000, 160000), band("under", 60000, 90000)];
+    const out = applyFilters(jobs, { ...ST, payMin: 100, payMax: null });
+    expect(out.map((j) => j.id)).toEqual(["meets"]);
+  });
+
+  test("open-topped 'From $X' job now matches a lower bound", () => {
+    const jobs = [band("from150", 150000, null)];
+    const out = applyFilters(jobs, { ...ST, payMin: 100, payMax: null });
+    expect(out.map((j) => j.id)).toEqual(["from150"]);
+  });
+
+  test("upper-bound-only (Up to $120k) drops bands whose floor exceeds the ceiling", () => {
+    const jobs = [band("uptoOk", null, 100000), band("floorTooHigh", 130000, 160000)];
+    const out = applyFilters(jobs, { ...ST, payMin: 0, payMax: 120 });
+    expect(out.map((j) => j.id)).toEqual(["uptoOk"]);
+  });
+
+  test("undisclosed and hourly hidden by default when active", () => {
+    const jobs = [
+      band("annual", 100000, 140000),
+      job({ id: "none", pay_min: null, pay_max: null, pay_period: null }),
+      band("hourly", 50, 90, "hour"),
+    ];
+    const out = applyFilters(jobs, { ...ST, payMin: 80, payMax: 120 });
+    expect(out.map((j) => j.id)).toEqual(["annual"]);
+  });
+
+  test("includeUndisclosed shows no-band jobs but still drops disclosed out-of-range", () => {
+    const jobs = [
+      band("annualOut", 40000, 60000),
+      job({ id: "none", pay_min: null, pay_max: null, pay_period: null }),
+      band("hourly", 50, 90, "hour"),
+    ];
+    const out = applyFilters(jobs, { ...ST, payMin: 80, payMax: 120, payIncludeUndisclosed: true });
+    expect(out.map((j) => j.id)).toEqual(["none", "hourly"]);
+  });
+});
+
+describe("fmtPayRange", () => {
+  test("inactive → null", () => expect(fmtPayRange(0, null)).toBeNull());
+  test("lower bound only → $Xk+", () => expect(fmtPayRange(100, null)).toBe("$100k+"));
+  test("upper bound only → Up to $Yk", () => expect(fmtPayRange(0, 120)).toBe("Up to $120k"));
+  test("both bounds → en-dash range", () => expect(fmtPayRange(80, 120)).toBe("$80–120k"));
 });
 
 describe("sortJobs", () => {

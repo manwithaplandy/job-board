@@ -7,7 +7,9 @@ export interface BoardFilterState {
   sources: string[];
   remote: "all" | "remote" | "hybrid" | "onsite";
   minFit: number;
-  payMin: number; // in $k
+  payMin: number;              // $k, 0 = no floor
+  payMax: number | null;       // $k, null = "+" (no upper limit)
+  payIncludeUndisclosed: boolean;
   sort: "match" | "pay" | "newest" | "az";
 }
 
@@ -19,8 +21,29 @@ export const DEFAULT_FILTERS: BoardFilterState = {
   remote: "all",
   minFit: 0,
   payMin: 0,
+  payMax: null,
+  payIncludeUndisclosed: false,
   sort: "match",
 };
+
+// $k bounds for the Pay range slider — shared with the filter-state parser so the slider's
+// reachable values and the parser's clamp window can never drift.
+export const PAY_FLOOR = 0;
+export const PAY_CEIL = 400;
+export const PAY_STEP = 10;
+
+// The pay filter does something only once a bound is narrowed from the full unbounded span.
+export function payRangeActive(st: BoardFilterState): boolean {
+  return st.payMin > 0 || st.payMax !== null;
+}
+
+// The Pay pill's badge label for the current range; null when the filter is inactive.
+export function fmtPayRange(payMin: number, payMax: number | null): string | null {
+  if (payMin <= 0 && payMax == null) return null;
+  if (payMax == null) return `$${payMin}k+`;
+  if (payMin <= 0) return `Up to $${payMax}k`;
+  return `$${payMin}–${payMax}k`;
+}
 
 function arrangementOf(j: JobRow): string {
   if (j.work_arrangement) return j.work_arrangement;
@@ -33,6 +56,21 @@ function arrangementOf(j: JobRow): string {
 function locationsOf(j: JobRow): string[] {
   if (j.location_canonicals?.length) return j.location_canonicals;
   return j.location ? [j.location] : [];
+}
+
+// Keep a job under the pay range filter. Window = [payMin, payMax] in $k (payMax null =
+// unbounded top). A job contributes an annual band [pay_min ?? 0, pay_max ?? ∞] only when it
+// discloses annual pay; jobs without one (hourly, or no pay listed) pass only when the user
+// opted to include undisclosed pay. Band-overlaps-window: the two intervals intersect.
+function passesPayRange(j: JobRow, st: BoardFilterState): boolean {
+  if (!payRangeActive(st)) return true;
+  const hasBand = j.pay_period === "year" && (j.pay_min != null || j.pay_max != null);
+  if (!hasBand) return st.payIncludeUndisclosed;
+  const winLo = st.payMin * 1000;
+  const winHi = st.payMax == null ? Infinity : st.payMax * 1000;
+  const jobLo = j.pay_min ?? 0;
+  const jobHi = j.pay_max ?? Infinity;
+  return jobLo <= winHi && winLo <= jobHi;
 }
 
 export function applyFilters(jobs: JobRow[], st: BoardFilterState): JobRow[] {
@@ -52,9 +90,7 @@ export function applyFilters(jobs: JobRow[], st: BoardFilterState): JobRow[] {
     if (st.sources.length && !st.sources.includes(j.ats)) return false;
     if (st.remote !== "all" && arrangementOf(j) !== st.remote) return false;
     if (st.minFit && (j.fit_score ?? 0) < st.minFit) return false;
-    if (st.payMin) {
-      if (j.pay_period !== "year" || j.pay_max == null || j.pay_max < st.payMin * 1000) return false;
-    }
+    if (!passesPayRange(j, st)) return false;
     return true;
   });
 }

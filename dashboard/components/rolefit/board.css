@@ -436,3 +436,46 @@
   .rf-invite-overlay { padding: var(--space-4); }
   .rf-invite-card { padding: var(--space-5); }
 }
+
+/* Pay range slider (Pay filter dropdown body). Two native range inputs overlay a shared
+   track; only their thumbs take pointer events so both handles stay draggable. Track-click
+   thumb-jumping is intentionally unsupported — the numeric fields and arrow keys cover
+   precise entry. */
+.rf-pay { display: flex; flex-direction: column; gap: var(--space-3); }
+.rf-pay__summary { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.rf-pay__slider { position: relative; height: 28px; }
+.rf-pay__track {
+  position: absolute; left: 0; right: 0; top: 50%; height: 4px;
+  transform: translateY(-50%); background: var(--border-strong); border-radius: 999px;
+}
+.rf-pay__fill {
+  position: absolute; top: 50%; height: 4px; transform: translateY(-50%);
+  left: var(--rf-pay-fill-start, 0%); right: calc(100% - var(--rf-pay-fill-end, 100%));
+  background: var(--accent); border-radius: 999px;
+}
+.rf-pay__range {
+  position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 100%;
+  margin: 0; background: transparent; pointer-events: none;
+  -webkit-appearance: none; appearance: none;
+}
+.rf-pay__range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; pointer-events: auto;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg-surface); border: 2px solid var(--accent); cursor: pointer;
+}
+.rf-pay__range::-moz-range-thumb {
+  pointer-events: auto; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg-surface); border: 2px solid var(--accent); cursor: pointer;
+}
+.rf-pay__fields { display: flex; align-items: center; gap: var(--space-2); }
+.rf-pay__field {
+  flex: 1 1 0; min-width: 0; height: 34px; padding: 0 var(--space-2);
+  font-size: 13px; color: var(--text-primary);
+  background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px;
+}
+.rf-pay__dash { color: var(--text-secondary); }
+.rf-pay__toggle {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: 13px; color: var(--text-primary); cursor: pointer;
+}
+.rf-pay__checkbox { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }

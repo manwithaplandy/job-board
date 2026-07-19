@@ -16,7 +16,7 @@ describe("parseBoardFilters", () => {
     );
     expect(f).toEqual({
       search: "eng", cats: ["Backend"], locs: ["Berlin"], sources: [],
-      remote: "remote", minFit: 75, payMin: 150, sort: "pay",
+      remote: "remote", minFit: 75, payMin: 150, payMax: null, payIncludeUndisclosed: false, sort: "pay",
     });
   });
 
@@ -60,5 +60,35 @@ describe("parseBoardFilters", () => {
   test("serialize → parse round-trips", () => {
     const f = { ...DEFAULT_FILTERS, search: "hi", cats: ["X"], remote: "hybrid" as const };
     expect(parseBoardFilters(serializeBoardFilters(f))).toEqual(f);
+  });
+
+  test("legacy payMin-only record → unbounded top, undisclosed hidden", () => {
+    expect(parseBoardFilters({ payMin: 150 })).toMatchObject({
+      payMin: 150, payMax: null, payIncludeUndisclosed: false,
+    });
+  });
+
+  test("payMax round-trips and clamps to the ceiling", () => {
+    expect(parseBoardFilters({ payMin: 80, payMax: 120 })).toMatchObject({ payMin: 80, payMax: 120 });
+    expect(parseBoardFilters({ payMax: 999 }).payMax).toBe(400);
+  });
+
+  test("payMin clamps to the ceiling", () => {
+    expect(parseBoardFilters({ payMin: 999 }).payMin).toBe(400);
+  });
+
+  test("a ceiling below the floor is dropped to unbounded", () => {
+    expect(parseBoardFilters({ payMin: 150, payMax: 100 })).toMatchObject({ payMin: 150, payMax: null });
+  });
+
+  test("non-numeric or non-finite payMax → null", () => {
+    expect(parseBoardFilters({ payMax: "120" }).payMax).toBeNull();
+    expect(parseBoardFilters({ payMax: Infinity }).payMax).toBeNull();
+  });
+
+  test("payIncludeUndisclosed coerces to a strict boolean", () => {
+    expect(parseBoardFilters({ payIncludeUndisclosed: true }).payIncludeUndisclosed).toBe(true);
+    expect(parseBoardFilters({ payIncludeUndisclosed: "yes" }).payIncludeUndisclosed).toBe(false);
+    expect(parseBoardFilters({}).payIncludeUndisclosed).toBe(false);
   });
 });

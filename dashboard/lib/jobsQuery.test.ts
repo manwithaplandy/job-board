@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
+import { serverBoardFilters } from "@/lib/filters";
 
 const UID = "user-123";
 const base: Filters = {
@@ -244,5 +245,32 @@ describe("buildJobsQuery", () => {
 
   test("no reviewedSince → no reviewed_at clause", () => {
     expect(buildJobsQuery(base, UID).text).not.toContain("reviewed_at");
+  });
+
+  test("empty include emits no title ILIKE clause (authed board contract)", () => {
+    const q = buildJobsQuery({ ...base, include: [] }, UID);
+    expect(q.text).not.toContain("j.title ILIKE");
+  });
+
+  test("anon board (serverBoardFilters('anon')) keeps the engineer title ILIKE", () => {
+    const q = buildJobsQuery(serverBoardFilters("anon"), null);
+    expect(q.text).toContain("j.title ILIKE $1");
+    expect(q.values).toEqual(["%engineer%"]);
+  });
+
+  test("authed board and review feed agree: neither emits a title ILIKE (parity)", () => {
+    // Authed board (serverBoardFilters("authed") -> include: []).
+    const authed = buildJobsQuery(serverBoardFilters("authed"), UID, ["Remote"]);
+    expect(authed.text).not.toContain("j.title ILIKE");
+    // getReviewFeed (lib/queries.ts) builds its Filters with include: [] and a
+    // reviewedSince cursor — same title predicate (none). getRejectedJobs also uses
+    // include: []. All three now agree, so streamed matches survive router.refresh().
+    const feedLike = buildJobsQuery(
+      { ...base, include: [] },
+      UID,
+      ["Remote"],
+      { reviewedSince: "2026-07-16T00:00:00.000Z" },
+    );
+    expect(feedLike.text).not.toContain("j.title ILIKE");
   });
 });

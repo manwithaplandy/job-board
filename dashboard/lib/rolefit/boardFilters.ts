@@ -42,6 +42,11 @@ function defaults(): BoardFilterState {
 export function parseBoardFilters(raw: unknown): BoardFilterState {
   let obj: unknown = raw;
   if (typeof raw === "string") {
+    // LOAD-BEARING string tolerance — do NOT remove. Legit string inputs: the anon
+    // board-filter cookie (app/api/board-filters/route.ts stores serializeBoardFilters())
+    // replayed at login (app/login/page.tsx), plus legacy double-encoded
+    // profiles.board_filters rows. The write path (saveBoardFilters) now stores jsonb
+    // objects, but this branch must stay for those inputs.
     try { obj = JSON.parse(raw); } catch { return defaults(); }
   }
   if (obj == null || typeof obj !== "object") return defaults();

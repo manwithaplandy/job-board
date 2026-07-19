@@ -1,4 +1,4 @@
-import { VERDICT_OPTIONS } from "@/lib/config";
+import { VERDICT_OPTIONS, PUBLIC_BOARD_INCLUDE_KEYWORDS } from "@/lib/config";
 
 export type Status = "open" | "closed" | "all";
 export type Verdict = (typeof VERDICT_OPTIONS)[number];
@@ -56,4 +56,22 @@ export function parseFilters(
     subcategory: first(params.subcategory) ?? "",
     location: first(params.location) ?? "",
   };
+}
+
+// The board's server-side Filters, one object per viewer class. All client filters now
+// apply client-side (app/page.tsx passes {} to parseFilters), so the ONLY server-side
+// decision left is the title-keyword prefilter's default:
+//   - "authed" -> include: []  The reviewer's verdict='approve' join already curates the
+//     viewer's board, so a title prefilter on top only drops correctly-approved matches
+//     and empties non-engineer tenants' boards (bug 2026-07-19). include: [] also makes
+//     the authed board agree with getReviewFeed / getRejectedJobs (both include: []),
+//     so matches streamed during a review run survive the settle-time router.refresh().
+//   - "anon" -> include: PUBLIC_BOARD_INCLUDE_KEYWORDS  Deliberate public-board curation;
+//     the public board has no per-user reviews.
+// Named serverBoardFilters (not boardFilters) to disambiguate from the client-side
+// lib/rolefit/boardFilters.ts.
+export function serverBoardFilters(audience: "authed" | "anon"): Filters {
+  return parseFilters({}, {
+    include: audience === "authed" ? [] : PUBLIC_BOARD_INCLUDE_KEYWORDS,
+  });
 }

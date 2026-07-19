@@ -1,8 +1,12 @@
 export const NEW_WINDOW_HOURS = Number(process.env.NEW_WINDOW_HOURS ?? 48);
 export const STALE_HEALTH_HOURS = 12;
 
-// FR-10: the operator's default filter, applied on first load only.
-export const DEFAULT_INCLUDE_KEYWORDS: string[] = ["engineer"];
+// The anon/public board's editorial curation. The public board has no per-user
+// reviewer curation, so it deliberately restricts to engineering roles by title.
+// This applies to the ANON board ONLY — the authed board runs with include: []
+// (see lib/filters.ts serverBoardFilters). Do NOT re-apply this to authed viewers:
+// it empties every non-engineer tenant's board (bug 2026-07-19).
+export const PUBLIC_BOARD_INCLUDE_KEYWORDS: string[] = ["engineer"];
 
 // These option lists mirror reviewer/schemas.py (Appendix A), which is the source of truth.
 // There is no automated cross-language guard — keep these in sync manually when updating the taxonomy.

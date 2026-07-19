@@ -320,18 +320,39 @@ export async function getProfile(userId: string): Promise<ProfileRow | null> {
   });
 }
 
+// Executor-taking impl (mirrors reviewStatsWith / distinctLocationsWith) so the real
+// write can be exercised against TEMP tables on a pinned connection — withUserSql opens
+// its own RLS-scoped connection that can't see session-TEMP tables.
+export function saveBoardFiltersWith(
+  tx: Sql | TransactionSql,
+  userId: string,
+  filters: BoardFilterState,
+) {
+  // UPDATE-only and intentionally does NOT touch updated_at: profile_version is
+  // NOT NULL with no default, so we must not INSERT a row or bump updated_at when
+  // persisting a viewer's filters (a filter change is not a profile edit).
+  //
+  // Bind the object ONCE via postgres.js's json() helper so board_filters stores a jsonb
+  // OBJECT. The old JSON.stringify(filters) + ::jsonb double-encoded to a jsonb STRING
+  // scalar (verified: jsonb_typeof = 'string'); parseBoardFilters tolerates that on read,
+  // but the stored shape must be correct at the source. No ::jsonb cast — tx.json sends jsonb.
+  // The `as unknown as Parameters<typeof tx.json>[0]` widens BoardFilterState (an interface,
+  // so it lacks the string index signature json()'s JSONValue param demands) to json()'s param
+  // type — a write-side parameter-type widening of an in-process typed value, NOT a jsonb-read
+  // cast (dashboard/CLAUDE.md). Precedent: app/actions/corrections.ts (whose source is `unknown`,
+  // so a single `as` suffices there; a concrete interface must route through `unknown` first).
+  return tx`
+    UPDATE profiles
+    SET board_filters = ${tx.json(filters as unknown as Parameters<typeof tx.json>[0])}
+    WHERE user_id = ${userId}::uuid
+  `;
+}
+
 export async function saveBoardFilters(
   userId: string,
   filters: BoardFilterState,
 ): Promise<void> {
-  // UPDATE-only and intentionally does NOT touch updated_at: profile_version is
-  // NOT NULL with no default, so we must not INSERT a row or bump updated_at when
-  // persisting a viewer's filters (a filter change is not a profile edit).
-  await withUserSql(userId, (tx) => tx`
-    UPDATE profiles
-    SET board_filters = ${JSON.stringify(filters)}::jsonb
-    WHERE user_id = ${userId}::uuid
-  `);
+  await withUserSql(userId, (tx) => saveBoardFiltersWith(tx, userId, filters));
 }
 
 export async function getJobForResume(

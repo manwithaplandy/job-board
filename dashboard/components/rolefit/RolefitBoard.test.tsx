@@ -148,3 +148,23 @@ describe("RolefitBoard — tier-gate upsell pill (/billing CTA)", () => {
     expect(screen.queryByTestId("upsell-notice")).toBeNull();
   });
 });
+
+describe("pay range filter wiring", () => {
+  const lowPay: JobRow = { ...job, id: "job-2", title: "Junior Engineer", pay_min: 60000, pay_max: 80000 };
+
+  test("a persisted range hides out-of-range jobs and labels the Pay pill", () => {
+    stubMatchMedia();
+    mockFetch({ status: 200, body: {} }); // benign: no generation is driven here
+    render(
+      <RolefitBoard
+        {...baseProps}
+        jobs={[job, lowPay]}
+        initialFilters={{ ...DEFAULT_FILTERS, payMin: 100, payMax: null }}
+      />,
+    );
+    expect(screen.getByText("Staff Engineer")).toBeTruthy();
+    expect(screen.queryByText("Junior Engineer")).toBeNull();
+    // Pay trigger reflects the active lower bound.
+    expect(screen.getByRole("button", { name: /Pay.*\$100k\+/ })).toBeTruthy();
+  });
+});

@@ -714,11 +714,15 @@ export function RolefitBoard({
     setPayIncludeUndisclosed(false);
   };
 
-  // Radio-style dropdown handlers close the menu on selection
-  const handleSetPayMin = (v: number) => {
-    setPayMin(v);
-    setOpenMenu(null);
+  // The pay dialog stays open while the user adjusts it (unlike the radio menus).
+  const handleSetPayRange = (nextMin: number, nextMax: number | null) => {
+    setPayMin(nextMin);
+    setPayMax(nextMax);
   };
+  const handleTogglePayUndisclosed = (next: boolean) => {
+    setPayIncludeUndisclosed(next);
+  };
+  // Radio-style dropdown handlers close the menu on selection
   const handleSetMinFit = (v: number) => {
     setMinFit(v);
     setOpenMenu(null);
@@ -1297,6 +1301,8 @@ export function RolefitBoard({
         remote={remote}
         minFit={minFit}
         payMin={payMin}
+        payMax={payMax}
+        payIncludeUndisclosed={payIncludeUndisclosed}
         sort={sort}
         openMenu={openMenu}
         visibleCount={visible.length}
@@ -1310,7 +1316,8 @@ export function RolefitBoard({
         onToggleSource={toggleSource}
         onSetRemote={setRemote}
         onSetMinFit={handleSetMinFit}
-        onSetPayMin={handleSetPayMin}
+        onSetPayRange={handleSetPayRange}
+        onTogglePayUndisclosed={handleTogglePayUndisclosed}
         onSetSort={handleSetSort}
       />
 

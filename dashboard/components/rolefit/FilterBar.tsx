@@ -6,16 +6,10 @@ import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { atsLabel } from "@/lib/rolefit/ats";
 import { Icon } from "@/components/ui/Icon";
 import { SegmentedControl } from "@/components/ui/Navigation";
+import { fmtPayRange } from "@/lib/rolefit/filter";
+import { PayRangeSlider } from "@/components/rolefit/PayRangeSlider";
 
 // Static filter definitions — mirrored from reference design renderVals()
-const PAY_DEFS: [number, string][] = [
-  [0, "Any pay"],
-  [120, "$120k+"],
-  [150, "$150k+"],
-  [180, "$180k+"],
-  [220, "$220k+"],
-];
-
 const MATCH_DEFS: [number, string][] = [
   [0, "Any match"],
   [60, "60%+"],
@@ -68,6 +62,7 @@ function FilterMenu({
   triggerStyle,
   ariaLabel,
   multiselect = false,
+  variant = "listbox",
   listboxStyle,
   align = "start",
   mobileAlign = align,
@@ -80,6 +75,7 @@ function FilterMenu({
   triggerStyle: CSSProperties;
   ariaLabel: string;
   multiselect?: boolean;
+  variant?: "listbox" | "dialog";
   listboxStyle: CSSProperties;
   align?: "start" | "end";
   mobileAlign?: "start" | "end";
@@ -87,20 +83,22 @@ function FilterMenu({
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const isDialog = variant === "dialog";
 
-  // On open, move focus to the selected option (or the first) so arrow keys work at once.
+  // On open, move focus to the selected option (listbox) or the first focusable (dialog).
   useEffect(() => {
     if (!open) return;
+    if (isDialog) {
+      listRef.current?.querySelector<HTMLElement>('input, button, [tabindex]:not([tabindex="-1"])')?.focus();
+      return;
+    }
     const opts = optionEls(listRef.current);
     const sel = opts.findIndex((o) => o.getAttribute("aria-selected") === "true");
     opts[sel >= 0 ? sel : 0]?.focus();
-  }, [open]);
+  }, [open, isDialog]);
 
-  // When a radio-style menu (Pay/Match/Sort) closes on selection, the Enter/Space/click
-  // unmounts the focused option and focus falls to <body> — the next Tab would restart at
-  // the top of the page. Return focus to the trigger. Escape already refocuses it, and Tab
-  // moves focus to the next control, so in both of those cases activeElement is off <body>
-  // and this no-ops — it fires only for the selection-close case.
+  // Radio-style listbox close returns focus to the trigger when the focused option unmounts.
   const prevOpen = useRef(open);
   useEffect(() => {
     const wasOpen = prevOpen.current;
@@ -115,45 +113,40 @@ function FilterMenu({
     if (opts.length === 0) return;
     const cur = opts.indexOf(document.activeElement as HTMLButtonElement);
     switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        opts[(cur + 1 + opts.length) % opts.length]?.focus();
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        opts[(cur - 1 + opts.length) % opts.length]?.focus();
-        break;
-      case "Home":
-        e.preventDefault();
-        opts[0]?.focus();
-        break;
-      case "End":
-        e.preventDefault();
-        opts[opts.length - 1]?.focus();
-        break;
-      case "Escape":
-        e.preventDefault();
-        onToggle(name);
-        triggerRef.current?.focus();
-        break;
-      case "Tab":
-        // Let focus leave to the next control, but don't leave an orphaned open menu.
-        onToggle(name);
-        break;
+      case "ArrowDown": e.preventDefault(); opts[(cur + 1 + opts.length) % opts.length]?.focus(); break;
+      case "ArrowUp": e.preventDefault(); opts[(cur - 1 + opts.length) % opts.length]?.focus(); break;
+      case "Home": e.preventDefault(); opts[0]?.focus(); break;
+      case "End": e.preventDefault(); opts[opts.length - 1]?.focus(); break;
+      case "Escape": e.preventDefault(); onToggle(name); triggerRef.current?.focus(); break;
+      case "Tab": onToggle(name); break;
     }
   };
 
+  // Dialog popover: Escape closes + refocuses the trigger; Tab moves natively among the
+  // inner controls. Closing on Tab-out is handled by onDialogBlur below.
+  const onDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape") { e.preventDefault(); onToggle(name); triggerRef.current?.focus(); }
+  };
+  // Close when focus lands on a focusable element outside this menu (e.g. Tab past the last
+  // control, or clicking another trigger). A null relatedTarget (clicking the track or other
+  // non-focusable chrome) is left to the board's document-level outside-click handler, so
+  // clicking inside the popover never closes it.
+  const onDialogBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget as Node | null;
+    if (next && !rootRef.current?.contains(next)) onToggle(name);
+  };
+
   return (
-    <div data-menuroot="" data-align={align} data-mobile-align={mobileAlign} style={{ position: "relative" }}>
+    <div ref={rootRef} data-menuroot="" data-align={align} data-mobile-align={mobileAlign} style={{ position: "relative" }}>
       <button
         ref={triggerRef}
         type="button"
         onClick={() => onToggle(name)}
-        aria-haspopup="listbox"
+        aria-haspopup={isDialog ? "dialog" : "listbox"}
         aria-expanded={open}
         className="rf-board-filter-trigger rf-focusable"
         onKeyDown={(e) => {
-          if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+          if (!isDialog && !open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
             e.preventDefault();
             onToggle(name);
           }
@@ -165,10 +158,11 @@ function FilterMenu({
       {open && (
         <div
           ref={listRef}
-          role="listbox"
+          role={isDialog ? "dialog" : "listbox"}
           aria-label={ariaLabel}
-          aria-multiselectable={multiselect || undefined}
-          onKeyDown={onListKeyDown}
+          aria-multiselectable={!isDialog && multiselect ? true : undefined}
+          onKeyDown={isDialog ? onDialogKeyDown : onListKeyDown}
+          onBlur={isDialog ? onDialogBlur : undefined}
           style={listboxStyle}
         >
           {children}
@@ -190,6 +184,8 @@ export interface FilterBarProps {
   remote: BoardFilterState["remote"];
   minFit: number;
   payMin: number;
+  payMax: number | null;
+  payIncludeUndisclosed: boolean;
   sort: BoardFilterState["sort"];
   openMenu: string | null;
   visibleCount: number;
@@ -203,7 +199,8 @@ export interface FilterBarProps {
   onToggleSource: (ats: string) => void;
   onSetRemote: (r: BoardFilterState["remote"]) => void;
   onSetMinFit: (v: number) => void;
-  onSetPayMin: (v: number) => void;
+  onSetPayRange: (min: number, max: number | null) => void;
+  onTogglePayUndisclosed: (next: boolean) => void;
   onSetSort: (s: BoardFilterState["sort"]) => void;
 }
 
@@ -216,6 +213,8 @@ export function FilterBar({
   remote,
   minFit,
   payMin,
+  payMax,
+  payIncludeUndisclosed,
   sort,
   openMenu,
   visibleCount,
@@ -229,7 +228,8 @@ export function FilterBar({
   onToggleSource,
   onSetRemote,
   onSetMinFit,
-  onSetPayMin,
+  onSetPayRange,
+  onTogglePayUndisclosed,
   onSetSort,
 }: FilterBarProps) {
   const { categories, locations, sources: sourceCounts } = facets;
@@ -241,13 +241,14 @@ export function FilterBar({
   const cb = activeBtn(cats.length > 0);
   const lb = activeBtn(locs.length > 0);
   const sb = activeBtn(sources.length > 0);
-  const pb = activeBtn(payMin > 0);
+  const pb = activeBtn(payMin > 0 || payMax !== null);
   const mb = activeBtn(minFit > 0);
 
   const catBadge = cats.length ? ` · ${cats.length}` : "";
   const locBadge = locs.length ? ` · ${locs.length}` : "";
   const srcBadge = sources.length ? ` · ${sources.length}` : "";
-  const payBadge = payMin > 0 ? ` · ${PAY_DEFS.find(([v]) => v === payMin)?.[1] ?? ""}` : "";
+  const payLabel = fmtPayRange(payMin, payMax);
+  const payBadge = payLabel ? ` · ${payLabel}` : "";
   const matchBadge = minFit > 0 ? ` · ${MATCH_DEFS.find(([v]) => v === minFit)?.[1] ?? ""}` : "";
   const sortLabel = SORT_DEFS.find(([v]) => v === sort)?.[1] ?? "Best match";
 
@@ -368,46 +369,23 @@ export function FilterBar({
       {/* Pay */}
       <FilterMenu
         name="pay"
+        variant="dialog"
         open={openMenu === "pay"}
         onToggle={onToggleMenu}
-        ariaLabel="Filter by minimum pay"
+        ariaLabel="Filter by pay range"
         trigger={<>Pay{payBadge}{caret}</>}
         triggerStyle={triggerStyle(pb.bg, pb.border)}
         align="start"
         mobileAlign="end"
-        listboxStyle={{ ...dropdownBase, width: "190px" }}
+        listboxStyle={{ ...dropdownBase, width: "268px" }}
       >
-        {PAY_DEFS.map(([v, label]) => {
-          const r = radio(payMin === v);
-          return (
-            <button
-              className="rf-board-filter-option rf-focusable"
-              type="button"
-              role="option"
-              aria-selected={payMin === v}
-              tabIndex={-1}
-              key={v}
-              onClick={() => onSetPayMin(v)}
-              style={{
-                ...optionReset,
-                display: "flex",
-                alignItems: "center",
-                gap: "9px",
-                padding: "8px",
-                borderRadius: "8px",
-                cursor: "pointer",
-                background: r.bg,
-              }}
-            >
-              <span style={{ flex: 1, fontSize: "13px", fontWeight: r.weight, color: "var(--text-primary)" }}>
-                {label}
-              </span>
-              <span style={{ color: "var(--accent)", fontWeight: 800, fontSize: "12px" }}>
-                {r.check && <Icon name="check" size={16} />}
-              </span>
-            </button>
-          );
-        })}
+        <PayRangeSlider
+          min={payMin}
+          max={payMax}
+          includeUndisclosed={payIncludeUndisclosed}
+          onChange={onSetPayRange}
+          onToggleUndisclosed={onTogglePayUndisclosed}
+        />
       </FilterMenu>
 
       {/* Match */}

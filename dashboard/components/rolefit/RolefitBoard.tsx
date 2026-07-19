@@ -162,6 +162,10 @@ export function RolefitBoard({
   const [remote, setRemote] = useState<BoardFilterState["remote"]>(initialFilters.remote);
   const [minFit, setMinFit] = useState(initialFilters.minFit);
   const [payMin, setPayMin] = useState(initialFilters.payMin);
+  const [payMax, setPayMax] = useState<BoardFilterState["payMax"]>(initialFilters.payMax);
+  const [payIncludeUndisclosed, setPayIncludeUndisclosed] = useState(initialFilters.payIncludeUndisclosed);
+  const deferredPayMin = useDeferredValue(payMin);
+  const deferredPayMax = useDeferredValue(payMax);
   const [sort, setSort] = useState<BoardFilterState["sort"]>(initialFilters.sort);
 
   // UI state
@@ -443,8 +447,8 @@ export function RolefitBoard({
   }, []);
 
   const filterState: BoardFilterState = useMemo(
-    () => ({ search: deferredSearch, cats, locs, sources, remote, minFit, payMin, sort }),
-    [deferredSearch, cats, locs, sources, remote, minFit, payMin, sort],
+    () => ({ search: deferredSearch, cats, locs, sources, remote, minFit, payMin: deferredPayMin, payMax: deferredPayMax, payIncludeUndisclosed, sort }),
+    [deferredSearch, cats, locs, sources, remote, minFit, deferredPayMin, deferredPayMax, payIncludeUndisclosed, sort],
   );
 
   // Persist filter changes (debounced) so they survive navigation/visits.
@@ -706,6 +710,8 @@ export function RolefitBoard({
     setRemote("all");
     setMinFit(0);
     setPayMin(0);
+    setPayMax(null);
+    setPayIncludeUndisclosed(false);
   };
 
   // Radio-style dropdown handlers close the menu on selection

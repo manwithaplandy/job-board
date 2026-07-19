@@ -1,5 +1,5 @@
 import type { BoardFilterState } from "@/lib/rolefit/filter";
-import { DEFAULT_FILTERS } from "@/lib/rolefit/filter";
+import { DEFAULT_FILTERS, PAY_CEIL, PAY_FLOOR } from "@/lib/rolefit/filter";
 
 const REMOTE = new Set<BoardFilterState["remote"]>(["all", "remote", "hybrid", "onsite"]);
 const SORT = new Set<BoardFilterState["sort"]>(["match", "pay", "newest", "az"]);
@@ -21,6 +21,19 @@ function nonNegNum(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0;
 }
 
+// Pay floor in $k: any finite non-negative number, clamped to the slider ceiling.
+function payFloor(v: unknown): number {
+  return Math.min(nonNegNum(v), PAY_CEIL);
+}
+
+// Pay ceiling in $k: a finite number in [PAY_FLOOR, PAY_CEIL], or null for "no upper limit"
+// (absent, non-numeric, or an incoherent value below the resolved floor).
+function payCeiling(v: unknown, floor: number): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < PAY_FLOOR) return null;
+  const clamped = Math.min(Math.max(v, PAY_FLOOR), PAY_CEIL);
+  return clamped < floor ? null : clamped;
+}
+
 function defaults(): BoardFilterState {
   return { ...DEFAULT_FILTERS, cats: [], locs: [], sources: [] };
 }
@@ -32,6 +45,7 @@ export function parseBoardFilters(raw: unknown): BoardFilterState {
   }
   if (obj == null || typeof obj !== "object") return defaults();
   const o = obj as Record<string, unknown>;
+  const payMin = payFloor(o.payMin);
   return {
     search: typeof o.search === "string" ? o.search.slice(0, MAX_SEARCH) : DEFAULT_FILTERS.search,
     cats: strList(o.cats),
@@ -40,7 +54,9 @@ export function parseBoardFilters(raw: unknown): BoardFilterState {
     remote: REMOTE.has(o.remote as BoardFilterState["remote"])
       ? (o.remote as BoardFilterState["remote"]) : DEFAULT_FILTERS.remote,
     minFit: nonNegNum(o.minFit),
-    payMin: nonNegNum(o.payMin),
+    payMin,
+    payMax: payCeiling(o.payMax, payMin),
+    payIncludeUndisclosed: o.payIncludeUndisclosed === true,
     sort: SORT.has(o.sort as BoardFilterState["sort"])
       ? (o.sort as BoardFilterState["sort"]) : DEFAULT_FILTERS.sort,
   };

@@ -5,10 +5,15 @@ const { calls } = vi.hoisted(() => ({
   calls: [] as { strings: readonly string[]; values: unknown[] }[],
 }));
 vi.mock("@/lib/db", () => {
-  const tx = (strings: readonly string[], ...values: unknown[]) => {
-    calls.push({ strings, values });
-    return Promise.resolve([]);
-  };
+  const tx = Object.assign(
+    (strings: readonly string[], ...values: unknown[]) => {
+      calls.push({ strings, values });
+      return Promise.resolve([]);
+    },
+    // postgres.js json() helper — the fix binds the object through this instead of
+    // pre-stringifying. Sentinel wrapper so the test can assert the object was passed.
+    { json: (v: unknown) => ({ __json: v }) },
+  );
   return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
 });
 
@@ -33,10 +38,12 @@ describe("saveBoardFilters", () => {
     expect(text).not.toMatch(/INSERT/i);
   });
 
-  test("binds the serialized filters and the user id", async () => {
+  test("binds the filters as a json object — not a double-encoded JSON string", async () => {
     const filters = { ...DEFAULT_FILTERS, sort: "pay" as const };
     await saveBoardFilters("22222222-2222-2222-2222-222222222222", filters);
-    expect(calls[0].values[0]).toBe(JSON.stringify(filters));
+    // The fix passes tx.json(filters) (mock wraps it {__json}) instead of
+    // JSON.stringify(filters); the latter double-encodes to a jsonb string scalar.
+    expect(calls[0].values[0]).toEqual({ __json: filters });
     expect(calls[0].values[1]).toBe("22222222-2222-2222-2222-222222222222");
   });
 });

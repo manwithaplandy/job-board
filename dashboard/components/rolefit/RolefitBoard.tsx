@@ -7,6 +7,7 @@ import { ReviewNowPanel } from "@/components/rolefit/ReviewNowPanel";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
+import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import { applyFilters, facetCounts, filterByView, mergeRejectedPool, sortJobs } from "@/lib/rolefit/filter";
 import { isResumeStale } from "@/lib/resumeStale";
@@ -83,6 +84,11 @@ export interface RolefitBoardProps {
   // board loads only approves, so these seed the Rejected view for cross-session recovery
   // of a mis-clicked reject. Empty on the anon path.
   initialRejected: JobRow[];
+  // ISR anon board (/board): the page is edge-cached identically for every anonymous
+  // visitor, so the per-visitor board_filters cookie (httpOnly — unreadable from JS)
+  // cannot influence the server render. When set, the saved filters are fetched from
+  // GET /api/board-filters after mount instead.
+  hydrateFiltersFromApi?: boolean;
 }
 
 const NARROW_QUERY = "(max-width: 760px)";
@@ -151,6 +157,7 @@ export function RolefitBoard({
   currentProfileVersion,
   initialPackages,
   initialRejected,
+  hydrateFiltersFromApi = false,
 }: RolefitBoardProps) {
   const isNarrow = useIsNarrow();
   const router = useRouter();
@@ -486,6 +493,31 @@ export function RolefitBoard({
     window.addEventListener("pagehide", handlePageHide);
     return () => window.removeEventListener("pagehide", handlePageHide);
   }, [filterState]);
+
+  // ISR anon board: pull the visitor's saved filters (httpOnly cookie, server-read)
+  // after mount, since the edge-cached render couldn't. lastSavedRef is pre-seeded
+  // with the fetched state — SAME literal shape/key order as the filterState memo —
+  // so applying it doesn't echo a no-op save back through the persistence effect.
+  useEffect(() => {
+    if (!hydrateFiltersFromApi) return;
+    let cancelled = false;
+    void fetch("/api/board-filters", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((raw: unknown) => {
+        if (cancelled || raw == null) return;
+        const f = parseBoardFilters(raw);
+        lastSavedRef.current = JSON.stringify({
+          search: f.search, cats: f.cats, locs: f.locs, sources: f.sources, remote: f.remote,
+          minFit: f.minFit, payMin: f.payMin, payMax: f.payMax,
+          payIncludeUndisclosed: f.payIncludeUndisclosed, sort: f.sort,
+        });
+        setSearch(f.search); setCats(f.cats); setLocs(f.locs); setSources(f.sources);
+        setRemote(f.remote); setMinFit(f.minFit); setPayMin(f.payMin); setPayMax(f.payMax);
+        setPayIncludeUndisclosed(f.payIncludeUndisclosed); setSort(f.sort);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [hydrateFiltersFromApi]);
 
   // Deep-linkable selection + view. Seed from the query string once on mount (read from
   // window rather than a useState initializer so SSR and the client agree), then mirror

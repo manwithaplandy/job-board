@@ -30,6 +30,9 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   { id: "terms", path: "/terms", access: "public", family: "legal", state: "default", shell: "none", source: "app/terms/page.tsx" },
   { id: "primitive-and-state-gallery", path: "/ui-gallery", access: "public", family: "system-states", state: "interaction-contracts", shell: "none", source: "app/ui-gallery/page.tsx" },
   { id: "board-default", path: "/", access: "authenticated", family: "board", state: "default", shell: "board", source: "components/rolefit/RolefitBoard.tsx" },
+  // The ISR twin of the anon board (proxy rewrites anon GET / here) — same RolefitBoard
+  // render as board-default, public access, no operator strip.
+  { id: "board-public-isr", path: "/board", access: "public", family: "board", state: "default", shell: "board", source: "app/board/page.tsx" },
   { id: "companies-default", path: "/companies", access: "authenticated", family: "companies", state: "default", shell: "app", source: "app/companies/page.tsx" },
   { id: "analytics-default", path: "/analytics", access: "authenticated", family: "analytics", state: "default", shell: "app", source: "app/analytics/page.tsx" },
   { id: "billing-default", path: "/billing", access: "authenticated", family: "billing", state: "default", shell: "app", source: "app/billing/page.tsx" },

@@ -7,7 +7,14 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
 
   // Fast-path: no auth cookie + public path → skip session work entirely.
   const hasAuthCookie = request.cookies.getAll().some(c => c.name.startsWith("sb-"));
-  if (!hasAuthCookie && isPublicPath(request.nextUrl.pathname)) return NextResponse.next();
+  if (!hasAuthCookie && isPublicPath(request.nextUrl.pathname)) {
+    // Anon board: serve the edge-cached ISR twin (app/board) instead of the dynamic
+    // 500-row SSR. Rewrite, not redirect — the visitor's URL stays "/".
+    if (request.nextUrl.pathname === "/") {
+      return NextResponse.rewrite(new URL("/board", request.url));
+    }
+    return NextResponse.next();
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,6 +50,13 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   if (!claims && !isPublicPath(request.nextUrl.pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+  // The ISR twin renders the ANON board — an authed visitor landing on it directly
+  // (typed URL, stale link) belongs on their dynamic board at /.
+  if (claims && request.nextUrl.pathname === "/board") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
   return response;

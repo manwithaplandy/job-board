@@ -26,8 +26,12 @@ jobs:
     steps:
       - name: Ping public pages
         run: |
+          # Browser-like UA: Vercel's edge challenges bare curl from datacenter IPs
+          # (observed 403 from Actions runners on 2026-07-21).
           for path in / /login; do
             curl -sS -o /dev/null --max-time 30 \
+              -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36" \
+              -H "Accept: text/html,application/xhtml+xml" \
               -w "%{http_code} %{time_starttransfer}s https://jobs.andrewmalvani.com${path}\n" \
               "https://jobs.andrewmalvani.com${path}" || true
           done

@@ -20,8 +20,10 @@
 // "/terms" and "/privacy" are the legal pages strangers must be able to read while
 // logged out (they're linked from the signup consent line and the auth footers); the
 // auth proxy would otherwise 307 an anon visitor to /login (T4).
+// "/board" is the edge-cached ISR twin of the anon board — the proxy rewrites anon
+// GET / to it, and the rewritten request must not bounce to /login.
 const PUBLIC_PREFIXES = [
-  "/", "/login", "/signup", "/auth", "/reset-password", "/terms", "/privacy", "/ui-gallery",
+  "/", "/board", "/login", "/signup", "/auth", "/reset-password", "/terms", "/privacy", "/ui-gallery",
   "/api/board-filters", "/api/jobs", "/api/stripe/webhook",
 ];
 

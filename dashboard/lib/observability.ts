@@ -15,9 +15,10 @@ export function tracingEnabled(): boolean {
 // process, so publish the instance there and read it back here.
 declare global {
   var __langfuseSpanProcessor: LangfuseSpanProcessor | undefined;
-  // Set synchronously (before the first await) by ensureTracingStarted() so
-  // overlapping first-calls initialise the provider at most once per process.
-  var __langfuseTracingStarted: boolean | undefined;
+  // The in-flight (or settled) init from ensureTracingStarted(). A PROMISE, not a
+  // done-flag: overlapping first-calls must all await the same init, or the loser
+  // opens its spans before the provider registers and its trace silently drops.
+  var __langfuseTracingInit: Promise<void> | undefined;
 }
 
 export function setLangfuseSpanProcessor(processor: LangfuseSpanProcessor): void {
@@ -30,10 +31,11 @@ export function setLangfuseSpanProcessor(processor: LangfuseSpanProcessor): void
 // board/profile/analytics cold boot for nothing. Only the three generation
 // clients trace, and each calls this before opening its first span.
 //
-// Idempotent + concurrency-safe: a synchronous globalThis flag, set BEFORE the
-// first await, makes overlapping first-calls no-op past the guard. The provider
-// and processor are dynamically imported so a keyless deploy — or any
-// non-generation request — never pays their module-load cost.
+// Idempotent + concurrency-safe: the init promise is memoized on globalThis
+// synchronously, so overlapping first-calls all await the SAME init to
+// completion before any of them opens a span. The provider and processor are
+// dynamically imported so a keyless deploy — or any non-generation request —
+// never pays their module-load cost.
 export async function ensureTracingStarted(): Promise<void> {
   // The whole body sits inside a NEXT_RUNTIME check because this module reaches
   // client bundles (client components import resumeClient for its constants):
@@ -46,39 +48,51 @@ export async function ensureTracingStarted(): Promise<void> {
     const secretKey = process.env.LANGFUSE_SECRET_KEY;
     // No keys → nothing to export to; stay a no-op (mirrors tracingEnabled()).
     if (!publicKey || !secretKey) return;
-    if (globalThis.__langfuseTracingStarted) return;
-    globalThis.__langfuseTracingStarted = true;
 
-    const [{ NodeTracerProvider }, { LangfuseSpanProcessor }, { resolveLangfuseHost }] =
-      await Promise.all([
-        import("@opentelemetry/sdk-trace-node"),
-        import("@langfuse/otel"),
-        import("./langfuseHost.ts"),
-      ]);
+    if (!globalThis.__langfuseTracingInit) {
+      // Defined inside the NEXT_RUNTIME branch so the bundler's dead-branch
+      // elimination still drops the Node-only imports from client/edge builds.
+      const init = async (): Promise<void> => {
+        const [{ NodeTracerProvider }, { LangfuseSpanProcessor }, { resolveLangfuseHost }] =
+          await Promise.all([
+            import("@opentelemetry/sdk-trace-node"),
+            import("@langfuse/otel"),
+            import("./langfuseHost.ts"),
+          ]);
 
-    const langfuseSpanProcessor = new LangfuseSpanProcessor({
-      publicKey,
-      secretKey,
-      // Was `?? "https://cloud.langfuse.com"` — but "" is not undefined, so an
-      // empty LANGFUSE_HOST slipped through and broke trace export (wrong region
-      // default, too). resolveLangfuseHost handles both.
-      baseUrl: resolveLangfuseHost(),
-      // Export on span .end() (SimpleSpanProcessor) instead of the default 5s batch
-      // timer. On Vercel a fast (non-timeout) generation returns and the instance
-      // freezes before the batch timer fires, dropping the span — so successful
-      // traces 404'd while slow (timeout) ones survived. "immediate" is the
-      // library's prescribed mode for short-lived serverless functions.
-      exportMode: "immediate",
-    });
+        const langfuseSpanProcessor = new LangfuseSpanProcessor({
+          publicKey,
+          secretKey,
+          // Was `?? "https://cloud.langfuse.com"` — but "" is not undefined, so an
+          // empty LANGFUSE_HOST slipped through and broke trace export (wrong region
+          // default, too). resolveLangfuseHost handles both.
+          baseUrl: resolveLangfuseHost(),
+          // Export on span .end() (SimpleSpanProcessor) instead of the default 5s batch
+          // timer. On Vercel a fast (non-timeout) generation returns and the instance
+          // freezes before the batch timer fires, dropping the span — so successful
+          // traces 404'd while slow (timeout) ones survived. "immediate" is the
+          // library's prescribed mode for short-lived serverless functions.
+          exportMode: "immediate",
+        });
 
-    // NodeTracerProvider.register() wires the AsyncLocalStorage context manager and
-    // W3C propagators that NodeSDK.start() used to provide; passing the processor
-    // here attaches it identically (LangfuseSpanProcessor is a SpanProcessor).
-    new NodeTracerProvider({ spanProcessors: [langfuseSpanProcessor] }).register();
+        // NodeTracerProvider.register() wires the AsyncLocalStorage context manager and
+        // W3C propagators that NodeSDK.start() used to provide; passing the processor
+        // here attaches it identically (LangfuseSpanProcessor is a SpanProcessor).
+        new NodeTracerProvider({ spanProcessors: [langfuseSpanProcessor] }).register();
 
-    // Publish on globalThis so route handlers flush THIS instance (the one the
-    // provider feeds spans to) at request time — see flushLangfuseTraces below.
-    setLangfuseSpanProcessor(langfuseSpanProcessor);
+        // Publish on globalThis so route handlers flush THIS instance (the one the
+        // provider feeds spans to) at request time — see flushLangfuseTraces below.
+        setLangfuseSpanProcessor(langfuseSpanProcessor);
+      };
+      globalThis.__langfuseTracingInit = init().catch((err) => {
+        // Best-effort, like flushLangfuseTraces: a tracing-dependency failure must
+        // never fail the generation awaiting it. Clear the memo so a later request
+        // retries; until one succeeds, spans no-op on the default tracer.
+        console.error("[observability] lazy tracing init failed:", err);
+        globalThis.__langfuseTracingInit = undefined;
+      });
+    }
+    await globalThis.__langfuseTracingInit;
   }
 }
 

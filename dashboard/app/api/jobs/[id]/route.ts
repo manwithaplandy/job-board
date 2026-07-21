@@ -9,7 +9,6 @@ const EMPTY = {
   description: null, url: null,
   experience_match: null, industry: null, industry_subcategory: null,
   confidence: null, note: null, corrected: false,
-  questions: null,
 };
 
 // Detail-only fields for one job, scoped to the VIEWER's own review, fetched lazily

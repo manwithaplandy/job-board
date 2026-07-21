@@ -155,25 +155,21 @@ describe("buildJobsQuery", () => {
     expect(q.values).toEqual([["Berlin, Germany"]]);
   });
 
-  test("locationFromProfile self-serves preferred_locations via a correlated subquery on $1", () => {
+  test("locationFromProfile self-serves preferred_locations via a scalar subquery on $1", () => {
     const q = buildJobsQuery(base, UID, [], { locationFromProfile: true });
+    // One COALESCE-wrapped subquery expression reused across all three disjuncts —
+    // COALESCE keeps it an array expression (a bare `= ANY((SELECT array_col))` is
+    // subquery-form ANY and 42883s) and normalizes NULL prefs / a missing profiles
+    // row to '{}'.
+    const sub =
+      "COALESCE((SELECT p.preferred_locations FROM profiles p WHERE p.user_id = $1::uuid), '{}'::text[])";
     // Empty-prefs escape: a cleared preferred_locations (cardinality 0) short-circuits to a
     // FULL board rather than an empty pool — the data-loss guard for the subquery rewrite.
+    expect(q.text).toContain(`(cardinality(${sub}) = 0`);
     expect(q.text).toContain(
-      "(SELECT COALESCE(cardinality(p.preferred_locations), 0)" +
-      " FROM profiles p WHERE p.user_id = $1::uuid) = 0",
+      `COALESCE(j.location_canonicals, ARRAY[j.location]) && ${sub}`,
     );
-    // The && / ANY subqueries stay COALESCE-wrapped to '{}'::text[] — a bare
-    // `= ANY((SELECT array_col))` is subquery-form ANY and 42883s (text = text[]).
-    expect(q.text).toContain(
-      "COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(" +
-      "(SELECT p.preferred_locations FROM profiles p WHERE p.user_id = $1::uuid), '{}'::text[])",
-    );
-    expect(q.text).toContain(
-      "'Remote' = ANY(COALESCE(" +
-      "(SELECT p.preferred_locations FROM profiles p WHERE p.user_id = $1::uuid), '{}'::text[]))" +
-      " AND j.remote IS TRUE",
-    );
+    expect(q.text).toContain(`'Remote' = ANY(${sub}) AND j.remote IS TRUE`);
     // The subquery reuses the viewer placeholder ($1) — no extra bind, so a following
     // filter's placeholders stay aligned.
     expect(q.values).toEqual([UID]);

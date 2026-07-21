@@ -76,7 +76,7 @@ export function buildJobsQuery(
   // and remote jobs only when the viewer selected "Remote" (opt-in — remote no longer
   // bypasses the filter).
   //   • locationFromProfile (server-rendered board + rejected view): self-serve the
-  //     viewer's preferred_locations via a correlated subquery on their OWN profiles row
+  //     viewer's preferred_locations via a scalar subquery on their OWN profiles row
   //     (RLS-scoped, same authenticated-role tx; precedent reviewStatsWith), so the board
   //     renders without a serial getProfile round-trip gating the jobs query. The subquery
   //     reuses the viewer placeholder ($1) — no extra bind. The `&&`/ANY subqueries MUST
@@ -89,12 +89,16 @@ export function buildJobsQuery(
   //   • the param list (getReviewFeed, which already fetched preferred_locations in its tx).
   // Empty list / cleared prefs => full board. Owner-only: anon has no profiles row.
   if (opts.locationFromProfile && viewerPh) {
-    const sub = `(SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${viewerPh}::uuid)`;
+    // COALESCE also normalizes a MISSING profiles row to '{}' — full board, same
+    // as the param path's "no prefs → no clause" (page.tsx redirects that viewer
+    // to /onboarding anyway; the rows are discarded). Uncorrelated w.r.t. j
+    // (keyed on the viewer bind only), so Postgres evaluates it once per
+    // statement as an InitPlan, not per row.
+    const sub = `COALESCE((SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${viewerPh}::uuid), '{}'::text[])`;
     where.push(
-      `((SELECT COALESCE(cardinality(p.preferred_locations), 0)` +
-      ` FROM profiles p WHERE p.user_id = ${viewerPh}::uuid) = 0` +
-      ` OR COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(${sub}, '{}'::text[])` +
-      ` OR ('Remote' = ANY(COALESCE(${sub}, '{}'::text[])) AND j.remote IS TRUE))`,
+      `(cardinality(${sub}) = 0` +
+      ` OR COALESCE(j.location_canonicals, ARRAY[j.location]) && ${sub}` +
+      ` OR ('Remote' = ANY(${sub}) AND j.remote IS TRUE))`,
     );
   } else if (viewerLocations.length) {
     const p = ph();

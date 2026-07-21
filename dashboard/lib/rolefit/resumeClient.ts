@@ -12,7 +12,7 @@ import { resumeChecks, type ResumeChecks } from "@/lib/rolefit/resumeChecks";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
 import { startActiveObservation, propagateAttributes } from "@langfuse/tracing";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
-import { tracingEnabled } from "@/lib/observability";
+import { tracingEnabled, ensureTracingStarted } from "@/lib/observability";
 import type { ReasoningEffort } from "@/lib/entitlements";
 
 export const DEFAULT_RESUME_MODEL = "anthropic/claude-haiku-4.5";
@@ -67,6 +67,8 @@ export async function generateResume(args: {
     return { resume, checks: resumeChecks(resume, profile), traceId: null };
   }
 
+  // Tracing inits lazily (not on cold boot) — start it before the first span.
+  await ensureTracingStarted();
   // Parent `resume` observation: clean input/output the managed judge targets, and
   // the trace whose id links human scores to judge scores. Defined ONCE here so both
   // the /api/resume and /api/application/prepare routes share the identical span shape.

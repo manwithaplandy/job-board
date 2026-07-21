@@ -7,7 +7,7 @@ import { callOpenRouterStructured, REASONING_SAFE_MAX_TOKENS } from "@/lib/rolef
 import { parseTailoredCoverLetter } from "@/lib/rolefit/packageCodec";
 import { startActiveObservation, propagateAttributes } from "@langfuse/tracing";
 import { composeCoverLetterText } from "@/lib/rolefit/coverLetterText";
-import { tracingEnabled } from "@/lib/observability";
+import { tracingEnabled, ensureTracingStarted } from "@/lib/observability";
 import type { ReasoningEffort } from "@/lib/entitlements";
 
 export const DEFAULT_COVER_MODEL = "anthropic/claude-haiku-4.5";
@@ -59,6 +59,8 @@ export async function generateCoverLetter(args: {
   // get it with no route edits. propagateAttributes stamps a trace-level
   // `generated_at` (updateActiveTrace does not exist in @langfuse/tracing).
   if (!tracingEnabled()) return { letter: await runGeneration(), traceId: null };
+  // Tracing inits lazily (not on cold boot) — start it before the first span.
+  await ensureTracingStarted();
   return startActiveObservation("cover-letter", (span) => {
     span.update({ input: { title: args.job.title, company: args.job.company, description: args.job.description, background: args.resumeText } });
     return propagateAttributes({ metadata: { generated_at: new Date().toISOString() } }, async () => {

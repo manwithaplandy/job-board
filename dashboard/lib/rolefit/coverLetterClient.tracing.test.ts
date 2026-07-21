@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@/lib/observability", () => ({
   tracingEnabled: () => true,
+  ensureTracingStarted: async () => {},
   flushLangfuseTraces: async () => {},
 }));
 vi.mock("@langfuse/tracing", () => ({

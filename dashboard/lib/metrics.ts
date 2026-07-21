@@ -3,7 +3,7 @@ import type { TransactionSql } from "postgres";
 import {
   companyVerdictCountsWith, reviewStatsWith, discoveryStateWith,
 } from "@/lib/queries";
-import type { PollRunRow, ReviewRunRow, DiscoveryRunRow, DiscoveryStateRow } from "@/lib/types";
+import type { PollRunRow, ReviewRunRow, DiscoveryRunRow, DiscoveryStateRow, ReviewStats } from "@/lib/types";
 import { dbLimit } from "@/lib/dbLimit";
 
 // All metrics reads run inside a SINGLE withUserSql transaction (one connection),
@@ -149,29 +149,43 @@ async function getFunnel(
   userId: string,
   state: DiscoveryStateRow,
 ): Promise<FunnelCounts> {
-  const companyAggRows = await tx`
+  // Batch the six independent aggregates through dbLimit — pipelined over this
+  // transaction's single connection instead of six sequential round-trips — the same
+  // pattern getPipelineHealth uses. reviewAgg / verdicts / stats keep their
+  // executor-taking helpers so the viewer-pool scoping SQL stays in lockstep with
+  // reviewStatsWith (lib/queries.ts). dbLimit collapses the heterogeneous task types to
+  // a union, so the tuple assertion restores the positional shape the destructure needs.
+  const [companyAggRows, jobAggRows, rv, appliedAggRows, verdicts, stats] = await dbLimit<unknown>([
+    () => tx`
       SELECT count(*)::int AS tracked,
              count(*) FILTER (WHERE c.active)::int AS active,
              count(*) FILTER (WHERE c.discovery_source <> 'manual')::int AS discovery_sourced,
              count(*) FILTER (WHERE c.discovery_source <> 'manual' AND cr.company_id IS NOT NULL)::int AS reviewed
       FROM companies c
       LEFT JOIN company_reviews cr ON cr.company_id = c.id AND cr.user_id = ${userId}::uuid
-    `;
-  const jobAggRows = await tx`
+    `,
+    () => tx`
       SELECT count(*)::int AS ever_seen,
              count(*) FILTER (WHERE closed_at IS NULL)::int AS open,
              count(*) FILTER (WHERE closed_at IS NOT NULL)::int AS closed
       FROM jobs
-    `;
-  // Scoped to the viewer's review pool — keep in lockstep with reviewStatsWith (lib/queries.ts).
-  const rv = await reviewAggWith(tx, userId);
-  const appliedAggRows = await tx`
+    `,
+    () => reviewAggWith(tx, userId),
+    () => tx`
       SELECT count(*)::int AS applied
       FROM application_packages
       WHERE user_id = ${userId}::uuid AND status = 'applied'
-    `;
-  const verdicts = await companyVerdictCountsWith(tx, userId);
-  const stats = await reviewStatsWith(tx, userId);
+    `,
+    () => companyVerdictCountsWith(tx, userId),
+    () => reviewStatsWith(tx, userId),
+  ]) as unknown as [
+    Record<string, unknown>[],
+    Record<string, unknown>[],
+    ReviewAgg,
+    Record<string, unknown>[],
+    { include: number; exclude: number; unknown: number },
+    ReviewStats,
+  ];
 
   const c = companyAggRows[0] as unknown as { tracked: number; active: number; discovery_sourced: number; reviewed: number };
   const j = jobAggRows[0] as unknown as { ever_seen: number; open: number; closed: number };

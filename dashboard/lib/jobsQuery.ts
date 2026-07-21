@@ -9,7 +9,7 @@ export function buildJobsQuery(
   f: Filters,
   userId: string | null,
   viewerLocations: string[] = [],
-  opts: { humanOverrideOnly?: boolean; reviewedSince?: string } = {},
+  opts: { humanOverrideOnly?: boolean; reviewedSince?: string; locationFromProfile?: boolean } = {},
 ): SqlQuery {
   const values: unknown[] = [];
   const ph = () => `$${values.length + 1}`;
@@ -70,13 +70,37 @@ export function buildJobsQuery(
     where.push(`j.location ILIKE ${ph()}`);
     values.push(`%${f.location}%`);
   }
-  // The viewer's location include-list (profile.preferred_locations, canonical
-  // values). Mirrors the reviewer pre-filter (reviewer/db.py select_candidates)
-  // EXACTLY: canonical-array overlap with a raw-string COALESCE fallback for
-  // not-yet-stamped jobs, and remote jobs only when the viewer selected
-  // "Remote" (opt-in — remote no longer bypasses the filter). Empty list =>
-  // no clause. Applies with or without reviews.
-  if (viewerLocations.length) {
+  // The viewer's location include-list (profile.preferred_locations, canonical values).
+  // Both shapes mirror the reviewer pre-filter (reviewer/db.py select_candidates) EXACTLY:
+  // canonical-array overlap with a raw-string COALESCE fallback for not-yet-stamped jobs,
+  // and remote jobs only when the viewer selected "Remote" (opt-in — remote no longer
+  // bypasses the filter).
+  //   • locationFromProfile (server-rendered board + rejected view): self-serve the
+  //     viewer's preferred_locations via a scalar subquery on their OWN profiles row
+  //     (RLS-scoped, same authenticated-role tx; precedent reviewStatsWith), so the board
+  //     renders without a serial getProfile round-trip gating the jobs query. The subquery
+  //     reuses the viewer placeholder ($1) — no extra bind. The `&&`/ANY subqueries MUST
+  //     stay COALESCE-wrapped to '{}'::text[]: a bare `= ANY((SELECT array_col))` is
+  //     subquery-form ANY and 42883s (text = text[]); the COALESCE makes it an array
+  //     expression. DIVERGENCE FROM reviewStats: an EMPTY/cleared preferred_locations must
+  //     yield the FULL board (no filter), NOT an empty pool — so a cardinality-0 escape
+  //     gates the clause, mirroring the param path's `if (viewerLocations.length)`. Dropping
+  //     that gate silently zeroes a cleared-prefs user's board.
+  //   • the param list (getReviewFeed, which already fetched preferred_locations in its tx).
+  // Empty list / cleared prefs => full board. Owner-only: anon has no profiles row.
+  if (opts.locationFromProfile && viewerPh) {
+    // COALESCE also normalizes a MISSING profiles row to '{}' — full board, same
+    // as the param path's "no prefs → no clause" (page.tsx redirects that viewer
+    // to /onboarding anyway; the rows are discarded). Uncorrelated w.r.t. j
+    // (keyed on the viewer bind only), so Postgres evaluates it once per
+    // statement as an InitPlan, not per row.
+    const sub = `COALESCE((SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${viewerPh}::uuid), '{}'::text[])`;
+    where.push(
+      `(cardinality(${sub}) = 0` +
+      ` OR COALESCE(j.location_canonicals, ARRAY[j.location]) && ${sub}` +
+      ` OR ('Remote' = ANY(${sub}) AND j.remote IS TRUE))`,
+    );
+  } else if (viewerLocations.length) {
     const p = ph();
     where.push(
       `(COALESCE(j.location_canonicals, ARRAY[j.location]) && ${p}` +

@@ -33,10 +33,15 @@ import { saveGenerationInstructions } from "@/app/actions/generationInstructions
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 
+// The lazy /api/jobs/[id] payload: the heavy review detail PLUS the opened job's Greenhouse
+// question schema (authed-only; null for anon or a non-Greenhouse job). Questions moved off
+// the eager board load onto this fetch — the client only ever reads the ONE open job's schema.
+type JobDetailResponse = JobReviewDetail & { questions: GreenhouseQuestions | null };
+
 type DetailState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "done"; detail: JobReviewDetail };
+  | { status: "done"; detail: JobDetailResponse };
 
 // D7's /api/application/prepare reports each leg independently so a partial failure
 // (e.g. cover letter timed out) still persists what succeeded and offers a per-leg retry.
@@ -78,9 +83,6 @@ export interface RolefitBoardProps {
   // board loads only approves, so these seed the Rejected view for cross-session recovery
   // of a mis-clicked reject. Empty on the anon path.
   initialRejected: JobRow[];
-  // Job-level Greenhouse question schema (shared job_questions table), keyed by job id.
-  // Static server data — forwarded to the selected job's application panel. Empty on anon.
-  initialJobQuestions: Record<string, GreenhouseQuestions>;
 }
 
 const NARROW_QUERY = "(max-width: 760px)";
@@ -149,7 +151,6 @@ export function RolefitBoard({
   currentProfileVersion,
   initialPackages,
   initialRejected,
-  initialJobQuestions,
 }: RolefitBoardProps) {
   const isNarrow = useIsNarrow();
   const router = useRouter();
@@ -657,7 +658,7 @@ export function RolefitBoard({
     setDetails((prev) => ({ ...prev, [id]: { status: "loading" } }));
     fetch(`/api/jobs/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: JobReviewDetail) => {
+      .then((d: JobDetailResponse) => {
         setDetails((prev) => ({ ...prev, [id]: { status: "done", detail: d } }));
       })
       .catch((e) => {
@@ -685,6 +686,15 @@ export function RolefitBoard({
     const c = corrections[selectedJob.id];
     return { ...selectedJob, ...(d ?? {}), ...(c ?? {}) };
   }, [selectedJob, details, corrections]);
+
+  // The open job's Greenhouse question schema, sourced from the lazy detail fetch (was an
+  // eager board-load prop). Null until detail resolves, so the questions panel appears once
+  // detail loads — same UX, off the render path.
+  const selectedQuestions = useMemo<GreenhouseQuestions | null>(() => {
+    if (!selectedJob) return null;
+    const ds = details[selectedJob.id];
+    return ds?.status === "done" ? ds.detail.questions : null;
+  }, [selectedJob, details]);
 
   // Handlers
   const toggleCat = (cat: string) =>
@@ -1417,7 +1427,7 @@ export function RolefitBoard({
                     onPrepare={handlePrepare}
                     generating={requestingId === selectedJobWithDetail.id || jobBusy(selectedJobWithDetail.id)}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
-                    greenhouseQuestions={initialJobQuestions[selectedJobWithDetail.id] ?? null}
+                    greenhouseQuestions={selectedQuestions}
                     pkg={packages[selectedJobWithDetail.id]}
                     resumeStale={resumeStaleFor(selectedJobWithDetail.id)}
                     onMarkApplied={handleMarkApplied}

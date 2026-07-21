@@ -37,11 +37,15 @@ const cachedRunSeries = unstable_cache(
 
 export default async function AnalyticsPage() {
   const userId = await requireUserId(); // redirects to /login when anonymous
-  // Sequential, not Promise.all: the metrics queries run one at a time (see lib/metrics
-  // `seq`) to avoid overwhelming the DB connection pool, so there's no benefit to racing
-  // the two cached groups — and keeping them sequential guarantees no concurrent fan-out.
-  const snapshot = await cachedSnapshot(userId);
-  const series = await cachedRunSeries(userId);
+  // Race the two cached groups: each runs in its own withUserSql transaction (one pooled
+  // connection, its fan-out internally bounded by dbLimit), so at most two of the pool's
+  // three connections are ever in flight — and only on a cold miss, since unstable_cache
+  // serves warm loads without touching the DB. Overlapping them takes the second cold
+  // fan-out off the critical path.
+  const [snapshot, series] = await Promise.all([
+    cachedSnapshot(userId),
+    cachedRunSeries(userId),
+  ]);
   return (
     <AppShell header={<SlimHeader current="analytics" />}>
       <PipelineDashboard snapshot={snapshot} series={series} nowIso={new Date().toISOString()} />

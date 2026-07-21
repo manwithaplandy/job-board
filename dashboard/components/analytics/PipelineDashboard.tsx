@@ -1,15 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import type { PipelineSnapshot, RunSeries } from "@/lib/metrics";
 import { KpiStrip } from "@/components/analytics/KpiStrip";
 import { FunnelSection } from "@/components/analytics/FunnelSection";
 import { HealthCards } from "@/components/analytics/HealthCards";
-import { TrendCharts } from "@/components/analytics/TrendCharts";
-import { BreakdownsSection } from "@/components/analytics/BreakdownsSection";
+import { ChartSkeleton } from "@/components/analytics/ChartSkeleton";
 import { PageHeader } from "@/components/ui/Navigation";
 import { Icon } from "@/components/ui/Icon";
 import { Alert } from "@/components/ui/SystemStates";
+
+// Trends and Breakdowns are the only recharts consumers, and both sit below the fold.
+// Load them client-side on demand (ssr:false) so recharts stays out of the analytics
+// first-paint bundle; a footprint-matching skeleton holds their space until they stream in.
+const TrendCharts = dynamic(() => import("@/components/analytics/TrendCharts").then((m) => m.TrendCharts), {
+  ssr: false,
+  loading: () => <ChartSkeleton cards={8} />,
+});
+const BreakdownsSection = dynamic(() => import("@/components/analytics/BreakdownsSection").then((m) => m.BreakdownsSection), {
+  ssr: false,
+  loading: () => <ChartSkeleton cards={6} />,
+});
 
 const SECTIONS = [
   { id: "overview", label: "Overview" },

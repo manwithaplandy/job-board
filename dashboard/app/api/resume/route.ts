@@ -11,7 +11,7 @@ import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { getStructuredModels } from "@/lib/openrouter";
 import { resolveReasoningSetting } from "@/lib/rolefit/generationSettings";
-import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
+import { tracingEnabled, ensureTracingStarted, flushLangfuseTraces } from "@/lib/observability";
 
 export const dynamic = "force-dynamic";
 // Vercel Pro ceiling. The 202 response returns in milliseconds; the budget covers
@@ -145,6 +145,10 @@ export async function POST(req: Request) {
 
   after(async () => {
     if (tracingEnabled()) {
+      // Init tracing BEFORE propagateAttributes: it wires the AsyncLocalStorage
+      // context manager, and context.with() under the boot-time noop manager
+      // would silently drop userId/sessionId from the first trace per instance.
+      await ensureTracingStarted();
       await propagateAttributes({ userId, sessionId: jobId }, run);
       // Flush inside the after() callback, which keeps the invocation alive until
       // it resolves — the old inline pre-response flush no longer applies.

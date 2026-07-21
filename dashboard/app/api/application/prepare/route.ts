@@ -18,7 +18,7 @@ import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { getStructuredModels } from "@/lib/openrouter";
 import { resolveReasoningSetting } from "@/lib/rolefit/generationSettings";
-import { tracingEnabled, flushLangfuseTraces } from "@/lib/observability";
+import { tracingEnabled, ensureTracingStarted, flushLangfuseTraces } from "@/lib/observability";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 
@@ -297,7 +297,11 @@ export async function POST(req: Request) {
   after(async () => {
     try {
       if (tracingEnabled()) {
-        await propagateAttributes({ userId, sessionId: jobId }, run);
+        // Init tracing BEFORE propagateAttributes: it wires the AsyncLocalStorage
+      // context manager, and context.with() under the boot-time noop manager
+      // would silently drop userId/sessionId from the first trace per instance.
+      await ensureTracingStarted();
+      await propagateAttributes({ userId, sessionId: jobId }, run);
         // Flush inside the after() callback, which keeps the invocation alive until
         // it resolves — the old inline pre-response flush no longer applies.
         // flushLangfuseTraces swallows its own errors, so a trace-export failure

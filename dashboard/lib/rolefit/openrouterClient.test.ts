@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 // costDetails test can assert what the transport records. Harmless to the other
 // tests: they don't inspect the span, and the fake update/end accept any input.
 const { genUpdates } = vi.hoisted(() => ({ genUpdates: [] as Record<string, unknown>[] }));
-vi.mock("@/lib/observability", () => ({ tracingEnabled: () => true }));
+vi.mock("@/lib/observability", () => ({ tracingEnabled: () => true, ensureTracingStarted: async () => {} }));
 vi.mock("@langfuse/tracing", () => ({
   startObservation: () => ({
     update: (u: Record<string, unknown>) => { genUpdates.push(u); },

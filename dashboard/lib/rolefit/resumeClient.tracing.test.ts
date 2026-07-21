@@ -20,7 +20,7 @@ const h = vi.hoisted(() => {
 // tracingEnabled() true → generateResume takes the parent-span branch. openrouterClient
 // also imports tracingEnabled from here, so returning true routes its inner
 // `resume-generation` observation through the mocked startObservation below.
-vi.mock("@/lib/observability", () => ({ tracingEnabled: () => true }));
+vi.mock("@/lib/observability", () => ({ tracingEnabled: () => true, ensureTracingStarted: async () => {} }));
 vi.mock("@langfuse/tracing", () => ({
   startActiveObservation: h.startActiveObservation,
   propagateAttributes: h.propagateAttributes,

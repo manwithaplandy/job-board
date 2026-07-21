@@ -58,9 +58,11 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
 export async function getJobs(
   f: Filters,
   userId: string | null,
-  viewerLocations: string[] = [],
 ): Promise<ReviewedJobRow[]> {
-  const { text, values } = buildJobsQuery(f, userId, viewerLocations);
+  // locationFromProfile: the authed board self-serves the viewer's preferred_locations via
+  // a correlated subquery (no viewerLocations param), so getProfile no longer gates this
+  // query. Inert for anon (no owner → no profiles subquery; see buildJobsQuery).
+  const { text, values } = buildJobsQuery(f, userId, [], { locationFromProfile: true });
   const run = async (tx: TransactionSql): Promise<ReviewedJobRow[]> => {
     const rows = await tx.unsafe(text, values as never[]);
     return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
@@ -79,14 +81,15 @@ export async function getJobs(
 // the (huge) set of AI denies is excluded. Only called on the authed path.
 export async function getRejectedJobs(
   userId: string,
-  viewerLocations: string[] = [],
 ): Promise<ReviewedJobRow[]> {
   const f: Filters = {
     companies: [], include: [], exclude: [], remoteOnly: false,
     status: "open", verdict: "deny",
     experience: "", industry: "", subcategory: "", location: "",
   };
-  const { text, values } = buildJobsQuery(f, userId, viewerLocations, { humanOverrideOnly: true });
+  // Same location pre-filter as the board (self-served from the viewer's profile), so the
+  // Rejected view scopes to the same pool without a viewerLocations param.
+  const { text, values } = buildJobsQuery(f, userId, [], { humanOverrideOnly: true, locationFromProfile: true });
   return withUserSql(userId, async (tx) => {
     const rows = await tx.unsafe(text, values as never[]);
     return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
@@ -565,30 +568,6 @@ export async function getJobQuestion(
     const rows = await tx`SELECT questions FROM job_questions WHERE job_id = ${jobId}`;
     if (rows.length === 0) return null;
     return parseGreenhouseQuestionsJsonb((rows[0] as { questions: unknown }).questions);
-  });
-}
-
-// Question schemas for a set of jobs, keyed by job_id (malformed rows dropped). Used by
-// the board loader to surface the questions panel on every Greenhouse job.
-export async function getJobQuestions(
-  userId: string,
-  jobIds: string[],
-): Promise<Record<string, GreenhouseQuestions>> {
-  if (jobIds.length === 0) return {};
-  return withUserSql(userId, async (tx) => {
-    const rows = await tx`
-      SELECT job_id, questions FROM job_questions WHERE job_id = ANY(${jobIds})
-    `;
-    const out: Record<string, GreenhouseQuestions> = {};
-    for (const r of rows as unknown as { job_id: string; questions: unknown }[]) {
-      const parsed = parseGreenhouseQuestionsJsonb(r.questions);
-      if (parsed == null) {
-        console.warn(`[job_questions] dropping malformed questions for job ${r.job_id}`);
-        continue;
-      }
-      out[r.job_id] = parsed;
-    }
-    return out;
   });
 }
 

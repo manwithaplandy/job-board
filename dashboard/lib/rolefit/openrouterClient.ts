@@ -6,7 +6,7 @@
 // extraction, error/finally). They now supply the prompt, schema, model, and a
 // `parse` step that validates the raw JSON into the typed result, and share this.
 import { startObservation } from "@langfuse/tracing";
-import { tracingEnabled } from "@/lib/observability";
+import { tracingEnabled, ensureTracingStarted } from "@/lib/observability";
 import type { ReasoningEffort } from "@/lib/entitlements";
 
 export const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -66,6 +66,8 @@ export async function callOpenRouterStructured<T>(args: {
   retryDelayMs?: number;
 }): Promise<T> {
   const doFetch = args.fetchImpl ?? fetch;
+  // Tracing inits lazily (not on cold boot) — start it before opening the span.
+  if (tracingEnabled()) await ensureTracingStarted();
   const gen = tracingEnabled()
     ? startObservation(
         args.generationName,

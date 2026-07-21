@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { serverBoardFilters } from "@/lib/filters";
 import {
-  getApplicationPackages, getJobs, getJobQuestions, getLatestPollRun,
+  getApplicationPackages, getJobs, getLatestPollRun,
   getProfile, getRejectedJobs, getReviewStats,
 } from "@/lib/queries";
 import { STALE_HEALTH_HOURS } from "@/lib/config";
@@ -31,34 +31,33 @@ export default async function Page({
   await searchParams; // filters now client-side; keep the param contract
 
   if (viewerId) {
-    // Data-dependency flip: the viewer's OWN profile drives their location
-    // pre-filter, so it must be fetched before the jobs query. A brand-new account
-    // has no profile row yet — send them through onboarding before any board render.
-    const profile = await getProfile(viewerId);
-    if (profile == null) redirect("/onboarding");
-    const viewerLocations = profile.preferred_locations ?? [];
     // Authed board: the reviewer's approve join already curates it, so no title
     // prefilter (include: []). See lib/filters.ts serverBoardFilters.
     const filters = serverBoardFilters("authed");
-    const jobsP = getJobs(filters, viewerId, viewerLocations);
-
-    // The jobs query runs alongside a bounded-2 batch of the remaining authed
-    // queries (dbLimit), keeping at most 3 queries in flight — the pool max.
-    const [jobs, authed] = await Promise.all([
-      jobsP,
-      dbLimit<unknown>([
-        () => getLatestPollRun(viewerId),
-        () => getReviewStats(viewerId),
-        () => getApplicationPackages(viewerId),
-        () => getRejectedJobs(viewerId, viewerLocations),
-      ]),
-    ]);
-    const [pollRun, reviewStats, packages, rejectedJobs] = authed as [
+    // Single wave. getJobs/getRejectedJobs self-serve the viewer's preferred_locations via
+    // a correlated subquery, so getProfile no longer gates them — all six board queries run
+    // through ONE dbLimit(3). Pool max is 3 (lib/db.ts), so exactly three execute at a time
+    // and postgres.js never queues (preserving the "fired ≤ pool max" invariant the old
+    // jobs+dbLimit(2) split held). The render-critical trio (profile, jobs, rejected) leads
+    // the array so it starts first; the secondary trio drains as those slots free.
+    const [profile, jobs, rejectedJobs, pollRun, reviewStats, packages] = await dbLimit<unknown>([
+      () => getProfile(viewerId),
+      () => getJobs(filters, viewerId),
+      () => getRejectedJobs(viewerId),
+      () => getLatestPollRun(viewerId),
+      () => getReviewStats(viewerId),
+      () => getApplicationPackages(viewerId),
+    ], 3) as [
+      Awaited<ReturnType<typeof getProfile>>,
+      Awaited<ReturnType<typeof getJobs>>,
+      Awaited<ReturnType<typeof getRejectedJobs>>,
       Awaited<ReturnType<typeof getLatestPollRun>>,
       Awaited<ReturnType<typeof getReviewStats>>,
       Awaited<ReturnType<typeof getApplicationPackages>>,
-      Awaited<ReturnType<typeof getRejectedJobs>>,
     ];
+    // A brand-new account has no profile row yet — send them through onboarding before any
+    // board render (the concurrently-fetched jobs are simply discarded on this rare path).
+    if (profile == null) redirect("/onboarding");
     const operator: OperatorSignals = {
       health: computeHealth(
         pollRun ? { finished_at: pollRun.finished_at, failures: pollRun.companies_failed } : null,
@@ -68,14 +67,6 @@ export default async function Page({
       unreviewed: reviewStats.unreviewed,
       reviewed: reviewStats.reviewed,
     };
-    // Job-level Greenhouse question schema (shared job_questions table), keyed by job id.
-    // Static server data — threaded to the board and on to the application panel. Include
-    // rejectedJobs: they're also selectable on the board, so their Greenhouse questions
-    // panel must resolve too (querying only `jobs` left rejected postings with null).
-    const jobQuestions = await getJobQuestions(
-      viewerId,
-      [...jobs, ...rejectedJobs].map((j) => j.id),
-    );
     const initialFilters = parseBoardFilters(profile.board_filters);
     return (
       <RolefitBoard
@@ -96,7 +87,6 @@ export default async function Page({
         currentProfileVersion={profile.profile_version}
         initialPackages={packages}
         initialRejected={rejectedJobs}
-        initialJobQuestions={jobQuestions}
       />
     );
   }
@@ -104,7 +94,7 @@ export default async function Page({
   // Anonymous viewer: plain open jobs, no review join, no operator telemetry.
   // The public board keeps the deliberate engineer-only editorial curation.
   const filters = serverBoardFilters("anon");
-  const jobs = await getJobs(filters, null, []);
+  const jobs = await getJobs(filters, null);
   const store = await cookies();
   const initialFilters = parseBoardFilters(store.get("board_filters")?.value);
   return (
@@ -126,7 +116,6 @@ export default async function Page({
       currentProfileVersion={null}
       initialPackages={[]}
       initialRejected={[]}
-      initialJobQuestions={{}}
     />
   );
 }

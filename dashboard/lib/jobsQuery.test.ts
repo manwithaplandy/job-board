@@ -155,6 +155,47 @@ describe("buildJobsQuery", () => {
     expect(q.values).toEqual([["Berlin, Germany"]]);
   });
 
+  test("locationFromProfile self-serves preferred_locations via a correlated subquery on $1", () => {
+    const q = buildJobsQuery(base, UID, [], { locationFromProfile: true });
+    // Empty-prefs escape: a cleared preferred_locations (cardinality 0) short-circuits to a
+    // FULL board rather than an empty pool — the data-loss guard for the subquery rewrite.
+    expect(q.text).toContain(
+      "(SELECT COALESCE(cardinality(p.preferred_locations), 0)" +
+      " FROM profiles p WHERE p.user_id = $1::uuid) = 0",
+    );
+    // The && / ANY subqueries stay COALESCE-wrapped to '{}'::text[] — a bare
+    // `= ANY((SELECT array_col))` is subquery-form ANY and 42883s (text = text[]).
+    expect(q.text).toContain(
+      "COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(" +
+      "(SELECT p.preferred_locations FROM profiles p WHERE p.user_id = $1::uuid), '{}'::text[])",
+    );
+    expect(q.text).toContain(
+      "'Remote' = ANY(COALESCE(" +
+      "(SELECT p.preferred_locations FROM profiles p WHERE p.user_id = $1::uuid), '{}'::text[]))" +
+      " AND j.remote IS TRUE",
+    );
+    // The subquery reuses the viewer placeholder ($1) — no extra bind, so a following
+    // filter's placeholders stay aligned.
+    expect(q.values).toEqual([UID]);
+  });
+
+  test("locationFromProfile composes with humanOverrideOnly (Rejected view) without extra binds", () => {
+    const q = buildJobsQuery({ ...base, verdict: "deny" }, UID, [], {
+      humanOverrideOnly: true,
+      locationFromProfile: true,
+    });
+    expect(q.text).toContain("r.human_override IS TRUE");
+    expect(q.text).toContain("FROM profiles p WHERE p.user_id = $1::uuid");
+    expect(q.values).toEqual([UID]); // no locations array pushed
+  });
+
+  test("locationFromProfile is inert without an owner (anon board grows no profiles subquery)", () => {
+    const q = buildJobsQuery(base, null, [], { locationFromProfile: true });
+    expect(q.text).not.toContain("profiles");
+    expect(q.text).not.toContain("cardinality");
+    expect(q.values).toEqual([]);
+  });
+
   test("selects the lean rolefit list columns when an owner is present", () => {
     const t = buildJobsQuery(base, UID).text;
     for (const col of ["r.role_category", "r.fit_score", "r.pay_min",

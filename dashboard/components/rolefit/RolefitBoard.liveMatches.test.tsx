@@ -45,7 +45,6 @@ const baseProps: RolefitBoardProps = {
   currentProfileVersion: null,
   initialPackages: [],
   initialRejected: [],
-  initialJobQuestions: {},
 };
 
 // Narrow layout: JobList renders the plain (non-virtualized) list, which jsdom can

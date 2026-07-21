@@ -382,8 +382,12 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
 
         # Cheap gate ALWAYS (spec model-policy decision): stage 1 is forced to the cheap
         # model regardless of profiles.model_stage1. Stage 2 is the tier-entitled model
-        # (premium only if the plan grants it, else cheap).
-        resolved_stage2 = entitlements.resolve_stage2_model(plan, profile.get("model_stage2"), ent)
+        # (premium only if the plan grants it, else cheap). When the user hasn't picked a
+        # stage-2 model, fall back to their TIER'S default (config.default_stage2_model —
+        # Pro defaults to a stronger model than Standard) before gating, so an unset
+        # selection is resolved exactly like an explicit one.
+        requested_stage2 = profile.get("model_stage2") or config.default_stage2_model(plan)
+        resolved_stage2 = entitlements.resolve_stage2_model(plan, requested_stage2, ent)
 
         # Per-user rolling daily budget: the per-model cap minus what's already been
         # spent today (UTC). The tier's per-model cap is the ceiling; a per-profile

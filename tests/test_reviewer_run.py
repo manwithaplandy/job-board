@@ -841,6 +841,38 @@ def test_pro_arbitrary_model_stage2_honored(conn, monkeypatch):
 
 
 @requires_db
+def test_pro_default_model_when_unset(conn, monkeypatch):
+    """A Pro user who hasn't picked a stage-2 model gets their TIER default
+    (config.default_stage2_model) — a stronger model than Standard's cheap default —
+    while stage 1 stays the cheap gate."""
+    monkeypatch.delenv("REVIEW_DEFAULT_MODEL_PRO", raising=False)
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, plan="pro", model_stage2=None)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT model_stage1, model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
+        row = cur.fetchone()
+        assert row["model_stage1"] == entitlements.CHEAP_MODEL
+        assert row["model_stage2"] == "gemini-flash-latest"
+
+
+@requires_db
+def test_standard_default_model_when_unset_stays_cheap(conn, monkeypatch):
+    """A Standard user who hasn't picked a stage-2 model keeps the cheap default."""
+    monkeypatch.delenv("REVIEW_DEFAULT_MODEL_STANDARD", raising=False)
+    cid = _seed_company(conn)
+    _seed_reviewable_job(conn, cid, "j0")
+    _insert_profile(conn, USER, plan="standard", model_stage2=None)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
+        assert cur.fetchone()["model_stage2"] == entitlements.CHEAP_MODEL
+
+
+@requires_db
 def test_standard_non_entitled_premium_falls_back_to_cheap(conn, monkeypatch):
     """A Standard user who requests the premium model has stage 2 fall back to cheap."""
     cid = _seed_company(conn)

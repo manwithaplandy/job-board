@@ -26,6 +26,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import {
+  defaultStage2Model,
   enqueueReviewRequest, getLatestReviewRequest, remainingDailyBudget, reviewsChargedToday,
 } from "@/lib/reviewRequests";
 
@@ -79,8 +80,19 @@ describe("remainingDailyBudget", () => {
   test("honors a per-profile daily_review_cap override (below tier → lowers)", async () => {
     state.rowQueue.push([{ model_stage2: null, daily_review_cap: 50 }]);
     tx.unsafe = () => Promise.resolve([{ n: 10 }]);
-    // pro cheap tier cap = 1000; override 50 < 1000 → effective cap 50 → 50 - 10 = 40.
+    // A Pro user with no picked model defaults to gemini (premium slot, cap 100); the
+    // override 50 < 100 lowers the effective cap to 50 → 50 - 10 = 40.
     expect(await remainingDailyBudget("u", "pro")).toBe(40);
+  });
+
+  test("Pro with no picked model defaults to the premium-slot cap (mirrors reviewer)", async () => {
+    // model_stage2 null → tier default (gemini-flash-latest), which is unassigned →
+    // premium slot → Pro premium cap 100. This mirrors reviewer/config.py so the shown
+    // budget matches what the reviewer enforces. No override, spend 0 → 100.
+    delete process.env.REVIEW_DEFAULT_MODEL_PRO;
+    state.rowQueue.push([{ model_stage2: null, daily_review_cap: null }]);
+    tx.unsafe = () => Promise.resolve([{ n: 0 }]);
+    expect(await remainingDailyBudget("u", "pro")).toBe(100);
   });
 
   test("clamps an override ABOVE the tier cap down to the tier cap (B-COST)", async () => {
@@ -95,6 +107,23 @@ describe("remainingDailyBudget", () => {
     state.rowQueue.push([{ model_stage2: null, daily_review_cap: null }]);
     tx.unsafe = () => Promise.resolve([{ n: 999 }]);
     expect(await remainingDailyBudget("u", "standard")).toBe(0);
+  });
+});
+
+describe("defaultStage2Model", () => {
+  test("compiled per-tier defaults when env unset", () => {
+    delete process.env.REVIEW_DEFAULT_MODEL_PRO;
+    delete process.env.REVIEW_DEFAULT_MODEL_STANDARD;
+    expect(defaultStage2Model("pro")).toBe("gemini-flash-latest");
+    expect(defaultStage2Model("standard")).toBe("deepseek/deepseek-v4-flash");
+  });
+
+  test("env override wins; blank env falls back to compiled", () => {
+    process.env.REVIEW_DEFAULT_MODEL_PRO = "anthropic/claude-sonnet-5";
+    expect(defaultStage2Model("pro")).toBe("anthropic/claude-sonnet-5");
+    process.env.REVIEW_DEFAULT_MODEL_PRO = "   ";
+    expect(defaultStage2Model("pro")).toBe("gemini-flash-latest");
+    delete process.env.REVIEW_DEFAULT_MODEL_PRO;
   });
 });
 

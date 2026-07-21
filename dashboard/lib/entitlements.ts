@@ -62,6 +62,9 @@ export const PLAN_TIER: Record<Plan, number> = { standard: 1, pro: 2 };
 export const DEFAULT_STAGE2_MODEL_TIER = 2;
 export const STAGE2_MODEL_TIER: Record<string, number> = {
   [CHEAP_MODEL]: 1,
+  // Standard-available (tier 1, cheap cap). Add an id here to widen access down to
+  // Standard; unassigned models stay Pro-only (DEFAULT_STAGE2_MODEL_TIER).
+  "openai/gpt-5.4-nano": 1,
 };
 
 /** Rank of a plan (null = 0, below every paid tier). */

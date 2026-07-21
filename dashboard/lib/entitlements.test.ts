@@ -189,6 +189,15 @@ describe("extensible plan tiers (spec 2026-07-17 'Stage-2 model tiers')", () => 
     expect(stage2ModelTier(null)).toBe(2);
   });
 
+  test("gpt-5.4-nano is a Standard-available tier-1 model (cheap slot)", () => {
+    const GPT_NANO = "openai/gpt-5.4-nano";
+    expect(stage2ModelTier(GPT_NANO)).toBe(1);
+    expect(modelSlot(GPT_NANO)).toBe("cheap");
+    expect(resolveStage2Model("standard", GPT_NANO)).toBe(GPT_NANO);
+    expect(resolveStage2Model("pro", GPT_NANO)).toBe(GPT_NANO);
+    expect(dailyReviewCap("standard", GPT_NANO)).toBe(400);
+  });
+
   test("planForTier returns the lowest plan meeting the tier", () => {
     expect(planForTier(1)).toBe("standard");
     expect(planForTier(2)).toBe("pro");

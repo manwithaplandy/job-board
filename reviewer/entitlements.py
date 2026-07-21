@@ -37,7 +37,9 @@ DEFAULT_INVITE_COMP_PLAN = "standard"
 # default to tier 2 (Pro) — Pro-available, priced at the premium cap via model_slot.
 PLAN_TIER = {"standard": 1, "pro": 2}
 DEFAULT_STAGE2_MODEL_TIER = 2
-STAGE2_MODEL_TIER = {CHEAP_MODEL: 1}
+# Tier-1 models are Standard-available (and meter at the cheap cap). Add a model here to
+# widen its access down to Standard; unassigned models stay Pro-only (tier 2).
+STAGE2_MODEL_TIER = {CHEAP_MODEL: 1, "openai/gpt-5.4-nano": 1}
 
 
 def plan_tier(plan):

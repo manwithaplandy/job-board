@@ -59,6 +59,8 @@ DATABASE_URL="postgresql://…" ANTHROPIC_API_KEY="sk-…" .venv/bin/python -m r
 |----------|---------|-------------|
 | `REVIEW_MODEL_STAGE1` | `claude-haiku-4-5` | Model used for the gate (title-only) pass. |
 | `REVIEW_MODEL_STAGE2` | `claude-haiku-4-5` | Model used for the full JD pass. |
+| `REVIEW_DEFAULT_MODEL_STANDARD` | `deepseek/deepseek-v4-flash` | Default stage-2 model for **Standard** users who haven't picked one (`profiles.model_stage2` unset). |
+| `REVIEW_DEFAULT_MODEL_PRO` | `gemini-flash-latest` | Default stage-2 model for **Pro** users who haven't picked one. Set identically on the reviewer and dashboard services so the enforced and displayed daily caps agree. The resolved model is still tier-gated and metered, so an unassigned model (like this one) meters at the Pro premium cap. |
 | `REVIEW_CONCURRENCY` | `5` | Max concurrent Anthropic requests per run. |
 | `REVIEW_DAILY_CAP_DEFAULT` | `400` | Per-user, per-day ceiling on jobs entering review (a hard cost cap regardless of run cadence, pool size, or profile edits). A profile's `daily_review_cap` column overrides this per-user. Spend is tracked in `usage_counters` and rolls over at UTC midnight. |
 

@@ -1,6 +1,30 @@
 import { withUserSql } from "@/lib/db";
-import { resolveStage2Model, dailyReviewCap, type Plan } from "@/lib/entitlements";
+import { CHEAP_MODEL, resolveStage2Model, dailyReviewCap, type Plan } from "@/lib/entitlements";
 import { loadTierConfig } from "@/lib/tierConfig";
+
+// Per-tier DEFAULT stage-2 model, used when a user hasn't picked one
+// (profiles.model_stage2 IS NULL). MIRRORS reviewer/config.py default_stage2_model: the
+// reviewer applies the SAME fallback before gating, so the cap computed here matches the
+// cap the reviewer enforces. Env-overridable per tier; the compiled fallbacks below MUST
+// equal reviewer/config.py _COMPILED_DEFAULT_STAGE2_MODEL. Set the env vars identically on
+// the dashboard AND reviewer services, or the displayed and enforced caps can diverge.
+const DEFAULT_STAGE2_MODEL_ENV: Record<Plan, string> = {
+  standard: "REVIEW_DEFAULT_MODEL_STANDARD",
+  pro: "REVIEW_DEFAULT_MODEL_PRO",
+};
+
+const COMPILED_DEFAULT_STAGE2_MODEL: Record<Plan, string> = {
+  standard: CHEAP_MODEL,
+  pro: "gemini-flash-latest",
+};
+
+/** The default stage-2 model for `plan` when profiles.model_stage2 is unset. An unset or
+ *  blank env var falls back to the compiled default. Mirror of reviewer/config.py. */
+export function defaultStage2Model(plan: Plan): string {
+  const raw = process.env[DEFAULT_STAGE2_MODEL_ENV[plan]];
+  if (raw && raw.trim()) return raw.trim();
+  return COMPILED_DEFAULT_STAGE2_MODEL[plan];
+}
 
 // The dashboard ↔ reviewer-worker contract for on-demand "review my board now"
 // (spec F core). Precedent: discovery_state.resume_requested_at. The partial unique
@@ -99,7 +123,10 @@ export async function remainingDailyBudget(userId: string, plan: Plan | null): P
       SELECT model_stage2, daily_review_cap FROM profiles WHERE user_id = ${userId}::uuid
     `;
     const p = prow[0] as { model_stage2: string | null; daily_review_cap: number | null } | undefined;
-    const model = resolveStage2Model(plan, p?.model_stage2 ?? null, entitlements);
+    // Unset selection → the tier default (Pro defaults to a stronger model); mirrors the
+    // reviewer's own fallback so the cap shown matches the cap enforced.
+    const requested = p?.model_stage2 ?? defaultStage2Model(plan);
+    const model = resolveStage2Model(plan, requested, entitlements);
     // Cost integrity (finding B-COST): the per-profile daily_review_cap override may
     // only LOWER the tier cap, never raise it — mirror the discipline resolveStage2Model
     // already applies to the model. daily_review_cap is operator-only at the DB layer

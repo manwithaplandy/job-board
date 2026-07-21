@@ -152,6 +152,15 @@ def test_stage2_model_tier_default_is_pro():
     assert stage2_model_tier(None) == 2
 
 
+def test_gpt_nano_is_standard_available_cheap_slot():
+    # gpt-5.4-nano is a tier-1 (Standard-available) model, metered at the cheap cap.
+    assert stage2_model_tier("openai/gpt-5.4-nano") == 1
+    assert model_slot("openai/gpt-5.4-nano") == "cheap"
+    assert resolve_stage2_model("standard", "openai/gpt-5.4-nano") == "openai/gpt-5.4-nano"
+    assert resolve_stage2_model("pro", "openai/gpt-5.4-nano") == "openai/gpt-5.4-nano"
+    assert daily_review_cap("standard", "openai/gpt-5.4-nano") == 400
+
+
 def test_resolve_stage2_pro_runs_any_model_standard_clamped():
     assert resolve_stage2_model("pro", GEMINI) == GEMINI
     assert resolve_stage2_model("pro", PREMIUM_MODEL) == PREMIUM_MODEL

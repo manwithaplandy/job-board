@@ -19,6 +19,20 @@ describe("admin console width", () => {
     );
   });
 
+  // The widening only holds because both selectors are single-class (specificity 0,1,0),
+  // so --admin beats the base width solely by appearing LATER in source order. A refactor
+  // that hoists the modifier above the base (stylelint ordering, modifier grouping, a file
+  // split) would silently revert all three admin pages to --content-reading while every
+  // other assertion here still passes (test 1 only checks the rule text exists). Pin the order.
+  // NOTE: the base must be matched as /\.rf-secondary-wrap\s*\{/ — a bare indexOf of
+  // ".rf-secondary-wrap" is a prefix of the modifier and would match --wide/--admin instead.
+  test("the base wrap precedes --admin so the cascade actually widens", () => {
+    const baseIdx = css.search(/\.rf-secondary-wrap\s*\{/);
+    const adminIdx = css.search(/\.rf-secondary-wrap--admin\s*\{/);
+    expect(baseIdx).toBeGreaterThanOrEqual(0);
+    expect(adminIdx).toBeGreaterThan(baseIdx);
+  });
+
   // Encodes "all three tabs widen consistently" — catches a tab that forgets the modifier.
   test("all three admin tabs carry the --admin wide wrap", () => {
     for (const page of adminPages) {

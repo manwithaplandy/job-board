@@ -603,9 +603,14 @@ def test_process_job_all_fail_errors_with_sample(conn, caplog):
     assert row["errored"] == 3
     assert "all 3 classifications failed" in row["error"]
     assert "boom-403" in row["error"]        # sample carries the exception repr
-    # The failure was logged (first of the chunk), not swallowed.
-    assert any("boom-403" in r.getMessage() for r in caplog.records
-               if r.levelno == logging.WARNING)
+    # The failure was logged ONCE (first of the chunk), not spammed one line per target:
+    # exactly one WARNING record for the chunk, carrying the exception repr AND an
+    # aggregated count of the rest ("and N more error(s) this chunk").
+    records = [r for r in caplog.records
+               if r.levelno == logging.WARNING and "classify failed" in r.getMessage()]
+    assert len(records) == 1
+    assert "boom-403" in records[0].getMessage()
+    assert "and 2 more error(s) this chunk" in records[0].getMessage()
 
 
 # --- (m) partial-fail run stays 'done' but records the failure count + a sample ----
@@ -666,3 +671,39 @@ def test_process_job_monthly_limit_403_errors_and_halts(conn):
     assert row["error"].startswith("out of credits")
     assert "Key limit exceeded" in row["error"]   # exc text carried for diagnostics
     assert halted is True
+
+
+# --- (o) resumed job whose errors are ALL from a prior attempt: no dangling 'sample:' --
+
+
+@requires_db
+def test_process_job_resumed_prior_errors_no_dangling_sample(conn):
+    # Crash/SIGTERM window: attempt 1 errored its whole cap (errored=3, processed=0) and
+    # committed the progress bump, then died BEFORE the terminal finish_job. Boot recovery
+    # requeues it; on resume remaining == 0 so the classify loop never runs and this attempt
+    # sees no exception (first_exc is None). The terminal row must still read 'error' with
+    # the honest count, but WITHOUT a dangling 'sample: ' that has nothing after it.
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO classification_jobs (model, company_cap, selection_mode, "
+            "use_serp, status, processed, errored, started_at) "
+            "VALUES ('stub/model', 3, 'unclassified', FALSE, 'running', 0, 3, "
+            "now() - interval '1 hour') RETURNING *")
+        job = cur.fetchone()
+    conn.commit()
+
+    client = _StubClient()          # never called: remaining == 0
+    worker.process_job(conn, job, classify_client=client)
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, processed, errored, error FROM classification_jobs "
+                    "WHERE id=%s", (job["id"],))
+        row = cur.fetchone()
+    assert client.calls == 0                        # remaining==0 -> no classify calls
+    assert row["status"] == "error"                 # all-failed (from the prior attempt)
+    assert row["processed"] == 0
+    assert row["errored"] == 3
+    assert "all 3 classifications failed" in row["error"]
+    assert "sample unavailable" in row["error"]     # honest marker, not a dangling clause
+    assert "sample: " not in row["error"]           # no empty 'sample: ' tail

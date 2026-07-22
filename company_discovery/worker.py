@@ -216,16 +216,21 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
         # reporting it 'done' is misleading; a partially-failed run stays 'done' but records
         # the failure count + a sample exception.
         if errored_total > 0:
-            sample = repr(first_exc)[:400] if first_exc is not None else ""
+            # first_exc is None only when every error came from a PRIOR attempt (seeded into
+            # errored_total from the claimed row) and this attempt saw no exception — a
+            # crash/SIGTERM requeue edge. Don't emit a dangling 'sample: ' with nothing after
+            # it (reads as a bug in the admin panel); mark the sample unavailable instead.
+            sample_clause = (f"; sample: {repr(first_exc)[:400]}" if first_exc is not None
+                             else "; sample unavailable (errors from a prior attempt)")
             if processed_total == 0:
                 jobs_db.finish_job(
                     conn, job["id"], "error",
-                    error=f"all {errored_total} classifications failed; sample: {sample}")
+                    error=f"all {errored_total} classifications failed{sample_clause}")
             else:
                 jobs_db.finish_job(
                     conn, job["id"], "done",
-                    error=f"{errored_total} of {processed_total + errored_total} failed; "
-                          f"sample: {sample}")
+                    error=f"{errored_total} of {processed_total + errored_total} "
+                          f"failed{sample_clause}")
         else:
             jobs_db.finish_job(conn, job["id"], "done")
         conn.commit()

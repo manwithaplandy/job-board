@@ -57,4 +57,17 @@ describe("admin console width", () => {
       /\.rf-invite-settings-fields\s*\{[^}]*max-width:\s*var\(--content-form\)/,
     );
   });
+
+  // Third form on the same widened wrap: the InviteGenerator grid (/admin/invites) ends
+  // in an `auto` track, so inside the 1200px --admin wrap the stretch-auto-tracks step
+  // would balloon the Note field and drift the "Generate" Button to the far right of the
+  // card without this cap. It was the only one of the three form caps left unpinned, so a
+  // refactor could drop it while every other assertion stayed green. Mirrors the launcher
+  // and invite-settings caps. (The first `.rf-admin-form-grid {` in source is the base rule
+  // carrying max-width; the media-query redeclarations only touch grid-template-columns.)
+  test("the invite-generator form grid is width-capped", () => {
+    expect(css).toMatch(
+      /\.rf-admin-form-grid\s*\{[^}]*max-width:\s*var\(--content-form\)/,
+    );
+  });
 });

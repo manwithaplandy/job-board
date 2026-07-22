@@ -83,7 +83,8 @@ async def _stage2_inner(candidate: dict, profile_block: str, client,
 
     A missing JD defers stage 2 (verdict/error stay None) so the job is re-selected
     once its description is refilled. Per-job errors are isolated onto res.error; a
-    402 propagates as OutOfCreditsError so the batch can halt.
+    spend-block (402 insufficient credits / 403 monthly key limit) propagates as
+    OutOfCreditsError so the batch can halt.
     """
     try:
         jd = candidate.get("description")
@@ -212,12 +213,13 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
     before chunk k+1's stage-1) but peak LLM concurrency is unchanged: ONE semaphore is
     created before the loop and shared by every chunk.
 
-    Returns (results, halted). Never-attempted jobs stay retryable: a 402 halt skips
-    them entirely (no row), a whole-batch stage-1 failure and a per-id missing decision
-    each yield a retryable error row, and a stage-1 pass whose stage 2 never ran (halt,
-    or a deferred JD-less job) also stays retryable (no row). halted=True means a 402 was
-    encountered (in any chunk's stage 1 or stage 2) or the user was deleted mid-run, and
-    the remaining candidates were skipped.
+    Returns (results, halted). Never-attempted jobs stay retryable: a spend-block halt
+    skips them entirely (no row), a whole-batch stage-1 failure and a per-id missing
+    decision each yield a retryable error row, and a stage-1 pass whose stage 2 never ran
+    (halt, or a deferred JD-less job) also stays retryable (no row). halted=True means a
+    spend-block (402 insufficient credits / 403 monthly key limit) was encountered (in any
+    chunk's stage 1 or stage 2) or the user was deleted mid-run, and the remaining
+    candidates were skipped.
 
     on_results, when supplied, is a plain SYNCHRONOUS callable (list[ReviewResult]) ->
     None, invoked from inside the async pipeline once per chunk with that chunk's terminal
@@ -226,7 +228,7 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
     exception it raises propagates out of review_batch; the caller owns its failure
     envelope. It does NOT change the (results, halted) contract for no-callback callers.
 
-    Halt semantics: a 402 in chunk k breaks the loop — chunks 0..k-1 are fully emitted,
+    Halt semantics: a spend-block in chunk k breaks the loop — chunks 0..k-1 are fully emitted,
     chunk k emits only its terminal results (completed stage-2 + rejects + errors), and
     chunks k+1.. are never stage-1'd (no rows, retryable).
 

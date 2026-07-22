@@ -51,6 +51,22 @@ class _StubClient:
         return self._result, raw
 
 
+class _SomeFailClient(_StubClient):
+    """Raises a generic per-target exception for targets whose token is in `fail_tokens`,
+    succeeds otherwise — to exercise partial-failure surfacing."""
+
+    def __init__(self, fail_tokens, **kw):
+        super().__init__(**kw)
+        self._fail_tokens = set(fail_tokens)
+
+    async def classify(self, *, token, **kw):
+        if token in self._fail_tokens:
+            self.calls += 1
+            self.seen.append({"token": token, **kw})
+            raise RuntimeError(f"boom-{token}")
+        return await super().classify(token=token, **kw)
+
+
 def _new_job(conn, **overrides) -> dict:
     cols = {"model": "stub/model", "company_cap": 500,
             "selection_mode": "unclassified", "use_serp": False}
@@ -233,7 +249,9 @@ def test_process_job_out_of_credits_errors_and_halts(conn):
         cur.execute("SELECT halted_no_credits FROM discovery_state WHERE id=TRUE")
         halted = cur.fetchone()["halted_no_credits"]
     assert row["status"] == "error"
-    assert row["error"] == "out of credits"
+    # The halt now carries the actual exception text for diagnostics (not a bare marker).
+    assert row["error"].startswith("out of credits")
+    assert "402 out of credits" in row["error"]
     assert halted is True
 
 
@@ -548,3 +566,103 @@ def test_process_one_ingest_failure_does_not_starve_queue(conn, monkeypatch):
         cur.execute("SELECT count(*) AS n FROM discovery_runs "
                     "WHERE notes LIKE %s", ("weekly ingest tick%",))
         assert cur.fetchone()["n"] == 0
+
+
+# --- (l) all-fail run surfaces status 'error' + a sample exception on the row -----
+
+
+@requires_db
+def test_process_job_all_fail_errors_with_sample(conn, caplog):
+    # Regression for the 2026-07-22 incident: every classify call raised (an OpenRouter
+    # monthly-key-limit 403 that was NOT yet detected as terminal), yet the job finished
+    # 'done' processed=0 with a NULL error and ZERO log lines. An all-failed run must now
+    # finish 'error' with a sample exception on the row, and the first per-target failure
+    # of the chunk must be logged (not silently discarded).
+    import logging
+    with conn.cursor() as cur:
+        for i in range(3):
+            cur.execute("INSERT INTO companies (name, ats, token, enriched_at) "
+                        "VALUES (%s,'greenhouse',%s, now())", (f"c{i}", f"c{i}"))
+    job = _new_job(conn, company_cap=3)
+    conn.commit()
+
+    client = _StubClient(exc=RuntimeError("boom-403"))
+    with caplog.at_level(logging.WARNING, logger="company_discovery.worker"):
+        worker.process_job(conn, job, classify_client=client)
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, processed, errored, error FROM classification_jobs "
+                    "WHERE id=%s", (job["id"],))
+        row = cur.fetchone()
+        cur.execute("SELECT count(*) AS n FROM companies WHERE classified_at IS NOT NULL")
+        classified = cur.fetchone()["n"]
+    assert classified == 0
+    assert row["status"] == "error"          # all-failed -> 'error', not a misleading 'done'
+    assert row["processed"] == 0
+    assert row["errored"] == 3
+    assert "all 3 classifications failed" in row["error"]
+    assert "boom-403" in row["error"]        # sample carries the exception repr
+    # The failure was logged (first of the chunk), not swallowed.
+    assert any("boom-403" in r.getMessage() for r in caplog.records
+               if r.levelno == logging.WARNING)
+
+
+# --- (m) partial-fail run stays 'done' but records the failure count + a sample ----
+
+
+@requires_db
+def test_process_job_partial_fail_done_with_sample(conn):
+    # A run where SOME targets succeed and some fail stays 'done' (work was accomplished)
+    # but records "X of Y failed" + a sample exception so the failures are visible.
+    with conn.cursor() as cur:
+        for i in range(3):
+            cur.execute("INSERT INTO companies (name, ats, token, enriched_at) "
+                        "VALUES (%s,'greenhouse',%s, now())", (f"c{i}", f"c{i}"))
+    job = _new_job(conn, company_cap=3)
+    conn.commit()
+
+    client = _SomeFailClient(fail_tokens={"c1"})   # one of three targets fails
+    worker.process_job(conn, job, classify_client=client)
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, processed, errored, error FROM classification_jobs "
+                    "WHERE id=%s", (job["id"],))
+        row = cur.fetchone()
+    assert row["status"] == "done"           # partial success stays 'done'
+    assert row["processed"] == 2
+    assert row["errored"] == 1
+    assert "1 of 3 failed" in row["error"]
+    assert "boom-c1" in row["error"]         # sample carries the failing target's exception
+
+
+# --- (n) a monthly-key-limit 403 halts the job just like a 402 ---------------------
+
+
+@requires_db
+def test_process_job_monthly_limit_403_errors_and_halts(conn):
+    # In production the classify path converts OpenRouter's monthly-key-limit 403 into an
+    # OutOfCreditsError via the (now-extended) _is_out_of_credits detector; the worker then
+    # halts the whole job + the global pipeline exactly as it does for a 402. Simulate the
+    # already-converted exception (the detector conversion is covered in the llm tests).
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO companies (name, ats, token, enriched_at) "
+                    "VALUES ('c','greenhouse','c', now())")
+    job = _new_job(conn, company_cap=5)
+    conn.commit()
+
+    client = _StubClient(exc=OutOfCreditsError(
+        "Error code: 403 - Key limit exceeded (monthly limit)"))
+    worker.process_job(conn, job, classify_client=client)
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, error FROM classification_jobs WHERE id=%s", (job["id"],))
+        row = cur.fetchone()
+        cur.execute("SELECT halted_no_credits FROM discovery_state WHERE id=TRUE")
+        halted = cur.fetchone()["halted_no_credits"]
+    assert row["status"] == "error"
+    assert row["error"].startswith("out of credits")
+    assert "Key limit exceeded" in row["error"]   # exc text carried for diagnostics
+    assert halted is True

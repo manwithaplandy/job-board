@@ -117,6 +117,15 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
     # a single long-lived loop, closing it (and the self-created client's sockets) in the
     # finally so nothing outlives the loop its connections were created on.
     loop = asyncio.new_event_loop()
+    # Job-level failure surfacing. _classify_batch's per-target guard captures each
+    # exception, but the pre-hardening loop discarded them: an all-failed run reported
+    # 'done' processed=0 with a NULL error and no log lines (the 2026-07-22 monthly-key-
+    # limit incident). Track the first exception seen and running totals (seeded with any
+    # progress a resumed attempt already spent) so the terminal transition can name what
+    # went wrong on the row + in the log.
+    first_exc = None
+    processed_total = job["processed"]
+    errored_total = job["errored"]
     try:
         while remaining > 0:
             if jobs_db.job_status(conn, job["id"]) == "canceled":
@@ -155,14 +164,24 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
             ptok = ctok = 0
             cost = 0.0
             ok = err = 0
+            chunk_first_fail = None   # (target, exc) — for this chunk's one-line warning
             for target, res, raw, exc in results:
                 if isinstance(exc, OutOfCreditsError):
-                    jobs_db.finish_job(conn, job["id"], "error", error="out of credits")
+                    # Spend-blocked (402 insufficient credits / 403 monthly key limit):
+                    # halt this job AND the global pipeline. Carry the exception text so
+                    # the operator sees WHICH block hit, not a bare 'out of credits'.
+                    jobs_db.finish_job(conn, job["id"], "error",
+                                       error=f"out of credits: {str(exc)[:400]}")
                     db.set_halted(conn, True)
                     conn.commit()
                     return
                 if res is None:
                     err += 1
+                    if exc is not None:
+                        if first_exc is None:
+                            first_exc = exc
+                        if chunk_first_fail is None:
+                            chunk_first_fail = (target, exc)
                     continue
                 jobs_db.apply_classification(conn, target["id"], res,
                                              model=client.model, source=source)
@@ -171,17 +190,44 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
                 ptok += getattr(usage, "prompt_tokens", 0) or 0
                 ctok += getattr(usage, "completion_tokens", 0) or 0
                 cost += float(getattr(usage, "cost", 0) or 0)
+            if chunk_first_fail is not None:
+                # Log the FIRST failure of this chunk with company + exception detail (one
+                # line, not 25) so a bad chunk is visible in the worker log; a count stands
+                # in for the rest instead of spamming a line per target.
+                ft, fexc = chunk_first_fail
+                more = f"; and {err - 1} more error(s) this chunk" if err > 1 else ""
+                log.warning("classification job %s: company %s (%s) classify failed: %s%s",
+                            job["id"], ft["id"], ft.get("display_name") or ft["name"],
+                            repr(fexc), more)
             jobs_db.bump_progress(conn, job["id"], processed=ok, errored=err, serp=serp_used,
                                   prompt_tokens=ptok, completion_tokens=ctok,
                                   cost=cost or None)
             conn.commit()
+            processed_total += ok
+            errored_total += err
             remaining -= len(targets)
             # Belt-and-braces: even with the started_at bound above, stop when a repass
             # chunk made no net progress (every target still matches the mode after apply)
             # so a pathological all-error chunk cannot spin.
             if job["selection_mode"] == "unknown_repass" and ok == 0 and err == len(targets):
                 break
-        jobs_db.finish_job(conn, job["id"], "done")
+        # Terminal transition: surface per-target failures on the row so the admin panel
+        # sees them (it was blind to them before). An all-failed run finishes 'error' —
+        # reporting it 'done' is misleading; a partially-failed run stays 'done' but records
+        # the failure count + a sample exception.
+        if errored_total > 0:
+            sample = repr(first_exc)[:400] if first_exc is not None else ""
+            if processed_total == 0:
+                jobs_db.finish_job(
+                    conn, job["id"], "error",
+                    error=f"all {errored_total} classifications failed; sample: {sample}")
+            else:
+                jobs_db.finish_job(
+                    conn, job["id"], "done",
+                    error=f"{errored_total} of {processed_total + errored_total} failed; "
+                          f"sample: {sample}")
+        else:
+            jobs_db.finish_job(conn, job["id"], "done")
         conn.commit()
     finally:
         # Close the self-created client's pooled sockets on the SAME loop that opened

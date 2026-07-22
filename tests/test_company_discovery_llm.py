@@ -52,6 +52,31 @@ class _Resp402(Exception):
         self.response = type("R", (), {"status_code": 402})()
 
 
+class _Perm403(Exception):
+    """Shaped like openai.PermissionDeniedError for OpenRouter's monthly key-spend limit:
+    status_code=403 with a body carrying the 'Key limit exceeded (monthly limit)' text."""
+    status_code = 403
+
+    def __init__(self):
+        super().__init__(
+            "Error code: 403 - {'error': {'message': 'Key limit exceeded (monthly "
+            "limit). Manage it using https://openrouter.ai/...', 'code': 403}}")
+
+
+class _Perm403Other(Exception):
+    """A 403 that is NOT spend-blocked (moderation / model-access denial) — must stay a
+    per-target error, never a halt."""
+    status_code = 403
+
+    def __init__(self):
+        super().__init__("Error code: 403 - model access denied for this key")
+
+
+class _Status403Bare(Exception):
+    """A 403 whose message carries no key-limit signature at all."""
+    status_code = 403
+
+
 class _RefusalParse:
     async def parse(self, **kw):
         msg = type("M", (), {"parsed": None, "refusal": "policy violation"})()
@@ -79,6 +104,19 @@ def test_is_out_of_credits_secondary_channels():
     assert _is_out_of_credits(RuntimeError("402 teapot")) is False  # has 402 but not 'credit'
 
 
+def test_is_out_of_credits_monthly_key_limit_403():
+    # OpenRouter's monthly key-SPEND limit surfaces as a 403 whose body says
+    # "Key limit exceeded (monthly limit)". It is as terminal for spend as a 402 — every
+    # subsequent call fails identically — so it must halt the run just like 402. The
+    # signature match is case-insensitive (_Perm403's body capitalizes "Key").
+    assert _is_out_of_credits(_Perm403()) is True
+    # NARROW: a 403 WITHOUT the key-limit signature (moderation, model-access denial) is a
+    # per-target error, not a spend halt.
+    assert _is_out_of_credits(_Perm403Other()) is False
+    # A bare 403 (only the status, no signature) must NOT match.
+    assert _is_out_of_credits(_Status403Bare()) is False
+
+
 def test_build_company_block_includes_prefs():
     assert "exclude defense" in build_company_block("exclude defense")
     assert "(none provided)" in build_company_block(None)
@@ -95,6 +133,22 @@ def test_review_maps_402_to_out_of_credits():
     client = CompanyReviewClient(client=_Client(_Status402()), model="m")
     with pytest.raises(OutOfCreditsError):
         asyncio.run(client.review(company_block="P", name="X", ats="lever", token="x"))
+
+
+def test_classify_maps_monthly_limit_403_to_out_of_credits():
+    # End-to-end: the classify path runs through traced_structured_call -> _invoke ->
+    # _is_out_of_credits, so a monthly-key-limit 403 is converted to OutOfCreditsError
+    # exactly like a 402 — letting the worker (and the reviewer) halt on it.
+    client = CompanyClassifyClient(client=_Client(_Perm403()), model="m")
+    with pytest.raises(OutOfCreditsError):
+        asyncio.run(client.classify(name="X", ats="lever", token="x"))
+
+
+def test_classify_propagates_unrelated_403():
+    # A 403 without the key-limit signature stays a plain per-target error, NOT a halt.
+    client = CompanyClassifyClient(client=_Client(_Perm403Other()), model="m")
+    with pytest.raises(_Perm403Other):
+        asyncio.run(client.classify(name="X", ats="lever", token="x"))
 
 
 def test_review_propagates_other_errors():

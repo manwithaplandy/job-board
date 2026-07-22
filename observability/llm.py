@@ -76,17 +76,30 @@ async def _confirm_generation_cost(generation_id: str | None) -> float | None:
 
 
 class OutOfCreditsError(Exception):
-    """OpenRouter returned HTTP 402 (insufficient credits). Halt the pipeline; do not retry."""
+    """OpenRouter spend is blocked — halt the pipeline; do not retry. Raised for either
+    HTTP 402 (insufficient credits) or HTTP 403 carrying the monthly key-spend-limit
+    signature; both are equally terminal (every subsequent call fails identically)."""
 
 
 def _is_out_of_credits(exc: Exception) -> bool:
-    if getattr(exc, "status_code", None) == 402 or getattr(exc, "status", None) == 402:
-        return True
+    """True when an exception is spend-blocked and the run must HALT (never retry):
+      * HTTP 402 (insufficient credits), via any channel (.status_code / .status /
+        .response.status_code) or a "402 ... credit" body, OR
+      * HTTP 403 whose body carries OpenRouter's monthly key-limit signature
+        ("key limit exceeded", case-insensitive).
+    Kept NARROW on 403: a 403 WITHOUT that signature (moderation, model-access denial)
+    is a per-target error, not a spend halt, so it must NOT match."""
     resp = getattr(exc, "response", None)
-    if resp is not None and getattr(resp, "status_code", None) == 402:
-        return True
+    statuses = {getattr(exc, "status_code", None), getattr(exc, "status", None),
+                getattr(resp, "status_code", None) if resp is not None else None}
     text = str(exc).lower()
-    return "402" in text and "credit" in text
+    if 402 in statuses:
+        return True
+    if "402" in text and "credit" in text:
+        return True
+    if 403 in statuses and "key limit exceeded" in text:
+        return True
+    return False
 
 
 # ── Robust structured-output parsing ──────────────────────────────────────────
@@ -214,7 +227,8 @@ def _omission_metadata(schema, resp, msg) -> dict:
 
 
 async def _invoke(client, kwargs: dict) -> tuple:
-    """Call the transport, convert 402→OutOfCreditsError, validate parsed output."""
+    """Call the transport, convert a spend-block (402 / 403 monthly key limit) →
+    OutOfCreditsError, validate parsed output."""
     try:
         resp = await client.beta.chat.completions.parse(**kwargs)
     except Exception as exc:
@@ -257,7 +271,8 @@ async def traced_structured_call(
     The generation span wraps the awaited API call so recorded latency reflects
     the call; a failure is recorded on the span before propagating.
 
-    Returns (parsed_result, usage) tuple. Raises OutOfCreditsError on HTTP 402.
+    Returns (parsed_result, usage) tuple. Raises OutOfCreditsError when spend-blocked
+    (HTTP 402 insufficient credits / HTTP 403 monthly key limit).
     """
     body = {"usage": {"include": True}}
     if extra_body:

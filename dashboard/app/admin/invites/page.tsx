@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Invites · Admin" };
 
 // Style tokens mirror app/admin/tenants/page.tsx so the admin consoles read as one
-// surface (narrower wrap — this table has 5 columns, not 11).
+// surface: this page shares the --admin wide wrap with the other consoles so its
+// 7-column invite table fits without horizontal scroll on wide windows.
 
 // UTC calendar date (YYYY-MM-DD). Deterministic on purpose: toLocaleDateString() in a
 // server component would render in the server's timezone (UTC on Vercel), and ISO is
@@ -73,7 +74,7 @@ export default async function AdminInvitesPage() {
   return (
     <AppShell header={<SlimHeader current="admin" />}>
       <main className="rf-secondary-page rf-secondary-density--compact">
-        <div className="rf-secondary-wrap">
+        <div className="rf-secondary-wrap rf-secondary-wrap--admin">
           <AdminNav active="invites" />
 
           <Card className="rf-secondary-stack">

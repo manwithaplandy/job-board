@@ -1,8 +1,13 @@
 /* Shared geometry for Companies, Billing, Analytics, and Admin. */
 .rf-secondary-page { min-height: 100vh; padding: var(--space-8) var(--space-5) 64px; background: var(--bg-page); color: var(--text-primary); }
 .rf-secondary-wrap { width: min(100%, var(--content-reading)); min-width: 0; margin: 0 auto; }
+/* The base wrap is sized with width: min(100%, --content-reading), so a modifier can only
+   widen it by overriding width (max-width cannot grow an element already narrower than its
+   own max-width). --wide is still the latent dead rule this describes: it sets max-width and
+   so has no effect on /analytics — deferred to a dedicated analytics-width pass that owns its
+   own visual verification. --admin below is the fixed form. */
 .rf-secondary-wrap--wide { max-width: 1040px; }
-.rf-secondary-wrap--admin { max-width: 1180px; }
+.rf-secondary-wrap--admin { width: min(100%, var(--content-standard)); }
 .rf-secondary-header { margin-bottom: var(--space-6); }
 .rf-secondary-stack { display: grid; gap: var(--space-4); min-width: 0; }
 .rf-secondary-card-list { display: grid; gap: var(--space-3); min-width: 0; }
@@ -46,7 +51,7 @@
 .rf-secondary-table th { padding: var(--space-2) var(--space-3); color: var(--text-secondary); font-size: var(--font-size-small); text-align: left; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; border-bottom: 1px solid var(--border); }
 .rf-secondary-table td { min-height: var(--rf-density-row); padding: var(--space-2) var(--space-3); color: var(--text-primary); white-space: nowrap; border-bottom: 1px solid var(--bg-muted); }
 .rf-admin-nav { margin-bottom: var(--space-4); }
-.rf-admin-form-grid { display: grid; grid-template-columns: minmax(180px, 1fr) 110px 160px auto; gap: var(--space-3); align-items: end; }
+.rf-admin-form-grid { display: grid; grid-template-columns: minmax(180px, 1fr) 110px 160px auto; gap: var(--space-3); align-items: end; max-width: var(--content-form); }
 .rf-admin-form-custom { max-width: 280px; margin-top: var(--space-3); }
 .rf-admin-minted { display: inline-flex; align-items: center; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-2) var(--space-3); color: var(--text-primary); background: var(--accent-bg); border: 1px solid var(--accent-border); border-radius: var(--radius-control); }
 .rf-admin-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; }
@@ -65,12 +70,12 @@
 
 /* Invite settings card: comp-plan + default-allowance form (Invites admin page). */
 .rf-invite-settings-fields { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 150px) auto; gap: var(--space-3); align-items: end; }
-.rf-invite-settings-note { margin-top: var(--space-3); color: var(--text-muted); font-size: var(--font-size-caption); line-height: 1.5; }
+.rf-invite-settings-note { margin-top: var(--space-3); max-width: var(--content-form); color: var(--text-muted); font-size: var(--font-size-caption); line-height: 1.5; }
 .rf-invite-settings-message { margin-top: var(--space-3); }
 
 /* Company-classification launcher (Classification admin page). Layout geometry lives
    here; the live ROM estimate + config state live in ClassificationLauncher.tsx. */
-.rf-classification-launcher { display: grid; gap: var(--space-4); min-width: 0; }
+.rf-classification-launcher { display: grid; gap: var(--space-4); min-width: 0; max-width: var(--content-form); }
 .rf-classification-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 160px); gap: var(--space-3); align-items: end; }
 .rf-classification-serp { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--font-size-caption); color: var(--text-secondary); line-height: 1.4; }
 .rf-classification-estimate { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); padding: var(--space-3); background: var(--bg-muted); border-radius: var(--radius-control); }

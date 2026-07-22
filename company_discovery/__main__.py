@@ -1,20 +1,8 @@
 # company_discovery/__main__.py
-import logging
-
-from company_discovery.run import run
-
-
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-    try:
-        run()
-    finally:
-        from observability import tracing
-        tracing.flush()
-
+# `python -m company_discovery` now runs the always-on classification worker (Task 6).
+# The legacy per-user cron pipeline (run.run) stays in-tree, unreferenced by the
+# service, until the cleanup migration phase.
+from company_discovery.worker import main
 
 if __name__ == "__main__":
     main()

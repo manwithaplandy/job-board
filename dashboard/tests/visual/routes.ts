@@ -45,6 +45,7 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   { id: "profile-account", path: "/profile/account", access: "authenticated", family: "profile", state: "account", shell: "app", source: "app/profile/layout.tsx" },
   { id: "admin-tenants", path: "/admin/tenants", access: "authenticated", family: "admin", state: "default", shell: "app", source: "app/admin/tenants/page.tsx" },
   { id: "admin-invites", path: "/admin/invites", access: "authenticated", family: "admin", state: "invites", shell: "app", source: "app/admin/invites/page.tsx" },
+  { id: "admin-classification", path: "/admin/classification", access: "authenticated", family: "admin", state: "classification", shell: "app", source: "app/admin/classification/page.tsx" },
   { id: "onboarding", path: "/onboarding", access: "authenticated", family: "onboarding", state: "default", shell: "entry", source: "app/onboarding/page.tsx", authState: "onboarding" },
   ...["selected", "filter-empty", "rejected", "applied", "loading", "error-retry", "generation", "application-package"].map((state) => fixture("board", state)),
   fixture("companies", "empty"), fixture("analytics", "data-viz"), fixture("billing", "current"),

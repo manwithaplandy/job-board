@@ -36,7 +36,7 @@ function payCeiling(v: unknown, floor: number): number | null {
 }
 
 function defaults(): BoardFilterState {
-  return { ...DEFAULT_FILTERS, cats: [], locs: [], sources: [] };
+  return { ...DEFAULT_FILTERS, cats: [], locs: [], sources: [], industries: [], sizes: [], countries: [] };
 }
 
 export function parseBoardFilters(raw: unknown): BoardFilterState {
@@ -57,6 +57,9 @@ export function parseBoardFilters(raw: unknown): BoardFilterState {
     cats: strList(o.cats),
     locs: strList(o.locs),
     sources: strList(o.sources),
+    industries: strList(o.industries),
+    sizes: strList(o.sizes),
+    countries: strList(o.countries),
     remote: REMOTE.has(o.remote as BoardFilterState["remote"])
       ? (o.remote as BoardFilterState["remote"]) : DEFAULT_FILTERS.remote,
     minFit: nonNegNum(o.minFit),

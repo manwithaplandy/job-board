@@ -162,3 +162,11 @@
   .danger-zone__form .rf-button { width: 100%; }
   .resume-summary-card dl > div { grid-template-columns: 1fr; gap: var(--space-1); }
 }
+
+/* Structured company-exclusion facets (job-preferences page). Native checkbox groups
+   laid out as a responsive grid; geometry via tokens (no raw hex / fixed widths). */
+.company-filter-group { display: grid; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
+.company-filter-group > legend { padding: 0; }
+.company-filter-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2) var(--space-4); }
+.company-filter-option { display: flex; align-items: center; gap: var(--space-2); color: var(--text-primary); line-height: 1.4; }
+.company-filter-option input { flex: none; }

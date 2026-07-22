@@ -3,10 +3,14 @@ import asyncio
 import pytest
 
 from company_discovery.llm import (
-    CompanyReviewClient, OutOfCreditsError, _INSTRUCTIONS, build_company_block,
+    CompanyClassifyClient, CompanyReviewClient, OutOfCreditsError,
+    _CLASSIFY_INSTRUCTIONS, _INSTRUCTIONS, build_company_block,
 )
 from observability.llm import _is_out_of_credits
-from company_discovery.schemas import RED_FLAG_CATEGORIES, CompanyReviewResult
+from company_discovery.schemas import (
+    COMPANY_SIZES, RED_FLAG_CATEGORIES, CompanyClassificationResult,
+    CompanyReviewResult,
+)
 
 
 class _Resp:
@@ -309,3 +313,168 @@ def test_review_forwards_openrouter_cost_as_cost_details(monkeypatch):
     asyncio.run(rc.review(company_block="P", name="Linear", ats="ashby", token="linear"))
 
     assert events["update"]["cost_details"] == {"total": 4.5e-06}
+
+
+# ── Facts-only classification (CompanyClassifyClient / CompanyClassificationResult) ──
+
+
+def test_hq_country_normalization():
+    assert CompanyClassificationResult(hq_country="us").hq_country == "US"
+    assert CompanyClassificationResult(hq_country="usa").hq_country == "unknown"
+    assert CompanyClassificationResult(hq_country=None).hq_country == "unknown"
+    # A country NAME (not a 2-letter code) collapses to unknown; a real code survives.
+    assert CompanyClassificationResult(hq_country="Germany").hq_country == "unknown"
+    assert CompanyClassificationResult(hq_country="de").hq_country == "DE"
+    assert CompanyClassificationResult(hq_country="  us  ").hq_country == "US"
+    # Non-string input (a model emitting a number/object) collapses to unknown, not a crash.
+    assert CompanyClassificationResult(hq_country=123).hq_country == "unknown"
+    # Two-char NON-ASCII alphabetics must NOT survive: str.isalpha() is Unicode-wide, so
+    # deepseek's documented Chinese/Cyrillic slippage would otherwise persist junk codes
+    # that the ASCII-only dashboard isCountryCode can't group under 'Unknown'.
+    assert CompanyClassificationResult(hq_country="中国").hq_country == "unknown"
+    assert CompanyClassificationResult(hq_country="мс").hq_country == "unknown"
+
+
+def test_classification_result_defaults_are_facts_only():
+    res = CompanyClassificationResult()
+    assert res.size == "unknown"
+    assert res.hq_country == "unknown"
+    assert res.confidence == "low"
+    assert res.tech_tags == [] and res.red_flags == []
+    # No per-user verdict on the facts model.
+    assert not hasattr(res, "verdict")
+
+
+def test_classify_instructions_are_facts_only_no_preference_block():
+    # Facts-only: no candidate/preference block, no verdict field.
+    assert "CANDIDATE COMPANY PREFERENCES" not in _CLASSIFY_INSTRUCTIONS
+    assert "verdict" not in _CLASSIFY_INSTRUCTIONS.lower()
+    assert "NO candidate" in _CLASSIFY_INSTRUCTIONS
+    assert "NO preference judgment" in _CLASSIFY_INSTRUCTIONS
+    assert "FACTUAL profile" in _CLASSIFY_INSTRUCTIONS
+
+
+def test_classify_instructions_cover_size_and_hq_country():
+    assert "size" in _CLASSIFY_INSTRUCTIONS.lower()
+    assert "headcount" in _CLASSIFY_INSTRUCTIONS.lower()
+    assert "hq_country" in _CLASSIFY_INSTRUCTIONS
+    assert "ISO-3166 alpha-2" in _CLASSIFY_INSTRUCTIONS
+    # Every size bucket is enumerated in the prompt. Iterate the SHARED constant (not a
+    # hardcoded literal) so a new/renamed bucket in COMPANY_SIZES fails here unless the
+    # prompt is updated too — otherwise the model is never told the bucket exists.
+    # ('unknown' is present via "or unknown" in the size line.)
+    for bucket in COMPANY_SIZES:
+        assert bucket in _CLASSIFY_INSTRUCTIONS, f"prompt missing size bucket {bucket}"
+
+
+def test_classify_instructions_document_every_red_flag_category():
+    for category in RED_FLAG_CATEGORIES:
+        assert category in _CLASSIFY_INSTRUCTIONS, f"prompt missing category {category}"
+
+
+def _capture_classify_messages(**classify_kwargs) -> list[dict]:
+    """Run classify() against a message-capturing stub; return the messages list."""
+    captured = {}
+
+    class _CapParse:
+        async def parse(self, **kw):
+            captured["messages"] = kw["messages"]
+            return _Resp(CompanyClassificationResult(size="51-200", hq_country="US"))
+
+    client = type("Cl", (), {"beta": type("B", (), {
+        "chat": type("Ch", (), {"completions": _CapParse()})()
+    })()})()
+    cc = CompanyClassifyClient(client=client, model="m")
+    asyncio.run(cc.classify(**classify_kwargs))
+    return captured["messages"]
+
+
+def test_classify_system_prompt_mandates_english_and_carries_no_preferences():
+    from reviewer.schemas import ENGLISH_ONLY_INSTRUCTION
+
+    system = _capture_classify_messages(name="X", ats="lever", token="x")[0]["content"]
+    assert ENGLISH_ONLY_INSTRUCTION in system
+    assert "CANDIDATE COMPANY PREFERENCES" not in system
+
+
+def test_classify_user_message_uses_display_name_when_set():
+    user = _capture_classify_messages(name="acme-corp", ats="lever", token="acme",
+                                      display_name="Acme Corporation")[1]["content"]
+    assert "Company: Acme Corporation" in user
+    assert "acme-corp" not in user  # raw slug name hidden when a display name exists
+
+
+def test_classify_omits_description_block_when_no_context():
+    user = _capture_classify_messages(name="Acme", ats="lever", token="acme")[1]["content"]
+    assert "<company_description>" not in user
+    assert "UNTRUSTED" not in user
+
+
+def test_classify_injects_about_as_untrusted_description():
+    user = _capture_classify_messages(name="Acme", ats="lever", token="acme",
+                                      about="Acme builds developer tools.")[1]["content"]
+    assert "<company_description>" in user
+    assert "Acme builds developer tools." in user
+    assert "UNTRUSTED" in user
+
+
+def test_classify_truncates_description_to_2000_chars():
+    user = _capture_classify_messages(name="Acme", ats="lever", token="acme",
+                                      about="x" * 5000)[1]["content"]
+    assert "x" * 2000 in user
+    assert "x" * 2001 not in user
+
+
+def test_classify_returns_parsed_result_and_raw_usage():
+    """Task 6's worker reads raw.usage.{prompt_tokens,completion_tokens,cost}; classify
+    must expose the OpenRouter usage via raw.usage even though traced_structured_call
+    returns (parsed, usage) as its tuple."""
+    usage = type("U", (), {"prompt_tokens": 120, "completion_tokens": 30,
+                           "cost": 1.2e-06})()
+    parsed = CompanyClassificationResult(size="11-50", hq_country="US", confidence="high")
+
+    class _UsageResp:
+        def __init__(self):
+            msg = type("M", (), {"parsed": parsed, "refusal": None})()
+            self.choices = [type("C", (), {"message": msg})()]
+            self.usage = usage
+
+    class _UsageParse:
+        async def parse(self, **kw):
+            return _UsageResp()
+
+    client = type("Cl", (), {"beta": type("B", (), {
+        "chat": type("Ch", (), {"completions": _UsageParse()})()
+    })()})()
+    cc = CompanyClassifyClient(client=client, model="m")
+    result, raw = asyncio.run(cc.classify(name="Linear", ats="ashby", token="linear"))
+    assert result.size == "11-50" and result.hq_country == "US"
+    assert raw.usage.prompt_tokens == 120
+    assert raw.usage.completion_tokens == 30
+    assert raw.usage.cost == 1.2e-06
+
+
+def test_classify_creates_generation_named_company_classify(monkeypatch):
+    from observability import tracing
+
+    events = {}
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): events["update"] = kw
+        def end(self, **kw): events["end"] = kw
+
+    class _LF:
+        def start_as_current_observation(self, **kw):
+            events["create"] = kw
+            return _Gen()
+
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    cc = CompanyClassifyClient(
+        client=_Client(CompanyClassificationResult(size="1-10", hq_country="US")),
+        model="m")
+    result, _ = asyncio.run(cc.classify(name="Linear", ats="ashby", token="linear"))
+    assert result.size == "1-10"
+    assert events["create"]["name"] == "company-classify"
+    assert events["create"]["as_type"] == "generation"

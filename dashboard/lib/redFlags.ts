@@ -35,3 +35,33 @@ export function redFlagLabel(flag: RedFlag | string): string {
 export function redFlagCategoryLabel(key: string): string {
   return RED_FLAG_LABELS[key as RedFlagCategory] ?? key;
 }
+
+// Total parser for a jsonb red_flags column ([{category, note}]) — colocated with the
+// RedFlag type per the house rule (dashboard/CLAUDE.md: never `as`-cast a jsonb read).
+// Tolerates a double-encoded string scalar; drops malformed members; returns null for a
+// non-array (the UI degrades to "no flags"). `category` is kept as any non-empty string —
+// forward-compatible with categories added Python-side before RedFlagCategory catches up
+// (redFlagLabel/redFlagCategoryLabel already pass unknown keys through), so a real flag is
+// never silently dropped. `note` coerces to null when absent or non-string.
+export function parseRedFlags(raw: unknown): RedFlag[] | null {
+  let v: unknown = raw;
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(v)) return null;
+  const out: RedFlag[] = [];
+  for (const el of v) {
+    if (el == null || typeof el !== "object" || Array.isArray(el)) continue;
+    const o = el as Record<string, unknown>;
+    if (typeof o.category !== "string" || o.category === "") continue;
+    out.push({
+      category: o.category as RedFlagCategory,
+      note: typeof o.note === "string" ? o.note : null,
+    });
+  }
+  return out;
+}

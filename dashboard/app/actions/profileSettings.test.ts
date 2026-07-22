@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   requireUserId: vi.fn(),
   getUserClaims: vi.fn(),
   getProfile: vi.fn(),
+  updateCompanyExclusions: vi.fn(),
   getStructuredModels: vi.fn(),
   getViewerPlan: vi.fn(),
   createClient: vi.fn(),
@@ -22,7 +23,10 @@ vi.mock("@/lib/auth", () => ({
   requireUserId: mocks.requireUserId,
   getUserClaims: mocks.getUserClaims,
 }));
-vi.mock("@/lib/queries", () => ({ getProfile: mocks.getProfile }));
+vi.mock("@/lib/queries", () => ({
+  getProfile: mocks.getProfile,
+  updateCompanyExclusions: mocks.updateCompanyExclusions,
+}));
 vi.mock("@/lib/openrouter", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/openrouter")>();
   return { ...actual, getStructuredModels: mocks.getStructuredModels };
@@ -44,6 +48,7 @@ import {
   saveAdvancedAiSettings,
   saveApplicationDetails,
   saveApplicationPersonalization,
+  saveCompanyFilters,
   saveJobPreferences,
   saveResumeSettings,
 } from "@/app/actions/profileSettings";
@@ -74,6 +79,7 @@ beforeEach(() => {
   mocks.updateGenerationDefaults.mockResolvedValue(undefined);
   mocks.updateModelPreferences.mockResolvedValue(undefined);
   mocks.updateResumeSource.mockResolvedValue(undefined);
+  mocks.updateCompanyExclusions.mockResolvedValue(undefined);
   mocks.upload.mockResolvedValue({ error: null });
   mocks.remove.mockResolvedValue({ error: null });
   mocks.createClient.mockResolvedValue({
@@ -100,6 +106,63 @@ describe("profile settings actions", () => {
     expect(mocks.updateJobPreferences).toHaveBeenCalledWith("u1", {
       preferredLocations: ["Remote"], instructions: "backend", companyInstructions: "fintech",
     });
+  });
+
+  test("company filters preserve the 'unknown' HQ sentinel case-insensitively", async () => {
+    // Regression: uppercasing every token turned "unknown" → "UNKNOWN", which the codec
+    // drops (its country validator is `x === "unknown" || isCountryCode(x)`), silently
+    // deleting the "exclude unclassified HQ" exclusion the form invites users to type.
+    await expect(saveCompanyFilters(INITIAL_SECTION_SAVE_STATE, form({
+      exclude_countries: "in, Unknown, US",
+    }))).resolves.toMatchObject({ status: "success" });
+    expect(mocks.updateCompanyExclusions).toHaveBeenCalledWith("u1", expect.objectContaining({
+      countries: ["IN", "unknown", "US"],
+    }));
+  });
+
+  test("company filters reject unrecognized country tokens instead of silently dropping them", async () => {
+    // Regression: unrecognized free-text tokens (e.g. "USA") fail the codec's country
+    // validator; without an up-front check they'd be discarded while the action still
+    // reported success, stranding the user's typed text against an empty DB list.
+    const result = await saveCompanyFilters(INITIAL_SECTION_SAVE_STATE, form({
+      exclude_countries: "USA, in",
+    }));
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { exclude_countries: expect.stringContaining("USA") },
+    });
+    expect(mocks.updateCompanyExclusions).not.toHaveBeenCalled();
+  });
+
+  test("company filters reject an over-cap country list instead of silently truncating it", async () => {
+    // Regression: the codec caps each facet at 50 by truncation; without an up-front
+    // length check a 51+ valid-code submission would store only the first 50 while the
+    // action reported success — the same silent-drop class as the bad-token fix.
+    const codes = Array.from(
+      { length: 51 },
+      (_, i) =>
+        String.fromCharCode(65 + Math.floor(i / 26)) +
+        String.fromCharCode(65 + (i % 26)),
+    );
+    const result = await saveCompanyFilters(INITIAL_SECTION_SAVE_STATE, form({
+      exclude_countries: codes.join(", "),
+    }));
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { exclude_countries: expect.stringContaining("max 50") },
+    });
+    expect(mocks.updateCompanyExclusions).not.toHaveBeenCalled();
+  });
+
+  test("company filters dedupe country tokens (case-insensitively) before storing", async () => {
+    // "IN, in, US" must not persist as ["IN", "IN", "US"] (inflates the count and
+    // re-renders as "IN, IN"); case-folded repeats collapse to one entry.
+    await expect(saveCompanyFilters(INITIAL_SECTION_SAVE_STATE, form({
+      exclude_countries: "IN, in, US",
+    }))).resolves.toMatchObject({ status: "success" });
+    expect(mocks.updateCompanyExclusions).toHaveBeenCalledWith("u1", expect.objectContaining({
+      countries: ["IN", "US"],
+    }));
   });
 
   test("addresses oversized personalization instructions by field", async () => {

@@ -1,51 +1,81 @@
 "use client";
 
 import { useTransition } from "react";
-import type { CompanyReviewRow } from "@/lib/types";
-import { verdictMeta } from "@/lib/companies/format";
+import type { CompanyBrowseRow } from "@/lib/types";
 import { redFlagLabel } from "@/lib/redFlags";
+import { INDUSTRY_LABELS, countryLabel } from "@/lib/companyMeta";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Panel";
 
+// A card on the /companies browse surface. The facts (industry / size / country / red flags
+// / tech tags / about) are the GLOBAL company classification; the Include/Exclude state is
+// the VIEWER's own override (override_verdict, null = no override yet).
 export function CompanyCard({
   company, override,
 }: {
-  company: CompanyReviewRow;
+  company: CompanyBrowseRow;
   override: (companyId: number, verdict: "include" | "exclude") => Promise<void>;
 }) {
   const [pending, start] = useTransition();
-  const meta = verdictMeta(company.effective_verdict);
-  const tags = [...(company.tech_tags ?? []), ...(company.red_flags ?? []).map(redFlagLabel)];
+  const verdict = company.override_verdict; // "include" | "exclude" | null — the viewer's own
+  const classified = company.classified_at != null;
 
-  const act = (verdict: "include" | "exclude") =>
-    start(async () => { await override(company.id, verdict); });
+  const industryLabel = company.industry
+    ? INDUSTRY_LABELS[company.industry as keyof typeof INDUSTRY_LABELS] ?? company.industry
+    : null;
+  const facts = [
+    industryLabel,
+    company.size && company.size !== "unknown" ? company.size : null,
+    // Omit the country sentinel like the size sentinel — seeded rows start hq_country
+    // 'unknown', and a bare "Unknown" badge conveys nothing (and collides with the
+    // industry "Unknown" label).
+    company.hq_country && company.hq_country !== "unknown" ? countryLabel(company.hq_country) : null,
+  ].filter((f): f is string => Boolean(f));
+
+  const act = (v: "include" | "exclude") =>
+    start(async () => { await override(company.id, v); });
 
   return (
     <Card className="rf-secondary-card rf-company-card" padding="sm">
       <div className="rf-company-card__header">
         <div className="rf-company-card__name">{company.name}</div>
-        <Badge tone={company.effective_verdict === "include" ? "success" : company.effective_verdict === "exclude" ? "danger" : "neutral"}>{meta.label}{company.human_override ? " · you" : ""}</Badge>
+        {verdict && (
+          <Badge tone={verdict === "include" ? "success" : "danger"}>
+            {verdict === "include" ? "Included" : "Excluded"} · you
+          </Badge>
+        )}
+        {!classified && <Badge tone="warning">Not yet classified</Badge>}
         <span className="rf-company-card__meta">
           {company.ats} · {company.token}
         </span>
       </div>
-      {company.reasoning && (
-        <div className="rf-company-card__reason">
-          {company.reasoning}
+      {(facts.length > 0 || (company.red_flags?.length ?? 0) > 0) && (
+        <div className="rf-company-card__tags">
+          {facts.map((f, i) => (
+            <Badge key={`fact-${i}`} tone="accent">{f}</Badge>
+          ))}
+          {(company.red_flags ?? []).map((rf, i) => (
+            <Badge key={`flag-${i}`} tone="danger">{redFlagLabel(rf)}</Badge>
+          ))}
         </div>
       )}
-      {tags.length > 0 && (
+      {company.about && (
+        <div className="rf-company-card__reason">
+          {company.about}
+        </div>
+      )}
+      {(company.tech_tags?.length ?? 0) > 0 && (
         <div className="rf-company-card__tags">
-          {tags.map((t, i) => (
-            <Badge key={`${t}-${i}`}>{t}</Badge>
+          {(company.tech_tags ?? []).map((t, i) => (
+            <Badge key={`tag-${i}`}>{t}</Badge>
           ))}
         </div>
       )}
       <div className="rf-company-card__actions">
-        <Button size="sm" variant={company.effective_verdict === "include" ? "primary" : "outline"} onClick={() => act("include")} disabled={pending}>
+        <Button size="sm" variant={verdict === "include" ? "primary" : "outline"} onClick={() => act("include")} disabled={pending}>
           Include
         </Button>
-        <Button size="sm" variant={company.effective_verdict === "exclude" ? "destructive" : "outline"} onClick={() => act("exclude")} disabled={pending}>
+        <Button size="sm" variant={verdict === "exclude" ? "destructive" : "outline"} onClick={() => act("exclude")} disabled={pending}>
           Exclude
         </Button>
       </div>

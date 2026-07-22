@@ -44,6 +44,16 @@ export interface JobRowBase {
   // smartrecruiters/workday. Always selected (present with or without an owner);
   // read by the board's Source facet filter (lib/rolefit/filter.ts).
   ats: string;
+  // Global company-classification facts (companies.industry/size/hq_country), always
+  // selected — the board's Industry/Size/Country facet filters read them (owner or
+  // anon; see lib/rolefit/filter.ts). Optional because pre-classification companies
+  // (and the many existing JobRow test literals) leave them unset; toJobRow always
+  // maps them to `string | null`. NOTE: `industry` also carries the viewer's per-job
+  // review industry once the /api/jobs/[id] detail merge lands on the open job (the
+  // correction form in ReviewPanel reads it) — same field, two providers.
+  industry?: string | null;
+  size?: string | null;
+  hq_country?: string | null;
   human_override: boolean | null;  // null when no owner review was joined
 }
 
@@ -82,14 +92,15 @@ export interface ReviewedJobRow extends JobRowBase {
   requirements?: { text: string; met: boolean }[] | null;
   description?: string | null;  // full JD plaintext (apply view)
   url?: string | null;          // apply link
-  // experience_match/industry/industry_subcategory/confidence/note are detail-only,
-  // like reasoning/about/etc. above: absent from the list payload, populated on the
+  // experience_match/industry_subcategory/confidence/note are detail-only, like
+  // reasoning/about/etc. above: absent from the list payload, populated on the
   // selected job via the /api/jobs/[id] fetch (see JobReviewDetail) and consumed by
-  // the correction edit form (ReviewPanel). stage1_decision/stage1_reason remain
-  // genuinely dropped from every query — no render path reads them — and are kept
-  // optional only so a stray reference still type-checks rather than silently breaking.
+  // the correction edit form (ReviewPanel). `industry` now lives on JobRowBase (the
+  // company facet, always selected) and is overwritten by the review's industry on the
+  // detail merge. stage1_decision/stage1_reason remain genuinely dropped from every
+  // query — no render path reads them — and are kept optional only so a stray
+  // reference still type-checks rather than silently breaking.
   experience_match?: string | null;
-  industry?: string | null;
   industry_subcategory?: string | null;
   confidence?: string | null;
   note?: string | null;
@@ -156,6 +167,9 @@ export interface ProfileRow {
   company_profile_version: string | null;
   model_company: string | null;
   board_filters: import("@/lib/rolefit/filter").BoardFilterState | null;
+  // Structured per-user company-exclusion facets. jsonb column; total-parsed at the read
+  // boundary (getProfile) so this is always a valid value, never a raw/string scalar.
+  company_exclusions: import("@/lib/rolefit/companyExclusions").CompanyExclusions;
   // Reusable application answers (Phase 1). jsonb columns are NOT NULL DEFAULT '{}'.
   full_name: string | null;
   email: string | null;
@@ -243,23 +257,25 @@ export interface OperatorSignals {
   reviewed: number;
 }
 
-export interface CompanyReviewRow {
+// One row of the /companies browse surface (global-classification model). The facts
+// (industry…red_flags) are the GLOBAL company classification (companies.*, written once by
+// the admin classification worker); override_verdict is the VIEWER's own include/exclude
+// from company_overrides (null = no override). jsonb columns (red_flags, tech_tags) arrive
+// through total parsers — never `as`-cast (dashboard/CLAUDE.md).
+export interface CompanyBrowseRow {
   id: number;
   name: string;
   ats: string;
   token: string;
-  discovery_source: string;
-  active: boolean;
-  verdict: string | null;
-  override_verdict: string | null;
-  human_override: boolean;
-  effective_verdict: string;
-  confidence: string | null;
-  reasoning: string | null;
   industry: string | null;
   industry_subcategory: string | null;
-  tech_tags: string[] | null;
+  size: string | null;
+  hq_country: string | null;
   red_flags: RedFlag[] | null;
+  tech_tags: string[] | null;
+  about: string | null;
+  classified_at: string | null;
+  override_verdict: string | null;
 }
 
 export interface DiscoveryRunRow {

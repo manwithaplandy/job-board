@@ -85,7 +85,7 @@ export function JobPreferencesForm({
           id="company_instructions"
           name="company_instructions"
           label="Companies and industries"
-          description="Describe companies or industries to prioritize or skip."
+          description="Preferences about companies or industries — now applied while evaluating each job, not as a separate company screen."
         >
           <textarea rows={5} defaultValue={profile.company_instructions ?? ""} onChange={(event) => setPreview((current) => ({ ...current, companyInstructions: event.target.value }))} />
         </Field>

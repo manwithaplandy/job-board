@@ -30,6 +30,7 @@ describe.skipIf(!TEST_DSN)("saveBoardFilters storage shape — real Postgres", (
   // so the round-trip proves persistence rather than default-fill.
   const state: BoardFilterState = {
     search: "react", cats: ["Engineering"], locs: ["Remote"], sources: ["greenhouse"],
+    industries: ["fintech_finance"], sizes: ["51-200"], countries: ["US"],
     remote: "remote", minFit: 70, payMin: 100, payMax: 200, payIncludeUndisclosed: true,
     sort: "pay",
   };

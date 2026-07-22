@@ -18,6 +18,8 @@ export const USER_DELETE_TABLES = [
   "job_reviews",
   "review_corrections",
   "company_reviews",
+  // Per-company manual include/exclude (replaces company_reviews.human_override).
+  "company_overrides",
   "application_packages",
   "resume_scores",
   // Cover-letter edit overlay (owner data; the golden push is a separate LangFuse copy).

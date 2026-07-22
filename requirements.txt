@@ -2,6 +2,7 @@
 # which avoids building the local project as a wheel). Kept in sync
 # with [project.dependencies] in pyproject.toml (used for local dev/tests).
 httpx>=0.27
+requests>=2.31
 psycopg[binary]>=3.2
 openai>=1.50.0
 geonamescache>=3.0

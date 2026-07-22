@@ -1,4 +1,5 @@
 from job_discovery import db
+from job_discovery.db import POLL_FAILURE_DEACTIVATE
 from job_discovery.models import Posting
 from tests.conftest import requires_db
 
@@ -8,6 +9,71 @@ def _seed_company(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
         return cur.fetchone()["id"]
+
+
+def _make_company(conn, token, *, source="dataset"):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, active, discovery_source) "
+            "VALUES (%s, 'lever', %s, TRUE, %s) RETURNING id",
+            (token, token, source))
+        return cur.fetchone()["id"]
+
+
+# ── Dead-board deactivation: consecutive poll-failure tracking ────────────────
+
+@requires_db
+def test_record_poll_result_deactivates_dead_non_seed_board(conn):
+    """POLL_FAILURE_DEACTIVATE consecutive failures flip a dataset company inactive,
+    and the deactivation is reported (returns True) exactly once — on the crossing."""
+    cid = _make_company(conn, "dead", source="dataset")
+    conn.commit()
+    returns = [db.record_poll_result(conn, cid, ok=False)
+               for _ in range(POLL_FAILURE_DEACTIVATE)]
+    conn.commit()
+    assert returns == [False] * (POLL_FAILURE_DEACTIVATE - 1) + [True]
+    with conn.cursor() as cur:
+        cur.execute("SELECT active, poll_failures FROM companies WHERE id=%s", (cid,))
+        row = cur.fetchone()
+    assert row["active"] is False
+    assert row["poll_failures"] == POLL_FAILURE_DEACTIVATE
+
+
+@requires_db
+def test_record_poll_result_never_deactivates_seed(conn):
+    """A seed company keeps being polled forever — its failures accrue but it is
+    never auto-deactivated."""
+    cid = _make_company(conn, "seedco", source="seed")
+    conn.commit()
+    returns = [db.record_poll_result(conn, cid, ok=False)
+               for _ in range(POLL_FAILURE_DEACTIVATE + 2)]
+    conn.commit()
+    assert not any(returns)
+    with conn.cursor() as cur:
+        cur.execute("SELECT active, poll_failures FROM companies WHERE id=%s", (cid,))
+        row = cur.fetchone()
+    assert row["active"] is True
+    assert row["poll_failures"] == POLL_FAILURE_DEACTIVATE + 2
+
+
+@requires_db
+def test_record_poll_result_success_resets_counter(conn):
+    """One successful poll clears the consecutive-failure streak."""
+    cid = _make_company(conn, "flaky", source="dataset")
+    conn.commit()
+    for _ in range(3):
+        db.record_poll_result(conn, cid, ok=False)
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT poll_failures FROM companies WHERE id=%s", (cid,))
+        assert cur.fetchone()["poll_failures"] == 3
+    assert db.record_poll_result(conn, cid, ok=True) is False
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT active, poll_failures FROM companies WHERE id=%s", (cid,))
+        row = cur.fetchone()
+    assert row["poll_failures"] == 0
+    assert row["active"] is True
 
 
 @requires_db

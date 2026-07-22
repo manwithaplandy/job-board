@@ -70,6 +70,15 @@ describe("getReviewFeed", () => {
     const { text, params } = state.unsafeCalls[0];
     expect(text).toContain("::timestamptz - interval '10 seconds'");
     expect(text).toContain("COALESCE(rc.verdict, r.verdict) = 'approve'");
+    // ...and the per-user company-exclusion / override gate (companyFiltersFromProfile),
+    // so a company the viewer excluded mid-run never streams onto the board. Mirrors
+    // getJobs / getRejectedJobs; the authoritative board query applies the same gate.
+    expect(text).toContain("LEFT JOIN company_overrides co");
+    expect(text).toContain("co.verdict = 'include'");
+    expect(text).toContain("jsonb_array_elements_text(p.company_exclusions->'industries')");
+    expect(text).toContain(
+      "jsonb_array_elements_text(p.company_exclusions->'redFlagCategories')",
+    );
     expect(params).toEqual(["u1", "2026-07-16T11:59:00.000Z", ["Phoenix, AZ"]]);
   });
 

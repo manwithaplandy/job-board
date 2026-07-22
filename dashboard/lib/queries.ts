@@ -3,7 +3,8 @@ import type { Sql, TransactionSql } from "postgres";
 import { unstable_cache } from "next/cache";
 import { buildJobsQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
-import type { ApplicationPackage, CompanyRow, CompanyReviewRow, DiscoveryStateRow, ReviewedJobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
+import type { ApplicationPackage, CompanyRow, CompanyBrowseRow, DiscoveryStateRow, ReviewedJobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
+import { toCompanyBrowseRow } from "@/lib/companies/browseCodec";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
@@ -14,6 +15,10 @@ import { parseScreeningAnswers } from "@/lib/screeningAnswers";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import { isAccountDeleted } from "@/lib/tombstone";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
+import {
+  parseCompanyExclusions,
+  type CompanyExclusions,
+} from "@/lib/rolefit/companyExclusions";
 import {
   parseTailoredResume,
   parseTailoredCoverLetter,
@@ -36,6 +41,9 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
     closed_at: row.closed_at != null ? iso(row.closed_at) : null,
     company_name: row.company_name as string,
     ats: row.ats as string,
+    industry: (row.industry as string | null) ?? null,
+    size: (row.size as string | null) ?? null,
+    hq_country: (row.hq_country as string | null) ?? null,
     verdict: (row.verdict as string | null) ?? null,
     human_override: (row.human_override as boolean) ?? false,
     corrected: row.corrected as boolean | undefined,
@@ -61,8 +69,13 @@ export async function getJobs(
 ): Promise<ReviewedJobRow[]> {
   // locationFromProfile: the authed board self-serves the viewer's preferred_locations via
   // a correlated subquery (no viewerLocations param), so getProfile no longer gates this
-  // query. Inert for anon (no owner → no profiles subquery; see buildJobsQuery).
-  const { text, values } = buildJobsQuery(f, userId, [], { locationFromProfile: true });
+  // query. companyFiltersFromProfile self-serves the viewer's company_exclusions +
+  // company_overrides the same way. Both inert for anon (no owner → no profiles subquery
+  // / no override join; see buildJobsQuery).
+  const { text, values } = buildJobsQuery(f, userId, [], {
+    locationFromProfile: true,
+    companyFiltersFromProfile: true,
+  });
   const run = async (tx: TransactionSql): Promise<ReviewedJobRow[]> => {
     const rows = await tx.unsafe(text, values as never[]);
     return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
@@ -88,8 +101,13 @@ export async function getRejectedJobs(
     experience: "", industry: "", subcategory: "", location: "",
   };
   // Same location pre-filter as the board (self-served from the viewer's profile), so the
-  // Rejected view scopes to the same pool without a viewerLocations param.
-  const { text, values } = buildJobsQuery(f, userId, [], { humanOverrideOnly: true, locationFromProfile: true });
+  // Rejected view scopes to the same pool without a viewerLocations param — and the same
+  // company-exclusion gate, so a company the viewer excluded stays out of the Rejected view.
+  const { text, values } = buildJobsQuery(f, userId, [], {
+    humanOverrideOnly: true,
+    locationFromProfile: true,
+    companyFiltersFromProfile: true,
+  });
   return withUserSql(userId, async (tx) => {
     const rows = await tx.unsafe(text, values as never[]);
     return (rows as unknown as Record<string, unknown>[]).map(toJobRow);
@@ -126,8 +144,15 @@ export async function getReviewFeed(
       status: "open", verdict: "approve",
       experience: "", industry: "", subcategory: "", location: "",
     };
+    // companyFiltersFromProfile: streamed rows must clear the SAME per-user
+    // company-exclusion / override gate as getJobs + getRejectedJobs — otherwise a
+    // company the viewer excluded (facet or /companies override) mid-run would stream
+    // onto the board, inconsistent with the authoritative query. userId is always
+    // non-null here, so the gate is active; the clauses are self-serving scalar
+    // subqueries on the viewer bind (no extra round-trip).
     const { text, values } = buildJobsQuery(f, userId, viewerLocations, {
       reviewedSince: since,
+      companyFiltersFromProfile: true,
     });
     const rows = await tx.unsafe(text, values as never[]);
     return {
@@ -319,8 +344,31 @@ export async function getProfile(userId: string): Promise<ProfileRow | null> {
     ...row,
     links: parseProfileLinks((row as { links: unknown }).links),
     screening_answers: parseScreeningAnswers((row as { screening_answers: unknown }).screening_answers),
+    // company_exclusions is jsonb — total-parse it (never trust the raw read; it can
+    // arrive as a double-encoded string scalar) so a corrupt value can't propagate.
+    company_exclusions: parseCompanyExclusions((row as { company_exclusions: unknown }).company_exclusions),
   };
   });
+}
+
+// Persist the structured company-exclusion facets. UPDATE-only (a profile always exists
+// by the time this runs); bumps updated_at as a genuine profile edit. Binds the object
+// ONCE via tx.json so it stores a jsonb OBJECT — ${JSON.stringify(x)}::jsonb would
+// double-encode to a jsonb STRING scalar (parseCompanyExclusions tolerates that on read,
+// but the stored shape must be correct at the source). The `as unknown as Parameters<…>`
+// widens the CompanyExclusions interface (which lacks the string index signature json()'s
+// param demands) to json()'s param type — a write-side parameter widening of an in-process
+// typed value, NOT a jsonb-read cast (dashboard/CLAUDE.md). Same pattern as
+// saveBoardFiltersWith above.
+export async function updateCompanyExclusions(
+  userId: string,
+  exclusions: CompanyExclusions,
+): Promise<void> {
+  await withUserSql(userId, (tx) => tx`
+    UPDATE profiles
+    SET company_exclusions = ${tx.json(exclusions as unknown as Parameters<typeof tx.json>[0])}, updated_at = now()
+    WHERE user_id = ${userId}::uuid
+  `);
 }
 
 // Executor-taking impl (mirrors reviewStatsWith / distinctLocationsWith) so the real
@@ -809,38 +857,82 @@ export function companyNameSearchFragment(tx: Sql | TransactionSql, search?: str
   return term ? tx`AND (c.name ILIKE ${like} OR c.display_name ILIKE ${like})` : tx``;
 }
 
-export async function getCompanyReviews(
+// Bucket WHERE fragment for the /companies browse surface, keyed on the VIEWER's own
+// company_overrides verdict (co.*). `all` is inert (the whole browsable corpus);
+// `included`/`excluded` restrict to the viewer's override. Exported for unit tests
+// (mirrors companyNameSearchFragment). `bucket` is a closed union — no user text flows in —
+// so inlining the literal verdicts is injection-safe.
+export function companyBucketFragment(
+  tx: Sql | TransactionSql,
+  bucket: "all" | "included" | "excluded",
+) {
+  if (bucket === "included") return tx`AND co.verdict = 'include'`;
+  if (bucket === "excluded") return tx`AND co.verdict = 'exclude'`;
+  return tx``;
+}
+
+// The /companies browse surface (global-classification model). Each row carries the GLOBAL
+// company classification (companies.industry/size/hq_country/red_flags/tech_tags/about/
+// classified_at) plus the VIEWER's own override_verdict from company_overrides (LEFT JOIN,
+// RLS-scoped so it only ever sees the viewer's row). `bucket` filters on that override
+// verdict; `industry` filters on the global industry; `q` name-searches slug OR
+// display_name. Manual companies (operator artifacts) are hidden; unclassified companies
+// (classified_at NULL) sort last, then by name. jsonb columns are total-parsed in
+// toCompanyBrowseRow — never `as`-cast (dashboard/CLAUDE.md).
+export async function getCompaniesBrowse(
   userId: string,
-  bucket: "include" | "exclude" | "unknown",
-  limit = 200,
-  search?: string,
-): Promise<CompanyReviewRow[]> {
+  opts: { bucket: "all" | "included" | "excluded"; industry?: string; q?: string; limit?: number },
+): Promise<CompanyBrowseRow[]> {
+  const { bucket, industry, q, limit = 200 } = opts;
   return withUserSql(userId, async (tx) => {
-  const rows = await tx`
-    SELECT c.id, COALESCE(c.display_name, c.name) AS name, c.ats, c.token, c.discovery_source, c.active,
-           r.verdict, r.override_verdict, r.human_override,
-           COALESCE(
-             CASE WHEN r.human_override THEN r.override_verdict ELSE r.verdict END,
-             CASE WHEN c.discovery_source = 'seed' THEN 'include' ELSE 'unknown' END
-           ) AS effective_verdict,
-           r.confidence, r.reasoning, r.industry, r.industry_subcategory,
-           r.tech_tags, r.red_flags
-    FROM companies c
-    LEFT JOIN company_reviews r ON r.company_id = c.id AND r.user_id = ${userId}::uuid
-    WHERE c.discovery_source <> 'manual'
-      AND COALESCE(
-            CASE WHEN r.human_override THEN r.override_verdict ELSE r.verdict END,
-            CASE WHEN c.discovery_source = 'seed' THEN 'include' ELSE 'unknown' END
-          ) = ${bucket}
-      ${companyNameSearchFragment(tx, search)}
-    ORDER BY COALESCE(c.display_name, c.name)
-    LIMIT ${limit}
-  `;
-  return rows as unknown as CompanyReviewRow[];
+    // NULL-inclusive: the "unknown" industry bucket must match NULL-industry companies
+    // (the never-classified backlog), consistent with every sibling surface —
+    // jobsQuery.ts / classificationJobs.ts / reviewer/db.py all COALESCE(industry,'unknown').
+    // COALESCE is a no-op for real taxonomy keys (only rewrites NULL).
+    const industryFrag = industry ? tx`AND COALESCE(c.industry, 'unknown') = ${industry}` : tx``;
+    const rows = await tx`
+      SELECT c.id, COALESCE(c.display_name, c.name) AS name, c.ats, c.token,
+             c.industry, c.industry_subcategory, c.size, c.hq_country,
+             c.red_flags, c.tech_tags, c.about, c.classified_at,
+             co.verdict AS override_verdict
+      FROM companies c
+      LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = ${userId}::uuid
+      WHERE c.discovery_source <> 'manual'
+        ${companyBucketFragment(tx, bucket)}
+        ${industryFrag}
+        ${companyNameSearchFragment(tx, q)}
+      ORDER BY (c.classified_at IS NULL), name
+      LIMIT ${limit}
+    `;
+    return (rows as unknown as Record<string, unknown>[]).map(toCompanyBrowseRow);
   });
 }
 
-// Executor-taking impl so metrics.ts can run it within its single withUserSql tx.
+// Override counts for the /companies tabs: the whole browsable corpus (`all`) plus the
+// viewer's own include/exclude overrides. Replaces the legacy effective-verdict counts —
+// per-user judgment now lives entirely in company_overrides.
+export async function getCompanyOverrideCounts(
+  userId: string,
+): Promise<{ all: number; included: number; excluded: number }> {
+  return withUserSql(userId, async (tx) => {
+    const rows = await tx`
+      SELECT
+        count(*)::int AS all,
+        (count(*) FILTER (WHERE co.verdict = 'include'))::int AS included,
+        (count(*) FILTER (WHERE co.verdict = 'exclude'))::int AS excluded
+      FROM companies c
+      LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = ${userId}::uuid
+      WHERE c.discovery_source <> 'manual'
+    `;
+    return (rows[0] as unknown as { all: number; included: number; excluded: number })
+      ?? { all: 0, included: 0, excluded: 0 };
+  });
+}
+
+// Executor-taking impl so metrics.ts (the /analytics CompanyFunnel) can run it within its
+// single withUserSql tx. Reads the legacy company_reviews table — still present until the
+// post-rollout cleanup migration — for the analytics include/exclude/unknown breakdown;
+// the live /companies surface uses getCompanyOverrideCounts instead.
 export async function companyVerdictCountsWith(
   tx: TransactionSql,
   userId: string,
@@ -864,24 +956,15 @@ export async function companyVerdictCountsWith(
     ?? { include: 0, exclude: 0, unknown: 0 };
 }
 
-export function getCompanyVerdictCounts(
-  userId: string,
-): Promise<{ include: number; exclude: number; unknown: number }> {
-  return withUserSql(userId, (tx) => companyVerdictCountsWith(tx, userId));
-}
-
-// Executor-taking impl so metrics.ts can run it within its single withUserSql tx.
-export async function discoveryStateWith(tx: TransactionSql, userId: string): Promise<DiscoveryStateRow> {
+// Executor-taking impl so metrics.ts can run it within its single withUserSql tx. The
+// backlog is now GLOBAL — companies awaiting classification (never classified), excluding
+// the curated seed set and operator-manual rows — not a per-user review delta, so userId is
+// unused (kept for signature/caller compatibility: metrics.ts + getDiscoveryState).
+export async function discoveryStateWith(tx: TransactionSql, _userId: string): Promise<DiscoveryStateRow> {
   const rows = await tx`
     SELECT s.halted_no_credits, s.resume_requested_at,
-      (SELECT count(*)::int
-       FROM companies c
-       LEFT JOIN company_reviews r ON r.company_id = c.id AND r.user_id = ${userId}::uuid
-       JOIN profiles p ON p.user_id = ${userId}::uuid
-       WHERE c.discovery_source NOT IN ('seed', 'manual')
-         AND (r.company_id IS NULL
-              OR (r.human_override = FALSE
-                  AND r.company_profile_version IS DISTINCT FROM p.company_profile_version))
+      (SELECT count(*)::int FROM companies
+       WHERE classified_at IS NULL AND discovery_source NOT IN ('seed', 'manual')
       ) AS backlog
     FROM discovery_state s WHERE s.id = TRUE
   `;

@@ -66,6 +66,78 @@ def test_failed_company_does_not_close_its_jobs(conn, monkeypatch):
 
 
 @requires_db
+def test_persistently_failing_board_is_deactivated(conn, monkeypatch):
+    """A non-seed board that fails every poll is deactivated once it crosses the
+    consecutive-failure cap, and then drops out of the active set (no more polls)."""
+    from job_discovery.db import POLL_FAILURE_DEACTIVATE
+
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets", lambda: [])
+    # A dataset company (active by default), NOT in the seed targets, so only the
+    # failure tracker governs its `active` flag.
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, active, discovery_source) "
+            "VALUES ('Dead','lever','dead', TRUE, 'dataset') RETURNING id")
+        cid = cur.fetchone()["id"]
+    conn.commit()
+
+    def boom(token):
+        raise RuntimeError("api down")
+
+    monkeypatch.setitem(ADAPTERS, "lever", boom)
+
+    for _ in range(POLL_FAILURE_DEACTIVATE):
+        run_module.run()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT active, poll_failures FROM companies WHERE id=%s", (cid,))
+        row = cur.fetchone()
+    assert row["active"] is False
+    assert row["poll_failures"] == POLL_FAILURE_DEACTIVATE
+
+    # A further poll cycle must not touch it — it is no longer in the active set.
+    run_module.run()
+    with conn.cursor() as cur:
+        cur.execute("SELECT poll_failures FROM companies WHERE id=%s", (cid,))
+        assert cur.fetchone()["poll_failures"] == POLL_FAILURE_DEACTIVATE
+
+
+@requires_db
+def test_successful_poll_resets_failure_streak(conn, monkeypatch):
+    """A poll that succeeds clears the accrued failure count so a transient outage
+    never marches a healthy board toward deactivation."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets", lambda: [])
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, active, discovery_source) "
+            "VALUES ('Flaky','lever','flaky', TRUE, 'dataset') RETURNING id")
+        cid = cur.fetchone()["id"]
+    conn.commit()
+
+    def boom(token):
+        raise RuntimeError("api down")
+
+    monkeypatch.setitem(ADAPTERS, "lever", boom)
+    run_module.run()
+    run_module.run()
+    with conn.cursor() as cur:
+        cur.execute("SELECT poll_failures FROM companies WHERE id=%s", (cid,))
+        assert cur.fetchone()["poll_failures"] == 2
+
+    # Board recovers: a successful poll clears the streak.
+    monkeypatch.setitem(ADAPTERS, "lever",
+                        lambda token: [Posting(external_id="1", title="Eng", url="u")])
+    run_module.run()
+    with conn.cursor() as cur:
+        cur.execute("SELECT active, poll_failures FROM companies WHERE id=%s", (cid,))
+        row = cur.fetchone()
+    assert row["poll_failures"] == 0
+    assert row["active"] is True
+
+
+@requires_db
 def test_disappeared_role_closes_then_reopens(conn, monkeypatch):
     # AC-4
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
+import { EMPTY_EXCLUSIONS } from "@/lib/rolefit/companyExclusions";
 import type { ProfileRow } from "@/lib/types";
 
 // This projection is snapshotted verbatim into application_packages jsonb. The real
@@ -19,6 +20,7 @@ function fullProfile(): ProfileRow {
     company_profile_version: "cpv",
     model_company: "mc",
     board_filters: null,
+    company_exclusions: EMPTY_EXCLUSIONS,
     full_name: "Ada Lovelace",
     email: "ada@example.com",
     phone: "555",

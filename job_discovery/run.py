@@ -133,6 +133,8 @@ def run(dsn: str | None = None) -> dict:
                     )
                 if ats == "greenhouse":
                     backfill_greenhouse_questions(conn, company_id, token)
+                # Healthy poll: clear any accrued failure streak in the same tx.
+                db.record_poll_result(conn, company_id, ok=True)
                 conn.commit()
                 ok += 1
             except Exception as exc:  # per-company isolation (incl. dead boards)
@@ -158,6 +160,24 @@ def run(dsn: str | None = None) -> dict:
                 failed += 1
                 failures.append(f"{co['name']}: {type(exc).__name__}: {exc}")
                 log.exception("poll failed for %s (%s:%s)", co["name"], ats, token)
+                # Track the failure so a persistently dead board is eventually
+                # deactivated. The company's poll work was rolled back, so this
+                # write needs its own commit; isolate it so a hiccup here never
+                # aborts the whole run.
+                try:
+                    deactivated = db.record_poll_result(conn, company_id, ok=False)
+                    conn.commit()
+                    if deactivated:
+                        log.warning(
+                            "deactivating dead board %s (%s:%s) after %d consecutive failures",
+                            co["name"], ats, token, db.POLL_FAILURE_DEACTIVATE)
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        log.exception("rollback after failure-record error failed for %s",
+                                      co["name"])
+                    log.exception("recording poll failure for %s failed", co["name"])
 
         db.finish_run(
             conn, run_id,

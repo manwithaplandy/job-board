@@ -36,12 +36,19 @@ def load_company_profiles(conn) -> list[dict]:
 
 
 def upsert_candidates(conn, candidates: list[Candidate]) -> int:
+    """Ingest dataset candidates as ACTIVE companies (poll them immediately).
+
+    `active` is operational — board health, not preference: a newly-ingested board
+    starts active and is polled right away; the poller (job_discovery.db.record_poll_result)
+    deactivates it only after repeated board-fetch failures. Per-user preference is
+    enforced downstream via company_exclusions / company_overrides, never via `active`.
+    """
     inserted = 0
     with conn.cursor() as cur:
         for c in candidates:
             cur.execute(
                 "INSERT INTO companies (name, ats, token, active, discovery_source) "
-                "VALUES (%s, %s, %s, FALSE, 'dataset') "
+                "VALUES (%s, %s, %s, TRUE, 'dataset') "
                 "ON CONFLICT (ats, token) DO NOTHING",
                 (c.name, c.ats, c.token),
             )

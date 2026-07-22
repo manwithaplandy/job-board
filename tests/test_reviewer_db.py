@@ -22,6 +22,16 @@ def _seed_job(conn, external_id="1", title="Engineer"):
     return f"lever:acme:{external_id}"
 
 
+def _seed_profile(conn, user_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO profiles (user_id, resume_text, instructions, profile_version) "
+            "VALUES (%s, 'r', 'i', 'pv')",
+            (user_id,),
+        )
+    conn.commit()
+
+
 @requires_db
 def test_load_profiles(conn):
     with conn.cursor() as cur:
@@ -36,6 +46,9 @@ def test_load_profiles(conn):
         {"user_id": uuid.UUID(USER), "resume_text": "r", "instructions": "i",
          "profile_version": "v1", "model_stage1": None, "model_stage2": None,
          "preferred_locations": [], "daily_review_cap": None,
+         # Deterministic company gate inputs (Task 7): structured facet exclusions +
+         # the reviewer-only company free-text instructions (Task 8 consumes these).
+         "company_exclusions": None, "company_instructions": None,
          # Phase 1: LEFT JOIN subscriptions (none here) + the invite-proof flag.
          "sub_plan": None, "sub_status": None, "sub_current_period_end": None,
          "invited": False,
@@ -671,3 +684,165 @@ def test_select_candidates_orders_newest_first(conn):
     conn.commit()
     rows, _ = rdb.select_candidates(conn, USER, "v1", limit=10)
     assert [r["id"] for r in rows] == ["lever:acme:new", "lever:acme:old"]
+
+
+# ── Deterministic company exclusion gate (facets + per-user overrides) ─────────
+
+@requires_db
+def test_exclusions_gate_and_override_include_wins(conn):
+    _seed_profile(conn, USER)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO companies (name, ats, token, industry) VALUES "
+                    "('def','greenhouse','def','industrial_hardware'), "
+                    "('ok','greenhouse','ok','software_internet') RETURNING id")
+        cdef, cok = [r["id"] for r in cur.fetchall()]
+        for cid, jid in ((cdef, "greenhouse:def:1"), (cok, "greenhouse:ok:1")):
+            cur.execute("INSERT INTO jobs (id, company_id, external_id, title, url, description) "
+                        "VALUES (%s, %s, '1', 't', 'u', 'jd')", (jid, cid))
+    conn.commit()
+    exc = {"industries": ["industrial_hardware"], "countries": [], "sizes": [],
+           "red_flag_categories": []}
+    rows, _ = rdb.select_candidates(conn, USER, "pv", 10, exclusions=exc)
+    assert {r["id"] for r in rows} == {"greenhouse:ok:1"}
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO company_overrides (user_id, company_id, verdict) "
+                    "VALUES (%s, %s, 'include')", (USER, cdef))
+    conn.commit()
+    rows, _ = rdb.select_candidates(conn, USER, "pv", 10, exclusions=exc)
+    assert {r["id"] for r in rows} == {"greenhouse:ok:1", "greenhouse:def:1"}
+
+
+@requires_db
+def test_exclusion_unknown_matches_null_facts(conn):
+    """'unknown' in the industry list removes NULL-industry (unclassified) companies."""
+    _seed_profile(conn, USER)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token) VALUES ('mystery','greenhouse','mystery') "
+            "RETURNING id")
+        cmyst = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, industry) "
+            "VALUES ('known','greenhouse','known','software_internet') RETURNING id")
+        cknown = cur.fetchone()["id"]
+        for cid, jid in ((cmyst, "greenhouse:mystery:1"), (cknown, "greenhouse:known:1")):
+            cur.execute("INSERT INTO jobs (id, company_id, external_id, title, url, description) "
+                        "VALUES (%s, %s, '1', 't', 'u', 'jd')", (jid, cid))
+    conn.commit()
+    exc = {"industries": ["unknown"], "countries": [], "sizes": [], "red_flag_categories": []}
+    rows, _ = rdb.select_candidates(conn, USER, "pv", 10, exclusions=exc)
+    assert {r["id"] for r in rows} == {"greenhouse:known:1"}
+
+
+@requires_db
+def test_empty_and_none_exclusions_are_no_gate(conn):
+    """Empty exclusion lists (and the None default) apply no gate — every job passes."""
+    _seed_profile(conn, USER)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, industry, size, hq_country) "
+            "VALUES ('a','greenhouse','a','industrial_hardware','5000+','RU') RETURNING id")
+        cid = cur.fetchone()["id"]
+        cur.execute("INSERT INTO jobs (id, company_id, external_id, title, url, description) "
+                    "VALUES ('greenhouse:a:1', %s, '1', 't', 'u', 'jd')", (cid,))
+    conn.commit()
+    empty = {"industries": [], "countries": [], "sizes": [], "red_flag_categories": []}
+    rows_empty, _ = rdb.select_candidates(conn, USER, "pv", 10, exclusions=empty)
+    rows_none, _ = rdb.select_candidates(conn, USER, "pv", 10)
+    assert {r["id"] for r in rows_empty} == {"greenhouse:a:1"}
+    assert {r["id"] for r in rows_none} == {"greenhouse:a:1"}
+
+
+@requires_db
+def test_exclusion_size_country_redflag_each_gate(conn):
+    """Size, country, and red-flag-category exclusions each gate independently."""
+    _seed_profile(conn, USER)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO companies (name, ats, token, industry, size, hq_country, red_flags) VALUES
+              ('big','greenhouse','big','software_internet','5000+','US', '[]'::jsonb),
+              ('foreign','greenhouse','foreign','software_internet','51-200','RU', '[]'::jsonb),
+              ('defense','greenhouse','defense','software_internet','51-200','US',
+               '[{"category": "defense_military"}]'::jsonb),
+              ('good','greenhouse','good','software_internet','51-200','US', '[]'::jsonb)
+            RETURNING id, token
+            """)
+        by_tok = {r["token"]: r["id"] for r in cur.fetchall()}
+        for tok, cid in by_tok.items():
+            cur.execute("INSERT INTO jobs (id, company_id, external_id, title, url, description) "
+                        "VALUES (%s, %s, '1', 't', 'u', 'jd')", (f"greenhouse:{tok}:1", cid))
+    conn.commit()
+    exc = {"industries": [], "countries": ["RU"], "sizes": ["5000+"],
+           "red_flag_categories": ["defense_military"]}
+    rows, _ = rdb.select_candidates(conn, USER, "pv", 10, exclusions=exc)
+    assert {r["id"] for r in rows} == {"greenhouse:good:1"}
+
+
+@requires_db
+def test_override_exclude_removes_passing_company(conn):
+    """A per-user 'exclude' override removes a company that would otherwise pass the gate."""
+    _seed_profile(conn, USER)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO companies (name, ats, token, industry) "
+            "VALUES ('ok','greenhouse','ok','software_internet') RETURNING id")
+        cok = cur.fetchone()["id"]
+        cur.execute("INSERT INTO jobs (id, company_id, external_id, title, url, description) "
+                    "VALUES ('greenhouse:ok:1', %s, '1', 't', 'u', 'jd')", (cok,))
+        cur.execute("INSERT INTO company_overrides (user_id, company_id, verdict) "
+                    "VALUES (%s, %s, 'exclude')", (USER, cok))
+    conn.commit()
+    exc = {"industries": [], "countries": [], "sizes": [], "red_flag_categories": []}
+    rows, _ = rdb.select_candidates(conn, USER, "pv", 10, exclusions=exc)
+    assert rows == []
+
+
+@requires_db
+def test_candidate_rows_carry_company_facets(conn):
+    """Selected rows expose c.industry/subcategory/size/hq_country/red_flags/about for Task 8's stage 2."""
+    _seed_profile(conn, USER)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO companies (name, ats, token, industry, industry_subcategory,
+                                   size, hq_country, red_flags, about)
+            VALUES ('acme','greenhouse','acme','software_internet','devtools_platforms',
+                    '51-200','US',
+                    '[{"category": "layoffs"}]'::jsonb, 'We build things.')
+            RETURNING id
+            """)
+        cid = cur.fetchone()["id"]
+        cur.execute("INSERT INTO jobs (id, company_id, external_id, title, url, description) "
+                    "VALUES ('greenhouse:acme:1', %s, '1', 't', 'u', 'jd')", (cid,))
+    conn.commit()
+    rows, _ = rdb.select_candidates(conn, USER, "pv", 10)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["industry"] == "software_internet"
+    assert row["industry_subcategory"] == "devtools_platforms"
+    assert row["size"] == "51-200"
+    assert row["hq_country"] == "US"
+    assert row["about"] == "We build things."
+    assert row["red_flags"] == [{"category": "layoffs"}]
+
+
+def test_parse_company_exclusions_total_parser():
+    """parse_company_exclusions maps camelCase jsonb keys → snake_case dict, fails OPEN
+    (unknown shapes → empty lists, never raises), and drops non-string members."""
+    assert rdb.parse_company_exclusions(None) == {
+        "industries": [], "countries": [], "sizes": [], "red_flag_categories": []}
+    assert rdb.parse_company_exclusions("garbage") == {
+        "industries": [], "countries": [], "sizes": [], "red_flag_categories": []}
+    parsed = rdb.parse_company_exclusions({
+        "industries": ["software_internet", 7, None, "industrial_hardware"],
+        "countries": ["US"],
+        "sizes": "not-a-list",
+        "redFlagCategories": ["defense_military"],
+    })
+    assert parsed == {
+        "industries": ["software_internet", "industrial_hardware"],
+        "countries": ["US"],
+        "sizes": [],
+        "red_flag_categories": ["defense_military"],
+    }

@@ -14,7 +14,7 @@ function job(p: Partial<JobRow>): JobRow {
     red_flags: [], skill_gaps: ["Go"], benefits: [], requirements: null, ...p,
   };
 }
-const ST: BoardFilterState = { search: "", cats: [], locs: [], sources: [], remote: "all", minFit: 0, payMin: 0, payMax: null, payIncludeUndisclosed: false, sort: "match" };
+const ST: BoardFilterState = { search: "", cats: [], locs: [], sources: [], industries: [], sizes: [], countries: [], remote: "all", minFit: 0, payMin: 0, payMax: null, payIncludeUndisclosed: false, sort: "match" };
 
 describe("applyFilters", () => {
   test("category filter", () => {
@@ -72,6 +72,61 @@ describe("applyFilters", () => {
     ];
     expect(applyFilters(jobs, { ...ST, sources: ["greenhouse"], cats: ["Backend"] }).map((j) => j.id))
       .toEqual(["a"]);
+  });
+});
+
+describe("company facet filters (industry / size / country)", () => {
+  test("industry filter keeps only matching industries; null field → 'unknown'", () => {
+    const jobs = [
+      job({ id: "a", industry: "software_internet" }),
+      job({ id: "b", industry: "fintech_finance" }),
+      job({ id: "u", industry: null }),
+    ];
+    expect(applyFilters(jobs, { ...ST, industries: ["software_internet"] }).map((j) => j.id)).toEqual(["a"]);
+    expect(applyFilters(jobs, { ...ST, industries: ["unknown"] }).map((j) => j.id)).toEqual(["u"]);
+  });
+
+  test("size filter keeps only matching buckets; missing size → 'unknown'", () => {
+    const jobs = [
+      job({ id: "small", size: "11-50" }),
+      job({ id: "big", size: "5000+" }),
+      job({ id: "u" }), // size left unset (undefined) → treated as 'unknown'
+    ];
+    expect(applyFilters(jobs, { ...ST, sizes: ["5000+"] }).map((j) => j.id)).toEqual(["big"]);
+    expect(applyFilters(jobs, { ...ST, sizes: ["unknown"] }).map((j) => j.id)).toEqual(["u"]);
+  });
+
+  test("country filter keeps only matching HQ; null field → 'unknown'", () => {
+    const jobs = [
+      job({ id: "us", hq_country: "US" }),
+      job({ id: "de", hq_country: "DE" }),
+      job({ id: "u", hq_country: null }),
+    ];
+    expect(applyFilters(jobs, { ...ST, countries: ["DE"] }).map((j) => j.id)).toEqual(["de"]);
+    expect(applyFilters(jobs, { ...ST, countries: ["unknown"] }).map((j) => j.id)).toEqual(["u"]);
+  });
+
+  test("multi-select within a facet ORs; an empty facet is a no-op", () => {
+    const jobs = [
+      job({ id: "a", industry: "software_internet" }),
+      job({ id: "b", industry: "fintech_finance" }),
+      job({ id: "c", industry: "healthcare_life_sciences" }),
+    ];
+    expect(
+      applyFilters(jobs, { ...ST, industries: ["software_internet", "healthcare_life_sciences"] }).map((j) => j.id),
+    ).toEqual(["a", "c"]);
+    expect(applyFilters(jobs, { ...ST, industries: [] }).map((j) => j.id)).toEqual(["a", "b", "c"]);
+  });
+
+  test("facets AND across each other (industry AND size AND country)", () => {
+    const jobs = [
+      job({ id: "hit", industry: "software_internet", size: "11-50", hq_country: "US" }),
+      job({ id: "wrongSize", industry: "software_internet", size: "5000+", hq_country: "US" }),
+      job({ id: "wrongCountry", industry: "software_internet", size: "11-50", hq_country: "DE" }),
+    ];
+    expect(
+      applyFilters(jobs, { ...ST, industries: ["software_internet"], sizes: ["11-50"], countries: ["US"] }).map((j) => j.id),
+    ).toEqual(["hit"]);
   });
 });
 
@@ -188,6 +243,17 @@ describe("facetCounts", () => {
   test("counts sources", () => {
     const jobs = [job({ ats: "greenhouse" }), job({ ats: "greenhouse" }), job({ ats: "workday" })];
     expect(facetCounts(jobs).sources).toEqual({ greenhouse: 2, workday: 1 });
+  });
+  test("buckets industry/size/country, nulls (and absent fields) under 'unknown'", () => {
+    const jobs = [
+      job({ industry: "software_internet", size: "11-50", hq_country: "US" }),
+      job({ industry: "software_internet", size: null, hq_country: null }),
+      job({ industry: null }), // size + hq_country left unset (undefined)
+    ];
+    const f = facetCounts(jobs);
+    expect(f.industries).toEqual({ software_internet: 2, unknown: 1 });
+    expect(f.sizes).toEqual({ "11-50": 1, unknown: 2 });
+    expect(f.countries).toEqual({ US: 1, unknown: 2 });
   });
 });
 

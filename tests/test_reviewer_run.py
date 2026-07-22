@@ -33,7 +33,8 @@ class StubClient:
             out.append(Stage1Decision(job_id=j["id"], decision=decision, reason="r"))
         return out
 
-    async def stage2(self, *, profile_block, title, company, location, jd):
+    async def stage2(self, *, profile_block, title, company, location, jd,
+                     company_context=None, company_about=None):
         self.stage2_calls.append(jd)
         if title == "BOOM2":
             raise RuntimeError("stage2 down")

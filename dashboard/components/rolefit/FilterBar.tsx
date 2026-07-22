@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { atsLabel } from "@/lib/rolefit/ats";
+import { COMPANY_SIZES, countryLabel, INDUSTRY_LABELS, type CompanySize } from "@/lib/companyMeta";
 import { Icon } from "@/components/ui/Icon";
 import { SegmentedControl } from "@/components/ui/Navigation";
 import { fmtPayRange } from "@/lib/rolefit/filter";
@@ -177,10 +178,20 @@ export interface FilterBarProps {
   // denominator, so Rejected/Applied read against their own totals (not the all-jobs total).
   totalInView: number;
   // Category/location counts, memoized by the board so they aren't recomputed per render.
-  facets: { categories: Record<string, number>; locations: Record<string, number>; sources: Record<string, number> };
+  facets: {
+    categories: Record<string, number>;
+    locations: Record<string, number>;
+    sources: Record<string, number>;
+    industries: Record<string, number>;
+    sizes: Record<string, number>;
+    countries: Record<string, number>;
+  };
   cats: string[];
   locs: string[];
   sources: string[];
+  industries: string[];
+  sizes: string[];
+  countries: string[];
   remote: BoardFilterState["remote"];
   minFit: number;
   payMin: number;
@@ -197,6 +208,9 @@ export interface FilterBarProps {
   onToggleCat: (cat: string) => void;
   onToggleLoc: (loc: string) => void;
   onToggleSource: (ats: string) => void;
+  onToggleIndustry: (industry: string) => void;
+  onToggleSize: (size: string) => void;
+  onToggleCountry: (country: string) => void;
   onSetRemote: (r: BoardFilterState["remote"]) => void;
   onSetMinFit: (v: number) => void;
   onSetPayRange: (min: number, max: number | null) => void;
@@ -210,6 +224,9 @@ export function FilterBar({
   cats,
   locs,
   sources,
+  industries,
+  sizes,
+  countries,
   remote,
   minFit,
   payMin,
@@ -226,13 +243,23 @@ export function FilterBar({
   onToggleCat,
   onToggleLoc,
   onToggleSource,
+  onToggleIndustry,
+  onToggleSize,
+  onToggleCountry,
   onSetRemote,
   onSetMinFit,
   onSetPayRange,
   onTogglePayUndisclosed,
   onSetSort,
 }: FilterBarProps) {
-  const { categories, locations, sources: sourceCounts } = facets;
+  const {
+    categories,
+    locations,
+    sources: sourceCounts,
+    industries: industryCounts,
+    sizes: sizeCounts,
+    countries: countryCounts,
+  } = facets;
 
   const activeBtn = (on: boolean) => ({
     bg: on ? "var(--accent-bg)" : "var(--bg-surface)",
@@ -241,12 +268,18 @@ export function FilterBar({
   const cb = activeBtn(cats.length > 0);
   const lb = activeBtn(locs.length > 0);
   const sb = activeBtn(sources.length > 0);
+  const ib = activeBtn(industries.length > 0);
+  const zb = activeBtn(sizes.length > 0);
+  const yb = activeBtn(countries.length > 0);
   const pb = activeBtn(payMin > 0 || payMax !== null);
   const mb = activeBtn(minFit > 0);
 
   const catBadge = cats.length ? ` · ${cats.length}` : "";
   const locBadge = locs.length ? ` · ${locs.length}` : "";
   const srcBadge = sources.length ? ` · ${sources.length}` : "";
+  const indBadge = industries.length ? ` · ${industries.length}` : "";
+  const sizeBadge = sizes.length ? ` · ${sizes.length}` : "";
+  const countryBadge = countries.length ? ` · ${countries.length}` : "";
   const payLabel = fmtPayRange(payMin, payMax);
   const payBadge = payLabel ? ` · ${payLabel}` : "";
   const matchBadge = minFit > 0 ? ` · ${MATCH_DEFS.find(([v]) => v === minFit)?.[1] ?? ""}` : "";
@@ -273,6 +306,33 @@ export function FilterBar({
 
   const sourceItems = Object.entries(sourceCounts)
     .map(([ats, count]) => ({ ats, label: atsLabel(ats), count, ...box(sources.includes(ats)) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  // Industry facet: humanized labels from the shared INDUSTRY_LABELS map (unrecognized
+  // stored values fall back to the raw key), sorted by label.
+  const industryItems = Object.entries(industryCounts)
+    .map(([key, count]) => ({
+      key,
+      label: INDUSTRY_LABELS[key as keyof typeof INDUSTRY_LABELS] ?? key,
+      count,
+      ...box(industries.includes(key)),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  // Size facet: ordered by the headcount bucket sequence (NOT alphabetical — "1001-5000"
+  // must not sort before "11-50"); the synthetic "unknown" bucket renders as "Unknown".
+  const sizeItems = Object.entries(sizeCounts)
+    .map(([key, count]) => ({
+      key,
+      label: key === "unknown" ? "Unknown" : key,
+      count,
+      ...box(sizes.includes(key)),
+    }))
+    .sort((a, b) => COMPANY_SIZES.indexOf(a.key as CompanySize) - COMPANY_SIZES.indexOf(b.key as CompanySize));
+
+  // Country facet: Intl region names via countryLabel ("US" -> "United States"), sorted by label.
+  const countryItems = Object.entries(countryCounts)
+    .map(([key, count]) => ({ key, label: countryLabel(key), count, ...box(countries.includes(key)) }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
   const dropdownBase = {
@@ -515,6 +575,186 @@ export function FilterBar({
             tabIndex={-1}
             key={ats}
             onClick={() => onToggleSource(ats)}
+            style={{
+              ...optionReset,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "7px 8px",
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
+          >
+            <span
+              style={{
+                width: "17px",
+                height: "17px",
+                borderRadius: "5px",
+                border: `1.5px solid ${boxBorder}`,
+                background: boxBg,
+                color: "var(--text-on-accent)",
+                fontSize: "11px",
+                fontWeight: 800,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: "0 0 auto",
+              }}
+            >
+              {check && <Icon name="check" size={16} />}
+            </span>
+            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
+              {label}
+            </span>
+            <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 700 }}>
+              {count}
+            </span>
+          </button>
+        ))}
+      </FilterMenu>
+
+      {/* Industry */}
+      <FilterMenu
+        name="industry"
+        open={openMenu === "industry"}
+        onToggle={onToggleMenu}
+        ariaLabel="Filter by industry"
+        multiselect
+        trigger={<>Industry{indBadge}{caret}</>}
+        triggerStyle={triggerStyle(ib.bg, ib.border)}
+        align="start"
+        mobileAlign="start"
+        listboxStyle={{ ...dropdownBase, width: "248px", maxHeight: "320px", overflow: "auto" }}
+      >
+        {industryItems.map(({ key, label, count, boxBg, boxBorder, check }) => (
+          <button
+            className="rf-board-filter-option rf-focusable"
+            type="button"
+            role="option"
+            aria-selected={industries.includes(key)}
+            tabIndex={-1}
+            key={key}
+            onClick={() => onToggleIndustry(key)}
+            style={{
+              ...optionReset,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "7px 8px",
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
+          >
+            <span
+              style={{
+                width: "17px",
+                height: "17px",
+                borderRadius: "5px",
+                border: `1.5px solid ${boxBorder}`,
+                background: boxBg,
+                color: "var(--text-on-accent)",
+                fontSize: "11px",
+                fontWeight: 800,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: "0 0 auto",
+              }}
+            >
+              {check && <Icon name="check" size={16} />}
+            </span>
+            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
+              {label}
+            </span>
+            <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 700 }}>
+              {count}
+            </span>
+          </button>
+        ))}
+      </FilterMenu>
+
+      {/* Size */}
+      <FilterMenu
+        name="size"
+        open={openMenu === "size"}
+        onToggle={onToggleMenu}
+        ariaLabel="Filter by company size"
+        multiselect
+        trigger={<>Size{sizeBadge}{caret}</>}
+        triggerStyle={triggerStyle(zb.bg, zb.border)}
+        align="start"
+        mobileAlign="start"
+        listboxStyle={{ ...dropdownBase, width: "200px", maxHeight: "320px", overflow: "auto" }}
+      >
+        {sizeItems.map(({ key, label, count, boxBg, boxBorder, check }) => (
+          <button
+            className="rf-board-filter-option rf-focusable"
+            type="button"
+            role="option"
+            aria-selected={sizes.includes(key)}
+            tabIndex={-1}
+            key={key}
+            onClick={() => onToggleSize(key)}
+            style={{
+              ...optionReset,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "7px 8px",
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
+          >
+            <span
+              style={{
+                width: "17px",
+                height: "17px",
+                borderRadius: "5px",
+                border: `1.5px solid ${boxBorder}`,
+                background: boxBg,
+                color: "var(--text-on-accent)",
+                fontSize: "11px",
+                fontWeight: 800,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: "0 0 auto",
+              }}
+            >
+              {check && <Icon name="check" size={16} />}
+            </span>
+            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>
+              {label}
+            </span>
+            <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 700 }}>
+              {count}
+            </span>
+          </button>
+        ))}
+      </FilterMenu>
+
+      {/* Country */}
+      <FilterMenu
+        name="country"
+        open={openMenu === "country"}
+        onToggle={onToggleMenu}
+        ariaLabel="Filter by HQ country"
+        multiselect
+        trigger={<>Country{countryBadge}{caret}</>}
+        triggerStyle={triggerStyle(yb.bg, yb.border)}
+        align="start"
+        mobileAlign="start"
+        listboxStyle={{ ...dropdownBase, width: "248px", maxHeight: "320px", overflow: "auto" }}
+      >
+        {countryItems.map(({ key, label, count, boxBg, boxBorder, check }) => (
+          <button
+            className="rf-board-filter-option rf-focusable"
+            type="button"
+            role="option"
+            aria-selected={countries.includes(key)}
+            tabIndex={-1}
+            key={key}
+            onClick={() => onToggleCountry(key)}
             style={{
               ...optionReset,
               display: "flex",

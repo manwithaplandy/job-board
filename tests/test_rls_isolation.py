@@ -15,6 +15,8 @@ from tests.conftest import SCHEMA_SQL, as_user, requires_db
 
 A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+U1 = "11111111-1111-1111-1111-111111111111"
+U2 = "22222222-2222-2222-2222-222222222222"
 
 
 def _seed_two_users(conn):
@@ -151,6 +153,24 @@ def test_owner_full_crud_on_own_rows_succeeds(conn):
             assert cur.rowcount == 1
             cur.execute("DELETE FROM cover_letter_edits WHERE user_id = %s AND job_id = 'lever:acme:1'", (A,))
             assert cur.rowcount == 1
+
+
+@requires_db
+def test_company_overrides_owner_isolation(conn):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO companies (name, ats, token) VALUES ('x','greenhouse','x') RETURNING id")
+        cid = cur.fetchone()["id"]
+        cur.execute("INSERT INTO company_overrides (user_id, company_id, verdict) "
+                    "VALUES (%s, %s, 'exclude')", (U1, cid))
+    conn.commit()
+    with as_user(conn, U1):
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM company_overrides")
+            assert cur.fetchone()["n"] == 1
+    with as_user(conn, U2):
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM company_overrides")
+            assert cur.fetchone()["n"] == 0   # RLS hides the other user's row
 
 
 @requires_db
@@ -404,6 +424,10 @@ EXPECTED_RLS = {
     # Async-generation status rows (2026-07-05-generation-jobs): owner CRUD; the
     # dashboard's withUserSql create/settle/poll paths are the only writers.
     "generation_jobs": _OWNER_ALL,
+    # Per-user company include/exclude (2026-07-21-company-classification): owner CRUD;
+    # replaces company_reviews.human_override. classification_jobs is service-only (no
+    # user_id) so it is NOT in this user-scoped contract.
+    "company_overrides": _OWNER_ALL,
     # Stripe mirror: owner may READ, never write (webhook/service role writes).
     "subscriptions": {
         "no_anon_access": _DENY,
@@ -518,6 +542,7 @@ EXPECTED_GRANTS = {
     "resume_scores":        (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "cover_letter_edits":   (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "generation_jobs":      (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "company_overrides":    (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),  # owner CRUD
     "usage_counters":       (_R(), _R({"SELECT"})),               # SELECT-only (B-COST)
     "profiles":             (_R(), _R({"SELECT", "DELETE"})),     # INSERT/UPDATE are column-level
     "subscriptions":        (_R(), _R({"SELECT"})),               # webhook writes; owner reads
@@ -528,7 +553,8 @@ EXPECTED_GRANTS = {
     "plan_overrides":       (_R(), _R({"SELECT"})),           # owner reads own pin
     "app_settings":         (_R({"SELECT"}), _R({"SELECT"})), # shared_read like tier_settings
     # Everything else (invite_codes, invite_redemptions, schema_migrations,
-    # account_deletions, openrouter_usage_snapshots) gets NO anon/authenticated grant.
+    # account_deletions, openrouter_usage_snapshots, classification_jobs) gets NO
+    # anon/authenticated grant.
 }
 
 

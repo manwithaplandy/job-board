@@ -16,6 +16,7 @@ describe("parseBoardFilters", () => {
     );
     expect(f).toEqual({
       search: "eng", cats: ["Backend"], locs: ["Berlin"], sources: [],
+      industries: [], sizes: [], countries: [],
       remote: "remote", minFit: 75, payMin: 150, payMax: null, payIncludeUndisclosed: false, sort: "pay",
     });
   });
@@ -51,6 +52,23 @@ describe("parseBoardFilters", () => {
     expect(parseBoardFilters({ sources: "greenhouse" }).sources).toEqual([]);
     expect(parseBoardFilters({ sources: ["greenhouse", 5, null] }).sources).toEqual(["greenhouse"]);
     expect(parseBoardFilters({}).sources).toEqual([]);
+  });
+
+  test("industries/sizes/countries round-trip; legacy rows without the keys → []", () => {
+    const f = parseBoardFilters({
+      industries: ["software_internet", "unknown"], sizes: ["11-50"], countries: ["US", "DE"],
+    });
+    expect(f.industries).toEqual(["software_internet", "unknown"]);
+    expect(f.sizes).toEqual(["11-50"]);
+    expect(f.countries).toEqual(["US", "DE"]);
+    // Legacy persisted row (predates these keys) defaults each to an empty list.
+    const legacy = parseBoardFilters({ search: "x" });
+    expect(legacy.industries).toEqual([]);
+    expect(legacy.sizes).toEqual([]);
+    expect(legacy.countries).toEqual([]);
+    // Invalid (non-array / non-string entries) collapse the same way sources/cats do.
+    expect(parseBoardFilters({ industries: "software_internet" }).industries).toEqual([]);
+    expect(parseBoardFilters({ sizes: ["11-50", 5, null] }).sizes).toEqual(["11-50"]);
   });
 
   test("over-long search is truncated to 200 chars", () => {

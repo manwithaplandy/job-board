@@ -37,7 +37,8 @@ describe.skipIf(!TEST_DSN)("board locationFromProfile clause — real Postgres",
     sql = postgres(TEST_DSN as string, { prepare: false, max: 1, onnotice: () => {} });
 
     await sql`CREATE TEMP TABLE companies (
-      id INT PRIMARY KEY, name TEXT, display_name TEXT, ats TEXT
+      id INT PRIMARY KEY, name TEXT, display_name TEXT, ats TEXT,
+      industry TEXT, size TEXT, hq_country TEXT
     )`;
     await sql`CREATE TEMP TABLE jobs (
       id TEXT PRIMARY KEY, title TEXT, location TEXT, location_canonicals TEXT[],

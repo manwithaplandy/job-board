@@ -2,73 +2,96 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
+import type { CompanyBrowseRow, DiscoveryStateRow } from "@/lib/types";
+import { INDUSTRY_LABELS } from "@/lib/companyMeta";
 import { CompanyCard } from "@/components/companies/CompanyCard";
 import { CreditBanner } from "@/components/companies/CreditBanner";
-import { TextField } from "@/components/ui/FormControls";
+import { SelectField, TextField } from "@/components/ui/FormControls";
 import { Tabs } from "@/components/ui/Navigation";
 import { EmptyState } from "@/components/ui/SystemStates";
 
-type Bucket = "include" | "exclude" | "unknown";
+type Bucket = "all" | "included" | "excluded";
+
+// Build a ?bucket=…&industry=…&q=… href, dropping empty facets so a plain bucket link stays
+// clean. Preserving all three across tab clicks / search / industry keeps the surface
+// stateful (a tab switch doesn't drop your industry filter or search term).
+function buildHref(bucket: Bucket, industry: string, q: string): string {
+  const params = new URLSearchParams({ bucket });
+  if (industry) params.set("industry", industry);
+  if (q.trim()) params.set("q", q.trim());
+  return `?${params.toString()}`;
+}
 
 export function CompanyList({
-  included, excluded, unknown, counts, state, activeBucket, override, refresh, canRefresh, query,
+  companies, counts, state, activeBucket, industry, override, refresh, canRefresh, query,
 }: {
-  included: CompanyReviewRow[];
-  excluded: CompanyReviewRow[];
-  unknown: CompanyReviewRow[];
-  counts: { include: number; exclude: number; unknown: number };
+  companies: CompanyBrowseRow[];
+  counts: { all: number; included: number; excluded: number };
   state: DiscoveryStateRow;
   activeBucket: Bucket;
+  // Active server-side industry facet ("" = all industries).
+  industry: string;
   override: (companyId: number, verdict: "include" | "exclude") => Promise<void>;
   refresh: () => Promise<void>;
   // Whether the viewer may trigger the SHARED discovery-resume (admins only — the
   // server action enforces this; this just hides the button from non-admins).
   canRefresh: boolean;
-  // Server-provided seed: the current ?q= term already applied to `rows` by the query.
+  // Server-provided seed: the current ?q= term already applied to `companies` by the query.
   query: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [text, setText] = useState(query);
-  const rows = activeBucket === "include" ? included : activeBucket === "exclude" ? excluded : unknown;
-  const bucketTotal = counts[activeBucket];
 
   // Debounced SERVER search: the filter runs in the SQL query (all rows), not client-side over
-  // the first 200. Navigate to ?bucket=…&q=… ~300ms after typing stops; the page re-queries.
+  // the first 200. Navigate ~300ms after typing stops, preserving the bucket + industry facet.
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (text === query) return; // already in sync with the URL
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      const params = new URLSearchParams({ bucket: activeBucket });
-      if (text.trim()) params.set("q", text.trim());
-      startTransition(() => router.replace(`?${params.toString()}`, { scroll: false }));
+      startTransition(() => router.replace(buildHref(activeBucket, industry, text), { scroll: false }));
     }, 300);
     return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [text, query, activeBucket, router]);
+  }, [text, query, activeBucket, industry, router]);
 
   const q = query.trim();
-  const truncated = rows.length >= 200; // hit the LIMIT — there may be more
+  const truncated = companies.length >= 200; // hit the LIMIT — there may be more
+  const bucketTotal = counts[activeBucket];
   const tabs: { key: Bucket; label: string; n: number }[] = [
-    { key: "include", label: "Included", n: counts.include },
-    { key: "exclude", label: "Excluded", n: counts.exclude },
-    { key: "unknown", label: "Unknown", n: counts.unknown },
+    { key: "all", label: "All", n: counts.all },
+    { key: "included", label: "Included", n: counts.included },
+    { key: "excluded", label: "Excluded", n: counts.excluded },
   ];
+
+  const onIndustry = (next: string) =>
+    startTransition(() => router.replace(buildHref(activeBucket, next, text), { scroll: false }));
+
+  const filtered = Boolean(q) || Boolean(industry);
 
   return (
     <div className="rf-secondary-stack">
       <CreditBanner state={state} refresh={refresh} canRefresh={canRefresh} />
       <div className="rf-company-toolbar">
         <Tabs
-          label="Company verdicts"
+          label="Company overrides"
           className="rf-company-tabs"
           items={tabs.map((t) => ({
             label: `${t.label} ${t.n}`,
-            href: `?bucket=${t.key}`,
+            href: buildHref(t.key, industry, text),
             active: activeBucket === t.key,
           }))}
         />
+        <SelectField
+          label="Filter by industry"
+          value={industry}
+          onChange={(e) => onIndustry(e.target.value)}
+        >
+          <option value="">All industries</option>
+          {Object.entries(INDUSTRY_LABELS).map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </SelectField>
         <TextField
           label="Search by company name"
           value={text}
@@ -77,22 +100,24 @@ export function CompanyList({
           className="rf-company-search"
         />
       </div>
-      {rows.length === 0 ? (
+      {companies.length === 0 ? (
         <EmptyState
-          title={q ? `No companies match “${q}”.` : "No companies here yet."}
-          description={q ? "Try a different company name or clear the search." : "Classified companies will appear here as your board is reviewed."}
+          title={filtered ? "No companies match those filters." : "No companies here yet."}
+          description={filtered
+            ? "Try a different industry, a different name, or clear the filters."
+            : "Classified companies appear here as the corpus is classified."}
         />
       ) : (
         <>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "10px" }}>
-            {q
-              ? `${rows.length}${truncated ? "+" : ""} ${rows.length === 1 ? "match" : "matches"} for “${q}”${truncated ? " — refine to narrow further" : ""}${pending ? " · searching…" : ""}`
+            {filtered
+              ? `${companies.length}${truncated ? "+" : ""} ${companies.length === 1 ? "match" : "matches"}${truncated ? " — refine to narrow further" : ""}${pending ? " · searching…" : ""}`
               : truncated
-                ? `Showing first ${rows.length} of ${bucketTotal} — search by name to find any company${pending ? " · searching…" : ""}`
-                : `${rows.length} ${rows.length === 1 ? "company" : "companies"}${pending ? " · searching…" : ""}`}
+                ? `Showing first ${companies.length} of ${bucketTotal} — search or filter to narrow${pending ? " · searching…" : ""}`
+                : `${companies.length} ${companies.length === 1 ? "company" : "companies"}${pending ? " · searching…" : ""}`}
           </div>
           <div className="rf-secondary-card-list">
-            {rows.map((c) => <CompanyCard key={c.id} company={c} override={override} />)}
+            {companies.map((c) => <CompanyCard key={c.id} company={c} override={override} />)}
           </div>
         </>
       )}

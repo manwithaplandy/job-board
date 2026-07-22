@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 
 from observability import tracing
 from reviewer import config, db, entitlements, floors, scoring
-from reviewer.llm import OutOfCreditsError, ReviewClient, _is_out_of_credits, build_profile_block
+from reviewer.llm import (
+    OutOfCreditsError, ReviewClient, _is_out_of_credits, build_company_about,
+    build_company_context, build_profile_block,
+)
 
 log = logging.getLogger("reviewer")
 
@@ -91,7 +94,8 @@ async def _stage2_inner(candidate: dict, profile_block: str, client,
         s2 = await client.stage2(
             profile_block=profile_block, title=candidate["title"],
             company=candidate["company_name"], location=candidate.get("location"),
-            jd=jd,
+            jd=jd, company_context=build_company_context(candidate),
+            company_about=build_company_about(candidate),
         )
         res.model_stage2 = client.model_stage2
         res.verdict = s2.verdict
@@ -409,9 +413,14 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             log.info("daily cap %s exhausted for %s; skipping", cap, user_id)
             return
 
+        # Deterministic company exclusion gate (pre-LLM): the user's structured
+        # company_exclusions (facets) + per-user company_overrides, applied inside
+        # select_candidates so facet/override-excluded companies never cost an LLM call.
+        exclusions = db.parse_company_exclusions(profile.get("company_exclusions"))
         candidates, total = db.select_candidates(
             conn, user_id, pv, remaining,
             preferred_locations=profile.get("preferred_locations"),
+            exclusions=exclusions,
         )
         overflow = total - len(candidates)
         if overflow > 0:
@@ -419,7 +428,10 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             log.info("review overflow: %s job(s) over remaining budget %s, deferred",
                      overflow, remaining)
 
-        profile_block = build_profile_block(profile["resume_text"], profile["instructions"])
+        profile_block = build_profile_block(
+            profile["resume_text"], profile["instructions"],
+            company_instructions=profile.get("company_instructions"),
+        )
         client = ReviewClient(
             model_stage1=entitlements.CHEAP_MODEL,   # cheap gate always (see above)
             model_stage2=resolved_stage2,

@@ -38,6 +38,7 @@ def _uuid(v) -> uuid.UUID:
 _PROFILE_COLUMNS = """
     p.user_id, p.resume_text, p.instructions, p.profile_version,
     p.model_stage1, p.model_stage2, p.preferred_locations, p.daily_review_cap,
+    p.company_exclusions, p.company_instructions,
     s.plan AS sub_plan, s.status AS sub_status,
     s.current_period_end AS sub_current_period_end,
     EXISTS(SELECT 1 FROM invite_redemptions ir WHERE ir.user_id = p.user_id) AS invited,
@@ -197,14 +198,39 @@ def add_daily_spend(conn, user_id: str, n: int, kind: str = "review") -> None:
         )
 
 
+_EXCLUSION_KEYS = {"industries": "industries", "countries": "countries",
+                   "sizes": "sizes", "redFlagCategories": "red_flag_categories"}
+
+
+def parse_company_exclusions(raw) -> dict:
+    """Total parser for profiles.company_exclusions (jsonb). Unknown shapes -> empty
+    lists (never raises): the gate must fail OPEN (no exclusion), not closed."""
+    out = {v: [] for v in _EXCLUSION_KEYS.values()}
+    if not isinstance(raw, dict):
+        return out
+    for src, dst in _EXCLUSION_KEYS.items():
+        v = raw.get(src)
+        if isinstance(v, list):
+            out[dst] = [x for x in v if isinstance(x, str)][:50]
+    return out
+
+
 def select_candidates(
     conn, user_id: str, profile_version: str, limit: int,
     preferred_locations: list[str] | None = None,
+    exclusions: dict | None = None,
 ) -> tuple[list[dict], int]:
     """Return (rows, total_stale) where total_stale is the unbounded stale count.
 
     Splitting the count into a separate bounded SELECT avoids materialising the
     full stale set before LIMIT when the window-aggregate approach would do.
+
+    `exclusions` is the parsed company_exclusions dict (parse_company_exclusions):
+    a deterministic, per-user, pre-LLM gate on the company's globally-classified
+    facts (industry / size / hq_country / red-flag category). A per-user
+    company_overrides verdict wins over the facet gate in BOTH directions:
+    'include' readmits a facet-excluded company; 'exclude' removes an
+    otherwise-passing one. None/empty lists apply no gate (fail-open).
     """
     # Empty/None preference list = no location pre-filter (the `NOT has_prefs`
     # guard makes the whole OR true). When set: match the job's canonical
@@ -212,11 +238,30 @@ def select_candidates(
     # stamped), and remote jobs ONLY when the user opted in by selecting
     # 'Remote' (spec 2026-07-16: remote no longer bypasses the filter).
     prefs = preferred_locations or []
+    exc = exclusions or {"industries": [], "countries": [], "sizes": [],
+                         "red_flag_categories": []}
     _where = """
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
+        LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = %(uid)s
         WHERE j.closed_at IS NULL
+          -- Deterministic company gate (pre-LLM). A per-user override wins both
+          -- ways; otherwise a company is excluded when ANY of its classified
+          -- facets is in the user's exclusion list. COALESCE(..., 'unknown')
+          -- makes an unclassified NULL facet match a literal 'unknown' exclusion.
+          AND (
+            co.verdict = 'include'
+            OR (
+              COALESCE(co.verdict, '') <> 'exclude'
+              AND NOT (COALESCE(c.industry, 'unknown') = ANY(%(exc_ind)s::text[]))
+              AND NOT (COALESCE(c.size, 'unknown') = ANY(%(exc_size)s::text[]))
+              AND NOT (COALESCE(c.hq_country, 'unknown') = ANY(%(exc_ctry)s::text[]))
+              AND NOT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(COALESCE(c.red_flags, '[]'::jsonb)) rf
+                WHERE rf->>'category' = ANY(%(exc_flag)s::text[]))
+            )
+          )
           AND (
             r.job_id IS NULL
             OR r.profile_version <> %(pv)s
@@ -235,7 +280,9 @@ def select_candidates(
                OR ('Remote' = ANY(%(prefs)s::text[]) AND j.remote IS TRUE))
     """
     params = {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,
-              "has_prefs": bool(prefs), "prefs": prefs}
+              "has_prefs": bool(prefs), "prefs": prefs,
+              "exc_ind": exc["industries"], "exc_size": exc["sizes"],
+              "exc_ctry": exc["countries"], "exc_flag": exc["red_flag_categories"]}
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT count(*)::int AS n {_where}",
@@ -244,7 +291,9 @@ def select_candidates(
         total = cur.fetchone()["n"]
         cur.execute(
             f"SELECT j.id, j.title, j.location, j.remote, j.description,"
-            f" c.ats, COALESCE(c.display_name, c.name) AS company_name"
+            f" c.ats, COALESCE(c.display_name, c.name) AS company_name,"
+            f" c.industry, c.industry_subcategory, c.size, c.hq_country,"
+            f" c.red_flags, c.about"
             f" {_where} ORDER BY j.first_seen_at DESC LIMIT %(lim)s",
             params,
         )

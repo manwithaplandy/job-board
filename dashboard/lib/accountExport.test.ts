@@ -13,6 +13,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
     job_reviews: [{ user_id: "user-a", job_id: "j1", job_title: "Eng" }],
     review_corrections: [],
     company_reviews: [{ user_id: "user-a", company_name: "Acme" }],
+    company_overrides: [{ user_id: "user-a", company_id: 1, verdict: "exclude", company_name: "Acme" }],
     application_packages: [{ user_id: "user-a", id: 1 }],
     resume_scores: [],
     cover_letter_edits: [{ user_id: "user-a", job_id: "j1", edited_text: "edited" }],
@@ -28,6 +29,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
     job_reviews: [{ user_id: "user-b", job_id: "jZ" }],
     review_corrections: [],
     company_reviews: [],
+    company_overrides: [{ user_id: "user-b", company_id: 9, verdict: "exclude", company_name: "B OVERRIDE Co" }],
     application_packages: [],
     resume_scores: [],
     cover_letter_edits: [],
@@ -39,7 +41,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
   },
   "empty-user": {
     profiles: [{ user_id: "empty-user", resume_text: null }],
-    job_reviews: [], review_corrections: [], company_reviews: [],
+    job_reviews: [], review_corrections: [], company_reviews: [], company_overrides: [],
     application_packages: [], resume_scores: [], cover_letter_edits: [], usage_counters: [],
     subscriptions: [], review_requests: [], review_runs: [], invite_redemptions: [],
   },
@@ -52,6 +54,7 @@ function makeTx(userId: string) {
     if (/FROM job_reviews/.test(sql)) return rows.job_reviews ?? [];
     if (/FROM review_corrections/.test(sql)) return rows.review_corrections ?? [];
     if (/FROM company_reviews/.test(sql)) return rows.company_reviews ?? [];
+    if (/FROM company_overrides/.test(sql)) return rows.company_overrides ?? [];
     if (/FROM application_packages/.test(sql)) return rows.application_packages ?? [];
     if (/FROM resume_scores/.test(sql)) return rows.resume_scores ?? [];
     if (/FROM cover_letter_edits/.test(sql)) return rows.cover_letter_edits ?? [];
@@ -96,6 +99,10 @@ describe("buildAccountExport", () => {
     expect(serialized).toContain("A résumé");
     expect(serialized).not.toContain("B SECRET");
     expect(serialized).not.toContain("jZ");
+    // Exercise the company_overrides export path: the caller's own override row is
+    // present, and another user's distinctive override marker is structurally absent.
+    expect(out.company_overrides).toMatchObject([{ company_id: 1, verdict: "exclude" }]);
+    expect(serialized).not.toContain("B OVERRIDE");
     expect(out.subscriptions).toMatchObject({ plan: "pro" });
   });
 

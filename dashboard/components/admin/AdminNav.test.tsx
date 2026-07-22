@@ -6,13 +6,16 @@ import { AdminNav } from "./AdminNav";
 afterEach(cleanup);
 
 describe("AdminNav", () => {
-  test("renders links to both admin consoles", () => {
+  test("renders links to every admin console", () => {
     render(<AdminNav active="invites" />);
     expect(screen.getByRole("link", { name: "Tenants" }).getAttribute("href")).toBe(
       "/admin/tenants",
     );
     expect(screen.getByRole("link", { name: "Invites" }).getAttribute("href")).toBe(
       "/admin/invites",
+    );
+    expect(screen.getByRole("link", { name: "Classification" }).getAttribute("href")).toBe(
+      "/admin/classification",
     );
   });
 

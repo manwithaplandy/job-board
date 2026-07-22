@@ -78,6 +78,32 @@ def active_companies(conn) -> list[dict]:
         return cur.fetchall()
 
 
+POLL_FAILURE_DEACTIVATE = 5  # consecutive failed board fetches before a non-seed company stops being polled
+
+
+def record_poll_result(conn, company_id: int, ok: bool) -> bool:
+    """Track consecutive board-fetch failures; deactivate dead non-seed boards.
+    Returns True when this call deactivated the company."""
+    with conn.cursor() as cur:
+        if ok:
+            cur.execute(
+                "UPDATE companies SET poll_failures = 0 WHERE id = %s AND poll_failures > 0",
+                (company_id,))
+            return False
+        cur.execute(
+            """
+            UPDATE companies SET
+              poll_failures = poll_failures + 1,
+              active = CASE WHEN poll_failures + 1 >= %(cap)s
+                             AND discovery_source <> 'seed'
+                            THEN FALSE ELSE active END
+            WHERE id = %(id)s
+            RETURNING active
+            """,
+            {"cap": POLL_FAILURE_DEACTIVATE, "id": company_id})
+        return cur.fetchone()["active"] is False
+
+
 _UPSERT_SQL = """
     INSERT INTO jobs (id, company_id, external_id, title, url,
                       location, department, remote, description)

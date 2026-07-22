@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // SaaS cutover contract changes exercised here:
-//  1. setCompanyOverride writes via withUserSql(userId, tx => tx`...`) (RLS-scoped) and
-//     DELIBERATELY no longer flips the global companies.active flag (companies is the
-//     shared corpus — one tenant must not mutate a poller-wide flag). It also calls
-//     assertNotDeleted(userId) first (stale-JWT resurrection guard).
+//  1. setCompanyOverride writes the per-user company_overrides table via
+//     withUserSql(userId, tx => tx`...`) (RLS-scoped) and DELIBERATELY no longer flips the
+//     global companies.active flag (companies is the shared corpus — one tenant must not
+//     mutate a poller-wide flag) NOR touches the legacy company_reviews table (per-user
+//     judgment now lives entirely in company_overrides). It calls assertNotDeleted(userId)
+//     first (stale-JWT resurrection guard).
 //  2. refreshCompanyDiscoveryStatus is ADMIN-ONLY: getUserClaims + isAdmin (real, pure,
 //     reads ADMIN_EMAILS, fail-closed) instead of requireUserId, and writes the GLOBAL
 //     discovery_state singleton via serviceSql (shared operator control), not withUserSql.
@@ -58,25 +60,34 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("setCompanyOverride", () => {
-  test("upserts a per-user human override, RLS-scoped to the authed user", async () => {
+  test("upserts a per-user override into company_overrides, RLS-scoped to the authed user", async () => {
     await setCompanyOverride(42, "include");
     // Scoped to the authed user's RLS context — the tenant boundary.
     expect(mocks.withUserSql).toHaveBeenCalledWith(USER, expect.any(Function));
-    const review = mocks.userCalls.find((c) => c.text.includes("company_reviews"))!;
-    expect(review).toBeTruthy();
-    expect(review.text).toContain("human_override");
-    expect(review.text).toContain("ON CONFLICT");
-    expect(review.values).toContain(USER);
-    expect(review.values).toContain(42);
-    expect(review.values).toContain("include");
+    const call = mocks.userCalls.find((c) => c.text.includes("company_overrides"))!;
+    expect(call).toBeTruthy();
+    expect(call.text).toContain("INSERT INTO company_overrides");
+    expect(call.text).toContain("ON CONFLICT");
+    expect(call.text).toContain("user_id, company_id");
+    expect(call.text).toContain("updated_at");
+    expect(call.values).toContain(USER);
+    expect(call.values).toContain(42);
+    expect(call.values).toContain("include");
+    // /companies AND the board (/) both revalidate — an override re-scopes the board.
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/companies");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
   });
 
   test("binds the exclude verdict", async () => {
     await setCompanyOverride(42, "exclude");
-    const review = mocks.userCalls.find((c) => c.text.includes("company_reviews"))!;
-    expect(review.values).toContain("exclude");
-    expect(review.values).not.toContain("include");
+    const call = mocks.userCalls.find((c) => c.text.includes("company_overrides"))!;
+    expect(call.values).toContain("exclude");
+    expect(call.values).not.toContain("include");
+  });
+
+  test("does NOT write the legacy company_reviews table (override retargeted)", async () => {
+    await setCompanyOverride(42, "include");
+    expect(mocks.userCalls.some((c) => c.text.includes("company_reviews"))).toBe(false);
   });
 
   test("does NOT mutate the global companies.active flag (shared-corpus regression guard)", async () => {

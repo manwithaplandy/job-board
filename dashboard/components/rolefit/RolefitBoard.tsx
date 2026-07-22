@@ -167,6 +167,9 @@ export function RolefitBoard({
   const [cats, setCats] = useState<string[]>(initialFilters.cats);
   const [locs, setLocs] = useState<string[]>(initialFilters.locs);
   const [sources, setSources] = useState<string[]>(initialFilters.sources);
+  const [industries, setIndustries] = useState<string[]>(initialFilters.industries);
+  const [sizes, setSizes] = useState<string[]>(initialFilters.sizes);
+  const [countries, setCountries] = useState<string[]>(initialFilters.countries);
   const [remote, setRemote] = useState<BoardFilterState["remote"]>(initialFilters.remote);
   const [minFit, setMinFit] = useState(initialFilters.minFit);
   const [payMin, setPayMin] = useState(initialFilters.payMin);
@@ -455,8 +458,8 @@ export function RolefitBoard({
   }, []);
 
   const filterState: BoardFilterState = useMemo(
-    () => ({ search: deferredSearch, cats, locs, sources, remote, minFit, payMin: deferredPayMin, payMax: deferredPayMax, payIncludeUndisclosed, sort }),
-    [deferredSearch, cats, locs, sources, remote, minFit, deferredPayMin, deferredPayMax, payIncludeUndisclosed, sort],
+    () => ({ search: deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, payMin: deferredPayMin, payMax: deferredPayMax, payIncludeUndisclosed, sort }),
+    [deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, deferredPayMin, deferredPayMax, payIncludeUndisclosed, sort],
   );
 
   // Persist filter changes (debounced) so they survive navigation/visits.
@@ -507,11 +510,13 @@ export function RolefitBoard({
         if (cancelled || raw == null) return;
         const f = parseBoardFilters(raw);
         lastSavedRef.current = JSON.stringify({
-          search: f.search, cats: f.cats, locs: f.locs, sources: f.sources, remote: f.remote,
+          search: f.search, cats: f.cats, locs: f.locs, sources: f.sources,
+          industries: f.industries, sizes: f.sizes, countries: f.countries, remote: f.remote,
           minFit: f.minFit, payMin: f.payMin, payMax: f.payMax,
           payIncludeUndisclosed: f.payIncludeUndisclosed, sort: f.sort,
         });
         setSearch(f.search); setCats(f.cats); setLocs(f.locs); setSources(f.sources);
+        setIndustries(f.industries); setSizes(f.sizes); setCountries(f.countries);
         setRemote(f.remote); setMinFit(f.minFit); setPayMin(f.payMin); setPayMax(f.payMax);
         setPayIncludeUndisclosed(f.payIncludeUndisclosed); setSort(f.sort);
       })
@@ -714,7 +719,14 @@ export function RolefitBoard({
   const selectedJobWithDetail = useMemo(() => {
     if (!selectedJob) return null;
     const ds = details[selectedJob.id];
-    const d = ds?.status === "done" ? ds.detail : {};
+    // `industry` is a two-provider field (see JobRowBase): the board list payload carries
+    // the COMPANY industry (companies.industry), while the review's own per-job industry
+    // only lands with the detail merge below. Until detail resolves, mask the company
+    // industry to null so ReviewPanel's Edit-click seeding (initialForm reads job.industry)
+    // shows "—" — the pre-classification default — instead of pre-seeding the company
+    // industry and letting a save stamp it into review_corrections.industry as if it were
+    // the reviewer's judgment.
+    const d = ds?.status === "done" ? ds.detail : { industry: null };
     const c = corrections[selectedJob.id];
     return { ...selectedJob, ...(d ?? {}), ...(c ?? {}) };
   }, [selectedJob, details, corrections]);
@@ -741,6 +753,18 @@ export function RolefitBoard({
     setSources((prev) =>
       prev.includes(ats) ? prev.filter((s) => s !== ats) : [...prev, ats],
     );
+  const toggleIndustry = (industry: string) =>
+    setIndustries((prev) =>
+      prev.includes(industry) ? prev.filter((s) => s !== industry) : [...prev, industry],
+    );
+  const toggleSize = (size: string) =>
+    setSizes((prev) =>
+      prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size],
+    );
+  const toggleCountry = (country: string) =>
+    setCountries((prev) =>
+      prev.includes(country) ? prev.filter((s) => s !== country) : [...prev, country],
+    );
   const toggleMenu = (name: string) =>
     setOpenMenu((prev) => (prev === name ? null : name));
 
@@ -749,6 +773,9 @@ export function RolefitBoard({
     setCats([]);
     setLocs([]);
     setSources([]);
+    setIndustries([]);
+    setSizes([]);
+    setCountries([]);
     setRemote("all");
     setMinFit(0);
     setPayMin(0);
@@ -1340,6 +1367,9 @@ export function RolefitBoard({
         cats={cats}
         locs={locs}
         sources={sources}
+        industries={industries}
+        sizes={sizes}
+        countries={countries}
         remote={remote}
         minFit={minFit}
         payMin={payMin}
@@ -1356,6 +1386,9 @@ export function RolefitBoard({
         onToggleCat={toggleCat}
         onToggleLoc={toggleLoc}
         onToggleSource={toggleSource}
+        onToggleIndustry={toggleIndustry}
+        onToggleSize={toggleSize}
+        onToggleCountry={toggleCountry}
         onSetRemote={setRemote}
         onSetMinFit={handleSetMinFit}
         onSetPayRange={handleSetPayRange}

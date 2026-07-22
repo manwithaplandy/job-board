@@ -9,7 +9,12 @@ export function buildJobsQuery(
   f: Filters,
   userId: string | null,
   viewerLocations: string[] = [],
-  opts: { humanOverrideOnly?: boolean; reviewedSince?: string; locationFromProfile?: boolean } = {},
+  opts: {
+    humanOverrideOnly?: boolean;
+    reviewedSince?: string;
+    locationFromProfile?: boolean;
+    companyFiltersFromProfile?: boolean;
+  } = {},
 ): SqlQuery {
   const values: unknown[] = [];
   const ph = () => `$${values.length + 1}`;
@@ -109,6 +114,28 @@ export function buildJobsQuery(
     values.push(viewerLocations);
   }
 
+  // Per-user company exclusions (profiles.company_exclusions) + manual overrides
+  // (company_overrides), self-served like locationFromProfile: scalar subqueries on
+  // the viewer bind — no extra round-trip, RLS-scoped to the viewer's own rows.
+  // COALESCE-wrapping keeps these array EXPRESSIONS (bare ANY(subquery) 42883s), and
+  // makes a missing profile / NULL column mean "no exclusions" (fail open).
+  let overridesJoin = "";
+  if (opts.companyFiltersFromProfile && viewerPh) {
+    overridesJoin =
+      `LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = ${viewerPh}::uuid`;
+    const excl = (key: string) =>
+      `COALESCE((SELECT ARRAY(SELECT jsonb_array_elements_text(p.company_exclusions->'${key}'))` +
+      ` FROM profiles p WHERE p.user_id = ${viewerPh}::uuid), '{}'::text[])`;
+    where.push(
+      `(co.verdict = 'include' OR (COALESCE(co.verdict, '') <> 'exclude'` +
+      ` AND NOT (COALESCE(c.industry, 'unknown') = ANY(${excl("industries")}))` +
+      ` AND NOT (COALESCE(c.size, 'unknown') = ANY(${excl("sizes")}))` +
+      ` AND NOT (COALESCE(c.hq_country, 'unknown') = ANY(${excl("countries")}))` +
+      ` AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.red_flags, '[]'::jsonb)) rf` +
+      ` WHERE rf->>'category' = ANY(${excl("redFlagCategories")}))))`,
+    );
+  }
+
   // --- review dimension filters (only on verdicts that carry review columns) ---
   if (hasReviews && (f.verdict === "approve" || f.verdict === "deny" || f.verdict === "all")) {
     const dimensions: [string, string][] = [
@@ -139,7 +166,10 @@ export function buildJobsQuery(
   const selectCols = [
     "j.id", "j.title", "j.location", "j.location_canonicals", "j.remote",
     "j.first_seen_at", "j.closed_at", "COALESCE(c.display_name, c.name) AS company_name",
-    "c.ats",
+    // c.ats drives the Source facet; c.industry/size/hq_country are the global company
+    // classification facts — selected ALWAYS (the anon board's facet filters read them
+    // too; three tiny columns) and mapped in toJobRow (lib/queries.ts).
+    "c.ats", "c.industry", "c.size", "c.hq_country",
   ];
   if (hasReviews) {
     selectCols.push(
@@ -175,6 +205,7 @@ export function buildJobsQuery(
     "JOIN companies c ON c.id = j.company_id",
     reviewJoin,
     correctionsJoin,
+    overridesJoin,
     whereSql,
     "ORDER BY j.first_seen_at DESC",
     "LIMIT 500",

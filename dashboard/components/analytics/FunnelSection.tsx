@@ -150,7 +150,7 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
           <SubHead>Queue</SubHead>
           <Row
             spec={{
-              label: "Queued for (re)classification", value: c.backlog, tone: "muted",
+              label: "Awaiting classification", value: c.backlog, tone: "muted",
               info: { term: GLOSSARY["backlog-state"].label, gloss: GLOSSARY["backlog-state"].gloss },
             }}
             barMax={companyStageMax}

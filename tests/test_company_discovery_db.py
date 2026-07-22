@@ -17,7 +17,7 @@ def _candidate_review_row(company_id, verdict, pv="v1"):
 
 
 @requires_db
-def test_upsert_candidates_inserts_inactive(conn):
+def test_upsert_candidates_inserts_active(conn):
     n = db.upsert_candidates(conn, [
         Candidate("Stripe", "greenhouse", "stripe"),
         Candidate("Linear", "ashby", "linear"),
@@ -29,7 +29,9 @@ def test_upsert_candidates_inserts_inactive(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT active, discovery_source FROM companies WHERE token='stripe'")
         row = cur.fetchone()
-    assert row["active"] is False and row["discovery_source"] == "dataset"
+    # active is now operational (board health), not preference — ingested boards are
+    # polled immediately; the poller deactivates them only after repeated failures.
+    assert row["active"] is True and row["discovery_source"] == "dataset"
 
 
 @requires_db

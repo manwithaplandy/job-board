@@ -16,8 +16,8 @@ export const GLOSSARY: Record<string, GlossEntry> = {
   },
   // Two distinct "backlog" meanings live on this page (see audit F4/R2-1).
   "backlog-state": {
-    label: "Queued for (re)classification",
-    gloss: "Discovery-found companies needing a first classification, or a re-run because your profile changed since they were last classified. The weekly run works through this queue; lower means it's caught up.",
+    label: "Awaiting classification",
+    gloss: "Discovery-found companies not yet classified with global metadata (industry, size, country). Admin-launched classification jobs work through this queue; lower means it's caught up.",
   },
   "company-verdicts": {
     label: "Verdicts",

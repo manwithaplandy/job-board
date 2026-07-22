@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ProfileRow } from "@/lib/types";
+import { EMPTY_EXCLUSIONS } from "@/lib/rolefit/companyExclusions";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import ProfilePage from "./page";
 import AccountPage from "./account/page";
@@ -40,6 +41,7 @@ vi.mock("@/app/actions/profileSettings", () => ({
   saveAdvancedAiSettings: vi.fn(),
   saveApplicationDetails: vi.fn(),
   saveApplicationPersonalization: vi.fn(),
+  saveCompanyFilters: vi.fn(),
   saveJobPreferences: vi.fn(),
   saveResumeSettings: vi.fn(),
 }));
@@ -58,6 +60,7 @@ const profile = {
   company_profile_version: null,
   model_company: "sentinel/company",
   board_filters: null,
+  company_exclusions: EMPTY_EXCLUSIONS,
   full_name: "Ada Lovelace",
   email: "ada@example.com",
   phone: null,
@@ -156,15 +159,18 @@ describe("profile route composition", () => {
   });
 
   test.each([
-    { ...detailRoutes[0], submitLabel: "Save preferences" },
-    { ...detailRoutes[1], submitLabel: "Save résumé" },
-    { ...detailRoutes[2], submitLabel: "Save details" },
-    { ...detailRoutes[3], submitLabel: "Save writing preferences" },
-    { ...detailRoutes[4], submitLabel: "Save AI settings" },
-  ])("$name exposes its exact section submit label", async ({ submitLabel, ...route }) => {
+    // Job Preferences hosts two sections: the preferences form + the company-exclusion
+    // filters form (each its own SectionFormShell save button).
+    { ...detailRoutes[0], submitLabel: "Save preferences", extraSubmitLabels: ["Save company filters"] },
+    { ...detailRoutes[1], submitLabel: "Save résumé", extraSubmitLabels: [] },
+    { ...detailRoutes[2], submitLabel: "Save details", extraSubmitLabels: [] },
+    { ...detailRoutes[3], submitLabel: "Save writing preferences", extraSubmitLabels: [] },
+    { ...detailRoutes[4], submitLabel: "Save AI settings", extraSubmitLabels: [] },
+  ])("$name exposes its exact section submit label", async ({ submitLabel, extraSubmitLabels, ...route }) => {
     await renderRoute(route);
     expect(screen.getByRole("button", { name: submitLabel })).not.toBeNull();
-    expect(screen.getAllByRole("button", { name: /^Save(?: |$)/ })).toHaveLength(1);
+    for (const label of extraSubmitLabels) expect(screen.getByRole("button", { name: label })).not.toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Save(?: |$)/ })).toHaveLength(1 + extraSubmitLabels.length);
   });
 
   test("Account & App has no section save action", async () => {

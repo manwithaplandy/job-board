@@ -68,9 +68,22 @@
 .rf-invite-settings-note { margin-top: var(--space-3); color: var(--text-muted); font-size: var(--font-size-caption); line-height: 1.5; }
 .rf-invite-settings-message { margin-top: var(--space-3); }
 
+/* Company-classification launcher (Classification admin page). Layout geometry lives
+   here; the live ROM estimate + config state live in ClassificationLauncher.tsx. */
+.rf-classification-launcher { display: grid; gap: var(--space-4); min-width: 0; }
+.rf-classification-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 160px); gap: var(--space-3); align-items: end; }
+.rf-classification-serp { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--font-size-caption); color: var(--text-secondary); line-height: 1.4; }
+.rf-classification-estimate { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); padding: var(--space-3); background: var(--bg-muted); border-radius: var(--radius-control); }
+.rf-classification-estimate__value { font-weight: 700; font-size: var(--font-size-body); color: var(--text-primary); }
+.rf-classification-estimate__hint { color: var(--text-muted); font-size: var(--font-size-caption); }
+.rf-classification-launch { justify-self: start; }
+
 @media (max-width: 560px) {
   .rf-invite-settings-fields { grid-template-columns: minmax(0, 1fr); }
   .rf-invite-settings-fields .rf-button { width: 100%; }
+  .rf-classification-row { grid-template-columns: minmax(0, 1fr); }
+  .rf-classification-launch { justify-self: stretch; }
+  .rf-classification-launch.rf-button { width: 100%; }
 }
 
 .rf-analytics-nav { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: var(--space-2); overflow-x: auto; margin: var(--space-6) 0 var(--space-2); padding: var(--space-2) 0; background: var(--bg-page); border-bottom: 1px solid var(--border); }

@@ -25,6 +25,8 @@ const ALLOWLIST = [
   "lib/tombstone.ts", // M-RESURRECT: reads the service-role-only account_deletions tombstone (deny-all to authenticated) so write-back paths can refuse to resurrect an erased user
   "lib/subscriptions.ts", // minor 3: persistCheckoutCustomer writes only the stripe_customer_id into the service-write-only subscriptions mirror at checkout time (webhook stays authoritative for state)
   "lib/planOverrides.ts", // operator-pinned effective tier: service-write-only plan_overrides; writes reachable only via the isAdmin-gated setPlanOverrideAction
+  "lib/classificationJobs.ts", // operator-global classification console reads: classification_jobs is RLS deny-all with no authenticated grant; both callers are isAdmin-gated
+  "app/actions/classification.ts", // isAdmin-gated enqueue/cancel of classification_jobs (service-write-only queue, no per-tenant context)
 ].sort();
 
 const ROOT = path.resolve(__dirname, "..");

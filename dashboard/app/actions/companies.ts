@@ -7,15 +7,16 @@ import { withUserSql, serviceSql } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { getOpenRouterCredits } from "@/lib/openrouter";
 
-// Sticky per-user company override. Upserts the override onto the viewer's
-// company_reviews row (creating a minimal row if the company was never AI-reviewed).
-// Runs under the viewer's RLS context so it can only touch their OWN override.
+// Sticky per-user company override. Upserts the viewer's include/exclude verdict into the
+// company_overrides table (spec 2026-07-21: per-user judgment moved off the legacy
+// company_reviews table onto company_overrides). Runs under the viewer's RLS context so it
+// can only touch their OWN override.
 //
 // Multi-tenant note: the pre-Phase-1 single-operator version ALSO flipped the global
 // companies.active flag. That is deliberately dropped — companies is the shared,
 // global corpus (no user_id), so one tenant's include/exclude must not mutate a
-// poller-wide flag for everyone. The per-user override is the source of truth for
-// the viewer's board (getCompanyReviews computes effective_verdict from it).
+// poller-wide flag for everyone. The per-user override is the source of truth for the
+// viewer's board (getJobs applies company_overrides via buildJobsQuery's override join).
 export async function setCompanyOverride(
   companyId: number,
   verdict: "include" | "exclude",
@@ -23,13 +24,13 @@ export async function setCompanyOverride(
   const userId = await requireUserId();
   await assertNotDeleted(userId); // no resurrecting an erased account's override via a stale JWT
   await withUserSql(userId, (tx) => tx`
-    INSERT INTO company_reviews
-      (user_id, company_id, company_profile_version, human_override, override_verdict, reviewed_at)
-    VALUES (${userId}::uuid, ${companyId}, '', TRUE, ${verdict}, now())
+    INSERT INTO company_overrides (user_id, company_id, verdict)
+    VALUES (${userId}::uuid, ${companyId}, ${verdict})
     ON CONFLICT (user_id, company_id) DO UPDATE SET
-      human_override = TRUE, override_verdict = ${verdict}, reviewed_at = now()
+      verdict = ${verdict}, updated_at = now()
   `);
   revalidatePath("/companies");
+  revalidatePath("/");
 }
 
 // Refresh: re-check credits; clear the halt if topped up; flag a resume so the

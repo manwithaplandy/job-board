@@ -310,4 +310,66 @@ describe("buildJobsQuery", () => {
     );
     expect(feedLike.text).not.toContain("j.title ILIKE");
   });
+
+  // --- server-side company exclusions (companyFiltersFromProfile) + widened SELECT ---
+
+  // The exact COALESCE-wrapped scalar subquery each facet uses to self-serve the
+  // viewer's company_exclusions list off the viewer placeholder ($1) — mirrored from
+  // the implementation so the assertions catch any drift in the array-expression shape.
+  const excl = (key: string) =>
+    "COALESCE((SELECT ARRAY(SELECT jsonb_array_elements_text(p.company_exclusions->'" +
+    key +
+    "')) FROM profiles p WHERE p.user_id = $1::uuid), '{}'::text[])";
+
+  test("companyFiltersFromProfile emits the override join + four COALESCE-wrapped facet clauses (authed)", () => {
+    const q = buildJobsQuery(base, UID, [], { companyFiltersFromProfile: true });
+    // Per-user manual overrides, RLS-scoped to the viewer's own rows on $1.
+    expect(q.text).toContain(
+      "LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = $1::uuid",
+    );
+    expect(q.text).toContain("company_overrides");
+    expect(q.text).toContain("jsonb_array_elements_text");
+    // Four facet clauses, each an array EXPRESSION (COALESCE keeps a bare
+    // ANY(subquery) from 42883-ing) against a COALESCE'd company fact.
+    expect(q.text).toContain(`NOT (COALESCE(c.industry, 'unknown') = ANY(${excl("industries")}))`);
+    expect(q.text).toContain(`NOT (COALESCE(c.size, 'unknown') = ANY(${excl("sizes")}))`);
+    expect(q.text).toContain(`NOT (COALESCE(c.hq_country, 'unknown') = ANY(${excl("countries")}))`);
+    expect(q.text).toContain(
+      "NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.red_flags, '[]'::jsonb)) rf" +
+        ` WHERE rf->>'category' = ANY(${excl("redFlagCategories")}))`,
+    );
+    // Override wins both ways: an explicit include re-admits a would-be-excluded
+    // company; an explicit exclude drops it regardless of the facet gate.
+    expect(q.text).toContain(
+      "co.verdict = 'include' OR (COALESCE(co.verdict, '') <> 'exclude'",
+    );
+    // Everything self-serves off the viewer placeholder ($1) — no extra binds.
+    expect(q.values).toEqual([UID]);
+  });
+
+  test("companyFiltersFromProfile is inert without an owner (anon board grows no exclusion gate)", () => {
+    const q = buildJobsQuery(base, null, [], { companyFiltersFromProfile: true });
+    expect(q.text).not.toContain("company_overrides");
+    expect(q.text).not.toContain("jsonb_array_elements_text");
+    expect(q.text).not.toContain("co.verdict");
+    expect(q.values).toEqual([]);
+  });
+
+  test("board SELECT always carries the company facets (industry/size/hq_country) — owner or not", () => {
+    for (const uid of [UID, null] as const) {
+      const t = buildJobsQuery(base, uid).text;
+      expect(t).toContain("c.industry");
+      expect(t).toContain("c.size");
+      expect(t).toContain("c.hq_country");
+    }
+  });
+
+  test("companyFiltersFromProfile fails open: one '{}'::text[] fallback per facet", () => {
+    // A profile-less / NULL-column viewer sees the FULL board — each facet COALESCEs a
+    // missing exclusions array to '{}'::text[]. locationFromProfile is NOT set here, so
+    // the only '{}'::text[] occurrences are the four company-exclusion facets.
+    const q = buildJobsQuery(base, UID, [], { companyFiltersFromProfile: true });
+    const fallbacks = q.text.match(/'\{\}'::text\[\]/g) ?? [];
+    expect(fallbacks.length).toBe(4);
+  });
 });

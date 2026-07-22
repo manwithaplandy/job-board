@@ -6,6 +6,7 @@ import {
   validateReasoningEffort, resolveStage2Model, stage2ModelTier, planForTier,
   upgradeCtaLabel, PLAN_LABEL,
 } from "@/lib/entitlements";
+import { isCountryCode } from "@/lib/companyMeta";
 import { getStructuredModels, validateModelId } from "@/lib/openrouter";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import {
@@ -16,7 +17,8 @@ import {
   updateResumeSource,
 } from "@/lib/profileSettings";
 import type { SectionSaveState, UpgradeCta } from "@/lib/profileSettingsState";
-import { getProfile } from "@/lib/queries";
+import { getProfile, updateCompanyExclusions } from "@/lib/queries";
+import { MAX_EXCLUSION_ITEMS, parseCompanyExclusions } from "@/lib/rolefit/companyExclusions";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { resumeObjectPath } from "@/lib/resumeStorage";
 import { safeErrorMessage } from "@/lib/safeError";
@@ -120,6 +122,61 @@ export async function saveJobPreferences(
       companyInstructions: text(fd, "company_instructions"),
     });
     revalidate("/profile", "/profile/job-preferences");
+    return success();
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function saveCompanyFilters(
+  _previous: SectionSaveState,
+  fd: FormData,
+): Promise<SectionSaveState> {
+  try {
+    const userId = await requireUserId();
+    // Preserve the "unknown" sentinel case-insensitively: uppercasing it to
+    // "UNKNOWN" fails the codec's country validator (`x === "unknown" ||
+    // isCountryCode(x)`), silently dropping the "exclude unclassified HQ" token
+    // the form invites users to type (CompanyFiltersForm exclude_countries copy).
+    // Dedup case-insensitively (IN/in both uppercase to IN): duplicates would otherwise
+    // be stored verbatim, inflating the count toward the cap and re-rendering as "IN, IN".
+    const countries = [
+      ...new Set(
+        String(fd.get("exclude_countries") ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((s) => (s.toLowerCase() === "unknown" ? "unknown" : s.toUpperCase())),
+      ),
+    ];
+    // exclude_countries is the only free-text facet. An unrecognized token (e.g.
+    // "USA", "India", "U.K.") fails the codec's country validator and would be
+    // silently discarded while the action still reports "Changes saved" — the same
+    // silent-delete failure class the "unknown" sentinel fix (e7ce3c3) closed.
+    // Reject bad tokens up front so the field error renders, matching every other
+    // free-text field in this file (email/URL/location).
+    const badCountries = countries.filter((c) => c !== "unknown" && !isCountryCode(c));
+    if (badCountries.length) {
+      return invalid({
+        exclude_countries: `Unrecognized country codes: ${badCountries.join(", ")} — use two-letter ISO codes (e.g. IN, US) or "unknown".`,
+      });
+    }
+    // The codec caps each facet at MAX_EXCLUSION_ITEMS and would otherwise silently
+    // truncate an over-long list — storing fewer codes than the user typed while the
+    // action reports success. Reject over the cap (after dedup) so nothing vanishes.
+    if (countries.length > MAX_EXCLUSION_ITEMS) {
+      return invalid({
+        exclude_countries: `Too many country codes (max ${MAX_EXCLUSION_ITEMS}).`,
+      });
+    }
+    const exclusions = parseCompanyExclusions({
+      industries: fd.getAll("exclude_industries").map(String),
+      sizes: fd.getAll("exclude_sizes").map(String),
+      redFlagCategories: fd.getAll("exclude_red_flags").map(String),
+      countries,
+    });
+    await updateCompanyExclusions(userId, exclusions);
+    revalidate("/", "/profile", "/profile/job-preferences", "/companies");
     return success();
   } catch (error) {
     return failure(error);

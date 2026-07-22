@@ -18,9 +18,10 @@ describe("board workspace design contract", () => {
     expect(source).toContain('className="rf-board-filters"');
     expect(source).toContain('className="rf-board-filter-strip"');
     expect(source).toContain("<SegmentedControl");
-    // Category, Match, Location, Source, Sort — five radio/checkbox menus. Pay is now a
-    // slider dialog (PayRangeSlider), so it no longer contributes a filter-option button.
-    expect(source.match(/className="rf-board-filter-option rf-focusable"/g)).toHaveLength(5);
+    // Category, Match, Location, Source, Industry, Size, Country, Sort — eight radio/checkbox
+    // menus. Pay is now a slider dialog (PayRangeSlider), so it no longer contributes a
+    // filter-option button.
+    expect(source.match(/className="rf-board-filter-option rf-focusable"/g)).toHaveLength(8);
   });
 
   test("cards expose one selection treatment and semantic status markers", () => {

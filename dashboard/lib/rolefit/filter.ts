@@ -5,6 +5,11 @@ export interface BoardFilterState {
   cats: string[];
   locs: string[];
   sources: string[];
+  // Company-classification facets (companies.industry/size/hq_country). Each holds the
+  // raw stored values the viewer selected, with "unknown" standing in for a NULL field.
+  industries: string[];
+  sizes: string[];
+  countries: string[];
   remote: "all" | "remote" | "hybrid" | "onsite";
   minFit: number;
   payMin: number;              // $k, 0 = no floor
@@ -18,6 +23,9 @@ export const DEFAULT_FILTERS: BoardFilterState = {
   cats: [],
   locs: [],
   sources: [],
+  industries: [],
+  sizes: [],
+  countries: [],
   remote: "all",
   minFit: 0,
   payMin: 0,
@@ -88,6 +96,9 @@ export function applyFilters(jobs: JobRow[], st: BoardFilterState): JobRow[] {
       if (!hit) return false;
     }
     if (st.sources.length && !st.sources.includes(j.ats)) return false;
+    if (st.industries.length && !st.industries.includes(j.industry ?? "unknown")) return false;
+    if (st.sizes.length && !st.sizes.includes(j.size ?? "unknown")) return false;
+    if (st.countries.length && !st.countries.includes(j.hq_country ?? "unknown")) return false;
     if (st.remote !== "all" && arrangementOf(j) !== st.remote) return false;
     if (st.minFit && (j.fit_score ?? 0) < st.minFit) return false;
     if (!passesPayRange(j, st)) return false;
@@ -111,10 +122,18 @@ export function facetCounts(jobs: JobRow[]): {
   categories: Record<string, number>;
   locations: Record<string, number>;
   sources: Record<string, number>;
+  industries: Record<string, number>;
+  sizes: Record<string, number>;
+  countries: Record<string, number>;
 } {
   const categories: Record<string, number> = {};
   const locations: Record<string, number> = {};
   const sources: Record<string, number> = {};
+  // Company-classification facets: a NULL/absent field is bucketed under "unknown" so the
+  // facet is a complete partition of the board (mirrors applyFilters' `?? "unknown"`).
+  const industries: Record<string, number> = {};
+  const sizes: Record<string, number> = {};
+  const countries: Record<string, number> = {};
   for (const j of jobs) {
     if (j.role_category) categories[j.role_category] = (categories[j.role_category] ?? 0) + 1;
     for (const l of locationsOf(j)) {
@@ -122,8 +141,14 @@ export function facetCounts(jobs: JobRow[]): {
     }
     if (j.remote === true) locations["Remote"] = (locations["Remote"] ?? 0) + 1;
     if (j.ats) sources[j.ats] = (sources[j.ats] ?? 0) + 1;
+    const ind = j.industry ?? "unknown";
+    industries[ind] = (industries[ind] ?? 0) + 1;
+    const sz = j.size ?? "unknown";
+    sizes[sz] = (sizes[sz] ?? 0) + 1;
+    const ctry = j.hq_country ?? "unknown";
+    countries[ctry] = (countries[ctry] ?? 0) + 1;
   }
-  return { categories, locations, sources };
+  return { categories, locations, sources, industries, sizes, countries };
 }
 
 // Partition the board by application status. `applied` holds the ids of jobs the

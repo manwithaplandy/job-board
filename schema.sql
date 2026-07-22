@@ -17,6 +17,23 @@ CREATE TABLE companies (
   web_description  TEXT,
   web_searched_at  TIMESTAMPTZ,
   enriched_at      TIMESTAMPTZ,
+  -- Global company classification (migrations/2026-07-21-company-classification.sql).
+  -- Written once, globally, by the admin-launched classification_jobs worker; per-user
+  -- judgment now lives in profiles.company_exclusions + company_overrides.
+  industry                  TEXT,
+  industry_subcategory      TEXT,
+  size                      TEXT
+    CHECK (size IN ('1-10','11-50','51-200','201-1000','1001-5000','5000+','unknown')),
+  hq_country                TEXT,   -- ISO-3166 alpha-2 (uppercase) or 'unknown'
+  tech_tags                 JSONB,
+  red_flags                 JSONB,  -- [{category, note}] — company_discovery taxonomy
+  classification_confidence TEXT
+    CHECK (classification_confidence IN ('low','medium','high')),
+  classified_at             TIMESTAMPTZ,
+  classification_model      TEXT,
+  classification_source     TEXT
+    CHECK (classification_source IN ('seeded_from_user_review','job','job_serp')),
+  poll_failures             INT NOT NULL DEFAULT 0,
   UNIQUE (ats, token)
 );
 
@@ -96,6 +113,10 @@ CREATE TABLE profiles (
   company_profile_version TEXT,
   model_company           TEXT,
   board_filters    JSONB,                     -- remembered board filter state; NULL = defaults
+  -- Structured company facet exclusions: {industries[], countries[], sizes[],
+  -- redFlagCategories[]}. Deterministic per-user gate (no LLM); enforced in the
+  -- reviewer + board. See migrations/2026-07-21-company-classification.sql.
+  company_exclusions JSONB,
   -- Reusable application answers (do not affect review verdicts).
   full_name         TEXT,
   email             TEXT,
@@ -263,6 +284,45 @@ CREATE TABLE company_reviews (
 );
 CREATE INDEX idx_company_reviews_user_verdict ON company_reviews (user_id, verdict);
 CREATE INDEX idx_company_reviews_user_version ON company_reviews (user_id, company_profile_version);
+
+-- Admin-triggered LLM classification runs (migrations/2026-07-21-company-classification.sql).
+-- Service/admin only: RLS deny-all, NO grants — the dashboard admin UI reads/writes via
+-- serviceSql (postgres role bypasses RLS). RLS enable/policy sit in the RLS section below.
+CREATE TABLE classification_jobs (
+  id             SERIAL PRIMARY KEY,
+  status         TEXT NOT NULL DEFAULT 'pending'
+                   CHECK (status IN ('pending','running','done','canceled','error')),
+  model          TEXT NOT NULL,
+  company_cap    INT NOT NULL CHECK (company_cap > 0),
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('unclassified','unknown_repass')),
+  use_serp       BOOLEAN NOT NULL DEFAULT FALSE,
+  est_cost       NUMERIC(10,4),
+  processed      INT NOT NULL DEFAULT 0,
+  errored        INT NOT NULL DEFAULT 0,
+  serp_queries   INT NOT NULL DEFAULT 0,
+  actual_prompt_tokens     BIGINT NOT NULL DEFAULT 0,
+  actual_completion_tokens BIGINT NOT NULL DEFAULT 0,
+  actual_cost    NUMERIC(10,4),
+  error          TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at     TIMESTAMPTZ,
+  last_progress_at TIMESTAMPTZ,   -- progress heartbeat; stale-job recovery gate (worker.py)
+  finished_at    TIMESTAMPTZ
+);
+
+-- Per-user manual include/exclude (migrations/2026-07-21-company-classification.sql).
+-- Replaces company_reviews.human_override/override_verdict. Owner-scoped RLS + grant sit
+-- in the RLS/grants sections below (owner_access references public.app_user_id(), which is
+-- defined further down, so the policy cannot live inline here).
+CREATE TABLE company_overrides (
+  user_id    UUID NOT NULL,          -- mirrors auth.users; deliberately no FK (house convention)
+  company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  verdict    TEXT NOT NULL CHECK (verdict IN ('include','exclude')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, company_id)
+);
+CREATE INDEX idx_company_overrides_company ON company_overrides (company_id);
 
 -- accounting for discovery pipeline runs
 CREATE TABLE discovery_runs (
@@ -552,6 +612,12 @@ ALTER TABLE review_runs      ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON review_runs      FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE company_reviews  ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON company_reviews  FOR ALL USING (false) WITH CHECK (false);
+-- See migrations/2026-07-21-company-classification.sql. classification_jobs is service-only
+-- (deny-all is its whole contract); company_overrides also gets owner_access further down.
+ALTER TABLE classification_jobs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON classification_jobs FOR ALL USING (false) WITH CHECK (false);
+ALTER TABLE company_overrides   ENABLE ROW LEVEL SECURITY;
+CREATE POLICY no_anon_access ON company_overrides   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE discovery_runs   ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON discovery_runs   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE discovery_state  ENABLE ROW LEVEL SECURITY;
@@ -657,6 +723,9 @@ CREATE POLICY owner_access ON usage_counters FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 CREATE POLICY owner_access ON generation_jobs FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
+-- Per-user company include/exclude (2026-07-21-company-classification): owner CRUD.
+CREATE POLICY owner_access ON company_overrides FOR ALL TO authenticated
+  USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 -- Per-user invite budget: owner may READ their own count; writes are service-role
 -- (dashboard/lib/invites.ts). See migrations/2026-07-13-user-invites.sql.
 CREATE POLICY owner_read ON invite_allowances FOR SELECT TO authenticated
@@ -708,7 +777,7 @@ GRANT SELECT ON jobs, companies, poll_runs, discovery_runs, discovery_state, rev
 -- service-role only, so a user cannot zero their own review/generation counters).
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   job_reviews, review_corrections, company_reviews, application_packages, resume_scores,
-  cover_letter_edits
+  cover_letter_edits, company_overrides
   TO authenticated;
 -- generation_jobs: owner-scoped CRUD (DELETE backs the per-user housekeeping prune of
 -- old settled rows). Cost integrity is unaffected: allowance charges live in
@@ -724,7 +793,8 @@ GRANT SELECT ON usage_counters TO authenticated;
 GRANT SELECT, DELETE ON profiles TO authenticated;
 GRANT INSERT (user_id, resume_text, resume_file_path, instructions, model_stage1,
               model_stage2, preferred_locations, model_resume, company_instructions,
-              company_profile_version, model_company, board_filters, full_name, email,
+              company_profile_version, model_company, board_filters, company_exclusions,
+              full_name, email,
               phone, links, location, work_authorized, needs_sponsorship, eeo_gender,
               eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
               reasoning_effort_resume, reasoning_effort_cover,
@@ -733,7 +803,8 @@ GRANT INSERT (user_id, resume_text, resume_file_path, instructions, model_stage1
   ON profiles TO authenticated;
 GRANT UPDATE (resume_text, resume_file_path, instructions, model_stage1,
               model_stage2, preferred_locations, model_resume, company_instructions,
-              company_profile_version, model_company, board_filters, full_name, email,
+              company_profile_version, model_company, board_filters, company_exclusions,
+              full_name, email,
               phone, location, links, work_authorized, needs_sponsorship, eeo_gender,
               eeo_race, eeo_veteran, eeo_disability, screening_answers, model_cover,
               reasoning_effort_resume, reasoning_effort_cover,

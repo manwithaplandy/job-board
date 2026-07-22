@@ -32,6 +32,7 @@ export interface AccountExport {
   job_reviews: unknown[];
   review_corrections: unknown[];
   company_reviews: unknown[];
+  company_overrides: unknown[];
   application_packages: unknown[];
   resume_scores: unknown[];
   cover_letter_edits: unknown[];
@@ -92,7 +93,7 @@ export async function listResumeFiles(userId: string, expiresIn = 300): Promise<
 async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes">> {
   return withUserSql(userId, async (tx) => {
     const [
-      profiles, jobReviews, reviewCorrections, companyReviews,
+      profiles, jobReviews, reviewCorrections, companyReviews, companyOverrides,
       applicationPackages, resumeScores, coverLetterEdits, usageCounters, subscriptions,
       reviewRequests, generationJobs, inviteAllowances, planOverrides, reviewRuns,
     ] = await Promise.all([
@@ -106,6 +107,9 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       tx`SELECT cr.*, COALESCE(c.display_name, c.name) AS company_name
          FROM company_reviews cr JOIN companies c ON c.id = cr.company_id
          WHERE cr.user_id = ${userId}::uuid`,
+      tx`SELECT co.*, COALESCE(c.display_name, c.name) AS company_name
+         FROM company_overrides co JOIN companies c ON c.id = co.company_id
+         WHERE co.user_id = ${userId}::uuid`,
       tx`SELECT * FROM application_packages WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM resume_scores WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM cover_letter_edits WHERE user_id = ${userId}::uuid`,
@@ -128,6 +132,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       job_reviews: jobReviews as unknown[],
       review_corrections: reviewCorrections as unknown[],
       company_reviews: companyReviews as unknown[],
+      company_overrides: companyOverrides as unknown[],
       application_packages: applicationPackages as unknown[],
       resume_scores: resumeScores as unknown[],
       cover_letter_edits: coverLetterEdits as unknown[],

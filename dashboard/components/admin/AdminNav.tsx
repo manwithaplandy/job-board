@@ -5,11 +5,12 @@ import { Tabs } from "@/components/ui/Navigation";
 // unadvertised-route convention holds: no public-header or AccountMenu link
 // points at /admin/*. Server-component-compatible (plain anchors, no state).
 
-export type AdminSection = "tenants" | "invites";
+export type AdminSection = "tenants" | "invites" | "classification";
 
 const LINKS: { section: AdminSection; label: string; href: string }[] = [
   { section: "tenants", label: "Tenants", href: "/admin/tenants" },
   { section: "invites", label: "Invites", href: "/admin/invites" },
+  { section: "classification", label: "Classification", href: "/admin/classification" },
 ];
 
 export function AdminNav({ active }: { active: AdminSection }) {

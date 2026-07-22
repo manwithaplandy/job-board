@@ -367,8 +367,9 @@ async function getDistributions(tx: TransactionSql, userId: string): Promise<Dis
     () => tx`SELECT ats AS label, count(*)::int AS count FROM companies GROUP BY ats ORDER BY count DESC`,
     () => tx`SELECT discovery_source AS label, count(*)::int AS count FROM companies
         GROUP BY discovery_source ORDER BY count DESC`,
-    // Effective verdict (honors manual override), matching getCompanyVerdictCounts
-    // so this breakdown and the funnel's "Included" count agree.
+    // Effective verdict (honors manual override), matching companyVerdictCountsWith
+    // so this breakdown and the funnel's "Included" count agree. (Legacy company_reviews
+    // read — the analytics funnel keeps using it until the post-rollout cleanup migration.)
     () => tx`SELECT industry AS label, count(*)::int AS count FROM company_reviews
         WHERE user_id = ${userId}::uuid
           AND (CASE WHEN human_override THEN override_verdict ELSE verdict END) = 'include'

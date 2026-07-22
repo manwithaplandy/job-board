@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { unstable_cache } from "next/cache";
 import { redirect } from "next/navigation";
+import { CompanyFiltersForm } from "@/components/profile/CompanyFiltersForm";
 import { JobPreferencesForm } from "@/components/profile/JobPreferencesForm";
 import { BackLink, PageHeader } from "@/components/ui/Navigation";
 import { requireUserId } from "@/lib/auth";
@@ -28,6 +29,7 @@ export default async function JobPreferencesPage() {
       <BackLink href="/profile">Back to profile</BackLink>
       <PageHeader title="Job Preferences" description="Choose where to search and describe what Rolefit should prioritize or avoid." />
       <JobPreferencesForm profile={profile} locations={locations} />
+      <CompanyFiltersForm profile={profile} />
     </main>
   );
 }

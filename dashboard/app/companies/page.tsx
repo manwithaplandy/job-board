@@ -2,20 +2,21 @@
 import type { Metadata } from "next";
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
-import { getCompanyReviews, getCompanyVerdictCounts, getDiscoveryState }
+import { getCompaniesBrowse, getCompanyOverrideCounts, getDiscoveryState }
   from "@/lib/queries";
+import { INDUSTRY_LABELS } from "@/lib/companyMeta";
 import { setCompanyOverride, refreshCompanyDiscoveryStatus } from "@/app/actions/companies";
 import { CompanyList } from "@/components/companies/CompanyList";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
-import type { CompanyReviewRow, DiscoveryStateRow } from "@/lib/types";
+import type { CompanyBrowseRow, DiscoveryStateRow } from "@/lib/types";
 import { PageHeader } from "@/components/ui/Navigation";
 import { EmptyState } from "@/components/ui/SystemStates";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Companies · Rolefit" };
 
-const VALID_BUCKETS = ["include", "exclude", "unknown"] as const;
+const VALID_BUCKETS = ["all", "included", "excluded"] as const;
 type Bucket = typeof VALID_BUCKETS[number];
 
 export default async function CompaniesPage({
@@ -23,62 +24,70 @@ export default async function CompaniesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // Viewer-scoped: the companies board shows the signed-in user's own
-  // company_reviews. Anonymous visitors are redirected to /login.
+  // Viewer-scoped: the browse surface shows the GLOBAL company corpus with the signed-in
+  // user's own overrides (company_overrides) layered on. Anonymous visitors → /login.
   const userId = await requireUserId();
-  // Only admins may trigger the shared discovery-resume (unhalt); gate the button.
+  // Only admins may trigger the shared discovery-resume (unhalt) or launch classification.
   const admin = isAdmin(await getUserClaims());
 
   const sp = await searchParams;
   const rawBucket = sp.bucket;
   const bucket: Bucket = VALID_BUCKETS.includes(rawBucket as Bucket)
     ? (rawBucket as Bucket)
-    : "include";
+    : "all";
 
   const rawQ = sp.q;
   const search = (Array.isArray(rawQ) ? rawQ[0] : rawQ ?? "").trim();
 
+  // Industry facet: accept only a known taxonomy key (incl. "unknown"); anything else → all.
+  // Object.hasOwn (not `in`) so prototype keys like "constructor"/"toString" can't slip
+  // through user-controlled URL input.
+  const rawIndustry = Array.isArray(sp.industry) ? sp.industry[0] : sp.industry ?? "";
+  const industry = Object.hasOwn(INDUSTRY_LABELS, rawIndustry) ? rawIndustry : "";
+
   const [companies, counts, state]: [
-    CompanyReviewRow[],
-    { include: number; exclude: number; unknown: number },
+    CompanyBrowseRow[],
+    { all: number; included: number; excluded: number },
     DiscoveryStateRow,
   ] = await Promise.all([
-    getCompanyReviews(userId, bucket, 200, search),
-    getCompanyVerdictCounts(userId),
+    getCompaniesBrowse(userId, { bucket, industry: industry || undefined, q: search || undefined, limit: 200 }),
+    getCompanyOverrideCounts(userId),
     getDiscoveryState(userId),
   ]);
 
-  const included = bucket === "include" ? companies : [];
-  const excluded = bucket === "exclude" ? companies : [];
-  const unknown = bucket === "unknown" ? companies : [];
-
-  // A brand-new account has no company reviews yet (T6 first-run polish). Show an
-  // explanatory empty state — not an empty table — matching the board's tone.
-  const hasAnyReviews = counts.include + counts.exclude + counts.unknown > 0;
+  // Empty corpus (fresh DB, nothing classified/ingested yet): show an explanatory empty
+  // state instead of empty tabs. Admins get a direct link to launch a classification job.
+  const hasAnyCompanies = counts.all > 0;
 
   return (
     <AppShell header={<SlimHeader current="companies" />}>
       <main className="rf-secondary-page">
         <div className="rf-secondary-wrap">
           <PageHeader className="rf-secondary-header" title="Companies" description={<>
-            AI-classified against your company preferences. Override any decision — it sticks.{" "}
+            Every company in the corpus, with your own include/exclude overrides. Override any
+            company — it sticks and re-scopes your board.{" "}
             <a href="/profile" className="rf-secondary-link">
               Edit preferences
             </a>
           </>} />
-          {hasAnyReviews || search ? (
+          {hasAnyCompanies ? (
             <CompanyList
-              included={included} excluded={excluded} unknown={unknown}
-              counts={counts} state={state} activeBucket={bucket} query={search}
+              companies={companies} counts={counts} state={state}
+              activeBucket={bucket} industry={industry} query={search}
               override={setCompanyOverride} refresh={refreshCompanyDiscoveryStatus} canRefresh={admin}
             />
           ) : (
             <EmptyState
               className="rf-secondary-empty"
-              title="No companies classified yet"
-              description={<>
-                As your board is reviewed, the companies behind those roles are classified
-                against your preferences and appear here. Set your{" "}
+              title="No companies yet"
+              description={admin ? <>
+                The classification corpus is empty.{" "}
+                <a href="/admin/classification" className="rf-secondary-link">
+                  Run a classification job
+                </a>{" "}
+                to populate it.
+              </> : <>
+                Companies appear here as the corpus is classified. Set your{" "}
                 <a href="/profile" className="rf-secondary-link">
                   company preferences
                 </a>{" "}

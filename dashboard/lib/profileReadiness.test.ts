@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ProfileRow } from "@/lib/types";
+import { EMPTY_EXCLUSIONS } from "@/lib/rolefit/companyExclusions";
 import { deriveProfileReadiness, formatProfileDate } from "@/lib/profileReadiness";
 
 function profile(overrides: Partial<ProfileRow> = {}): ProfileRow {
@@ -16,6 +17,7 @@ function profile(overrides: Partial<ProfileRow> = {}): ProfileRow {
     company_profile_version: null,
     model_company: null,
     board_filters: null,
+    company_exclusions: EMPTY_EXCLUSIONS,
     full_name: null,
     email: null,
     phone: null,

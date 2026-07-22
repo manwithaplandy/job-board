@@ -47,4 +47,14 @@ describe("admin console width", () => {
       /\.rf-classification-launcher\s*\{[^}]*max-width:\s*var\(--content-form\)/,
     );
   });
+
+  // Same regression on the invites tab: the fields grid ends in an `auto` track, so
+  // without a cap the stretch-auto-tracks step hands ALL the wide-card free space to
+  // the "Save settings" Button (justify-self: stretch), ballooning it inside the 1200px
+  // --admin wrap. The cap keeps it near its pre-widening width. Mirrors the launcher cap.
+  test("the invite-settings fields grid is width-capped", () => {
+    expect(css).toMatch(
+      /\.rf-invite-settings-fields\s*\{[^}]*max-width:\s*var\(--content-form\)/,
+    );
+  });
 });

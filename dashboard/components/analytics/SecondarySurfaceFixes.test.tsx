@@ -74,3 +74,40 @@ describe("analytics compact surface fixes", () => {
     expect(screen.getByRole("tooltip")).toBeTruthy();
   });
 });
+
+describe("analytics content width", () => {
+  const css = readFileSync("components/secondary-surfaces.css", "utf8");
+
+  // /analytics widens via the --wide modifier. Like --admin, this only works if the modifier
+  // overrides `width`: the base sets `width: min(100%, --content-reading)` (720px), and a bare
+  // `max-width` cannot grow an element already narrower than its own max-width. The [{;\s]
+  // before `width:` anchors the property name so it CANNOT match inside `max-width:` (the char
+  // before `width` there is `-`) — reverting to `max-width: 1040px` (the old dead rule) or to
+  // `max-width: min(100%, 1040px)` must FAIL this test, not pass it. 1040px is a bespoke width
+  // for this single consumer, not a --content-* token (the nearest, --content-wide, is 1200px).
+  test("--wide overrides width (not just max-width) so /analytics actually widens", () => {
+    expect(css).toMatch(
+      /\.rf-secondary-wrap--wide\s*\{[^}]*[{;\s]width:\s*min\(100%,\s*1040px\)/,
+    );
+  });
+
+  // Same single-class cascade caveat as --admin: --wide (specificity 0,1,0) only beats the base
+  // width by appearing LATER in source order. Pin the order so a modifier-grouping or
+  // stylelint-ordering refactor that hoists it above the base can't silently revert /analytics
+  // to 720px while the rule-text assertion above still passes. (The base must be matched as
+  // /\.rf-secondary-wrap\s*\{/ — a bare ".rf-secondary-wrap" is a prefix of --wide/--admin.)
+  test("the base wrap precedes --wide so the cascade actually widens", () => {
+    const baseIdx = css.search(/\.rf-secondary-wrap\s*\{/);
+    const wideIdx = css.search(/\.rf-secondary-wrap--wide\s*\{/);
+    expect(baseIdx).toBeGreaterThanOrEqual(0);
+    expect(wideIdx).toBeGreaterThan(baseIdx);
+  });
+
+  // The only consumer of --wide is the analytics dashboard; if it drops the modifier the width
+  // fix above becomes dead CSS. Mirrors adminWrap's "all three admin tabs carry the wrap".
+  test("the analytics dashboard carries the --wide wrap", () => {
+    expect(readFileSync("components/analytics/PipelineDashboard.tsx", "utf8")).toContain(
+      "rf-secondary-wrap--wide",
+    );
+  });
+});

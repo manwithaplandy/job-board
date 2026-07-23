@@ -3,10 +3,9 @@
 .rf-secondary-wrap { width: min(100%, var(--content-reading)); min-width: 0; margin: 0 auto; }
 /* The base wrap is sized with width: min(100%, --content-reading), so a modifier can only
    widen it by overriding width (max-width cannot grow an element already narrower than its
-   own max-width). --wide is still the latent dead rule this describes: it sets max-width and
-   so has no effect on /analytics — deferred to a dedicated analytics-width pass that owns its
-   own visual verification. --admin below is the fixed form. */
-.rf-secondary-wrap--wide { max-width: 1040px; }
+   own max-width). Both modifiers below therefore set width, not max-width: --wide takes
+   /analytics to a bespoke 1040px, --admin takes the admin console to --content-standard. */
+.rf-secondary-wrap--wide { width: min(100%, 1040px); }
 .rf-secondary-wrap--admin { width: min(100%, var(--content-standard)); }
 .rf-secondary-header { margin-bottom: var(--space-6); }
 .rf-secondary-stack { display: grid; gap: var(--space-4); min-width: 0; }

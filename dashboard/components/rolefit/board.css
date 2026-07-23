@@ -87,6 +87,29 @@
   white-space: nowrap;
 }
 
+/* Collapsed mobile-filter summary. Hidden on desktop (the full strip is always shown
+   there, pixel-identical to before); the ≤760px media query below reveals it and
+   collapses the strip. The toggle mirrors the filter triggers (surface + border) so it
+   reads as a native filter control; its caret rotates when the container is open. */
+.rf-board-filter-summary { display: none; }
+.rf-board-filter-summary__toggle {
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  font-size: var(--font-size-caption);
+}
+.rf-board-filter-summary__toggle:hover:not(:disabled) { background: var(--accent-bg); }
+.rf-board-filter-summary__caret { transition: transform var(--motion-fast) var(--ease-standard); }
+.rf-board-filters[data-filters-open] .rf-board-filter-summary__caret { transform: rotate(180deg); }
+.rf-board-filter-summary__count {
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .rf-job-card {
   position: relative;
   min-width: 0;
@@ -276,7 +299,12 @@
   }
   .rf-board-detail-pane { padding-inline: 0; }
   .rf-board-filters { padding: var(--space-2); }
-  .rf-board-filter-strip { align-items: stretch; }
+  /* Show the compact summary; collapse the strip behind it (collapsed by default). The
+     strip stays in the DOM so its listbox anchors/focus order are untouched when opened;
+     display:none while closed also removes it from the tab order and a11y tree. */
+  .rf-board-filter-summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .rf-board-filter-strip { display: none; align-items: stretch; }
+  .rf-board-filters[data-filters-open] .rf-board-filter-strip { display: flex; }
   .rf-board-filter-strip > [data-menuroot] { flex: 1 1 calc(50% - var(--space-2)); min-width: 0; }
   .rf-board-filter-strip > [data-menuroot] > [role="listbox"] { max-width: calc(100vw - var(--space-4)); }
   [data-menuroot][data-mobile-align="start"] > [role="listbox"] { left: 0; right: auto; }
@@ -288,7 +316,9 @@
   .rf-board-view-segments { display: flex; width: 100%; }
   .rf-board-view-segments .rf-segments__item { flex: 1; min-width: 0; padding-inline: var(--space-2); }
   .rf-board-filter-spacer { display: none; }
-  .rf-board-result-count { order: 20; flex: 1; min-width: 0; text-align: left; }
+  /* The summary row owns the single visible roles count on mobile; hide the strip's copy
+     (whether the strip is open or closed) so there are never two live counts at once. */
+  .rf-board-result-count { display: none; }
   .rf-job-card { margin-inline: 0; }
   .rf-job-detail { width: 100%; padding: var(--space-5) var(--space-4) 48px !important; }
   .rf-job-detail > div:first-child { flex-wrap: wrap; }

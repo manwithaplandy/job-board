@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { atsLabel } from "@/lib/rolefit/ats";
 import { COMPANY_SIZES, countryLabel, INDUSTRY_LABELS, type CompanySize } from "@/lib/companyMeta";
+import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { SegmentedControl } from "@/components/ui/Navigation";
 import { fmtPayRange } from "@/lib/rolefit/filter";
@@ -261,18 +262,44 @@ export function FilterBar({
     countries: countryCounts,
   } = facets;
 
+  // Ephemeral, per-mount disclosure state for the collapsed mobile summary — always
+  // starts closed so the server HTML (collapsed) matches the initial client render and
+  // the anon ISR twin / authed board hydrate without a flash. Deliberately NOT persisted
+  // (no BoardFilterState / /api/board-filters involvement). Visibility is CSS-driven
+  // (board.css, ≤760px only); this state just reflects onto the container + toggle.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const stripId = useId();
+
   const activeBtn = (on: boolean) => ({
     bg: on ? "var(--accent-bg)" : "var(--bg-surface)",
     border: on ? "var(--accent-border)" : "var(--border)",
   });
-  const cb = activeBtn(cats.length > 0);
-  const lb = activeBtn(locs.length > 0);
-  const sb = activeBtn(sources.length > 0);
-  const ib = activeBtn(industries.length > 0);
-  const zb = activeBtn(sizes.length > 0);
-  const yb = activeBtn(countries.length > 0);
-  const pb = activeBtn(payMin > 0 || payMax !== null);
-  const mb = activeBtn(minFit > 0);
+  // Per-facet "active" booleans — the single source of truth shared by each trigger's
+  // activeBtn(...) styling AND the collapsed summary's active-facet count, so the two can
+  // never drift. Every facet that carries a filter is counted; Sort and the Active/Applied
+  // view are excluded on purpose (they reorder/scope the list, they don't filter it).
+  const catsActive = cats.length > 0;
+  const locsActive = locs.length > 0;
+  const sourcesActive = sources.length > 0;
+  const industriesActive = industries.length > 0;
+  const sizesActive = sizes.length > 0;
+  const countriesActive = countries.length > 0;
+  const payActive = payMin > 0 || payMax !== null;
+  const matchActive = minFit > 0;
+  const remoteActive = remote !== "all";
+  const cb = activeBtn(catsActive);
+  const lb = activeBtn(locsActive);
+  const sb = activeBtn(sourcesActive);
+  const ib = activeBtn(industriesActive);
+  const zb = activeBtn(sizesActive);
+  const yb = activeBtn(countriesActive);
+  const pb = activeBtn(payActive);
+  const mb = activeBtn(matchActive);
+
+  const activeFacetCount = [
+    catsActive, payActive, matchActive, locsActive, sourcesActive,
+    industriesActive, sizesActive, countriesActive, remoteActive,
+  ].filter(Boolean).length;
 
   const catBadge = cats.length ? ` · ${cats.length}` : "";
   const locBadge = locs.length ? ` · ${locs.length}` : "";
@@ -364,8 +391,30 @@ export function FilterBar({
   const caret = <Icon name="chevron-down" size={16} />;
 
   return (
-    <div className="rf-board-filters">
-      <div className="rf-board-filter-strip">
+    <div className="rf-board-filters" data-filters-open={filtersOpen ? "" : undefined}>
+      {/* Mobile-only collapsed summary (board.css shows it ≤760px, hides it on desktop).
+          Collapsed by default so the job list is the first thing on a phone; the whole
+          strip below it stays in the DOM and is display:none'd when closed. */}
+      <div className="rf-board-filter-summary">
+        <Button
+          variant="ghost"
+          className="rf-board-filter-summary__toggle"
+          aria-expanded={filtersOpen}
+          aria-controls={stripId}
+          onClick={() => setFiltersOpen((v) => !v)}
+        >
+          Filters{activeFacetCount > 0 ? ` · ${activeFacetCount}` : ""}
+          <Icon name="chevron-down" size={16} className="rf-board-filter-summary__caret" />
+        </Button>
+        {/* Roles count stays visible while collapsed. On mobile the strip's own count is
+            hidden (board.css), so exactly one role="status" live region is in the a11y
+            tree here; on desktop this summary is display:none and the strip's count is
+            the live one. */}
+        <span className="rf-board-filter-summary__count" role="status" aria-live="polite">
+          {visibleCount} of {totalInView} roles
+        </span>
+      </div>
+      <div className="rf-board-filter-strip" id={stripId}>
       {/* Category */}
       <FilterMenu
         name="category"

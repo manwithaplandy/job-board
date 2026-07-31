@@ -40,7 +40,7 @@ def has_api_key() -> bool:
 # without a redeploy; the compiled fallbacks below are what ships.
 #
 # NOTE: the resolved default still passes through entitlements.resolve_stage2_model at
-# the call site, so it is metered like any model — gemini-flash-latest is unassigned in
+# the call site, so it is metered like any model — openai/gpt-5.6-luna is unassigned in
 # entitlements.STAGE2_MODEL_TIER, so it meters at the Pro premium cap (the codebase's
 # conservative default for any model not explicitly tier-1). The dashboard mirrors this
 # default (dashboard/lib/reviewRequests.ts) so the displayed daily cap matches what the
@@ -53,7 +53,7 @@ _DEFAULT_STAGE2_MODEL_ENV = {
 
 _COMPILED_DEFAULT_STAGE2_MODEL = {
     "standard": entitlements.CHEAP_MODEL,
-    "pro": "gemini-flash-latest",
+    "pro": "openai/gpt-5.6-luna",
 }
 
 

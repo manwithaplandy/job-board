@@ -15,7 +15,7 @@ const DEFAULT_STAGE2_MODEL_ENV: Record<Plan, string> = {
 
 const COMPILED_DEFAULT_STAGE2_MODEL: Record<Plan, string> = {
   standard: CHEAP_MODEL,
-  pro: "gemini-flash-latest",
+  pro: "openai/gpt-5.6-luna",
 };
 
 /** The default stage-2 model for `plan` when profiles.model_stage2 is unset. An unset or

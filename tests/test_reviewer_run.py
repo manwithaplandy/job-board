@@ -856,7 +856,7 @@ def test_pro_default_model_when_unset(conn, monkeypatch):
         cur.execute("SELECT model_stage1, model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
         row = cur.fetchone()
         assert row["model_stage1"] == entitlements.CHEAP_MODEL
-        assert row["model_stage2"] == "gemini-flash-latest"
+        assert row["model_stage2"] == "openai/gpt-5.6-luna"
 
 
 @requires_db

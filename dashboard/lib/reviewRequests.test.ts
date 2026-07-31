@@ -80,13 +80,13 @@ describe("remainingDailyBudget", () => {
   test("honors a per-profile daily_review_cap override (below tier → lowers)", async () => {
     state.rowQueue.push([{ model_stage2: null, daily_review_cap: 50 }]);
     tx.unsafe = () => Promise.resolve([{ n: 10 }]);
-    // A Pro user with no picked model defaults to gemini (premium slot, cap 100); the
+    // A Pro user with no picked model defaults to Luna (premium slot, cap 100); the
     // override 50 < 100 lowers the effective cap to 50 → 50 - 10 = 40.
     expect(await remainingDailyBudget("u", "pro")).toBe(40);
   });
 
   test("Pro with no picked model defaults to the premium-slot cap (mirrors reviewer)", async () => {
-    // model_stage2 null → tier default (gemini-flash-latest), which is unassigned →
+    // model_stage2 null → tier default (openai/gpt-5.6-luna), which is unassigned →
     // premium slot → Pro premium cap 100. This mirrors reviewer/config.py so the shown
     // budget matches what the reviewer enforces. No override, spend 0 → 100.
     delete process.env.REVIEW_DEFAULT_MODEL_PRO;
@@ -114,7 +114,7 @@ describe("defaultStage2Model", () => {
   test("compiled per-tier defaults when env unset", () => {
     delete process.env.REVIEW_DEFAULT_MODEL_PRO;
     delete process.env.REVIEW_DEFAULT_MODEL_STANDARD;
-    expect(defaultStage2Model("pro")).toBe("gemini-flash-latest");
+    expect(defaultStage2Model("pro")).toBe("openai/gpt-5.6-luna");
     expect(defaultStage2Model("standard")).toBe("deepseek/deepseek-v4-flash");
   });
 
@@ -122,7 +122,7 @@ describe("defaultStage2Model", () => {
     process.env.REVIEW_DEFAULT_MODEL_PRO = "anthropic/claude-sonnet-5";
     expect(defaultStage2Model("pro")).toBe("anthropic/claude-sonnet-5");
     process.env.REVIEW_DEFAULT_MODEL_PRO = "   ";
-    expect(defaultStage2Model("pro")).toBe("gemini-flash-latest");
+    expect(defaultStage2Model("pro")).toBe("openai/gpt-5.6-luna");
     delete process.env.REVIEW_DEFAULT_MODEL_PRO;
   });
 });

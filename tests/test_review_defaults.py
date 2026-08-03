@@ -19,7 +19,7 @@ def _clear(monkeypatch):
 def test_compiled_defaults(monkeypatch):
     _clear(monkeypatch)
     assert config.default_stage2_model("standard") == entitlements.CHEAP_MODEL
-    assert config.default_stage2_model("pro") == "gemini-flash-latest"
+    assert config.default_stage2_model("pro") == "openai/gpt-5.6-luna"
 
 
 def test_unknown_or_none_plan_falls_back_to_cheap(monkeypatch):
@@ -39,13 +39,13 @@ def test_env_override_per_tier(monkeypatch):
 def test_blank_env_falls_back_to_compiled(monkeypatch):
     _clear(monkeypatch)
     monkeypatch.setenv(_PRO_ENV, "   ")
-    assert config.default_stage2_model("pro") == "gemini-flash-latest"
+    assert config.default_stage2_model("pro") == "openai/gpt-5.6-luna"
 
 
 def test_default_flows_through_entitlement_gate(monkeypatch):
     """The compiled defaults resolve to themselves for their own tier and meter at the
-    tier-appropriate cap: Pro's gemini default is unassigned → premium cap; Standard's
-    cheap default → cheap cap."""
+    tier-appropriate cap: Pro's gpt-5.6-luna default is unassigned → premium cap;
+    Standard's cheap default → cheap cap."""
     _clear(monkeypatch)
     pro_default = config.default_stage2_model("pro")
     std_default = config.default_stage2_model("standard")

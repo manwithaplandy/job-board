@@ -1,4 +1,4 @@
-from tests.conftest import requires_db, as_user
+from tests.conftest import requires_db
 
 U1 = "11111111-1111-1111-1111-111111111111"
 U2 = "22222222-2222-2222-2222-222222222222"

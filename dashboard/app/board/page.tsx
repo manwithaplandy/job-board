@@ -20,7 +20,14 @@ export const revalidate = 120;
 export default async function PublicBoardPage() {
   // Anonymous viewer: plain open jobs, no review join, no operator telemetry.
   // The public board keeps the deliberate engineer-only editorial curation.
-  const jobs = await getJobs(serverBoardFilters("anon"), null);
+  // In production a failed fetch must THROW so a failed ISR revalidation keeps
+  // serving the last good cached board (stale-while-error) instead of caching an
+  // empty one. Outside production (the infra-less public visual gate runs `next
+  // dev` against an unreachable DB) render the empty board shell instead.
+  const jobs = await getJobs(serverBoardFilters("anon"), null).catch((error: unknown) => {
+    if (process.env.NODE_ENV === "production") throw error;
+    return [];
+  });
   return (
     <RolefitBoard
       jobs={jobs}

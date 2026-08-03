@@ -92,10 +92,14 @@ export function ClassificationJobsPanel({ initial }: { initial: ClassificationJo
   const inFlight = useRef(false);
 
   // A router.refresh() after a launch hands down a fresh `initial` array — adopt it
-  // so a newly enqueued pending row appears (and restarts the poll below).
-  useEffect(() => {
+  // so a newly enqueued pending row appears (and restarts the poll below). Adopted
+  // during render (React's prop-change state-adjustment pattern) rather than in an
+  // effect, which would cascade a second commit.
+  const [adopted, setAdopted] = useState(initial);
+  if (adopted !== initial) {
+    setAdopted(initial);
     setJobs(initial);
-  }, [initial]);
+  }
 
   const poll = useCallback(async () => {
     if (inFlight.current) return;

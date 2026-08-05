@@ -41,6 +41,14 @@
 .rf-billing-current__meta { color: var(--text-secondary); font-size: var(--font-size-caption); }
 .rf-action-error { margin-top: var(--space-2); color: var(--danger); font-size: var(--font-size-caption); }
 
+/* Job-error display (classification Runs panel). Long errors — legacy rows carry raw
+   ~400-char OpenRouter reprs — fold behind a native <details> toggle so the Status cell
+   stays one row tall while the full text stays reachable for diagnosis. Wraps inside a
+   bounded column despite the table's nowrap cells. */
+.rf-job-error { max-width: 44ch; color: var(--danger); font-size: var(--font-size-small); white-space: normal; }
+.rf-job-error summary { cursor: pointer; }
+.rf-job-error pre { margin: var(--space-1) 0 0; max-height: 12em; overflow-y: auto; font: inherit; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* Compact data-density contract: analytics and admin may use 36px visual rows and
    12–13px utility type inside data regions. All standalone controls remain 44px;
    wide tables scroll inside this local container, never at document level. */

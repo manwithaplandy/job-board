@@ -532,3 +532,64 @@ def test_classify_creates_generation_named_company_classify(monkeypatch):
     assert result.size == "1-10"
     assert events["create"]["name"] == "company-classify"
     assert events["create"]["as_type"] == "generation"
+
+
+# ── Gemini-safe wire schema (no nullable enums) ──────────────────────────────────────
+
+
+def _anyof_enum_branches(node):
+    """Every anyOf branch anywhere in `node` that carries an enum."""
+    found = []
+    if isinstance(node, dict):
+        for branch in node.get("anyOf", []):
+            if isinstance(branch, dict) and "enum" in branch:
+                found.append(branch)
+        for value in node.values():
+            found += _anyof_enum_branches(value)
+    elif isinstance(node, list):
+        for value in node:
+            found += _anyof_enum_branches(value)
+    return found
+
+
+@pytest.mark.parametrize("schema_cls", [CompanyClassificationResult, CompanyReviewResult])
+def test_wire_schema_has_no_nullable_enums(schema_cls):
+    # Google's Gemini API (3.5-flash-lite / 3.6-flash via OpenRouter) rejects the
+    # anyOf:[{enum...},{type:'null'}] rendering pydantic emits for `Enum | None` with a
+    # blanket 400 INVALID_ARGUMENT — classification job 2 (2026-08-05) failed all 500
+    # calls on it. The wire schema must advertise optional enums as a FLAT enum with an
+    # 'unknown' arm; nullable strings (e.g. RedFlag.note) are fine and stay anyOf.
+    from openai.lib._pydantic import to_strict_json_schema
+
+    schema = to_strict_json_schema(schema_cls)
+    assert _anyof_enum_branches(schema) == []
+    for field in ("industry", "industry_subcategory"):
+        wire = schema["properties"][field]
+        assert wire.get("type") == "string", f"{field} must be a flat string enum"
+        assert "unknown" in wire["enum"], f"{field} enum needs the 'unknown' arm"
+
+
+@pytest.mark.parametrize("schema_cls", [CompanyClassificationResult, CompanyReviewResult])
+def test_industry_unknown_sentinel_parses_to_none(schema_cls):
+    kwargs = {"verdict": "include"} if schema_cls is CompanyReviewResult else {}
+    # The wire sentinel collapses to None so the DB contract (NULL = unclassified)
+    # and every downstream consumer are unchanged.
+    res = schema_cls(industry="unknown", industry_subcategory="unknown", **kwargs)
+    assert res.industry is None and res.industry_subcategory is None
+    # Real taxonomy values pass through untouched.
+    res = schema_cls(industry="software_internet",
+                     industry_subcategory="devtools_platforms", **kwargs)
+    assert res.industry == "software_internet"
+    assert res.industry_subcategory == "devtools_platforms"
+    # A model that still emits null (deepseek) keeps working.
+    res = schema_cls(industry=None, industry_subcategory=None, **kwargs)
+    assert res.industry is None and res.industry_subcategory is None
+
+
+def test_taxonomy_prompts_use_unknown_sentinel_not_null():
+    # The schema no longer admits null for industry fields, so the prompts must not
+    # ask for it — a strict-schema model told "null if unknown" may invent a real
+    # industry instead of picking the 'unknown' arm.
+    for instructions in (_CLASSIFY_INSTRUCTIONS, _INSTRUCTIONS):
+        assert "or null if unknown" not in instructions
+        assert '"unknown" if unknown' in instructions

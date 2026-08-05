@@ -1,8 +1,8 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, WithJsonSchema, field_validator
 
-from reviewer.schemas import Industry, Subcategory
+from reviewer.schemas import INDUSTRIES, SUBCATEGORIES, Industry, Subcategory
 
 # Company red-flag taxonomy. `other` is the escape hatch: the model (and the
 # backfill in reclassify.py) route anything that fits no concrete category here,
@@ -18,6 +18,28 @@ RedFlagCategory = Literal[tuple(RED_FLAG_CATEGORIES)]
 class RedFlag(BaseModel):
     category: RedFlagCategory
     note: str | None = None
+
+
+# Optional-enum wire encoding. Pydantic renders `Enum | None` as
+# anyOf:[{enum...},{type:'null'}], which Google's Gemini API rejects outright with a
+# blanket 400 INVALID_ARGUMENT (every call in classification job 2 failed on it,
+# 2026-08-05) — while a FLAT enum, nullable plain strings, and nested $defs all pass.
+# So on the wire these fields advertise a flat required enum with an explicit
+# 'unknown' arm, and _unknown_to_none (a mode='before' validator on each model)
+# collapses that sentinel back to None — keeping the Python/DB contract
+# (None/NULL = unclassified) and every consumer unchanged.
+OptionalIndustry = Annotated[
+    Industry | None, WithJsonSchema({"type": "string", "enum": [*INDUSTRIES, "unknown"]})
+]
+OptionalSubcategory = Annotated[
+    Subcategory | None,
+    WithJsonSchema({"type": "string", "enum": [*SUBCATEGORIES, "unknown"]}),
+]
+
+
+def _unknown_to_none(v):
+    """Collapse the wire sentinel to the storage value ('unknown' → None)."""
+    return None if v == "unknown" else v
 
 
 # Company size buckets (headcount). MUST match dashboard/lib/companyMeta.ts COMPANY_SIZES
@@ -36,22 +58,28 @@ class CompanyReviewResult(BaseModel):
     reasoning: str = ""
     verdict: Literal["include", "exclude", "unknown"]
     confidence: Literal["low", "medium", "high"] = "low"
-    industry: Industry | None = None
-    industry_subcategory: Subcategory | None = None
+    industry: OptionalIndustry = None
+    industry_subcategory: OptionalSubcategory = None
     tech_tags: list[str] = Field(default_factory=list)
     red_flags: list[RedFlag] = Field(default_factory=list)
+
+    _norm_industry = field_validator(
+        "industry", "industry_subcategory", mode="before")(_unknown_to_none)
 
 
 class CompanyClassificationResult(BaseModel):
     # reasoning first — same declaration-order rationale as CompanyReviewResult.
     reasoning: str = ""
-    industry: Industry | None = None
-    industry_subcategory: Subcategory | None = None
+    industry: OptionalIndustry = None
+    industry_subcategory: OptionalSubcategory = None
     size: CompanySize = "unknown"
     hq_country: str = "unknown"          # ISO-3166 alpha-2 (uppercase) or 'unknown'
     confidence: Literal["low", "medium", "high"] = "low"
     tech_tags: list[str] = Field(default_factory=list)
     red_flags: list[RedFlag] = Field(default_factory=list)
+
+    _norm_industry = field_validator(
+        "industry", "industry_subcategory", mode="before")(_unknown_to_none)
 
     @field_validator("hq_country", mode="before")
     @classmethod

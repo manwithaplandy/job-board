@@ -613,6 +613,103 @@ def test_process_job_all_fail_errors_with_sample(conn, caplog):
     assert "and 2 more error(s) this chunk" in records[0].getMessage()
 
 
+# --- (m'') the row error is a legible summary, not a nested OpenRouter repr -------
+
+
+class _FakeOpenRouterError(Exception):
+    """Shape-compatible stand-in for openai.BadRequestError as raised through
+    OpenRouter: .status_code plus a .body whose error.metadata.raw carries the
+    upstream provider's own JSON error document."""
+
+    def __init__(self):
+        super().__init__("Error code: 400 - {'error': {...}}")
+        self.status_code = 400
+        self.body = {
+            "error": {
+                "message": "Provider returned error",
+                "code": 400,
+                "metadata": {
+                    "raw": '{\n  "error": {\n    "code": 400,\n    "message": '
+                           '"Request contains an invalid argument.",\n    "status": '
+                           '"INVALID_ARGUMENT"\n  }\n}\n',
+                    "provider_name": "Google",
+                },
+            }
+        }
+
+
+def test_exc_summary_extracts_provider_and_inner_message():
+    # classification_jobs.error is read by a human in the admin panel; the raw
+    # repr of an OpenRouter error is a 400-char nested-JSON blob. The summary names
+    # the exception class, status, provider, and the provider's own message.
+    s = worker._exc_summary(_FakeOpenRouterError())
+    assert "400" in s
+    assert "Google" in s
+    assert "Request contains an invalid argument." in s
+    assert "INVALID_ARGUMENT" in s
+    # The blob's packaging must NOT leak through.
+    assert "metadata" not in s and "raw" not in s and "{" not in s
+    assert len(s) <= 400
+
+
+def test_exc_summary_falls_back_to_repr_for_plain_exceptions():
+    s = worker._exc_summary(RuntimeError("boom"))
+    assert s == repr(RuntimeError("boom"))
+
+
+@requires_db
+def test_process_job_row_error_uses_summary_for_openrouter_failures(conn):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO companies (name, ats, token, enriched_at) "
+                    "VALUES ('c0','greenhouse','c0', now())")
+    job = _new_job(conn, company_cap=1)
+    conn.commit()
+
+    worker.process_job(conn, job, classify_client=_StubClient(exc=_FakeOpenRouterError()))
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT error FROM classification_jobs WHERE id=%s", (job["id"],))
+        error = cur.fetchone()["error"]
+    assert "all 1 classifications failed" in error
+    assert "Google: Request contains an invalid argument." in error
+    assert "provider_name" not in error   # no raw blob on the row
+
+
+# --- (m') an all-error chunk must not re-spend the cap on the same targets --------
+
+
+@requires_db
+def test_process_job_all_error_chunk_stops_instead_of_respinning(conn):
+    # Regression for classification job 2 (2026-08-05, the Gemini nullable-enum 400):
+    # in 'unclassified' mode a failed target keeps classified_at IS NULL, so an
+    # all-error chunk re-selects the SAME companies (select_targets is deterministic)
+    # and the job re-spends its whole cap retrying an identical failure — job 2 burned
+    # 500 cap on the same 25 companies, 20 chunks in a row. When a chunk makes zero
+    # progress (ok == 0, every target errored) the next chunk is guaranteed identical,
+    # so the job must stop after ONE chunk, whatever the selection mode.
+    with conn.cursor() as cur:
+        for i in range(2):
+            cur.execute("INSERT INTO companies (name, ats, token, enriched_at) "
+                        "VALUES (%s,'greenhouse',%s, now())", (f"c{i}", f"c{i}"))
+    job = _new_job(conn, company_cap=500)
+    conn.commit()
+
+    client = _StubClient(exc=RuntimeError("boom-400"))
+    worker.process_job(conn, job, classify_client=client)
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, processed, errored, error FROM classification_jobs "
+                    "WHERE id=%s", (job["id"],))
+        row = cur.fetchone()
+    assert client.calls == 2                 # ONE chunk, not 500 calls over 250 chunks
+    assert row["status"] == "error"
+    assert row["processed"] == 0
+    assert row["errored"] == 2               # cap spend reflects one chunk only
+    assert "all 2 classifications failed" in row["error"]
+
+
 # --- (m) partial-fail run stays 'done' but records the failure count + a sample ----
 
 

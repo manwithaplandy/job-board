@@ -37,6 +37,23 @@ const usd = (n: number | null): string => (n == null ? "—" : `$${n.toFixed(2)}
 const isLive = (status: ClassificationJobStatus): boolean =>
   status === "pending" || status === "running";
 
+// Job errors can be long — legacy rows carry raw OpenRouter reprs of 400 chars —
+// and rendering them inline wrecks the Status column. Anything past this budget
+// collapses to a one-line headline with the full text behind a native toggle.
+const ERROR_SUMMARY_CHARS = 88;
+
+function JobError({ error }: { error: string }) {
+  if (error.length <= ERROR_SUMMARY_CHARS) {
+    return <div className="rf-job-error">{error}</div>;
+  }
+  return (
+    <details className="rf-job-error">
+      <summary>{error.slice(0, ERROR_SUMMARY_CHARS).trimEnd()}…</summary>
+      <pre>{error}</pre>
+    </details>
+  );
+}
+
 function Row({
   job,
   onCancel,
@@ -61,11 +78,7 @@ function Row({
       <td style={{ textAlign: "right" }}>{usd(job.actualCost)}</td>
       <td>
         <Badge tone={STATUS_TONE[job.status]}>{job.status}</Badge>
-        {job.error && (
-          <div style={{ color: "var(--danger)", fontSize: "var(--font-size-small)" }}>
-            {job.error}
-          </div>
-        )}
+        {job.error && <JobError error={job.error} />}
       </td>
       <td style={{ textAlign: "right" }}>
         {isLive(job.status) ? (

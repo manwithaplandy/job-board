@@ -7,6 +7,7 @@ Run as: `python -m company_discovery`. Railway service config in railway.discove
 (always-on, no cron). Backend job -> keeps the service role (direct connection).
 """
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -29,6 +30,39 @@ INGEST_EVERY = timedelta(days=7)
 # well above one chunk's wall-clock (~25 LLM calls) so an actively-progressing job — even
 # one overlapping a zero-downtime deploy's old container — is never reaped as stale.
 STALE_MINUTES = 15
+
+
+def _exc_summary(exc: Exception) -> str:
+    """One legible line for classification_jobs.error — the admin panel shows this to a
+    human. OpenAI-SDK errors raised through OpenRouter carry a .body whose
+    error.metadata.raw is the upstream provider's own JSON error document; surface
+    "<Class> <status> — <provider>: <provider message> (<provider status>)" instead of
+    the nested repr blob. Anything without that shape falls back to repr. The full
+    repr still goes to the worker log for debugging. Bounded to 400 chars either way."""
+    name = type(exc).__name__
+    status = getattr(exc, "status_code", None)
+    body = getattr(exc, "body", None)
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return repr(exc)[:400]
+    head = f"{name} {status if status is not None else err.get('code', '')}".strip()
+    meta = err.get("metadata") if isinstance(err.get("metadata"), dict) else {}
+    provider = meta.get("provider_name")
+    detail = err.get("message")
+    raw = meta.get("raw")
+    if isinstance(raw, str):
+        try:
+            inner = json.loads(raw).get("error") or {}
+            inner_msg = inner.get("message")
+            if inner_msg:
+                detail = inner_msg
+                if inner.get("status"):
+                    detail = f"{detail} ({inner['status']})"
+        except (ValueError, AttributeError):
+            pass  # unparseable raw — keep the outer message
+    if not detail:
+        return repr(exc)[:400]
+    return (f"{head} — {provider}: {detail}" if provider else f"{head} — {detail}")[:400]
 
 
 class _Stop:
@@ -206,10 +240,13 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
             processed_total += ok
             errored_total += err
             remaining -= len(targets)
-            # Belt-and-braces: even with the started_at bound above, stop when a repass
-            # chunk made no net progress (every target still matches the mode after apply)
-            # so a pathological all-error chunk cannot spin.
-            if job["selection_mode"] == "unknown_repass" and ok == 0 and err == len(targets):
+            # Stop when a chunk made no net progress (every target errored): the failed
+            # targets still match the selection mode, so the next select_targets returns
+            # the SAME rows (deterministic ordering) and the job would re-spend its whole
+            # remaining cap retrying an identical failure. Job 2 (2026-08-05, the Gemini
+            # nullable-enum 400) burned a 500 cap on the same 25 companies this way when
+            # this guard was unknown_repass-only.
+            if ok == 0 and err == len(targets):
                 break
         # Terminal transition: surface per-target failures on the row so the admin panel
         # sees them (it was blind to them before). An all-failed run finishes 'error' —
@@ -220,7 +257,7 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
             # errored_total from the claimed row) and this attempt saw no exception — a
             # crash/SIGTERM requeue edge. Don't emit a dangling 'sample: ' with nothing after
             # it (reads as a bug in the admin panel); mark the sample unavailable instead.
-            sample_clause = (f"; sample: {repr(first_exc)[:400]}" if first_exc is not None
+            sample_clause = (f"; sample: {_exc_summary(first_exc)}" if first_exc is not None
                              else "; sample unavailable (errors from a prior attempt)")
             if processed_total == 0:
                 jobs_db.finish_job(
@@ -330,7 +367,7 @@ def process_one(conn, should_stop=None) -> bool:
         except Exception:
             pass
         try:
-            jobs_db.finish_job(conn, job["id"], "error", error=str(exc)[:500])
+            jobs_db.finish_job(conn, job["id"], "error", error=_exc_summary(exc))
             conn.commit()
         except Exception:
             # The connection is likely dead, so we could not record the failure. The row

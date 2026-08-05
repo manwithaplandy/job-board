@@ -1,8 +1,11 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, WithJsonSchema, field_validator
+from pydantic import BaseModel, Field, field_validator
 
-from reviewer.schemas import INDUSTRIES, SUBCATEGORIES, Industry, Subcategory
+from reviewer.schemas import (
+    INDUSTRIES, SUBCATEGORIES, Industry, Subcategory,
+    optional_enum_wire, unknown_to_none,
+)
 
 # Company red-flag taxonomy. `other` is the escape hatch: the model (and the
 # backfill in reclassify.py) route anything that fits no concrete category here,
@@ -20,26 +23,12 @@ class RedFlag(BaseModel):
     note: str | None = None
 
 
-# Optional-enum wire encoding. Pydantic renders `Enum | None` as
-# anyOf:[{enum...},{type:'null'}], which Google's Gemini API rejects outright with a
-# blanket 400 INVALID_ARGUMENT (every call in classification job 2 failed on it,
-# 2026-08-05) — while a FLAT enum, nullable plain strings, and nested $defs all pass.
-# So on the wire these fields advertise a flat required enum with an explicit
-# 'unknown' arm, and _unknown_to_none (a mode='before' validator on each model)
-# collapses that sentinel back to None — keeping the Python/DB contract
-# (None/NULL = unclassified) and every consumer unchanged.
-OptionalIndustry = Annotated[
-    Industry | None, WithJsonSchema({"type": "string", "enum": [*INDUSTRIES, "unknown"]})
-]
-OptionalSubcategory = Annotated[
-    Subcategory | None,
-    WithJsonSchema({"type": "string", "enum": [*SUBCATEGORIES, "unknown"]}),
-]
-
-
-def _unknown_to_none(v):
-    """Collapse the wire sentinel to the storage value ('unknown' → None)."""
-    return None if v == "unknown" else v
+# Optional-enum wire encoding: Gemini rejects the anyOf enum+null rendering of
+# `Enum | None` (see reviewer.schemas.optional_enum_wire), so these advertise a flat
+# enum with an 'unknown' arm and each model's before-validator collapses the sentinel
+# back to None — keeping the Python/DB contract (None/NULL = unclassified) unchanged.
+OptionalIndustry = Annotated[Industry | None, optional_enum_wire(INDUSTRIES)]
+OptionalSubcategory = Annotated[Subcategory | None, optional_enum_wire(SUBCATEGORIES)]
 
 
 # Company size buckets (headcount). MUST match dashboard/lib/companyMeta.ts COMPANY_SIZES
@@ -64,7 +53,7 @@ class CompanyReviewResult(BaseModel):
     red_flags: list[RedFlag] = Field(default_factory=list)
 
     _norm_industry = field_validator(
-        "industry", "industry_subcategory", mode="before")(_unknown_to_none)
+        "industry", "industry_subcategory", mode="before")(unknown_to_none)
 
 
 class CompanyClassificationResult(BaseModel):
@@ -79,7 +68,7 @@ class CompanyClassificationResult(BaseModel):
     red_flags: list[RedFlag] = Field(default_factory=list)
 
     _norm_industry = field_validator(
-        "industry", "industry_subcategory", mode="before")(_unknown_to_none)
+        "industry", "industry_subcategory", mode="before")(unknown_to_none)
 
     @field_validator("hq_country", mode="before")
     @classmethod

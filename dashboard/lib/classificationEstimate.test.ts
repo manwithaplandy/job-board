@@ -47,4 +47,13 @@ describe("CLASSIFICATION_MODELS", () => {
       expect(CLASSIFICATION_MODELS).toContain(id);
     }
   });
+  test("gpt-5.6-luna is offered with fallback pricing", () => {
+    // Added 2026-08-05 (same model as the Pro stage-2 default): catalog-verified for
+    // structured_outputs, and cheaper than Flash-Lite at the 2026-08-05 catalog rates.
+    expect(CLASSIFICATION_MODELS).toContain("openai/gpt-5.6-luna");
+    expect(FALLBACK_PRICING["openai/gpt-5.6-luna"]).toEqual({
+      prompt: 0.1e-6,
+      completion: 0.6e-6,
+    });
+  });
 });

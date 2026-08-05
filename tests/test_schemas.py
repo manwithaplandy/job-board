@@ -108,3 +108,50 @@ def test_missing_scores_yield_null_defaults():
     assert r.skills_score is None
     assert r.experience_score is None
     assert r.comp_score is None
+
+
+# ── Gemini-safe wire schema (no nullable enums) ──────────────────────────────
+
+
+def _anyof_enum_branches(node):
+    """Every anyOf branch anywhere in `node` that carries an enum."""
+    found = []
+    if isinstance(node, dict):
+        for branch in node.get("anyOf", []):
+            if isinstance(branch, dict) and "enum" in branch:
+                found.append(branch)
+        for value in node.values():
+            found += _anyof_enum_branches(value)
+    elif isinstance(node, list):
+        for value in node:
+            found += _anyof_enum_branches(value)
+    return found
+
+
+def test_reviewer_wire_schemas_have_no_nullable_enums():
+    # Google's Gemini API (3.5/3.6 via OpenRouter) rejects the anyOf:[{enum},{null}]
+    # rendering pydantic emits for `Literal | None` with a blanket 400 INVALID_ARGUMENT
+    # on EVERY call — the 2026-08-05 classification job 2 failure mode. pay_period was
+    # the one such field in the reviewer schemas; this walks every model that reaches
+    # OpenRouter so no future optional enum reintroduces the trap.
+    from openai.lib._pydantic import to_strict_json_schema
+    from reviewer.schemas import Stage1BatchResult
+
+    for schema_cls in (Stage2Result, Stage1BatchResult, Stage1Result):
+        assert _anyof_enum_branches(to_strict_json_schema(schema_cls)) == [], (
+            f"{schema_cls.__name__} exposes a nullable enum on the wire"
+        )
+    wire = to_strict_json_schema(Stage2Result)["properties"]["pay_period"]
+    assert wire.get("type") == "string"
+    assert set(wire["enum"]) == {"year", "hour", "month", "unknown"}
+
+
+def test_pay_period_unknown_sentinel_parses_to_none():
+    base = dict(verdict="approve", experience_match="match",
+                industry="software_internet", industry_subcategory="devtools_platforms",
+                confidence="high", reasoning="ok")
+    # Wire sentinel collapses to None (DB pay_period stays NULL when not stated).
+    assert Stage2Result(**base, pay_period="unknown").pay_period is None
+    # Real values and legacy null both pass through untouched.
+    assert Stage2Result(**base, pay_period="year").pay_period == "year"
+    assert Stage2Result(**base, pay_period=None).pay_period is None

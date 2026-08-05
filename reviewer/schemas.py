@@ -1,6 +1,23 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, WithJsonSchema, field_validator
+
+
+def optional_enum_wire(values) -> WithJsonSchema:
+    """Wire-schema override for `Literal[...] | None` fields bound for OpenRouter
+    structured output. Pydantic renders that union as anyOf:[{enum...},{type:'null'}],
+    which Google's Gemini API (3.5/3.6 via OpenRouter) rejects with a blanket 400
+    INVALID_ARGUMENT on EVERY call — while flat enums, nullable plain strings, and
+    nested $defs all pass (live-bisected 2026-08-05, classification job 2). Advertise
+    a flat required enum with an explicit 'unknown' arm instead, and pair the field
+    with an `unknown_to_none` mode='before' validator so the Python/DB contract
+    (None/NULL = not stated) and every consumer stay unchanged."""
+    return WithJsonSchema({"type": "string", "enum": [*values, "unknown"]})
+
+
+def unknown_to_none(v):
+    """Collapse the optional_enum_wire sentinel to the storage value ('unknown' → None)."""
+    return None if v == "unknown" else v
 
 # Appendix A — two-level, tech/SWE/DevOps-focused taxonomy.
 TAXONOMY: dict[str, list[str]] = {
@@ -76,6 +93,7 @@ RoleCategory = Literal[tuple(ROLE_CATEGORIES)]
 Seniority = Literal[tuple(SENIORITY)]
 WorkArrangement = Literal[tuple(WORK_ARRANGEMENT)]
 PayPeriod = Literal["year", "hour", "month"]
+OptionalPayPeriod = Annotated[PayPeriod | None, optional_enum_wire(["year", "hour", "month"])]
 
 
 class Requirement(BaseModel):
@@ -115,7 +133,7 @@ class Stage2Result(BaseModel):
     pay_min: int | None = None
     pay_max: int | None = None
     pay_currency: str | None = None
-    pay_period: PayPeriod | None = None
+    pay_period: OptionalPayPeriod = None
     headcount: str | None = None
     skills_score: int | None = None
     experience_score: int | None = None
@@ -124,6 +142,8 @@ class Stage2Result(BaseModel):
     skill_gaps: list[str] = Field(default_factory=list)
     benefits: list[str] = Field(default_factory=list)
     requirements: list[Requirement] = Field(default_factory=list)
+
+    _norm_pay_period = field_validator("pay_period", mode="before")(unknown_to_none)
 
     @field_validator("pay_min", "pay_max", "skills_score", "experience_score",
                      "comp_score", mode="before")

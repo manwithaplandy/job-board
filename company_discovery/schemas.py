@@ -1,8 +1,11 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from reviewer.schemas import Industry, Subcategory
+from reviewer.schemas import (
+    INDUSTRIES, SUBCATEGORIES, Industry, Subcategory,
+    optional_enum_wire, unknown_to_none,
+)
 
 # Company red-flag taxonomy. `other` is the escape hatch: the model (and the
 # backfill in reclassify.py) route anything that fits no concrete category here,
@@ -18,6 +21,14 @@ RedFlagCategory = Literal[tuple(RED_FLAG_CATEGORIES)]
 class RedFlag(BaseModel):
     category: RedFlagCategory
     note: str | None = None
+
+
+# Optional-enum wire encoding: Gemini rejects the anyOf enum+null rendering of
+# `Enum | None` (see reviewer.schemas.optional_enum_wire), so these advertise a flat
+# enum with an 'unknown' arm and each model's before-validator collapses the sentinel
+# back to None — keeping the Python/DB contract (None/NULL = unclassified) unchanged.
+OptionalIndustry = Annotated[Industry | None, optional_enum_wire(INDUSTRIES)]
+OptionalSubcategory = Annotated[Subcategory | None, optional_enum_wire(SUBCATEGORIES)]
 
 
 # Company size buckets (headcount). MUST match dashboard/lib/companyMeta.ts COMPANY_SIZES
@@ -36,22 +47,28 @@ class CompanyReviewResult(BaseModel):
     reasoning: str = ""
     verdict: Literal["include", "exclude", "unknown"]
     confidence: Literal["low", "medium", "high"] = "low"
-    industry: Industry | None = None
-    industry_subcategory: Subcategory | None = None
+    industry: OptionalIndustry = None
+    industry_subcategory: OptionalSubcategory = None
     tech_tags: list[str] = Field(default_factory=list)
     red_flags: list[RedFlag] = Field(default_factory=list)
+
+    _norm_industry = field_validator(
+        "industry", "industry_subcategory", mode="before")(unknown_to_none)
 
 
 class CompanyClassificationResult(BaseModel):
     # reasoning first — same declaration-order rationale as CompanyReviewResult.
     reasoning: str = ""
-    industry: Industry | None = None
-    industry_subcategory: Subcategory | None = None
+    industry: OptionalIndustry = None
+    industry_subcategory: OptionalSubcategory = None
     size: CompanySize = "unknown"
     hq_country: str = "unknown"          # ISO-3166 alpha-2 (uppercase) or 'unknown'
     confidence: Literal["low", "medium", "high"] = "low"
     tech_tags: list[str] = Field(default_factory=list)
     red_flags: list[RedFlag] = Field(default_factory=list)
+
+    _norm_industry = field_validator(
+        "industry", "industry_subcategory", mode="before")(unknown_to_none)
 
     @field_validator("hq_country", mode="before")
     @classmethod

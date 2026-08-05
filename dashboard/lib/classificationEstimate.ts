@@ -13,6 +13,7 @@ export const CLASSIFICATION_MODELS = [
   "google/gemini-3.5-flash-lite", // default
   "google/gemini-3.6-flash",
   "deepseek/deepseek-v4-flash",
+  "openai/gpt-5.6-luna",
 ];
 
 export const EST_INPUT_TOKENS = 1300;
@@ -20,11 +21,13 @@ export const EST_OUTPUT_TOKENS = 300;
 export const EST_SERP_EXTRA_INPUT_TOKENS = 900;
 export const SERP_QUERY_COST_USD = 0.001;
 
-// 2026-07-21 openrouter.ai pricing (USD per token) — fallback when the live catalog
-// is unavailable. Models absent here AND from the catalog get estimate=null.
+// 2026-07-21 openrouter.ai pricing (USD per token; gpt-5.6-luna added 2026-08-05) —
+// fallback when the live catalog is unavailable. Models absent here AND from the
+// catalog get estimate=null.
 export const FALLBACK_PRICING: Record<string, { prompt: number; completion: number }> = {
   "google/gemini-3.5-flash-lite": { prompt: 0.3e-6, completion: 2.5e-6 },
   "google/gemini-3.6-flash": { prompt: 1.5e-6, completion: 7.5e-6 },
+  "openai/gpt-5.6-luna": { prompt: 0.1e-6, completion: 0.6e-6 },
 };
 
 /**

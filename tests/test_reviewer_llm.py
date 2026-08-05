@@ -51,6 +51,16 @@ def test_profile_block_empty_company_instructions_is_no_op():
         "r", "i", company_instructions="")
 
 
+def test_stage2_instructions_pay_period_uses_unknown_sentinel_not_null():
+    # pay_period's wire schema is a flat enum with an 'unknown' arm (Gemini rejects
+    # nullable enums); the prompt must direct the model to that arm — a strict schema
+    # that forbids null while the prompt demands null invites a fabricated period.
+    assert '"unknown"' in llm._STAGE2_INSTRUCTIONS
+    assert "pay_period" in llm._STAGE2_INSTRUCTIONS
+    # The other hard facts (plain nullable types) still ask for null.
+    assert "set to null unless explicitly stated" in llm._STAGE2_INSTRUCTIONS
+
+
 # ── build_company_context: render known facts, omit unknown/empty ────────────
 
 def test_build_company_context_renders_known_facts():

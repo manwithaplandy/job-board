@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 // The panel is a server-seeded monitor; polling never starts here because every
 // fixture row is terminal (no pending/running), so tests stay network-free.
 
 vi.mock("@/app/actions/classification", () => ({ cancelClassificationJob: vi.fn() }));
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import { ClassificationJobsPanel } from "./ClassificationJobsPanel";
 import type { ClassificationJobRow } from "@/lib/classificationJobCodec";
@@ -42,7 +44,12 @@ function row(over: Partial<ClassificationJobRow> = {}): ClassificationJobRow {
   };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  refresh.mockReset();
+});
 
 describe("ClassificationJobsPanel error display", () => {
   test("a long error is collapsed to a one-line summary with the full text behind a toggle", () => {
@@ -84,5 +91,24 @@ describe("ClassificationJobsPanel error display", () => {
       />,
     );
     expect(container.querySelector("details")).toBeNull();
+  });
+});
+
+describe("ClassificationJobsPanel target-count refresh", () => {
+  test("refreshes the server-rendered launcher counts when a live job settles", async () => {
+    vi.useFakeTimers();
+    const settled = row({ id: 9, status: "canceled", processed: 2_850, errored: 0, error: null });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ jobs: [settled] }),
+    }));
+
+    render(<ClassificationJobsPanel initial={[row({ id: 9, status: "running", error: null })]} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("canceled")).toBeTruthy();
   });
 });

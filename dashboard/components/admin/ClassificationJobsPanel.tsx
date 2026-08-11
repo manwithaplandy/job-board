@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { cancelClassificationJob } from "@/app/actions/classification";
 import {
   parseClassificationJob,
@@ -100,9 +101,11 @@ function Row({
 }
 
 export function ClassificationJobsPanel({ initial }: { initial: ClassificationJobRow[] }) {
+  const router = useRouter();
   const [jobs, setJobs] = useState<ClassificationJobRow[]>(initial);
   const [canceling, startCancel] = useTransition();
   const inFlight = useRef(false);
+  const hadLive = useRef(initial.some((job) => isLive(job.status)));
 
   // A router.refresh() after a launch hands down a fresh `initial` array — adopt it
   // so a newly enqueued pending row appears (and restarts the poll below). Adopted
@@ -127,12 +130,20 @@ export function ClassificationJobsPanel({ initial }: { initial: ClassificationJo
         .map(parseClassificationJob)
         .filter((j): j is ClassificationJobRow => j !== null);
       setJobs(parsed);
+      const hasLiveNow = parsed.some((job) => isLive(job.status));
+      if (hadLive.current && !hasLiveNow) {
+        // The launcher count is server-rendered. Refresh it when the monitored run
+        // settles; otherwise it keeps showing the pre-run backlog indefinitely and a
+        // follow-up job can be launched from a wildly stale target count.
+        router.refresh();
+      }
+      hadLive.current = hasLiveNow;
     } catch {
       // network hiccup — the next tick retries while anything is live
     } finally {
       inFlight.current = false;
     }
-  }, []);
+  }, [router]);
 
   const hasLive = useMemo(() => jobs.some((j) => isLive(j.status)), [jobs]);
 

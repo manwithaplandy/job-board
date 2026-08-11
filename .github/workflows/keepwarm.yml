@@ -10,7 +10,9 @@
 name: keepwarm
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Offset from the top of the hour, when scheduled Actions are most likely
+    # to be delayed or dropped because of GitHub runner demand.
+    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
 
 permissions: {}

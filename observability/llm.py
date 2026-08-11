@@ -287,28 +287,36 @@ async def traced_structured_call(
         resp, msg = await _invoke(client, kwargs)
         return msg.parsed, getattr(resp, "usage", None)
 
-    # end_on_exit=False keeps the generation span OPEN after the `with` body so we can
-    # attach the cost below and then end() it with an EXPLICIT end_time pinned to the
-    # moment the API call returned (api_end_ns). The cost-confirmation retry loop is a
-    # SECOND OpenRouter round-trip (only on the capture-gap path) — running it after the
-    # span's timed window means it never inflates the recorded generation latency (minor 9).
-    with lf.start_as_current_observation(
-        as_type="generation",
-        name=name,
-        model=model,
-        input=messages,
-        metadata=metadata,
-        end_on_exit=False,
-    ) as gen:
-        try:
-            resp, msg = await _invoke(client, kwargs)
-        except Exception as exc:
-            gen.update(level="ERROR", status_message=str(exc))
-            gen.end()
-            raise
-        # Generation latency stops HERE — the actual model call. Everything below (cost
-        # confirmation especially) is annotation and must not count toward it.
-        api_end_ns = time.time_ns()
+    # In Langfuse's observation-centric model, an observation's `name` and its
+    # denormalized `trace_name` are separate attributes. Online evaluators that filter by
+    # traceName inspect the latter directly; the UI's derived trace label is not enough.
+    # Propagation must start BEFORE the root generation is created so the generation row
+    # receives langfuse.trace.name at ingestion time.
+    from langfuse import propagate_attributes
+
+    with propagate_attributes(trace_name=name):
+        # end_on_exit=False keeps the generation span OPEN after the `with` body so we can
+        # attach the cost below and then end() it with an EXPLICIT end_time pinned to the
+        # moment the API call returned (api_end_ns). The cost-confirmation retry loop is a
+        # SECOND OpenRouter round-trip (only on the capture-gap path) — running it after the
+        # span's timed window means it never inflates the recorded generation latency.
+        with lf.start_as_current_observation(
+            as_type="generation",
+            name=name,
+            model=model,
+            input=messages,
+            metadata=metadata,
+            end_on_exit=False,
+        ) as gen:
+            try:
+                resp, msg = await _invoke(client, kwargs)
+            except Exception as exc:
+                gen.update(level="ERROR", status_message=str(exc))
+                gen.end()
+                raise
+            # Generation latency stops HERE — the actual model call. Everything below
+            # (cost confirmation especially) is annotation and must not count toward it.
+            api_end_ns = time.time_ns()
 
     # try/finally guarantees the (end_on_exit=False) span is ended even if annotation
     # raises — so moving the tail out of the `with` can never leak an unclosed span.

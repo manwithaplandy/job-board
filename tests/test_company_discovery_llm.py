@@ -472,6 +472,15 @@ def test_classify_injects_about_as_untrusted_description():
     assert "UNTRUSTED" in user
 
 
+def test_classify_includes_serp_results_alongside_about():
+    user = _capture_classify_messages(
+        name="Acme", ats="lever", token="acme",
+        about="ABOUT-TEXT", web_description="SERP-TEXT",
+    )[1]["content"]
+    assert "COMPANY ABOUT:\nABOUT-TEXT" in user
+    assert "SERP SEARCH RESULTS:\nSERP-TEXT" in user
+
+
 def test_classify_truncates_description_to_2000_chars():
     user = _capture_classify_messages(name="Acme", ats="lever", token="acme",
                                       about="x" * 5000)[1]["content"]
@@ -532,6 +541,37 @@ def test_classify_creates_generation_named_company_classify(monkeypatch):
     assert result.size == "1-10"
     assert events["create"]["name"] == "company-classify"
     assert events["create"]["as_type"] == "generation"
+
+
+def test_classify_propagates_company_classify_as_trace_name(monkeypatch):
+    from contextlib import contextmanager
+    import langfuse
+    from observability import tracing
+
+    events = {}
+
+    @contextmanager
+    def _propagate_attributes(**kwargs):
+        events["propagated"] = kwargs
+        yield
+
+    class _Gen:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def update(self, **kw): pass
+        def end(self, **kw): pass
+
+    class _LF:
+        def start_as_current_observation(self, **kw): return _Gen()
+
+    monkeypatch.setattr(langfuse, "propagate_attributes", _propagate_attributes)
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: _LF())
+    cc = CompanyClassifyClient(
+        client=_Client(CompanyClassificationResult(size="1-10", hq_country="US")),
+        model="m",
+    )
+    asyncio.run(cc.classify(name="Linear", ats="ashby", token="linear"))
+    assert events["propagated"] == {"trace_name": "company-classify"}
 
 
 # ── Gemini-safe wire schema (no nullable enums) ──────────────────────────────────────

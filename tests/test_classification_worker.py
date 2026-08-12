@@ -6,6 +6,7 @@ and honoring an admin cancel / an out-of-credits halt. _maybe_ingest is the LLM-
 weekly dataset tick. Every LLM + HTTP boundary is stubbed so these tests never touch
 the network — only the DB (conn fixture) and the worker's control flow.
 """
+import asyncio
 from types import SimpleNamespace
 
 from tests.conftest import requires_db
@@ -67,6 +68,12 @@ class _SomeFailClient(_StubClient):
         return await super().classify(token=token, **kw)
 
 
+class _NeverReturnsClient(_StubClient):
+    async def classify(self, **kw):
+        self.calls += 1
+        await asyncio.Event().wait()
+
+
 def _new_job(conn, **overrides) -> dict:
     cols = {"model": "stub/model", "company_cap": 500,
             "selection_mode": "unclassified", "use_serp": False}
@@ -79,6 +86,26 @@ def _new_job(conn, **overrides) -> dict:
             cols,
         )
         return cur.fetchone()
+
+
+def test_classify_batch_times_out_a_hung_call(monkeypatch):
+    """Unit-level guard: this must run even when TEST_DATABASE_URL is unavailable."""
+    monkeypatch.setattr(worker, "CALL_TIMEOUT_SECONDS", 0.01)
+    client = _NeverReturnsClient()
+    target = {
+        "id": 1, "name": "hung", "ats": "greenhouse", "token": "hung",
+        "display_name": None, "about": None, "web_description": None,
+    }
+
+    results = asyncio.run(worker._classify_batch([target], client, concurrency=1))
+
+    assert client.calls == 1
+    assert len(results) == 1
+    returned_target, parsed, raw, exc = results[0]
+    assert returned_target is target
+    assert parsed is None
+    assert raw is None
+    assert isinstance(exc, TimeoutError)
 
 
 # --- (a) classify up to the cap, then finish done ---------------------------
@@ -155,6 +182,30 @@ def test_process_job_uses_one_event_loop_across_chunks(conn, monkeypatch):
     assert client.calls == 3                          # three chunks (CHUNK=1, cap=3)
     assert len(seen_loops) == 3
     assert all(lp is seen_loops[0] for lp in seen_loops)  # ONE loop, not one-per-chunk
+
+
+@requires_db
+def test_process_job_times_out_a_hung_classification(conn, monkeypatch):
+    monkeypatch.setattr(worker, "CALL_TIMEOUT_SECONDS", 0.01)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO companies (name, ats, token, enriched_at) "
+                    "VALUES ('hung','greenhouse','hung', now())")
+    job = _new_job(conn, company_cap=1)
+    conn.commit()
+
+    client = _NeverReturnsClient()
+    worker.process_job(conn, job, classify_client=client)
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT status, processed, errored, error "
+                    "FROM classification_jobs WHERE id=%s", (job["id"],))
+        row = cur.fetchone()
+    assert client.calls == 1
+    assert row["status"] == "error"
+    assert row["processed"] == 0
+    assert row["errored"] == 1
+    assert "TimeoutError" in row["error"]
 
 
 # --- (b) admin cancel mid-run stops the loop, finishes canceled -------------

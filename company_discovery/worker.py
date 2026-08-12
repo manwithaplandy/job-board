@@ -24,6 +24,11 @@ log = logging.getLogger("company_discovery.worker")
 
 CHUNK = 25          # targets classified+persisted per progress bump / cancel check
 POLL_SECONDS = int(os.environ.get("CLASSIFY_WORKER_POLL_SECONDS", "15"))
+# Bound the whole classify operation, including the OpenAI SDK's internal retries. Without
+# this outer deadline one wedged provider request keeps asyncio.gather() from returning,
+# which prevents all other successful results in the 25-company chunk from committing and
+# leaves the admin UI parked at the preceding chunk boundary indefinitely.
+CALL_TIMEOUT_SECONDS = float(os.environ.get("CLASSIFY_CALL_TIMEOUT_SECONDS", "300"))
 INGEST_EVERY = timedelta(days=7)
 # 'running' jobs whose progress heartbeat (last_progress_at) is older than this are
 # presumed orphaned by a crashed / disconnected worker and requeued to 'pending'. Sized
@@ -96,10 +101,13 @@ async def _classify_batch(targets, client, concurrency):
             if halt.is_set():
                 return (t, None, None, None)
             try:
-                parsed, raw = await client.classify(
-                    name=t["name"], ats=t["ats"], token=t["token"],
-                    display_name=t.get("display_name"), about=t.get("about"),
-                    web_description=t.get("web_description"))
+                parsed, raw = await asyncio.wait_for(
+                    client.classify(
+                        name=t["name"], ats=t["ats"], token=t["token"],
+                        display_name=t.get("display_name"), about=t.get("about"),
+                        web_description=t.get("web_description")),
+                    timeout=CALL_TIMEOUT_SECONDS,
+                )
                 return (t, parsed, raw, None)
             except OutOfCreditsError as exc:
                 halt.set()  # stop launching new work; in-flight calls finish
@@ -180,6 +188,10 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
                 conn, job["selection_mode"], min(CHUNK, remaining), before=before)
             if not targets:
                 break
+            log.info("classification job %s starting chunk of %s target(s) "
+                     "(spent=%s/%s, call_timeout=%ss)",
+                     job["id"], len(targets), processed_total + errored_total,
+                     job["company_cap"], CALL_TIMEOUT_SECONDS)
             serp_used = 0
             if job["use_serp"] and serp.serp_available():
                 for t in targets:
@@ -415,8 +427,9 @@ def main() -> None:
     # recovered on a later cycle too — a boot-only sweep would hang that row until a reboot
     # this always-on service may not get for weeks. The gate keeps a live overlapping-deploy
     # job safe from being reaped.
-    log.info("classification worker started (poll=%ss, chunk=%s, ingest_every=%s, stale=%smin)",
-             POLL_SECONDS, CHUNK, INGEST_EVERY, STALE_MINUTES)
+    log.info("classification worker started (poll=%ss, chunk=%s, call_timeout=%ss, "
+             "ingest_every=%s, stale=%smin)",
+             POLL_SECONDS, CHUNK, CALL_TIMEOUT_SECONDS, INGEST_EVERY, STALE_MINUTES)
     try:
         while not stop.stop:
             try:

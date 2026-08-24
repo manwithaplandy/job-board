@@ -1,5 +1,8 @@
 .env
 .venv/
+# Matches at any depth, so this covers the repo root as well as dashboard/ and
+# dashboard/.next/ (dashboard/.gitignore already lists its own copy).
+node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/

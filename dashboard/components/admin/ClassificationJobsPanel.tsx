@@ -31,6 +31,7 @@ const STATUS_TONE: Record<ClassificationJobStatus, BadgeTone> = {
 const MODE_LABEL: Record<ClassificationJobRow["selectionMode"], string> = {
   unclassified: "Unclassified",
   unknown_repass: "Re-pass unknown",
+  all: "Everything",
 };
 
 const usd = (n: number | null): string => (n == null ? "—" : `$${n.toFixed(2)}`);

@@ -23,7 +23,17 @@ _TARGET_MODES = {
         " OR COALESCE(c.industry, 'unknown') = 'unknown'"
         " OR c.classification_confidence = 'low')"
     ),
+    # Whole-corpus re-classification (e.g. moving every company onto a new model).
+    # Unbounded on its own — select_targets ALWAYS pairs it with the job's started_at
+    # bound below, without which the top-of-order chunk would be re-selected forever.
+    "all": "TRUE",
 }
+
+# Modes whose targets stop matching only once THIS run has re-stamped classified_at, so
+# select_targets must exclude rows already done by this run (bound = the job's
+# started_at). 'unclassified' needs no bound: apply_classification sets classified_at,
+# which drops the row out of `classified_at IS NULL` immediately.
+_BEFORE_BOUND_MODES = ("unknown_repass", "all")
 
 
 def claim_next_job(conn) -> dict | None:
@@ -117,16 +127,21 @@ def job_status(conn, job_id: int) -> str:
 
 def select_targets(conn, mode: str, limit: int, *, before=None) -> list[dict]:
     """Companies to classify next, highest board impact first (most open jobs,
-    then newest first_seen_at). `before` (timestamptz) applies to 'unknown_repass'
-    only: also require classified_at < before (the job's started_at) so a company
-    re-classified this run but still 'unknown' is not re-selected forever. Ignored
-    for 'unclassified'.
+    then newest first_seen_at). `before` (timestamptz) applies to the
+    _BEFORE_BOUND_MODES ('unknown_repass', 'all'): also require the row to be
+    unclassified OR classified_at < before (the job's started_at), so a company already
+    re-classified by THIS run is not re-selected forever. Ignored for 'unclassified',
+    whose predicate self-clears as rows are stamped.
 
     MUST stay in lockstep with dashboard/lib/classificationJobs.ts countTargets()."""
     predicate = _TARGET_MODES[mode]
     params = {"lim": limit}
-    if mode == "unknown_repass" and before is not None:
-        predicate = f"({predicate}) AND c.classified_at < %(before)s"
+    if mode in _BEFORE_BOUND_MODES and before is not None:
+        # 'all' must keep never-classified rows selectable, so its bound is an OR on
+        # NULL rather than the plain `classified_at < before` used by unknown_repass
+        # (whose predicate already requires classified_at IS NOT NULL).
+        predicate = (f"({predicate}) AND (c.classified_at IS NULL "
+                     f"OR c.classified_at < %(before)s)")
         params["before"] = before
     with conn.cursor() as cur:
         cur.execute(

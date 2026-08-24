@@ -294,7 +294,7 @@ CREATE TABLE classification_jobs (
                    CHECK (status IN ('pending','running','done','canceled','error')),
   model          TEXT NOT NULL,
   company_cap    INT NOT NULL CHECK (company_cap > 0),
-  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('unclassified','unknown_repass')),
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('unclassified','unknown_repass','all')),
   use_serp       BOOLEAN NOT NULL DEFAULT FALSE,
   est_cost       NUMERIC(10,4),
   processed      INT NOT NULL DEFAULT 0,

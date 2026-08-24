@@ -57,7 +57,7 @@ function resolvePricing(
 export async function launchClassificationJob(input: {
   model: string;
   cap: number;
-  mode: "unclassified" | "unknown_repass";
+  mode: "unclassified" | "unknown_repass" | "all";
   useSerp: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
   if (!isAdmin(await getUserClaims())) throw new Error("not authorized");
@@ -69,7 +69,7 @@ export async function launchClassificationJob(input: {
   if (!Number.isInteger(cap) || cap < CAP_MIN || cap > CAP_MAX) {
     return { ok: false, error: `Cap must be a whole number between ${CAP_MIN} and ${CAP_MAX}.` };
   }
-  if (mode !== "unclassified" && mode !== "unknown_repass") {
+  if (mode !== "unclassified" && mode !== "unknown_repass" && mode !== "all") {
     return { ok: false, error: "Unknown selection mode." };
   }
 
@@ -78,7 +78,12 @@ export async function launchClassificationJob(input: {
   // min(cap, live target count for the mode) — matching what the launcher showed the
   // operator. The stored company_cap stays the raw cap; only est_cost is clamped.
   const counts = await countTargets();
-  const targetCount = mode === "unclassified" ? counts.unclassified : counts.unknownRepass;
+  const targetCount =
+    mode === "unclassified"
+      ? counts.unclassified
+      : mode === "unknown_repass"
+        ? counts.unknownRepass
+        : counts.all;
   const effective = Math.min(cap, targetCount);
   const estCost = estimateClassificationCost({ count: effective, useSerp, pricing });
 

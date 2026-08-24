@@ -21,9 +21,11 @@ vi.mock("@/app/actions/classification", () => action);
 
 import { ClassificationLauncher } from "./ClassificationLauncher";
 
-// Empty model catalog → pricing resolves from FALLBACK_PRICING (Flash-Lite present),
-// so the estimate is deterministic without a live OpenRouter fetch.
-const COUNTS = { unclassified: 10_000, unknownRepass: 500 };
+// Empty model catalog → pricing resolves from FALLBACK_PRICING, so the estimate is
+// deterministic without a live OpenRouter fetch. NOTE the default model (ox-alpha) is
+// priced at $0/token, so any assertion that needs a NON-zero dollar figure must first
+// switch the Model select to a paid entry — see the target-count-cap test below.
+const COUNTS = { unclassified: 10_000, unknownRepass: 500, all: 29_412 };
 
 afterEach(() => {
   cleanup();
@@ -53,15 +55,21 @@ describe("ClassificationLauncher", () => {
 
   test("shows the SERP delta scaled per 1,000 companies (not a cent-rounded per-company $0.00)", () => {
     render(<ClassificationLauncher models={[]} counts={COUNTS} />);
-    // Flash-Lite fallback: (EST_SERP_EXTRA_INPUT_TOKENS*0.30e-6 + SERP_QUERY_COST_USD) * 1000
-    //   = (900*0.30e-6 + 0.001) * 1000 = $1.27 per 1,000 companies.
+    // ox-alpha (default) is $0/token, so the delta is the Serper query fee alone:
+    //   (900*0 + SERP_QUERY_COST_USD) * 1000 = $1.00 per 1,000 companies. The point of
+    // the per-1,000 scaling is that a per-COMPANY figure would cent-round to $0.00.
     const label = screen.getByText(/per 1,000 companies/i);
-    expect(label.textContent).toContain("$1.27");
+    expect(label.textContent).toContain("$1.00");
     expect(label.textContent).not.toContain("$0.00");
   });
 
   test("caps the estimate at the available target count for the chosen mode", () => {
     render(<ClassificationLauncher models={[]} counts={COUNTS} />);
+    // The default model is free, which would make every estimate "$0.00" and hide the
+    // cap entirely — switch to a paid model so the clamp is observable in dollars.
+    fireEvent.change(screen.getByLabelText("Model"), {
+      target: { value: "google/gemini-3.5-flash-lite" },
+    });
     // Default mode 'unclassified' has 10,000 targets; cap 500 → estimate at 500.
     fireEvent.change(screen.getByLabelText("Company cap"), { target: { value: "50000" } });
     const cappedAt10k = estimateText();
@@ -71,6 +79,20 @@ describe("ClassificationLauncher", () => {
     expect(cappedAt500).not.toBe(cappedAt10k);
   });
 
+  test("the 'Everything' mode targets the whole corpus", async () => {
+    render(<ClassificationLauncher models={[]} counts={COUNTS} />);
+    fireEvent.click(screen.getByRole("radio", { name: /Everything/i }));
+    // Raise the cap past the corpus so the clamp — not the typed cap — sets the hint.
+    fireEvent.change(screen.getByLabelText("Company cap"), { target: { value: "50000" } });
+    expect(screen.getByText(/for 29,412 companies/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Launch classification" }));
+    await waitFor(() =>
+      expect(action.launchClassificationJob).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: "all", model: "stealth/ox-alpha" }),
+      ),
+    );
+  });
+
   test("launches with the selected configuration", async () => {
     render(<ClassificationLauncher models={[]} counts={COUNTS} />);
     fireEvent.change(screen.getByLabelText("Company cap"), { target: { value: "250" } });
@@ -78,7 +100,7 @@ describe("ClassificationLauncher", () => {
     fireEvent.click(screen.getByRole("button", { name: "Launch classification" }));
     await waitFor(() =>
       expect(action.launchClassificationJob).toHaveBeenCalledWith({
-        model: "google/gemini-3.5-flash-lite",
+        model: "stealth/ox-alpha",
         cap: 250,
         mode: "unclassified",
         useSerp: true,

@@ -39,8 +39,8 @@ describe("estimateClassificationCost", () => {
 });
 
 describe("CLASSIFICATION_MODELS", () => {
-  test("Flash-Lite is the default (first) entry", () => {
-    expect(CLASSIFICATION_MODELS[0]).toBe("google/gemini-3.5-flash-lite");
+  test("ox-alpha is the default (first) entry", () => {
+    expect(CLASSIFICATION_MODELS[0]).toBe("stealth/ox-alpha");
   });
   test("every fallback-priced model is offered", () => {
     for (const id of Object.keys(FALLBACK_PRICING)) {

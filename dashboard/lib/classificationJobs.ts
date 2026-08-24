@@ -51,9 +51,14 @@ export async function listClassificationJobs(limit = 20): Promise<Classification
  * they drift, the admin estimate and the actual run diverge. Parity is enforced by
  * convention + reviewer check, not code — change both sides together.
  */
-export async function countTargets(): Promise<{ unclassified: number; unknownRepass: number }> {
+export async function countTargets(): Promise<{
+  unclassified: number;
+  unknownRepass: number;
+  all: number;
+}> {
   const rows = (await serviceSql`
     SELECT
+      count(*) AS all_companies,
       count(*) FILTER (WHERE c.classified_at IS NULL) AS unclassified,
       count(*) FILTER (
         WHERE c.classified_at IS NOT NULL AND (
@@ -64,10 +69,15 @@ export async function countTargets(): Promise<{ unclassified: number; unknownRep
         )
       ) AS unknown_repass
     FROM companies c
-  `) as unknown as { unclassified: unknown; unknown_repass: unknown }[];
+  `) as unknown as {
+    unclassified: unknown;
+    unknown_repass: unknown;
+    all_companies: unknown;
+  }[];
   const row = rows[0];
   return {
     unclassified: asNum(row?.unclassified) ?? 0,
     unknownRepass: asNum(row?.unknown_repass) ?? 0,
+    all: asNum(row?.all_companies) ?? 0,
   };
 }

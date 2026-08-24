@@ -46,17 +46,28 @@ function resolvePricing(
   return FALLBACK_PRICING[model] ?? null;
 }
 
-const MODE_ITEMS = (counts: { unclassified: number; unknownRepass: number }) => [
+type TargetCounts = { unclassified: number; unknownRepass: number; all: number };
+
+const MODE_ITEMS = (counts: TargetCounts) => [
   { label: `Unclassified (${counts.unclassified.toLocaleString()})`, value: "unclassified" },
   { label: `Re-pass unknown (${counts.unknownRepass.toLocaleString()})`, value: "unknown_repass" },
+  { label: `Everything (${counts.all.toLocaleString()})`, value: "all" },
 ];
+
+/** Live target count for the selected mode — the ceiling a run can actually reach. */
+const targetCountFor = (mode: ClassificationSelectionMode, counts: TargetCounts): number =>
+  mode === "unclassified"
+    ? counts.unclassified
+    : mode === "unknown_repass"
+      ? counts.unknownRepass
+      : counts.all;
 
 export function ClassificationLauncher({
   models,
   counts,
 }: {
   models: ORModel[];
-  counts: { unclassified: number; unknownRepass: number };
+  counts: TargetCounts;
 }) {
   const router = useRouter();
   const [model, setModel] = useState(CLASSIFICATION_MODELS[0]);
@@ -67,7 +78,7 @@ export function ClassificationLauncher({
 
   const pricing = useMemo(() => resolvePricing(model, models), [model, models]);
   const cap = Number.parseInt(capText, 10);
-  const targetCount = mode === "unclassified" ? counts.unclassified : counts.unknownRepass;
+  const targetCount = targetCountFor(mode, counts);
   // The run stops when it runs out of targets, so cost tracks the realistic ceiling,
   // not the raw cap the operator typed.
   const effectiveCount = Number.isFinite(cap) && cap > 0 ? Math.min(cap, targetCount) : 0;

@@ -224,6 +224,50 @@ def test_select_targets_unknown_repass_before_excludes_fresh(conn):
 
 
 @requires_db
+def test_select_targets_all_mode_selects_every_company(conn):
+    """'all' is the whole-corpus re-classification mode: unlike 'unclassified' and
+    'unknown_repass' it must select a company no matter how complete its facts are."""
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO companies (name, ats, token, classified_at, size, "
+                    "hq_country, industry, classification_confidence) VALUES "
+                    "('full','greenhouse','full', now(), '51-200', 'US', "
+                    "'software_internet', 'high') RETURNING id")
+        full = cur.fetchone()["id"]
+        cur.execute("INSERT INTO companies (name, ats, token) VALUES "
+                    "('never','greenhouse','never') RETURNING id")
+        never = cur.fetchone()["id"]
+    conn.commit()
+    ids = {t["id"] for t in jobs_db.select_targets(conn, "all", 50)}
+    # Both the fully-classified row (which unknown_repass skips) and the never-classified
+    # row (which unknown_repass skips too) are in scope for 'all'.
+    assert {full, never} <= ids
+
+
+@requires_db
+def test_select_targets_all_mode_before_excludes_this_runs_work(conn):
+    """Without the `before` bound 'all' (predicate TRUE) would hand back the SAME
+    top-of-order chunk forever and the job would burn its whole cap on one page of
+    companies. Rows this run already stamped must drop out; never-classified rows must
+    NOT be excluded by the bound."""
+    started = datetime.now(timezone.utc)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO companies (name, ats, token, classified_at) VALUES "
+                    "('old','greenhouse','old', now() - interval '1 hour') RETURNING id")
+        old = cur.fetchone()["id"]
+        cur.execute("INSERT INTO companies (name, ats, token, classified_at) VALUES "
+                    "('fresh','greenhouse','fresh', now() + interval '1 hour') RETURNING id")
+        fresh = cur.fetchone()["id"]
+        cur.execute("INSERT INTO companies (name, ats, token) VALUES "
+                    "('never','greenhouse','never') RETURNING id")
+        never = cur.fetchone()["id"]
+    conn.commit()
+    ids = {t["id"] for t in jobs_db.select_targets(conn, "all", 50, before=started)}
+    assert old in ids
+    assert never in ids, "never-classified rows must stay selectable under the bound"
+    assert fresh not in ids, "rows this run already classified must drop out"
+
+
+@requires_db
 def test_select_targets_respects_limit(conn):
     with conn.cursor() as cur:
         for i in range(5):

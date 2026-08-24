@@ -10,10 +10,11 @@
 // costs. Estimates are deliberately coarse — they gate operator spend, not billing.
 
 export const CLASSIFICATION_MODELS = [
-  "google/gemini-3.5-flash-lite", // default
+  "stealth/ox-alpha", // default — $0/token (see FALLBACK_PRICING)
+  "openai/gpt-5.6-luna",
+  "google/gemini-3.5-flash-lite",
   "google/gemini-3.6-flash",
   "deepseek/deepseek-v4-flash",
-  "openai/gpt-5.6-luna",
 ];
 
 export const EST_INPUT_TOKENS = 1300;
@@ -21,10 +22,16 @@ export const EST_OUTPUT_TOKENS = 300;
 export const EST_SERP_EXTRA_INPUT_TOKENS = 900;
 export const SERP_QUERY_COST_USD = 0.001;
 
-// 2026-07-21 openrouter.ai pricing (USD per token; gpt-5.6-luna added 2026-08-05) —
-// fallback when the live catalog is unavailable. Models absent here AND from the
-// catalog get estimate=null.
+// 2026-07-21 openrouter.ai pricing (USD per token; gpt-5.6-luna added 2026-08-05,
+// ox-alpha 2026-08-23) — fallback when the live catalog is unavailable. Models absent
+// here AND from the catalog get estimate=null.
+//
+// stealth/ox-alpha MUST stay listed here: it is a free stealth model that does NOT
+// advertise `structured_outputs` in its OpenRouter catalog entry, so getStructuredModels
+// filters it out and the live-pricing lookup can never resolve it. Without this row the
+// launcher would render "Estimate unavailable" for the default model rather than $0.00.
 export const FALLBACK_PRICING: Record<string, { prompt: number; completion: number }> = {
+  "stealth/ox-alpha": { prompt: 0, completion: 0 },
   "google/gemini-3.5-flash-lite": { prompt: 0.3e-6, completion: 2.5e-6 },
   "google/gemini-3.6-flash": { prompt: 1.5e-6, completion: 7.5e-6 },
   "openai/gpt-5.6-luna": { prompt: 0.1e-6, completion: 0.6e-6 },

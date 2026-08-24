@@ -137,11 +137,13 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
     own_client = classify_client is None
     client = classify_client or CompanyClassifyClient(model=job["model"])
     source = "job_serp" if job["use_serp"] else "job"
-    # unknown_repass would re-select a company that stays 'unknown' after this run's
-    # classification forever; bound select_targets to rows classified BEFORE this run
-    # started (classified_at < started_at) so a re-classified-but-still-unknown company
-    # is not picked again. Ignored for 'unclassified' (classified_at IS NULL there).
-    before = job["started_at"] if job["selection_mode"] == "unknown_repass" else None
+    # unknown_repass (a company that stays 'unknown' after this run) and 'all' (whose
+    # predicate is simply TRUE) would both re-select the same top-of-order chunk forever;
+    # bound select_targets to rows classified BEFORE this run started so a company already
+    # re-classified by this run is not picked again. Ignored for 'unclassified'
+    # (classified_at IS NULL self-clears as rows are stamped).
+    before = (job["started_at"]
+              if job["selection_mode"] in jobs_db._BEFORE_BOUND_MODES else None)
     # Deduct progress already spent by a prior (crashed / gracefully-stopped) attempt so a
     # resumed job honors its ORIGINAL company_cap across attempts rather than restarting it.
     remaining = job["company_cap"] - job["processed"] - job["errored"]

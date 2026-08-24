@@ -20,7 +20,7 @@ export type ClassificationJobStatus =
   | "done"
   | "canceled"
   | "error";
-export type ClassificationSelectionMode = "unclassified" | "unknown_repass";
+export type ClassificationSelectionMode = "unclassified" | "unknown_repass" | "all";
 
 const STATUSES: readonly ClassificationJobStatus[] = [
   "pending",
@@ -29,7 +29,11 @@ const STATUSES: readonly ClassificationJobStatus[] = [
   "canceled",
   "error",
 ];
-const MODES: readonly ClassificationSelectionMode[] = ["unclassified", "unknown_repass"];
+const MODES: readonly ClassificationSelectionMode[] = [
+  "unclassified",
+  "unknown_repass",
+  "all",
+];
 
 /** One classification_jobs row, every column typed (camel-case view). */
 export interface ClassificationJobRow {

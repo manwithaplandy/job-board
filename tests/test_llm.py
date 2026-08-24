@@ -604,3 +604,114 @@ def test_traced_salvage_path_flags_salvaged_and_warning(monkeypatch):
     assert md["finish_reason"] is None            # salvage stand-in has no finish_reason
     assert events["update"]["level"] == "WARNING"
     assert events["update"]["status_message"]     # a human-readable reason is attached
+
+
+# --- tool-schema transport (models that ignore response_format) --------------
+#
+# stealth/ox-alpha advertises `response_format` in the OpenRouter catalog but ignores
+# it: it answers in YAML, or in JSON whose keys are foreign to the schema. Those calls
+# are routed through a FORCED tool call instead (observability.llm.TOOL_SCHEMA_MODELS),
+# and a fully-defaulted parse is rejected rather than written over a good classification.
+
+class _ToolCompletions:
+    """Mimics AsyncOpenAI's chat.completions.create surface for the tool path."""
+
+    def __init__(self, arguments=None, content=None):
+        self.calls = []
+        self._arguments = arguments
+        self._content = content
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if self._arguments is not None:
+            fn = types.SimpleNamespace(name="record_result", arguments=self._arguments)
+            msg = types.SimpleNamespace(
+                tool_calls=[types.SimpleNamespace(function=fn)], refusal=None, content=None)
+        else:
+            msg = types.SimpleNamespace(tool_calls=None, refusal=None, content=self._content)
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(message=msg, finish_reason="tool_calls")],
+            usage=None, id="gen-1", model="stealth/ox-alpha")
+
+
+class _ToolClient:
+    def __init__(self, arguments=None, content=None):
+        self._c = _ToolCompletions(arguments, content)
+        self.chat = types.SimpleNamespace(completions=self._c)
+        # Present but must NOT be used for a TOOL_SCHEMA_MODELS call.
+        self.beta = types.SimpleNamespace(chat=types.SimpleNamespace(
+            completions=types.SimpleNamespace(parse=self._unexpected)))
+
+    async def _unexpected(self, **kwargs):
+        raise AssertionError("tool-schema model must not use beta.completions.parse")
+
+    @property
+    def calls(self):
+        return self._c.calls
+
+
+def _classify_call(client, model="stealth/ox-alpha"):
+    from observability.llm import traced_structured_call
+    from company_discovery.schemas import CompanyClassificationResult
+    return asyncio.run(traced_structured_call(
+        client, model=model, messages=[{"role": "user", "content": "Company: Acme"}],
+        schema=CompanyClassificationResult, name="company-classify", metadata={}))
+
+
+def test_tool_schema_model_sends_forced_tool_call_not_response_format():
+    client = _ToolClient(arguments='{"reasoning":"Acme makes CI tooling.",'
+                                   '"industry":"software_internet",'
+                                   '"industry_subcategory":"devtools_platforms",'
+                                   '"size":"51-200","hq_country":"US","confidence":"high"}')
+    parsed, _ = _classify_call(client)
+    kwargs = client.calls[0]
+    assert "response_format" not in kwargs
+    assert kwargs["tool_choice"]["function"]["name"] == "record_result"
+    # The pydantic schema is what goes out as the function's parameters.
+    assert "industry_subcategory" in kwargs["tools"][0]["function"]["parameters"]["properties"]
+    assert parsed.industry == "software_internet"
+    assert parsed.size == "51-200"
+
+
+def test_tool_schema_model_pins_reasoning_effort_to_max():
+    """ox-alpha's factual recall collapses at low effort (measured: 2x the 'unknown'
+    headcounts, plus calls that ignore tool_choice outright), so the model is pinned."""
+    client = _ToolClient(arguments='{"reasoning":"x","industry":"software_internet"}')
+    _classify_call(client)
+    assert client.calls[0]["extra_body"]["reasoning"] == {"effort": "max"}
+
+
+def test_non_tool_schema_model_keeps_native_structured_output():
+    """The routing is per-model: everything else must keep using response_format."""
+    from observability.llm import TOOL_SCHEMA_MODELS
+    assert "openai/gpt-5.6-luna" not in TOOL_SCHEMA_MODELS
+    fake = _FakeClient()
+    asyncio.run(__import__("observability.llm", fromlist=["x"]).traced_structured_call(
+        fake, model="openai/gpt-5.6-luna",
+        messages=[{"role": "user", "content": "t"}], schema=Stage1Result,
+        name="stage1", metadata={}))
+    assert fake.calls[0]["response_format"] is Stage1Result
+    assert "tools" not in fake.calls[0]
+
+
+def test_tool_schema_model_falls_back_to_content_when_tool_choice_ignored():
+    """Rare at effort=max, but the model sometimes answers in prose anyway; a fenced
+    JSON object in the content is salvaged rather than dropping the company."""
+    client = _ToolClient(content='```json\n{"reasoning":"Acme.","industry":"fintech_finance"}\n```')
+    parsed, _ = _classify_call(client)
+    assert parsed.industry == "fintech_finance"
+
+
+def test_off_schema_json_is_rejected_not_silently_defaulted():
+    """CompanyClassificationResult has NO required fields, so JSON with entirely foreign
+    keys validates into an all-'unknown' object. That would read as a confident
+    classification and overwrite a good one — it must raise instead."""
+    client = _ToolClient(arguments='{"company":"Acme","sector":"software"}')
+    with pytest.raises(ValueError, match="no schema fields"):
+        _classify_call(client)
+
+
+def test_empty_object_is_rejected_not_silently_defaulted():
+    client = _ToolClient(arguments="{}")
+    with pytest.raises(ValueError, match="no schema fields"):
+        _classify_call(client)

@@ -226,9 +226,73 @@ def _omission_metadata(schema, resp, msg) -> dict:
     return out
 
 
-async def _invoke(client, kwargs: dict) -> tuple:
+# ── Per-model transport quirks ────────────────────────────────────────────────
+# Some OpenRouter models advertise `response_format` support in the catalog but ignore
+# it completely. stealth/ox-alpha returns YAML (or JSON under entirely foreign keys) no
+# matter how the json_schema is passed, including strict:true. For those we drive the
+# SAME pydantic schema through a FORCED tool call, which they DO honor: the schema goes
+# out as the function's `parameters` and the arguments come back schema-shaped.
+TOOL_SCHEMA_MODELS = frozenset({"stealth/ox-alpha"})
+
+# Reasoning models whose ANSWER quality (not just verbosity) tracks reasoning effort.
+# ox-alpha's reasoning is mandatory and its factual recall collapses at effort='low':
+# measured over the same 60 companies, 16/58 headcounts came back 'unknown' at 'low'
+# versus 8/60 at 'max', and 2/60 calls ignored the forced tool_choice outright. Pin it
+# to the model's own default of 'max'. A caller's extra_body["reasoning"] still wins.
+MODEL_REASONING_EFFORT = {"stealth/ox-alpha": "max"}
+
+_TOOL_NAME = "record_result"
+
+
+def _is_pydantic(schema) -> bool:
+    return isinstance(schema, type) and issubclass(schema, BaseModel)
+
+
+def _reject_empty_parse(parsed) -> None:
+    """Guard against a silently-empty structured result.
+
+    Schemas whose fields ALL carry defaults (CompanyClassificationResult does) validate
+    happily from `{}` — or from JSON whose keys are entirely foreign to the schema, which
+    is exactly what a format-noncompliant model emits. The result is a fully-defaulted
+    object ('unknown' industry/size/country) that reads as a confident classification and
+    would be written over a good one. Treat "model set no field at all" as a failed call
+    so the caller's per-target error path runs instead."""
+    if isinstance(parsed, BaseModel) and not parsed.model_fields_set:
+        raise ValueError("model returned no schema fields (off-schema response)")
+
+
+async def _invoke_tool(client, kwargs: dict, schema) -> tuple:
+    """Structured output via a forced tool call, for TOOL_SCHEMA_MODELS. Returns the
+    same (resp, msg) shape as _invoke so the tracing/cost tail is identical — `msg` is a
+    stand-in exposing `.parsed`, since the real message carries tool_calls, not parsed."""
+    try:
+        resp = await client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        if _is_out_of_credits(exc):
+            raise OutOfCreditsError(str(exc)) from exc
+        raise
+    real = resp.choices[0].message
+    if getattr(real, "refusal", None):
+        raise ValueError(f"model refused: {real.refusal}")
+    calls = getattr(real, "tool_calls", None)
+    if calls:
+        parsed = robust_model_validate(schema, calls[0].function.arguments)
+    else:
+        # Rare (~3% at low effort, unobserved at 'max'): the model ignores the forced
+        # tool_choice and answers in prose. Salvage a JSON object out of the text rather
+        # than dropping the company; _reject_empty_parse below still catches off-schema
+        # output, so this can recover a fenced answer without inventing a blank one.
+        parsed = robust_model_validate(schema, real.content or "")
+    _reject_empty_parse(parsed)
+    return resp, SimpleNamespace(parsed=parsed, refusal=None)
+
+
+async def _invoke(client, kwargs: dict, tool_schema=None) -> tuple:
     """Call the transport, convert a spend-block (402 / 403 monthly key limit) →
-    OutOfCreditsError, validate parsed output."""
+    OutOfCreditsError, validate parsed output. When `tool_schema` is set the call is
+    routed through the forced-tool path instead of native structured output."""
+    if tool_schema is not None:
+        return await _invoke_tool(client, kwargs, tool_schema)
     try:
         resp = await client.beta.chat.completions.parse(**kwargs)
     except Exception as exc:
@@ -246,6 +310,7 @@ async def _invoke(client, kwargs: dict) -> tuple:
         raise ValueError(f"model refused: {msg.refusal}")
     if msg.parsed is None:
         raise ValueError("OpenRouter returned no parsed output")
+    _reject_empty_parse(msg.parsed)
     return resp, msg
 
 
@@ -275,16 +340,33 @@ async def traced_structured_call(
     (HTTP 402 insufficient credits / HTTP 403 monthly key limit).
     """
     body = {"usage": {"include": True}}
+    # Model-pinned reasoning effort goes on FIRST so an explicit caller extra_body
+    # ("reasoning") still overrides it.
+    effort = MODEL_REASONING_EFFORT.get(model)
+    if effort is not None:
+        body["reasoning"] = {"effort": effort}
     if extra_body:
         body.update(extra_body)
-    kwargs = {"model": model, "messages": messages, "response_format": schema,
-              "extra_body": body}
+    # Models that ignore response_format get the same schema as a forced tool call.
+    tool_schema = schema if (model in TOOL_SCHEMA_MODELS and _is_pydantic(schema)) else None
+    if tool_schema is not None:
+        kwargs = {
+            "model": model, "messages": messages, "extra_body": body,
+            "tools": [{"type": "function", "function": {
+                "name": _TOOL_NAME,
+                "description": f"Record the {schema.__name__} result.",
+                "parameters": schema.model_json_schema()}}],
+            "tool_choice": {"type": "function", "function": {"name": _TOOL_NAME}},
+        }
+    else:
+        kwargs = {"model": model, "messages": messages, "response_format": schema,
+                  "extra_body": body}
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
 
     lf = tracing.get_langfuse()
     if lf is None:
-        resp, msg = await _invoke(client, kwargs)
+        resp, msg = await _invoke(client, kwargs, tool_schema)
         return msg.parsed, getattr(resp, "usage", None)
 
     # In Langfuse's observation-centric model, an observation's `name` and its
@@ -309,7 +391,7 @@ async def traced_structured_call(
             end_on_exit=False,
         ) as gen:
             try:
-                resp, msg = await _invoke(client, kwargs)
+                resp, msg = await _invoke(client, kwargs, tool_schema)
             except Exception as exc:
                 gen.update(level="ERROR", status_message=str(exc))
                 gen.end()

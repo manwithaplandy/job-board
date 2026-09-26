@@ -22,8 +22,8 @@ export const EST_OUTPUT_TOKENS = 300;
 export const EST_SERP_EXTRA_INPUT_TOKENS = 900;
 export const SERP_QUERY_COST_USD = 0.001;
 
-// 2026-07-21 openrouter.ai pricing (USD per token; gpt-5.6-luna added 2026-08-05,
-// ox-alpha 2026-08-23) — fallback when the live catalog is unavailable. Models absent
+// 2026-07-21 openrouter.ai pricing (USD per token; gpt-5.6-luna added 2026-08-05 and
+// corrected 2026-09-26 to its standard rate — 0.1/0.6 was the batch rate — ox-alpha 2026-08-23) — fallback when the live catalog is unavailable. Models absent
 // here AND from the catalog get estimate=null.
 //
 // stealth/ox-alpha MUST stay listed here: it is a free stealth model that does NOT
@@ -34,7 +34,7 @@ export const FALLBACK_PRICING: Record<string, { prompt: number; completion: numb
   "stealth/ox-alpha": { prompt: 0, completion: 0 },
   "google/gemini-3.5-flash-lite": { prompt: 0.3e-6, completion: 2.5e-6 },
   "google/gemini-3.6-flash": { prompt: 1.5e-6, completion: 7.5e-6 },
-  "openai/gpt-5.6-luna": { prompt: 0.1e-6, completion: 0.6e-6 },
+  "openai/gpt-5.6-luna": { prompt: 0.2e-6, completion: 1.2e-6 },
 };
 
 /**

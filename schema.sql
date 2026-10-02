@@ -51,7 +51,7 @@ CREATE TABLE jobs (
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   closed_at     TIMESTAMPTZ,                  -- set when role drops out of feed
   description   TEXT,                         -- cached full JD plaintext (from the ATS payload)
-  description_pruned BOOLEAN NOT NULL DEFAULT FALSE  -- TRUE = JD pruned by lifecycle Rule A (final); FALSE = never captured or not yet pruned
+  description_pruned BOOLEAN NOT NULL DEFAULT FALSE  -- legacy pruning marker; current maintenance never strips shared descriptions
 );
 CREATE INDEX idx_jobs_first_seen ON jobs (first_seen_at DESC);
 CREATE INDEX idx_jobs_open ON jobs (closed_at) WHERE closed_at IS NULL;
@@ -845,3 +845,182 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, aut
 -- and MUST be applied to the live Supabase project + live cross-account verified
 -- (see that file's header). tests/test_resume_storage_policies.py proves the policy
 -- predicate against a faithful in-DB mock of the storage/auth schema.
+
+
+-- BEGIN mirrored 2026-10-02-matching-activity.sql
+-- Existing users receive a seven-day rollout grace period. No historical GET,
+-- last login, profile updated_at or background job is treated as meaningful activity.
+CREATE TABLE IF NOT EXISTS matching_activity (
+  user_id uuid PRIMARY KEY REFERENCES profiles(user_id) ON DELETE CASCADE,
+  last_meaningful_at timestamptz NOT NULL DEFAULT now(),
+  paused_at timestamptz
+);
+ALTER TABLE matching_activity ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS owner_read ON matching_activity;
+CREATE POLICY owner_read ON matching_activity FOR SELECT TO authenticated
+  USING (user_id = public.app_user_id());
+REVOKE ALL ON matching_activity FROM anon,authenticated;
+GRANT SELECT ON matching_activity TO authenticated;
+INSERT INTO matching_activity(user_id) SELECT user_id FROM profiles ON CONFLICT DO NOTHING;
+ALTER TABLE review_requests ADD COLUMN IF NOT EXISTS resume_requested boolean NOT NULL DEFAULT false;
+
+-- Only the actual, non-trial paid subscription mirror qualifies. Align expiry's
+-- three-day grace with the existing entitlement resolver, ignoring comp/override tiers.
+CREATE OR REPLACE FUNCTION matching_paused(uid uuid) RETURNS boolean
+LANGUAGE sql VOLATILE SET search_path = public, pg_temp AS $$
+ SELECT NOT EXISTS (
+   SELECT 1 FROM subscriptions s WHERE s.user_id=uid AND s.plan IN ('standard','pro')
+     AND s.status='active' AND nullif(s.stripe_subscription_id,'') IS NOT NULL
+     AND s.current_period_end + interval '3 days' > clock_timestamp()
+ ) AND EXISTS (
+   SELECT 1 FROM matching_activity a WHERE a.user_id=uid
+     AND (a.paused_at IS NOT NULL OR a.last_meaningful_at <= clock_timestamp()-interval '7 days')
+ )
+$$;
+REVOKE ALL ON FUNCTION matching_paused(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION matching_paused(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION track_matching_activity() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE actor uuid := CASE WHEN TG_OP='DELETE' THEN OLD.user_id ELSE NEW.user_id END;
+BEGIN
+ IF TG_TABLE_NAME='profiles' AND TG_OP='INSERT' THEN
+   INSERT INTO matching_activity(user_id) VALUES(NEW.user_id) ON CONFLICT DO NOTHING;
+ ELSIF current_setting('role',true)='authenticated' AND actor=public.app_user_id()
+       AND NOT EXISTS(SELECT 1 FROM account_deletions WHERE user_id=actor) THEN
+   -- Preserve the expiry BEFORE advancing activity. Only explicit resume clears it.
+   UPDATE matching_activity SET
+     paused_at=CASE WHEN public.matching_paused(actor) THEN coalesce(paused_at,clock_timestamp()) ELSE paused_at END,
+     last_meaningful_at=clock_timestamp() WHERE user_id=actor;
+ END IF;
+ RETURN NEW;
+END
+$$;
+REVOKE ALL ON FUNCTION track_matching_activity() FROM PUBLIC;
+DROP TRIGGER IF EXISTS initialize_matching_activity ON profiles;
+CREATE TRIGGER initialize_matching_activity AFTER INSERT ON profiles
+ FOR EACH ROW EXECUTE FUNCTION track_matching_activity();
+-- Deliberate saved profile/preferences changes; no generic updated_at trigger.
+-- board_filters is excluded: pagehide beacons can persist it without a user edit.
+DROP TRIGGER IF EXISTS profile_matching_activity ON profiles;
+CREATE TRIGGER profile_matching_activity AFTER UPDATE OF resume_text,instructions,
+ preferred_locations,company_exclusions,company_instructions,
+ full_name,email,phone,links,location,screening_answers,
+ resume_generation_instructions,cover_letter_generation_instructions ON profiles
+ FOR EACH ROW WHEN (OLD IS DISTINCT FROM NEW) EXECUTE FUNCTION track_matching_activity();
+DROP TRIGGER IF EXISTS correction_matching_activity ON review_corrections;
+CREATE TRIGGER correction_matching_activity AFTER INSERT ON review_corrections
+ FOR EACH ROW EXECUTE FUNCTION track_matching_activity();
+DROP TRIGGER IF EXISTS company_override_matching_activity ON company_overrides;
+CREATE TRIGGER company_override_matching_activity AFTER INSERT OR UPDATE ON company_overrides
+ FOR EACH ROW EXECUTE FUNCTION track_matching_activity();
+
+-- Only manual verdict changes and applied-state transitions count; generated
+-- package content and automatic AI reviews never advance the activity clock.
+DROP TRIGGER IF EXISTS reject_insert_matching_activity ON job_reviews;
+CREATE TRIGGER reject_insert_matching_activity AFTER INSERT ON job_reviews
+ FOR EACH ROW WHEN (NEW.human_override) EXECUTE FUNCTION track_matching_activity();
+DROP TRIGGER IF EXISTS reject_update_matching_activity ON job_reviews;
+CREATE TRIGGER reject_update_matching_activity AFTER UPDATE OF human_override,verdict ON job_reviews
+ FOR EACH ROW WHEN ((OLD.human_override OR NEW.human_override) AND OLD IS DISTINCT FROM NEW)
+ EXECUTE FUNCTION track_matching_activity();
+DROP TRIGGER IF EXISTS applied_insert_matching_activity ON application_packages;
+CREATE TRIGGER applied_insert_matching_activity AFTER INSERT ON application_packages
+ FOR EACH ROW WHEN (NEW.status='applied') EXECUTE FUNCTION track_matching_activity();
+DROP TRIGGER IF EXISTS applied_update_matching_activity ON application_packages;
+CREATE TRIGGER applied_update_matching_activity AFTER UPDATE OF status ON application_packages
+ FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status AND (OLD.status='applied' OR NEW.status='applied'))
+ EXECUTE FUNCTION track_matching_activity();
+DROP TRIGGER IF EXISTS applied_delete_matching_activity ON application_packages;
+CREATE TRIGGER applied_delete_matching_activity AFTER DELETE ON application_packages
+ FOR EACH ROW WHEN (OLD.status='applied') EXECUTE FUNCTION track_matching_activity();
+
+-- Serialize resume calls on this user's activity row. Queue insertion and state
+-- change commit together; RLS is supplemented with a checked server JWT identity.
+CREATE OR REPLACE FUNCTION resume_matching() RETURNS TABLE(status text, existing boolean)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE uid uuid := public.app_user_id(); was_paused boolean; req review_requests%ROWTYPE;
+BEGIN
+ IF uid IS NULL OR EXISTS(SELECT 1 FROM account_deletions WHERE user_id=uid) THEN
+   RAISE EXCEPTION 'sign in' USING ERRCODE='42501';
+ END IF;
+ PERFORM 1 FROM matching_activity WHERE user_id=uid FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'profile required' USING ERRCODE='42501'; END IF;
+ -- Inspect stored pause/expiry, not the paid exemption: billing may have
+ -- activated after the running worker already skipped this paused account.
+ SELECT paused_at IS NOT NULL OR last_meaningful_at <= clock_timestamp()-interval '7 days'
+ INTO was_paused FROM matching_activity WHERE user_id=uid;
+ UPDATE matching_activity SET last_meaningful_at=clock_timestamp(),paused_at=NULL WHERE user_id=uid;
+ INSERT INTO review_requests(user_id) VALUES(uid)
+ ON CONFLICT (user_id) WHERE review_requests.status IN ('pending','running') DO NOTHING
+ RETURNING * INTO req;
+ IF FOUND THEN RETURN QUERY SELECT req.status,false; RETURN; END IF;
+ -- The worker might finish between conflict detection and this row lock. Retry
+ -- insertion if so; never return a synthetic pending success without durable work.
+ SELECT * INTO req FROM review_requests WHERE user_id=uid AND review_requests.status IN ('pending','running') FOR UPDATE;
+ IF NOT FOUND THEN
+   INSERT INTO review_requests(user_id) VALUES(uid) RETURNING * INTO req;
+   RETURN QUERY SELECT req.status,false; RETURN;
+ END IF;
+ IF was_paused AND req.status='running' THEN
+   UPDATE review_requests SET resume_requested=true WHERE id=req.id;
+ END IF;
+ RETURN QUERY SELECT req.status,true;
+END
+$$;
+REVOKE ALL ON FUNCTION resume_matching() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION resume_matching() TO authenticated;
+
+INSERT INTO schema_migrations(filename) VALUES ('2026-10-02-matching-activity.sql') ON CONFLICT DO NOTHING;
+-- END mirrored 2026-10-02-matching-activity.sql
+
+
+-- BEGIN mirrored 2026-10-02-feedback.sql
+-- Authenticated feedback: owner export reads; all writes go through the bounded RPC.
+-- Requires tenant-isolation identity helper and account-deletions migration.
+CREATE TABLE IF NOT EXISTS public.feedback (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id uuid NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('issue', 'criticism', 'feature_request')),
+  message text NOT NULL CHECK (char_length(btrim(message)) BETWEEN 1 AND 4000),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS feedback_user_created_idx ON public.feedback (user_id, created_at DESC);
+ALTER TABLE public.feedback ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.feedback FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON SEQUENCE public.feedback_id_seq FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.feedback TO authenticated;
+DROP POLICY IF EXISTS feedback_owner_read ON public.feedback;
+CREATE POLICY feedback_owner_read ON public.feedback FOR SELECT TO authenticated
+  USING (user_id = (SELECT public.app_user_id()));
+CREATE OR REPLACE FUNCTION public.submit_feedback(p_kind text, p_message text)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE caller uuid := public.app_user_id();
+BEGIN
+  IF caller IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  -- A fresh post-lock snapshot prevents stale-snapshot rate bypasses.
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'read committed required' USING ERRCODE = '25000';
+  END IF;
+  IF p_kind IS NULL OR p_kind NOT IN ('issue','criticism','feature_request')
+     OR p_message IS NULL OR char_length(p_message) > 4000
+     OR p_message !~ '[^[:space:]]' THEN
+    RAISE EXCEPTION 'invalid feedback' USING ERRCODE = '22023';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('feedback:' || caller::text, 0));
+  IF EXISTS (SELECT 1 FROM public.account_deletions WHERE user_id = caller) THEN
+    RAISE EXCEPTION 'account deleted' USING ERRCODE = '42501';
+  END IF;
+  IF (SELECT count(*) FROM public.feedback WHERE user_id = caller
+      AND created_at > clock_timestamp() - interval '1 hour') >= 5 THEN
+    RAISE EXCEPTION 'feedback rate limit' USING ERRCODE = 'P0001';
+  END IF;
+  INSERT INTO public.feedback(user_id, kind, message) VALUES (caller, p_kind, btrim(p_message));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.submit_feedback(text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.submit_feedback(text, text) TO authenticated;
+INSERT INTO schema_migrations (filename) VALUES ('2026-10-02-feedback.sql') ON CONFLICT DO NOTHING;
+-- END mirrored 2026-10-02-feedback.sql

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const read = (file: string) => readFileSync(file, "utf8");
+const outcome = read("tests/visual/auth-outcome.ts");
 
 describe("fresh visual authentication setup", () => {
   test("disables the Next development indicator in visual screenshots", () => {
@@ -29,10 +30,11 @@ describe("fresh visual authentication setup", () => {
     expect(setup.match(/toHaveCount\(1/g)).toHaveLength(4);
     expect(setup).not.toContain('getByLabel("Email", { exact: true })');
     expect(setup).not.toContain('getByLabel("Password", { exact: true })');
-    expect(setup).toContain('page.getByRole("alert")');
-    expect(setup).toContain('waitFor({ state: "visible", timeout: 0 })');
-    expect(setup).toContain("Promise.race([");
-    expect(setup).toMatch(
+    expect(setup).toContain('import { waitForAuthenticationOutcome } from "./auth-outcome"');
+    expect(outcome).toContain('page.locator("form").getByRole("alert")');
+    expect(outcome).toContain('waitFor({ state: "visible", timeout: 0 })');
+    expect(outcome).toContain("Promise.race([");
+    expect(outcome).toMatch(
       /classifyVisualAuthRejection\(\s*await alert\.innerText\(\),?\s*\)/,
     );
     expect(setup).toContain(
@@ -66,7 +68,7 @@ describe("fresh visual authentication setup", () => {
   test("fails closed unless each identity reaches and renders its expected route", () => {
     const setup = read("tests/visual/auth.setup.ts");
 
-    expect(setup).toContain(".waitForURL(expectedURL, {");
+    expect(outcome).toContain(".waitForURL(expectedURL, {");
     expect(setup).toContain(
       'expectedPath === "/profile" ? `${baseURL}/` : `${baseURL}/onboarding`',
     );
@@ -86,7 +88,7 @@ describe("fresh visual authentication setup", () => {
     expect(setup).toContain("test.setTimeout(TEST_TIMEOUT_MS)");
     expect(setup).toContain("const TEST_TIMEOUT_MS = 240_000");
     expect(setup).toContain("const ACTION_TIMEOUT_MS = 10_000");
-    expect(setup).toContain("const AUTH_OUTCOME_TIMEOUT_MS = 20_000");
+    expect(outcome).toContain("const AUTH_OUTCOME_TIMEOUT_MS = 20_000");
     expect(setup).toContain("timeout: NAVIGATION_TIMEOUT_MS");
     expect(setup).toContain("waitUntil: \"domcontentloaded\"");
     expect(outcomeIndex).toBeGreaterThanOrEqual(0);

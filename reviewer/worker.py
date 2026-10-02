@@ -78,6 +78,7 @@ def process_one(conn) -> bool:
         return False
 
     req_id = claimed["id"]
+    claim_version = claimed["claim_version"]
     user_id = str(claimed["user_id"])
     log.info("processing review request %s for user %s", req_id, user_id)
     # Mark before any processing so a sibling loop's recovery sweep can't reap this
@@ -87,28 +88,31 @@ def process_one(conn) -> bool:
     try:
         profile = db.load_profile(conn, user_id)
         if profile is None:
-            db.finish_review_request(conn, req_id, "failed", notes="profile not found")
+            db.finish_review_request(conn, req_id, "failed", notes="profile not found", claim_version=claim_version)
             conn.commit()
             return True
         # _review_user manages its own review_runs row + commits (incl. the cap/skip
         # notes). It catches per-user errors internally, so this mostly closes 'done'.
         # Load the DB-overlaid tier config (T1) and invite comp plan per request so a
         # retune is honored without a worker restart.
-        completed = run._review_user(conn, profile, db.load_tier_settings(conn), db.load_invite_comp_plan(conn))
+        completed = run._review_user(
+            conn, profile, db.load_tier_settings(conn), db.load_invite_comp_plan(conn),
+            request_claim=(req_id, claim_version),
+        )
         if completed is False:
             # A cron run holds the shared lock. Keep the request durable and back
             # off, rather than consume a resume which has not actually executed.
-            db.finish_review_request(conn, req_id, "pending", notes="waiting for active review")
+            db.finish_review_request(conn, req_id, "pending", notes="waiting for active review", claim_version=claim_version)
             conn.commit()
             return False
-        db.finish_review_request(conn, req_id, "done")
+        db.finish_review_request(conn, req_id, "done", claim_version=claim_version)
         conn.commit()
     except Exception as exc:  # belt-and-braces: never let one request kill the loop
         try:
             conn.rollback()
         except Exception:
             pass
-        db.finish_review_request(conn, req_id, "failed", notes=f"{type(exc).__name__}: {exc}"[:500])
+        db.finish_review_request(conn, req_id, "failed", notes=f"{type(exc).__name__}: {exc}"[:500], claim_version=claim_version)
         conn.commit()
         log.exception("review request %s failed", req_id)
     finally:

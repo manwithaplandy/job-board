@@ -62,12 +62,18 @@ are unrelated and must not be applied as part of this rollout.
    for additive metadata migrations and source-confirmed closure updates.
 2. Rehearse both new migrations against a disposable database created from the
    prior schema, and exercise tenant grants, queue concurrency and rollback behavior.
-3. Apply the matching-activity and feedback migrations before new dashboard/workers.
-   Their schema definitions must match the checked-in schema; no jobs data migration
-   or production cleanup command is part of this step.
-4. Release dashboard and Python reviewer/poller from the same reviewed commit.
-   Verify paid entitlement and pause status with test accounts, a deliberate action,
-   explicit resume, queued execution, repeated resume and an unauthorized request.
+3. During the separately authorized cutover, stop scheduling new poller/reviewer work
+   and gracefully drain every old reviewer worker and poller. Confirm no old instance
+   can consume requests or run legacy pruning. Do not touch the unrelated company
+   discovery deployment or its five staged Railway changes.
+4. Apply the matching-activity and feedback migrations while those old processes are
+   stopped, before new dashboard/workers. Their definitions must match the reviewed
+   commit, including `review_requests.claim_version`; no jobs data migration or cleanup
+   command is part of this step. Start only new Python reviewer/poller versions, then
+   release the new dashboard. Do not mix old queue consumers with new resume requests:
+   old code does not enforce pause, resume markers or claim fencing. Verify paid
+   entitlement and pause status with test accounts, a deliberate action, explicit resume,
+   repeated resume, stale recovery/reclaim and an unauthorized request.
 5. Observe a guarded poll: zero ingestion/enrichment, successful source checks may
    close missing postings, failed/incomplete checks must not close anything. Inspect
    poll summaries, maintenance counts and WAL/disk headroom. Keep sweeps bounded.
@@ -81,16 +87,37 @@ Keep additive metadata tables/functions on rollback so feedback and activity his
 are preserved. Do not drop tables as a rollback shortcut. Reverting the entire old
 poller also restores unsafe shared-description/inactive-company pruning; prefer a
 forward fix or stop the affected maintenance process. Reverting the reviewer removes
-inactivity enforcement, so coordinate that explicitly. Never resume ingestion by
+inactivity enforcement and claim fencing: stop/drain new consumers before any downgrade,
+keep the metadata, and do not reactivate old consumers against live new resume requests.
+A forward fix while affected consumers are stopped is the preferred recovery. Never resume ingestion by
 raising the guard merely to work around physical file size.
 
-Implementation-specific migration semantics and final verification are recorded below
-when integration is complete.
+## Read-only dry-run acceptance criteria
+
+- Verify the destination against the repository production reference before querying.
+  Use `BEGIN READ ONLY` and a statement timeout. The supplied SQL uses the default
+  30-day retention; if a rollout intentionally configures another positive retention,
+  change the estimate to that exact value before interpreting its result.
+- A candidate must have `closed_at` older than that retention, no approved review,
+  no correction of any verdict, and no application package of any status. `last_seen_at`
+  and company activation state never substitute for this predicate.
+- The recorded baseline is zero candidates. If pre-cutover candidates now appear,
+  review their closure/source evidence before enabling automatic maintenance. Legacy
+  `closed_at` alone does not prove the old crawler returned a complete source listing.
+  A failed/incomplete check in the new code must not create new closures.
+- Verify the intended cleanup batch/cap (defaults 2000/20000), READ COMMITTED isolation,
+  and actual free disk/WAL headroom. Candidate counts/payload bytes do not measure
+  filesystem bytes recoverable. No guard increase or rewrite is authorized by a dry-run.
+- Abort rollout if the destination, protection predicates, source completeness, backup
+  posture or headroom cannot be established. Keep source reconciliation failures visible;
+  do not compensate by deleting open/inactive-company jobs or backdating closure age.
+- The read-only estimate never authorizes mutation. Deployment/production maintenance
+  still require the parent's separate approval; no production deletion was run here.
 
 ## Final implementation semantics
 
 - `2026-10-02-matching-activity.sql` adds `matching_activity` and the queue's
-  `resume_requested` marker. Existing profiles start a seven-day rollout grace period
+  `resume_requested` marker and monotonic `claim_version` fencing. Existing profiles start a seven-day rollout grace period
   at migration time, because historical meaningful activity is unknown. New profiles
   initialize the same clock. Reapplying the migration does not reset existing clocks.
 - Actual active Stripe subscriptions with a recognized plan and nonempty subscription
@@ -105,13 +132,17 @@ when integration is complete.
   The board's Resume matching action clears it and queues work atomically. A running
   request receives one durable follow-up marker when necessary. Eligibility is freshly
   evaluated after the shared per-user review lock; stale recovery respects that database
-  lock across processes. Daily budgets remain enforced, including a resume after today's
+  lock across processes. Execution and completion require the same running claim version,
+  preventing delayed/recovered workers from consuming a reassigned request. Daily budgets
+  remain enforced, including a resume after today's
   budget is spent. Existing jobs and application history remain available.
 - `2026-10-02-feedback.sql` adds owner-readable feedback and an authenticated RPC.
   Raw user writes and anonymous access are revoked. Identity is taken from the session,
   text/type validation happens in application and database, and a per-user transaction
   lock enforces five messages per rolling hour. Stale transaction isolation modes are
-  refused. Feedback and matching activity are included in account export/deletion.
+  refused. Feedback and matching activity are included in account export/deletion. The erasure
+  sweep shares the feedback transaction lock, so an earlier in-flight submission is
+  committed and then erased rather than surviving the sweep.
 - Cleanup locks candidate jobs and existing reviews, then rechecks protections using
   a fresh READ COMMITTED snapshot. Busy history updates yield the sweep. The row cap
   applies to cleanup. Source reconciliation close/reopen transactions still cover one
@@ -154,3 +185,29 @@ checks above run locally; perform authenticated release smoke tests before deplo
 
 Final integrated Python verification: **791 passed, 0 failed, 0 skipped** in 75.45s
 using `TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/poller_test .venv/bin/pytest -q`.
+
+
+## Final publication review of 4105c43
+
+A fresh independent reviewer checked the complete `73ce118..4105c43` diff and ran
+120 focused local tests. Two additional scoped races were reproduced:
+
+1. Recovery in the user-lock-release/queue-finish gap could lose a pending resume.
+   Completion is now conditional on running status and claim version; execution also
+   rechecks that version after acquiring the user lock. Three new deterministic tests
+   cover recovered pending work, recovered/reclaimed work and a delayed pre-lock worker.
+2. An uncommitted feedback submission could survive erasure. The deletion transaction
+   now acquires the feedback writer's lock before sweeping; two real-DB tests cover the
+   opposite transaction orderings.
+
+Both were observed failing before the fix and passing afterward. Rollout instructions
+now explicitly prohibit mixed old/new queue consumers and define dry-run stop criteria.
+The latest commit supersedes 4105c43 for publication; no publication or deployment was
+performed. Final post-review suite counts and migration rehearsal are recorded below.
+
+Post-review verification: **794 Python tests passed, 0 failed/skipped**; **1,676
+dashboard tests passed, 14 skipped**, including feedback rate/security and both erasure
+race tests. TypeScript typecheck and relevant lint checks passed. Revised migrations
+were applied twice to a new local database from `73ce118`, preserving the existing
+profile and queued request, initializing claim version to zero, and keeping exactly
+two migration ledger records. The checked-in schema matches both final migrations.

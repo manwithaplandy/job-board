@@ -388,31 +388,50 @@ def finish_review_run(conn, run_id: int, *, reviewed: int, gate_rejected: int,
 def claim_next_review_request(conn) -> dict | None:
     """Atomically claim the oldest pending request → status='running'. FOR UPDATE SKIP
     LOCKED lets multiple workers run without ever grabbing the same row. Returns the
-    claimed {id, user_id} or None when the queue is empty. Caller commits."""
+    claimed {id, user_id, claim_version} or None when the queue is empty. Caller commits."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE review_requests SET status = 'running', started_at = now()
+            UPDATE review_requests SET status = 'running', started_at = now(),
+                   claim_version = claim_version + 1
             WHERE id = (
               SELECT id FROM review_requests WHERE status = 'pending'
               ORDER BY requested_at
               FOR UPDATE SKIP LOCKED LIMIT 1
             )
-            RETURNING id, user_id
+            RETURNING id, user_id, claim_version
             """
         )
         return cur.fetchone()
 
 
-def finish_review_request(conn, req_id: int, status: str, notes: str | None = None) -> None:
-    """Finish or requeue a claim, preserving a concurrent explicit resume. Caller commits."""
+def current_review_claim(conn, user_id: str, req_id: int, claim_version: int) -> bool:
+    """Read under the user advisory lock before spending on queued work."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS(SELECT 1 FROM review_requests WHERE id=%s AND user_id=%s "
+            "AND status='running' AND claim_version=%s) AS current",
+            (req_id, _uuid(user_id), claim_version),
+        )
+        return bool(cur.fetchone()["current"])
+
+
+def finish_review_request(conn, req_id: int, status: str, notes: str | None = None,
+                          *, claim_version: int) -> None:
+    """Finish only this running claim generation, preserving a concurrent resume.
+
+    Stale recovery may requeue and another process may reclaim after model work
+    releases its lock. A late completion must never overwrite the newer claim.
+    Caller commits.
+    """
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE review_requests SET status = CASE WHEN resume_requested THEN 'pending' ELSE %s END, "
             "finished_at = CASE WHEN resume_requested THEN NULL ELSE now() END, "
             "started_at = CASE WHEN resume_requested THEN NULL ELSE started_at END, "
-            "resume_requested=false, notes = %s WHERE id = %s",
-            (status, notes, req_id),
+            "resume_requested=false, notes = %s WHERE id = %s "
+            "AND status = 'running' AND claim_version = %s",
+            (status, notes, req_id, claim_version),
         )
 
 

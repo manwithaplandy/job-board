@@ -14,6 +14,8 @@ REVOKE ALL ON matching_activity FROM anon,authenticated;
 GRANT SELECT ON matching_activity TO authenticated;
 INSERT INTO matching_activity(user_id) SELECT user_id FROM profiles ON CONFLICT DO NOTHING;
 ALTER TABLE review_requests ADD COLUMN IF NOT EXISTS resume_requested boolean NOT NULL DEFAULT false;
+-- Fences late completions after stale recovery/reclaim across worker processes.
+ALTER TABLE review_requests ADD COLUMN IF NOT EXISTS claim_version bigint NOT NULL DEFAULT 0;
 
 -- Only the actual, non-trial paid subscription mirror qualifies. Align expiry's
 -- three-day grace with the existing entitlement resolver, ignoring comp/override tiers.

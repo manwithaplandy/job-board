@@ -118,15 +118,16 @@ def test_resume_atomic_dedup_and_running_followup(conn, user):
             == 1
         )
         conn.commit()
-    db.finish_review_request(conn, req, "done")
+    db.finish_review_request(conn, req, "done", claim_version=0)
     assert (
         conn.execute(
             "SELECT status FROM review_requests WHERE id=%s", (req,)
         ).fetchone()["status"]
         == "pending"
     )
-    # A second completion consumes the marker; no endless loop.
-    db.finish_review_request(conn, req, "done")
+    # A fresh claim consumes the follow-up; stale completion cannot do so.
+    claimed = db.claim_next_review_request(conn)
+    db.finish_review_request(conn, req, "done", claim_version=claimed["claim_version"])
     assert (
         conn.execute(
             "SELECT status FROM review_requests WHERE id=%s", (req,)
@@ -329,7 +330,7 @@ def test_resume_racing_completion_always_leaves_one_pending_request(
     def finish():
         with psycopg.connect(TEST_DSN, row_factory=dict_row) as other:
             barrier.wait()
-            db.finish_review_request(other, req, "done")
+            db.finish_review_request(other, req, "done", claim_version=0)
 
     def resume():
         with psycopg.connect(TEST_DSN, row_factory=dict_row) as other:
@@ -440,7 +441,7 @@ def test_resume_keeps_followup_when_subscription_activates_after_paused_executio
     with as_user(conn, user):
         conn.execute("SELECT * FROM resume_matching()")
         conn.commit()
-    db.finish_review_request(conn, req, "done")
+    db.finish_review_request(conn, req, "done", claim_version=0)
     assert (
         conn.execute(
             "SELECT status FROM review_requests WHERE id=%s", (req,)

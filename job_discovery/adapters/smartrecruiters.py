@@ -85,18 +85,27 @@ def _minimal_posting(token: str, item: dict) -> Posting | None:
     )
 
 
-def fetch_smartrecruiters(token: str) -> list[Posting]:
+def fetch_smartrecruiters(token: str, *, fetch_details: bool = True) -> list[Posting]:
     base = f"https://api.smartrecruiters.com/v1/companies/{token}/postings"
     postings: list[Posting] = []
     offset = 0
+    seen = set()
+    expected_total = 0
     while True:
         page = get_json(f"{base}?limit={_PAGE_LIMIT}&offset={offset}")
-        if "content" not in page:
+        if not isinstance(page, dict) or not isinstance(page.get("content"), list):
             raise ValueError("smartrecruiters response missing 'content' key")
         content = page.get("content") or []
+        total = page.get("totalFound")
+        if isinstance(total, int) and total > 0:
+            expected_total = max(expected_total, total)
         for item in content:
             pid = item.get("id")
-            if not pid:
+            if not pid or pid in seen:
+                raise ValueError("smartrecruiters incomplete listing: missing or repeated id")
+            seen.add(pid)
+            if not fetch_details:
+                postings.append(_minimal_posting(token, item))
                 continue
             try:
                 # Both the fetch and the parse live inside the try: a malformed
@@ -120,5 +129,7 @@ def fetch_smartrecruiters(token: str) -> list[Posting]:
         full_page = len(content) == _PAGE_LIMIT
         reached_total = isinstance(total, int) and total > 0 and offset >= total
         if not full_page or reached_total:
+            if len(seen) < expected_total:
+                raise ValueError("smartrecruiters incomplete listing below reported total")
             break
     return postings

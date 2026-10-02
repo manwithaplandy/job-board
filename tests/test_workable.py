@@ -92,9 +92,8 @@ def test_fetch_keeps_minimal_posting_when_job_malformed(monkeypatch):
     assert bad.url == "https://apply.workable.com/acme/j/BAD/"  # token+shortcode
 
 
-def test_fetch_drops_only_entries_without_a_shortcode(monkeypatch):
-    # The single legitimate drop: an entry with no shortcode (no stable id, no
-    # apply URL) cannot become even a minimal posting.
+def test_fetch_rejects_entries_without_a_shortcode(monkeypatch):
+    # An entry with no stable ID makes the listing unsafe for closure detection.
     payload = {"jobs": [
         {"title": "No Shortcode", "telecommuting": True},  # no shortcode -> dropped
         {"shortcode": "OK", "title": "OK", "telecommuting": False,
@@ -105,8 +104,8 @@ def test_fetch_drops_only_entries_without_a_shortcode(monkeypatch):
         return payload
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
-    postings = fetch_workable("acme")
-    assert [p.external_id for p in postings] == ["OK"]
+    with pytest.raises(ValueError, match="shortcode"):
+        fetch_workable("acme")
 
 
 # ── A3: missing top-level key ─────────────────────────────────────────────────

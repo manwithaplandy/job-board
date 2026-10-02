@@ -1,10 +1,18 @@
 import logging
 import os
 
+import pytest
+
 import job_discovery.run as run_module
 from job_discovery.adapters import ADAPTERS
 from job_discovery.models import Posting
 from tests.conftest import requires_db
+
+
+@pytest.fixture(autouse=True)
+def no_real_question_http(monkeypatch):
+    # Poll tests use synthetic boards; question HTTP is covered separately.
+    monkeypatch.setattr(run_module, "_get_json", lambda url: {})
 
 
 @requires_db
@@ -609,3 +617,17 @@ def test_close_detection_sees_ids_from_all_chunks(conn, monkeypatch):
         assert cur.fetchone()["closed_at"] is None      # in a later chunk's seen -> kept open
         cur.execute("SELECT closed_at FROM jobs WHERE id='greenhouse:big:j4'")
         assert cur.fetchone()["closed_at"] is not None  # genuinely gone -> closed
+
+
+@requires_db
+def test_partial_stream_rolls_back_ingestion_and_counts(conn, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setattr(run_module, "load_targets", lambda: [{"name":"A", "ats":"lever", "token":"a"}])
+    monkeypatch.setattr(run_module, "UPSERT_CHUNK_SIZE", 1)
+    def partial(token):
+        yield Posting(external_id="1", title="A", url="u")
+        raise ValueError("page failed")
+    monkeypatch.setitem(ADAPTERS, "lever", partial)
+    result = run_module.run()
+    assert conn.execute("SELECT count(*) AS n FROM jobs").fetchone()["n"] == 0
+    assert result["new_jobs"] == 0

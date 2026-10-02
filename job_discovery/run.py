@@ -70,26 +70,14 @@ def run(dsn: str | None = None) -> dict:
             return {"ok": 0, "failed": 0, "new_jobs": 0, "closed_jobs": 0}
 
         over, size_mb, ceiling_mb = db.over_size_ceiling(conn)
+        guard_note = None
         if over:
-            log.error(
-                "DB at %.0f MB >= ceiling %.0f MB; skipping poll to stay under the "
-                "disk limit (no jobs written this run)", size_mb, ceiling_mb,
-            )
-            # Record the ceiling-guard fire so operators can see it in poll_runs.
-            note = f"skipped: db at {size_mb:.0f} MB >= ceiling {ceiling_mb:.0f} MB"
-            run_id = db.start_run(conn)
-            db.finish_run(conn, run_id,
-                          companies_ok=0, companies_failed=0,
-                          new_jobs=0, closed_jobs=0, notes=note)
-            conn.commit()
-            # Still prune when the ceiling is breached: prune is delete/strip-only
-            # and is the only automated mechanism that can shrink the DB back under
-            # the ceiling.  Skipping it here would stall recovery.
-            _run_prune(conn)
-            return {"ok": 0, "failed": 0, "new_jobs": 0, "closed_jobs": 0}
+            guard_note = f"maintenance only: db at {size_mb:.0f} MB >= ceiling {ceiling_mb:.0f} MB"
+            log.warning("%s; checking closures without ingestion or enrichment", guard_note)
 
         run_id = db.start_run(conn)
-        db.sync_seed(conn, targets)
+        if not over:
+            db.sync_seed(conn, targets)
         conn.commit()
         companies = db.active_companies(conn)
 
@@ -99,12 +87,17 @@ def run(dsn: str | None = None) -> dict:
         for co in companies:
             ats, token, company_id = co["ats"], co["token"], co["id"]
             try:
-                postings = ADAPTERS[ats](token)
+                company_new = company_closed = 0
+                postings = (ADAPTERS[ats](token, fetch_details=False)
+                            if over and ats in {"workday", "smartrecruiters"}
+                            else ADAPTERS[ats](token))
                 seen: set[str] = set()
                 chunk: list = []
                 for p in postings:
                     if p.external_id:
                         seen.add(p.external_id)   # close-detection sees every live posting,
+                    if over:
+                        continue
                     if not p.url or not p.title:  # even ones too malformed to upsert
                         log.warning(
                             "skipping malformed posting %s for %s",
@@ -115,12 +108,16 @@ def run(dsn: str | None = None) -> dict:
                     if len(chunk) >= UPSERT_CHUNK_SIZE:
                         # Flush and release this chunk so a large (lazily-yielded)
                         # tenant never holds more than one chunk in memory at once.
-                        new_jobs += db.upsert_jobs(conn, company_id, ats, token, chunk)
+                        company_new += db.upsert_jobs(conn, company_id, ats, token, chunk)
                         chunk = []
                 if chunk:
-                    new_jobs += db.upsert_jobs(conn, company_id, ats, token, chunk)
+                    company_new += db.upsert_jobs(conn, company_id, ats, token, chunk)
                 # `seen` now holds every truthy external_id from ALL chunks, so
                 # close-detection below never misses a posting from a later chunk.
+                if not getattr(postings, "complete", True):
+                    raise ValueError("source enumeration incomplete; refusing closure reconciliation")
+                if over:
+                    db.reopen_jobs(conn, company_id, seen)
                 open_ids = db.get_open_external_ids(conn, company_id)
                 if not seen and len(open_ids) > 20:
                     log.error(
@@ -128,14 +125,16 @@ def run(dsn: str | None = None) -> dict:
                         co["name"], len(open_ids),
                     )
                 else:
-                    closed_jobs += db.close_jobs(
+                    company_closed += db.close_jobs(
                         conn, company_id, db.compute_newly_closed(open_ids, seen)
                     )
-                if ats == "greenhouse":
+                if not over and ats == "greenhouse":
                     backfill_greenhouse_questions(conn, company_id, token)
                 # Healthy poll: clear any accrued failure streak in the same tx.
                 db.record_poll_result(conn, company_id, ok=True)
                 conn.commit()
+                new_jobs += company_new
+                closed_jobs += company_closed
                 ok += 1
             except Exception as exc:  # per-company isolation (incl. dead boards)
                 try:
@@ -183,11 +182,15 @@ def run(dsn: str | None = None) -> dict:
             conn, run_id,
             companies_ok=ok, companies_failed=failed,
             new_jobs=new_jobs, closed_jobs=closed_jobs,
-            notes="; ".join(failures) or None,
+            notes="; ".join(([guard_note] if guard_note else []) + failures) or None,
         )
         conn.commit()
         log.info("run complete: ok=%s failed=%s new=%s closed=%s",
                  ok, failed, new_jobs, closed_jobs)
+
+        if over:
+            _run_prune(conn)
+            return {"ok": ok, "failed": failed, "new_jobs": 0, "closed_jobs": closed_jobs}
 
         # Location canonicalization: resolve any raw location strings first
         # seen this poll, then re-stamp jobs.location_canonicals (also

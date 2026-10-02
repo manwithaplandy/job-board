@@ -181,6 +181,16 @@ def get_open_external_ids(conn, company_id: int) -> set[str]:
         return {r["external_id"] for r in cur.fetchall()}
 
 
+def reopen_jobs(conn, company_id: int, external_ids: set[str]) -> None:
+    """A listing can reopen existing jobs during maintenance without ingestion."""
+    if external_ids:
+        conn.execute(
+            "UPDATE jobs SET closed_at = NULL WHERE company_id = %s "
+            "AND closed_at IS NOT NULL AND external_id = ANY(%s)",
+            (company_id, list(external_ids)),
+        )
+
+
 def close_jobs(conn, company_id: int, external_ids: set[str]) -> int:
     if not external_ids:
         return 0

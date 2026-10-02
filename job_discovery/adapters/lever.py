@@ -1,3 +1,4 @@
+from job_discovery.adapters.completeness import validate_ids
 from job_discovery.http import get_json
 from job_discovery.models import Posting
 from job_discovery.normalize import detect_remote
@@ -35,4 +36,5 @@ def fetch_lever(token: str) -> list[Posting]:
     data = get_json(url)
     if not isinstance(data, list):
         raise ValueError(f"lever response expected a list, got {type(data).__name__}")
+    validate_ids(data, "id")
     return parse_lever(data)

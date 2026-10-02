@@ -39,6 +39,8 @@ export interface AccountExport {
   usage_counters: unknown[];
   subscriptions: unknown;
   review_requests: unknown[];
+  feedback: unknown[];
+  matching_activity: unknown[];
   invite_redemptions: unknown[];
   created_invite_codes: unknown[];
   generation_jobs: unknown[];
@@ -95,7 +97,7 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
     const [
       profiles, jobReviews, reviewCorrections, companyReviews, companyOverrides,
       applicationPackages, resumeScores, coverLetterEdits, usageCounters, subscriptions,
-      reviewRequests, generationJobs, inviteAllowances, planOverrides, reviewRuns,
+      reviewRequests, generationJobs, inviteAllowances, planOverrides, reviewRuns, feedback, matchingActivity,
     ] = await Promise.all([
       tx`SELECT * FROM profiles WHERE user_id = ${userId}::uuid`,
       tx`SELECT r.*, j.title AS job_title, COALESCE(c.display_name, c.name) AS company_name, j.url AS job_url
@@ -126,6 +128,8 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       tx`SELECT plan, expires_at, note, created_at, updated_at
          FROM plan_overrides WHERE user_id = ${userId}::uuid`,
       tx`SELECT * FROM review_runs WHERE user_id = ${userId}::uuid ORDER BY started_at DESC`,
+      tx`SELECT * FROM feedback WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+      tx`SELECT * FROM matching_activity WHERE user_id = ${userId}::uuid`,
     ]);
     return {
       profiles: (profiles[0] as unknown) ?? null,
@@ -139,6 +143,8 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
       usage_counters: usageCounters as unknown[],
       subscriptions: (subscriptions[0] as unknown) ?? null,
       review_requests: reviewRequests as unknown[],
+      feedback: feedback as unknown[],
+      matching_activity: matchingActivity as unknown[],
       generation_jobs: generationJobs as unknown[],
       invite_allowances: (inviteAllowances[0] as unknown) ?? null,
       plan_overrides: (planOverrides[0] as unknown) ?? null,

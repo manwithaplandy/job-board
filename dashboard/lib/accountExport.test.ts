@@ -19,6 +19,8 @@ const DB: Record<string, Record<string, unknown[]>> = {
     cover_letter_edits: [{ user_id: "user-a", job_id: "j1", edited_text: "edited" }],
     usage_counters: [{ user_id: "user-a", kind: "review", n: 3 }],
     subscriptions: [{ plan: "pro", status: "active" }],
+    feedback: [{ user_id: "user-a", kind: "criticism", message: "Improve filters" }],
+    matching_activity: [{ user_id: "user-a", last_meaningful_activity_at: "2026-10-02" }],
     review_requests: [],
     generation_jobs: [{ user_id: "user-a", job_id: "j1", kind: "resume", status: "ready" }],
     review_runs: [{ user_id: "user-a", id: 10 }],
@@ -50,6 +52,8 @@ const DB: Record<string, Record<string, unknown[]>> = {
 function makeTx(userId: string) {
   const rows = DB[userId] ?? {};
   const pick = (sql: string): unknown[] => {
+    if (/FROM feedback/.test(sql)) return rows.feedback ?? [];
+    if (/FROM matching_activity/.test(sql)) return rows.matching_activity ?? [];
     if (/FROM profiles/.test(sql)) return rows.profiles ?? [];
     if (/FROM job_reviews/.test(sql)) return rows.job_reviews ?? [];
     if (/FROM review_corrections/.test(sql)) return rows.review_corrections ?? [];
@@ -75,6 +79,7 @@ vi.mock("@/lib/db", () => ({
 
 // Avoid pulling the real storage client; buildAccountExport takes an injected resolver
 // in these tests, but the module still imports createClient at load.
+vi.mock("@/lib/invites", () => ({ listInvitesCreatedBy: async () => [] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 
 // Imported AFTER the mocks are registered.
@@ -139,4 +144,10 @@ describe("buildAccountExport", () => {
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });
+});
+
+test("exports feedback and activity owned by the account", async () => {
+  const result = await buildAccountExport("user-a", "a@x.com", noFiles);
+  expect(result).toHaveProperty("feedback", DB["user-a"].feedback);
+  expect(result).toHaveProperty("matching_activity", DB["user-a"].matching_activity);
 });

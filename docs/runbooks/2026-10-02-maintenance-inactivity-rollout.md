@@ -211,3 +211,33 @@ race tests. TypeScript typecheck and relevant lint checks passed. Revised migrat
 were applied twice to a new local database from `73ce118`, preserving the existing
 profile and queued request, initializing claim version to zero, and keeping exactly
 two migration ledger records. The checked-in schema matches both final migrations.
+
+## Production-default grant rehearsal
+
+The pre-application audit found direct `anon` and `authenticated` EXECUTE default
+privileges on new public functions, in addition to PostgreSQL's PUBLIC default.
+The original matching migration revoked only PUBLIC, so the vanilla-Postgres
+rehearsal did not prove anonymous denial under the production defaults.
+
+The matching migration and schema mirror now revoke PUBLIC, anon and authenticated
+access on all three new functions, then restore authenticated EXECUTE only on
+`matching_paused` and `resume_matching`. The internal trigger needs no client
+EXECUTE grant. The matching table also explicitly revokes PUBLIC. Existing
+service_role privileges are retained. Feedback already explicitly revokes these
+client grants on its table, identity sequence and RPC; it needs no SQL change.
+No role, default privilege, existing unrelated function or policy is changed.
+
+The SQL review retained invoker RLS for matching status, checked session identity
+for the resume/feedback definers, and pinned function search paths. The regression
+suite exercises both migration files and the schema mirror twice with production-
+equivalent per-role defaults. It covers ACL and actual anonymous denials, owner
+reads/RPCs, cross-tenant isolation, trigger execution after client EXECUTE revocation,
+missing identity, temporary-table shadowing, service_role access, preserved queue
+rows, and unchanged unrelated/default grants. The original code failed 10 checks.
+
+Local verification after the correction: 846 Python tests passed; 1,676 dashboard
+tests passed (14 skipped), including feedback concurrency and erasure races;
+3 auth-harness browser tests passed. Typecheck, Ruff, ESLint (zero errors, nine
+warnings in unchanged files), and diff checks passed. Production migrations remain
+unapplied; latest-head authenticated preview approval and parent rollout release
+remain separate gates.

@@ -10,7 +10,7 @@ ALTER TABLE matching_activity ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS owner_read ON matching_activity;
 CREATE POLICY owner_read ON matching_activity FOR SELECT TO authenticated
   USING (user_id = public.app_user_id());
-REVOKE ALL ON matching_activity FROM anon,authenticated;
+REVOKE ALL ON matching_activity FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON matching_activity TO authenticated;
 INSERT INTO matching_activity(user_id) SELECT user_id FROM profiles ON CONFLICT DO NOTHING;
 ALTER TABLE review_requests ADD COLUMN IF NOT EXISTS resume_requested boolean NOT NULL DEFAULT false;
@@ -30,7 +30,9 @@ LANGUAGE sql VOLATILE SET search_path = public, pg_temp AS $$
      AND (a.paused_at IS NOT NULL OR a.last_meaningful_at <= clock_timestamp()-interval '7 days')
  )
 $$;
-REVOKE ALL ON FUNCTION matching_paused(uuid) FROM PUBLIC;
+-- Supabase defaults grant EXECUTE directly to anon/authenticated as well as
+-- PUBLIC. Reset all client grants; retain existing service_role backend access.
+REVOKE ALL ON FUNCTION matching_paused(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION matching_paused(uuid) TO authenticated;
 
 CREATE OR REPLACE FUNCTION track_matching_activity() RETURNS trigger
@@ -49,7 +51,8 @@ BEGIN
  RETURN NEW;
 END
 $$;
-REVOKE ALL ON FUNCTION track_matching_activity() FROM PUBLIC;
+-- Trigger execution needs no caller EXECUTE grant; this is not a client RPC.
+REVOKE ALL ON FUNCTION track_matching_activity() FROM PUBLIC, anon, authenticated;
 DROP TRIGGER IF EXISTS initialize_matching_activity ON profiles;
 CREATE TRIGGER initialize_matching_activity AFTER INSERT ON profiles
  FOR EACH ROW EXECUTE FUNCTION track_matching_activity();
@@ -121,7 +124,7 @@ BEGIN
  RETURN QUERY SELECT req.status,true;
 END
 $$;
-REVOKE ALL ON FUNCTION resume_matching() FROM PUBLIC;
+REVOKE ALL ON FUNCTION resume_matching() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION resume_matching() TO authenticated;
 
 INSERT INTO schema_migrations(filename) VALUES ('2026-10-02-matching-activity.sql') ON CONFLICT DO NOTHING;

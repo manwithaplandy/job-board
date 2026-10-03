@@ -151,8 +151,8 @@ def test_k_parallel_loops_never_double_claim(conn):
 @requires_db
 def test_finish_transitions_and_notes(conn):
     rid = _enqueue(conn, UA)
-    rdb.claim_next_review_request(conn)
-    rdb.finish_review_request(conn, rid, "failed", notes="boom")
+    claimed = rdb.claim_next_review_request(conn)
+    rdb.finish_review_request(conn, rid, "failed", notes="boom", claim_version=claimed["claim_version"])
     conn.commit()
     with conn.cursor() as cur:
         cur.execute("SELECT status, notes, finished_at FROM review_requests WHERE id = %s", (rid,))
@@ -520,3 +520,54 @@ def test_startup_outage_fails_closed_exits_one(monkeypatch):
         worker.main()
     assert exc.value.code == 1
     assert _review_loop_threads() == []     # all loops joined before main() exited
+
+
+@requires_db
+@pytest.mark.parametrize('reclaim', [False, True])
+def test_old_worker_completion_cannot_consume_recovered_resume(conn, monkeypatch, reclaim):
+    """Another process can recover in the unlock-to-finish gap after a long run."""
+    _entitle_profile(conn, UA)
+    rid = _enqueue(conn, UA)
+
+    def completed_review(connection, *_args, **_kwargs):
+        # Model work has ended and released its user advisory lock. The original
+        # claim is old, and explicit resume arrived while it was still running.
+        connection.execute(
+            "UPDATE review_requests SET started_at=now()-interval '2 hours', "
+            "resume_requested=true WHERE id=%s", (rid,),
+        )
+        connection.commit()
+        with psycopg.connect(TEST_DSN, row_factory=dict_row) as sibling:
+            assert rdb.recover_stale_review_requests(sibling) == 1
+            if reclaim:
+                assert rdb.claim_next_review_request(sibling)['id'] == rid
+        return None
+
+    monkeypatch.setattr(worker.run, '_review_user', completed_review)
+    assert worker.process_one(conn)
+    row = conn.execute('SELECT status FROM review_requests WHERE id=%s', (rid,)).fetchone()
+    assert row['status'] == ('running' if reclaim else 'pending')
+
+
+@requires_db
+def test_delayed_worker_rechecks_claim_after_acquiring_user_lock(conn, monkeypatch):
+    _entitle_profile(conn, UA, cap=0)
+    rid = _enqueue(conn, UA)
+
+    def delayed_config(connection):
+        # The claimant stalled before acquiring its per-user execution lock.
+        connection.execute(
+            "UPDATE review_requests SET started_at=now()-interval '2 hours', "
+            "resume_requested=true WHERE id=%s", (rid,),
+        )
+        connection.commit()
+        with psycopg.connect(TEST_DSN, row_factory=dict_row) as sibling:
+            assert rdb.recover_stale_review_requests(sibling) == 1
+            assert rdb.claim_next_review_request(sibling)['id'] == rid
+        return 'standard'
+
+    monkeypatch.setattr(rdb, 'load_invite_comp_plan', delayed_config)
+    assert worker.process_one(conn)
+    note = conn.execute('SELECT notes FROM review_runs ORDER BY id DESC LIMIT 1').fetchone()['notes']
+    assert note == 'review request claim superseded; skipped'
+    assert conn.execute('SELECT status FROM review_requests WHERE id=%s', (rid,)).fetchone()['status'] == 'running'

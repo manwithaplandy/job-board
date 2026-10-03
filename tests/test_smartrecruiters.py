@@ -204,3 +204,17 @@ def test_missing_content_key_raises(monkeypatch):
     monkeypatch.setattr(smartrecruiters, "get_json", lambda url: {"error": "gone"})
     with pytest.raises(ValueError, match="missing 'content'"):
         fetch_smartrecruiters("BoschGroup")
+
+
+def test_short_page_below_reported_total_is_not_authoritative(monkeypatch):
+    monkeypatch.setattr(smartrecruiters, "get_json", lambda *a: {"totalFound": 50, "content": []})
+    with pytest.raises(ValueError, match="incomplete"):
+        fetch_smartrecruiters("acme")
+
+
+def test_smartrecruiters_listing_only_never_fetches_details(monkeypatch):
+    def listing(url):
+        assert "/postings/" not in url
+        return {"totalFound": 1, "content": [{"id": "1", "name": "A"}]}
+    monkeypatch.setattr(smartrecruiters, "get_json", listing)
+    assert [p.external_id for p in fetch_smartrecruiters("acme", fetch_details=False)] == ["1"]

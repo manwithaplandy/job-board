@@ -1,7 +1,7 @@
 import { getUserClaims } from "@/lib/auth";
 import { getViewerPlan } from "@/lib/subscriptions";
 import {
-  enqueueReviewRequest, getLatestReviewRequest, remainingDailyBudget, reviewsChargedToday,
+  resumeMatching, getMatchingPaused, getLatestReviewRequest, remainingDailyBudget, reviewsChargedToday,
 } from "@/lib/reviewRequests";
 import { getReviewFeed } from "@/lib/queries";
 
@@ -28,7 +28,10 @@ export async function POST() {
     );
   }
   const remaining = await remainingDailyBudget(userId, plan);
-  if (remaining <= 0) {
+  // Resuming restores future scheduled matching even if today's cap is spent.
+  // The worker still enforces the unchanged daily budget at execution.
+  const paused = await getMatchingPaused(userId);
+  if (remaining <= 0 && !paused) {
     return Response.json(
       {
         error: "Daily review budget used — resumes tomorrow.",
@@ -39,7 +42,7 @@ export async function POST() {
       { status: 409 },
     );
   }
-  const { status } = await enqueueReviewRequest(userId);
+  const { status } = await resumeMatching(userId);
   return Response.json({ status, remaining });
 }
 
@@ -58,16 +61,17 @@ export async function GET(request: Request) {
   const since = sinceRaw && Number.isFinite(Date.parse(sinceRaw)) ? sinceRaw : null;
 
   const plan = await getViewerPlan(userId, claims.email);
-  const [latest, remaining, reviewedToday, feed] = await Promise.all([
+  const [latest, remaining, reviewedToday, feed, matchingPaused] = await Promise.all([
     getLatestReviewRequest(userId),
     remainingDailyBudget(userId, plan),
     reviewsChargedToday(userId),
     getReviewFeed(userId, since),
+    getMatchingPaused(userId),
   ]);
   return Response.json(
     // reviewedToday = the first-run progress figure ("N roles scored so far").
     {
-      status: latest?.status ?? null, remaining, plan, reviewedToday,
+      status: latest?.status ?? null, remaining, plan, reviewedToday, matchingPaused,
       cursor: feed.cursor, newMatches: feed.newMatches,
     },
     { headers: { "Cache-Control": "private, no-store" } },

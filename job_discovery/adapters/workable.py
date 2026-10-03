@@ -1,3 +1,4 @@
+from job_discovery.adapters.completeness import validate_ids
 import logging
 
 from job_discovery.http import get_json
@@ -92,8 +93,9 @@ def fetch_workable(token: str) -> list[Posting]:
     # whole company fetch (a dropped job would let run.py's close-detection
     # falsely close a still-open posting).
     payload = get_json(_WIDGET_URL.format(account=token))
-    if "jobs" not in payload:
+    if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
         raise ValueError("workable response missing 'jobs' key")
+    validate_ids(payload["jobs"], "shortcode")
     postings: list[Posting] = []
     for job in payload.get("jobs") or []:
         try:

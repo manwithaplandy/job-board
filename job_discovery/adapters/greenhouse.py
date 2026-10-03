@@ -1,3 +1,4 @@
+from job_discovery.adapters.completeness import validate_ids
 from job_discovery.http import get_json
 from job_discovery.models import Posting
 from job_discovery.normalize import detect_remote
@@ -26,8 +27,12 @@ def parse_greenhouse(data: dict) -> list[Posting]:
 def fetch_greenhouse(token: str) -> list[Posting]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
     data = get_json(url)
-    if "jobs" not in data:
+    if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
         raise ValueError("greenhouse response missing 'jobs' key")
+    validate_ids(data["jobs"], "id")
+    total = (data.get("meta") or {}).get("total")
+    if isinstance(total, int) and total != len(data["jobs"]):
+        raise ValueError("greenhouse incomplete listing below reported total")
     return parse_greenhouse(data)
 
 

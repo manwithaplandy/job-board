@@ -251,3 +251,14 @@ describe("ReviewNowPanel — live-population cursor poll", () => {
     expect(screen.queryByTestId("review-progress")).toBeNull();
   });
 });
+
+
+test("paused matching offers explicit resume on an existing board", async () => {
+  nextResponse = { status: null, matchingPaused: true };
+  render(<ReviewNowPanel firstRun={false} />);
+  await flush();
+  expect(screen.getByText(/paused after 7 days/i)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Resume matching" }));
+  await flush();
+  expect(global.fetch).toHaveBeenCalledWith("/api/review/request", { method: "POST" });
+});

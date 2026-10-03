@@ -110,6 +110,14 @@ export async function cancelStripeForUser(userId: string): Promise<void> {
 export async function deleteUserRowsTx(userId: string, email: string | null): Promise<void> {
   const emailHash = hashEmail(email);
   await serviceSql.begin(async (tx) => {
+    // submit_feedback holds this lock through commit. Wait for any submission that
+    // passed its tombstone check before erasure began, then let the next DELETE
+    // statement's READ COMMITTED snapshot see and erase that newly committed row.
+    // writeTombstone has already committed, so later submissions cannot resurrect it.
+    await tx.unsafe(
+      `SELECT pg_advisory_xact_lock(hashtextextended('feedback:' || $1::uuid::text, 0))`,
+      [userId],
+    );
     for (const table of _LOOP_DELETE_TABLES) {
       await tx.unsafe(`DELETE FROM ${table} WHERE user_id = $1::uuid`, [userId]);
     }

@@ -145,3 +145,22 @@ export async function remainingDailyBudget(userId: string, plan: Plan | null): P
     return Math.max(0, cap - spent);
   });
 }
+
+
+/** Read-only: polling never advances meaningful activity. */
+export async function getMatchingPaused(userId: string): Promise<boolean> {
+  return withUserSql(userId, async (tx) => {
+    const rows = await tx`SELECT matching_paused(${userId}::uuid) AS paused`;
+    return rows[0]?.paused === true;
+  });
+}
+
+/** Explicit user action. The DB transaction clears pause and deduplicates work. */
+export async function resumeMatching(userId: string): Promise<{ status: ReviewRequestStatus; existing: boolean }> {
+  return withUserSql(userId, async (tx) => {
+    const rows = await tx`SELECT status, existing FROM resume_matching()`;
+    const status: unknown = rows[0]?.status;
+    if (status !== "pending" && status !== "running") throw new Error("Invalid resume response");
+    return { status, existing: rows[0]?.existing === true };
+  });
+}

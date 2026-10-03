@@ -21,7 +21,7 @@ describe("visual regression route inventory", () => {
   test("covers every route family and the required named state inventory", () => {
     const families = new Set(VISUAL_ROUTES.map((route) => route.family));
     expect([...families].sort()).toEqual([
-      "admin", "analytics", "billing", "board", "companies", "entry", "legal", "onboarding", "profile", "system-states",
+      "admin", "analytics", "billing", "board", "companies", "entry", "feedback", "legal", "onboarding", "profile", "system-states",
     ]);
     const statesFor = (family: string) => new Set(VISUAL_ROUTES.filter((route) => route.family === family).map((route) => route.state));
     for (const state of ["default", "selected", "filter-empty", "rejected", "applied", "loading", "error-retry", "generation", "application-package"]) expect(statesFor("board").has(state)).toBe(true);

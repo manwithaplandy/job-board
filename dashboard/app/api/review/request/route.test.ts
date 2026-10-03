@@ -8,6 +8,8 @@ vi.mock("@/lib/subscriptions", () => subs);
 
 const rr = vi.hoisted(() => ({
   enqueueReviewRequest: vi.fn(),
+  resumeMatching: vi.fn(),
+  getMatchingPaused: vi.fn(),
   getLatestReviewRequest: vi.fn(),
   remainingDailyBudget: vi.fn(),
   reviewsChargedToday: vi.fn(),
@@ -23,6 +25,8 @@ beforeEach(() => {
   auth.getUserClaims.mockReset();
   subs.getViewerPlan.mockReset();
   rr.enqueueReviewRequest.mockReset();
+  rr.resumeMatching.mockReset();
+  rr.getMatchingPaused.mockReset().mockResolvedValue(false);
   rr.getLatestReviewRequest.mockReset();
   rr.remainingDailyBudget.mockReset();
   rr.reviewsChargedToday.mockReset();
@@ -50,7 +54,7 @@ describe("GET /api/review/request", () => {
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     const body = await res.json();
     expect(body).toEqual({
-      status: "running", remaining: 7, plan: "standard", reviewedToday: 3,
+      status: "running", remaining: 7, plan: "standard", reviewedToday: 3, matchingPaused: false,
       cursor: "2026-07-16T12:00:00.000Z", newMatches: [],
     });
   });
@@ -137,4 +141,25 @@ describe("POST /api/review/request", () => {
     expect(body.remaining).toBe(0);
     expect(rr.enqueueReviewRequest).not.toHaveBeenCalled();
   });
+});
+
+
+test("GET reports paused without resuming or tracking activity", async () => {
+  auth.getUserClaims.mockResolvedValue({ id: "u1", email: null });
+  rr.getMatchingPaused.mockResolvedValue(true);
+  const res = await GET(new Request("http://test/api/review/request"));
+  expect((await res.json()).matchingPaused).toBe(true);
+  expect(rr.resumeMatching).not.toHaveBeenCalled();
+  expect(rr.enqueueReviewRequest).not.toHaveBeenCalled();
+});
+
+test("explicit resume still persists when today's budget is spent", async () => {
+  auth.getUserClaims.mockResolvedValue({ id: "u1", email: null });
+  subs.getViewerPlan.mockResolvedValue("standard");
+  rr.getMatchingPaused.mockResolvedValue(true);
+  rr.remainingDailyBudget.mockResolvedValue(0);
+  rr.resumeMatching.mockResolvedValue({ status: "pending", existing: false });
+  const res = await POST();
+  expect(res.status).toBe(200);
+  expect(rr.resumeMatching).toHaveBeenCalledWith("u1");
 });

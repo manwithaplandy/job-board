@@ -1,6 +1,8 @@
 import logging
 import os
 
+from psycopg.errors import LockNotAvailable
+
 log = logging.getLogger("job_discovery.prune")
 
 
@@ -9,80 +11,83 @@ def _int_env(name: str, default: int) -> int:
     if raw is None or raw.strip() == "":
         return default
     try:
-        return int(raw)
+        value = int(raw)
+        return value if value > 0 else default
     except ValueError:
         return default
 
 
-def _run_batched(conn, sql: str, params_prefix: tuple, batch: int, cap: int) -> int:
-    """Run a LIMIT-bounded write repeatedly until it stops affecting rows or the
-    per-sweep cap is hit, committing each batch to keep WAL bounded."""
+_CLOSED_UNPROTECTED = """
+    j.closed_at IS NOT NULL
+    AND j.closed_at < now() - make_interval(days => %s)
+    AND NOT EXISTS (SELECT 1 FROM job_reviews r WHERE r.job_id = j.id
+                    AND r.verdict = 'approve')
+    AND NOT EXISTS (SELECT 1 FROM review_corrections rc WHERE rc.job_id = j.id)
+    AND NOT EXISTS (SELECT 1 FROM application_packages ap WHERE ap.job_id = j.id)
+"""
+
+_SELECT_CLOSED = f"""
+SELECT j.id FROM jobs j WHERE {_CLOSED_UNPROTECTED}
+ORDER BY j.closed_at, j.id
+LIMIT %s
+FOR UPDATE OF j SKIP LOCKED
+"""
+
+_DELETE_CLOSED = f"""
+DELETE FROM jobs j WHERE {_CLOSED_UNPROTECTED} AND j.id = ANY(%s)
+"""
+
+
+def _run_batched(conn, days: int, batch: int, cap: int) -> int:
+    """Lock a bounded candidate set, then recheck history in a fresh snapshot.
+
+    Parent locks exclude concurrent history inserts through their foreign keys.
+    Existing reviews also need locks: changing deny to approve does not change
+    their FK, so a parent lock alone cannot protect an approval in progress.
+    NOWAIT yields the sweep to that writer rather than blocking maintenance.
+    """
     done = 0
     while done < cap:
-        limit = min(batch, cap - done)
-        with conn.cursor() as cur:
-            cur.execute(sql, params_prefix + (limit,))
-            n = cur.rowcount
-        conn.commit()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(_SELECT_CLOSED, (days, min(batch, cap - done)))
+                ids = [row["id"] for row in cur.fetchall()]
+                if not ids:
+                    conn.commit()
+                    break
+                cur.execute(
+                    "SELECT job_id FROM job_reviews WHERE job_id = ANY(%s) FOR UPDATE NOWAIT",
+                    (ids,),
+                )
+                # Separate statement: READ COMMITTED now sees any approvals that
+                # committed between candidate selection and review lock acquisition.
+                cur.execute(_DELETE_CLOSED, (days, ids))
+                n = cur.rowcount
+            conn.commit()
+        except LockNotAvailable:
+            conn.rollback()
+            log.info("prune yielded to a concurrent history update")
+            break
         if n == 0:
             break
         done += n
     return done
 
 
-_DROP_DENIED = """
-UPDATE jobs SET description = NULL, description_pruned = TRUE
-WHERE id IN (
-    SELECT j.id FROM jobs j
-    WHERE j.description IS NOT NULL
-      AND EXISTS (SELECT 1 FROM job_reviews r WHERE r.job_id = j.id
-                  AND (r.verdict = 'deny' OR r.stage1_decision = 'reject'))
-      AND NOT EXISTS (SELECT 1 FROM job_reviews r WHERE r.job_id = j.id
-                      AND r.verdict = 'approve')
-      AND NOT EXISTS (SELECT 1 FROM review_corrections rc
-                      WHERE rc.job_id = j.id AND rc.verdict = 'approve')
-    LIMIT %s
-)
-"""
-
-_DELETE_CLOSED = """
-DELETE FROM jobs WHERE id IN (
-    SELECT j.id FROM jobs j
-    WHERE j.closed_at IS NOT NULL
-      AND j.closed_at < now() - make_interval(days => %s)
-      AND NOT EXISTS (SELECT 1 FROM job_reviews r WHERE r.job_id = j.id
-                      AND r.verdict = 'approve')
-      AND NOT EXISTS (SELECT 1 FROM review_corrections rc WHERE rc.job_id = j.id)
-      AND NOT EXISTS (SELECT 1 FROM application_packages ap WHERE ap.job_id = j.id)
-    LIMIT %s
-)
-"""
-
-_DELETE_INACTIVE = """
-DELETE FROM jobs WHERE id IN (
-    SELECT j.id FROM jobs j
-    JOIN companies c ON c.id = j.company_id
-    WHERE c.active = FALSE
-      AND NOT EXISTS (SELECT 1 FROM job_reviews r WHERE r.job_id = j.id
-                      AND r.verdict = 'approve')
-      AND NOT EXISTS (SELECT 1 FROM review_corrections rc WHERE rc.job_id = j.id)
-      AND NOT EXISTS (SELECT 1 FROM application_packages ap WHERE ap.job_id = j.id)
-    LIMIT %s
-)
-"""
-
-
 def prune_jobs(conn) -> dict:
-    """Lifecycle pruning, run at the end of each poll. Each rule is batched and
-    bounded per sweep so a single run can never generate a large WAL burst;
-    remaining work is picked up on the next poll. Deletes cascade to job_reviews."""
+    """Delete only old source-confirmed closures, retaining protected history.
+
+    Company inactivity and per-user denial never authorize shared data removal.
+    closed_at is written after complete source reconciliation; last_seen_at is
+    never a deletion cutoff. Commit each bounded batch to limit transaction size.
+    """
     batch = _int_env("PRUNE_BATCH_SIZE", 2000)
     cap = _int_env("PRUNE_MAX_ROWS_PER_RUN", 20000)
     days = _int_env("CLOSED_JOB_RETENTION_DAYS", 30)
     counts = {
-        "denied_descriptions_dropped": _run_batched(conn, _DROP_DENIED, (), batch, cap),
-        "closed_deleted": _run_batched(conn, _DELETE_CLOSED, (days,), batch, cap),
-        "inactive_company_deleted": _run_batched(conn, _DELETE_INACTIVE, (), batch, cap),
+        "denied_descriptions_dropped": 0,
+        "closed_deleted": _run_batched(conn, days, batch, cap),
+        "inactive_company_deleted": 0,
     }
     log.info("prune complete: %s", counts)
     return counts

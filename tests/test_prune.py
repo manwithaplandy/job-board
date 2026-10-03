@@ -61,7 +61,7 @@ def _review(conn, jid, verdict=None, stage1="pass"):
 
 
 @requires_db
-def test_rule_a_drops_denied_descriptions_keeps_row(conn):
+def test_denial_preserves_shared_descriptions(conn):
     cid = _company(conn, "acme")
     denied = _job(conn, cid, "1")
     _review(conn, denied, verdict="deny")
@@ -77,11 +77,11 @@ def test_rule_a_drops_denied_descriptions_keeps_row(conn):
         desc = {r["id"]: r["description"] for r in cur.fetchall()}
         cur.execute("SELECT count(*) AS n FROM job_reviews")
         n_reviews = cur.fetchone()["n"]
-    assert desc[denied] is None          # denied -> stripped
-    assert desc[gate] is None            # gate-reject -> stripped
+    assert desc[denied] == "jd"          # a user denial preserves shared content
+    assert desc[gate] == "jd"            # gate rejection preserves shared content
     assert desc[approved] == "jd"        # approved -> kept
     assert n_reviews == 3                # records preserved
-    assert counts["denied_descriptions_dropped"] == 2
+    assert counts["denied_descriptions_dropped"] == 0
 
 
 @requires_db
@@ -106,7 +106,7 @@ def test_rule_b_deletes_old_closed_unless_approved(conn):
 
 
 @requires_db
-def test_rule_c_deletes_inactive_company_jobs_unless_approved(conn):
+def test_inactive_company_is_not_deletion_authorization(conn):
     inactive = _company(conn, "dead", active=False)
     j1 = _job(conn, inactive, "1")
     j2 = _job(conn, inactive, "2")
@@ -117,9 +117,9 @@ def test_rule_c_deletes_inactive_company_jobs_unless_approved(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM jobs ORDER BY id")
         ids = {r["id"] for r in cur.fetchall()}
-    assert j1 not in ids                  # inactive-company job deleted
+    assert j1 in ids                  # failure/inactivity is not closure evidence
     assert j2 in ids                      # approved spared
-    assert counts["inactive_company_deleted"] == 1
+    assert counts["inactive_company_deleted"] == 0
 
 
 @requires_db
@@ -178,12 +178,80 @@ def test_drop_denied_keeps_description_when_correction_approves(conn):
 
 
 @requires_db
-def test_drop_denied_sets_pruned_flag(conn):
+def test_denial_does_not_set_shared_pruned_flag(conn):
     cid = _company(conn, "guard4")
     job_id = _job(conn, cid, "x4", description="full JD")
     _review(conn, job_id, verdict="deny")
     prune_jobs(conn)
-    assert _description(conn, job_id) is None
+    assert _description(conn, job_id) == "full JD"
     with conn.cursor() as _cur:
         row = conn.execute("SELECT description_pruned FROM jobs WHERE id=%s", (job_id,)).fetchone()
-        assert row["description_pruned"] is True
+        assert row["description_pruned"] is False
+
+
+@requires_db
+def test_cleanup_uses_closed_age_not_last_seen_and_is_bounded(conn, monkeypatch):
+    cid = _company(conn, "bounded")
+    ids = [_job(conn, cid, str(i), closed_days=40) for i in range(5)]
+    stale_open = _job(conn, cid, "stale")
+    recent_closed = _job(conn, cid, "recent", closed_days=1)
+    conn.execute("UPDATE jobs SET last_seen_at = now() - interval '1 year'")
+    conn.commit()
+    monkeypatch.setenv("PRUNE_BATCH_SIZE", "2")
+    monkeypatch.setenv("PRUNE_MAX_ROWS_PER_RUN", "3")
+    assert prune_jobs(conn)["closed_deleted"] == 3
+    assert sum(_job_exists(conn, jid) for jid in ids) == 2
+    assert _job_exists(conn, stale_open)
+    assert _job_exists(conn, recent_closed)
+
+
+@requires_db
+def test_denied_correction_and_draft_application_preserve_full_history(conn):
+    cid = _company(conn, "history")
+    corrected = _job(conn, cid, "correction", closed_days=40)
+    applied = _job(conn, cid, "application", closed_days=40)
+    for jid in (corrected, applied):
+        _review(conn, jid, verdict="deny")
+    conn.execute("INSERT INTO review_corrections (user_id, job_id, verdict) VALUES (%s,%s,'deny')", (USER, corrected))
+    conn.execute("INSERT INTO application_packages (user_id, job_id) VALUES (%s,%s)", (USER, applied))
+    conn.commit()
+    prune_jobs(conn)
+    assert _description(conn, corrected) == "jd"
+    assert _description(conn, applied) == "jd"
+
+
+@requires_db
+def test_negative_retention_cannot_delete_recent_closure(conn, monkeypatch):
+    cid = _company(conn, "badconfig")
+    jid = _job(conn, cid, "recent", closed_days=1)
+    monkeypatch.setenv("CLOSED_JOB_RETENTION_DAYS", "-1")
+    prune_jobs(conn)
+    assert _job_exists(conn, jid)
+
+
+@requires_db
+def test_cleanup_skips_job_with_application_being_saved(conn):
+    import psycopg
+    from tests.conftest import TEST_DSN
+    cid = _company(conn, "concurrent")
+    jid = _job(conn, cid, "application", closed_days=40)
+    with psycopg.connect(TEST_DSN) as writer:
+        writer.execute("INSERT INTO application_packages (user_id, job_id) VALUES (%s,%s)", (USER, jid))
+        conn.execute("SET lock_timeout = '150ms'")
+        assert prune_jobs(conn)["closed_deleted"] == 0
+    assert _job_exists(conn, jid)
+
+
+@requires_db
+def test_cleanup_skips_review_being_changed_to_approve(conn):
+    import psycopg
+    from tests.conftest import TEST_DSN
+    cid = _company(conn, "approval-race")
+    jid = _job(conn, cid, "review", closed_days=40)
+    _review(conn, jid, verdict="deny")
+    with psycopg.connect(TEST_DSN) as writer:
+        writer.execute("UPDATE job_reviews SET verdict='approve' WHERE job_id=%s", (jid,))
+        conn.execute("SET lock_timeout = '150ms'")
+        assert prune_jobs(conn)["closed_deleted"] == 0
+    assert _job_exists(conn, jid)
+    assert conn.execute("SELECT verdict FROM job_reviews WHERE job_id=%s", (jid,)).fetchone()["verdict"] == "approve"

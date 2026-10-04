@@ -715,3 +715,49 @@ def test_oversized_partition_without_splitter_pages_to_cap_and_warns(monkeypatch
     ids = [p.external_id for p in postings]
     assert ids == ["/job/m/JR-1", "/job/m/JR-2", "/job/m/JR-3", "/job/m/JR-4"]
     assert "too large to fully enumerate" in caplog.text
+
+
+def test_capped_response_is_not_authoritative(monkeypatch):
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    monkeypatch.setattr(workday, "_HARD_CAP", 2)
+    monkeypatch.setattr(workday, "post_json", lambda *a, **k: {
+        "total": 2000, "jobPostings": [{"externalPath": "/job/a"}, {"externalPath": "/job/b"}]})
+    monkeypatch.setattr(workday, "get_json", lambda *a: {})
+    result = fetch_workday("acme:wd5:External")
+    assert len(list(result)) == 2
+    assert getattr(result, "complete", True) is False
+
+
+def test_workday_listing_only_never_fetches_details(monkeypatch):
+    monkeypatch.setattr(workday, "post_json", lambda *a, **k: {
+        "total": 1, "jobPostings": [{"externalPath": "/job/a", "title": "A"}]})
+    def forbidden(*args):
+        pytest.fail("detail fetched during maintenance")
+    monkeypatch.setattr(workday, "get_json", forbidden)
+    assert [p.external_id for p in fetch_workday("acme:wd5:External", fetch_details=False)] == ["/job/a"]
+
+
+def test_duplicate_middle_page_is_not_authoritative(monkeypatch):
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 1)
+    paths = ["/job/a", "/job/b", "/job/b", None]
+    def page(url, json):
+        path = paths[json["offset"]]
+        return {"total": 3, "jobPostings": [{"externalPath": path}] if path else []}
+    monkeypatch.setattr(workday, "post_json", page)
+    monkeypatch.setattr(workday, "get_json", lambda *a: {})
+    result = fetch_workday("acme:wd5:External")
+    list(result)
+    assert result.complete is False
+
+
+def test_later_higher_total_cannot_authorize_closure(monkeypatch):
+    monkeypatch.setattr(workday, "_PAGE_LIMIT", 2)
+    def page(url, json):
+        if json["offset"] == 0:
+            return {"total": 2, "jobPostings": [{"externalPath": "/job/a"}, {"externalPath": "/job/b"}]}
+        return {"total": 5, "jobPostings": [{"externalPath": "/job/c"}]}
+    monkeypatch.setattr(workday, "post_json", page)
+    monkeypatch.setattr(workday, "get_json", lambda *a: {})
+    result = fetch_workday("acme:wd5:External")
+    list(result)
+    assert result.complete is False

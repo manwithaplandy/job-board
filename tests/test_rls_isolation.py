@@ -410,6 +410,8 @@ _OWNER_ALL = {
     "owner_access": ("ALL", frozenset({"authenticated"})),
 }
 EXPECTED_RLS = {
+    "matching_activity": {"owner_read": ("SELECT", frozenset({"authenticated"}))},
+    "feedback": {"feedback_owner_read": ("SELECT", frozenset({"authenticated"}))},
     # Full owner CRUD (owner_access FOR ALL, USING/WITH CHECK = app_user_id()).
     "profiles": _OWNER_ALL,
     "job_reviews": _OWNER_ALL,
@@ -464,7 +466,7 @@ EXPECTED_RLS = {
 
 # Policies whose USING/WITH CHECK must be owner-scoped through app_user_id() — a guard so
 # an owner_* policy can't be silently rewritten to a `true` (all-rows) predicate.
-_OWNER_SCOPED = {"owner_access", "owner_read", "owner_insert", "owner_or_legacy_read"}
+_OWNER_SCOPED = {"owner_access", "owner_read", "owner_insert", "owner_or_legacy_read", "feedback_owner_read"}
 
 
 @requires_db
@@ -529,6 +531,8 @@ def test_every_user_scoped_table_has_rls_enabled_and_expected_policy_set(conn):
 # are COLUMN-level (not in role_table_grants), so its table-level set is {SELECT, DELETE}.
 _R = frozenset  # (anon_privs, authenticated_privs)
 EXPECTED_GRANTS = {
+    "matching_activity": (_R(), _R({"SELECT"})),
+    "feedback": (_R(), _R({"SELECT"})),
     "jobs":                 (_R({"SELECT"}), _R({"SELECT"})),
     "companies":            (_R({"SELECT"}), _R({"SELECT"})),
     "poll_runs":            (_R(), _R({"SELECT"})),

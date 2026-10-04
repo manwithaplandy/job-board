@@ -51,6 +51,7 @@ export interface ReviewNowPanelProps {
 }
 
 export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: ReviewNowPanelProps) {
+  const [matchingPaused, setMatchingPaused] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [reviewedToday, setReviewedToday] = useState<number | null>(null);
@@ -77,10 +78,11 @@ export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: Re
         : "/api/review/request";
       const res = await fetch(url, { method: "GET" });
       const data = (await res.json().catch(() => ({}))) as {
-        status?: Status; remaining?: number; reviewedToday?: number;
+        status?: Status; remaining?: number; reviewedToday?: number; matchingPaused?: boolean;
         cursor?: string; newMatches?: JobRow[];
       };
       setStatus(data.status ?? null);
+      setMatchingPaused(data.matchingPaused === true);
       if (typeof data.remaining === "number") setRemaining(data.remaining);
       if (typeof data.reviewedToday === "number") setReviewedToday(data.reviewedToday);
       if (typeof data.cursor === "string") cursorRef.current = data.cursor;
@@ -154,6 +156,7 @@ export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: Re
         else setError(data.error ?? "Couldn't start a review. Please try again.");
       } else {
         setStatus(data.status ?? "pending");
+        setMatchingPaused(false);
         settledRef.current = false;
         if (typeof data.remaining === "number") setRemaining(data.remaining);
       }
@@ -165,7 +168,7 @@ export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: Re
   };
 
   // COMPACT progress strip while a request runs — stays mounted regardless of job count.
-  if (active) {
+  if (active && !matchingPaused) {
     return (
       <div style={cardStyle} data-testid="review-progress" role="status" aria-live="polite">
         <span style={dot("var(--chart-amber)")} aria-hidden="true" />
@@ -185,17 +188,19 @@ export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: Re
 
   // Not active: the full "being built" CTA only makes sense on an empty first-run board.
   // A populated board with no active request shows nothing (the board carries the roles).
-  if (!firstRun) return null;
+  if (!firstRun && !matchingPaused) return null;
 
   return (
     <div style={cardStyle}>
       <span style={dot(status === "failed" ? "var(--danger)" : "var(--accent)")} aria-hidden="true" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--text-primary)" }}>
-          Your board is being built
+          {matchingPaused ? "Matching paused after 7 days of inactivity" : "Your board is being built"}
         </div>
         <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
-          {status === "failed"
+          {matchingPaused
+            ? "Your existing matches are saved. Resume matching to queue a fresh review of open roles against your profile."
+            : status === "failed"
             ? "The last review didn't finish. You can start another below."
             : "Run an AI review now to score the open roles against your profile, or wait for the next scheduled pass."}
           {remaining != null && <> · <span role="status" aria-live="polite">{remaining.toLocaleString()} reviews left in today&apos;s budget.</span></>}
@@ -219,7 +224,7 @@ export function ReviewNowPanel({ firstRun = false, onSettled, onNewMatches }: Re
           flexShrink: 0,
         }}
       >
-        {busy ? "Starting…" : "Review my board now"}
+        {busy ? "Starting…" : matchingPaused ? "Resume matching" : "Review my board now"}
       </Button>
     </div>
   );

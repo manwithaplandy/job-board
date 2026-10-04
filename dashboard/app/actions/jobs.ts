@@ -6,8 +6,8 @@ import { assertNotDeleted } from "@/lib/tombstone";
 
 // Manual reject. Mirrors an AI deny: flips the operator's review row to
 // verdict='deny' and marks it human_override so it is distinguishable and sticky
-// (the AI reviewer won't overwrite it; prune.py Rule A nulls the JD next poll;
-// select_candidates never re-reviews a deny). Inserts a minimal row if the job
+// (the AI reviewer won't overwrite it; shared descriptions remain intact).
+// Inserts a minimal row if the job
 // was never reviewed. profile_version='' matches the company-override convention.
 export async function rejectJob(jobId: string): Promise<void> {
   const userId = await requireUserId();
@@ -24,7 +24,7 @@ export async function rejectJob(jobId: string): Promise<void> {
 // Undo (in-session). Non-destructive restore of the prior verdict, guarded by
 // human_override = TRUE so it only ever touches a row this feature rejected.
 // Never DELETEs — undoing a reject of a gate-rejected row keeps its
-// stage1_decision intact. Effective only until the next poll runs prune.
+// stage1_decision intact. Shared job descriptions are not affected by rejection.
 export async function unrejectJob(
   jobId: string,
   priorVerdict: string | null,

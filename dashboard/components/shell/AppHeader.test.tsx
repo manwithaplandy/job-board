@@ -50,7 +50,7 @@ describe("AppHeader", () => {
     // "Invite" is an account-scoped action (opens the invite modal), not a nav
     // destination, so it lives in the account popup between Billing and Sign out
     // without duplicating any primary-nav link.
-    expect(accountDestinations).toEqual(["Profile", "Billing", "Invite", "Sign out"]);
+    expect(accountDestinations).toEqual(["Profile", "Billing", "Feedback", "Invite", "Sign out"]);
     expect(primaryDestinations.filter((destination) => accountDestinations.includes(destination))).toEqual([]);
 
     const css = readFileSync("components/shell/shell.css", "utf8");

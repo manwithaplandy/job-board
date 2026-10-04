@@ -8,6 +8,7 @@
     "start": "next start",
     "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
     "test:ui-contract": "NODE_OPTIONS=--no-experimental-webstorage vitest run app/ui-contract.test.ts app/visual-regression-contract.test.ts",
+    "test:visual:auth-harness": "playwright test --config playwright.auth-harness.config.ts",
     "test:visual": "VISUAL_DISABLE_TRACE=1 PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test",
     "test:visual:auth-setup": "PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test --project=auth-setup",
     "test:visual:authenticated": "VISUAL_SCOPE=authenticated VISUAL_DISABLE_TRACE=1 playwright test --project=visual --no-deps",

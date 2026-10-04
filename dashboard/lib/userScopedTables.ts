@@ -27,6 +27,8 @@ export const USER_DELETE_TABLES = [
   "usage_counters",
   "subscriptions",
   "review_requests",
+  "feedback",
+  "matching_activity",
   "invite_redemptions",
   // Async-generation status rows (transient; most are pruned within a day anyway).
   "generation_jobs",

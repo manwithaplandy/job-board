@@ -1,6 +1,6 @@
 export type VisualAccess = "public" | "authenticated";
 export type VisualShell = "none" | "app" | "board" | "entry";
-export type VisualFamily = "entry" | "legal" | "system-states" | "board" | "companies" | "analytics" | "billing" | "profile" | "admin" | "onboarding";
+export type VisualFamily = "entry" | "legal" | "system-states" | "board" | "companies" | "analytics" | "billing" | "profile" | "admin" | "onboarding" | "feedback";
 
 export interface VisualRoute {
   id: string;
@@ -35,6 +35,7 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   { id: "board-public-isr", path: "/board", access: "public", family: "board", state: "default", shell: "board", source: "app/board/page.tsx" },
   { id: "companies-default", path: "/companies", access: "authenticated", family: "companies", state: "default", shell: "app", source: "app/companies/page.tsx" },
   { id: "analytics-default", path: "/analytics", access: "authenticated", family: "analytics", state: "default", shell: "app", source: "app/analytics/page.tsx" },
+  { id: "feedback-default", path: "/feedback", access: "authenticated", family: "feedback", state: "default", shell: "app", source: "app/feedback/page.tsx" },
   { id: "billing-default", path: "/billing", access: "authenticated", family: "billing", state: "default", shell: "app", source: "app/billing/page.tsx" },
   { id: "profile-hub", path: "/profile", access: "authenticated", family: "profile", state: "default", shell: "app", source: "app/profile/layout.tsx" },
   { id: "profile-job-preferences", path: "/profile/job-preferences", access: "authenticated", family: "profile", state: "job-preferences", shell: "app", source: "app/profile/layout.tsx" },

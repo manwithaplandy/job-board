@@ -237,6 +237,8 @@ export function AccountMenu({ email, current, isAdmin = false }: AccountMenuProp
             Billing
           </a>
 
+          <a href="/feedback" role="menuitem" tabIndex={-1} className="rf-picker-option" style={itemStyle} onClick={close}>Feedback</a>
+
           {/* Invite (user-sent invites): opens the modal — a button, not a link.
               The action re-gates on plan server-side; this is discoverability only.
               As a <button role="menuitem"> it auto-joins the querySelectorAll-driven

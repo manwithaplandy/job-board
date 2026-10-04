@@ -100,6 +100,23 @@ def load_profile(conn, user_id: str) -> dict | None:
         return cur.fetchone()
 
 
+def matching_eligible(conn, user_id: str) -> bool:
+    """Execution-time policy; caller holds the shared per-user review lock.
+
+    Lock the activity row so resume and pause cannot overwrite one another. This
+    short transaction is committed by the caller before any external model calls.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT user_id FROM matching_activity WHERE user_id=%s FOR UPDATE", (_uuid(user_id),))
+        if cur.fetchone() is None:
+            return False
+        cur.execute("SELECT matching_paused(%s) AS paused", (_uuid(user_id),))
+        paused = cur.fetchone()["paused"]
+        if paused:
+            cur.execute("UPDATE matching_activity SET paused_at=coalesce(paused_at,now()) WHERE user_id=%s", (_uuid(user_id),))
+        return not paused
+
+
 def user_deleted(conn, user_id: str) -> bool:
     """True if `user_id` has an account_deletions tombstone — the account was erased.
 
@@ -371,28 +388,50 @@ def finish_review_run(conn, run_id: int, *, reviewed: int, gate_rejected: int,
 def claim_next_review_request(conn) -> dict | None:
     """Atomically claim the oldest pending request → status='running'. FOR UPDATE SKIP
     LOCKED lets multiple workers run without ever grabbing the same row. Returns the
-    claimed {id, user_id} or None when the queue is empty. Caller commits."""
+    claimed {id, user_id, claim_version} or None when the queue is empty. Caller commits."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE review_requests SET status = 'running', started_at = now()
+            UPDATE review_requests SET status = 'running', started_at = now(),
+                   claim_version = claim_version + 1
             WHERE id = (
               SELECT id FROM review_requests WHERE status = 'pending'
               ORDER BY requested_at
               FOR UPDATE SKIP LOCKED LIMIT 1
             )
-            RETURNING id, user_id
+            RETURNING id, user_id, claim_version
             """
         )
         return cur.fetchone()
 
 
-def finish_review_request(conn, req_id: int, status: str, notes: str | None = None) -> None:
-    """Transition a claimed request to a terminal status ('done' | 'failed'). Caller commits."""
+def current_review_claim(conn, user_id: str, req_id: int, claim_version: int) -> bool:
+    """Read under the user advisory lock before spending on queued work."""
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE review_requests SET status = %s, finished_at = now(), notes = %s WHERE id = %s",
-            (status, notes, req_id),
+            "SELECT EXISTS(SELECT 1 FROM review_requests WHERE id=%s AND user_id=%s "
+            "AND status='running' AND claim_version=%s) AS current",
+            (req_id, _uuid(user_id), claim_version),
+        )
+        return bool(cur.fetchone()["current"])
+
+
+def finish_review_request(conn, req_id: int, status: str, notes: str | None = None,
+                          *, claim_version: int) -> None:
+    """Finish only this running claim generation, preserving a concurrent resume.
+
+    Stale recovery may requeue and another process may reclaim after model work
+    releases its lock. A late completion must never overwrite the newer claim.
+    Caller commits.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE review_requests SET status = CASE WHEN resume_requested THEN 'pending' ELSE %s END, "
+            "finished_at = CASE WHEN resume_requested THEN NULL ELSE now() END, "
+            "started_at = CASE WHEN resume_requested THEN NULL ELSE started_at END, "
+            "resume_requested=false, notes = %s WHERE id = %s "
+            "AND status = 'running' AND claim_version = %s",
+            (status, notes, req_id, claim_version),
         )
 
 
@@ -403,18 +442,24 @@ def recover_stale_review_requests(conn, minutes: int = 30, exclude_ids=None) -> 
     `exclude_ids` (any iterable of bigint request ids, or None) protects those ids
     from recovery no matter how old their `started_at` is — parallel worker loops pass
     their in-flight ids so they don't reap each other's healthy long-running reviews.
-    None (the default) and an empty iterable both reap every aged 'running' row.
+    Across processes, the shared per-user advisory lock protects healthy reviews.
+    Recovery takes the same lock transactionally, so it cannot reset a running
+    request (and its resume marker) underneath a worker still doing model work.
 
     Returns the number recovered. Caller commits."""
     ex = list(exclude_ids) if exclude_ids is not None else None
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE review_requests SET status = 'failed', finished_at = now(),
-                   notes = 'worker timeout — re-request'
+            UPDATE review_requests SET status = CASE WHEN resume_requested THEN 'pending' ELSE 'failed' END,
+                   finished_at = CASE WHEN resume_requested THEN NULL ELSE now() END,
+                   started_at = CASE WHEN resume_requested THEN NULL ELSE started_at END,
+                   resume_requested=false, notes = 'worker timeout — re-request'
             WHERE status = 'running'
               AND started_at < now() - make_interval(mins => %(mins)s)
               AND (%(ex)s::bigint[] IS NULL OR id <> ALL(%(ex)s::bigint[]))
+              AND pg_try_advisory_xact_lock(
+                    hashtextextended('reviewer:review:' || user_id::text, 0))
             """,
             {"mins": minutes, "ex": ex},
         )

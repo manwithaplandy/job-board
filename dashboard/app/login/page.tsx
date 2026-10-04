@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { saveBoardFilters } from "@/lib/queries";
+import { getProfile, saveBoardFilters } from "@/lib/queries";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { TextField } from "@/components/ui/FormControls";
@@ -17,7 +17,7 @@ async function signIn(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) redirect(`/login?error=${encodeURIComponent(safeAuthMessage("login", error))}`);
+  if (error || !data.user) redirect(`/login?error=${encodeURIComponent(safeAuthMessage("login", error))}`);
 
   // Adopt anonymous cookie filters into the account (best-effort, UPDATE-only).
   const store = await cookies();
@@ -31,6 +31,11 @@ async function signIn(formData: FormData) {
     store.delete("board_filters");
   }
 
+  // Choose the final destination here. Sending a profile-less account through
+  // the board first waits for its six queries before the onboarding redirect,
+  // delaying the client URL transition while Next streams the next route.
+  const profile = await getProfile(data.user.id);
+  if (!profile) redirect("/onboarding");
   redirect("/");
 }
 

@@ -329,7 +329,8 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
 
 
 def _review_user(conn, profile: dict, ent: dict | None = None,
-                 comp_plan: str = entitlements.DEFAULT_INVITE_COMP_PLAN) -> None:
+                 comp_plan: str = entitlements.DEFAULT_INVITE_COMP_PLAN, *,
+                 request_claim: tuple[int, int] | None = None) -> bool | None:
     # `ent` is the DB-overlaid entitlements map (T1). review_all loads it once per run;
     # the on-demand worker passes None so it is loaded per request. None → compiled
     # defaults inside the entitlement helpers. `comp_plan` is the DB-configured invite
@@ -356,7 +357,27 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         if not locked:
             notes = "review already in progress; skipped"
             log.info("review already in progress for %s; skipping", user_id)
+            return False
+
+        # A worker can stall before this lock while another process recovers and
+        # reassigns its request. Fence execution as well as terminal completion.
+        if request_claim is not None and not db.current_review_claim(
+            conn, user_id, *request_claim
+        ):
+            notes = "review request claim superseded; skipped"
             return
+
+        # Queue/cron snapshots may be old: reload entitlement and profile only after
+        # obtaining the shared per-user lock, then atomically evaluate inactivity.
+        profile = db.load_profile(conn, user_id)
+        if profile is None:
+            notes = "profile not found"
+            return
+        pv = profile["profile_version"]
+        if not db.matching_eligible(conn, user_id):
+            notes = "matching paused after 7 days of inactivity; explicit resume required"
+            return
+        conn.commit()  # release short activity-row lock before slow model work
 
         # Tier gate (spec subsystem C/D). Resolve the user's plan from their
         # subscription mirror + invite proof + operator pin (all loaded by

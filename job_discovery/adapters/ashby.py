@@ -1,3 +1,4 @@
+from job_discovery.adapters.completeness import validate_ids
 from job_discovery.http import get_json
 from job_discovery.models import Posting
 from job_discovery.normalize import detect_remote
@@ -24,6 +25,7 @@ def parse_ashby(data: dict) -> list[Posting]:
 def fetch_ashby(token: str) -> list[Posting]:
     url = f"https://api.ashbyhq.com/posting-api/job-board/{token}"
     data = get_json(url)
-    if "jobs" not in data:
+    if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
         raise ValueError("ashby response missing 'jobs' key")
+    validate_ids(data["jobs"], "id")
     return parse_ashby(data)

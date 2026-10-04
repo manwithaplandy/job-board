@@ -1,5 +1,5 @@
 # tests/test_size_guard.py
-"""Disk safety valve: Company Discovery + Job Discovery halt before filling the 8 GB volume."""
+"""The disk guard stops ingestion while allowing source closure maintenance."""
 import job_discovery.run as job_discovery_run
 import company_discovery.run as company_discovery_run
 from job_discovery import db
@@ -145,15 +145,12 @@ class _GuardConn:
 
 
 def _forbid_poll_body(monkeypatch):
-    """Make the expensive poll body fail loudly if it is ever entered.
-
-    ``sync_seed`` and ``active_companies`` are the gateways into the per-company
-    poll/upsert work; over the ceiling neither must be called. This keeps the
-    guard meaningful even though the double now permits the accounting cursor."""
+    """Guarded runs may read active companies, but cannot seed or upsert."""
     def _boom(*a, **k):
         raise AssertionError("expensive poll work ran despite being over the size ceiling")
     monkeypatch.setattr(job_discovery_run.db, "sync_seed", _boom)
-    monkeypatch.setattr(job_discovery_run.db, "active_companies", _boom)
+    monkeypatch.setattr(job_discovery_run.db, "active_companies", lambda c: [])
+    monkeypatch.setattr(job_discovery_run.db, "upsert_jobs", _boom)
 
 
 def test_job_discovery_run_skips_when_over_ceiling(monkeypatch):
@@ -220,3 +217,54 @@ def test_company_discovery_run_skips_when_over_ceiling(monkeypatch):
 
     assert ingested["called"] is False  # never ingested / reviewed / activated
     assert conn.closed is True
+
+
+from tests.conftest import requires_db
+import pytest
+
+
+@requires_db
+@pytest.mark.parametrize("source_result", ["complete", "failed", "partial", "incomplete"])
+def test_guard_reconciles_only_complete_sources_without_ingestion(conn, monkeypatch, source_result):
+    from job_discovery.models import Posting
+    from tests.test_prune import _company, _job
+    cid = _company(conn, "guarded")
+    _job(conn, cid, "live", closed_days=40 if source_result == "complete" else 1)
+    _job(conn, cid, "missing")
+    monkeypatch.setattr(job_discovery_run, "load_targets", lambda: [])
+    monkeypatch.setattr(db, "connect", lambda dsn=None: conn)
+    monkeypatch.setattr(db, "over_size_ceiling", lambda c: (True, 6500, 6000))
+    def forbidden(*args, **kwargs):
+        pytest.fail("guard allowed ingestion or enrichment")
+    monkeypatch.setattr(db, "sync_seed", forbidden)
+    monkeypatch.setattr(db, "upsert_jobs", forbidden)
+    monkeypatch.setattr(job_discovery_run, "backfill_greenhouse_questions", forbidden)
+    monkeypatch.setattr("job_discovery.locations.resolve_new_locations", forbidden)
+    monkeypatch.setattr("reviewer.run.review_all", forbidden)
+    def source(token):
+        if source_result == "failed":
+            raise ValueError("source unavailable")
+        yield Posting(external_id="live", title="Updated", url="u")
+        yield Posting(external_id="new", title="New", url="u")
+        if source_result != "complete":
+            raise ValueError("source unavailable or incomplete")
+    if source_result == "incomplete":
+        class Incomplete(list):
+            complete = False
+        def source(token):
+            return Incomplete([Posting(external_id="live", title="A", url="u")])
+    monkeypatch.setitem(job_discovery_run.ADAPTERS, "lever", source)
+    # run owns its connection; query persisted results on a separate connection.
+    import psycopg
+    from psycopg.rows import dict_row
+    from tests.conftest import TEST_DSN
+    counts = job_discovery_run.run()
+    with psycopg.connect(TEST_DSN, row_factory=dict_row) as check:
+        rows = check.execute("SELECT external_id, title, closed_at FROM jobs ORDER BY external_id").fetchall()
+    assert [r["external_id"] for r in rows] == ["live", "missing"]
+    assert rows[0]["title"] == "Eng"
+    assert (rows[0]["closed_at"] is None) == (source_result == "complete")
+    assert (rows[1]["closed_at"] is not None) == (source_result == "complete")
+    assert counts["new_jobs"] == 0
+    assert counts["closed_jobs"] == (1 if source_result == "complete" else 0)
+    assert counts["failed"] == (0 if source_result == "complete" else 1)

@@ -121,19 +121,27 @@ start `python -m reviewer.worker`.
   candidates a single run reviews — keep it small so one run cannot activate thousands of companies
   at once (each active company is then polled and accrues `jobs` rows). Company Discovery is incremental: a
   company is re-reviewed only when its `company_profile_version` changes.
-- **Disk safety valve** → both Job Discovery and Company Discovery call `db.over_size_ceiling()` at startup and
-  **halt the run with no writes** once `pg_database_size` reaches `DB_SIZE_CEILING_MB` (default
-  **6000** = 6 GB). The Supabase Pro volume is 8 GB; the ~2 GB headroom absorbs one poll's growth plus
-  WAL so the DB can never reach the hard limit (which forces Postgres read-only and, if WAL then fills
-  the disk, a crash-recovery loop). Lower the ceiling for a smaller plan; never set it at/above the
-  actual volume size.
-- **Job-data retention** → Job Discovery distils each role's JD into `jobs.description`
-  at poll time (no raw payload is stored) and prunes at the end of every run:
-  denied roles lose their `description` (the review record is kept; a denied role is
-  never re-reviewed even after a résumé edit — its pruned JD makes re-review moot), and closed or
-  deactivated-company roles are deleted after `CLOSED_JOB_RETENTION_DAYS` (default 30)
-  unless approved. Tuning: `PRUNE_BATCH_SIZE` (2000), `PRUNE_MAX_ROWS_PER_RUN` (20000).
-  One-time migration of pre-existing rows: `python -m job_discovery.backfill_descriptions`.
+- **Disk safety valve** → both discovery services check `DB_SIZE_CEILING_MB` (default
+  **6000 MiB**). Company Discovery stops ingestion at the ceiling. Job Discovery keeps
+  checking complete authoritative sources for closures/reopenings and runs bounded
+  maintenance, but does not ingest, enrich or start personalized reviews on that path.
+  Closure updates and deletes still produce WAL; monitor free space rather than treating
+  the ceiling as a guarantee against exhausting the volume. Do not raise it to bypass pressure.
+- **Job-data retention** → shared descriptions survive individual users' rejections.
+  Only source-confirmed jobs closed longer than `CLOSED_JOB_RETENTION_DAYS` (default 30)
+  are deletion candidates. Any approved review, correction or application package protects
+  the job and description. Inactive companies and stale `last_seen_at` never authorize deletion.
+  Bounded cleanup: `PRUNE_BATCH_SIZE` (2000), `PRUNE_MAX_ROWS_PER_RUN` (20000).
+  Previously pruned descriptions are not automatically restored by this change.
+- **Personalized matching activity** → free/comped accounts pause after seven days
+  without deliberate saved activity; paid subscriptions continue. Background polling never
+  counts. The board offers explicit resume, backed by the existing per-user review queue.
+  Discovery's always-on queue and weekly ingestion remain separate baseline workloads.
+- **Feedback** → signed-in users can submit issues, criticisms and feature requests at
+  `/feedback`, linked from the account menu. Messages are limited to 4000 characters and
+  five submissions per hour per user, enforced transactionally in PostgreSQL.
+- **Maintenance rollout** → see the [migration and verification runbook](docs/runbooks/2026-10-02-maintenance-inactivity-rollout.md)
+  and [read-only cleanup estimate](docs/runbooks/sql/maintenance-cleanup-estimate.sql).
 - **Database** → Supabase (Postgres). Apply `schema.sql` as a migration. Incremental
   changes are in `migrations/` — apply each file manually in filename order against Supabase,
   then record it with `INSERT INTO schema_migrations (filename) VALUES ('<file>');`.

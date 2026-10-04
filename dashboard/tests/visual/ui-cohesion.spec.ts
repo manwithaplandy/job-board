@@ -48,9 +48,16 @@ async function assertRuntimeContracts(page: Page) {
       // immediately following styled label (the documented FileUpload composite).
       .filter((element) => !(element.matches(".rf-file-upload__input") && element.nextElementSibling?.matches("label.rf-button")))
       .filter((element) => {
-        const rect = element.getBoundingClientRect();
+        // A native checkbox/radio wrapped in its <label> is activated by a click anywhere
+        // on that label, so the label is the hit target that must meet the 44px minimum.
+        const target = element.matches("input[type=checkbox],input[type=radio]") && element.parentElement?.tagName === "LABEL" ? element.parentElement : element;
+        const rect = target.getBoundingClientRect();
         return rect.width < 44 || rect.height < 44;
-      }).map((element) => ({ tag: element.tagName, className: element.getAttribute("class"), label: element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 50) }));
+      }).map((element) => ({
+        tag: element.tagName,
+        className: element.getAttribute("class"),
+        label: element.getAttribute("aria-label") ?? ((element as HTMLInputElement).labels?.[0]?.textContent ?? element.textContent)?.trim().slice(0, 50),
+      }));
     const rawSvgs = [...document.querySelectorAll("svg:not(.rf-icon)")].filter((element) => !element.hasAttribute("data-fit-score-ring") && !element.closest('[data-ui-visual="data-viz"]'));
     return {
       viewport,
@@ -82,12 +89,24 @@ for (const viewport of VIEWPORTS) {
               localStorage.setItem("rolefit-theme", selectedTheme);
               document.documentElement.dataset.theme = selectedTheme;
             }, theme);
-            await page.goto(route.path, { waitUntil: "networkidle" });
+            const response = await page.goto(route.path, { waitUntil: "networkidle" });
             await expect(page.locator("body")).toBeVisible();
             const runtime = await assertRuntimeContracts(page);
+            if (route.adminOnly) {
+              // Access-control assertion: the non-admin identity must get the not-found
+              // response, with no operator shell rendered. There is nothing to screenshot.
+              expect(response?.status(), `${route.id} must be denied to the non-admin identity`).toBe(404);
+              expect(runtime.shellCount, `${route.id} rendered an authenticated shell for a non-admin`).toBe(0);
+              return;
+            }
             if (route.shell === "app" || route.shell === "board") expect(runtime.shellCount, `${route.id} authenticated shell`).toBe(1);
             if (route.shell === "entry") expect(await page.locator(".rf-entry-shell").count(), `${route.id} entry shell`).toBe(1);
-            await expect(page).toHaveScreenshot(`${route.id}-${viewport.id}-${theme}.png`, { fullPage: true });
+            // Applied only after the runtime contracts have run against the full page.
+            if (route.live?.hide.length) await page.addStyleTag({ content: `${route.live.hide.join(",\n")} { display: none !important; }` });
+            await expect(page).toHaveScreenshot(`${route.id}-${viewport.id}-${theme}.png`, {
+              fullPage: true,
+              mask: route.live?.mask.map((selector) => page.locator(selector)),
+            });
           });
         });
       }

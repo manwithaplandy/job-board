@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { EMPTY_EXCLUSIONS } from "@/lib/rolefit/companyExclusions";
@@ -15,6 +16,17 @@ afterEach(cleanup);
 const profile = { company_exclusions: EMPTY_EXCLUSIONS } as ProfileRow;
 
 describe("CompanyFiltersForm", () => {
+  test("each facet checkbox is wrapped by a label row sized to the 44px target", () => {
+    // The 16px native checkbox delegates its hit target to the wrapping <label>
+    // (clicking anywhere on the row toggles it); the visual contract measures that label.
+    const { container } = render(<CompanyFiltersForm profile={profile} />);
+    const boxes = [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) expect(box.parentElement?.matches("label.company-filter-option")).toBe(true);
+    const css = readFileSync("app/profile/profile-settings.css", "utf8");
+    expect(css).toMatch(/\.company-filter-option\s*\{[^}]*min-height:\s*var\(--target-size\)/s);
+  });
+
   test("renders every facet group, the country field, and the budget copy", () => {
     const { container } = render(<CompanyFiltersForm profile={profile} />);
     expect(container.textContent).toContain(

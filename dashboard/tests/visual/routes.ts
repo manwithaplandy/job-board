@@ -12,6 +12,16 @@ export interface VisualRoute {
   source?: string;
   fixtureFor?: VisualFamily;
   authState?: "normal" | "onboarding";
+  /** Operator-only route. The established visual identity is deliberately not an admin, so
+   *  the matrix asserts it is denied (404) rather than screenshotting operator data; the
+   *  admin surfaces' visuals come from the deterministic admin fixture. */
+  adminOnly?: true;
+  /** Preview deployments read the production database, so these regions change between
+   *  runs. `hide` removes data-dependent or conditional regions from layout during the
+   *  screenshot (keeping page geometry data-independent); `mask` paints over fixed-size
+   *  live values in place. Runtime contracts still run on the full, unmodified page, and
+   *  the hidden bodies are covered pixel-for-pixel by the gallery fixtures. */
+  live?: { hide: string[]; mask: string[] };
 }
 
 const fixture = (family: VisualFamily, state: string): VisualRoute => ({
@@ -29,12 +39,21 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   { id: "privacy", path: "/privacy", access: "public", family: "legal", state: "default", shell: "none", source: "app/privacy/page.tsx" },
   { id: "terms", path: "/terms", access: "public", family: "legal", state: "default", shell: "none", source: "app/terms/page.tsx" },
   { id: "primitive-and-state-gallery", path: "/ui-gallery", access: "public", family: "system-states", state: "interaction-contracts", shell: "none", source: "app/ui-gallery/page.tsx" },
-  { id: "board-default", path: "/", access: "authenticated", family: "board", state: "default", shell: "board", source: "components/rolefit/RolefitBoard.tsx" },
+  { id: "board-default", path: "/", access: "authenticated", family: "board", state: "default", shell: "board", source: "components/rolefit/RolefitBoard.tsx",
+    // Pipeline-health operator strip, the review-now panel and the list/detail workspace
+    // all track live pipeline/review state; the role counts sit in fixed-width slots.
+    live: { hide: [".app-header__operator", ".app-shell--board > .rf-board-filters ~ *"], mask: [".rf-board-result-count", ".rf-board-filter-summary__count"] } },
   // The ISR twin of the anon board (proxy rewrites anon GET / here) — same RolefitBoard
   // render as board-default, public access, no operator strip.
   { id: "board-public-isr", path: "/board", access: "public", family: "board", state: "default", shell: "board", source: "app/board/page.tsx" },
-  { id: "companies-default", path: "/companies", access: "authenticated", family: "companies", state: "default", shell: "app", source: "app/companies/page.tsx" },
-  { id: "analytics-default", path: "/analytics", access: "authenticated", family: "analytics", state: "default", shell: "app", source: "app/analytics/page.tsx" },
+  { id: "companies-default", path: "/companies", access: "authenticated", family: "companies", state: "default", shell: "app", source: "app/companies/page.tsx",
+    // The credit banner follows the shared discovery pipeline; the 200-card corpus list
+    // (tens of thousands of px) and its count line change as companies are classified.
+    live: { hide: [".rf-credit-banner", ".rf-company-toolbar ~ *"], mask: [".rf-company-tabs"] } },
+  { id: "analytics-default", path: "/analytics", access: "authenticated", family: "analytics", state: "default", shell: "app", source: "app/analytics/page.tsx",
+    // KPI deltas and the summary sentence appear/wrap with the data; every section below
+    // the section nav is live aggregates (covered by the analytics data-viz fixture).
+    live: { hide: [".rf-analytics-kpi div:has(> .rf-kpi-delta__value)", ".rf-analytics-summary", ".rf-analytics-nav ~ *"], mask: [".rf-analytics-kpi__value"] } },
   { id: "feedback-default", path: "/feedback", access: "authenticated", family: "feedback", state: "default", shell: "app", source: "app/feedback/page.tsx" },
   { id: "billing-default", path: "/billing", access: "authenticated", family: "billing", state: "default", shell: "app", source: "app/billing/page.tsx" },
   { id: "profile-hub", path: "/profile", access: "authenticated", family: "profile", state: "default", shell: "app", source: "app/profile/layout.tsx" },
@@ -44,9 +63,9 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   { id: "profile-personalization", path: "/profile/application-personalization", access: "authenticated", family: "profile", state: "personalization", shell: "app", source: "app/profile/layout.tsx" },
   { id: "profile-advanced", path: "/profile/advanced", access: "authenticated", family: "profile", state: "advanced", shell: "app", source: "app/profile/layout.tsx" },
   { id: "profile-account", path: "/profile/account", access: "authenticated", family: "profile", state: "account", shell: "app", source: "app/profile/layout.tsx" },
-  { id: "admin-tenants", path: "/admin/tenants", access: "authenticated", family: "admin", state: "default", shell: "app", source: "app/admin/tenants/page.tsx" },
-  { id: "admin-invites", path: "/admin/invites", access: "authenticated", family: "admin", state: "invites", shell: "app", source: "app/admin/invites/page.tsx" },
-  { id: "admin-classification", path: "/admin/classification", access: "authenticated", family: "admin", state: "classification", shell: "app", source: "app/admin/classification/page.tsx" },
+  { id: "admin-tenants", path: "/admin/tenants", access: "authenticated", family: "admin", state: "default", shell: "app", source: "app/admin/tenants/page.tsx", adminOnly: true },
+  { id: "admin-invites", path: "/admin/invites", access: "authenticated", family: "admin", state: "invites", shell: "app", source: "app/admin/invites/page.tsx", adminOnly: true },
+  { id: "admin-classification", path: "/admin/classification", access: "authenticated", family: "admin", state: "classification", shell: "app", source: "app/admin/classification/page.tsx", adminOnly: true },
   { id: "onboarding", path: "/onboarding", access: "authenticated", family: "onboarding", state: "default", shell: "entry", source: "app/onboarding/page.tsx", authState: "onboarding" },
   ...["selected", "filter-empty", "rejected", "applied", "loading", "error-retry", "generation", "application-package"].map((state) => fixture("board", state)),
   fixture("companies", "empty"), fixture("analytics", "data-viz"), fixture("billing", "current"),

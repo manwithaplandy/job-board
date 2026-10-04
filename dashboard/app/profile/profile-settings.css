@@ -168,5 +168,7 @@
 .company-filter-group { display: grid; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
 .company-filter-group > legend { padding: 0; }
 .company-filter-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2) var(--space-4); }
-.company-filter-option { display: flex; align-items: center; gap: var(--space-2); color: var(--text-primary); line-height: 1.4; }
+/* The wrapping label is each checkbox's hit target (the 16px native box delegates to it),
+   so the row itself carries the 44px target size. */
+.company-filter-option { display: flex; align-items: center; gap: var(--space-2); min-height: var(--target-size); color: var(--text-primary); line-height: 1.4; }
 .company-filter-option input { flex: none; }

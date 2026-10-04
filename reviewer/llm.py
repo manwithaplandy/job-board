@@ -201,8 +201,11 @@ class ReviewClient:
                      location: str | None, jd: str,
                      company_context: str | None = None,
                      company_about: str | None = None) -> Stage2Result:
+        # Reasoning tokens count against max_tokens. The Pro default (gpt-6-luna) reasons at
+        # medium effort by default, so a tight cap can run out before the JSON answer is
+        # written. 16000 is headroom, not expected spend: billing is per token actually used.
         return await self._parse(
-            model=self.model_stage2, max_tokens=6000,
+            model=self.model_stage2, max_tokens=16000,
             system=_system(profile_block, _STAGE2_INSTRUCTIONS),
             user=(
                 f"Title: {title}\nCompany: {company}\nLocation: {location or 'n/a'}\n"

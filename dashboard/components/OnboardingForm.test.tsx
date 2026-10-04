@@ -19,4 +19,13 @@ describe("OnboardingForm shared typography", () => {
     expect(globalCss).toMatch(/\.rf-picker-chip\s*\{[^}]*font-size:\s*12px/s);
     expect(globalCss).toMatch(/\.resume-upload-filename\s*\{[^}]*font-size:\s*12\.5px/s);
   });
+
+  test("gives the picker input a full-size touch target and a programmatic label", () => {
+    // The 13px picker type plus 11px padding rendered a ~39px combobox on onboarding,
+    // under the 44px target the authenticated visual contract enforces.
+    render(<OnboardingForm action={async () => null} locationOptions={[{ location: "London", count: 2 }]} />);
+    expect(screen.getByRole("combobox", { name: /Locations to include/ }).classList).toContain("rf-picker-input");
+    const globalCss = readFileSync("app/globals.css", "utf8");
+    expect(globalCss).toMatch(/\.rf-picker-input\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
+  });
 });

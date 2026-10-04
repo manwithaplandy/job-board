@@ -89,6 +89,33 @@ describe("visual regression route inventory", () => {
     expect(realPages.filter((route) => !declared.has(route))).toEqual([]);
   });
 
+  test("asserts admin routes are denied to the non-admin visual identity instead of screenshotting them", () => {
+    // The established fixture is deliberately NOT in ADMIN_EMAILS (a CI secret must not
+    // hold operator powers over prod tenants); admin visuals come from the admin fixture.
+    const adminRoutes = VISUAL_ROUTES.filter((route) => route.path.startsWith("/admin"));
+    expect(adminRoutes.length).toBeGreaterThan(0);
+    for (const route of adminRoutes) {
+      expect(route.access).toBe("authenticated");
+      expect(route.adminOnly).toBe(true);
+    }
+    expect(VISUAL_ROUTES.filter((route) => route.adminOnly).every((route) => route.path.startsWith("/admin"))).toBe(true);
+    const spec = readFileSync("tests/visual/ui-cohesion.spec.ts", "utf8");
+    expect(spec).toContain("route.adminOnly");
+    expect(spec).toMatch(/response\?\.status\(\)[^\n]*\)\.toBe\(404\)/);
+  });
+
+  test("declares live-data regions explicitly for routes rendered from the production database", () => {
+    const live = VISUAL_ROUTES.filter((route) => route.live);
+    expect(live.map((route) => route.id).sort()).toEqual(["analytics-default", "board-default", "companies-default"]);
+    for (const route of live) {
+      expect(route.access).toBe("authenticated");
+      expect(route.live!.hide.length + route.live!.mask.length).toBeGreaterThan(0);
+    }
+    const spec = readFileSync("tests/visual/ui-cohesion.spec.ts", "utf8");
+    expect(spec).toContain("route.live");
+    expect(spec).toContain("fullPage: true");
+  });
+
   test("has stable unique snapshot ids and explicit access policy", () => {
     const ids = VISUAL_ROUTES.map((route) => route.id);
     expect(new Set(ids).size).toBe(ids.length);

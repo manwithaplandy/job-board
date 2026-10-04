@@ -75,7 +75,7 @@ def test_stage2_includes_jd_and_uses_stage2_model():
     call = fake.calls[0]
     assert call["model"] == "m2"
     assert call["response_format"] is Stage2Result
-    assert call["max_tokens"] == 6000  # cap forwarded, not silently dropped
+    assert call["max_tokens"] == 16000  # cap forwarded, not silently dropped
     user_msg = call["messages"][1]["content"]
     assert "Operate Kubernetes clusters" in user_msg
     # The real posting is wrapped in the shared untrusted-input guard.
@@ -684,10 +684,10 @@ def test_tool_schema_model_pins_reasoning_effort_to_max():
 def test_non_tool_schema_model_keeps_native_structured_output():
     """The routing is per-model: everything else must keep using response_format."""
     from observability.llm import TOOL_SCHEMA_MODELS
-    assert "openai/gpt-5.6-luna" not in TOOL_SCHEMA_MODELS
+    assert "openai/gpt-6-luna" not in TOOL_SCHEMA_MODELS
     fake = _FakeClient()
     asyncio.run(__import__("observability.llm", fromlist=["x"]).traced_structured_call(
-        fake, model="openai/gpt-5.6-luna",
+        fake, model="openai/gpt-6-luna",
         messages=[{"role": "user", "content": "t"}], schema=Stage1Result,
         name="stage1", metadata={}))
     assert fake.calls[0]["response_format"] is Stage1Result

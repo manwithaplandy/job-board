@@ -48,12 +48,12 @@ describe("CLASSIFICATION_MODELS", () => {
     }
   });
   test("gpt-5.6-luna is offered with fallback pricing", () => {
-    // Added 2026-08-05 (same model as the Pro stage-2 default): catalog-verified for
-    // structured_outputs, and cheaper than Flash-Lite at the 2026-08-05 catalog rates.
+    // Added 2026-08-05: catalog-verified for structured_outputs. Fallback is the standard
+    // (non-batch) OpenRouter rate, $0.20/$1.20 per 1M.
     expect(CLASSIFICATION_MODELS).toContain("openai/gpt-5.6-luna");
     expect(FALLBACK_PRICING["openai/gpt-5.6-luna"]).toEqual({
-      prompt: 0.1e-6,
-      completion: 0.6e-6,
+      prompt: 0.2e-6,
+      completion: 1.2e-6,
     });
   });
 });

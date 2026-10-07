@@ -1,0 +1,1168 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+foreign_keys [
+  {
+    "child": "application_packages",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "application_packages",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id, job_id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "capacity_reservations",
+    "parent": "lifecycle_claims",
+    "definition": "FOREIGN KEY (claim_kind, claim_id) REFERENCES lifecycle_claims(kind, work_id)"
+  },
+  {
+    "child": "company_brands",
+    "parent": "brands",
+    "definition": "FOREIGN KEY (brand_id) REFERENCES brands(id)"
+  },
+  {
+    "child": "company_brands",
+    "parent": "companies",
+    "definition": "FOREIGN KEY (company_id) REFERENCES companies(id)"
+  },
+  {
+    "child": "company_overrides",
+    "parent": "companies",
+    "definition": "FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "company_reviews",
+    "parent": "companies",
+    "definition": "FOREIGN KEY (company_id) REFERENCES companies(id)"
+  },
+  {
+    "child": "company_sources",
+    "parent": "companies",
+    "definition": "FOREIGN KEY (company_id) REFERENCES companies(id)"
+  },
+  {
+    "child": "company_sources",
+    "parent": "source_accounts",
+    "definition": "FOREIGN KEY (source_account_id) REFERENCES source_accounts(id)"
+  },
+  {
+    "child": "cover_letter_edits",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "cover_letter_edits",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id, job_id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "enumeration_members",
+    "parent": "source_enumerations",
+    "definition": "FOREIGN KEY (enumeration_id) REFERENCES source_enumerations(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "generation_jobs",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "generation_jobs",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id, job_id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "identity_assertions",
+    "parent": "source_listings",
+    "definition": "FOREIGN KEY (left_listing_id) REFERENCES source_listings(id)"
+  },
+  {
+    "child": "identity_assertions",
+    "parent": "source_listings",
+    "definition": "FOREIGN KEY (right_listing_id) REFERENCES source_listings(id)"
+  },
+  {
+    "child": "invite_redemptions",
+    "parent": "invite_codes",
+    "definition": "FOREIGN KEY (code) REFERENCES invite_codes(code)"
+  },
+  {
+    "child": "job_locations",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id) REFERENCES job_versions(id)"
+  },
+  {
+    "child": "job_locations",
+    "parent": "locations",
+    "definition": "FOREIGN KEY (location_id) REFERENCES locations(raw)"
+  },
+  {
+    "child": "job_payload_demands",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id)"
+  },
+  {
+    "child": "job_payload_demands",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id, job_id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "job_questions",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "job_questions",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id, job_id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "job_reviews",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "job_reviews",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id, job_id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "jobs",
+    "parent": "companies",
+    "definition": "FOREIGN KEY (company_id) REFERENCES companies(id)"
+  },
+  {
+    "child": "jobs",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (description_version_id, id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "job_skills",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id) REFERENCES job_versions(id)"
+  },
+  {
+    "child": "job_skills",
+    "parent": "skills",
+    "definition": "FOREIGN KEY (skill_id) REFERENCES skills(id)"
+  },
+  {
+    "child": "job_versions",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id)"
+  },
+  {
+    "child": "job_versions",
+    "parent": "source_listings",
+    "definition": "FOREIGN KEY (source_listing_id, job_id) REFERENCES source_listings(id, job_id)"
+  },
+  {
+    "child": "matching_activity",
+    "parent": "profiles",
+    "definition": "FOREIGN KEY (user_id) REFERENCES profiles(user_id) ON DELETE CASCADE"
+  },
+  {
+    "child": "reconciliation_checkpoints",
+    "parent": "source_enumerations",
+    "definition": "FOREIGN KEY (enumeration_id) REFERENCES source_enumerations(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "resume_scores",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "resume_scores",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id, job_id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "review_corrections",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "review_corrections",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (job_version_id, job_id) REFERENCES job_versions(id, job_id)"
+  },
+  {
+    "child": "source_accounts",
+    "parent": "companies",
+    "definition": "FOREIGN KEY (legacy_company_id) REFERENCES companies(id)"
+  },
+  {
+    "child": "source_enumerations",
+    "parent": "source_accounts",
+    "definition": "FOREIGN KEY (source_id) REFERENCES source_accounts(id)"
+  },
+  {
+    "child": "source_listings",
+    "parent": "jobs",
+    "definition": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+  },
+  {
+    "child": "source_listings",
+    "parent": "job_versions",
+    "definition": "FOREIGN KEY (current_version_id, id) REFERENCES job_versions(id, source_listing_id)"
+  },
+  {
+    "child": "source_listings",
+    "parent": "source_accounts",
+    "definition": "FOREIGN KEY (source_account_id) REFERENCES source_accounts(id)"
+  }
+]
+table_grants [
+  {
+    "table_name": "app_settings",
+    "grantee": "anon",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "app_settings",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "application_packages",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "application_packages",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "application_packages",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "application_packages",
+    "grantee": "authenticated",
+    "privilege_type": "UPDATE"
+  },
+  {
+    "table_name": "companies",
+    "grantee": "anon",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "companies",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "company_overrides",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "company_overrides",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "company_overrides",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "company_overrides",
+    "grantee": "authenticated",
+    "privilege_type": "UPDATE"
+  },
+  {
+    "table_name": "company_reviews",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "company_reviews",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "company_reviews",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "company_reviews",
+    "grantee": "authenticated",
+    "privilege_type": "UPDATE"
+  },
+  {
+    "table_name": "cover_letter_edits",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "cover_letter_edits",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "cover_letter_edits",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "cover_letter_edits",
+    "grantee": "authenticated",
+    "privilege_type": "UPDATE"
+  },
+  {
+    "table_name": "discovery_runs",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "discovery_state",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "feedback",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "generation_jobs",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "generation_jobs",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "generation_jobs",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "generation_jobs",
+    "grantee": "authenticated",
+    "privilege_type": "UPDATE"
+  },
+  {
+    "table_name": "invite_allowances",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_questions",
+    "grantee": "anon",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_questions",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_reviews",
+    "grantee": "anon",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_reviews",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "job_reviews",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "job_reviews",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_reviews",
+    "grantee": "authenticated",
+    "privilege_type": "UPDATE"
+  },
+  {
+    "table_name": "jobs",
+    "grantee": "anon",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "jobs",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "matching_activity",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "plan_overrides",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "poll_runs",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "profiles",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "profiles",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "resume_scores",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "resume_scores",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "resume_scores",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "resume_scores",
+    "grantee": "authenticated",
+    "privilege_type": "UPDATE"
+  },
+  {
+    "table_name": "review_corrections",
+    "grantee": "anon",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "review_corrections",
+    "grantee": "authenticated",
+    "privilege_type": "DELETE"
+  },
+  {
+    "table_name": "review_corrections",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "review_corrections",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "review_corrections",
+    "grantee": "authenticated",
+    "privilege_type": "UPDATE"
+  },
+  {
+    "table_name": "review_requests",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "review_requests",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "review_runs",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "subscriptions",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "tier_settings",
+    "grantee": "anon",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "tier_settings",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "usage_counters",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  }
+]
+column_grants [
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "claim_generation",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "claim_owner_token",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "created_at",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "description_snapshot",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "job_id",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "job_id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "job_version_id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "kind",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "kind",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "lease_until",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "protection_until",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "questions_snapshot",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "settled_at",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "snapshot_captured_at",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "status",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "user_id",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "job_payload_demands",
+    "column_name": "user_id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "activation_generation",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "archive_ever_activated",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "archive_stage",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "export_enabled",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "feed_enabled",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "flags_version",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "hydration_enabled",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "identity_enabled",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "identity_migration_activated_at",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "maintenance_enabled",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "retirement_dry_run",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "retirement_enabled",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "safety_stage",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "singleton",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_control",
+    "column_name": "source_enabled",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "backend_pid",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "backend_pid",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "bytes",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "bytes",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "created_at",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "created_at",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "generation",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "generation",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "id",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "invoking_role",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "invoking_role",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "job_id",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "job_id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "owner_token",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "owner_token",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "reservation_id",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "reservation_id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "row_count",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "row_count",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "scope",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "scope",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "subject_id",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "subject_id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "total_bytes",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "total_bytes",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "total_rows",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "total_rows",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "transaction_id",
+    "grantee": "authenticated",
+    "privilege_type": "INSERT"
+  },
+  {
+    "table_name": "lifecycle_write_checks",
+    "column_name": "transaction_id",
+    "grantee": "authenticated",
+    "privilege_type": "SELECT"
+  }
+]
+gates [
+  {
+    "relname": "account_deletions",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON account_deletions FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "application_packages",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON application_packages FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "brands",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON brands FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "capacity_reservations",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON capacity_reservations FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "classification_jobs",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON classification_jobs FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "companies",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON companies FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "company_brands",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON company_brands FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "company_overrides",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON company_overrides FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "company_reviews",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON company_reviews FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "company_sources",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON company_sources FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "cover_letter_edits",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON cover_letter_edits FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "enumeration_members",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON enumeration_members FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "feedback",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON feedback FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "generation_jobs",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON generation_jobs FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "identity_assertions",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON identity_assertions FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "invite_allowances",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON invite_allowances FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "invite_codes",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON invite_codes FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "invite_redemptions",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON invite_redemptions FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "job_locations",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON job_locations FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "job_payload_demands",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON job_payload_demands FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "job_questions",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON job_questions FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "job_reviews",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON job_reviews FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "job_skills",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON job_skills FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "job_versions",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON job_versions FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "jobs",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON jobs FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "lifecycle_claims",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON lifecycle_claims FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "lifecycle_control",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON lifecycle_control FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "lifecycle_write_checks",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON lifecycle_write_checks FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "locations",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON locations FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "matching_activity",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON matching_activity FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "plan_overrides",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON plan_overrides FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "profiles",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON profiles FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "reconciliation_checkpoints",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON reconciliation_checkpoints FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "resume_scores",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON resume_scores FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "review_corrections",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON review_corrections FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "review_requests",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON review_requests FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "review_runs",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON review_runs FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "skills",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON skills FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "source_accounts",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON source_accounts FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "source_enumerations",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON source_enumerations FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "source_listings",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON source_listings FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "subscriptions",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON subscriptions FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  },
+  {
+    "relname": "usage_counters",
+    "tgname": "lifecycle_pre_dml",
+    "definition": "CREATE TRIGGER lifecycle_pre_dml BEFORE INSERT OR DELETE OR UPDATE OR TRUNCATE ON usage_counters FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_gate()"
+  }
+]
+private_functions [
+  {
+    "name": "lifecycle_private.protect_demand_claim()",
+    "prosecdef": true,
+    "proconfig": [
+      "search_path=pg_catalog"
+    ],
+    "proacl": "{postgres=X/postgres}",
+    "owner": "postgres",
+    "definition": "CREATE OR REPLACE FUNCTION lifecycle_private.protect_demand_claim()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog'\nAS $function$\nBEGIN\n IF current_setting('role')='authenticated' AND OLD.user_id IS DISTINCT FROM public.app_user_id() THEN RAISE EXCEPTION 'foreign lifecycle owner' USING ERRCODE='42501'; END IF;\n -- Deleting an owner queue row cannot silently cancel/release a live service\n -- claim. The service must fence the claim first (account erasure does so).\n IF EXISTS(SELECT FROM public.lifecycle_claims WHERE kind='demand' AND work_id=OLD.id::text\n AND state='active' AND generation>replay_floor) THEN\n  RAISE EXCEPTION 'demand removal requires fenced service claim'; END IF;\n RETURN OLD;\nEND $function$\n"
+  },
+  {
+    "name": "lifecycle_private.validate_write()",
+    "prosecdef": true,
+    "proconfig": [
+      "search_path=pg_catalog"
+    ],
+    "proacl": "{postgres=X/postgres}",
+    "owner": "postgres",
+    "definition": "CREATE OR REPLACE FUNCTION lifecycle_private.validate_write()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog'\nAS $function$\nDECLARE c public.lifecycle_claims; r public.capacity_reservations; actor name;\nBEGIN\n -- PostgreSQL lets any caller consume a deferred constraint early. Only the\n -- actual top-level, standalone transaction boundary may run this AFTER check.\n -- current_query() is server-provided, not a GUC. Fail closed for comments,\n -- multi-statements, SET CONSTRAINTS, implicit/autocommit and PREPARE TRANSACTION.\n -- Supported writers explicitly finish with COMMIT/END [WORK|TRANSACTION].\n IF TG_WHEN='AFTER' AND COALESCE(current_query(),'') !~* '^[[:space:]]*(COMMIT|END)([[:space:]]+(WORK|TRANSACTION))?[[:space:]]*;?[[:space:]]*$' THEN\n  RAISE EXCEPTION 'lifecycle receipts require standalone COMMIT or END validation';\n END IF;\n -- role is PostgreSQL's actual SET ROLE state, not a caller-supplied identity GUC.\n actor:=CASE WHEN current_setting('role')='none' THEN session_user ELSE current_setting('role') END;\n IF TG_WHEN='BEFORE' AND (NEW.invoking_role<>actor OR NEW.subject_id IS DISTINCT FROM public.app_user_id()\n OR NEW.backend_pid<>pg_backend_pid() OR NEW.transaction_id<>pg_current_xact_id()) THEN\n  RAISE EXCEPTION 'invalid lifecycle invoking identity';\n END IF;\n IF NEW.bytes>0 AND pg_database_size(current_database())+(SELECT COALESCE(sum(bytes),0) FROM public.capacity_reservations WHERE state='held')>6291456000 THEN RAISE EXCEPTION 'physical capacity budget exceeded'; END IF;\n IF NEW.total_rows>500 THEN RAISE EXCEPTION 'lifecycle admission chunk exceeds 500 rows'; END IF;\n IF NEW.bytes>0 AND NEW.reservation_id IS NULL THEN RAISE EXCEPTION 'growth_without_reservation'; END IF;\n IF NEW.reservation_id IS NOT NULL THEN\n  SELECT * INTO r FROM public.capacity_reservations WHERE id=NEW.reservation_id;\n  IF NOT FOUND OR r.state NOT IN ('held','settled') OR r.backend_pid<>NEW.backend_pid OR r.transaction_id<>NEW.transaction_id\n   OR r.invoking_role<>NEW.invoking_role OR r.subject_id IS DISTINCT FROM NEW.subject_id\n   OR r.job_id IS DISTINCT FROM NEW.job_id OR r.scope IS DISTINCT FROM NEW.scope OR r.bytes<NEW.total_bytes\n   OR r.backend_pid IS NULL THEN RAISE EXCEPTION 'invalid capacity reservation owner, scope or budget'; END IF;\n  SELECT * INTO c FROM public.lifecycle_claims WHERE kind=r.claim_kind AND work_id=r.claim_id;\n  IF NOT FOUND OR c.owner_token<>r.owner_token OR c.generation<>r.generation THEN\n   RAISE EXCEPTION 'stale or fenced capacity claim'; END IF;\n ELSIF NEW.owner_token IS NOT NULL THEN\n  SELECT * INTO c FROM public.lifecycle_claims WHERE owner_token=NEW.owner_token AND generation=NEW.generation;\n  IF NOT FOUND OR c.invoking_role<>NEW.invoking_role OR c.subject_id IS DISTINCT FROM NEW.subject_id THEN\n   RAISE EXCEPTION 'stale or foreign lifecycle claim'; END IF;\n ELSE RETURN NEW;\n END IF;\n IF c.state<>'active' OR c.generation<=c.replay_floor OR c.lease_until<=clock_timestamp() THEN\n  RAISE EXCEPTION 'stale, expired or fenced lifecycle claim'; END IF;\n RETURN NEW;\nEND $function$\n"
+  }
+]
+control [
+  {
+    "singleton": true,
+    "flags_version": 1,
+    "safety_stage": "legacy",
+    "identity_enabled": false,
+    "source_enabled": false,
+    "maintenance_enabled": false,
+    "hydration_enabled": false,
+    "feed_enabled": false,
+    "retirement_enabled": false,
+    "retirement_dry_run": true,
+    "archive_ever_activated": false,
+    "archive_stage": "never_activated",
+    "export_enabled": false,
+    "activation_generation": 0,
+    "identity_migration_activated_at": null
+  }
+]

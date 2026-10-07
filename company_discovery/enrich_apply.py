@@ -13,6 +13,7 @@ log = logging.getLogger("company_discovery.enrich")
 
 # Board fetches share the poller's egress IP; keep concurrency small.
 MAX_WORKERS = 5
+FETCH_BATCH_SIZE = 50
 
 
 class EnrichUpdate(NamedTuple):
@@ -60,39 +61,46 @@ def apply_enrichment(conn, company_id, plan: EnrichUpdate) -> None:
                     (plan.display_name, plan.about, plan.about_source, company_id))
 
 
+def fetch_batches(rows, fetch, *, max_workers=MAX_WORKERS):
+    """Finish every HTTP future in a bounded batch before exposing DB work.
+
+    Callers close their read/write transaction before iterating and commit each
+    returned batch before requesting another. At most 50 results/futures exist;
+    a failed fetch remains a None result so successful peers still persist.
+    """
+    for start in range(0, len(rows), FETCH_BATCH_SIZE):
+        batch = rows[start:start + FETCH_BATCH_SIZE]
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(fetch, r["ats"], r["token"]): r for r in batch}
+            results = [(futures[f], f.result()) for f in as_completed(futures)]
+        yield results
+
+
 def enrich_selected(conn, candidates: list[dict], *,
                     max_workers: int = MAX_WORKERS) -> int:
-    """Ground every selected company still lacking enrichment (enriched_at IS NULL):
-    fetch board metadata, persist it, and patch the in-memory candidate dict
-    (display_name/about) so THIS run's review sees the grounding without a re-query.
-    Returns the number of companies enriched.
+    """Fetch outside transactions, then persist up to 50 completed enrichments.
 
-    Dead boards / unsupported ATSes skip silently (plan_enrichment never raises): that
-    company is reviewed ungrounded this run and its enriched_at stays NULL, so it is
-    retried only when it next becomes stale (a company reviewed under the current
-    profile version is not re-selected — there is no per-run re-probe storm).
-
-    Board fetches (HTTP) run in a small thread pool — they share the poller's egress
-    IP, so max_workers stays small. DB writes stay on the calling thread; one psycopg
-    connection must not be shared across threads. Does not commit — the caller owns
-    the transaction."""
+    Owns short batch commits, including closing the initial candidate read even
+    when nothing needs enrichment. Failed boards remain unstamped and retryable.
+    A DB failure rolls back only the current batch; earlier batches are durable.
+    """
     pending = [c for c in candidates if c.get("enriched_at") is None]
-    if not pending:
-        return 0
+    conn.commit()
     enriched = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(plan_enrichment, c["ats"], c["token"]): c for c in pending}
-        for fut in as_completed(futures):
-            c = futures[fut]
-            plan = fut.result()  # plan_enrichment never raises (it skips instead)
-            if plan is None:
-                continue
-            apply_enrichment(conn, c["id"], plan)
-            # Mirror the UPDATE's COALESCE: display_name is only overwritten when the
-            # enricher returned one (a None name -> keep prior); about is always
-            # set to the fetched value.
+    for results in fetch_batches(pending, plan_enrichment, max_workers=max_workers):
+        updated = []
+        try:
+            for c, plan in results:
+                if plan is not None:
+                    apply_enrichment(conn, c["id"], plan)
+                    updated.append((c, plan))
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        for c, plan in updated:
             if plan.display_name is not None:
                 c["display_name"] = plan.display_name
             c["about"] = plan.about
-            enriched += 1
+        enriched += len(updated)
     return enriched

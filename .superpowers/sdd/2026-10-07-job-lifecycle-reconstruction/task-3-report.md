@@ -277,3 +277,184 @@ authorization. Tasks 4–13 retain their specified cleanup, scheduling, source,
 hydration, feed, outbox/archive and final end-to-end rollout responsibilities.
 No new provider or user approval is needed to continue those authorized local tasks
 once both controller gates pass. Production enabling remains separately gated.
+
+## Fix round 1 — independent review corrections
+
+Fix BASE: `6538fc70a8dc5d49d3a0812f18542730c49c381b`. Both independent
+reviews rejected that implementation. The six unique findings (R1/S2, R2, R3,
+S1, S3, S4) are addressed together in this forward fix. The original evidence
+above describes the original commit, not this fix. Review reports and reviewer
+probe artifacts remain controller-owned and are excluded from the author commit.
+
+### S1 — unavoidable supported commit boundary
+
+A deferred constraint alone is insufficient: a caller can consume it with
+`SET CONSTRAINTS`. PostgreSQL documents both that early execution and that
+`current_query()` returns the complete client-submitted command, including
+multiple statements ([constraint timing](https://www.postgresql.org/docs/17/sql-set-constraints.html),
+[server query text](https://www.postgresql.org/docs/17/functions-info.html)).
+The private receipt validator now permits its AFTER invocation **only** when the
+server command is a standalone `COMMIT` or `END`, optionally `WORK` or
+`TRANSACTION`, whitespace and one trailing semicolon. It then validates the
+actual claim generation, reservation binding and DB-clock lease in that commit
+phase. This is server-derived command text, never an application GUC or caller
+promise. Its fixed `pg_catalog` search path prevents function shadowing.
+
+Changing constraint timing before or after a receipt now aborts rather than
+consuming the final check. Comments, multiple statements and commands containing
+fake COMMIT text fail closed. Implicit/autocommit receipt writes, prepared
+transactions, SQL procedure-managed boundaries and `COMMIT AND CHAIN` are outside
+this explicitly supported boundary and fail closed; they are not fallback paths
+that receive only statement-time validation. Existing psycopg explicit commits
+and postgres.js `begin`/commit use the supported boundary. Dashboard tests now
+prove an actual reserved authenticated write commits through postgres.js and an
+early constraint check rolls the entire attempted update back. Python tests cover
+both authenticated and inherited roles, early timing before/after, real natural
+expiry and zero persisted owner writes after rejection. No grants were widened.
+
+### S3/S4 — complete JSON accounting and one capacity subject per generation
+
+The row validator consults the table's declared JSON/JSONB column types. Changed
+numeric and boolean scalars now consume the same conservative allocation budget
+as strings, objects and arrays. Small SQL scalar metadata remains distinct from
+JSON payload. SQL/JSON null and empty default collections retain the existing
+no-payload protection exception; clearing payload earns no DELETE credit.
+Tests include 100,000-digit numeric payloads across all package JSON fields,
+all JSON fields on reviews/corrections/scores, object/array/string/boolean cases,
+cumulative repeated numeric replacements, whole-transaction rollback on exhausted
+forecasts, and a real physical-allocation-plus-held-reservation over-budget case.
+That case still permits metadata-only protection and payload removal while
+refusing positive numeric payload growth. Legacy JSON values remain accepted.
+
+A claim generation now records whether its capacity subject has been fixed and
+which subject that is. The first bound reservation fixes it, including public
+NULL; a different subject cannot bind another reservation in that generation.
+The invoker reservation-integrity trigger enforces this for SQL as well as the
+Python binding API, under the global gate. Changing an established subject
+requires fencing the generation. Claim reassignment resets the marker only with
+its existing generation/replay transition. Account erasure fences the target's
+claim and clears both subject fields; tests reject shared A/B binding, reject
+NULL/A mixing, permit a newly fenced generation to bind, reject A's stale
+callback, and preserve B's independently held capability, private history and
+the shared Job.
+
+### R1/S2/R2 — network boundaries and compatible optional backfill
+
+The company caller inventory now includes `enrich_apply`, `run`, `worker`, both
+HTTP backfills, their DB/queue helpers, SERP, reclassify, plus Job location/prefs
+backfills and reviewer entry points. `fetch_batches` finishes every future in a
+maximum **50-company** batch before exposing results for writes; at most 5 HTTP
+workers run, and all are finished before that batch's database transaction.
+Successful results commit together; a database failure rolls back its current
+batch and leaves earlier batches durable. Candidate dictionaries are patched
+only after commit. Skipped/dead boards remain unstamped and retryable. These
+bounds apply to fetched results/futures; the pre-existing selected metadata list
+is not claimed to have a new total byte bound.
+
+Both one-time backfills use that same batch boundary. Weekly ingest commits
+before enrichment. Classification commits target/status reads before SERP,
+commits each persisted SERP result before the next request/throttle, and closes
+reads even when no enrichment succeeds. Model-client cleanup and discovery
+tracing flush run after ending any open transaction. Existing classification
+progress, cancellation, out-of-credits, retry and partial-result tests remain in
+the final covering lane. Offline callbacks inspect actual IDLE connection state
+and an independent backend's gate acquisition; SERP tests exercise the real
+adapter's throttle and HTTP boundary with local replacements for sleep/post.
+Concurrent probe callbacks serialize only their observer lock attempts, avoiding
+test observers falsely reporting each other's temporary gate locks.
+
+Greenhouse question work is once again the missing-only backlog plus admissible
+feed postings that lack a cached row. Cached questions and timestamps are not
+replaced, including a cache inserted between fetch and persistence (`DO NOTHING`
+on conflict). Invalid-title/URL feed rows are not added to optional new-ID work.
+The backlog SELECT is bounded to **100,001 IDs**, the feed contributes at most
+100,000 IDs, and at most **100,000 question fetches / 64 MiB encoded results** are
+processed. The cooperative **120-second** deadline remains checked between
+fetches; it does not preempt a blocked upstream request. Question row/byte/time
+exhaustion stops optional work and leaves the remainder retryable. It does not
+turn a complete healthy source enumeration into a board failure or prevent
+ordinary closure handling. Source-feed partial/failure/overflow still fails
+closed before admission/closure. Real repeated `run()` tests preserve cached
+payloads and prove all three optional budgets leave the poll healthy.
+
+### R3 — complete affected service lock order
+
+The explicit service sequence is gate, read IDs, sorted Job keys, then row/FK
+work. It now covers close/reopen helpers, location stamping (also used by the
+location backfill), review-floor backfill and question persistence, in addition
+to the prior upsert/mapper/prune/reviewer batch integrations. Account erasure's
+existing service-only INVOKER function now selects the union of its owner's
+seven private Job tables and reservation Job references and acquires keys in
+`COLLATE "C"` order before claim or child-row mutations. Another user's
+unrelated Job key is not acquired. Account-root gates and invoker RLS remain
+unchanged. Tests record actual service SQL order and use another backend to
+prove erasure holds precisely the relevant Job keys.
+
+Inventory disposition: company-only review/classification/reclassify and profile
+preference backfill have no Job row/FK mutations; their BEFORE STATEMENT gate
+covers the relevant table and the repaired orchestration contains no network
+wait inside a transaction. Queue claims are a single gated UPDATE whose subquery
+row lock follows its BEFORE STATEMENT trigger. Existing authenticated dashboard
+multi-row DML retains the approved statement-trigger allowance; privileged
+account erasure now prelocks explicitly. No known service Job writer from the
+expanded source inventory is deferred to Task 13. Enforced writer/readiness
+rollout remains unavailable; these changes do not certify future writer cutover.
+
+### Fix-round evidence and verification
+
+`fix1-red-security17.txt` records 20 failures / 18 passes (the inherited-role
+fixture initially also needed repeat-safe setup); its 100,000-digit repetitive
+value is shortened to `<100000-digit-number>` in the stored log, with all
+results preserved. The corrected combined RED log `fix1-red-corrected17.txt`
+records **24 failures / 18 passes**, reproducing S1/S3/S4 and all four Python
+service-order omissions. `fix1-red-callers17.txt` records **8 failures / 4 passes**
+for company/poll boundaries. `fix1-red-order17.txt` retains the initial incorrect
+seed-argument fixture attempt. Additional RED logs reproduce missing erasure
+Job locks and the unbounded backlog API before those changes.
+
+`fix1-green-attempt17.txt` records 45 passes / 4 failures: the stale callback
+correctly raised the Python API's RuntimeError, simultaneous test observers
+contended with each other, and the review fixture accidentally selected seed
+companies (which that existing query excludes). Those test defects were corrected.
+`fix1-green2-17.txt` then passed **86**, zero skips. `fix1-green-poll17.txt`
+passed **30**, zero skips. `fix1-green-expanded17.txt` passed **125** with one
+invalid integer-to-JSONB fixture insert; `fix1-green3-17.txt` passed **85** with two
+fixture errors (applied status needed its timestamp, and seeded Job 0 already
+had questions). These are preserved, corrected, and rechecked in the final lane.
+
+
+Final source state (no source edits after these runs began):
+- `fix1-final17.txt`: **344 passed, zero skipped**, actual PostgreSQL **17.11
+  (Debian 17.11-1.pgdg13+2)**, **142.97 seconds**.
+- `fix1-final16.txt`: **344 passed, zero skipped**, actual PostgreSQL **16.15
+  (Debian 16.15-1.pgdg13+2)**, **188.54 seconds**.
+- `fix1-dashboard17.txt` / `fix1-dashboard16.txt`: **5 passed each**, zero
+  skipped, on the same actual majors. Test durations 541ms / 789ms.
+- `fix1-typecheck.txt`, `fix1-eslint.txt`, `fix1-ruff.txt`: TypeScript,
+  changed dashboard test ESLint, and repository Ruff passed. ESLint is silent
+  on success. Whitespace checks and schema/migration suffix equality pass.
+- `fix1-post-install-inventory17.txt` is the refreshed actual final catalog;
+  `fix1-caller-inventory.txt` is refreshed from the final affected source.
+  The original 65 dashboard unit passes remain evidence for the original
+  unchanged dashboard runtime modules; they were not unnecessarily rerun here.
+
+Exact final covering commands, from the same owned worktree, bash/login:false:
+
+```sh
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_review_security.py tests/test_lifecycle_company_boundaries.py tests/test_lifecycle_service_order.py tests/test_lifecycle_legacy_spool.py tests/test_lifecycle_safety.py tests/test_lifecycle_activation.py tests/test_lifecycle_migrations.py tests/test_lifecycle_identity.py tests/test_rls_isolation.py tests/test_company_enrich.py tests/test_name_backfill.py tests/test_classification_worker.py tests/test_company_discovery_run.py tests/test_company_discovery_db.py tests/test_classification_jobs_db.py tests/test_run.py tests/test_run_question_fetch.py tests/test_db_job_questions.py tests/test_db_jobs.py tests/test_locations_resolution.py tests/test_reviewer_floors.py tests/test_prune.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- .venv/bin/python -m pytest tests/test_lifecycle_review_security.py tests/test_lifecycle_company_boundaries.py tests/test_lifecycle_service_order.py tests/test_lifecycle_legacy_spool.py tests/test_lifecycle_safety.py tests/test_lifecycle_activation.py tests/test_lifecycle_migrations.py tests/test_lifecycle_identity.py tests/test_rls_isolation.py tests/test_company_enrich.py tests/test_name_backfill.py tests/test_classification_worker.py tests/test_company_discovery_run.py tests/test_company_discovery_db.py tests/test_classification_jobs_db.py tests/test_run.py tests/test_run_question_fetch.py tests/test_db_job_questions.py tests/test_db_jobs.py tests/test_locations_resolution.py tests/test_reviewer_floors.py tests/test_prune.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- npm --prefix dashboard test -- lib/jobLifecycle.db.test.ts
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- npm --prefix dashboard test -- lib/jobLifecycle.db.test.ts
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python .superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-3-evidence/inventory_probe.py
+npm --prefix dashboard run typecheck
+(cd dashboard && ./node_modules/.bin/eslint lib/jobLifecycle.db.test.ts)
+.venv/bin/ruff check .
+git diff --check
+git diff --cached --check
+```
+
+This completes author Fix Round 1 only. Both independent re-review gates of the
+original scope plus the full forward fix remain pending. Task 4, Library 03
+acceptance and production activation are not claimed. All database execution
+used disposable owned harnesses, random loopback ports and local synthetic
+HTTP/model/throttle callbacks; no production/provider/paid calls occurred.

@@ -1,0 +1,94 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+............................................F.....................F..... [ 82%]
+...............                                                          [100%]
+=================================== FAILURES ===================================
+___ test_numeric_growth_above_physical_ceiling_refused_but_metadata_allowed ____
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32918 user=postgres database=poller_lifecycle_test) at 0x7f2aee46acf0>
+
+    @requires_db
+    def test_numeric_growth_above_physical_ceiling_refused_but_metadata_allowed(conn):
+        seed(conn)
+        vid = version(conn)
+        conn.execute(
+            "INSERT INTO application_packages(user_id,job_id,job_version_id,resume_json) VALUES (%s,'lever:x:0',%s,'12345'::jsonb)",
+            (A, vid),
+        )
+        claim = api("claims").claim_work(conn, "payload", "full", 180)
+        conn.commit()
+        allocated = conn.execute(
+            "SELECT pg_database_size(current_database()) n"
+        ).fetchone()["n"]
+        api("capacity").reserve_capacity(conn, claim, 6291456000 - allocated - 1024**2)
+        conn.commit()
+        conn.execute(
+            "UPDATE jobs SET description=(SELECT string_agg(md5(i::text),'') FROM generate_series(1,131072) i)"
+        )
+        conn.commit()
+        enforced(conn)
+        with as_user(conn, A):
+            with pytest.raises(psycopg.Error, match="physical capacity"):
+                conn.execute(
+                    "UPDATE application_packages SET resume_json=repeat('9',100000)::jsonb"
+                )
+        with as_user(conn, A):
+>           conn.execute(
+                "UPDATE application_packages SET status='applied',resume_json=NULL"
+            )
+
+tests/test_lifecycle_review_security.py:309:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32918 user=postgres database=poller_lifecycle_test) at 0x7f2aee46acf0>
+query = "UPDATE application_packages SET status='applied',resume_json=NULL"
+params = None, prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.CheckViolation: new row for relation "application_packages" violates check constraint "applied_iff_timestamp"
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: CheckViolation
+____________ test_question_backlog_read_is_bounded_before_spooling _____________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32918 user=postgres database=poller_lifecycle_test) at 0x7f2aee34d790>
+
+    @requires_db
+    def test_question_backlog_read_is_bounded_before_spooling(conn):
+        from job_discovery import db
+        from tests.test_lifecycle_safety import seed
+
+        seed(conn, count=3)
+        company = conn.execute("SELECT id FROM companies").fetchone()["id"]
+>       assert db.greenhouse_jobs_missing_questions(conn, company, limit=1) == ["0"]
+E       AssertionError: assert ['1'] == ['0']
+E
+E         At index 0 diff: '1' != '0'
+E         Use -v to get more diff
+
+tests/test_lifecycle_legacy_spool.py:155: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_review_security.py::test_numeric_growth_above_physical_ceiling_refused_but_metadata_allowed
+FAILED tests/test_lifecycle_legacy_spool.py::test_question_backlog_read_is_bounded_before_spooling
+2 failed, 85 passed in 42.50s

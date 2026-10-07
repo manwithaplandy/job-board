@@ -1470,6 +1470,10 @@ CREATE TABLE IF NOT EXISTS lifecycle_claims (
   state text NOT NULL DEFAULT 'active' CHECK(state IN ('active','cancelled','complete')),
   terminal_at timestamptz
 );
+-- Capacity subjects belong to one claim generation, independently of the service
+-- invoking identity. First binding fixes even a NULL (public) subject.
+ALTER TABLE lifecycle_claims ADD COLUMN IF NOT EXISTS reservation_subject_id uuid;
+ALTER TABLE lifecycle_claims ADD COLUMN IF NOT EXISTS reservation_subject_bound boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_lifecycle_claims_recovery ON lifecycle_claims(state,lease_until);
 CREATE INDEX IF NOT EXISTS idx_lifecycle_claims_terminal ON lifecycle_claims(terminal_at) WHERE terminal_at IS NOT NULL;
 CREATE TABLE IF NOT EXISTS capacity_reservations (
@@ -1510,8 +1514,8 @@ CREATE TABLE IF NOT EXISTS reconciliation_checkpoints (
 );
 CREATE INDEX IF NOT EXISTS idx_checkpoints_completed ON reconciliation_checkpoints(completed_at) WHERE completed_at IS NOT NULL;
 -- Append-only receipts support total per-transaction budgets without a privileged
--- writer. Authenticated callers may add their own receipts (which only consume
--- budget), never edit/delete them. Helpers below read claims/reservations ONLY.
+-- writer. Authenticated row triggers append owner receipts; direct client
+-- INSERT/UPDATE/DELETE is forbidden. Helpers below read claims/reservations ONLY.
 CREATE TABLE IF NOT EXISTS lifecycle_write_checks (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),backend_pid integer NOT NULL DEFAULT pg_backend_pid(),
  transaction_id xid8 NOT NULL DEFAULT pg_current_xact_id(),
@@ -1604,6 +1608,14 @@ CREATE OR REPLACE FUNCTION lifecycle_private.validate_write() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE c public.lifecycle_claims; r public.capacity_reservations; actor name;
 BEGIN
+ -- PostgreSQL lets any caller consume a deferred constraint early. Only the
+ -- actual top-level, standalone transaction boundary may run this AFTER check.
+ -- current_query() is server-provided, not a GUC. Fail closed for comments,
+ -- multi-statements, SET CONSTRAINTS, implicit/autocommit and PREPARE TRANSACTION.
+ -- Supported writers explicitly finish with COMMIT/END [WORK|TRANSACTION].
+ IF TG_WHEN='AFTER' AND COALESCE(current_query(),'') !~* '^[[:space:]]*(COMMIT|END)([[:space:]]+(WORK|TRANSACTION))?[[:space:]]*;?[[:space:]]*$' THEN
+  RAISE EXCEPTION 'lifecycle receipts require standalone COMMIT or END validation';
+ END IF;
  -- role is PostgreSQL's actual SET ROLE state, not a caller-supplied identity GUC.
  actor:=CASE WHEN current_setting('role')='none' THEN session_user ELSE current_setting('role') END;
  IF TG_WHEN='BEFORE' AND (NEW.invoking_role<>actor OR NEW.subject_id IS DISTINCT FROM public.app_user_id()
@@ -1643,7 +1655,7 @@ CREATE OR REPLACE FUNCTION lifecycle_validate_row() RETURNS trigger LANGUAGE plp
 SET search_path=pg_catalog AS $$
 DECLARE ctl public.lifecycle_control; n jsonb; o jsonb; jid text; growth bigint:=0;
  payload text; oldpayload text; k text; vid text; owner_id uuid; protection boolean:=false;
- rid uuid;
+ rid uuid; json_keys text[];
 BEGIN
  SELECT * INTO STRICT ctl FROM public.lifecycle_control WHERE singleton;
  n:=CASE WHEN TG_OP='DELETE' THEN to_jsonb(OLD) ELSE to_jsonb(NEW) END;
@@ -1701,10 +1713,16 @@ BEGIN
  -- Payload fields are charged on every rewrite, including same-size replacements;
  -- a prior DELETE or shrink never supplies physical allocation credit.
  IF TG_TABLE_NAME IN ('jobs','job_questions','job_reviews','review_corrections','application_packages','resume_scores','cover_letter_edits','generation_jobs','job_payload_demands') THEN
+  -- Inspect actual declared types: JSON numeric/boolean/string scalars are
+  -- payload too. SQL numeric metadata is not confused with a JSON scalar.
+  SELECT array_agg(attname::text) INTO json_keys FROM pg_attribute
+   WHERE attrelid=TG_RELID AND attnum>0 AND NOT attisdropped
+   AND atttypid IN ('jsonb'::regtype,'json'::regtype);
   FOR k,payload IN SELECT key,value FROM jsonb_each_text(n) LOOP
    oldpayload:=o->>k;
    IF payload IS NOT NULL AND payload IS DISTINCT FROM oldpayload
-     AND (jsonb_typeof(n->k) IN ('object','array') AND payload NOT IN ('{}','[]')
+     AND (k=ANY(json_keys) AND n->k NOT IN ('{}'::jsonb,'[]'::jsonb,'null'::jsonb)
+       OR jsonb_typeof(n->k) IN ('object','array') AND payload NOT IN ('{}','[]')
        OR jsonb_typeof(n->k)='string' AND
        (octet_length(payload)>256 OR (k NOT IN (
         'id','user_id','job_id','job_version_id','profile_version','verdict','stage1_decision',
@@ -1851,6 +1869,16 @@ BEGIN
   IF NEW.state='settled' AND (NEW.backend_pid IS DISTINCT FROM pg_backend_pid() OR NEW.transaction_id IS DISTINCT FROM pg_current_xact_id()) THEN
    RAISE EXCEPTION 'settlement requires current backend transaction'; END IF;
  END IF;
+ IF NEW.state='held' AND NEW.backend_pid IS NOT NULL THEN
+  IF c.reservation_subject_bound AND c.reservation_subject_id IS DISTINCT FROM NEW.subject_id THEN
+   RAISE EXCEPTION 'capacity claim already bound to another subject owner'; END IF;
+  IF c.subject_id IS NOT NULL AND c.subject_id IS DISTINCT FROM NEW.subject_id THEN
+   RAISE EXCEPTION 'capacity subject differs from claim owner'; END IF;
+  IF NOT c.reservation_subject_bound THEN
+   UPDATE public.lifecycle_claims SET reservation_subject_bound=true,reservation_subject_id=NEW.subject_id
+    WHERE kind=c.kind AND work_id=c.work_id;
+  END IF;
+ END IF;
  IF NEW.state='held' THEN
   SELECT pg_database_size(current_database())+COALESCE(sum(bytes),0)+NEW.bytes INTO allocated
   FROM public.capacity_reservations WHERE state='held' AND id<>NEW.id;
@@ -1868,6 +1896,9 @@ BEGIN
  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'compact claim replay fence must survive cleanup'; END IF;
  IF NEW.kind<>OLD.kind OR NEW.work_id<>OLD.work_id OR NEW.generation<OLD.generation OR NEW.replay_floor<OLD.replay_floor THEN
   RAISE EXCEPTION 'claim identity and replay floor are monotonic'; END IF;
+ IF NEW.generation=OLD.generation AND OLD.reservation_subject_bound AND
+ (NOT NEW.reservation_subject_bound OR NEW.reservation_subject_id IS DISTINCT FROM OLD.reservation_subject_id) THEN
+  RAISE EXCEPTION 'capacity subject requires a fenced generation'; END IF;
  IF (NEW.owner_token<>OLD.owner_token OR NEW.state<>OLD.state OR NEW.invoking_role<>OLD.invoking_role OR NEW.subject_id IS DISTINCT FROM OLD.subject_id) AND
  (NEW.generation<=OLD.generation OR NEW.replay_floor<OLD.generation) THEN
   RAISE EXCEPTION 'claim replacement requires a fenced generation'; END IF;
@@ -1918,11 +1949,25 @@ END $$;
 -- same gate. It touches operational state only, preserving compact replay fences.
 CREATE OR REPLACE FUNCTION lifecycle_forget_subject(target uuid) RETURNS void
 LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE jid text;
 BEGIN
  PERFORM pg_advisory_xact_lock(20916294442894917);
+ -- Service erasure prelocks the entire owner Job set before claim/child rows.
+ FOR jid IN SELECT job_id FROM (
+  SELECT job_id FROM public.job_reviews WHERE user_id=target
+  UNION SELECT job_id FROM public.review_corrections WHERE user_id=target
+  UNION SELECT job_id FROM public.application_packages WHERE user_id=target
+  UNION SELECT job_id FROM public.resume_scores WHERE user_id=target
+  UNION SELECT job_id FROM public.cover_letter_edits WHERE user_id=target
+  UNION SELECT job_id FROM public.generation_jobs WHERE user_id=target
+  UNION SELECT job_id FROM public.job_payload_demands WHERE user_id=target
+  UNION SELECT job_id FROM public.capacity_reservations WHERE subject_id=target
+ ) owned WHERE job_id IS NOT NULL ORDER BY job_id COLLATE "C" LOOP
+  PERFORM pg_advisory_xact_lock(hashtextextended('lifecycle:job:'||jid,0));
+ END LOOP;
  UPDATE public.lifecycle_claims c SET replay_floor=generation,generation=generation+1,
- state='cancelled',terminal_at=clock_timestamp(),subject_id=NULL
- WHERE c.subject_id=target OR (c.kind='demand' AND EXISTS(SELECT FROM public.job_payload_demands d WHERE d.id::text=c.work_id AND d.user_id=target)) OR EXISTS(SELECT FROM public.capacity_reservations r
+ state='cancelled',terminal_at=clock_timestamp(),subject_id=NULL,reservation_subject_id=NULL,reservation_subject_bound=false
+ WHERE c.subject_id=target OR c.reservation_subject_id=target OR (c.kind='demand' AND EXISTS(SELECT FROM public.job_payload_demands d WHERE d.id::text=c.work_id AND d.user_id=target)) OR EXISTS(SELECT FROM public.capacity_reservations r
   WHERE r.subject_id=target AND r.state='held' AND r.claim_kind=c.kind AND r.claim_id=c.work_id AND r.generation=c.generation);
  UPDATE public.capacity_reservations r SET state='fenced',terminal_at=clock_timestamp()
  FROM public.lifecycle_claims c WHERE c.kind=r.claim_kind AND c.work_id=r.claim_id

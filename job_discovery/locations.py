@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 
+from job_discovery.lifecycle.locks import enter_gate, lock_jobs
 from job_discovery.gazetteer import Resolved, resolve_fields, resolve_location
 
 log = logging.getLogger("job_discovery.locations")
@@ -60,6 +61,9 @@ def _insert_unmappable(conn, raw: str) -> None:
 
 def stamp_jobs(conn) -> int:
     """Set-based re-stamp; returns rows updated. Cheap when nothing changed."""
+    enter_gate(conn)
+    rows = conn.execute("SELECT j.id FROM jobs j JOIN locations l ON j.location=l.raw WHERE j.location_canonicals IS DISTINCT FROM l.canonicals").fetchall()
+    lock_jobs(conn, [r["id"] for r in rows])
     with conn.cursor() as cur:
         cur.execute(_STAMP_SQL)
         return cur.rowcount

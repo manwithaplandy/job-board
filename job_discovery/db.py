@@ -1,4 +1,4 @@
-from job_discovery.lifecycle.locks import lock_jobs
+from job_discovery.lifecycle.locks import enter_gate, lock_jobs
 import json
 import os
 
@@ -183,9 +183,19 @@ def get_open_external_ids(conn, company_id: int) -> set[str]:
         return {r["external_id"] for r in cur.fetchall()}
 
 
+def _lock_company_jobs(conn, company_id, external_ids):
+    enter_gate(conn)
+    rows = conn.execute(
+        "SELECT id FROM jobs WHERE company_id=%s AND external_id=ANY(%s)",
+        (company_id, sorted(external_ids)),
+    ).fetchall()
+    lock_jobs(conn, [r["id"] for r in rows])
+
+
 def reopen_jobs(conn, company_id: int, external_ids: set[str]) -> None:
     """A listing can reopen existing jobs during maintenance without ingestion."""
     if external_ids:
+        _lock_company_jobs(conn, company_id, external_ids)
         conn.execute(
             "UPDATE jobs SET closed_at = NULL WHERE company_id = %s "
             "AND closed_at IS NOT NULL AND external_id = ANY(%s)",
@@ -196,6 +206,7 @@ def reopen_jobs(conn, company_id: int, external_ids: set[str]) -> None:
 def close_jobs(conn, company_id: int, external_ids: set[str]) -> int:
     if not external_ids:
         return 0
+    _lock_company_jobs(conn, company_id, external_ids)
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE jobs SET closed_at = now() "
@@ -237,21 +248,23 @@ def finish_run(
         )
 
 
-def insert_job_questions(conn, job_id: str, questions: dict) -> None:
-    """Upsert one job's question schema (jsonb). psycopg3 needs an explicit json.dumps."""
+def insert_job_questions(conn, job_id: str, questions: dict, *, overwrite: bool = True) -> None:
+    """Store question schema; optional legacy backfill never replaces a cache."""
+    lock_jobs(conn, [job_id])
+    conflict = ("DO UPDATE SET questions = EXCLUDED.questions, fetched_at = now()"
+                if overwrite else "DO NOTHING")
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             INSERT INTO job_questions (job_id, questions, fetched_at)
             VALUES (%s, %s::jsonb, now())
-            ON CONFLICT (job_id) DO UPDATE
-              SET questions = EXCLUDED.questions, fetched_at = now()
+            ON CONFLICT (job_id) {conflict}
             """,
             (job_id, json.dumps(questions)),
         )
 
 
-def greenhouse_jobs_missing_questions(conn, company_id: int) -> list[str]:
+def greenhouse_jobs_missing_questions(conn, company_id: int, *, limit: int | None = None) -> list[str]:
     """external_ids of this company's OPEN jobs that have no job_questions row yet —
     the rolling-backfill predicate (covers both new jobs and the existing backlog)."""
     with conn.cursor() as cur:
@@ -261,8 +274,8 @@ def greenhouse_jobs_missing_questions(conn, company_id: int) -> list[str]:
             FROM jobs j
             LEFT JOIN job_questions q ON q.job_id = j.id
             WHERE j.company_id = %s AND j.closed_at IS NULL AND q.job_id IS NULL
-            ORDER BY j.external_id
+            ORDER BY j.external_id LIMIT %s
             """,
-            (company_id,),
+            (company_id, limit),
         )
         return [r["external_id"] for r in cur.fetchall()]

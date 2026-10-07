@@ -20,7 +20,7 @@ def backfill_greenhouse_questions(conn, company_id, token, *, get_json=None, log
                          log=log) as questions:
         fetched = 0
         for external_id, data in questions:
-            db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", data)
+            db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", data, overwrite=False)
             fetched += 1
             if fetched % UPSERT_CHUNK_SIZE == 0:
                 conn.commit()
@@ -85,10 +85,11 @@ def run(dsn: str | None = None) -> dict:
                 postings = (ADAPTERS[ats](token, fetch_details=False)
                             if over and ats in {"workday", "smartrecruiters"}
                             else ADAPTERS[ats](token))
-                with spool_feed(postings) as (buffered, seen):
+                admissible_ids = set()
+                with spool_feed(postings, admissible_ids=admissible_ids) as (buffered, seen):
                     questions_context = (spool_questions(
                         conn, company_id, token, _get_json, parse_greenhouse_questions,
-                        db.greenhouse_jobs_missing_questions, seen, log,
+                        db.greenhouse_jobs_missing_questions, admissible_ids, log,
                     ) if not over and ats == "greenhouse" else nullcontext(iter(())))
                     with questions_context as questions:
                         chunk: list = []
@@ -109,7 +110,7 @@ def run(dsn: str | None = None) -> dict:
                             # Malformed feed entries were never admitted; retain the
                             # old FK behavior by writing only existing shared Jobs.
                             if conn.execute("SELECT 1 FROM jobs WHERE id=%s", (f"greenhouse:{token}:{external_id}",)).fetchone():
-                                db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", data)
+                                db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", data, overwrite=False)
                             if question_index % UPSERT_CHUNK_SIZE == 0:
                                 conn.commit()
                         conn.commit()

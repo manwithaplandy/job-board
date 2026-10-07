@@ -41,7 +41,7 @@ def claim_work(conn, kind: str, id: str, lease_seconds: int) -> ClaimRef | None:
         ON CONFLICT(kind,work_id) DO UPDATE SET owner_token=EXCLUDED.owner_token,
         generation=lifecycle_claims.generation+1,replay_floor=lifecycle_claims.generation,
         lease_until=EXCLUDED.lease_until,invoking_role=EXCLUDED.invoking_role,subject_id=EXCLUDED.subject_id,
-        state='active',terminal_at=NULL RETURNING *""",
+        state='active',terminal_at=NULL,reservation_subject_bound=false,reservation_subject_id=NULL RETURNING *""",
         (kind, id, token, lease_seconds),
     ).fetchone()
     if old:

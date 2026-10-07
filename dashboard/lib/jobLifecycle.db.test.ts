@@ -59,3 +59,29 @@ test("actual database is PostgreSQL 16 or 17 and helpers are private",async()=>{
   const grants=await sql`SELECT has_function_privilege('authenticated','lifecycle_private.validate_write()','EXECUTE') AS allowed`;
   expect(grants[0].allowed).toBe(false);
 });
+
+test("postgres.js commits reserved owner growth and rejects early constraint consumption", async () => {
+  await sql.begin(async tx => {
+    await tx`ALTER TABLE lifecycle_control DISABLE TRIGGER lifecycle_control_history`;
+    await tx`UPDATE lifecycle_control SET safety_stage='enforced',activation_generation=activation_generation+1`;
+    await tx`ALTER TABLE lifecycle_control ENABLE TRIGGER lifecycle_control_history`;
+  });
+  const write = async (early: boolean) => sql.begin(async tx => {
+    const token = early ? "dashboard-early" : "dashboard-live";
+    await tx`INSERT INTO lifecycle_claims(kind,work_id,owner_token,invoking_role,lease_until)
+      VALUES ('payload',${token},${token},current_user,clock_timestamp()+interval '180 seconds')`;
+    const reservation = await tx`INSERT INTO capacity_reservations(claim_kind,claim_id,owner_token,generation,bytes)
+      VALUES ('payload',${token},${token},1,32768) RETURNING id`;
+    await tx`UPDATE capacity_reservations SET backend_pid=pg_backend_pid(),transaction_id=pg_current_xact_id(),
+      invoking_role='authenticated',subject_id=${A}::uuid,job_id='job',scope='job_reviews'
+      WHERE id=${reservation[0].id}`;
+    await tx`SELECT set_config('lifecycle.reservation',${reservation[0].id},true),
+      set_config('role','authenticated',true),set_config('request.jwt.claims',${JSON.stringify({sub:A})},true)`;
+    await tx`UPDATE job_reviews SET verdict='deny',reasoning=${token} WHERE user_id=${A}::uuid AND job_id='job'`;
+    if (early) await tx`SET CONSTRAINTS ALL IMMEDIATE`;
+  });
+  await write(false);
+  await expect(write(true)).rejects.toThrow(/standalone COMMIT/);
+  const rows = await sql`SELECT reasoning FROM job_reviews WHERE user_id=${A}::uuid AND job_id='job'`;
+  expect(rows[0].reasoning).toBe("dashboard-live");
+});

@@ -94,8 +94,8 @@ def _review_user(conn, profile: dict) -> None:
     try:
         candidates = db.select_for_review(conn, user_id, pv, config.BATCH_CAP)
         enriched = enrich_selected(conn, candidates)
+        conn.commit()  # Includes the no-enrichment branch before model work.
         if enriched:
-            conn.commit()  # persist grounding before the long, credit-gated review
             log.info("enriched %s selected companies before review", enriched)
         company_block = build_company_block(profile.get("company_instructions"))
         client = CompanyReviewClient(model=profile.get("model_company"))
@@ -160,6 +160,7 @@ def run(conn=None) -> None:
         for profile in profiles:
             _review_user(conn, profile)
     finally:
+        conn.rollback()  # Close any early-return read before network tracing flush.
         tracing.flush()
         if own:
             conn.close()

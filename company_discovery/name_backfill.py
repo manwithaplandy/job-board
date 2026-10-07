@@ -18,15 +18,11 @@ writes nothing, so a rerun retries it.
 ROLLOUT ARTIFACT — the operator runs it once at rollout; safe to rerun.
 """
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from company_discovery.enrich import ENRICHERS, JD_PROBE_ATS, fetch_board_name
-from company_discovery.enrich_apply import MAX_WORKERS
+from company_discovery.enrich_apply import fetch_batches
 
 log = logging.getLogger("name_backfill")
-
-# Commit cadence (rows written) so a long run is durable and resumable.
-_COMMIT_EVERY = 50
 
 _SCOPE_SQL = ("SELECT id, ats, token FROM companies "
               "WHERE active AND display_name IS NULL")
@@ -60,24 +56,22 @@ def main() -> None:
             rows = cur.fetchall()
         log.info("backfill scope: %s active companies without display_name", len(rows))
         updated = 0
-        # HTTP fetches run across a small thread pool (shared egress IP — keep it
-        # small); DB writes stay on the main thread — one psycopg connection must
-        # not be shared across threads.
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {pool.submit(fetch_name, r["ats"], r["token"]): r for r in rows}
-            for fut in as_completed(futures):
-                name = fut.result()  # fetch_name never raises
-                if name is None:
-                    continue
-                with conn.cursor() as cur:
-                    cur.execute(_UPDATE_SQL, (name, futures[fut]["id"]))
-                    if cur.rowcount == 0:  # lost the race to the cron / a rerun — already named
+        conn.commit()  # Close the selection read before HTTP starts.
+        for results in fetch_batches(rows, fetch_name):
+            batch_updated = 0
+            try:
+                for row, name in results:
+                    if name is None:
                         continue
-                updated += 1
-                if updated % _COMMIT_EVERY == 0:
-                    conn.commit()
-                    log.info("named %s companies so far", updated)
-        conn.commit()
+                    with conn.cursor() as cur:
+                        cur.execute(_UPDATE_SQL, (name, row["id"]))
+                        batch_updated += cur.rowcount
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+            updated += batch_updated
+            log.info("named %s companies so far", updated)
         log.info("backfill complete: named %s of %s companies", updated, len(rows))
     finally:
         conn.close()

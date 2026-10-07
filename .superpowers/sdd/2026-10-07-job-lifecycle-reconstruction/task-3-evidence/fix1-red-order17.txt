@@ -1,0 +1,61 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+___________ test_service_writer_prelocks_all_sorted_job_keys[close] ____________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32909 user=postgres database=poller_lifecycle_test) at 0x7fb1b5147da0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb1b5147350>
+operation = 'close'
+
+    @requires_db
+    @pytest.mark.parametrize('operation', ['close', 'reopen', 'stamp', 'floors'])
+    def test_service_writer_prelocks_all_sorted_job_keys(conn, monkeypatch, operation):
+>       seed(conn, n=3)
+E       TypeError: seed() got an unexpected keyword argument 'n'
+
+tests/test_lifecycle_service_order.py:35: TypeError
+___________ test_service_writer_prelocks_all_sorted_job_keys[reopen] ___________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32909 user=postgres database=poller_lifecycle_test) at 0x7fb1b516af00>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb1b5168140>
+operation = 'reopen'
+
+    @requires_db
+    @pytest.mark.parametrize('operation', ['close', 'reopen', 'stamp', 'floors'])
+    def test_service_writer_prelocks_all_sorted_job_keys(conn, monkeypatch, operation):
+>       seed(conn, n=3)
+E       TypeError: seed() got an unexpected keyword argument 'n'
+
+tests/test_lifecycle_service_order.py:35: TypeError
+___________ test_service_writer_prelocks_all_sorted_job_keys[stamp] ____________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32909 user=postgres database=poller_lifecycle_test) at 0x7fb1b516b830>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb1b51686e0>
+operation = 'stamp'
+
+    @requires_db
+    @pytest.mark.parametrize('operation', ['close', 'reopen', 'stamp', 'floors'])
+    def test_service_writer_prelocks_all_sorted_job_keys(conn, monkeypatch, operation):
+>       seed(conn, n=3)
+E       TypeError: seed() got an unexpected keyword argument 'n'
+
+tests/test_lifecycle_service_order.py:35: TypeError
+___________ test_service_writer_prelocks_all_sorted_job_keys[floors] ___________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32909 user=postgres database=poller_lifecycle_test) at 0x7fb1b516a9f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb1b516a870>
+operation = 'floors'
+
+    @requires_db
+    @pytest.mark.parametrize('operation', ['close', 'reopen', 'stamp', 'floors'])
+    def test_service_writer_prelocks_all_sorted_job_keys(conn, monkeypatch, operation):
+>       seed(conn, n=3)
+E       TypeError: seed() got an unexpected keyword argument 'n'
+
+tests/test_lifecycle_service_order.py:35: TypeError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_service_order.py::test_service_writer_prelocks_all_sorted_job_keys[close]
+FAILED tests/test_lifecycle_service_order.py::test_service_writer_prelocks_all_sorted_job_keys[reopen]
+FAILED tests/test_lifecycle_service_order.py::test_service_writer_prelocks_all_sorted_job_keys[stamp]
+FAILED tests/test_lifecycle_service_order.py::test_service_writer_prelocks_all_sorted_job_keys[floors]
+4 failed in 1.44s

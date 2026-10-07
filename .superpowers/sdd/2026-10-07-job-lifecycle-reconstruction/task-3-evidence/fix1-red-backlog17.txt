@@ -1,0 +1,21 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_question_backlog_read_is_bounded_before_spooling _____________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32917 user=postgres database=poller_lifecycle_test) at 0x7fd4ff369580>
+
+    @requires_db
+    def test_question_backlog_read_is_bounded_before_spooling(conn):
+        from job_discovery import db
+        from tests.test_lifecycle_safety import seed
+        seed(conn, count=3)
+        company = conn.execute('SELECT id FROM companies').fetchone()['id']
+>       assert db.greenhouse_jobs_missing_questions(conn, company, limit=1) == ['0']
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: greenhouse_jobs_missing_questions() got an unexpected keyword argument 'limit'
+
+tests/test_lifecycle_legacy_spool.py:123: TypeError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_legacy_spool.py::test_question_backlog_read_is_bounded_before_spooling
+1 failed, 7 deselected in 0.42s

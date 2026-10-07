@@ -1,0 +1,55 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+............................................F........................... [ 57%]
+......................................................                   [100%]
+=================================== FAILURES ===================================
+___ test_numeric_growth_above_physical_ceiling_refused_but_metadata_allowed ____
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32914 user=postgres database=poller_lifecycle_test) at 0x7f886f85e240>
+
+    @requires_db
+    def test_numeric_growth_above_physical_ceiling_refused_but_metadata_allowed(conn):
+        seed(conn)
+        vid = version(conn)
+>       conn.execute("INSERT INTO application_packages(user_id,job_id,job_version_id,resume_json) VALUES (%s,'lever:x:0',%s,12345)", (A, vid))
+
+tests/test_lifecycle_review_security.py:181:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32914 user=postgres database=poller_lifecycle_test) at 0x7f886f85e240>
+query = "INSERT INTO application_packages(user_id,job_id,job_version_id,resume_json) VALUES (%s,'lever:x:0',%s,12345)"
+params = ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', UUID('ff492b2a-ed10-4b20-bff0-916a9cdcb73a'))
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.DatatypeMismatch: column "resume_json" is of type jsonb but expression is of type integer
+E           LINE 1: ...job_version_id,resume_json) VALUES ($1,'lever:x:0',$2,12345)
+E                                                                            ^
+E           HINT:  You will need to rewrite or cast the expression.
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: DatatypeMismatch
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_review_security.py::test_numeric_growth_above_physical_ceiling_refused_but_metadata_allowed
+1 failed, 125 passed in 39.55s

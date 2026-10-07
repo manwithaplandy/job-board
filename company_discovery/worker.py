@@ -188,6 +188,7 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
                 return
             targets = jobs_db.select_targets(
                 conn, job["selection_mode"], min(CHUNK, remaining), before=before)
+            conn.commit()  # Close status/target reads before HTTP/model/throttle.
             if not targets:
                 break
             log.info("classification job %s starting chunk of %s target(s) "
@@ -202,11 +203,11 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
                             t["display_name"] or t["name"], t["ats"])
                         if snippets:
                             serp.persist_web_description(conn, t["id"], snippets)
+                            conn.commit()
                             t["web_description"] = snippets
                         serp_used += 1
-            enriched = enrich_selected(conn, targets)   # LLM-free board-metadata fetch
-            if enriched or serp_used:
-                conn.commit()                            # persist grounding before the spend
+            enrich_selected(conn, targets)   # LLM-free board-metadata fetch
+            conn.commit()  # Also close reads when no enrichment succeeded.
             results = loop.run_until_complete(
                 _classify_batch(targets, client, config.CONCURRENCY))
             ptok = ctok = 0
@@ -286,6 +287,7 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
             jobs_db.finish_job(conn, job["id"], "done")
         conn.commit()
     finally:
+        conn.rollback()  # Never close HTTP sockets with a failed/open DB transaction.
         # Close the self-created client's pooled sockets on the SAME loop that opened
         # them (a caller-supplied stub client is left untouched — it owns no pool), then
         # close the loop. Runs on every exit path, including the early returns above.
@@ -310,13 +312,13 @@ def _maybe_ingest(conn) -> None:
     with conn.cursor() as cur:
         cur.execute("SELECT max(started_at) AS last FROM discovery_runs")
         last = cur.fetchone()["last"]
+    conn.commit()
     if last is not None and datetime.now(timezone.utc) - last < INGEST_EVERY:
         return
     run_id = db.start_discovery_run(conn)
     ingested = db.upsert_candidates(conn, dataset.load_candidates(config.dataset_dir()))
     # HTTP enrichment (LLM-free): fetch board metadata for a bounded batch of the newest
-    # un-enriched companies. enrich_selected does not commit — it lands in the tick's own
-    # commit below alongside the ingest and the discovery_runs row.
+    # un-enriched companies. Ingest is durable before the bounded HTTP batches.
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id, ats, token, enriched_at FROM companies "
@@ -324,6 +326,7 @@ def _maybe_ingest(conn) -> None:
             {"cap": config.BATCH_CAP},
         )
         pending = cur.fetchall()
+    conn.commit()
     enriched = enrich_selected(conn, pending)
     db.finish_discovery_run(conn, run_id, status="completed", ingested=ingested,
                             reviewed=0, included=0, excluded=0, unknown=0,

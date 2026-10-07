@@ -19,7 +19,7 @@ MAX_SECONDS = 120
 
 
 @contextmanager
-def spool_feed(postings):
+def spool_feed(postings, *, admissible_ids=None):
     started = time.monotonic()
     seen = set()
     size = count = 0
@@ -39,6 +39,8 @@ def spool_feed(postings):
                     )
                 if posting.external_id:
                     seen.add(posting.external_id)
+                    if admissible_ids is not None and posting.url and posting.title:
+                        admissible_ids.add(posting.external_id)
                 spool.write(encoded)
             if not getattr(postings, "complete", True):
                 raise ValueError(
@@ -59,16 +61,24 @@ def spool_questions(
     from job_discovery.adapters.greenhouse import parse_greenhouse_questions
 
     parse = parse or parse_greenhouse_questions
-    ids = set(missing_query(conn, company_id)) | set(extra_ids)
+    # Backlog plus admissible new postings, excluding every already-cached ID.
+    cached = conn.execute(
+        "SELECT j.external_id FROM jobs j JOIN job_questions q ON q.job_id=j.id "
+        "WHERE j.company_id=%s AND j.external_id=ANY(%s)",
+        (company_id, list(extra_ids)),
+    ).fetchall()
+    ids = set(missing_query(conn, company_id, limit=MAX_ROWS + 1)) | (set(extra_ids) - {r["external_id"] for r in cached})
     conn.commit()  # Close the read transaction BEFORE the first HTTP call.
-    if len(ids) > MAX_ROWS:
-        raise ValueError("legacy question spool row budget exceeded")
+    if len(ids) > MAX_ROWS and log:
+        log.warning("optional question backfill row budget reached; remainder retries")
     started = time.monotonic()
     size = 0
     with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as spool:
-        for external_id in sorted(ids):
+        for external_id in sorted(ids)[:MAX_ROWS]:
             if time.monotonic() - started > MAX_SECONDS:
-                raise ValueError("legacy question spool deadline exceeded")
+                if log:
+                    log.warning("optional question backfill deadline reached; remainder retries")
+                break
             try:
                 data = parse(
                     get_json(
@@ -88,7 +98,9 @@ def spool_questions(
                 encoded = json.dumps([external_id, data], separators=(",", ":")) + "\n"
                 size += len(encoded.encode("utf-8"))
                 if size > MAX_BYTES:
-                    raise ValueError("legacy question spool byte budget exceeded")
+                    if log:
+                        log.warning("optional question backfill byte budget reached; remainder retries")
+                    break
                 spool.write(encoded)
         spool.seek(0)
         yield (json.loads(line) for line in spool)

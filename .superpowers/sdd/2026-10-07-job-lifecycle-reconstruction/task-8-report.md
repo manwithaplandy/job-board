@@ -1,5 +1,11 @@
 # Task 8 author report
 
+**Historical initial-author report:** independent review found R8-1 through R8-6.
+The package pinning, consumption and legacy compatibility claims below describe
+the original intended behavior and were incomplete. See `task-8-fix1-report.md`
+for the corrections, exact final checks and the remaining unknown-legacy
+full-recapture availability limitation. Fresh re-review remains pending.
+
 Implemented demand hydration and immutable private inputs. Author verification is
 complete; fresh permitted requirements/quality review and Library08 are pending.
 This is not independent security approval or approval to activate the rollout.

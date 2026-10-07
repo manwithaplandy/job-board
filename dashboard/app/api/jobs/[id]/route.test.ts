@@ -104,3 +104,13 @@ describe("GET /api/jobs/[id] — anti-error contract survives multi-tenancy", ()
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 });
+
+test("saved review JD remains authoritative while current public detail is separate", async () => {
+  const { requestJobPayload } = await import("@/lib/jobLifecycle");
+  vi.mocked(requestJobPayload).mockResolvedValueOnce({status:"ready", id:"d", kind:"description", versionId:"v", description:"Current JD", questions:null});
+  mocks.getJobReviewDetail.mockResolvedValue({description:"Saved private JD", reasoning:"Saved reasoning"});
+  const body = await (await call("greenhouse:acme:123")).json();
+  expect(body.description).toBe("Saved private JD");
+  expect(body.currentDescription).toBe("Current JD");
+  expect(body.reasoning).toBe("Saved reasoning");
+});

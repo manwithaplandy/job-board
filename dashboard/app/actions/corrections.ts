@@ -72,7 +72,7 @@ export async function saveReviewCorrection(
         ${tx.json(row.benefits)}, ${tx.json(row.requirements)},
         ${JSON.stringify(parseRequestBody(s.model_snapshot))}::text::jsonb, ${form.note}, now(),
         ${snapshot?.versionId ?? null}::uuid, ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb,
-        ${snapshot?.capturedAt ?? null}, ${snapshot?.description ?? s.description}, ${s.resume_text}, ${s.instructions}
+        ${snapshot?.capturedAt ?? null}, ${snapshot ? snapshot.description : s.description}, ${s.resume_text}, ${s.instructions}
       )
       ON CONFLICT (user_id, job_id) DO UPDATE SET
         verdict = EXCLUDED.verdict, experience_match = EXCLUDED.experience_match,
@@ -95,7 +95,7 @@ export async function saveReviewCorrection(
         resume_text_snapshot = EXCLUDED.resume_text_snapshot,
         instructions_snapshot = EXCLUDED.instructions_snapshot
     `;
-    return { ...s, description: snapshot?.description ?? s.description };
+    return { ...s, description: snapshot ? snapshot.description : s.description };
   });
 
   // Admin-only push to the shared golden dataset (minor 8). Non-admins: DB row persisted

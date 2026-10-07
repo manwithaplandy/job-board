@@ -85,9 +85,9 @@ export async function POST(req: Request) {
 
   const payload = await requestJobPayload(userId, jobId, "prepare");
   if (payload.status === "pending" || payload.status === "deferred") {
-    return Response.json({ payload, message: "Job details are being prepared. Try again shortly." }, {status:202});
+    return Response.json({ payload, message: payload.reason ?? (payload.status === "pending" ? "Job details are being prepared. Try again shortly." : "Job details are unavailable. Your saved artifacts are unchanged.") }, {status:202});
   }
-  if (payload.status === "ready") job.description = payload.description;
+  if (typeof payload.description === "string") job.description = payload.description;
   if (!job.description?.trim()) return Response.json({payload:{status:"deferred"}, message:"Job description unavailable."}, {status:202});
 
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -96,7 +96,7 @@ export async function POST(req: Request) {
   const resumeModel = profile.model_resume ?? DEFAULT_RESUME_MODEL;
   const coverModel = profile.model_cover ?? DEFAULT_COVER_MODEL;
 
-  const questions = payload.status === "ready" ? payload.questions : await getJobQuestion(userId, jobId);
+  const questions = payload.status === "ready" ? payload.questions : (payload.questions ?? await getJobQuestion(userId, jobId));
   if (questions === null) return Response.json({payload:{status:"pending"}, message:"Application questions are being prepared."}, {status:202});
   const wantsCover = hasCoverLetterQuestion(questions);
 

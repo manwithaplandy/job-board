@@ -1,0 +1,28 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+__________ test_reviewer_disabled_after_cutover_defers_before_models ___________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33023 user=postgres database=poller_lifecycle_test) at 0x7f365ebe96a0>
+
+    @requires_db
+    def test_reviewer_disabled_after_cutover_defers_before_models(conn):
+        from job_discovery.lifecycle.demand import hydrate_candidates
+        from reviewer import db
+
+        setup_source(conn)
+        job = conn.execute("SELECT id FROM jobs LIMIT 1").fetchone()["id"]
+        conn.execute("UPDATE jobs SET description='Legacy cached JD' WHERE id=%s", (job,))
+        conn.commit()
+        user = str(uuid4())
+        # Initial flag-off cached legacy input stays compatible.
+>       assert hydrate_candidates(conn, [job], user) == [job]
+E       AssertionError: assert [] == ['lever:fixture:0']
+E
+E         Right contains one more item: 'lever:fixture:0'
+E         Use -v to get more diff
+
+tests/test_lifecycle_demand.py:398: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_demand.py::test_reviewer_disabled_after_cutover_defers_before_models
+1 failed, 1 passed, 10 deselected in 1.23s

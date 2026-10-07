@@ -39,7 +39,7 @@ export async function GET(
   // private and uncached.
   const payload = viewerId && detail ? await requestJobPayload(viewerId, id, "description") : null;
   return Response.json({ ...(detail ?? EMPTY), questions,
-    ...(payload?.status === "ready" ? {description:payload.description,questions:payload.questions ?? questions} : {}), ...(payload && payload.status !== "legacy" ? {payload} : {}) }, {
+    ...(payload?.status === "ready" ? {currentDescription:payload.description,currentQuestions:payload.questions} : {}), ...(payload && payload.status !== "legacy" ? {payload} : {}) }, {
     headers: { "Cache-Control": "private, no-store" },
   });
 }

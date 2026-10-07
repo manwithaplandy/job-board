@@ -1,4 +1,4 @@
-import { consumeJobVersion, parseGenerationContext, requestJobPayload, readPrivateSnapshot, type DemandResult } from "@/lib/jobLifecycle";
+import { consumeJobVersion, assertPackageInput, parseGenerationContext, requestJobPayload, readPrivateSnapshot, type DemandResult } from "@/lib/jobLifecycle";
 import { withUserPayloadMutation, withUserSql, withAnonSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { unstable_cache } from "next/cache";
@@ -629,6 +629,7 @@ export async function upsertApplicationPackage(
   // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
   const j = (v: unknown): string | null => (v == null ? null : JSON.stringify(v));
   return withUserPayloadMutation(userId, jobId, "application_packages", async (tx) => {
+  await assertPackageInput(tx, jobId, data.payload);
   // Regenerating the letter cleanly replaces the user's edit in their view: stamp the
   // current edit superseded (the row + its already-pushed golden item persist; re-saving
   // an edit resets superseded_at to NULL — see app/actions/coverLetterEdits.ts).
@@ -655,10 +656,10 @@ export async function upsertApplicationPackage(
             ${data.coverLetterInstructions ?? null},
             ${data.profileVersion ?? null}, 'prepared', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
-      job_version_id = COALESCE(application_packages.job_version_id, EXCLUDED.job_version_id),
-      description_snapshot = COALESCE(application_packages.description_snapshot, EXCLUDED.description_snapshot),
+      job_version_id = application_packages.job_version_id,
+      description_snapshot = application_packages.description_snapshot,
       questions_snapshot = COALESCE(application_packages.questions_snapshot, EXCLUDED.questions_snapshot),
-      snapshot_captured_at = COALESCE(application_packages.snapshot_captured_at, EXCLUDED.snapshot_captured_at),
+      snapshot_captured_at = application_packages.snapshot_captured_at,
       resume_json          = COALESCE(EXCLUDED.resume_json, application_packages.resume_json),
       cover_letter_json    = COALESCE(EXCLUDED.cover_letter_json, application_packages.cover_letter_json),
       prefilled_answers    = COALESCE(EXCLUDED.prefilled_answers, application_packages.prefilled_answers),
@@ -701,7 +702,7 @@ export async function upsertApplicationPackage(
               prepared_at, applied_at
   `;
   if (data.payload?.status === "ready" && (data.resume || data.coverLetter || data.prefilledAnswers)) {
-    await consumeJobVersion(tx, jobId, data.payload.versionId, data.payload.kind ?? "generation");
+    await consumeJobVersion(tx, jobId, data.payload.versionId, data.payload.kind, data.payload.id, data.payload);
   }
   return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);
   });

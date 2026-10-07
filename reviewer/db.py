@@ -296,12 +296,14 @@ def select_candidates(
           -- IS DISTINCT FROM treats NULL (never-reviewed) as NOT 'deny', so
           -- unreviewed jobs still pass through correctly.
           AND (r.verdict IS DISTINCT FROM 'deny')
-          AND NOT COALESCE(j.description_pruned, FALSE)
+          AND (%(hydrate)s OR NOT COALESCE(j.description_pruned, FALSE))
           AND (NOT %(has_prefs)s
                OR COALESCE(j.location_canonicals, ARRAY[j.location]) && %(prefs)s::text[]
                OR ('Remote' = ANY(%(prefs)s::text[]) AND j.remote IS TRUE))
     """
+    from job_discovery.lifecycle.config import read_control
     params = {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,
+              "hydrate": read_control(conn).hydration_enabled,
               "has_prefs": bool(prefs), "prefs": prefs,
               "exc_ind": exc["industries"], "exc_size": exc["sizes"],
               "exc_ctry": exc["countries"], "exc_flag": exc["red_flag_categories"]}
@@ -338,10 +340,12 @@ def upsert_review(conn, row: dict) -> None:
             raise RuntimeError('review write capacity unavailable')
         with _write(conn, claim, 'job_reviews', row['job_id'], size=8192+8*len(str(row).encode())):
             conn.execute(_UPSERT_REVIEW_SQL, full)
-        if row.get('verdict') and not row.get('error'):
+        if row.get('verdict') and not row.get('error') and row.get('demand_id'):
             conn.execute("""UPDATE job_payload_demands SET consumed_at=clock_timestamp()
-                WHERE user_id=%s AND job_id=%s AND job_version_id=%s AND kind='review' AND status='ready'""",
-                (full['user_id'],row['job_id'],row['job_version_id']))
+                WHERE id=%s AND user_id=%s AND job_id=%s AND job_version_id=%s AND kind='review' AND status='ready'
+                AND description_snapshot=%s AND questions_snapshot IS NOT DISTINCT FROM %s""",
+                (row['demand_id'],full['user_id'],row['job_id'],row['job_version_id'],
+                 row['description_snapshot'],full['questions_snapshot']))
     else:
         with conn.cursor() as cur:
             cur.execute(_UPSERT_REVIEW_SQL, full)
@@ -520,12 +524,12 @@ def golden_corrections(conn) -> list[dict]:
 
 
 def attach_demand_snapshots(conn, candidates, user_id):
-    from job_discovery.lifecycle.config import read_control
+    from job_discovery.lifecycle.config import read_control, legacy_description_capture_allowed
     if not read_control(conn).hydration_enabled:
-        return candidates
+        return candidates if legacy_description_capture_allowed(conn) else []
     result = []
     for candidate in candidates:
-        row = conn.execute("""SELECT job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at
+        row = conn.execute("""SELECT id AS demand_id,job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at
             FROM job_payload_demands WHERE user_id=%s AND job_id=%s AND kind='review' AND status='ready'
             ORDER BY settled_at DESC LIMIT 1""", (_uuid(user_id),candidate['id'])).fetchone()
         if row and row['job_version_id'] and row['description_snapshot']:

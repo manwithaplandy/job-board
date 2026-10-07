@@ -48,6 +48,7 @@ def _persist_rows(conn, rows: list[dict], chunk_size: int = 20) -> None:
 @dataclass
 class ReviewResult:
     job_id: str
+    demand_id: object = None
     job_version_id: object = None
     description_snapshot: str | None = None
     questions_snapshot: object = None
@@ -86,6 +87,8 @@ class ReviewResult:
         row = {c: getattr(self, c, None) for c in db._REVIEW_COLUMNS}
         row["user_id"] = user_id
         row["profile_version"] = profile_version
+        if self.demand_id is not None:
+            row["demand_id"] = self.demand_id
         return row
 
 
@@ -282,7 +285,7 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
         by_id = {c['id']: c for c in candidates}
         for result in chunk_results:
             source = by_id[result.job_id]
-            for snapshot_field in ('job_version_id','description_snapshot','questions_snapshot','snapshot_captured_at'):
+            for snapshot_field in ('demand_id','job_version_id','description_snapshot','questions_snapshot','snapshot_captured_at'):
                 setattr(result, snapshot_field, source.get(snapshot_field))
         results.extend(chunk_results)
         if on_results is not None and chunk_results:

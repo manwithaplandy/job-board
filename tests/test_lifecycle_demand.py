@@ -261,7 +261,8 @@ def test_filtered_candidates_hydrate_before_review_and_persist_exact_input(
     jobs = [r["id"] for r in conn.execute("SELECT id FROM jobs ORDER BY id")]
     conn.execute("UPDATE jobs SET location='Elsewhere',remote=false")
     conn.execute(
-        "UPDATE jobs SET location='Remote',remote=true WHERE id=%s", (jobs[0],)
+        "UPDATE jobs SET location='Remote',remote=true,description=NULL,description_pruned=true WHERE id=%s",
+        (jobs[0],),
     )
     conn.execute(
         "UPDATE lifecycle_control SET hydration_enabled=true,activation_generation=activation_generation+1"
@@ -299,6 +300,23 @@ def test_filtered_candidates_hydrate_before_review_and_persist_exact_input(
             "SELECT consumed_at FROM job_payload_demands WHERE user_id=%s", (user,)
         ).fetchone()["consumed_at"]
         is not None
+    )
+
+    other = conn.execute(
+        """INSERT INTO job_payload_demands(user_id,job_id,kind,status,job_version_id,
+        description_snapshot,questions_snapshot,snapshot_captured_at,settled_at)
+        SELECT user_id,job_id,kind,'ready',job_version_id,description_snapshot,
+        '{"questions":[]}'::jsonb,clock_timestamp(),clock_timestamp()
+        FROM job_payload_demands WHERE id=%s RETURNING id""",
+        (candidates[0]["demand_id"],),
+    ).fetchone()["id"]
+    db.upsert_review(conn, results[0].as_row(user_id=user, profile_version="profile"))
+    conn.commit()
+    assert (
+        conn.execute(
+            "SELECT consumed_at FROM job_payload_demands WHERE id=%s", (other,)
+        ).fetchone()["consumed_at"]
+        is None
     )
 
 
@@ -382,3 +400,168 @@ def test_flag_off_prepare_missing_questions_worker_reaches_durable_ready(
     conn.commit()
     assert process_pending(conn) == 0
     assert len(fetched) == 1
+
+
+@requires_db
+def test_reviewer_disabled_after_cutover_defers_before_models(conn):
+    from job_discovery.lifecycle.demand import hydrate_candidates
+    from reviewer import db
+
+    setup_source(conn)
+    job = conn.execute("SELECT id FROM jobs LIMIT 1").fetchone()["id"]
+    conn.execute("UPDATE jobs SET description='Legacy cached JD' WHERE id=%s", (job,))
+    conn.commit()
+    user = str(uuid4())
+    # setup_source enables discovery; explicitly select the initial flag-off fixture.
+    conn.execute(
+        "UPDATE lifecycle_control SET source_enabled=false,activation_generation=activation_generation+1"
+    )
+    conn.commit()
+    # Initial flag-off cached legacy input stays compatible.
+    assert hydrate_candidates(conn, [job], user) == [job]
+    conn.execute(
+        "UPDATE lifecycle_maintenance_state SET cutover_at=clock_timestamp() WHERE singleton"
+    )
+    conn.commit()
+    assert hydrate_candidates(conn, [job], user) == []
+    candidates = db.attach_demand_snapshots(
+        conn, [{"id": job, "description": "Legacy cached JD"}], user
+    )
+    client = AsyncMock()
+    assert asyncio.run(review_batch(candidates, "profile", client, 1)) == ([], False)
+    assert client.mock_calls == []
+
+
+@requires_db
+def test_resume_first_prepare_captures_missing_questions_with_saved_jd(
+    conn, monkeypatch
+):
+    from job_discovery.lifecycle.demand import process_pending
+
+    setup_source(conn)
+    job = conn.execute("SELECT id FROM jobs LIMIT 1").fetchone()["id"]
+    user = str(uuid4())
+    generation = request_demand(conn, job, user, "generation")
+    conn.commit()
+    assert (
+        hydrate_demand(
+            conn,
+            generation,
+            lambda _: {"description": "Original résumé JD", "questions": None},
+        )
+        == "ready"
+    )
+    original = conn.execute(
+        "SELECT * FROM job_payload_demands WHERE id=%s", (generation.id,)
+    ).fetchone()
+    conn.execute(
+        """INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,snapshot_captured_at,resume_json)
+        VALUES(%s,%s,%s,%s,%s,'{"name":"Fixture"}')""",
+        (
+            user,
+            job,
+            original["job_version_id"],
+            original["description_snapshot"],
+            original["snapshot_captured_at"],
+        ),
+    )
+    prepare = request_demand(conn, job, user, "prepare")
+    conn.execute(
+        "UPDATE lifecycle_control SET hydration_enabled=true,activation_generation=activation_generation+1"
+    )
+    conn.commit()
+
+    def fetch(_):
+        assert conn.info.transaction_status.name == "IDLE"
+        return {
+            "description": "Current different public JD",
+            "questions": {"questions": [{"label": "First Q", "fields": []}]},
+        }
+
+    # Patch the real transport boundary; the demand worker and state transitions run.
+    monkeypatch.setattr("job_discovery.lifecycle.demand.fetch_payload", fetch)
+    assert process_pending(conn) == 1
+    ready = conn.execute(
+        "SELECT * FROM job_payload_demands WHERE id=%s", (prepare.id,)
+    ).fetchone()
+    assert ready["description_snapshot"] == "Original résumé JD"
+    assert ready["job_version_id"] == original["job_version_id"]
+    assert ready["questions_snapshot"]["questions"][0]["label"] == "First Q"
+    saved = conn.execute(
+        "SELECT * FROM application_packages WHERE job_id=%s", (job,)
+    ).fetchone()
+    assert saved["questions_snapshot"] is None
+    assert saved["snapshot_captured_at"] == original["snapshot_captured_at"]
+    assert ready["consumed_at"] is None
+
+
+@requires_db
+def test_retained_package_creates_a_new_private_copy_without_network_or_old_history(
+    conn,
+):
+    setup_source(conn)
+    job = conn.execute("SELECT id FROM jobs LIMIT 1").fetchone()["id"]
+    owner = str(uuid4())
+    original = request_demand(conn, job, owner, "generation")
+    conn.commit()
+    assert (
+        hydrate_demand(
+            conn,
+            original,
+            lambda _: {
+                "description": "Saved private JD",
+                "questions": {"questions": []},
+            },
+        )
+        == "ready"
+    )
+    source = conn.execute(
+        "SELECT * FROM job_payload_demands WHERE id=%s", (original.id,)
+    ).fetchone()
+    conn.execute(
+        """INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at)
+        VALUES(%s,%s,%s,%s,'{"questions":[]}',%s)""",
+        (
+            owner,
+            job,
+            source["job_version_id"],
+            source["description_snapshot"],
+            source["snapshot_captured_at"],
+        ),
+    )
+    from job_discovery.lifecycle.claims import cancel_claim
+    from job_discovery.lifecycle.types import ClaimRef
+
+    cancel_claim(
+        conn,
+        ClaimRef(
+            source["claim_owner_token"],
+            source["claim_generation"],
+            source["lease_until"],
+        ),
+    )
+    conn.execute("DELETE FROM job_payload_demands WHERE id=%s", (original.id,))
+    conn.commit()
+    copy = request_demand(conn, job, owner, "generation")
+    conn.commit()
+    assert copy.id != original.id
+
+    def no_network(_):
+        raise AssertionError("retained private input needs no source fetch")
+
+    assert hydrate_demand(conn, copy, no_network) == "ready"
+    ready = conn.execute(
+        "SELECT * FROM job_payload_demands WHERE id=%s", (copy.id,)
+    ).fetchone()
+    assert ready["job_version_id"] == source["job_version_id"]
+    assert ready["description_snapshot"] == source["description_snapshot"]
+    assert ready["questions_snapshot"] == source["questions_snapshot"]
+    assert ready["snapshot_captured_at"] > source["snapshot_captured_at"]
+    assert ready["consumed_at"] is None
+    assert (
+        conn.execute(
+            "SELECT snapshot_captured_at FROM application_packages WHERE job_id=%s",
+            (job,),
+        ).fetchone()["snapshot_captured_at"]
+        == source["snapshot_captured_at"]
+    )

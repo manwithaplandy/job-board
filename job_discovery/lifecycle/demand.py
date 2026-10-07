@@ -199,6 +199,13 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
 
         with _write(conn, claim, "source_listings", demand.job_id, size=65536):
             migrate_identity_batch(conn, limit=1, job_ids=[demand.job_id])
+    saved_package = None
+    if demand.kind in {"prepare", "generation"}:
+        saved_package = conn.execute(
+            """SELECT job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at
+            FROM application_packages WHERE user_id=%s AND job_id=%s""",
+            (row["user_id"], demand.job_id),
+        ).fetchone()
     coordinates = conn.execute(
         """SELECT s.ats,s.public_board_ref,l.external_id,l.id listing_id,l.current_version_id,
         j.title,j.url,j.description,j.description_version_id,
@@ -215,6 +222,29 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
             (claim.owner_token, claim.generation, claim.lease_until, demand.id),
         )
     conn.commit()
+    if saved_package:
+        if (
+            not saved_package["job_version_id"]
+            or not saved_package["description_snapshot"]
+        ):
+            return _finish(conn, demand, claim, "deferred")
+        if (
+            demand.kind == "generation"
+            or saved_package["questions_snapshot"] is not None
+        ):
+            # A genuine new explicit capture of retained private input, not
+            # reconstruction of its original demand identity or capture history.
+            return _finish(
+                conn,
+                demand,
+                claim,
+                "ready",
+                saved_package["job_version_id"],
+                {
+                    "description": saved_package["description_snapshot"],
+                    "questions": saved_package["questions_snapshot"],
+                },
+            )
     if not coordinates:
         return _finish(conn, demand, claim, "deferred")
     try:
@@ -240,6 +270,21 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
         and payload["questions"] is None
     ):
         return _finish(conn, demand, claim, "deferred")
+    if saved_package:
+        current_package = conn.execute(
+            """SELECT job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at
+            FROM application_packages WHERE user_id=%s AND job_id=%s""",
+            (row["user_id"], demand.job_id),
+        ).fetchone()
+        if current_package != saved_package or payload["questions"] is None:
+            return _finish(conn, demand, claim, "deferred")
+        # First question acquisition preserves the original private JD/version.
+        # The demand's capture timestamp records this new Q capture; the package
+        # and its original JD capture timestamp are not changed by hydration.
+        payload["description"] = saved_package["description_snapshot"]
+        return _finish(
+            conn, demand, claim, "ready", saved_package["job_version_id"], payload
+        )
     metadata = dict(
         coordinates["public_metadata"]
         or {"title": coordinates["title"], "url": coordinates["url"]}
@@ -280,9 +325,9 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
     return result
 
 
-def hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
+def hydrate_demand(conn, demand: DemandRef, fetch=None) -> str:
     try:
-        return _hydrate_demand(conn, demand, fetch)
+        return _hydrate_demand(conn, demand, fetch or fetch_payload)
     except RuntimeError:
         conn.rollback()
         return "deferred"
@@ -291,7 +336,10 @@ def hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
 def hydrate_candidates(conn, job_ids: list[str], user_id: str) -> list[str]:
     """Called only after deterministic entitlement/location/company filtering."""
     enabled = read_control(conn).hydration_enabled
+    legacy_allowed = legacy_description_capture_allowed(conn)
     conn.commit()
+    if not enabled and not legacy_allowed:
+        return []
     if not enabled:
         return [
             row["id"]

@@ -88,7 +88,7 @@ export async function saveCoverLetterEdit(
         cover_letter_trace_id = EXCLUDED.cover_letter_trace_id, model = EXCLUDED.model,
         comment = EXCLUDED.comment, superseded_at = NULL, edited_at = now()
     `;
-    return { ...s, description: snapshot?.description ?? s.description, originalText };
+    return { ...s, description: snapshot ? snapshot.description : s.description, originalText };
   });
 
   // Push this edit to the shared golden dataset as the expected_output. Best-effort:

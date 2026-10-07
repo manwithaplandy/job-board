@@ -106,3 +106,16 @@ describe("deleteCoverLetterEdit", () => {
     expect(sqlMock).toHaveBeenCalledOnce();
   });
 });
+
+it("legacy cover editing preserves unknown provenance after unrelated hydration", async () => {
+  const lifecycle = await import("@/lib/jobLifecycle");
+  const actual = await vi.importActual<typeof lifecycle>("@/lib/jobLifecycle");
+  vi.mocked(lifecycle.readPrivateSnapshot).mockImplementationOnce(actual.readPrivateSnapshot);
+  sqlMock.mockResolvedValueOnce([{job_version_id:null,description_snapshot:null,questions_snapshot:null,snapshot_captured_at:null}])
+    .mockResolvedValueOnce([{...SRC_ROW,description:"Later shared JD"}])
+    .mockResolvedValueOnce(undefined);
+  await saveCoverLetterEdit("j1", "Edited legacy letter");
+  expect(sqlMock).toHaveBeenCalledTimes(3);
+  expect(sqlMock.mock.calls[2].slice(1,7)).toEqual(["u1","j1",null,null,null,null]);
+  expect(upsertMock).toHaveBeenCalledWith(expect.objectContaining({input:expect.objectContaining({job:expect.objectContaining({description:null})})}));
+});

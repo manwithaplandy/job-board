@@ -1,0 +1,37 @@
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ app/api/application/prepare/route.test.ts (30 tests | 2 failed) 240ms
+   × unknown legacy package with missing Q gives actionable deferred without enqueue, charge or providers 18ms
+   × cached legacy package preparation remains usable with unknown historical provenance 20ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  app/api/application/prepare/route.test.ts > unknown legacy package with missing Q gives actionable deferred without enqueue, charge or providers
+ FAIL  app/api/application/prepare/route.test.ts > cached legacy package preparation remains usable with unknown historical provenance
+Error: [vitest] No "parseGreenhouseQuestions" export is defined on the "@/lib/rolefit/greenhouseQuestions" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("@/lib/rolefit/greenhouseQuestions"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ lib/jobLifecycle.ts:91:23
+     89|       };
+     90|       if (!legacyAllowed) return unavailable;
+     91|       let questions = parseGreenhouseQuestions(saved.questions_snapsho…
+       |                       ^
+     92|       if (kind === "prepare" && questions === null) {
+     93|         const cached = await tx`SELECT questions FROM job_questions WH…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 9 passed (10)
+      Tests  2 failed | 114 passed (116)
+   Start at  18:43:46
+   Duration  2.41s (transform 1.44s, setup 0ms, import 2.25s, tests 687ms, environment 2ms)

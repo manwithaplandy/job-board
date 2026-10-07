@@ -94,3 +94,14 @@ describe("saveReviewCorrection golden-dataset gate (minor 8)", () => {
     expect(res).toEqual({ ok: true, langfuseSynced: true });
   });
 });
+
+it("legacy review correction does not borrow an unrelated later demand", async () => {
+  const lifecycle = await import("@/lib/jobLifecycle");
+  const actual = await vi.importActual<typeof lifecycle>("@/lib/jobLifecycle");
+  vi.mocked(lifecycle.readPrivateSnapshot).mockImplementationOnce(actual.readPrivateSnapshot);
+  await saveReviewCorrection("greenhouse:acme:1", baseForm);
+  expect(calls).toHaveLength(3);
+  expect(calls.some(c => c.strings.join("").includes("job_payload_demands"))).toBe(false);
+  const insert = calls[2];
+  expect(insert.values.slice(-6,-2)).toEqual([null,null,null,null]);
+});

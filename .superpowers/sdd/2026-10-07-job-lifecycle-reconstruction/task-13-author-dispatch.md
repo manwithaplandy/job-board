@@ -54,3 +54,18 @@ Carry the Task6 above-guard functional/rollout conflict in progress.md: bounded 
 Task6 inherited transport issue (progress.md): adapters use job_discovery.http with redirects. New per-board request/time budgets do not establish full publicfetch deadline20s, redirect<=3, each address/redirect revalidation/pinning and10MiB wire+decompressed cap. Inventory and implement the required normal bounded public transport integration within authorized scope; report any safeguard overlap concretely rather than bypassing it or declaring the contract proved.
 
 Task6 reviewer minor: verify_due_sources initializes closed_jobs=0 and never increments despite actual closure writes; run persists this zero. Complete reporting with actual committed close counts and no replay double-counting. R6-4/R6-5 remain Important functional integration blockers until actually resolved; see task-6-requirements-review.md.
+
+Task8 integration carry-forward (verify actual final review/report before acting):
+Known private package inputs are immutable authority; public version UUID alone
+is not question-input identity. Exact actual input/receipt IDs must survive
+generation/persistence, with genuine new private capture when an origin receipt
+is gone. Legacy unknown package inputs must never be assigned unrelated later
+hydration provenance. A legacy unknown-input package with missing questions may
+be explicitly terminal-deferred because partial regeneration cannot truthfully
+version retained old artifact legs. Inspect actual supported recapture/recovery
+path and report any unimplemented availability limitation to final permitted
+review; do not label it full functionality or silently discard it. Preserve old
+artifacts; do not add a production reset/deletion path or weaken guards to hide
+the gap. Cached legacy and known-input résumé-first preparation must remain
+usable. These are ordinary consumer/lineage requirements, not the refused Task3
+mechanism-review probes.

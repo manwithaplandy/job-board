@@ -66,7 +66,7 @@ export async function saveResumeScore(
         resume_snapshot = EXCLUDED.resume_snapshot, model = EXCLUDED.model,
         scored_at = now()
     `;
-    return { ...s, description: snapshot?.description ?? s.description };
+    return { ...s, description: snapshot ? snapshot.description : s.description };
   });
 
   // Admin-only push to the shared golden dataset (minor 8). Non-admins: DB row persisted

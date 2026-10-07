@@ -1,0 +1,40 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_resume_first_prepare_captures_missing_questions_with_saved_jd ______
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33024 user=postgres database=poller_lifecycle_test) at 0x7feb87d65100>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7feb87d41f70>
+
+    @requires_db
+    def test_resume_first_prepare_captures_missing_questions_with_saved_jd(conn, monkeypatch):
+        from job_discovery.lifecycle.demand import process_pending
+        setup_source(conn)
+        job = conn.execute("SELECT id FROM jobs LIMIT 1").fetchone()["id"]
+        user = str(uuid4())
+        generation = request_demand(conn, job, user, "generation")
+        conn.commit()
+        assert hydrate_demand(conn, generation, lambda _: {"description":"Original résumé JD","questions":None}) == "ready"
+        original = conn.execute("SELECT * FROM job_payload_demands WHERE id=%s", (generation.id,)).fetchone()
+        conn.execute("""INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,snapshot_captured_at,resume_json)
+            VALUES(%s,%s,%s,%s,%s,'{"name":"Fixture"}')""", (user,job,original["job_version_id"],original["description_snapshot"],original["snapshot_captured_at"]))
+        prepare = request_demand(conn, job, user, "prepare")
+        conn.commit()
+        def fetch(_):
+            assert conn.info.transaction_status.name == "IDLE"
+            return {"description":"Current different public JD","questions":{"questions":[{"label":"First Q","fields":[]}]}}
+        # Patch the real transport boundary; the demand worker and state transitions run.
+        monkeypatch.setattr("job_discovery.lifecycle.demand.fetch_payload", fetch)
+        # Default argument is captured at import, so this service call supplies the same boundary explicitly.
+        assert hydrate_demand(conn, prepare, fetch) == "ready"
+        ready = conn.execute("SELECT * FROM job_payload_demands WHERE id=%s", (prepare.id,)).fetchone()
+>       assert ready["description_snapshot"] == "Original résumé JD"
+E       AssertionError: assert 'Current different public JD' == 'Original résumé JD'
+E
+E         - Original résumé JD
+E         + Current different public JD
+
+tests/test_lifecycle_demand.py:442: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_demand.py::test_resume_first_prepare_captures_missing_questions_with_saved_jd
+1 failed, 12 deselected in 0.98s

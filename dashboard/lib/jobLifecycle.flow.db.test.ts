@@ -41,12 +41,13 @@ test("owner demand coalesces, ready pins a durable input, generation copies it a
     questions_snapshot='{"questions":[]}',snapshot_captured_at=clock_timestamp(),settled_at=clock_timestamp() WHERE id=${first.id}`;
   const payload=await requestJobPayload(user,"job","generation");
   expect(payload.status).toBe("ready");
+  if (payload.status !== "ready") throw new Error("ready expected");
   const tracked=await generation.createGenerationJob(user,"job","resume",payload);
   expect(tracked.created).toBe(true);
   const rows=await sql`SELECT job_version_id,description_snapshot FROM generation_jobs WHERE id=${tracked.job.id}`;
   expect(rows[0]).toMatchObject({job_version_id:version,description_snapshot:"Exact input"});
   expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${first.id}`)[0].consumed_at).toBeNull();
-  await db.withUserSql(user,tx=>consumeJobVersion(tx,"job",version,"generation"));
+  await db.withUserSql(user,tx=>consumeJobVersion(tx,"job",version,"generation",payload.id,payload));
   expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${first.id}`)[0].consumed_at).toBeInstanceOf(Date);
   await sql`UPDATE jobs SET description='New shared content' WHERE id='job'`;
   expect((await sql`SELECT description_snapshot FROM generation_jobs WHERE id=${tracked.job.id}`)[0].description_snapshot).toBe("Exact input");
@@ -75,6 +76,84 @@ test("package persistence copies pinned input and records consumption with the a
   const rows=await sql`SELECT job_version_id,description_snapshot,prefilled_answers FROM application_packages WHERE user_id=${user} AND job_id='job'`;
   expect(rows[0]).toMatchObject({job_version_id:version,description_snapshot:"Exact input",prefilled_answers:[]});
   expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${payload.id}`)[0].consumed_at).toBeInstanceOf(Date);
+});
+
+test("résumé-first preparation queues missing Q, pins the saved tuple, and consumes its exact receipt", async () => {
+  const owner = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  await sql`UPDATE lifecycle_control SET hydration_enabled=true,activation_generation=activation_generation+1`;
+  const first = await requestJobPayload(owner,"job","generation");
+  await sql`UPDATE job_payload_demands SET status='ready',job_version_id=${version},description_snapshot='Saved résumé JD',
+    questions_snapshot=NULL,snapshot_captured_at=clock_timestamp(),settled_at=clock_timestamp() WHERE id=${first.id}`;
+  const input = await requestJobPayload(owner,"job","generation");
+  if (input.status !== "ready") throw new Error("generation ready expected");
+  const {upsertApplicationPackage} = await import("./queries");
+  const resume = {name:"Fixture",contact:"",headline:"",summary:"",skills:[],experience:[],education:[],certifications:[]};
+  await upsertApplicationPackage(owner,"job",{resume,coverLetter:null,prefilledAnswers:null,applyUrl:null,payload:input});
+  const before = (await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id='job'`)[0];
+  const pending = await requestJobPayload(owner,"job","prepare");
+  expect(pending.status).toBe("pending");
+  expect(pending.id).not.toBe(input.id);
+  // Real service orchestration is covered by Python; this boundary supplies its committed result.
+  const q1 = {questions:[{label:"First Q",required:false,fields:[]}]};
+  await sql`UPDATE job_payload_demands SET status='ready',job_version_id=${version},description_snapshot='Saved résumé JD',
+    questions_snapshot=${JSON.stringify(q1)}::text::jsonb,snapshot_captured_at=clock_timestamp(),settled_at=clock_timestamp() WHERE id=${pending.id}`;
+  const prepared = await requestJobPayload(owner,"job","prepare");
+  if (prepared.status !== "ready") throw new Error("prepare ready expected");
+  expect(prepared.id).toBe(pending.id);
+  expect(prepared.kind).toBe("prepare");
+  await upsertApplicationPackage(owner,"job",{resume,coverLetter:null,prefilledAnswers:[],applyUrl:null,payload:prepared});
+  const saved = (await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id='job'`)[0];
+  expect(saved.description_snapshot).toBe(before.description_snapshot);
+  expect(saved.snapshot_captured_at).toEqual(before.snapshot_captured_at);
+  expect(saved.questions_snapshot).toEqual(q1);
+  const later = await sql`INSERT INTO job_payload_demands(user_id,job_id,kind,status,job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at,settled_at)
+    VALUES(${owner},'job','description','ready',${version},'Saved résumé JD','{"questions":[{"label":"Later Q","required":false,"fields":[]}]}',clock_timestamp(),clock_timestamp()) RETURNING id`;
+  const pinned = await requestJobPayload(owner,"job","generation");
+  if (pinned.status !== "ready") throw new Error("saved input ready expected");
+  expect(pinned.questions).toEqual(q1);
+  expect(pinned.kind).toBe("prepare"); // Preserve actual source kind, do not relabel.
+  expect(pinned.id).toBe(prepared.id);
+  await upsertApplicationPackage(owner,"job",{resume,coverLetter:null,prefilledAnswers:null,applyUrl:null,payload:pinned});
+  expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${later[0].id}`)[0].consumed_at).toBeNull();
+  const mismatch = {...pinned,questions:{questions:[{label:"Wrong Q",required:false,fields:[]}]}};
+  await expect(upsertApplicationPackage(owner,"job",{resume:null,coverLetter:null,prefilledAnswers:[],applyUrl:null,payload:mismatch})).rejects.toThrow(/Package input changed/);
+  await expect(db.withUserSql(owner,tx=>consumeJobVersion(tx,"job",version,pinned.kind,pinned.id,mismatch))).rejects.toThrow(/Exact durable demand receipt/);
+  expect((await sql`SELECT questions_snapshot FROM application_packages WHERE user_id=${owner} AND job_id='job'`)[0].questions_snapshot).toEqual(q1);
+  // Retention fixture: no original exact receipt survives. Queue a genuine new
+  // owned capture, never use the remaining same-version/different-Q demand.
+  await sql`DELETE FROM job_payload_demands WHERE id IN (${input.id}::uuid,${prepared.id}::uuid)`;
+  const copying = await requestJobPayload(owner,"job","generation");
+  expect(copying.status).toBe("pending");
+  expect(copying.id).not.toBe(prepared.id);
+  await sql`UPDATE job_payload_demands d SET status='ready',job_version_id=p.job_version_id,
+    description_snapshot=p.description_snapshot,questions_snapshot=p.questions_snapshot,
+    snapshot_captured_at=clock_timestamp(),settled_at=clock_timestamp()
+    FROM application_packages p WHERE d.id=${copying.id}::uuid AND p.user_id=d.user_id AND p.job_id=d.job_id`;
+  const copied = await requestJobPayload(owner,"job","generation");
+  if(copied.status !== "ready") throw new Error("copied input expected");
+  expect(copied.id).toBe(copying.id);
+  await upsertApplicationPackage(owner,"job",{resume,coverLetter:null,prefilledAnswers:null,applyUrl:null,payload:copied});
+  expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${copied.id}`)[0].consumed_at).toBeInstanceOf(Date);
+  expect((await sql`SELECT snapshot_captured_at FROM application_packages WHERE user_id=${owner} AND job_id='job'`)[0].snapshot_captured_at).toEqual(before.snapshot_captured_at);
+});
+
+test("calibration SQL reads saved score/edit JD and explicitly falls back for legacy NULL", async () => {
+  await sql`INSERT INTO resume_scores(user_id,job_id,grounding,jd_relevance,description_snapshot)
+    VALUES(${user},'job',4,4,'Score input JD')`;
+  await sql`INSERT INTO cover_letter_edits(user_id,job_id,edited_text,description_snapshot)
+    VALUES(${user},'job','Edited letter','Edit input JD')`;
+  for (const [script, expected, table] of [
+    ["calibrate-resume-judge.ts", "Score input JD", "resume_scores"],
+    ["calibrate-cover-letter-judge.ts", "Edit input JD", "cover_letter_edits"],
+  ]) {
+    // Execute only the static reader SQL. Never import/run sync or provider code.
+    const source = readFileSync(resolve(process.cwd(), "scripts", script), "utf8");
+    const query = source.match(/return \(await serviceSql`([\s\S]*?)`\)/)?.[1];
+    if (!query) throw new Error("Static calibration reader missing");
+    expect((await sql.unsafe(query))[0].description).toBe(expected);
+    await sql.unsafe(`UPDATE ${table} SET description_snapshot=NULL WHERE job_id='job'`);
+    expect((await sql.unsafe(query))[0].description).toBe("New shared content");
+  }
 });
 
 test("new payload wrapper preserves authenticated invoking role in an ordinary enforced write",async()=>{

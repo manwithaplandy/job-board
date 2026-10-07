@@ -1,0 +1,54 @@
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ lib/jobLifecycle.fix.test.ts (3 tests | 3 failed) 21ms
+   × application_packages: existing unknown provenance never adopts a later demand 15ms
+   × job_reviews: existing unknown provenance never adopts a later demand 2ms
+   × independent legacy snapshot survives without a fabricated version 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/jobLifecycle.fix.test.ts > application_packages: existing unknown provenance never adopts a later demand
+ FAIL  lib/jobLifecycle.fix.test.ts > job_reviews: existing unknown provenance never adopts a later demand
+AssertionError: expected { versionId: 'later', …(3) } to match object { versionId: null, …(2) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "capturedAt": null,
+-   "description": null,
+-   "versionId": null,
++   "capturedAt": "later",
++   "description": "Later JD",
++   "versionId": "later",
+  }
+
+ ❯ lib/jobLifecycle.fix.test.ts:16:22
+     14|     query.mockResolvedValueOnce([{ job_version_id: "later", descriptio…
+     15|     const snapshot = await readPrivateSnapshot(query as unknown as Tra…
+     16|     expect(snapshot).toMatchObject({ versionId: null, description: nul…
+       |                      ^
+     17|     expect(query).toHaveBeenCalledTimes(1);
+     18|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  lib/jobLifecycle.fix.test.ts > independent legacy snapshot survives without a fabricated version
+TypeError: Cannot read properties of undefined (reading '0')
+ ❯ readJobSnapshot lib/jobLifecycle.ts:120:15
+    118|     FROM job_payload_demands WHERE user_id=app_user_id() AND job_id=${…
+    119|     ORDER BY settled_at DESC LIMIT 1`;
+    120|   const row = rows[0];
+       |               ^
+    121|   return row && typeof row.job_version_id === "string" && typeof row.d…
+    122|     ? {versionId:row.job_version_id,description:row.description_snapsh…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  18:33:13
+   Duration  549ms (transform 83ms, setup 0ms, import 112ms, tests 21ms, environment 0ms)

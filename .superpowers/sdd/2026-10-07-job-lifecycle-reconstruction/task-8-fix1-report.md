@@ -3,8 +3,13 @@
 FixBASE: `4d48602947b84983acc54738bd21e45a52862725`. This is the same original
 Task8 author responding to the six Important findings in
 `task-8-requirements-review.md` and its actual-function diagnostics. Controller
-forward documentation commits, including `d8ad8f7`, are preserved and excluded
-from the author commit. Fresh scoped re-review is pending; this report is not a
+forward documentation commits, including `d8ad8f7`, are preserved. Product commit
+`e547270461cc218ec24619ca87bb341945d18efe` also includes three controller-authored
+documentation updates (controller-resume, progress and task-13-author-dispatch):
+they became staged in the shared index after the author verified them unstaged.
+The author did not edit or stage those paths. The controller was informed; history
+was preserved and this provenance note was added forward. Fresh scoped re-review
+is pending; this report is not a
 review verdict or security approval.
 
 ## Changes against the six findings

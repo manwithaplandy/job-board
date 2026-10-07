@@ -13,11 +13,11 @@ completed = True, hours = 25, cleaned = True
 >       source, eid, old = enumeration(conn, completed=completed, hours=hours)
                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:163: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:163:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:152: in enumeration
     conn.execute("INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n", (eid, start, min(start+499,members)))
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32933 user=postgres database=poller_lifecycle_test) at 0x7fce9012ac60>
 query = "INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n"
@@ -37,7 +37,7 @@ binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(
@@ -65,11 +65,11 @@ completed = True, hours = 23, cleaned = False
 >       source, eid, old = enumeration(conn, completed=completed, hours=hours)
                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:163: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:163:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:152: in enumeration
     conn.execute("INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n", (eid, start, min(start+499,members)))
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32933 user=postgres database=poller_lifecycle_test) at 0x7fce90129010>
 query = "INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n"
@@ -89,7 +89,7 @@ binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(
@@ -117,11 +117,11 @@ completed = False, hours = 169, cleaned = True
 >       source, eid, old = enumeration(conn, completed=completed, hours=hours)
                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:163: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:163:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:152: in enumeration
     conn.execute("INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n", (eid, start, min(start+499,members)))
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32933 user=postgres database=poller_lifecycle_test) at 0x7fce9012b0e0>
 query = "INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n"
@@ -141,7 +141,7 @@ binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(
@@ -169,11 +169,11 @@ completed = False, hours = 167, cleaned = False
 >       source, eid, old = enumeration(conn, completed=completed, hours=hours)
                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:163: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:163:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:152: in enumeration
     conn.execute("INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n", (eid, start, min(start+499,members)))
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32933 user=postgres database=poller_lifecycle_test) at 0x7fce9012b6e0>
 query = "INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n"
@@ -193,7 +193,7 @@ binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(
@@ -219,11 +219,11 @@ conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32933 user=postgres da
 >       source, eid, old = enumeration(conn, members=21005)
                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:176: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:176:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:152: in enumeration
     conn.execute("INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n", (eid, start, min(start+499,members)))
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32933 user=postgres database=poller_lifecycle_test) at 0x7fce9012ab70>
 query = "INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n"
@@ -243,7 +243,7 @@ binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(
@@ -269,11 +269,11 @@ conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32933 user=postgres da
 >       _, eid, _ = enumeration(conn, completed=True, hours=25)
                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:193: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:152: in enumeration
     conn.execute("INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n", (eid, start, min(start+499,members)))
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32933 user=postgres database=poller_lifecycle_test) at 0x7fce901292b0>
 query = "INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n"
@@ -293,7 +293,7 @@ binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(

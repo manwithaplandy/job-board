@@ -181,3 +181,9 @@ Product/test inventory: new `job_discovery/lifecycle/maintenance.py`, additive
 `tests/test_size_guard.py`. Existing `tests/test_prune.py` was exercised unchanged.
 Only those files plus this report and its sanitized evidence are author-staged;
 controller ledgers, amendment, dispatch and review files are excluded.
+
+Artifact-only forward correction: the initial staged pytest failure logs contained
+pytest-generated trailing whitespace. It was detected during staging, then
+normalized without altering results or traceback content. The source/test commit
+is `9608f7c`; the forward evidence-normalization commit contains no product or
+test changes. Final source verification above remains applicable.

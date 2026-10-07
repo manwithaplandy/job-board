@@ -74,7 +74,7 @@ conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32934 user=postgres da
         module.apply_migrations(conn, paths)
 >       assert module.schema_catalog(conn) == before
 E       assert {'tables': [{....}, ...], ...} == {'tables': [{....}, ...], ...}
-E         
+E
 E         Omitting 9 identical items, use -vv to show
 E         Differing items:
 E         {'functions': [{'nspname': 'lifecycle_private', 'proname': 'protect_demand_claim', 'arguments': '', 'definition': "CRE...AND state<>'held';\n DELETE FROM public.lifecycle_write_checks WHERE subject_id=target;\nEND $function$\n", ...}, ...]} != {'functions': [{'nspname': 'lifecycle_private', 'proname': 'protect_demand_claim', 'arguments': '', 'definition': "CRE...AND state<>'held';\n DELETE FROM public.lifecycle_write_checks WHERE subject_id=target;\nEND $function$\n", ...}, ...]}

@@ -10,8 +10,8 @@ conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32929 user=postgres datab
 >       m = module()
             ^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:28: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:28:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:11: in module
     return importlib.import_module('job_discovery.lifecycle.maintenance')
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -22,7 +22,7 @@ tests/test_lifecycle_maintenance.py:11: in module
     ???
 <frozen importlib._bootstrap>:1360: in _find_and_load
     ???
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'job_discovery.lifecycle.maintenance'
 import_ = <function _gcd_import at 0x7f5234b500e0>
@@ -40,8 +40,8 @@ conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32929 user=postgres datab
 >       m = module()
             ^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:45: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:45:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:11: in module
     return importlib.import_module('job_discovery.lifecycle.maintenance')
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -52,7 +52,7 @@ tests/test_lifecycle_maintenance.py:11: in module
     ???
 <frozen importlib._bootstrap>:1360: in _find_and_load
     ???
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'job_discovery.lifecycle.maintenance'
 import_ = <function _gcd_import at 0x7f5234b500e0>
@@ -83,8 +83,8 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f52308a6a20>
 >       m = module()
             ^^^^^^^^
 
-tests/test_lifecycle_maintenance.py:69: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_maintenance.py:69:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_lifecycle_maintenance.py:11: in module
     return importlib.import_module('job_discovery.lifecycle.maintenance')
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -95,7 +95,7 @@ tests/test_lifecycle_maintenance.py:11: in module
     ???
 <frozen importlib._bootstrap>:1360: in _find_and_load
     ???
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'job_discovery.lifecycle.maintenance'
 import_ = <function _gcd_import at 0x7f5234b500e0>
@@ -127,7 +127,7 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f52308c1c40>
         run.run()
 >       assert order == ['maintenance', 'targets', 'lock']
 E       AssertionError: assert ['targets', 'lock'] == ['maintenance...gets', 'lock']
-E         
+E
 E         At index 0 diff: 'targets' != 'maintenance'
 E         Right contains one more item: 'lock'
 E         Use -v to get more diff

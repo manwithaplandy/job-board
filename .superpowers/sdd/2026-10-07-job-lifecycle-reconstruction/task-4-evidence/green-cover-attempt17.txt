@@ -45,11 +45,11 @@ source_result = 'complete'
 >       counts = job_discovery_run.run()
                  ^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_size_guard.py:261: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_size_guard.py:261:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 job_discovery/run.py:60: in run
     locked = conn.execute(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [BAD] at 0x7fbb00cefe60>
 query = "SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked"
@@ -68,7 +68,7 @@ params = None, prepare = None, binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(
@@ -126,11 +126,11 @@ source_result = 'failed'
 >       counts = job_discovery_run.run()
                  ^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_size_guard.py:261: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_size_guard.py:261:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 job_discovery/run.py:60: in run
     locked = conn.execute(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [BAD] at 0x7fbb00ccdcd0>
 query = "SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked"
@@ -149,7 +149,7 @@ params = None, prepare = None, binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(
@@ -207,11 +207,11 @@ source_result = 'partial'
 >       counts = job_discovery_run.run()
                  ^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_size_guard.py:261: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_size_guard.py:261:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 job_discovery/run.py:60: in run
     locked = conn.execute(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [BAD] at 0x7fbb00d46390>
 query = "SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked"
@@ -230,7 +230,7 @@ params = None, prepare = None, binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(
@@ -288,11 +288,11 @@ source_result = 'incomplete'
 >       counts = job_discovery_run.run()
                  ^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/test_size_guard.py:261: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_size_guard.py:261:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 job_discovery/run.py:60: in run
     locked = conn.execute(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [BAD] at 0x7fbb00d47980>
 query = "SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked"
@@ -311,7 +311,7 @@ params = None, prepare = None, binary = False
             cur = self.cursor()
             if binary:
                 cur.format = BINARY
-    
+
             if isinstance(query, Template):
                 if params is not None:
                     raise TypeError(

@@ -29,7 +29,7 @@ conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32936 user=postgres da
 >       assert remaining == [1,*range(6,16)]  # 1 referenced, 6 unarchived, 15 current.
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E       assert [6, 7, 8, 9, 10, 11, ...] == [1, 6, 7, 8, 9, 10, ...]
-E         
+E
 E         At index 0 diff: 6 != 1
 E         Right contains one more item: 15
 E         Use -v to get more diff

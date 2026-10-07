@@ -248,6 +248,7 @@ def project_archive(
         raise ValueError("typed policy and limits required")
     deadline = time.monotonic() + limits.deadline_seconds
     seen, retained, excluded = {}, {}, {}
+    exclusion_reasons = {}
     ignored, applied = set(), set()
     count = byte_count = 0
 
@@ -271,13 +272,29 @@ def project_archive(
                 raise _Invalid("invalid_manifest")
             seal = item.seal
             ref = seal.batch
+            # Establish constant-time cardinalities and remaining work before
+            # walking either descriptor or passing it to the accepted codec.
+            if not isinstance(ref.ordered_event_ids, tuple) or not isinstance(
+                ref.event_bytes, tuple
+            ):
+                raise _Invalid("invalid_manifest_types")
+            membership_count = tuple.__len__(ref.ordered_event_ids)
+            if (
+                not 1 <= membership_count <= 2000
+                or membership_count != tuple.__len__(ref.event_bytes)
+                or type(seal.event_count) is not int
+                or seal.event_count != membership_count
+            ):
+                raise _Invalid("invalid_membership_count")
+            count += membership_count
+            if count > limits.max_events:
+                raise _Invalid("event_limit")
             if (
                 type(ref.serializer_version) is not int
                 or ref.serializer_version != 1
                 or not isinstance(ref.batch_id, UUID)
                 or ref.prior_batch_id is not None
                 and not isinstance(ref.prior_batch_id, UUID)
-                or not isinstance(ref.ordered_event_ids, tuple)
                 or any(not isinstance(eid, UUID) for eid in ref.ordered_event_ids)
                 or any(
                     type(n) is not int
@@ -303,16 +320,11 @@ def project_archive(
             chunks = (seal.canonical_data, seal.compressed_data, seal.manifest_data)
             if (
                 any(not isinstance(b, bytes) for b in chunks)
-                or not isinstance(ref.event_bytes, tuple)
-                or not 1 <= len(ref.event_bytes) <= 2000
                 or len(chunks[0]) > MAX_EXPANDED
                 or len(chunks[1]) > MAX_COMPRESSED
                 or len(chunks[2]) > MAX_MANIFEST
             ):
                 raise _Invalid("seal_size_limit")
-            count += len(ref.event_bytes)
-            if count > limits.max_events:
-                raise _Invalid("event_limit")
             for raw in ref.event_bytes:
                 if not isinstance(raw, bytes) or len(raw) > 16384:
                     raise _Invalid("event_size_limit")
@@ -341,6 +353,8 @@ def project_archive(
                 reason = (
                     "removed"
                     if key in blocked
+                    else "outside_declared_coverage"
+                    if revision < starts.get(key, 1)
                     else "expired"
                     if ref.eligible_until.astimezone(UTC)
                     <= policy.as_of.astimezone(UTC)
@@ -348,6 +362,7 @@ def project_archive(
                 )
                 if reason:
                     excluded[(key, revision)] = reason
+                    exclusion_reasons.setdefault(key, set()).add(reason)
                     ignored.add(UUID(eid))
                     continue
                 values = retained.setdefault(key, {})
@@ -395,7 +410,10 @@ def project_archive(
                 continue
             if not revisions:
                 coverage.append(ProjectionCoverage(*key, "incomplete", None))
-                gaps.append(ProjectionGap(*key, "retention_gap", "expired", None))
+                gaps.extend(
+                    ProjectionGap(*key, "retention_gap", reason, None)
+                    for reason in sorted(exclusion_reasons[key])
+                )
                 continue
             ordered = sorted(revisions)
             # Exact disjoint ranges, never min/max across a missing revision.

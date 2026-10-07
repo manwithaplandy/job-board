@@ -1,0 +1,4 @@
+tests/test_archive_recovery_authorization.py::test_fresh_explicit_approval_after_unused_approval_expires
+tests/test_lifecycle_migrations.py::test_clean_schema_matches_frozen_baseline_plus_all_new_migrations
+
+2 tests collected in 0.20s

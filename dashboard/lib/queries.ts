@@ -167,6 +167,7 @@ export async function getReviewFeed(
 // into the typed shape at the boundary instead of an `as unknown as` cast.
 function toJobReviewDetail(row: Record<string, unknown>): JobReviewDetail {
   return {
+    descriptionIsSaved: row.description_is_saved === true,
     reasoning: (row.reasoning as string | null) ?? null,
     about: (row.about as string | null) ?? null,
     red_flags: (row.red_flags as string[] | null) ?? null,
@@ -202,6 +203,7 @@ export async function getJobReviewDetail(
         COALESCE(rc.benefits, r.benefits) AS benefits,
         COALESCE(rc.requirements, r.requirements) AS requirements,
         COALESCE(rc.description_snapshot,r.description_snapshot,j.description) AS description, j.url,
+        (COALESCE(rc.description_snapshot,r.description_snapshot) IS NOT NULL) AS description_is_saved,
         COALESCE(rc.experience_match, r.experience_match) AS experience_match,
         COALESCE(rc.industry, r.industry) AS industry,
         COALESCE(rc.industry_subcategory, r.industry_subcategory) AS industry_subcategory,
@@ -506,6 +508,8 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
   };
   return {
     jobId,
+    descriptionSnapshot: typeof row.description_snapshot === "string" ? row.description_snapshot : null,
+    questionsSnapshot: parseGreenhouseQuestionsJsonb(row.questions_snapshot),
     status: row.status as "prepared" | "applied",
     resume: parseField("resume_json", row.resume_json, parseTailoredResume),
     coverLetter: parseField("cover_letter_json", row.cover_letter_json, parseTailoredCoverLetter),
@@ -550,7 +554,7 @@ export async function getApplicationPackage(
 ): Promise<ApplicationPackage | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json,
+      SELECT ap.job_id, ap.status, ap.description_snapshot, ap.questions_snapshot, ap.resume_json, ap.cover_letter_json,
              ap.prefilled_answers, ap.apply_url, ap.profile_version,
              ap.resume_instructions, ap.cover_letter_instructions,
              ap.resume_instructions_draft, ap.cover_letter_instructions_draft,
@@ -572,7 +576,7 @@ export async function getApplicationPackage(
 export async function getApplicationPackages(userId: string): Promise<ApplicationPackage[]> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json,
+      SELECT ap.job_id, ap.status, ap.description_snapshot, ap.questions_snapshot, ap.resume_json, ap.cover_letter_json,
              ap.prefilled_answers, ap.apply_url, ap.profile_version,
              ap.resume_instructions, ap.cover_letter_instructions,
              ap.resume_instructions_draft, ap.cover_letter_instructions_draft,
@@ -629,7 +633,7 @@ export async function upsertApplicationPackage(
   // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
   const j = (v: unknown): string | null => (v == null ? null : JSON.stringify(v));
   return withUserPayloadMutation(userId, jobId, "application_packages", async (tx) => {
-  await assertPackageInput(tx, jobId, data.payload);
+  const firstOutput = await assertPackageInput(tx, jobId, data.payload);
   // Regenerating the letter cleanly replaces the user's edit in their view: stamp the
   // current edit superseded (the row + its already-pushed golden item persist; re-saving
   // an edit resets superseded_at to NULL — see app/actions/coverLetterEdits.ts).
@@ -656,10 +660,10 @@ export async function upsertApplicationPackage(
             ${data.coverLetterInstructions ?? null},
             ${data.profileVersion ?? null}, 'prepared', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
-      job_version_id = application_packages.job_version_id,
-      description_snapshot = application_packages.description_snapshot,
-      questions_snapshot = COALESCE(application_packages.questions_snapshot, EXCLUDED.questions_snapshot),
-      snapshot_captured_at = application_packages.snapshot_captured_at,
+      job_version_id = CASE WHEN ${firstOutput} THEN EXCLUDED.job_version_id ELSE application_packages.job_version_id END,
+      description_snapshot = CASE WHEN ${firstOutput} THEN EXCLUDED.description_snapshot ELSE application_packages.description_snapshot END,
+      questions_snapshot = CASE WHEN ${firstOutput} THEN EXCLUDED.questions_snapshot ELSE COALESCE(application_packages.questions_snapshot, EXCLUDED.questions_snapshot) END,
+      snapshot_captured_at = CASE WHEN ${firstOutput} THEN EXCLUDED.snapshot_captured_at ELSE application_packages.snapshot_captured_at END,
       resume_json          = COALESCE(EXCLUDED.resume_json, application_packages.resume_json),
       cover_letter_json    = COALESCE(EXCLUDED.cover_letter_json, application_packages.cover_letter_json),
       prefilled_answers    = COALESCE(EXCLUDED.prefilled_answers, application_packages.prefilled_answers),
@@ -695,7 +699,7 @@ export async function upsertApplicationPackage(
                                              THEN NULL
                                              ELSE application_packages.cover_letter_instructions_draft END,
       prepared_at          = now()
-    RETURNING job_id, status, resume_json, cover_letter_json,
+    RETURNING job_id, status, description_snapshot, questions_snapshot, resume_json, cover_letter_json,
               prefilled_answers, apply_url, profile_version,
               resume_instructions, cover_letter_instructions,
               resume_instructions_draft, cover_letter_instructions_draft,

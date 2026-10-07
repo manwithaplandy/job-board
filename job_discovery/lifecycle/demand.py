@@ -202,10 +202,15 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
     saved_package = None
     if demand.kind in {"prepare", "generation"}:
         saved_package = conn.execute(
-            """SELECT job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at
-            FROM application_packages WHERE user_id=%s AND job_id=%s""",
+            """SELECT job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at,
+            resume_json,cover_letter_json,prefilled_answers FROM application_packages WHERE user_id=%s AND job_id=%s""",
             (row["user_id"], demand.job_id),
         ).fetchone()
+        if saved_package and not any(
+            saved_package[field] is not None
+            for field in ("resume_json", "cover_letter_json", "prefilled_answers")
+        ):
+            saved_package = None
     coordinates = conn.execute(
         """SELECT s.ats,s.public_board_ref,l.external_id,l.id listing_id,l.current_version_id,
         j.title,j.url,j.description,j.description_version_id,
@@ -272,8 +277,8 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
         return _finish(conn, demand, claim, "deferred")
     if saved_package:
         current_package = conn.execute(
-            """SELECT job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at
-            FROM application_packages WHERE user_id=%s AND job_id=%s""",
+            """SELECT job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at,
+            resume_json,cover_letter_json,prefilled_answers FROM application_packages WHERE user_id=%s AND job_id=%s""",
             (row["user_id"], demand.job_id),
         ).fetchone()
         if current_package != saved_package or payload["questions"] is None:

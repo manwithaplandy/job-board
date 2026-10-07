@@ -519,8 +519,8 @@ def test_retained_package_creates_a_new_private_copy_without_network_or_old_hist
         "SELECT * FROM job_payload_demands WHERE id=%s", (original.id,)
     ).fetchone()
     conn.execute(
-        """INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at)
-        VALUES(%s,%s,%s,%s,'{"questions":[]}',%s)""",
+        """INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at,resume_json)
+        VALUES(%s,%s,%s,%s,'{"questions":[]}',%s,'{"name":"Retained"}')""",
         (
             owner,
             job,

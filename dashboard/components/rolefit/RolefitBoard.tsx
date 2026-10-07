@@ -1,6 +1,6 @@
 "use client";
 
-import { jobPayloadNotice } from "@/lib/jobPayloadNotice";
+import { jobPayloadNotice, currentJobDetail } from "@/lib/jobPayloadNotice";
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
@@ -38,7 +38,7 @@ import { Icon } from "@/components/ui/Icon";
 // The lazy /api/jobs/[id] payload: the heavy review detail PLUS the opened job's Greenhouse
 // question schema (authed-only; null for anon or a non-Greenhouse job). Questions moved off
 // the eager board load onto this fetch — the client only ever reads the ONE open job's schema.
-type JobDetailResponse = JobReviewDetail & { questions: GreenhouseQuestions | null };
+type JobDetailResponse = JobReviewDetail & { questions: GreenhouseQuestions | null } & ReturnType<typeof currentJobDetail>;
 
 type DetailState =
   | { status: "loading" }
@@ -697,7 +697,7 @@ export function RolefitBoard({
     fetch(`/api/jobs/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: JobDetailResponse) => {
-        setDetails((prev) => ({ ...prev, [id]: { status: "done", detail: d } }));
+        setDetails((prev) => ({ ...prev, [id]: { status: "done", detail: {...d, ...currentJobDetail(d)} } }));
       })
       .catch((e) => {
         console.error("job detail fetch failed", e);
@@ -729,8 +729,13 @@ export function RolefitBoard({
     // the reviewer's judgment.
     const d = ds?.status === "done" ? ds.detail : { industry: null };
     const c = corrections[selectedJob.id];
-    return { ...selectedJob, ...(d ?? {}), ...(c ?? {}) };
+    return { ...selectedJob, ...(d ?? {}),
+      ...(ds?.status === "done" && !ds.detail.descriptionIsSaved && ds.detail.currentDescription
+        ? {description:ds.detail.currentDescription} : {}), ...(c ?? {}) };
   }, [selectedJob, details, corrections]);
+
+  const selectedDetailState = selectedJob ? details[selectedJob.id] : undefined;
+  const selectedDetail = selectedDetailState?.status === "done" ? selectedDetailState.detail : null;
 
   // The open job's Greenhouse question schema, sourced from the lazy detail fetch (was an
   // eager board-load prop). Null until detail resolves, so the questions panel appears once
@@ -738,8 +743,12 @@ export function RolefitBoard({
   const selectedQuestions = useMemo<GreenhouseQuestions | null>(() => {
     if (!selectedJob) return null;
     const ds = details[selectedJob.id];
-    return ds?.status === "done" ? ds.detail.questions : null;
-  }, [selectedJob, details]);
+    const pkg = packages[selectedJob.id];
+    // Answers always stay beside the schema captured for that package. Unknown
+    // legacy schema stays unknown; current questions have a separate display.
+    if (pkg?.prefilledAnswers != null) return pkg.questionsSnapshot ?? null;
+    return ds?.status === "done" ? ds.detail.currentQuestions ?? ds.detail.questions : null;
+  }, [selectedJob, details, packages]);
 
   // Handlers
   const toggleCat = (cat: string) =>
@@ -1513,6 +1522,9 @@ export function RolefitBoard({
                     generating={requestingId === selectedJobWithDetail.id || jobBusy(selectedJobWithDetail.id)}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
                     greenhouseQuestions={selectedQuestions}
+                    currentDescription={selectedDetail?.currentDescription ?? null}
+                    currentQuestions={selectedDetail?.currentQuestions ?? null}
+                    descriptionIsSaved={selectedDetail?.descriptionIsSaved ?? false}
                     pkg={packages[selectedJobWithDetail.id]}
                     resumeStale={resumeStaleFor(selectedJobWithDetail.id)}
                     onMarkApplied={handleMarkApplied}

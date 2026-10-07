@@ -22,3 +22,10 @@ test("independent legacy snapshot survives without a fabricated version", async 
   expect(await readPrivateSnapshot(query as unknown as TransactionSql, "job", "job_reviews"))
     .toMatchObject({ versionId: null, description: "Saved legacy JD" });
 });
+
+test("current UI detail fields parse malformed boundaries without borrowing saved context", async () => {
+  const {currentJobDetail}=await import("./jobPayloadNotice");
+  for(const value of [null,[],1,"{}",{currentDescription:42,currentQuestions:"bad",descriptionIsSaved:"true"}]) {
+    expect(currentJobDetail(value)).toEqual({descriptionIsSaved:false,currentDescription:null,currentQuestions:null});
+  }
+});

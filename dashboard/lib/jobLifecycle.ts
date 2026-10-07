@@ -84,16 +84,21 @@ export function parseRequestBody(value: unknown): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value));
 }
 
+/** Non-null generated output is retained work; instructions/status alone are not. */
+function hasPackageArtifacts(row: Record<string, unknown>): boolean {
+  return row.resume_json != null || row.cover_letter_json != null || row.prefilled_answers != null;
+}
+
 export async function requestJobPayload(userId: string, jobId: string, kind: DemandKind): Promise<DemandResult> {
   const { withUserDemandSql } = await import("@/lib/db");
   return withUserDemandSql(userId, async (tx, legacyAllowed) => {
     // The package's saved input is authoritative, including its question schema.
     // A public version identifies metadata/JD, not a particular question capture.
     const packages = kind === "prepare" || kind === "generation"
-      ? await tx`SELECT job_version_id, description_snapshot, questions_snapshot
+      ? await tx`SELECT job_version_id, description_snapshot, questions_snapshot, resume_json, cover_letter_json, prefilled_answers
           FROM application_packages WHERE user_id=${userId}::uuid AND job_id=${jobId}`
       : [];
-    const saved = packages[0];
+    const saved = packages[0] && hasPackageArtifacts(packages[0]) ? packages[0] : null;
     if (saved && (typeof saved.job_version_id !== "string" || typeof saved.description_snapshot !== "string")) {
       // Never attach later provenance to old artifacts. Pre-cutover legacy work
       // retains its nullable provenance; paused lifecycle work remains honest.
@@ -171,23 +176,24 @@ export async function consumeJobVersion(
 }
 
 /** Serialize output/input agreement with the package mutation under its job lock. */
-export async function assertPackageInput(tx: TransactionSql, jobId: string, payload?: DemandResult): Promise<void> {
-  const rows = await tx`SELECT job_version_id,description_snapshot,questions_snapshot FROM application_packages
+export async function assertPackageInput(tx: TransactionSql, jobId: string, payload?: DemandResult): Promise<boolean> {
+  const rows = await tx`SELECT job_version_id,description_snapshot,questions_snapshot,resume_json,cover_letter_json,prefilled_answers FROM application_packages
     WHERE user_id=app_user_id() AND job_id=${jobId} FOR UPDATE`;
   const saved = rows[0];
-  if (!saved) return;
+  if (!saved || !hasPackageArtifacts(saved)) return true;
   if (payload?.status !== "ready") {
     if (saved.job_version_id != null ||
       (typeof saved.description_snapshot === "string" && payload?.description !== saved.description_snapshot)) {
       throw new Error("Package input changed; retry using its saved input");
     }
-    return;
+    return false;
   }
   const matches = await tx`SELECT 1 FROM application_packages WHERE user_id=app_user_id() AND job_id=${jobId}
     AND job_version_id=${payload.versionId}::uuid AND description_snapshot=${payload.description}
     AND (questions_snapshot IS NOT DISTINCT FROM ${payload.questions ? JSON.stringify(payload.questions) : null}::text::jsonb
       OR (questions_snapshot IS NULL AND ${payload.kind}='prepare' AND ${payload.questions !== null}))`;
   if (!matches.length) throw new Error("Package input changed; retry using its saved input");
+  return false;
 }
 
 export async function readJobSnapshot(tx: TransactionSql, jobId: string) {

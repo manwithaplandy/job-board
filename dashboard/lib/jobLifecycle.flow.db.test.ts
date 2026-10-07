@@ -1,5 +1,6 @@
 /** Ordinary owned-DB feature flow only; not an independent mechanism review. */
 import {readFileSync} from "node:fs";
+import {execFileSync} from "node:child_process";
 import {resolve} from "node:path";
 import postgres from "postgres";
 import {beforeAll,afterAll,expect,test} from "vitest";
@@ -154,6 +155,50 @@ test("calibration SQL reads saved score/edit JD and explicitly falls back for le
     await sql.unsafe(`UPDATE ${table} SET description_snapshot=NULL WHERE job_id='job'`);
     expect((await sql.unsafe(query))[0].description).toBe("New shared content");
   }
+});
+
+test("instruction-only and application marker rows acquire their genuine first input and output", async () => {
+  const owner="cccccccc-cccc-cccc-cccc-cccccccccccc";
+  const jobId="greenhouse:first:1";
+  await sql`INSERT INTO companies(id,name,ats,token) VALUES(2,'First','greenhouse','first')`;
+  await sql`INSERT INTO jobs(id,company_id,external_id,title,url,description) VALUES(${jobId},2,'1','First role','https://example.test/first','Cached legacy JD')`;
+  await sql`UPDATE lifecycle_control SET hydration_enabled=false,activation_generation=activation_generation+1`;
+  const {upsertInstructionDraft,upsertApplicationPackage,getApplicationPackage}=await import("./queries");
+  await upsertInstructionDraft(owner,jobId,"resume","Saved résumé instruction");
+  await upsertInstructionDraft(owner,jobId,"cover","Keep cover draft");
+  await sql`UPDATE application_packages SET status='applied',applied_at=clock_timestamp() WHERE user_id=${owner} AND job_id=${jobId}`;
+  const draft=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`)[0];
+  expect(draft.resume_json).toBeNull();
+  expect(draft.job_version_id).toBeNull();
+  const pending=await requestJobPayload(owner,jobId,"prepare");
+  expect(pending.status).toBe("pending");
+  // Execute the actual Python service worker against this same owned database.
+  // Only its public fetch boundary is replaced, with an outside-TX assertion.
+  execFileSync(resolve(process.cwd(),"../.venv/bin/python"), ["-c", `
+import os, psycopg
+from psycopg.rows import dict_row
+from job_discovery.lifecycle import demand
+with psycopg.connect(os.environ["TEST_DATABASE_URL"], row_factory=dict_row) as conn:
+    def fetch(coordinates):
+        assert conn.info.transaction_status.name == "IDLE"
+        assert coordinates["ats"] == "greenhouse"
+        return {"description":"First artifact JD", "questions":{"questions":[]}}
+    demand.fetch_payload = fetch
+    assert demand.process_pending(conn) == 1
+`], {cwd:resolve(process.cwd(),".."),env:process.env,timeout:20000});
+  const ready=await requestJobPayload(owner,jobId,"prepare");
+  if(ready.status!=="ready") throw new Error("first input ready expected");
+  const resume={name:"First",contact:"",headline:"",summary:"",skills:[],experience:[],education:[],certifications:[]};
+  await upsertApplicationPackage(owner,jobId,{resume,coverLetter:null,prefilledAnswers:[],applyUrl:null,payload:ready,resumeInstructions:"Saved résumé instruction"});
+  const saved=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`)[0];
+  expect(saved).toMatchObject({job_version_id:ready.versionId,description_snapshot:"First artifact JD",status:"applied",resume_instructions:"Saved résumé instruction",cover_letter_instructions_draft:"Keep cover draft"});
+  expect(saved.applied_at).toEqual(draft.applied_at);
+  expect(saved.resume_json).toEqual(resume);
+  const displayed=await getApplicationPackage(owner,jobId);
+  expect(displayed?.descriptionSnapshot).toBe("First artifact JD");
+  expect(displayed?.questionsSnapshot).toEqual({questions:[]});
+  expect(saved.snapshot_captured_at).toBeInstanceOf(Date);
+  expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${ready.id}`)[0].consumed_at).toBeInstanceOf(Date);
 });
 
 test("new payload wrapper preserves authenticated invoking role in an ordinary enforced write",async()=>{

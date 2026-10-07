@@ -1,0 +1,8 @@
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+
+ Test Files  1 passed (1)
+      Tests  32 passed (32)
+   Start at  19:18:48
+   Duration  909ms (transform 249ms, setup 0ms, import 281ms, tests 134ms, environment 0ms)

@@ -176,3 +176,43 @@ test("hydration pending clears generation busy state and keeps retry available",
   expect(await screen.findByText("Job details are being prepared. Try again shortly.")).toBeTruthy();
   expect(await screen.findByRole("button",{name:/Prefill application/})).toBeTruthy();
 });
+
+for (const cached of ["Older shared JD", null]) {
+  test(`ready current detail reaches the visible JD and question panel over ${cached}`, async () => {
+    global.fetch = vi.fn(async () => ({ok:true,status:200,json:async()=>({
+      description:cached, descriptionIsSaved:false, currentDescription:"Hydrated current JD",
+      questions:null,currentQuestions:{questions:[{label:"Hydrated current question",required:false,fields:[{name:"answer",type:"input_text",options:[]}]}]},
+    })})) as unknown as typeof fetch;
+    render(<RolefitBoard {...baseProps} jobs={[{...job,fit_score:cached === null ? null : job.fit_score}]} />);
+    fireEvent.click(await screen.findByRole("button", {name:/Show full job description/}));
+    expect(await screen.findByText("Hydrated current JD")).toBeTruthy();
+    if (cached === null) fireEvent.click(await screen.findByText("Current application questions"));
+    else fireEvent.click(await screen.findByRole("button", {name:/Application questions/}));
+    expect(await screen.findByText("Hydrated current question")).toBeTruthy();
+  });
+}
+test("current posting is visible separately from saved review JD and saved package answers", async () => {
+  global.fetch = vi.fn(async () => ({ok:true,status:200,json:async()=>({
+    description:"Saved review JD",descriptionIsSaved:true,currentDescription:"Current employer JD",
+    hasSavedAnswers:true,savedQuestions:{questions:[{label:"Saved Q",required:false,fields:[{name:"answer",type:"input_text",options:[]}]}]},
+    questions:null,currentQuestions:{questions:[{label:"Current Q",required:false,fields:[{name:"answer",type:"input_text",options:[]}]}]},
+  })})) as unknown as typeof fetch;
+  render(<RolefitBoard {...baseProps} initialPackages={[{
+    jobId:job.id,status:"prepared",descriptionSnapshot:"Saved application JD",questionsSnapshot:{questions:[{label:"Saved Q",required:false,fields:[{name:"answer",type:"input_text",options:[]}]}]},resume:null,coverLetter:null,prefilledAnswers:[{question:"Saved Q",answer:"Saved answer"}],
+    applyUrl:null,profileVersion:null,resumeInstructions:null,coverLetterInstructions:null,
+    resumeInstructionsDraft:null,coverLetterInstructionsDraft:null,coverLetterEditedText:null,
+    preparedAt:baseProps.nowIso,appliedAt:null,
+  }]} />);
+  fireEvent.click(await screen.findByRole("button", {name:/Show full job description/}));
+  expect(await screen.findByText("Current employer JD")).toBeTruthy();
+  expect(await screen.findByText("Saved review description")).toBeTruthy();
+  expect(await screen.findByText("Saved review JD")).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", {name:/Application questions/}));
+  const answer=await screen.findByText("Saved answer");
+  const savedPanel=answer.closest(".rf-generation-panel");
+  if (!(savedPanel instanceof HTMLElement)) throw new Error("saved answer panel missing");
+  expect(within(savedPanel).queryByText("Current Q")).toBeNull();
+  expect(await screen.findByText("Saved application JD")).toBeTruthy();
+  expect(await screen.findByText("Current application questions")).toBeTruthy();
+  expect(await screen.findByText("Current Q")).toBeTruthy();
+});

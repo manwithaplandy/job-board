@@ -1,0 +1,36 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ lib/jobLifecycle.flow.db.test.ts (7 tests | 1 failed) 1045ms
+   ✓ owner demand coalesces, ready pins a durable input, generation copies it and consumption follows success 87ms
+   ✓ flag-off missing Greenhouse questions queues service work and accepts its exact ready snapshot 29ms
+   ✓ package persistence copies pinned input and records consumption with the artifact  341ms
+   ✓ résumé-first preparation queues missing Q, pins the saved tuple, and consumes its exact receipt 137ms
+   ✓ calibration SQL reads saved score/edit JD and explicitly falls back for legacy NULL 22ms
+   × instruction-only and application marker rows acquire their genuine first input and output 45ms
+   ✓ new payload wrapper preserves authenticated invoking role in an ordinary enforced write 55ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/jobLifecycle.flow.db.test.ts > instruction-only and application marker rows acquire their genuine first input and output
+AssertionError: expected 'deferred' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "deferred"
+
+ ❯ lib/jobLifecycle.flow.db.test.ts:170:26
+    168|   expect(draft.job_version_id).toBeNull();
+    169|   const pending=await requestJobPayload(owner,"job","prepare");
+    170|   expect(pending.status).toBe("pending");
+       |                          ^
+    171|   await sql`UPDATE job_payload_demands SET status='ready',job_version_…
+    172|     questions_snapshot='{"questions":[]}',snapshot_captured_at=clock_t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  19:12:55
+   Duration  1.50s (transform 362ms, setup 0ms, import 217ms, tests 1.05s, environment 0ms)

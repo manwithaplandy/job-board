@@ -509,7 +509,7 @@ test("résumé-first missing questions uses the actual owner enqueue before prot
   const actual = await vi.importActual<typeof lifecycle>("@/lib/jobLifecycle");
   vi.mocked(lifecycle.requestJobPayload).mockImplementationOnce(actual.requestJobPayload);
   mocks.demandQuery.mockReset();
-  mocks.demandQuery.mockResolvedValueOnce([{job_version_id:"version-1",description_snapshot:"Saved résumé JD",questions_snapshot:null}])
+  mocks.demandQuery.mockResolvedValueOnce([{resume_json:{name:"Existing artifact"},job_version_id:"version-1",description_snapshot:"Saved résumé JD",questions_snapshot:null}])
     .mockResolvedValueOnce([]).mockResolvedValueOnce([])
     .mockResolvedValueOnce([{id:"prepare-demand",job_id:"job-1",kind:"prepare",status:"pending"}]);
   const response = await POST(req());
@@ -529,7 +529,7 @@ test("unknown legacy package with missing Q gives actionable deferred without en
   vi.mocked(lifecycle.requestJobPayload).mockImplementationOnce(actual.requestJobPayload);
   mocks.legacyAllowed = true;
   mocks.demandQuery.mockReset();
-  mocks.demandQuery.mockResolvedValueOnce([{job_version_id:null,description_snapshot:null,questions_snapshot:null}])
+  mocks.demandQuery.mockResolvedValueOnce([{resume_json:{name:"Existing artifact"},job_version_id:null,description_snapshot:null,questions_snapshot:null}])
     .mockResolvedValueOnce([]);
   const response = await POST(req());
   const body = await response.json();
@@ -551,10 +551,30 @@ test("cached legacy package preparation remains usable with unknown historical p
   vi.mocked(lifecycle.requestJobPayload).mockImplementationOnce(actual.requestJobPayload);
   mocks.legacyAllowed = true;
   mocks.demandQuery.mockReset();
-  mocks.demandQuery.mockResolvedValueOnce([{job_version_id:null,description_snapshot:"Saved independent legacy JD",questions_snapshot:null}])
+  mocks.demandQuery.mockResolvedValueOnce([{resume_json:{name:"Existing artifact"},job_version_id:null,description_snapshot:"Saved independent legacy JD",questions_snapshot:null}])
     .mockResolvedValueOnce([{questions:TEXT_Q}]);
   expect((await POST(req())).status).toBe(202);
   expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER,EMAIL,["resume"]);
   await flushBackground();
   expect(mocks.generateResume.mock.calls[0][0].job.description).toBe("Saved independent legacy JD");
+});
+
+test.each([true,false])("contentless instructions queue first preparation before charge (legacy=%s)", async (legacyAllowed) => {
+  const lifecycle = await import("@/lib/jobLifecycle");
+  const actual = await vi.importActual<typeof lifecycle>("@/lib/jobLifecycle");
+  vi.mocked(lifecycle.requestJobPayload).mockImplementationOnce(actual.requestJobPayload);
+  mocks.legacyAllowed = legacyAllowed;
+  mocks.demandQuery.mockReset();
+  mocks.demandQuery.mockResolvedValueOnce([{job_version_id:null,description_snapshot:null,questions_snapshot:null,resume_json:null,cover_letter_json:null,prefilled_answers:null}])
+    .mockResolvedValueOnce([]);
+  if (legacyAllowed) mocks.demandQuery.mockResolvedValueOnce([{description:"Legacy JD",ats:"greenhouse",questions:null}]);
+  mocks.demandQuery.mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{id:"first-prepare",job_id:"job-1",kind:"prepare",status:"pending"}]);
+  const response=await POST(req());
+  expect((await response.json()).payload).toEqual({status:"pending",id:"first-prepare"});
+  expect(mocks.demandQuery.mock.calls.some(call=>call[0].join("").includes("INSERT INTO job_payload_demands"))).toBe(true);
+  expect(mocks.reserveGenerations).not.toHaveBeenCalled();
+  expect(mocks.generateResume).not.toHaveBeenCalled();
+  expect(mocks.generateCoverLetter).not.toHaveBeenCalled();
+  expect(mocks.generatePrefilledAnswers).not.toHaveBeenCalled();
 });

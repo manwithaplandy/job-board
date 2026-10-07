@@ -1,0 +1,11 @@
+Owned lifecycle database: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) (required 16)
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ✓ lib/jobLifecycle.flow.db.test.ts (7 tests) 1769ms
+   ✓ instruction-only and application marker rows acquire their genuine first input and output  523ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  19:16:54
+   Duration  2.29s (transform 260ms, setup 0ms, import 161ms, tests 1.77s, environment 0ms)

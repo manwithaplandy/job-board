@@ -79,3 +79,13 @@ describe("toApplicationPackage", () => {
     ).toBe("abc123");
   });
 });
+
+test("package display carries its exact saved JD/schema and total-parses malformed schema", () => {
+  const schema={questions:[{label:"Saved Q",required:false,fields:[]}]};
+  const pkg=toApplicationPackage(baseRow({description_snapshot:"Saved JD",questions_snapshot:schema}));
+  expect(pkg.descriptionSnapshot).toBe("Saved JD");
+  expect(pkg.questionsSnapshot).toEqual(schema);
+  const malformed=toApplicationPackage(baseRow({description_snapshot:42,questions_snapshot:"bad"}));
+  expect(malformed.descriptionSnapshot).toBeNull();
+  expect(malformed.questionsSnapshot).toBeNull();
+});

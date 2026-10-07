@@ -50,6 +50,9 @@ function logoColor(name: string): string {
 
 export interface JobDetailProps {
   job: JobRow;
+  currentDescription?: string | null;
+  currentQuestions?: GreenhouseQuestions | null;
+  descriptionIsSaved?: boolean;
   nowIso: string;
   isAuthed: boolean;
   gen: Record<string, string>;
@@ -110,6 +113,9 @@ export interface JobDetailProps {
 
 export function JobDetail({
   job,
+  currentDescription,
+  currentQuestions,
+  descriptionIsSaved,
   nowIso,
   isAuthed,
   gen,
@@ -191,7 +197,7 @@ export function JobDetail({
   // pop in a beat after open (like the other detail-only fields). Collapsed by
   // default; toggle resets per job via key={job.id} on this component.
   const applyUrl = normalizeApplyUrl(job.ats, job.url);
-  const fullJD = job.description;
+  const fullJD = currentDescription ?? job.description;
   const [showJD, setShowJD] = useState(false);
 
   return (
@@ -679,6 +685,14 @@ export function JobDetail({
         </>
       )}
 
+      {(pkg?.prefilledAnswers != null || !hasReview) && currentQuestions && (
+        <details style={{marginTop:"20px"}}>
+          <summary>Current application questions</summary>
+          {pkg?.prefilledAnswers != null && <p>Saved answers above use the questions captured with your application.</p>}
+          <ul>{currentQuestions.questions.map((question, index) => <li key={`${index}:${question.label}`}>{question.label}</li>)}</ul>
+        </details>
+      )}
+
       {/* ── Full job description (collapsible) + Apply fallback — the Apply button here
            renders only for not-yet-reviewed roles (which have no Application panel), so an
            unreviewed role is never a dead end. Reviewed roles apply via the panel's
@@ -722,10 +736,23 @@ export function JobDetail({
                     fontWeight: 500,
                   }}
                 >
+                  {currentDescription && <p>Current job description</p>}
                   {fullJD}
                 </div>
               )}
             </>
+          )}
+          {descriptionIsSaved && job.description && job.description !== fullJD && (
+            <details style={{marginTop:"16px"}}>
+              <summary>Saved review description</summary>
+              <p style={{whiteSpace:"pre-wrap"}}>{job.description}</p>
+            </details>
+          )}
+          {pkg?.descriptionSnapshot && pkg.descriptionSnapshot !== fullJD && pkg.descriptionSnapshot !== (descriptionIsSaved ? job.description : null) && (
+            <details style={{marginTop:"16px"}}>
+              <summary>Saved application description</summary>
+              <p style={{whiteSpace:"pre-wrap"}}>{pkg.descriptionSnapshot}</p>
+            </details>
           )}
           {!hasReview && applyUrl && (
             <div style={{ marginTop: "18px" }}>

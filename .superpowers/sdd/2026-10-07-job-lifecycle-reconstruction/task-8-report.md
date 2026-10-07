@@ -1,5 +1,10 @@
 # Task 8 author report
 
+**Phase report pointer:** this original report is historical. `task-8-fix2-report.md`
+records the current-detail UI and contentless first-output corrections from Fix2;
+Fix1/Fix2 reports and their scoped review verdicts are authoritative for their
+respective phases. No author report implies independent review acceptance.
+
 **Historical initial-author report:** independent review found R8-1 through R8-6.
 The package pinning, consumption and legacy compatibility claims below describe
 the original intended behavior and were incomplete. See `task-8-fix1-report.md`

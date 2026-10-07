@@ -13,6 +13,7 @@ export default defineConfig({
     // test (.test.tsx under components/) opts into jsdom via a `// @vitest-environment
     // jsdom` docblock at the top of the file — vitest 4 removed environmentMatchGlobs.
     environment: "node",
+    maxWorkers: 2,
     include: [
       "lib/**/*.test.ts",
       "components/**/*.test.tsx",

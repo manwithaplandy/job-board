@@ -210,3 +210,12 @@ production migration/writes/grants, flag enabling, IAM/S3 provisioning, real
 provider/model/auth calls, push/PR/merge/deployment or paid model calls occurred.
 This handoff is Task9 implementation evidence; it is not all13/final release or
 independent security acceptance.
+
+## Current phase pointer
+
+Task9 Fix1 source `6bd1099b4338cd154e8f1360db1e87fbe6fc2dae` addresses the two
+Important findings from the fresh review of this original report. The current
+authoritative author phase is [task-9-fix1-report.md](task-9-fix1-report.md), with
+actual affected-component/browser verification, React checklist and retained
+limits. Original source/evidence above remain historical; neither report itself
+asserts independent acceptance or completed release.

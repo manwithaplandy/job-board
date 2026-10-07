@@ -1,0 +1,29 @@
+
+==================================== ERRORS ====================================
+________________ ERROR collecting tests/test_archive_export.py _________________
+ImportError while importing test module '/workspace/job-board/.claude/worktrees/lifecycle-recovery/tests/test_archive_export.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_archive_export.py:7: in <module>
+    from job_discovery.archive.s3 import ArchiveClient, Destination, put_verify_batch
+E   ModuleNotFoundError: No module named 'job_discovery.archive.s3'
+________________ ERROR collecting tests/test_archive_privacy.py ________________
+ImportError while importing test module '/workspace/job-board/.claude/worktrees/lifecycle-recovery/tests/test_archive_privacy.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_archive_privacy.py:4: in <module>
+    from tests.test_archive_export import sealed, destination, FakeS3
+tests/test_archive_export.py:7: in <module>
+    from job_discovery.archive.s3 import ArchiveClient, Destination, put_verify_batch
+E   ModuleNotFoundError: No module named 'job_discovery.archive.s3'
+=========================== short test summary info ============================
+ERROR tests/test_archive_export.py
+ERROR tests/test_archive_privacy.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!
+2 errors in 0.26s

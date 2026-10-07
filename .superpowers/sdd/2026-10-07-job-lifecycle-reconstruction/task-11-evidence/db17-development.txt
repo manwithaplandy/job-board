@@ -1,0 +1,246 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FFFFFFFF.F                                                               [100%]
+=================================== FAILURES ===================================
+_____ test_fresh_worker_connection_recovers_each_persisted_boundary[seal] ______
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70da3d40b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f70d95b8c50>
+phase = 'seal'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+        batch,refs=setup_batch(conn)
+>       original_pending=pending(conn)
+                         ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b0950>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+_____ test_fresh_worker_connection_recovers_each_persisted_boundary[data] ______
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d9415490>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f70d9415820>
+phase = 'data'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+        batch,refs=setup_batch(conn)
+>       original_pending=pending(conn)
+                         ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b1d90>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+___ test_fresh_worker_connection_recovers_each_persisted_boundary[manifest] ____
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d94168a0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f70d9414a10>
+phase = 'manifest'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+        batch,refs=setup_batch(conn)
+>       original_pending=pending(conn)
+                         ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b22d0>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+____ test_fresh_worker_connection_recovers_each_persisted_boundary[verify] _____
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d94152b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f70d9414e00>
+phase = 'verify'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+        batch,refs=setup_batch(conn)
+>       original_pending=pending(conn)
+                         ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b2a50>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+_ test_fresh_worker_connection_recovers_each_persisted_boundary[ack-rollback] __
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d9417b30>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f70d9415cd0>
+phase = 'ack-rollback'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+        batch,refs=setup_batch(conn)
+>       original_pending=pending(conn)
+                         ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b0950>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+__ test_fresh_worker_connection_recovers_each_persisted_boundary[ack-commit] ___
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d9417890>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f70d9414200>
+phase = 'ack-commit'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+        batch,refs=setup_batch(conn)
+>       original_pending=pending(conn)
+                         ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b1010>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+______ test_verify_ack_crosses_archive_horizon_then_explicit_replacement _______
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b8740>
+
+    def test_verify_ack_crosses_archive_horizon_then_explicit_replacement(conn):
+        batch,refs=setup_batch(conn)
+        claim=claim_work(conn,'archive-export','singleton',180)
+        ref=recover_batch(conn,batch.batch_id,claim);conn.commit()
+        seal=seal_batch(ref);persist_seal(conn,seal);conn.commit()
+        sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+        verified=put_verify_batch(seal,client)
+>       original=pending(conn)
+                 ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:117: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b3b90>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+________________ test_corrupt_manifest_keeps_persisted_pending _________________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d9479820>
+
+    def test_corrupt_manifest_keeps_persisted_pending(conn):
+        batch,_=setup_batch(conn)
+        seal=seal_batch(batch);sdk=FakeS3();sdk.objects[seal.manifest_key]=b'corrupt'
+>       before=pending(conn)
+               ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:157: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d95b3d10>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+_______ test_periodic_cleanup_is_bounded_and_retains_pending_and_markers _______
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d947b680>
+
+    def test_periodic_cleanup_is_bounded_and_retains_pending_and_markers(conn):
+        batch,_=setup_batch(conn)
+        worker.export_once(TEST_DSN,ArchiveClient(destination(),FakeS3()))
+>       before=pending(conn)
+               ^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:177: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:41: in pending
+    result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=33087 user=postgres database=poller_lifecycle_test) at 0x7f70d9448b90>
+
+>   result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],r['observed_at'],r['recorded_at'],r['revision'])
+                                                                             ^^^^^^^^^^^^^^^^
+        for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+E   KeyError: 'observed_at'
+
+tests/test_archive_retention_recovery.py:41: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[seal]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[data]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[manifest]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[verify]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[ack-rollback]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[ack-commit]
+FAILED tests/test_archive_retention_recovery.py::test_verify_ack_crosses_archive_horizon_then_explicit_replacement
+FAILED tests/test_archive_retention_recovery.py::test_corrupt_manifest_keeps_persisted_pending
+FAILED tests/test_archive_retention_recovery.py::test_periodic_cleanup_is_bounded_and_retains_pending_and_markers
+9 failed, 1 passed in 6.39s

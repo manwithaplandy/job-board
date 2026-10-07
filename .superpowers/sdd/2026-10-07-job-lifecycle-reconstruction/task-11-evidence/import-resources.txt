@@ -1,0 +1,6 @@
+{
+  "scope": "single offline archive_worker import, no worker run or network",
+  "wall_seconds": 0.35886838199803606,
+  "cpu_seconds": 0.35888361300000005,
+  "peak_rss_kib": 38212
+}

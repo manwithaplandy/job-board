@@ -1,0 +1,774 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FFFFFFFFFF                                                               [100%]
+=================================== FAILURES ===================================
+_____ test_fresh_worker_connection_recovers_each_persisted_boundary[seal] ______
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a6270>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f88ada73f50>
+phase = 'seal'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+>       batch,refs=setup_batch(conn)
+                   ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a6270>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+_____ test_fresh_worker_connection_recovers_each_persisted_boundary[data] ______
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a4260>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f88ad8a4cb0>
+phase = 'data'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+>       batch,refs=setup_batch(conn)
+                   ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a4260>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+___ test_fresh_worker_connection_recovers_each_persisted_boundary[manifest] ____
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a5760>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f88ad8a51f0>
+phase = 'manifest'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+>       batch,refs=setup_batch(conn)
+                   ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a5760>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+____ test_fresh_worker_connection_recovers_each_persisted_boundary[verify] _____
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad705190>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f88ad7078c0>
+phase = 'verify'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+>       batch,refs=setup_batch(conn)
+                   ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad705190>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+_ test_fresh_worker_connection_recovers_each_persisted_boundary[ack-rollback] __
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad706990>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f88ad7074d0>
+phase = 'ack-rollback'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+>       batch,refs=setup_batch(conn)
+                   ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad706990>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+__ test_fresh_worker_connection_recovers_each_persisted_boundary[ack-commit] ___
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad706540>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f88ad706b10>
+phase = 'ack-commit'
+
+    @pytest.mark.parametrize('phase',['seal','data','manifest','verify','ack-rollback','ack-commit'])
+    def test_fresh_worker_connection_recovers_each_persisted_boundary(conn,monkeypatch,phase):
+>       batch,refs=setup_batch(conn)
+                   ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad706540>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+______ test_verify_ack_crosses_archive_horizon_then_explicit_replacement _______
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad704b60>
+
+    def test_verify_ack_crosses_archive_horizon_then_explicit_replacement(conn):
+>       batch,refs=setup_batch(conn)
+                   ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:110: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad704b60>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+________________ test_corrupt_manifest_keeps_persisted_pending _________________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad704950>
+
+    def test_corrupt_manifest_keeps_persisted_pending(conn):
+>       batch,_=setup_batch(conn)
+                ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad704950>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+__________ test_flag_off_and_unvalidated_destination_never_touch_sdk ___________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a5790>
+
+    def test_flag_off_and_unvalidated_destination_never_touch_sdk(conn):
+        sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+        assert worker.export_once(TEST_DSN,client) is None
+>       setup_batch(conn)
+
+tests/test_archive_retention_recovery.py:167: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a5790>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+_______ test_periodic_cleanup_is_bounded_and_retains_pending_and_markers _______
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad765af0>
+
+    def test_periodic_cleanup_is_bounded_and_retains_pending_and_markers(conn):
+>       batch,_=setup_batch(conn)
+                ^^^^^^^^^^^^^^^^^
+
+tests/test_archive_retention_recovery.py:174: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:35: in setup_batch
+    conn.commit()
+.venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
+    self.wait(self._commit_gen())
+.venv/lib/python3.12/site-packages/psycopg/connection.py:495: in wait
+    return waiting.wait(
+psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
+    ???
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
+    yield from self._exec_command(b"COMMIT")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad765af0>
+command = b'COMMIT', result_format = <Format.TEXT: 0>
+
+    def _exec_command(
+        self, command: QueryNoTemplate, result_format: pq.Format = TEXT
+    ) -> PQGen[PGresult | None]:
+        """
+        Generator to send a command and receive the result to the backend.
+    
+        Only used to implement internal commands such as "commit", with eventual
+        arguments bound client-side. The cursor can do more complex stuff.
+        """
+        self._check_connection_ok()
+    
+        if isinstance(command, str):
+            command = command.encode(self.pgconn._encoding)
+        elif isinstance(command, Composable):
+            command = command.as_bytes(self)
+    
+        if self._pipeline:
+            cmd = partial(
+                self.pgconn.send_query_params,
+                command,
+                None,
+                result_format=result_format,
+            )
+            self._pipeline.command_queue.append(cmd)
+            self._pipeline.result_queue.append(None)
+            return None
+    
+        # Unless needed, use the simple query protocol, e.g. to interact with
+        # pgbouncer. In pipeline mode we always use the advanced query protocol
+        # instead, see #350
+        if result_format == TEXT:
+            self.pgconn.send_query(command)
+        else:
+            self.pgconn.send_query_params(command, None, result_format=result_format)
+    
+        results: list[PGresult] = (yield from generators.execute(self.pgconn))
+        if len(results) != 1:
+            raise e.InternalError(
+                f"received {len(results)} results from command {command.decode()!r}"
+            )
+    
+        result = results[0]
+        if result.status != COMMAND_OK and result.status != TUPLES_OK:
+            if result.status == FATAL_ERROR:
+>               raise e.error_from_result(result, encoding=self.pgconn._encoding)
+E               psycopg.errors.RaiseException: stale or foreign lifecycle claim
+E               CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 33 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/_connection_base.py:487: RaiseException
+=========================== short test summary info ============================
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[seal]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[data]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[manifest]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[verify]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[ack-rollback]
+FAILED tests/test_archive_retention_recovery.py::test_fresh_worker_connection_recovers_each_persisted_boundary[ack-commit]
+FAILED tests/test_archive_retention_recovery.py::test_verify_ack_crosses_archive_horizon_then_explicit_replacement
+FAILED tests/test_archive_retention_recovery.py::test_corrupt_manifest_keeps_persisted_pending
+FAILED tests/test_archive_retention_recovery.py::test_flag_off_and_unvalidated_destination_never_touch_sdk
+FAILED tests/test_archive_retention_recovery.py::test_periodic_cleanup_is_bounded_and_retains_pending_and_markers
+10 failed in 5.76s

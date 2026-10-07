@@ -1,0 +1,941 @@
+E701 Multiple statements on one line (colon)
+  --> job_discovery/archive/export.py:23:15
+   |
+21 |         WHERE singleton AND validated_at<=clock_timestamp() AND private_validated AND encryption_validated
+22 |         AND policy_validated AND length(validation_evidence)>0''').fetchone()
+23 |     if not row: raise ArchiveBlocked('archive destination validation required')
+   |               ^
+24 |     try:
+25 |         return Destination(**row)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> job_discovery/archive/export.py:49:26
+   |
+47 |         control=read_control(conn)
+48 |         if not control.archive_ever_activated:
+49 |             conn.commit(); return None
+   |                          ^
+50 |         claim=claim_work(conn,'archive-export','singleton',LEASE_SECONDS)
+51 |         conn.commit()
+   |
+
+E701 Multiple statements on one line (colon)
+  --> job_discovery/archive/export.py:52:25
+   |
+50 |         claim=claim_work(conn,'archive-export','singleton',LEASE_SECONDS)
+51 |         conn.commit()
+52 |         if claim is None: return None
+   |                         ^
+53 |         # Scheduled even during export pause; never visits pending payloads.
+54 |         cleanup_terminal(conn,claim)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> job_discovery/archive/export.py:59:26
+   |
+57 |         control=read_control(conn)
+58 |         if not control.export_enabled:
+59 |             conn.commit(); return None
+   |                          ^
+60 |         destination=read_destination(conn)
+61 |         if client is not None and client.destination!=destination:
+   |
+
+E701 Multiple statements on one line (colon)
+  --> job_discovery/archive/export.py:64:19
+   |
+62 | …         raise ArchiveBlocked('archive client differs from validated destination')
+63 | …     expired=conn.execute("SELECT 1 FROM public_archive_batches WHERE state IN ('claimed','sealed') AND eligible_until<=lifecycle_pri…
+64 | …     if expired: log.warning('archive retention action needed; pending events retained')
+   |                 ^
+65 | …     row=conn.execute("SELECT batch_id FROM public_archive_batches WHERE state IN ('claimed','sealed') AND eligible_until>lifecycle_p…
+66 | …     if row:
+   |
+
+E701 Multiple statements on one line (colon)
+  --> job_discovery/archive/export.py:77:23
+   |
+75 | …         ref=claim_batch(conn,limits,claim) if ready['n']>=limits.max_events or ready['bytes']>=limits.max_expanded_bytes or ready['a…
+76 | …     conn.commit()
+77 | …     if ref is None: return None
+   |                     ^
+78 | …     seal=seal_batch(ref)
+79 | …     persist_seal(conn,seal)
+   |
+
+E701 Multiple statements on one line (colon)
+  --> job_discovery/archive/export.py:85:26
+   |
+83 |         renew_claim(conn,claim,LEASE_SECONDS)
+84 |         conn.commit()
+85 |         if client is None: client=ArchiveClient.from_destination(destination)
+   |                          ^
+86 |         verified=put_verify_batch(seal,client)
+87 |         result=ack_batch(conn,verified,claim)
+   |
+
+E701 Multiple statements on one line (colon)
+  --> job_discovery/archive/recovery.py:42:27
+   |
+40 |     _processing_capacity(tx,ref.event_bytes)
+41 |     reservation=reserve_capacity(tx,claim,65536+sum(map(len,ref.event_bytes))*4)
+42 |     if reservation is None: raise ArchiveBlocked('physical replacement capacity unavailable')
+   |                           ^
+43 |     bind_reservation(tx,reservation,job_id=None,scope='public_archive_batches')
+44 |     new_id=uuid4()
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> job_discovery/archive/s3.py:91:22
+   |
+89 |             if type(size) is not int or not 0 <= size <= limit:
+90 |                 raise ValueError('archive object exceeds declared bound')
+91 |             chunks=[]; total=0
+   |                      ^
+92 |             while True:
+93 |                 if time.monotonic() >= deadline:
+   |
+
+E701 Multiple statements on one line (colon)
+  --> job_discovery/archive/s3.py:96:29
+   |
+94 |                     raise TimeoutError('archive verification deadline')
+95 |                 chunk=body.read(min(65536,limit-total+1))
+96 |                 if not chunk: break
+   |                             ^
+97 |                 total+=len(chunk)
+98 |                 if total>limit: raise ValueError('archive object exceeds read bound')
+   |
+
+E701 Multiple statements on one line (colon)
+   --> job_discovery/archive/s3.py:98:31
+    |
+ 96 |                 if not chunk: break
+ 97 |                 total+=len(chunk)
+ 98 |                 if total>limit: raise ValueError('archive object exceeds read bound')
+    |                               ^
+ 99 |                 chunks.append(chunk)
+100 |             data=b''.join(chunks)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> job_discovery/archive/s3.py:101:31
+    |
+ 99 |                 chunks.append(chunk)
+100 |             data=b''.join(chunks)
+101 |             if len(data)!=size: raise ValueError('archive object length differs')
+    |                               ^
+102 |             digest=hashlib.sha256(data).digest()
+103 |             checksum=response.get('ChecksumSHA256')
+    |
+
+E701 Multiple statements on one line (colon)
+   --> job_discovery/archive/s3.py:131:52
+    |
+129 |         for key in ('occurred_at','observed_at','recorded_at'):
+130 |             value=event[key]
+131 |             if value is None and key=='observed_at': continue
+    |                                                    ^
+132 |             if not isinstance(value,str) or datetime.fromisoformat(value).tzinfo is None:
+133 |                 raise ValueError('invalid public event time')
+    |
+
+E701 Multiple statements on one line (colon)
+   --> job_discovery/archive/s3.py:136:38
+    |
+134 |         validate_change(PublicChange(AggregateType(event['aggregate_type']),event['aggregate_id'],
+135 |             ChangeKind(event['kind']),event['body'],datetime.fromisoformat(event['occurred_at'])))
+136 |         if canonical_json(event)!=raw: raise ValueError('noncanonical public event')
+    |                                      ^
+    |
+
+E701 Multiple statements on one line (colon)
+   --> job_discovery/archive/s3.py:152:34
+    |
+150 |     archive_client.conditional_put(seal.data_key,seal.compressed_data)
+151 |     data,data_receipt=archive_client.bounded_read(seal.data_key,min(MAX_COMPRESSED,seal.compressed_bytes),deadline)
+152 |     if data!=seal.compressed_data: raise ValueError('archive data differs')
+    |                                  ^
+153 |     with gzip.GzipFile(fileobj=io.BytesIO(data),mode='rb') as stream:
+154 |         expanded=stream.read(MAX_EXPANDED+1)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> job_discovery/archive/s3.py:159:36
+    |
+157 |     archive_client.conditional_put(seal.manifest_key,seal.manifest_data)
+158 |     manifest,manifest_receipt=archive_client.bounded_read(seal.manifest_key,min(MAX_MANIFEST,seal.manifest_bytes),deadline)
+159 |     if manifest!=seal.manifest_data: raise ValueError('archive manifest differs')
+    |                                    ^
+160 |     return VerifiedBatch(seal,data_receipt,manifest_receipt)
+    |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_export.py:40:26
+   |
+38 | class FakeS3:
+39 |     def __init__(self):
+40 |         self.objects = {}; self.calls = []; self.bodies = []; self.ambiguous = False
+   |                          ^
+41 |         self.meta = type('Meta', (), {'region_name':'us-east-1'})()
+42 |     def put_object(self, **kwargs):
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_export.py:40:43
+   |
+38 | class FakeS3:
+39 |     def __init__(self):
+40 |         self.objects = {}; self.calls = []; self.bodies = []; self.ambiguous = False
+   |                                           ^
+41 |         self.meta = type('Meta', (), {'region_name':'us-east-1'})()
+42 |     def put_object(self, **kwargs):
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_export.py:40:61
+   |
+38 | class FakeS3:
+39 |     def __init__(self):
+40 |         self.objects = {}; self.calls = []; self.bodies = []; self.ambiguous = False
+   |                                                             ^
+41 |         self.meta = type('Meta', (), {'region_name':'us-east-1'})()
+42 |     def put_object(self, **kwargs):
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_export.py:58:45
+   |
+56 |         if key not in self.objects:
+57 |             raise ClientError({'Error':{'Code':'NoSuchKey'},'ResponseMetadata':{'HTTPStatusCode':404}}, 'GetObject')
+58 |         body = io.BytesIO(self.objects[key]); self.bodies.append(body)
+   |                                             ^
+59 |         return {'Body':body,'ContentLength':len(self.objects[key]),'VersionId':'offline-version'}
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_export.py:64:20
+   |
+62 | @pytest.mark.parametrize('mode', ['new','existing','data-only','ambiguous'])
+63 | def test_conditional_exact_retry(mode):
+64 |     seal = sealed(); sdk = FakeS3(); client = ArchiveClient(destination(), sdk)
+   |                    ^
+65 |     if mode in {'existing','data-only'}: sdk.objects[seal.data_key] = seal.compressed_data
+66 |     if mode == 'existing': sdk.objects[seal.manifest_key] = seal.manifest_data
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_export.py:64:36
+   |
+62 | @pytest.mark.parametrize('mode', ['new','existing','data-only','ambiguous'])
+63 | def test_conditional_exact_retry(mode):
+64 |     seal = sealed(); sdk = FakeS3(); client = ArchiveClient(destination(), sdk)
+   |                                    ^
+65 |     if mode in {'existing','data-only'}: sdk.objects[seal.data_key] = seal.compressed_data
+66 |     if mode == 'existing': sdk.objects[seal.manifest_key] = seal.manifest_data
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_export.py:65:40
+   |
+63 | def test_conditional_exact_retry(mode):
+64 |     seal = sealed(); sdk = FakeS3(); client = ArchiveClient(destination(), sdk)
+65 |     if mode in {'existing','data-only'}: sdk.objects[seal.data_key] = seal.compressed_data
+   |                                        ^
+66 |     if mode == 'existing': sdk.objects[seal.manifest_key] = seal.manifest_data
+67 |     sdk.ambiguous = mode == 'ambiguous'
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_export.py:66:26
+   |
+64 |     seal = sealed(); sdk = FakeS3(); client = ArchiveClient(destination(), sdk)
+65 |     if mode in {'existing','data-only'}: sdk.objects[seal.data_key] = seal.compressed_data
+66 |     if mode == 'existing': sdk.objects[seal.manifest_key] = seal.manifest_data
+   |                          ^
+67 |     sdk.ambiguous = mode == 'ambiguous'
+68 |     verified = put_verify_batch(seal, client)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_export.py:77:20
+   |
+75 | @pytest.mark.parametrize('which', ['data','manifest'])
+76 | def test_corrupt_existing_fails_closed(which):
+77 |     seal = sealed(); sdk = FakeS3()
+   |                    ^
+78 |     sdk.objects[getattr(seal, which+'_key')] = b'corrupt'
+79 |     with pytest.raises(ValueError): put_verify_batch(seal, ArchiveClient(destination(),sdk))
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_export.py:79:35
+   |
+77 |     seal = sealed(); sdk = FakeS3()
+78 |     sdk.objects[getattr(seal, which+'_key')] = b'corrupt'
+79 |     with pytest.raises(ValueError): put_verify_batch(seal, ArchiveClient(destination(),sdk))
+   |                                   ^
+80 |     assert all(b.closed for b in sdk.bodies)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_export.py:87:47
+   |
+85 |     from botocore.stub import Stubber
+86 |     sdk = boto3.client('s3', region_name='us-east-1', aws_access_key_id='fake', aws_secret_access_key='fake')
+87 |     client = ArchiveClient(destination(), sdk); seal = sealed()
+   |                                               ^
+88 |     with Stubber(sdk) as stub:
+89 |         for key, data in [(seal.data_key,seal.compressed_data),(seal.manifest_key,seal.manifest_data)]:
+   |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_export.py:102:18
+    |
+100 |     import gzip
+101 |     import time
+102 |     seal=sealed();sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+    |                  ^
+103 |     raw=gzip.compress(b'x'*(8*1024**2+1)) if case=='bomb' else b'abc'
+104 |     class Body(io.BytesIO):
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_export.py:102:31
+    |
+100 |     import gzip
+101 |     import time
+102 |     seal=sealed();sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+    |                               ^
+103 |     raw=gzip.compress(b'x'*(8*1024**2+1)) if case=='bomb' else b'abc'
+104 |     class Body(io.BytesIO):
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_export.py:107:34
+    |
+105 |         def read(self,n=-1):
+106 |             assert n>0
+107 |             if case=='read-error':raise OSError('offline read failure')
+    |                                  ^
+108 |             return super().read(n)
+109 |     body=Body(raw)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_export.py:111:24
+    |
+109 |     body=Body(raw)
+110 |     response={'Body':body,'ContentLength':len(raw)}
+111 |     if case=='oversize':response['ContentLength']=17*1024**2
+    |                        ^
+112 |     if case=='lying-length':response['ContentLength']=1
+113 |     if case=='checksum':response['ChecksumSHA256']='incorrect'
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_export.py:112:28
+    |
+110 |     response={'Body':body,'ContentLength':len(raw)}
+111 |     if case=='oversize':response['ContentLength']=17*1024**2
+112 |     if case=='lying-length':response['ContentLength']=1
+    |                            ^
+113 |     if case=='checksum':response['ChecksumSHA256']='incorrect'
+114 |     def get(**kw):return response
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_export.py:113:24
+    |
+111 |     if case=='oversize':response['ContentLength']=17*1024**2
+112 |     if case=='lying-length':response['ContentLength']=1
+113 |     if case=='checksum':response['ChecksumSHA256']='incorrect'
+    |                        ^
+114 |     def get(**kw):return response
+115 |     sdk.get_object=get
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_export.py:121:45
+    |
+119 |         from unittest.mock import patch
+120 |         with patch('job_discovery.archive.s3.time.monotonic',side_effect=lambda:next(calls)):
+121 |             with pytest.raises(TimeoutError):client.bounded_read(seal.data_key,10,1)
+    |                                             ^
+122 |     else:
+123 |         with pytest.raises((ValueError,OSError)):
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_export.py:132:35
+    |
+130 |     from dataclasses import replace
+131 |     sdk=FakeS3()
+132 |     with pytest.raises(ValueError):put_verify_batch(replace(sealed(),**{field:value}),ArchiveClient(destination(),sdk))
+    |                                   ^
+133 |     assert not sdk.calls
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_export.py:137:17
+    |
+136 | def test_non_412_errors_propagate_without_read():
+137 |     sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+    |                 ^
+138 |     def denied(**kw):raise ClientError({'Error':{'Code':'AccessDenied'},'ResponseMetadata':{'HTTPStatusCode':403}},'PutObject')
+139 |     sdk.put_object=denied
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_export.py:140:36
+    |
+138 |     def denied(**kw):raise ClientError({'Error':{'Code':'AccessDenied'},'ResponseMetadata':{'HTTPStatusCode':403}},'PutObject')
+139 |     sdk.put_object=denied
+140 |     with pytest.raises(ClientError):put_verify_batch(sealed(),client)
+    |                                    ^
+141 |     assert not sdk.bodies
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_export.py:148:64
+    |
+146 |     captured={}
+147 |     class Session:
+148 |         def client(self,*args,**kwargs):captured.update(kwargs);return FakeS3()
+    |                                                                ^
+149 |     monkeypatch.setattr(module.boto3.session,'Session',lambda **kw:Session())
+150 |     ArchiveClient.from_destination(destination())
+    |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_privacy.py:12:20
+   |
+11 | def test_private_field_and_path_rejected_before_io(caplog):
+12 |     seal = sealed(); sdk = FakeS3(); client = ArchiveClient(destination(),sdk)
+   |                    ^
+13 |     event = json.loads(seal.batch.event_bytes[0]); event['body']['private_notes'] = 'private-sentinel'
+14 |     bad = seal_batch(replace(seal.batch,event_bytes=(canonical_json(event),)))
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_privacy.py:12:36
+   |
+11 | def test_private_field_and_path_rejected_before_io(caplog):
+12 |     seal = sealed(); sdk = FakeS3(); client = ArchiveClient(destination(),sdk)
+   |                                    ^
+13 |     event = json.loads(seal.batch.event_bytes[0]); event['body']['private_notes'] = 'private-sentinel'
+14 |     bad = seal_batch(replace(seal.batch,event_bytes=(canonical_json(event),)))
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_privacy.py:13:50
+   |
+11 | def test_private_field_and_path_rejected_before_io(caplog):
+12 |     seal = sealed(); sdk = FakeS3(); client = ArchiveClient(destination(),sdk)
+13 |     event = json.loads(seal.batch.event_bytes[0]); event['body']['private_notes'] = 'private-sentinel'
+   |                                                  ^
+14 |     bad = seal_batch(replace(seal.batch,event_bytes=(canonical_json(event),)))
+15 |     with pytest.raises(ValueError): put_verify_batch(bad,client)
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_privacy.py:15:35
+   |
+13 |     event = json.loads(seal.batch.event_bytes[0]); event['body']['private_notes'] = 'private-sentinel'
+14 |     bad = seal_batch(replace(seal.batch,event_bytes=(canonical_json(event),)))
+15 |     with pytest.raises(ValueError): put_verify_batch(bad,client)
+   |                                   ^
+16 |     with pytest.raises(ValueError): put_verify_batch(replace(seal,data_key='../private'),client)
+17 |     assert not sdk.calls
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_privacy.py:16:35
+   |
+14 |     bad = seal_batch(replace(seal.batch,event_bytes=(canonical_json(event),)))
+15 |     with pytest.raises(ValueError): put_verify_batch(bad,client)
+16 |     with pytest.raises(ValueError): put_verify_batch(replace(seal,data_key='../private'),client)
+   |                                   ^
+17 |     assert not sdk.calls
+18 |     assert 'private-sentinel' not in caplog.text
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_privacy.py:23:35
+   |
+21 | @pytest.mark.parametrize('prefix', ['../public','public//events','https://bucket','public?x=y'])
+22 | def test_invalid_service_prefix(prefix):
+23 |     with pytest.raises(ValueError): Destination('fixture-bucket','us-east-1',prefix,'123456789012')
+   |                                   ^
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_privacy.py:27:17
+   |
+26 | def test_region_and_prefix_must_match():
+27 |     sdk=FakeS3(); sdk.meta.region_name='eu-west-1'
+   |                 ^
+28 |     with pytest.raises(ValueError): ArchiveClient(destination(),sdk)
+29 |     with pytest.raises(ValueError): put_verify_batch(sealed(),ArchiveClient(replace(destination(),object_prefix='other'),FakeS3()))
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_privacy.py:28:35
+   |
+26 | def test_region_and_prefix_must_match():
+27 |     sdk=FakeS3(); sdk.meta.region_name='eu-west-1'
+28 |     with pytest.raises(ValueError): ArchiveClient(destination(),sdk)
+   |                                   ^
+29 |     with pytest.raises(ValueError): put_verify_batch(sealed(),ArchiveClient(replace(destination(),object_prefix='other'),FakeS3()))
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_privacy.py:29:35
+   |
+27 |     sdk=FakeS3(); sdk.meta.region_name='eu-west-1'
+28 |     with pytest.raises(ValueError): ArchiveClient(destination(),sdk)
+29 |     with pytest.raises(ValueError): put_verify_batch(sealed(),ArchiveClient(replace(destination(),object_prefix='other'),FakeS3()))
+   |                                   ^
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:44:18
+   |
+42 |     result=tuple((r['event_id'],bytes(r['canonical_event']),r['occurred_at'],json.loads(bytes(r['canonical_event']))['observed_at'],r[…
+43 |         for r in conn.execute('SELECT * FROM public_pending_events ORDER BY event_id'))
+44 |     conn.commit();return result
+   |                  ^
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_retention_recovery.py:47:27
+   |
+47 | class Crash(BaseException): pass
+   |                           ^
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:54:17
+   |
+52 |     batch,refs=setup_batch(conn)
+53 |     original_pending=pending(conn)
+54 |     sdk=FakeS3(); client=ArchiveClient(destination(),sdk)
+   |                 ^
+55 |     opened=[]; original_connect=db.connect
+56 |     def connect(dsn):
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:55:14
+   |
+53 |     original_pending=pending(conn)
+54 |     sdk=FakeS3(); client=ArchiveClient(destination(),sdk)
+55 |     opened=[]; original_connect=db.connect
+   |              ^
+56 |     def connect(dsn):
+57 |         fresh=original_connect(dsn);opened.append(fresh);return fresh
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:57:36
+   |
+55 |     opened=[]; original_connect=db.connect
+56 |     def connect(dsn):
+57 |         fresh=original_connect(dsn);opened.append(fresh);return fresh
+   |                                    ^
+58 |     monkeypatch.setattr(worker.db,'connect',connect)
+59 |     original_seal=worker.persist_seal;original_verify=worker.put_verify_batch;original_ack=worker.ack_batch
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:57:57
+   |
+55 |     opened=[]; original_connect=db.connect
+56 |     def connect(dsn):
+57 |         fresh=original_connect(dsn);opened.append(fresh);return fresh
+   |                                                         ^
+58 |     monkeypatch.setattr(worker.db,'connect',connect)
+59 |     original_seal=worker.persist_seal;original_verify=worker.put_verify_batch;original_ack=worker.ack_batch
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:59:38
+   |
+57 |         fresh=original_connect(dsn);opened.append(fresh);return fresh
+58 |     monkeypatch.setattr(worker.db,'connect',connect)
+59 |     original_seal=worker.persist_seal;original_verify=worker.put_verify_batch;original_ack=worker.ack_batch
+   |                                      ^
+60 |     if phase=='seal':
+61 |         def crash_seal(c,s):
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:59:78
+   |
+57 |         fresh=original_connect(dsn);opened.append(fresh);return fresh
+58 |     monkeypatch.setattr(worker.db,'connect',connect)
+59 |     original_seal=worker.persist_seal;original_verify=worker.put_verify_batch;original_ack=worker.ack_batch
+   |                                                                              ^
+60 |     if phase=='seal':
+61 |         def crash_seal(c,s):
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:62:31
+   |
+60 |     if phase=='seal':
+61 |         def crash_seal(c,s):
+62 |             original_seal(c,s);c.commit();raise Crash()
+   |                               ^
+63 |         monkeypatch.setattr(worker,'persist_seal',crash_seal)
+64 |     elif phase in {'data','manifest'}:
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:62:42
+   |
+60 |     if phase=='seal':
+61 |         def crash_seal(c,s):
+62 |             original_seal(c,s);c.commit();raise Crash()
+   |                                          ^
+63 |         monkeypatch.setattr(worker,'persist_seal',crash_seal)
+64 |     elif phase in {'data','manifest'}:
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_retention_recovery.py:68:86
+   |
+66 |         def crash_put(**kw):
+67 |             original_put(**kw)
+68 |             if kw['Key'].endswith('.jsonl.gz' if phase=='data' else '.manifest.json'): raise Crash()
+   |                                                                                      ^
+69 |         monkeypatch.setattr(sdk,'put_object',crash_put)
+70 |     elif phase=='verify':
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> tests/test_archive_retention_recovery.py:71:52
+   |
+69 |         monkeypatch.setattr(sdk,'put_object',crash_put)
+70 |     elif phase=='verify':
+71 |         def crash_verify(s,c): original_verify(s,c);raise Crash()
+   |                                                    ^
+72 |         monkeypatch.setattr(worker,'put_verify_batch',crash_verify)
+73 |     else:
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_retention_recovery.py:76:35
+   |
+74 |         def crash_ack(c,v,cl):
+75 |             original_ack(c,v,cl)
+76 |             if phase=='ack-commit':c.commit()
+   |                                   ^
+77 |             raise Crash()
+78 |         monkeypatch.setattr(worker,'ack_batch',crash_ack)
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_retention_recovery.py:79:30
+   |
+77 |             raise Crash()
+78 |         monkeypatch.setattr(worker,'ack_batch',crash_ack)
+79 |     with pytest.raises(Crash):worker.export_once(TEST_DSN,client)
+   |                              ^
+80 |     assert len(opened)==1 and opened[0].closed
+81 |     state=conn.execute('SELECT * FROM public_archive_batches WHERE batch_id=%s',(batch.batch_id,)).fetchone()
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_retention_recovery.py:85:27
+   |
+83 |     old_claim=replace(batch.claim,owner_token=state['owner_token'],generation=state['generation'])
+84 |     before_retry=dict(sdk.objects)
+85 |     if phase!='ack-commit':assert pending(conn)==original_pending
+   |                           ^
+86 |     # Discard the first worker/client AND connection; immutable object storage persists.
+87 |     monkeypatch.setattr(worker,'persist_seal',original_seal)
+   |
+
+E701 Multiple statements on one line (colon)
+  --> tests/test_archive_retention_recovery.py:94:27
+   |
+92 |     result=worker.export_once(TEST_DSN,fresh_client)
+93 |     assert len(opened)==2 and opened[1].closed and opened[0] is not opened[1]
+94 |     if phase!='ack-commit':assert result.exact_event_ids==batch.ordered_event_ids
+   |                           ^
+95 |     assert all(sdk.objects[k]==v for k,v in before_retry.items())
+96 |     assert {r[0] for r in pending(conn)}=={r.event_id for r in refs}-set(batch.ordered_event_ids)
+   |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:114:49
+    |
+112 |     batch,refs=setup_batch(conn)
+113 |     claim=claim_work(conn,'archive-export','singleton',180)
+114 |     ref=recover_batch(conn,batch.batch_id,claim);conn.commit()
+    |                                                 ^
+115 |     seal=seal_batch(ref);persist_seal(conn,seal);conn.commit()
+116 |     sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:115:25
+    |
+113 |     claim=claim_work(conn,'archive-export','singleton',180)
+114 |     ref=recover_batch(conn,batch.batch_id,claim);conn.commit()
+115 |     seal=seal_batch(ref);persist_seal(conn,seal);conn.commit()
+    |                         ^
+116 |     sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+117 |     verified=put_verify_batch(seal,client)
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:115:49
+    |
+113 |     claim=claim_work(conn,'archive-export','singleton',180)
+114 |     ref=recover_batch(conn,batch.batch_id,claim);conn.commit()
+115 |     seal=seal_batch(ref);persist_seal(conn,seal);conn.commit()
+    |                                                 ^
+116 |     sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+117 |     verified=put_verify_batch(seal,client)
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:116:17
+    |
+114 |     ref=recover_batch(conn,batch.batch_id,claim);conn.commit()
+115 |     seal=seal_batch(ref);persist_seal(conn,seal);conn.commit()
+116 |     sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+    |                 ^
+117 |     verified=put_verify_batch(seal,client)
+118 |     original=pending(conn)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_retention_recovery.py:120:74
+    |
+118 |     original=pending(conn)
+119 |     set_archive_clock(conn,ref.eligible_until+timedelta(seconds=1))
+120 |     with pytest.raises(ArchiveBlocked,match='expired'),conn.transaction():ack_batch(conn,verified,claim)
+    |                                                                          ^
+121 |     with pytest.raises(ArchiveBlocked,match='authorization'),conn.transaction():
+122 |         replace_expired_batch(conn,ref.batch_id,claim,RecoveryAuthorization(uuid4()))
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:124:29
+    |
+122 |         replace_expired_batch(conn,ref.batch_id,claim,RecoveryAuthorization(uuid4()))
+123 |     assert pending(conn)==original
+124 |     cancel_claim(conn,claim);conn.commit()
+    |                             ^
+125 |     before=len(sdk.calls)
+126 |     assert worker.export_once(TEST_DSN,ArchiveClient(destination(),sdk)) is None
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:143:38
+    |
+141 |         assert replacement.sealed_at>ref.eligible_until
+142 |         assert replacement.eligible_until-replacement.sealed_at==timedelta(days=730)
+143 |         cancel_claim(fresh,new_claim);fresh.commit()
+    |                                      ^
+144 |     finally:fresh.close()
+145 |     assert pending(conn)==original
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_retention_recovery.py:144:12
+    |
+142 |         assert replacement.eligible_until-replacement.sealed_at==timedelta(days=730)
+143 |         cancel_claim(fresh,new_claim);fresh.commit()
+144 |     finally:fresh.close()
+    |            ^
+145 |     assert pending(conn)==original
+146 |     with pytest.raises((ArchiveBlocked,RuntimeError)),conn.transaction():ack_batch(conn,verified,claim)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_retention_recovery.py:146:73
+    |
+144 |     finally:fresh.close()
+145 |     assert pending(conn)==original
+146 |     with pytest.raises((ArchiveBlocked,RuntimeError)),conn.transaction():ack_batch(conn,verified,claim)
+    |                                                                         ^
+147 |     assert worker.export_once(TEST_DSN,ArchiveClient(destination(),sdk)).exact_event_ids==ref.ordered_event_ids
+148 |     assert sdk.objects[seal.data_key]==seal.compressed_data
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:157:27
+    |
+155 | def test_corrupt_manifest_keeps_persisted_pending(conn):
+156 |     batch,_=setup_batch(conn)
+157 |     seal=seal_batch(batch);sdk=FakeS3();sdk.objects[seal.manifest_key]=b'corrupt'
+    |                           ^
+158 |     before=pending(conn)
+159 |     with pytest.raises(ValueError):worker.export_once(TEST_DSN,ArchiveClient(destination(),sdk))
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:157:40
+    |
+155 | def test_corrupt_manifest_keeps_persisted_pending(conn):
+156 |     batch,_=setup_batch(conn)
+157 |     seal=seal_batch(batch);sdk=FakeS3();sdk.objects[seal.manifest_key]=b'corrupt'
+    |                                        ^
+158 |     before=pending(conn)
+159 |     with pytest.raises(ValueError):worker.export_once(TEST_DSN,ArchiveClient(destination(),sdk))
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_retention_recovery.py:159:35
+    |
+157 |     seal=seal_batch(batch);sdk=FakeS3();sdk.objects[seal.manifest_key]=b'corrupt'
+158 |     before=pending(conn)
+159 |     with pytest.raises(ValueError):worker.export_once(TEST_DSN,ArchiveClient(destination(),sdk))
+    |                                   ^
+160 |     assert pending(conn)==before
+161 |     calls=len(sdk.calls)
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:170:17
+    |
+169 | def test_flag_off_and_unvalidated_destination_never_touch_sdk(conn):
+170 |     sdk=FakeS3();client=ArchiveClient(destination(),sdk)
+    |                 ^
+171 |     assert worker.export_once(TEST_DSN,client) is None
+172 |     setup_batch(conn)
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:173:82
+    |
+171 |     assert worker.export_once(TEST_DSN,client) is None
+172 |     setup_batch(conn)
+173 |     conn.execute('UPDATE public_archive_destination SET private_validated=false');conn.commit()
+    |                                                                                  ^
+174 |     with pytest.raises(ArchiveBlocked,match='validation'):worker.export_once(TEST_DSN,client)
+175 |     assert not sdk.calls
+    |
+
+E701 Multiple statements on one line (colon)
+   --> tests/test_archive_retention_recovery.py:174:58
+    |
+172 |     setup_batch(conn)
+173 |     conn.execute('UPDATE public_archive_destination SET private_validated=false');conn.commit()
+174 |     with pytest.raises(ArchiveBlocked,match='validation'):worker.export_once(TEST_DSN,client)
+    |                                                          ^
+175 |     assert not sdk.calls
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:184:94
+    |
+182 |     conn.execute('ALTER TABLE public_archive_batch_markers DISABLE TRIGGER archive_immutable')
+183 |     conn.execute("UPDATE public_archive_batch_markers SET acked_at=clock_timestamp()-interval '8 days'")
+184 |     conn.execute('ALTER TABLE public_archive_batch_markers ENABLE TRIGGER archive_immutable');conn.commit()
+    |                                                                                              ^
+185 |     claim=claim_work(conn,'archive-export','cleanup-fixture',180);conn.commit()
+186 |     for _ in range(4):
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:185:66
+    |
+183 |     conn.execute("UPDATE public_archive_batch_markers SET acked_at=clock_timestamp()-interval '8 days'")
+184 |     conn.execute('ALTER TABLE public_archive_batch_markers ENABLE TRIGGER archive_immutable');conn.commit()
+185 |     claim=claim_work(conn,'archive-export','cleanup-fixture',180);conn.commit()
+    |                                                                  ^
+186 |     for _ in range(4):
+187 |         assert worker.cleanup_terminal(conn,claim,limit=1)==1;conn.commit()
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:187:62
+    |
+185 |     claim=claim_work(conn,'archive-export','cleanup-fixture',180);conn.commit()
+186 |     for _ in range(4):
+187 |         assert worker.cleanup_terminal(conn,claim,limit=1)==1;conn.commit()
+    |                                                              ^
+188 |     assert worker.cleanup_terminal(conn,claim,limit=1)==0;conn.commit()
+189 |     assert pending(conn)==before
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_archive_retention_recovery.py:188:58
+    |
+186 |     for _ in range(4):
+187 |         assert worker.cleanup_terminal(conn,claim,limit=1)==1;conn.commit()
+188 |     assert worker.cleanup_terminal(conn,claim,limit=1)==0;conn.commit()
+    |                                                          ^
+189 |     assert pending(conn)==before
+190 |     assert conn.execute('SELECT count(*) n FROM public_archive_coverage').fetchone()['n']==2
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_lifecycle_supervisor.py:414:19
+    |
+413 | def test_archive_ticks_and_deadline_are_independent(monkeypatch):
+414 |     s=supervisor();clock=Clock();children=[]
+    |                   ^
+415 |     monkeypatch.setattr(s.time,'sleep',lambda delay:setattr(clock,'now',clock.now+delay))
+416 |     def spawn(name):
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_lifecycle_supervisor.py:414:33
+    |
+413 | def test_archive_ticks_and_deadline_are_independent(monkeypatch):
+414 |     s=supervisor();clock=Clock();children=[]
+    |                                 ^
+415 |     monkeypatch.setattr(s.time,'sleep',lambda delay:setattr(clock,'now',clock.now+delay))
+416 |     def spawn(name):
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_lifecycle_supervisor.py:418:38
+    |
+416 |     def spawn(name):
+417 |         child=Child(clock,duration=1 if name=='maintenance' else None,ignores_term=True)
+418 |         children.append((name,child));return child
+    |                                      ^
+419 |     assert s.supervise(Stop(clock,190),spawn,clock)==0
+420 |     archive=[c for name,c in children if name=='archive']
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_lifecycle_supervisor.py:428:19
+    |
+427 | def test_archive_successful_children_run_every_sixty_seconds():
+428 |     s=supervisor();clock=Clock();children=[]
+    |                   ^
+429 |     def spawn(name):
+430 |         child=Child(clock,duration=1 if name in {'archive','maintenance'} else None)
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_lifecycle_supervisor.py:428:33
+    |
+427 | def test_archive_successful_children_run_every_sixty_seconds():
+428 |     s=supervisor();clock=Clock();children=[]
+    |                                 ^
+429 |     def spawn(name):
+430 |         child=Child(clock,duration=1 if name in {'archive','maintenance'} else None)
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_lifecycle_supervisor.py:431:38
+    |
+429 |     def spawn(name):
+430 |         child=Child(clock,duration=1 if name in {'archive','maintenance'} else None)
+431 |         children.append((name,child));return child
+    |                                      ^
+432 |     assert s.supervise(Stop(clock,185),spawn,clock)==0
+433 |     assert [c.started for name,c in children if name=='archive']==[0,60,120,180]
+    |
+
+Found 88 errors.

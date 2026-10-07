@@ -702,3 +702,52 @@ def test_chunk_guard_preserves_committed_admissions_and_completes_verification(c
     assert conn.execute('SELECT count(*) AS n FROM jobs').fetchone()['n'] == 501
     assert conn.execute('SELECT closed_at FROM jobs WHERE id=%s',(old,)).fetchone()['closed_at'] is not None
     assert len(calls) == 3
+
+
+@requires_db
+def test_real_reconnect_lock_denial_records_abort_and_skips_optional_work(conn, monkeypatch):
+    from tests.test_prune import _company, _job
+    from tests.conftest import TEST_DSN
+    monkeypatch.setenv('DATABASE_URL',TEST_DSN)
+    cid = _company(conn,'reconnect-denied')
+    _job(conn,cid,'existing')
+    monkeypatch.setattr(run_module,'load_targets',lambda: [])
+    original_connect = run_module.db.connect
+    connections = [0]
+    contender = []
+    class BrokenPoll:
+        def __init__(self,real):
+            self.real = real
+        def rollback(self):
+            raise OSError('broken poll rollback')
+        def close(self):
+            self.real.close()
+            other = original_connect(TEST_DSN)
+            contender.append(other)
+            assert other.execute("SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked").fetchone()['locked']
+            other.commit()
+        def __getattr__(self,name):
+            return getattr(self.real,name)
+    def connect(dsn=None):
+        connections[0] += 1
+        real = original_connect(dsn)
+        return BrokenPoll(real) if connections[0] == 2 else real
+    monkeypatch.setattr(run_module.db,'connect',connect)
+    def source(token):
+        raise RuntimeError('source unavailable')
+    monkeypatch.setitem(ADAPTERS,'lever',source)
+    def forbidden(*args,**kw):
+        pytest.fail('aborted run performed optional work without poll lock')
+    monkeypatch.setattr(run_module,'_run_prune',forbidden)
+    monkeypatch.setattr('job_discovery.locations.resolve_new_locations',forbidden)
+    monkeypatch.setattr('reviewer.run.review_all',forbidden)
+    try:
+        result = run_module.run()
+    finally:
+        for other in contender:
+            other.close()
+    assert result == {'ok':0,'failed':1,'new_jobs':0,'closed_jobs':0}
+    row = conn.execute('SELECT companies_failed,finished_at,notes FROM poll_runs').fetchone()
+    assert row['companies_failed'] == 1 and row['finished_at'] is not None
+    assert 'aborted' in row['notes']
+    assert connections[0] == 4  # Initial maintenance/poll plus maintenance/reconnect.

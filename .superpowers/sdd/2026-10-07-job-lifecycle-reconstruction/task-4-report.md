@@ -187,3 +187,98 @@ pytest-generated trailing whitespace. It was detected during staging, then
 normalized without altering results or traceback content. The source/test commit
 is `9608f7c`; the forward evidence-normalization commit contains no product or
 test changes. Final source verification above remains applicable.
+
+## Fix Round 1 — ordinary timing and reconnect-abort corrections
+
+FIX_BASE: `8731cd32adb67755dfbbdd7ee53e09ec03d239c5`. Read the full independent
+`task-4-requirements-review.md` and its exact saved offline diagnostics/output.
+The permitted review verdict was **Spec FAIL / Quality CHANGES_REQUIRED**.
+Both findings were valid; the earlier passing tests did not cover their actual
+inner control flow. This forward fix addresses R4-1 and R4-2 only.
+
+R4-1: the worker now applies a remaining-time wrapper to every phase statement,
+including statements issued through a cursor and those after `enter_gate` resets
+its timeout. The 5-second per-statement maximum is clipped to the remaining
+transaction window. Each phase reserves five seconds to persist/commit progress
+and a further five seconds for renewal or final health. Payload work checks its
+yield point between Jobs **and between the two payload mutations**. A half-finished
+pair retains the previous cursor so the next transaction/invocation revisits that
+Job and sees the already-cleared field. Protected/empty rows still advance the
+cursor. Only committed counts/cursors are published in the result; an exhausted
+window rolls back its unfinished batch and returns blocked with earlier progress
+intact. Renewal occurs in a separate transaction after progress has committed,
+with its own remaining deadline. The 90/120/30-second approved values are unchanged;
+renewal is scheduled early enough to fit within 30 seconds. No lease-clock,
+commit-time validation or security-policy change was made.
+
+The previous whole-batch replacement test accepted renewal at 31 seconds and was
+removed. New deterministic regressions execute the **actual** payload loop over
+250 paired caches, charging 0.2 seconds per successful mutation, with both zero
+and 0.02-second per-Job lock costs. They check no new mutations after 90 seconds,
+renewal intervals <=30 seconds, commit-before-renewal, timeout clipping after lock
+helpers, and complete retirement across resumed invocations without skipped pairs.
+A real owned-DB version executes normal SQL mutations and existing valid-claim
+operations while advancing only the worker's monotonic scheduler clock; database
+lease clocks and guards remain real and unmodified. This is ordinary timing
+verification, not an expiry-enforcement probe.
+
+R4-2: a reconnect or reacquisition failure now sets an explicit aborted state.
+The abort path records available counts/diagnostics on a best-effort basis, then
+returns before enrichment, model review or prune. Accounting failure is contained
+and does not reactivate optional phases. Offline tests use raising hooks for all
+three optional capabilities and cover both successful/failed abort accounting.
+An owned-DB regression releases the broken poll session, lets a separate owned
+session take the real poll lock, and proves denied reacquisition records the
+aborted run and invokes no optional phase. Successful reconnect coverage remains.
+
+Fix evidence (all under `task-4-evidence/`):
+
+- `fix1-red17.txt`: **3 failed**, reproducing both findings before product edits
+  (two ordinary timing variants and denied-lock fallthrough).
+- `fix1-green-attempt17.txt`: **77 passed, zero skips** after the first fix.
+- `fix1-green2-17.txt`: **79 passed, zero skips**, adding real-DB timing and
+  contention regressions.
+- Final unchanged-source results and actual versions are recorded below.
+
+Exact fix commands, same owned worktree and bash/login:false:
+
+```sh
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py tests/test_prune.py tests/test_run_question_fetch.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py tests/test_prune.py tests/test_run_question_fetch.py -q
+.venv/bin/ruff check .
+git diff --check
+git diff --cached --check
+```
+
+Only maintenance/run implementation, their ordinary tests and author report/fix
+logs are included in this fix. No SQL migration, policy, gate, claim or capacity
+enforcement module changed. Prior migration parity evidence therefore remains
+applicable; no excluded security suite/probe was rerun. Reviewer diagnostics,
+review report, controller ledgers and authorization files remain controller-owned.
+The same independent expiry/capacity/cross-user/adversarial review gaps persist.
+Author verification does not supply independent re-review or security approval.
+
+Release authorization chronology: the report's earlier deployment-hold statements
+are historical. `RELEASE-AUTHORIZATION.md` records Andrew's later authorization to
+publish/merge/deploy the **completed upgrade after all 13 tasks and permitted
+verification**, with applicable safety-floor confirmations retained. This author
+remains local-only and has not released Task 4. The controller owns scoped
+re-review, Library checkpoint, continued implementation and final release.
+
+Fix Round 1 final unchanged-source results:
+
+- `fix1-final17.txt`: **97 passed, zero skipped**, actual PostgreSQL **17.11
+  (Debian 17.11-1.pgdg13+2)**, **51.77 seconds**.
+- `fix1-final16.txt`: **97 passed, zero skipped**, actual PostgreSQL **16.15
+  (Debian 16.15-1.pgdg13+2)**, **64.45 seconds**.
+- `fix1-ruff.txt`: repository Ruff passed. Working and staged whitespace checks
+  passed after normalizing only pytest-generated trailing log whitespace.
+
+No product/test edit occurred after either final lane started. The selected six
+files are the new control-flow regressions, maintenance, run, guard, existing
+prune and question-fetch tests, as listed in the exact commands above. No DB test
+was skipped. The unchanged migration/security source was not redundantly tested
+or re-reviewed. No new safeguard rejection occurred. Both findings are addressed
+in author implementation/tests; independent scoped re-review remains pending.

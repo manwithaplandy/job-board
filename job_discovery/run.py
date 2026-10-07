@@ -110,6 +110,7 @@ def run(dsn: str | None = None) -> dict:
         conn.commit()  # No read transaction spans adapter HTTP.
 
         ok = failed = new_jobs = closed_jobs = 0
+        aborted = False
         failures: list[str] = []
 
         for co in companies:
@@ -193,6 +194,7 @@ def run(dsn: str | None = None) -> dict:
                             reconnect_over = True
                         over = over or maintenance.blocked or reconnect_over
                     except Exception:
+                        aborted = True
                         log.exception("reconnect failed; aborting poll")
                         failures.append(f"{co['name']}: {type(exc).__name__}: {exc}")
                         failed += 1
@@ -218,6 +220,20 @@ def run(dsn: str | None = None) -> dict:
                         log.exception("rollback after failure-record error failed for %s",
                                       co["name"])
                     log.exception("recording poll failure for %s failed", co["name"])
+
+        if aborted:
+            # Reconnect/lock acquisition failed: accounting is best effort, and
+            # this invocation must never enter any optional post-poll phase.
+            try:
+                db.finish_run(
+                    conn, run_id, companies_ok=ok, companies_failed=failed,
+                    new_jobs=new_jobs, closed_jobs=closed_jobs,
+                    notes="; ".join(["poll aborted after reconnect failure", *failures]),
+                )
+                conn.commit()
+            except Exception:
+                log.exception("could not finalize aborted poll accounting")
+            return {"ok": ok, "failed": failed, "new_jobs": new_jobs, "closed_jobs": closed_jobs}
 
         db.finish_run(
             conn, run_id,

@@ -268,30 +268,6 @@ def test_only_scheduled_guarded_sweeps_increment_action_streak(conn, monkeypatch
 
 
 @requires_db
-def test_cooperative_deadline_and_renewal_between_short_transactions(conn, monkeypatch):
-    m = module()
-    enable(conn)
-    c = claim(conn)
-    clock = [0]
-    calls = []
-    renewals = []
-    monkeypatch.setattr(m,'monotonic',lambda: clock[0])
-    original_renew = m.renew_claim
-    def renew(*args):
-        renewals.append(clock[0])
-        return original_renew(*args)
-    monkeypatch.setattr(m,'renew_claim',renew)
-    def batch(*args):
-        assert clock[0] < 90
-        calls.append(clock[0])
-        clock[0] += 31
-        return 250,0,0,0,'progress'
-    monkeypatch.setattr(m,'_payload_batch',batch)
-    m.sweep(conn,c)
-    assert calls == [0,31,62] and renewals == [31,62]
-
-
-@requires_db
 def test_deleted_reservation_detail_requires_persisted_claim_floor(conn):
     # Ordinary settled/fenced-record retention. No forged-token/expiry probes.
     from job_discovery.lifecycle.claims import claim_work, cancel_claim
@@ -375,3 +351,49 @@ def test_retirement_byte_budget_defers_remaining_payload(conn):
     conn.commit()
     assert rows == 1 and size == 2
     assert conn.execute('SELECT questions FROM job_questions').fetchone()['questions'] == []
+
+
+@requires_db
+def test_slow_successful_payload_statements_commit_resumable_progress(conn, monkeypatch):
+    """Virtual worker elapsed time; DB lease clocks and guards stay real/unmodified."""
+    from dataclasses import replace
+    m = module()
+    cid = _company(conn,'slow')
+    conn.execute("""INSERT INTO jobs(id,company_id,external_id,title,url,description,description_captured_at)
+      SELECT 'lever:slow:'||lpad(n::text,3,'0'),%s,n::text,'Eng','u','jd',clock_timestamp()-interval '31 days'
+      FROM generate_series(1,250) n""",(cid,))
+    conn.execute("INSERT INTO job_questions(job_id,questions,captured_at) SELECT id,'[]',clock_timestamp()-interval '8 days' FROM jobs")
+    conn.commit()
+    enable(conn)
+    c = claim(conn)
+    clock = [0.0]
+    starts, renewals, commits = [], [], []
+    class SlowStatements:
+        def execute(self, query, params=None):
+            result = conn.execute(query,params)
+            if query.startswith('UPDATE jobs SET description') or query.startswith('DELETE FROM job_questions'):
+                starts.append(clock[0])
+                clock[0] += 0.2
+            return result
+        def commit(self):
+            conn.commit()
+            commits.append(clock[0])
+        def __getattr__(self,name):
+            return getattr(conn,name)
+    actual_control, actual_renew = m.read_control, m.renew_claim
+    monkeypatch.setattr(m,'read_control',lambda db: replace(actual_control(db),safety_stage='enforced',retirement_enabled=True,retirement_dry_run=False))
+    monkeypatch.setattr(m,'monotonic',lambda: clock[0])
+    def renew(db,ref,seconds):
+        assert commits[-1] == clock[0]
+        renewals.append(clock[0])
+        return actual_renew(db,ref,seconds)
+    monkeypatch.setattr(m,'renew_claim',renew)
+    first = m.sweep(SlowStatements(),c,dry_run=False)
+    assert clock[0] <= 90 and all(t < 90 for t in starts)
+    assert renewals and max(b-a for a,b in zip([0,*renewals],[*renewals,clock[0]])) <= 30
+    assert 0 < first.retired_rows < 500
+    assert conn.execute('SELECT cursor FROM lifecycle_maintenance_state').fetchone()['cursor'] == first.cursor
+    second = m.sweep(SlowStatements(),c,dry_run=False)
+    assert first.retired_rows + second.retired_rows == 500
+    assert conn.execute('SELECT count(*) AS n FROM jobs WHERE description IS NULL').fetchone()['n'] == 250
+    assert conn.execute('SELECT count(*) AS n FROM job_questions').fetchone()['n'] == 0

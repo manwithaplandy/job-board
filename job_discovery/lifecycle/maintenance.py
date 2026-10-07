@@ -39,6 +39,59 @@ _QUESTIONS_DUE = """q.questions IS NOT NULL AND q.questions<>'null'::jsonb AND
  COALESCE(q.last_used_at,q.captured_at)<=clock_timestamp()-interval '168 hours'"""
 
 
+
+class _PhaseEnded(Exception):
+    """No more statements may start in this transaction's time window."""
+
+
+class _TimedConnection:
+    """Clip EVERY statement, including statements after enter_gate resets 5s.
+
+    Keep five seconds for persisting/committing progress and another five for
+    renewal/final health. A spent window rolls back only its unfinished batch.
+    This is worker scheduling, independent of the DB-clock enforcement contract.
+    """
+    def __init__(self, conn, end, yield_at=None):
+        self.conn, self.end = conn, end
+        self.yield_at = end if yield_at is None else yield_at
+        self.yielded = False
+
+    def should_yield(self):
+        self.yielded = monotonic() >= self.yield_at
+        return self.yielded
+
+    def _timeout(self):
+        remaining_ms = int((self.end - monotonic()) * 1000)
+        if remaining_ms <= 0:
+            raise _PhaseEnded()
+        self.conn.execute("SELECT set_config('statement_timeout',%s,true)",
+                          (str(min(5000, remaining_ms)),))
+        if monotonic() >= self.end:
+            raise _PhaseEnded()
+
+    def execute(self, query, params=None):
+        self._timeout()
+        return self.conn.execute(query, params)
+
+    def cursor(self, **kwargs):
+        owner = self
+        class Cursor:
+            def __enter__(self):
+                self.real = owner.conn.cursor(**kwargs).__enter__()
+                return self
+            def __exit__(self, *args):
+                return self.real.__exit__(*args)
+            def execute(self, *args, **kw):
+                owner._timeout()
+                return self.real.execute(*args, **kw)
+            def __getattr__(self, name):
+                return getattr(self.real, name)
+        return Cursor()
+
+    def commit(self):
+        self._timeout()
+        self.conn.commit()
+
 def legacy_prune_disabled(conn) -> bool:
     enter_gate(conn)
     return read_control(conn).maintenance_enabled or read_control(conn).safety_stage == 'enforced' or bool(
@@ -62,9 +115,22 @@ def _payload_batch(conn, cursor, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
       CASE WHEN {_QUESTIONS_DUE} THEN octet_length(q.questions::text) ELSE 0 END AS question_bytes
       FROM jobs j LEFT JOIN job_questions q ON q.job_id=j.id
       WHERE j.id=ANY(%s) AND {_UNPROTECTED} ORDER BY j.id COLLATE "C"''', (ids,)).fetchall()
-    retired = size = candidates = 0
-    for row in eligible:
+    retired = size = candidates = visited = 0
+    completed_cursor = cursor
+    eligible_by_id = {row['id']: row for row in eligible}
+    for job_id in ids:
+        if isinstance(conn, _TimedConnection) and conn.should_yield():
+            break
+        row = eligible_by_id.get(job_id)
+        if row is None:
+            visited += 1
+            completed_cursor = job_id
+            continue
+        complete = True
         for field in ('description', 'questions'):
+            if isinstance(conn, _TimedConnection) and conn.should_yield():
+                complete = False
+                break
             if not row[field + '_due']:
                 continue
             candidates += 1
@@ -78,7 +144,11 @@ def _payload_batch(conn, cursor, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
                 conn.execute('DELETE FROM job_questions WHERE job_id=%s', (row['id'],))
                 size += row['question_bytes']
             retired += 1
-    return max(len(rows), retired), retired, size, candidates, ids[-1]
+        visited += 1
+        if not complete:
+            break  # Resume this Job; an already-cleared field is simply absent.
+        completed_cursor = job_id
+    return max(visited, retired), retired, size, candidates, completed_cursor
 
 
 def _version_batch(conn, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
@@ -213,58 +283,74 @@ def sweep(conn, claim: ClaimRef, dry_run: bool = True, max_rows: int = MAX_ROWS,
     if type(max_rows) is not int or not 1 <= max_rows <= MAX_ROWS:
         raise ValueError('max_rows must be in 1..20000')
     started = renewed = monotonic()
+    deadline = started + DEADLINE_SECONDS
     used = retired = size = eligible = 0
-    validate_claim(conn, claim)
-    if not conn.execute("SELECT 1 FROM lifecycle_claims WHERE kind='maintenance' AND work_id='singleton' AND owner_token=%s AND generation=%s", (claim.owner_token, claim.generation)).fetchone():
-        raise RuntimeError('maintenance singleton claim required')
-    state = conn.execute('SELECT cursor,next_phase FROM lifecycle_maintenance_state WHERE singleton').fetchone()
-    cursor, phase = state['cursor'], state['next_phase']
-    conn.commit()
-    idle = 0
-    payload_finished = versions_finished = False
-    while used < max_rows and size < MAX_RETIRE_BYTES and monotonic() - started < DEADLINE_SECONDS and idle < 6:
-        validate_claim(conn, claim)
-        if monotonic() - renewed >= RENEW_SECONDS:
-            claim = renew_claim(conn, claim, LEASE_SECONDS)
-            renewed = monotonic()
-        remaining_ms = max(1, int((DEADLINE_SECONDS - (monotonic() - started)) * 1000))
-        conn.execute("SELECT set_config('statement_timeout',%s,true)", (str(min(5000, remaining_ms)),))
-        ctl = read_control(conn)
-        if not ctl.maintenance_enabled:
-            conn.commit()
-            break
-        effective_dry = dry_run or ctl.retirement_dry_run or not ctl.retirement_enabled or ctl.safety_stage != 'enforced'
-        limit = min(BATCH_ROWS, max_rows - used)
-        if phase == 0:
-            if payload_finished:
-                n = 0
+    cursor = None
+    phase = 0
+    try:
+        setup = _TimedConnection(conn, min(deadline, renewed + RENEW_SECONDS - 5))
+        validate_claim(setup, claim)
+        if not setup.execute("SELECT 1 FROM lifecycle_claims WHERE kind='maintenance' AND work_id='singleton' AND owner_token=%s AND generation=%s", (claim.owner_token, claim.generation)).fetchone():
+            raise RuntimeError('maintenance singleton claim required')
+        state = setup.execute('SELECT cursor,next_phase FROM lifecycle_maintenance_state WHERE singleton').fetchone()
+        cursor, phase = state['cursor'], state['next_phase']
+        setup.commit()
+        idle = 0
+        payload_finished = versions_finished = False
+        while used < max_rows and size < MAX_RETIRE_BYTES and monotonic() < deadline - 10 and idle < 6:
+            if monotonic() >= renewed + RENEW_SECONDS - 10:
+                # The preceding progress transaction has already committed.
+                renewal = _TimedConnection(conn, min(deadline, renewed + RENEW_SECONDS))
+                renewing_at = monotonic()
+                claim = renew_claim(renewal, claim, LEASE_SECONDS)
+                renewal.commit()
+                renewed = renewing_at
+            end = min(deadline, renewed + RENEW_SECONDS) - 5
+            batch = _TimedConnection(conn, end, end - 5)
+            validate_claim(batch, claim)
+            ctl = read_control(batch)
+            if not ctl.maintenance_enabled:
+                batch.commit()
+                break
+            effective_dry = dry_run or ctl.retirement_dry_run or not ctl.retirement_enabled or ctl.safety_stage != 'enforced'
+            limit = min(BATCH_ROWS, max_rows - used)
+            next_cursor = cursor
+            r = b = e = 0
+            if phase == 0:
+                if payload_finished:
+                    n = 0
+                else:
+                    n, r, b, e, next_cursor = _payload_batch(batch, cursor, limit, effective_dry, MAX_RETIRE_BYTES - size)
+                    payload_finished = not n and not batch.yielded
+            elif phase == 1:
+                if versions_finished:
+                    n = 0
+                else:
+                    n, r, b = _version_batch(batch, limit, effective_dry, MAX_RETIRE_BYTES - size)
+                    versions_finished = effective_dry or not n
+            elif phase == 2:
+                n = _staging_batch(batch, limit)
             else:
-                n, r, b, e, cursor = _payload_batch(conn, cursor, limit, effective_dry, MAX_RETIRE_BYTES - size)
-                retired += r
-                size += b
-                eligible += e
-                payload_finished = not n
-        elif phase == 1:
-            if versions_finished:
-                n = 0
-            else:
-                n, r, b = _version_batch(conn, limit, effective_dry, MAX_RETIRE_BYTES - size)
-                retired += r
-                size += b
-                versions_finished = effective_dry or not n
-        elif phase == 2:
-            n = _staging_batch(conn, limit)
-        else:
-            n = _terminal_batch(conn, limit, phase)
-        idle = idle + 1 if not n else 0
-        used += n
-        phase = (phase + 1) % 6
-        conn.execute('UPDATE lifecycle_maintenance_state SET cursor=%s,next_phase=%s,eligible_rows=%s,retired_rows=%s,retired_bytes=%s WHERE singleton', (cursor, phase, eligible, retired, size))
-        conn.commit()
-    validate_claim(conn, claim)
-    blocked = _metrics(conn, scheduled)
-    conn.commit()
-    return SweepResult(retired, size, blocked, cursor)
+                n = _terminal_batch(batch, limit, phase)
+            next_phase = (phase + 1) % 6
+            batch.execute('UPDATE lifecycle_maintenance_state SET cursor=%s,next_phase=%s,eligible_rows=%s,retired_rows=%s,retired_bytes=%s WHERE singleton', (next_cursor, next_phase, eligible + e, retired + r, size + b))
+            batch.commit()
+            # Report only durable work, including when a later phase times out.
+            used += n
+            retired += r
+            size += b
+            eligible += e
+            cursor, phase = next_cursor, next_phase
+            idle = idle + 1 if not n and not batch.yielded else 0
+        health = _TimedConnection(conn, min(deadline, renewed + RENEW_SECONDS))
+        validate_claim(health, claim)
+        blocked = _metrics(health, scheduled)
+        health.commit()
+        return SweepResult(retired, size, blocked, cursor)
+    except _PhaseEnded:
+        conn.rollback()
+        log.info('maintenance time window exhausted; committed progress retained')
+        return SweepResult(retired, size, True, cursor)
 
 
 def pre_admission_maintenance(dsn: str | None) -> SweepResult:

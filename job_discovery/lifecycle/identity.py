@@ -262,8 +262,8 @@ def _source_publication(ats, raw, now):
 
 
 def _version_room(conn, listing):
-    # No archive producer exists yet. Retain all evidence and pause rather than
-    # delete to satisfy a cap, including archived rows still referenced privately.
+    # Retain evidence until maintenance can retire exact archived, unreferenced
+    # versions. Private references may continue to prevent retirement.
     # A changed version would supersede the current row too, so include its age.
     row = conn.execute(
         """SELECT count(*) n,
@@ -279,8 +279,8 @@ def capture_version(
 ) -> UUID | None:
     """Capture one meaningful public revision, or pause at the retention bound.
 
-    The caller owns the transaction. Archive activation still fails closed in
-    database triggers until Task 10 pairs every eventful write with its outbox.
+    The caller owns the transaction. Shared _write pairs meaningful public
+    projections with the transactional outbox whenever the producer is active.
     """
     from .reconcile import _write
 

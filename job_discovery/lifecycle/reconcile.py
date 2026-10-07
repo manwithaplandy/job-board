@@ -40,6 +40,8 @@ def _write(conn, claim, scope, job_id=None, size=32768):
         raise StorageBlocked('source evidence storage blocked; reconciliation deferred')
     bind_reservation(conn, reservation, job_id=job_id, scope=scope)
     yield
+    from job_discovery.archive.outbox import flush_public_changes
+    flush_public_changes(conn, claim)
     settle_capacity(conn, reservation)
 
 
@@ -65,6 +67,8 @@ def claim_due_source(conn) -> tuple[dict, ClaimRef] | None:
     claim = claim_work(conn, 'source', str(source['id']), 180)
     if claim is None:
         raise StorageBlocked('source claim storage blocked; reconciliation deferred')
+    from .operational import provision
+    provision(conn,source['id'],claim)
     pending = conn.execute('''SELECT 1 FROM source_enumerations WHERE source_id=%s
         AND status='complete' AND reconciled_at IS NULL AND sequence>%s LIMIT 1''',
         (source['id'],source['replay_floor'])).fetchone() is not None
@@ -388,32 +392,8 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
 
 
 def verify_storage_blocked(conn, *, max_boards, deadline):
-    """Read-only fallback: healthy feeds are storage-deferred, never source-failed.
-
-    Existing enforced source metadata writes require physical reservations. Do
-    not weaken that contract: report health in logs until persistence can resume.
-    """
-    from job_discovery.adapters import ADAPTERS
-    from job_discovery.adapters.completeness import source_budget
-    sources = conn.execute("""WITH due AS (SELECT *,row_number() OVER(ORDER BY last_attempt_at NULLS FIRST,id)-1 AS position,
-         count(*) OVER() AS total FROM source_accounts
-         WHERE exclusion_state IN ('enabled','failure_disabled')
-         AND (next_due_at IS NULL OR next_due_at<=clock_timestamp()))
-       SELECT * FROM due ORDER BY mod(position-mod(floor(extract(epoch FROM clock_timestamp())/86400)::bigint,total)+total,total)
-       LIMIT %s""", (max_boards,)).fetchall()
-    conn.commit()
-    for source in sources:
-        if monotonic() >= deadline:
-            break
-        try:
-            with source_budget(min(BOARD_SECONDS,deadline-monotonic()),BOARD_REQUESTS):
-                feed = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
-                for count, _ in enumerate(feed,1):
-                    if count >= BOARD_ROWS:
-                        break
-                health = 'healthy' if feed.complete else 'partial'
-        except SourceBudgetExceeded:
-            health = 'partial'
-        except Exception:
-            health = 'failed'
-        log.warning('source %s attempted: %s; storage-blocked, reconciliation-deferred',source['id'],health)
+    """Persist bounded existing-source evidence through the preallocated lane."""
+    from .operational import run_due
+    progress = run_due(conn,max_boards=max_boards,deadline=deadline)
+    log.warning('source operational verification: %s; missing slots/readiness remain storage-deferred',progress)
+    return progress

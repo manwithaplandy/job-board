@@ -178,11 +178,12 @@ def _payload_batch(conn, cursor, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
 
 
 def _version_batch(conn, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
-    # A public version may be removed only once its listing revision is archived.
+    # Exact version/hash coverage is required; a listing watermark cannot certify unknown versions.
     # FK references are deliberately retained, including terminal private work.
     rows = conn.execute('''SELECT v.id,v.job_id,octet_length(v.public_metadata::text) AS bytes
       FROM job_versions v JOIN source_listings s ON s.id=v.source_listing_id
-      WHERE v.id IS DISTINCT FROM s.current_version_id AND v.revision<=s.archived_revision
+      WHERE v.id IS DISTINCT FROM s.current_version_id AND EXISTS(SELECT FROM public_archive_version_coverage c WHERE c.version_id=v.id
+        AND c.source_listing_id=v.source_listing_id AND c.version_revision=v.revision AND c.content_hash=v.content_hash)
       AND (v.recorded_at<=clock_timestamp()-interval '720 hours' OR
         (SELECT count(*) FROM job_versions newer WHERE newer.source_listing_id=v.source_listing_id
          AND newer.id IS DISTINCT FROM s.current_version_id AND newer.revision>v.revision)>=10)

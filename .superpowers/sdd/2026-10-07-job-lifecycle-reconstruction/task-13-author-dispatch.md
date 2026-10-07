@@ -69,3 +69,7 @@ artifacts; do not add a production reset/deletion path or weaken guards to hide
 the gap. Cached legacy and known-input résumé-first preparation must remain
 usable. These are ordinary consumer/lineage requirements, not the refused Task3
 mechanism-review probes.
+
+Task9 integration test carry-forward (read actual final9report/chronology): broader nondb dashboard run discovered inherited fixture drift. tombstoneGuard markApplicationApplied/unrejectJob live-account mocks omit Task8 withUserDemandSql; deployment-workflow-contract expects 2 DATABASE_URL entries while Task1 ci.yml has 3. BASE git-show evidence reported; author9 leaves unrelated files unchanged. Under13 actual ordinary caller/CI test inventory, repair valid fixture expectations/mock interfaces without weakening assertions or reproducing omitted Task3 mechanism/adversarial probes; select required tests based on actual contents. Keep original failing evidence and explicit2skipped distinction; no unrestricted all-green/security claim.
+
+Task9 public-board freshness cost carry:120sISR removed for exactexpiry/per-requestreads, author explicitly unmeasured load/throughput. Final runbook/readiness must identify this tradeoff and keep cost-neutrality unproven; no invented production benchmarks or costs, no unrelated optimization/testing unless concrete evidence warrants. Reviewer count/rows unified sameSELECT after ordinary expiry-boundary selfcheck; inspect final9report/evidence/pins.

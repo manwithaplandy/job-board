@@ -590,3 +590,44 @@ def test_delayed_worker_rechecks_claim_after_acquiring_user_lock(conn, monkeypat
     note = conn.execute('SELECT notes FROM review_runs ORDER BY id DESC LIMIT 1').fetchone()['notes']
     assert note == 'review request claim superseded; skipped'
     assert conn.execute('SELECT status FROM review_requests WHERE id=%s', (rid,)).fetchone()['status'] == 'running'
+
+
+@pytest.mark.parametrize('parallelism', [-1, 0, 1, 3])
+def test_nonpositive_parallelism_preserves_single_loop_processing(monkeypatch, parallelism):
+    """Each effective loop reaches request processing and closes its connection."""
+    effective = max(1, parallelism)
+    rendezvous = threading.Barrier(effective)
+    connections, processed = [], []
+    lock = threading.Lock()
+
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    def connect():
+        connection = Connection()
+        with lock:
+            connections.append(connection)
+        return connection
+
+    def process(connection):
+        with lock:
+            processed.append(connection)
+        # All parallel loops must reach the request path before one signals fatal.
+        rendezvous.wait(timeout=2)
+        raise SystemExit(7)
+
+    monkeypatch.setattr(worker.config, 'REVIEW_WORKER_PARALLELISM', parallelism)
+    monkeypatch.setattr(worker.config, 'has_api_key', lambda: True)
+    monkeypatch.setattr(worker.signal, 'signal', lambda *_: None)
+    monkeypatch.setattr(worker.jdb, 'connect', connect)
+    monkeypatch.setattr(worker, 'process_one', process)
+    with pytest.raises(SystemExit) as exited:
+        worker.main()
+    assert exited.value.code == (7 if parallelism <= 1 else 1)
+    assert len(connections) == len(processed) == effective
+    assert set(connections) == set(processed)
+    assert all(connection.closed for connection in connections)
+    assert _review_loop_threads() == []

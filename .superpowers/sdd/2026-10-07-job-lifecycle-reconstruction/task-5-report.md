@@ -176,3 +176,54 @@ and the reduced independent-review gaps persist.
 Remaining handoff: controller's fresh permitted Task 5 requirements/code-quality
 gate and Library 05 checkpoint, then Task 6. Author verification does not replace
 that gate or imply any missing security approval.
+
+## Fix Round 1 — nonpositive reviewer parallelism compatibility
+
+FIX_BASE: `a6131a02282174078e34ecdd28d967294a524a90`. Read the full
+`task-5-requirements-review.md` and its complete saved ordinary diagnostic,
+`task-5-review-evidence/nonpositive-parallelism.txt`. The permitted review verdict
+was **Spec FAIL / Quality CHANGES_REQUIRED**, with one P2 finding: the new daemon
+thread construction used `range(k)`, silently starting no reviewer loops when
+configured parallelism was zero or negative. The pre-Task-5 `k <= 1` branch ran
+one loop for those values. Configuration accepts them, so the finding is valid.
+
+The narrow correction normalizes effective parallelism to at least one before
+thread construction. The supervisor, process deadlines, signal-time drain,
+single-loop SystemExit forwarding, parallel failure behavior, SQL/DB interfaces,
+Railway config and all existing test fixtures are unchanged by this fix.
+
+Added an offline parameterized regression for configured values **-1, 0, 1, 3**.
+It runs actual `main()` and `_run_loop`, with only connection/API-key/signal and
+request-handler boundaries stubbed. A bounded barrier ensures all three parallel
+loops reach the handler before a simulated exit can stop siblings. Assertions
+verify the effective loop count, request-handler invocation for every connection,
+connection closure, no surviving loop thread, single-loop exit code 7 and parallel
+fatal exit code 1. No real DB or provider is contacted.
+
+Exact commands are appended to `task-5-evidence/commands.txt`:
+
+- `fix1-red.txt`: **2 failed, 2 passed**, reproducing the missing processing path
+  at -1/0 before changing product code; 1/3 already worked.
+- `fix1-green.txt`: **4 passed** after normalization.
+- `fix1-focused.txt`: **23 passed, 23 deliberately deselected, zero skips**,
+  4.54 seconds. This covers offline supervisor scheduling/termination/restart,
+  real controlled child processes and reviewer drain/failure/configuration paths.
+  DB cases were excluded by explicit name selection.
+- `fix1-ruff.txt`: repository Ruff passed. Working and staged whitespace checks
+  passed. Source/tests were unchanged after those runs.
+
+This fix changes no DB test, DB protocol or maintenance code. Per the narrow fix
+scope, the full 84-test resource lanes were not repeated. The earlier PostgreSQL
+17.11/16.15 results and measurements remain pinned to the original Task 5 source
+`a6131a0`; they are historical evidence, not fresh executions of the correction.
+The correction has the fresh focused offline verification listed above. No new
+resource/cost claim is made.
+
+No excluded security review or probes, external/provider calls, release actions,
+new safeguards, subagents or reviewer substitutions occurred. Task 3 remains
+not fully security-approved, with its expiry/capacity/cross-user/adversarial
+review gaps unchanged. The configuration finding is author-fixed and tested;
+independent scoped re-review of the original package plus correction remains
+for the controller before Library 05 and Task 6. Only this worker line change,
+the new offline test, author report and author evidence are committed forward;
+controller/reviewer files remain excluded.

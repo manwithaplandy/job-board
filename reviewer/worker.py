@@ -226,7 +226,8 @@ def main() -> None:
     signal.signal(signal.SIGINT, stop.request)
 
     fatal = threading.Event()
-    k = config.REVIEW_WORKER_PARALLELISM  # read at call time so tests can monkeypatch it
+    # Preserve the historical k <= 1 fallback while keeping every loop drainable.
+    k = max(1, config.REVIEW_WORKER_PARALLELISM)
     log.info(
         "review worker started (parallelism=%s, poll=%ss, stale=%smin)",
         k, config.REVIEW_WORKER_POLL_SECONDS, STALE_MINUTES,

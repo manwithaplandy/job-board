@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from job_discovery.lifecycle.config import read_control
 from job_discovery.lifecycle.maintenance import pre_admission_maintenance
 from job_discovery.lifecycle.locks import enter_gate
@@ -120,7 +119,7 @@ def run(dsn: str | None = None) -> dict:
             counts = verify_due_sources(conn)
             db.finish_run(conn,run_id,companies_ok=counts['ok'],companies_failed=counts['failed'],
                           new_jobs=counts['new_jobs'],closed_jobs=counts['closed_jobs'],
-                          notes='full-corpus source verification; payload admission deferred')
+                          notes='full-corpus source verification and lean metadata admission')
             conn.commit()
             return counts
         companies = db.active_companies(conn)
@@ -135,37 +134,23 @@ def run(dsn: str | None = None) -> dict:
             try:
                 company_closed = 0
                 postings = (ADAPTERS[ats](token, fetch_details=False)
-                            if over and ats in {"workday", "smartrecruiters"}
+                            if ats in {"workday", "smartrecruiters"}
                             else ADAPTERS[ats](token))
                 admissible_ids = set()
                 with spool_feed(postings, admissible_ids=admissible_ids) as (buffered, seen):
-                    questions_context = (spool_questions(
-                        conn, company_id, token, _get_json, parse_greenhouse_questions,
-                        db.greenhouse_jobs_missing_questions, admissible_ids, log,
-                    ) if not over and ats == "greenhouse" else nullcontext(iter(())))
-                    with questions_context as questions:
-                        chunk: list = []
-                        for p in buffered:
-                            if over or not p.url or not p.title:
-                                continue
-                            chunk.append(p)
-                            if len(chunk) >= UPSERT_CHUNK_SIZE:
-                                admitted, over = _admit_chunk(conn, company_id, ats, token, chunk)
-                                new_jobs += admitted
-                                chunk = []
-                        if chunk:
+                    chunk: list = []
+                    for p in buffered:
+                        if over or not p.metadata_complete or not p.url or not p.title:
+                            continue
+                        chunk.append(p)
+                        if len(chunk) >= UPSERT_CHUNK_SIZE:
                             admitted, over = _admit_chunk(conn, company_id, ats, token, chunk)
                             new_jobs += admitted
-                        for question_index, (external_id, data) in enumerate(questions, 1):
-                            if over:
-                                break
-                            # Malformed feed entries were never admitted; retain the
-                            # old FK behavior by writing only existing shared Jobs.
-                            if conn.execute("SELECT 1 FROM jobs WHERE id=%s", (f"greenhouse:{token}:{external_id}",)).fetchone():
-                                db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", data, overwrite=False)
-                            if question_index % UPSERT_CHUNK_SIZE == 0:
-                                conn.commit()
-                        conn.commit()
+                            chunk = []
+                    if chunk:
+                        admitted, over = _admit_chunk(conn, company_id, ats, token, chunk)
+                        new_jobs += admitted
+                    conn.commit()
                 if over:
                     db.reopen_jobs(conn, company_id, seen)
                 open_ids = db.get_open_external_ids(conn, company_id)

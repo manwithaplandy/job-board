@@ -1,0 +1,24 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_enforced_source_orchestration_chunks_metadata_and_sightings _______
+tests/test_lifecycle_admission.py:378: in test_enforced_source_orchestration_chunks_metadata_and_sightings
+    result = verify_due_sources(conn,max_boards=1)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+job_discovery/lifecycle/reconcile.py:362: in verify_due_sources
+    admitted = stage_postings(conn,enum,chunk)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+job_discovery/lifecycle/reconcile.py:194: in stage_postings
+    commit_sightings(conn,enum,observations)
+job_discovery/lifecycle/reconcile.py:168: in commit_sightings
+    inserted = conn.execute("""INSERT INTO enumeration_members(enumeration_id,external_id,public_metadata)
+../../../.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.RaiseException: lifecycle admission chunk exceeds 500 rows
+E   CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 19 at RAISE
+E   SQL statement "INSERT INTO public.lifecycle_write_checks(invoking_role,subject_id,reservation_id,job_id,scope,bytes,row_count)
+E    VALUES(current_user,public.app_user_id(),rid,jid,TG_TABLE_NAME,growth,1)"
+E   PL/pgSQL function public.lifecycle_validate_row() line 88 at SQL statement
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_admission.py::test_enforced_source_orchestration_chunks_metadata_and_sightings
+1 failed in 17.57s

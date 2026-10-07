@@ -17,6 +17,7 @@ from job_discovery.adapters.completeness import SourceStatus, SourceBudgetExceed
 from .capacity import reserve_capacity, bind_reservation, settle_capacity
 from .claims import claim_work, validate_claim, renew_claim, cancel_claim
 from .config import read_control
+from .identity import ADMISSION_CHUNK_SIZE
 from .locks import enter_gate, lock_jobs
 from .types import ClaimRef, EnumerationRef, Observation
 
@@ -174,9 +175,16 @@ def commit_sightings(conn, enumeration: EnumerationRef, observations: list[Obser
 
 def stage_postings(conn, enum, postings):
     """Retain IDs and tiny evidence only; no unused detail/raw payload persistence."""
-    if len(postings) > CHUNK:
+    if len(postings) > ADMISSION_CHUNK_SIZE:
         raise ValueError('posting checkpoint too large')
+    from .identity import admit_metadata
     ids = [p.external_id for p in postings]
+    admitted = 0
+    if postings:
+        reservation = reserve_capacity(conn, enum.claim, 65536 * len(postings))
+        if reservation is None:
+            raise StorageBlocked('metadata admission capacity unavailable')
+        admitted = admit_metadata(conn, enum.source_id, postings, enum.claim, reservation)
     enter_gate(conn)
     listings = conn.execute('SELECT * FROM source_listings WHERE source_account_id=%s AND external_id=ANY(%s)', (enum.source_id,ids)).fetchall()
     by_id = {row['external_id']:row for row in listings}
@@ -185,13 +193,15 @@ def stage_postings(conn, enum, postings):
                      'unlisted' if (p.raw or {}).get('isListed') is False else 'seen',now)
                     for p in postings if p.external_id in by_id]
     commit_sightings(conn,enum,observations)
-    # Unknown IDs participate in exact membership, but Task 7 owns lean admission.
+    # Availability-only identities still participate in exact membership.
     for external_id in ids:
         if len(external_id.encode()) > 2048:
             raise ValueError('source identity exceeds bounded staging limit')
         if external_id not in by_id:
             with _write(conn,enum.claim,'enumeration_members'):
                 conn.execute("INSERT INTO enumeration_members VALUES(%s,%s,'{}') ON CONFLICT DO NOTHING", (enum.id,external_id))
+
+    return admitted
 
 
 def complete_enumeration(conn, enumeration: EnumerationRef, verdict: SourceStatus) -> None:
@@ -324,9 +334,10 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
                         if count > BOARD_ROWS:
                             break
                         chunk.append(posting)
-                        if len(chunk) >= CHUNK or monotonic()-renewed >= 20:
-                            stage_postings(conn,enum,chunk)
+                        if len(chunk) >= ADMISSION_CHUNK_SIZE or monotonic()-renewed >= 20:
+                            admitted = stage_postings(conn,enum,chunk)
                             conn.commit()
+                            result['new_jobs'] += admitted
                             chunk = []
                             claim = renew_claim(conn,claim)
                             conn.commit()
@@ -349,8 +360,9 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
                 conn.rollback()
         try:
             if chunk:
-                stage_postings(conn,enum,chunk)
+                admitted = stage_postings(conn,enum,chunk)
                 conn.commit()
+                result['new_jobs'] += admitted
             complete_enumeration(conn,enum,verdict)
             conn.commit()
             while True:

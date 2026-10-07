@@ -165,24 +165,15 @@ def test_same_id_legacy_upsert_does_not_reset_frozen_age(conn):
 
 
 @requires_db
-def test_capture_version_is_write_disabled_until_safety_and_outbox_exist(conn):
-    from job_discovery.lifecycle.types import ClaimRef
+def test_capture_version_requires_complete_typed_public_metadata(conn):
+    from job_discovery.lifecycle.claims import claim_work
 
     seed(conn)
     identity().migrate_identity_batch(conn)
     listing = conn.execute("SELECT id FROM source_listings").fetchone()["id"]
-    claim = ClaimRef("opaque", 1, datetime.now(UTC) + timedelta(seconds=180))
-    for metadata in [
-        {"title": "Engineer"},
-        {"title": "Engineer"},
-        {"title": "Changed"},
-    ]:
-        assert (
-            identity().capture_version(
-                conn, listing, metadata, datetime.now(UTC), claim
-            )
-            is None
-        )
+    claim = claim_work(conn, 'source', 'fixture', 180)
+    with pytest.raises(ValueError, match='title and public URL'):
+        identity().capture_version(conn, listing, {"title": "Engineer"}, datetime.now(UTC), claim)
     assert conn.execute("SELECT count(*) n FROM job_versions").fetchone()["n"] == 0
 
 

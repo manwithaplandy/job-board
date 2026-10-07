@@ -128,4 +128,5 @@ def iter_identified_postings(items, parse_one, status, *, title_key, url_keys,
                 posting = Posting(external_id=external_id,
                                   title=title if isinstance(title, str) else None,
                                   url=url, raw=item)
+            posting.metadata_complete = False
         yield posting

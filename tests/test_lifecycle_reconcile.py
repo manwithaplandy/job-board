@@ -292,6 +292,12 @@ def test_interrupted_page_worker_restarts_fresh_and_keeps_committed_positives(co
     from job_discovery import http
     from job_discovery.lifecycle.types import ClaimRef
     setup_source(conn,100,'smartrecruiters')
+    # Exercise the intentional next-page worker interruption, independently of
+    # CPU time spent admitting new metadata. Budget exhaustion has separate tests.
+    # Only the public source scheduler clock is fixed; DB lease time is unchanged.
+    from job_discovery.adapters import completeness
+    monkeypatch.setattr(r,'monotonic',lambda:0.0)
+    monkeypatch.setattr(completeness,'monotonic',lambda:0.0)
     calls=[]
     def interrupted(url,**kw):
         calls.append(url)
@@ -526,7 +532,9 @@ def test_fix1_entrypoint_resumes_complete_membership_tail_after_worker_restart(c
     assert progress==([100,200,205] if interruption=='deadline' else [0,100,200,205])
     assert len(calls)==1
     assert conn.execute('SELECT enumeration_sequence FROM source_accounts').fetchone()['enumeration_sequence']==1
-    assert conn.execute('SELECT min(consecutive_complete_misses) n FROM source_listings').fetchone()['n']==1
+    # Task7 admits the actually observed 'extra' identity; it has no miss.
+    assert conn.execute("SELECT min(consecutive_complete_misses) n FROM source_listings WHERE external_id<>'extra'").fetchone()['n']==1
+    assert conn.execute("SELECT consecutive_complete_misses FROM source_listings WHERE external_id='extra'").fetchone()['consecutive_complete_misses']==0
 
 
 @requires_db

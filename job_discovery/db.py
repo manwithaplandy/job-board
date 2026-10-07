@@ -5,7 +5,6 @@ import os
 import psycopg
 from psycopg.rows import dict_row
 
-from job_discovery.jd import extract_description
 from job_discovery.models import Posting
 
 
@@ -22,9 +21,8 @@ def connect(dsn: str | None = None) -> psycopg.Connection:
     )
 
 
-# The Supabase Pro volume is 8 GB. A poll now stores only the distilled JD text
-# (jobs.description), so per-poll growth is modest, but we still halt well below
-# the hard limit as a backstop. Override via DB_SIZE_CEILING_MB.
+# Discovery stores lean metadata; payload hydration is demand-driven. The
+# physical backstop remains below the 8 GB volume. Override via DB_SIZE_CEILING_MB.
 DB_SIZE_CEILING_MB_DEFAULT = 6000.0
 
 
@@ -132,7 +130,7 @@ _UPSERT_SQL = """
 
 def _posting_row(ats: str, token: str, company_id: int, p: Posting) -> tuple:
     job_id = f"{ats}:{token}:{p.external_id}"
-    description = extract_description(ats, p.raw or {})
+    description = None  # Discovery never fills or refreshes a payload cache.
     return (job_id, company_id, p.external_id, p.title, p.url,
             p.location, p.department, p.remote, description)
 
@@ -149,7 +147,11 @@ def upsert_jobs(
     """
     if not postings:
         return 0
-    rows = [_posting_row(ats, token, company_id, p) for p in postings]
+    rows = [_posting_row(ats, token, company_id, p) for p in postings
+            if p.metadata_complete and isinstance(p.title,str) and p.title.strip()
+            and isinstance(p.url,str) and p.url.strip()]
+    if not rows:
+        return 0
     new = 0
     lock_jobs(conn, [row[0] for row in rows])
     with conn.cursor() as cur:

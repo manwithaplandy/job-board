@@ -1,0 +1,10 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_old_current_cannot_become_expired_unarchived_superseded_version _____
+tests/test_lifecycle_admission.py:438: in test_old_current_cannot_become_expired_unarchived_superseded_version
+    assert conn.execute('SELECT count(*) n FROM job_versions').fetchone()['n'] == 1
+E   assert 2 == 1
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_admission.py::test_old_current_cannot_become_expired_unarchived_superseded_version
+1 failed in 1.16s

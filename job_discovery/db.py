@@ -6,6 +6,8 @@ import psycopg
 from psycopg.rows import dict_row
 
 from job_discovery.models import Posting
+from job_discovery.jd import extract_description
+from job_discovery.lifecycle.config import legacy_description_capture_allowed
 
 
 def connect(dsn: str | None = None) -> psycopg.Connection:
@@ -21,7 +23,7 @@ def connect(dsn: str | None = None) -> psycopg.Connection:
     )
 
 
-# Discovery stores lean metadata; payload hydration is demand-driven. The
+# Lifecycle discovery stores lean metadata; pre-cutover legacy readers retain JD capture. The
 # physical backstop remains below the 8 GB volume. Override via DB_SIZE_CEILING_MB.
 DB_SIZE_CEILING_MB_DEFAULT = 6000.0
 
@@ -128,9 +130,10 @@ _UPSERT_SQL = """
 """
 
 
-def _posting_row(ats: str, token: str, company_id: int, p: Posting) -> tuple:
+def _posting_row(ats: str, token: str, company_id: int, p: Posting, *,
+                 capture_description: bool = False) -> tuple:
     job_id = f"{ats}:{token}:{p.external_id}"
-    description = None  # Discovery never fills or refreshes a payload cache.
+    description = extract_description(ats, p.raw) if capture_description else None
     return (job_id, company_id, p.external_id, p.title, p.url,
             p.location, p.department, p.remote, description)
 
@@ -147,7 +150,8 @@ def upsert_jobs(
     """
     if not postings:
         return 0
-    rows = [_posting_row(ats, token, company_id, p) for p in postings
+    capture_description = legacy_description_capture_allowed(conn)
+    rows = [_posting_row(ats, token, company_id, p, capture_description=capture_description) for p in postings
             if p.metadata_complete and isinstance(p.title,str) and p.title.strip()
             and isinstance(p.url,str) and p.url.strip()]
     if not rows:

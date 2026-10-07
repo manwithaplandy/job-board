@@ -202,6 +202,22 @@ describe("POST /api/application/prepare — Greenhouse guard + conditional reser
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["resume", "cover"]);
   });
 
+  test("preserves the captured legacy JD through prepare and the actual resume prompt", async () => {
+    const description = "Build reliable public services.";
+    mocks.getJobForPackage.mockResolvedValue({ ...JOB, description });
+    expect((await POST(req())).status).toBe(202);
+    await flushBackground();
+    const args = mocks.generateResume.mock.calls[0][0];
+    expect(args.job.description).toBe(description);
+    const { buildResumePrompt } = await import("@/lib/rolefit/resumeSchema");
+    const prompt = buildResumePrompt({
+      ...args,
+      profile: { name: "Fixture", contact: "", educationEntries: [], certifications: [], experience: [] },
+    });
+    expect(prompt.user).toContain(description);
+    expect(prompt.user).not.toContain("(none provided)");
+  });
+
   test("on-demand fetch fallback when no stored job_questions row", async () => {
     mocks.getJobQuestion.mockResolvedValue(null);
     mocks.fetchGreenhouseQuestions.mockResolvedValue(TEXT_Q);

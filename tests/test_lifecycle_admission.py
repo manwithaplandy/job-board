@@ -223,10 +223,11 @@ def test_actual_source_orchestration_admits_and_records_sightings(conn, monkeypa
 
 
 @requires_db
-def test_legacy_writer_is_lean_and_does_not_refill(conn):
+def test_legacy_writer_after_cutover_is_lean_and_does_not_refill(conn):
     from job_discovery.db import upsert_jobs
 
     source = setup_source(conn)
+    conn.execute("UPDATE lifecycle_maintenance_state SET cutover_at=clock_timestamp() WHERE singleton")
     posting = Posting(
         "0", "Role", "https://example.test/job", raw={"descriptionPlain": "Unused body"}
     )
@@ -255,7 +256,7 @@ def test_ordinary_enforced_admission_uses_existing_writer_contract(conn):
 
 
 @requires_db
-def test_legacy_poll_does_not_fetch_questions_or_unused_details(conn, monkeypatch):
+def test_pre_cutover_legacy_poll_fetches_details_without_question_backfill(conn, monkeypatch):
     import os
     from job_discovery import run as runner
     from job_discovery.adapters import ADAPTERS
@@ -281,7 +282,7 @@ def test_legacy_poll_does_not_fetch_questions_or_unused_details(conn, monkeypatc
     )
 
     def workday(token, *, fetch_details=True):
-        assert fetch_details is False
+        assert fetch_details is True
         return [Posting("1", "Role", "https://example.test/job")]
 
     monkeypatch.setitem(ADAPTERS, "workday", workday)

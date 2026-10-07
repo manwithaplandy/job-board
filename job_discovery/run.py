@@ -1,4 +1,4 @@
-from job_discovery.lifecycle.config import read_control
+from job_discovery.lifecycle.config import read_control, legacy_description_capture_allowed
 from job_discovery.lifecycle.maintenance import pre_admission_maintenance
 from job_discovery.lifecycle.locks import enter_gate
 from job_discovery.lifecycle.capacity import CEILING_BYTES
@@ -54,7 +54,8 @@ def _admit_chunk(conn, company_id, ats, token, chunk):
         held = conn.execute("SELECT COALESCE(sum(bytes),0) AS bytes FROM capacity_reservations WHERE state='held'").fetchone()['bytes']
         # Conservative local forecast includes payload expansion/index/WAL room.
         # Enforced compatible writers still require their Task 3 reservations.
-        forecast = sum(16384 + 4 * sum(len(str(value).encode('utf-8')) for value in db._posting_row(ats, token, company_id, p) if value is not None) for p in chunk)
+        capture_description = legacy_description_capture_allowed(conn)
+        forecast = sum(16384 + 4 * sum(len(str(value).encode('utf-8')) for value in db._posting_row(ats, token, company_id, p, capture_description=capture_description) if value is not None) for p in chunk)
         allocated = conn.execute('SELECT pg_database_size(current_database()) AS bytes').fetchone()['bytes']
         if over or allocated + held + forecast >= CEILING_BYTES:
             log.warning('admission paused at chunk boundary; source verification continues')
@@ -133,7 +134,9 @@ def run(dsn: str | None = None) -> dict:
             ats, token, company_id = co["ats"], co["token"], co["id"]
             try:
                 company_closed = 0
-                postings = (ADAPTERS[ats](token, fetch_details=False)
+                capture_description = not over and legacy_description_capture_allowed(conn)
+                conn.commit()  # No gate/read transaction spans legacy detail HTTP.
+                postings = (ADAPTERS[ats](token, fetch_details=capture_description)
                             if ats in {"workday", "smartrecruiters"}
                             else ADAPTERS[ats](token))
                 admissible_ids = set()

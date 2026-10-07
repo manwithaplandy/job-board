@@ -37,6 +37,29 @@ def read_control(conn) -> LifecycleControl:
     return LifecycleControl(**row)
 
 
+
+def legacy_description_capture_allowed(conn) -> bool:
+    """Temporary legacy-reader compatibility; permanent cutover never reopens it.
+
+    Read under the existing gate, retained by admission through its commit. HTTP
+    callers must release the gate before fetching and admission rechecks later.
+    """
+    from .locks import enter_gate
+
+    enter_gate(conn)
+    control = read_control(conn)
+    state = conn.execute(
+        "SELECT cutover_at FROM lifecycle_maintenance_state WHERE singleton"
+    ).fetchone()
+    if state is None:
+        raise RuntimeError("maintenance cutover state is missing")
+    return not (
+        control.source_enabled or control.hydration_enabled
+        or control.maintenance_enabled or control.safety_stage == "enforced"
+        or control.archive_ever_activated or state["cutover_at"] is not None
+    )
+
+
 def transition_control(
     conn, expected_generation: int, target: LifecycleControl, claim
 ) -> LifecycleControl:

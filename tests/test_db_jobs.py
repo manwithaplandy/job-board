@@ -111,7 +111,7 @@ def test_resighting_clears_closed_at(conn):
 
 
 @requires_db
-def test_upsert_keeps_source_description_transient(conn):
+def test_pre_cutover_upsert_captures_source_description(conn):
     cid = _seed_company(conn)
     p = Posting(external_id="1", title="Eng", url="https://x",
                 raw={"descriptionPlain": "Hello JD"})
@@ -119,7 +119,7 @@ def test_upsert_keeps_source_description_transient(conn):
     conn.commit()
     with conn.cursor() as cur:
         cur.execute("SELECT description FROM jobs WHERE id='lever:acme:1'")
-        assert cur.fetchone()["description"] is None
+        assert cur.fetchone()["description"] == "Hello JD"
 
 
 @requires_db
@@ -165,9 +165,9 @@ def test_minimal_posting_does_not_null_enriched_fields(conn):
 
 
 @requires_db
-def test_description_stays_absent_when_never_captured(conn):
+def test_pre_cutover_description_refills_when_never_captured(conn):
     """If description was never captured (NULL, description_pruned=FALSE), a re-poll
-    that provides a description must leave it absent."""
+    that provides a description retains legacy reviewer compatibility."""
     cid = _seed_company(conn)
     # First upsert: no description in raw.
     db.upsert_job(conn, cid, "lever", "acme",
@@ -185,7 +185,7 @@ def test_description_stays_absent_when_never_captured(conn):
     conn.commit()
     with conn.cursor() as cur:
         cur.execute("SELECT description FROM jobs WHERE id='lever:acme:1'")
-        assert cur.fetchone()["description"] is None
+        assert cur.fetchone()["description"] == "JD text"
 
 
 @requires_db

@@ -1,8 +1,9 @@
 """Independent reviewer and bounded, scheduled maintenance child processes.
 
-No database connections, discovery scheduling or archive registration live here.
+No database connections or network writes live here.
 The maintenance child owns its existing database lease and transactions.
 """
+
 import logging
 import signal
 import subprocess
@@ -17,6 +18,8 @@ CHECK_SECONDS = 5
 MAINTENANCE_INTERVAL_SECONDS = 15 * 60
 MAINTENANCE_DEADLINE_SECONDS = 90
 DRAIN_SECONDS = 30
+ARCHIVE_INTERVAL_SECONDS = 60
+ARCHIVE_DEADLINE_SECONDS = 120
 
 
 @dataclass
@@ -27,9 +30,13 @@ class Child:
 
 
 def spawn_child(name: str) -> subprocess.Popen:
-    modules = {'reviewer': 'reviewer.worker', 'maintenance': 'job_discovery.lifecycle.worker'}
+    modules = {
+        "reviewer": "reviewer.worker",
+        "maintenance": "job_discovery.lifecycle.worker",
+        "archive": "reviewer.archive_worker",
+    }
     # Inherit stdout/stderr: no pipe can fill and stall a child or the supervisor.
-    return subprocess.Popen([sys.executable, '-m', modules[name]])
+    return subprocess.Popen([sys.executable, "-m", modules[name]])
 
 
 def _signal(child: Child, *, kill: bool = False) -> None:
@@ -49,15 +56,21 @@ def _drain(children: dict[str, Child], clock: Callable) -> bool:
     for child in children.values():
         if child.process.poll() is None:
             _signal(child)
-    while any(c.process.poll() is None for c in children.values()) and clock() < deadline:
+    while (
+        any(c.process.poll() is None for c in children.values()) and clock() < deadline
+    ):
         wake = min(deadline, clock() + CHECK_SECONDS)
-        maintenance = children.get('maintenance')
-        if maintenance is not None and maintenance.process.poll() is None and not maintenance.killed:
-            expires = maintenance.started + MAINTENANCE_DEADLINE_SECONDS
-            if clock() >= expires:
-                _signal(maintenance, kill=True)
-            else:
-                wake = min(wake, expires)
+        for name, seconds in [
+            ("maintenance", MAINTENANCE_DEADLINE_SECONDS),
+            ("archive", ARCHIVE_DEADLINE_SECONDS),
+        ]:
+            child = children.get(name)
+            if child is not None and child.process.poll() is None and not child.killed:
+                expires = child.started + seconds
+                if clock() >= expires:
+                    _signal(child, kill=True)
+                else:
+                    wake = min(wake, expires)
         time.sleep(max(0, wake - clock()))
     for child in children.values():
         if child.process.poll() is None:
@@ -70,7 +83,7 @@ def _drain(children: dict[str, Child], clock: Callable) -> bool:
         try:
             child.process.wait(timeout=max(0, reap_deadline - clock()))
         except subprocess.TimeoutExpired:
-            log.error('child did not exit after kill')
+            log.error("child did not exit after kill")
             reaped = False
     return reaped
 
@@ -78,6 +91,7 @@ def _drain(children: dict[str, Child], clock: Callable) -> bool:
 def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
     children: dict[str, Child] = {}
     next_maintenance = clock()
+    next_archive = clock()
     failed = False
     try:
         while not stop.is_set():
@@ -85,33 +99,52 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
             for name, child in list(children.items()):
                 code = child.process.poll()
                 if code is not None:
-                    log.info('%s child exited status=%s', name, code)
+                    log.info("%s child exited status=%s", name, code)
                     del children[name]
-                elif name == 'maintenance' and not child.killed and now >= child.started + MAINTENANCE_DEADLINE_SECONDS:
-                    log.warning('maintenance process deadline reached')
+                elif (
+                    name in {"maintenance", "archive"}
+                    and not child.killed
+                    and now
+                    >= child.started
+                    + (
+                        MAINTENANCE_DEADLINE_SECONDS
+                        if name == "maintenance"
+                        else ARCHIVE_DEADLINE_SECONDS
+                    )
+                ):
+                    log.warning("%s process deadline reached", name)
                     # At 90 seconds no further cooperative grace is permitted.
                     # The next claim acquisition uses the existing DB-time fence.
                     _signal(child, kill=True)
             if stop.is_set():
                 break
-            if 'reviewer' not in children:
-                children['reviewer'] = Child(spawn('reviewer'), clock())
+            if "reviewer" not in children:
+                children["reviewer"] = Child(spawn("reviewer"), clock())
             if stop.is_set():
                 break
-            if now >= next_maintenance and 'maintenance' not in children:
+            if now >= next_maintenance and "maintenance" not in children:
                 started = clock()
-                children['maintenance'] = Child(spawn('maintenance'), started)
+                children["maintenance"] = Child(spawn("maintenance"), started)
                 # Skip missed ticks rather than burst-replaying them after delay.
                 next_maintenance = started + MAINTENANCE_INTERVAL_SECONDS
+            if not stop.is_set() and now >= next_archive and "archive" not in children:
+                started = clock()
+                children["archive"] = Child(spawn("archive"), started)
+                next_archive = started + ARCHIVE_INTERVAL_SECONDS
             wake = clock() + CHECK_SECONDS
-            child = children.get('maintenance')
+            child = children.get("maintenance")
             if child is not None and not child.killed:
                 wake = min(wake, child.started + MAINTENANCE_DEADLINE_SECONDS)
+            archive = children.get("archive")
+            if archive is not None and not archive.killed:
+                wake = min(wake, archive.started + ARCHIVE_DEADLINE_SECONDS)
+            if next_archive > clock():
+                wake = min(wake, next_archive)
             if next_maintenance > clock():
                 wake = min(wake, next_maintenance)
             stop.wait(max(0.001, wake - clock()))
     except Exception:
-        log.exception('supervisor failed; draining children before service restart')
+        log.exception("supervisor failed; draining children before service restart")
         failed = True
     finally:
         if not _drain(children, clock):
@@ -120,12 +153,14 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     return supervise(stop, spawn_child, time.monotonic)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

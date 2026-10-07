@@ -191,7 +191,7 @@ def claim_batch(tx, limits: BatchLimits, claim) -> BatchRef | None:
     batch_id = uuid4()
     row = tx.execute(
         """INSERT INTO public_archive_batches(batch_id,owner_token,generation,serializer_version,sealed_at,eligible_until,event_count,expanded_bytes,object_prefix,ingestion_date)
-      SELECT %s,%s,%s,1,t,t+interval '17520 hours',%s,%s,%s,(t AT TIME ZONE 'UTC')::date FROM (SELECT clock_timestamp() t) clock RETURNING *""",
+      SELECT %s,%s,%s,1,t,t+interval '17520 hours',%s,%s,%s,(t AT TIME ZONE 'UTC')::date FROM (SELECT lifecycle_private.archive_clock() t) clock RETURNING *""",
         (
             batch_id,
             claim.owner_token,
@@ -264,13 +264,18 @@ def _owned(tx, batch_id, claim):
     row = tx.execute(
         "SELECT * FROM public_archive_batches WHERE batch_id=%s FOR UPDATE", (batch_id,)
     ).fetchone()
-    if not row or (row["owner_token"], row["generation"]) != (
-        claim.owner_token,
-        claim.generation,
+    if (
+        not row
+        or row["state"] == "superseded"
+        or (row["owner_token"], row["generation"])
+        != (
+            claim.owner_token,
+            claim.generation,
+        )
     ):
         raise ArchiveBlocked("stale batch owner")
     if not tx.execute(
-        "SELECT clock_timestamp()<%s eligible", (row["eligible_until"],)
+        "SELECT lifecycle_private.archive_clock()<%s eligible", (row["eligible_until"],)
     ).fetchone()["eligible"]:
         raise ArchiveBlocked(
             "archive seal expired; explicit replacement authorization required"
@@ -284,7 +289,7 @@ def recover_batch(tx, batch_id, claim) -> BatchRef:
     row = tx.execute(
         "SELECT * FROM public_archive_batches WHERE batch_id=%s FOR UPDATE", (batch_id,)
     ).fetchone()
-    if not row or row["state"] == "acked":
+    if not row or row["state"] in {"acked", "superseded"}:
         raise ArchiveBlocked("batch unavailable")
     if (row["owner_token"], row["generation"]) != (claim.owner_token, claim.generation):
         if tx.execute(

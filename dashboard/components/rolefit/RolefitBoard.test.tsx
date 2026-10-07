@@ -1,17 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { RolefitBoard, type RolefitBoardProps } from "./RolefitBoard";
 import { DEFAULT_FILTERS } from "@/lib/rolefit/filter";
-import type { JobRow } from "@/lib/types";
+import type { ApplicationPackage, JobRow } from "@/lib/types";
 
 // Tier-gate upsell integration: a gated generation fetch that comes back 402/429 must
 // surface the bottom-of-screen upsell pill with a /billing CTA (keyed off the status +
 // the body's machine `code`, never the error string), while every other failure keeps
 // the pre-existing generic error handling.
 
+const { refresh } = vi.hoisted(() => ({refresh:vi.fn()}));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ refresh, push: vi.fn(), replace: vi.fn() }),
 }));
 
 const job: JobRow = {
@@ -89,6 +90,7 @@ function mockFetch(prepare: { status: number; body: Record<string, unknown> }) {
 }
 
 beforeEach(() => {
+  refresh.mockClear();
   stubMatchMedia();
   // Deep-link the fixture job so the detail pane (and its Prepare button) mounts.
   window.history.replaceState({}, "", "/?job=job-1");
@@ -241,4 +243,42 @@ test('history retains a closed saved job independently of discovery and its tota
   expect(screen.getByText('Source closed')).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:/Saved Role/}));
   expect(await screen.findByRole('heading',{name:'Saved Role',level:1})).toBeTruthy();
+});
+
+function savedPackage(jobId:string): ApplicationPackage {
+  return {jobId,status:"applied",resume:null,coverLetter:null,prefilledAnswers:null,
+    applyUrl:null,profileVersion:null,resumeInstructions:null,coverLetterInstructions:null,
+    resumeInstructionsDraft:null,coverLetterInstructionsDraft:null,coverLetterEditedText:null,
+    preparedAt:baseProps.nowIso,appliedAt:baseProps.nowIso};
+}
+
+test('selected history page contains only its 500 server rows, including the applied view', async () => {
+  window.history.replaceState({},'', '/?historyPage=1');
+  vi.spyOn(window,'matchMedia').mockImplementation(query => ({matches:true,media:query,onchange:null,addEventListener:()=>{},removeEventListener:()=>{},dispatchEvent:()=>false,addListener:()=>{},removeListener:()=>{}}));
+  mockFetch({status:200,body:{}});
+  const discovery=Array.from({length:500},(_,i)=>({...job,id:`discovery-${i}`,title:`Discovery role ${i}`}));
+  const history=Array.from({length:500},(_,i)=>({...job,id:`history-${i}`,title:`History role ${i}`}));
+  const {container}=render(<RolefitBoard {...baseProps} jobs={discovery} initialHistory={history}
+    historyTotal={1000} historyPage={1} initialPackages={[...discovery,...history].map(j=>savedPackage(j.id))}/>);
+  fireEvent.click(screen.getByRole('button',{name:'History'}));
+  const titles=()=>[...container.querySelectorAll('.rf-job-card__title')].map(node=>node.textContent);
+  expect(titles()).toHaveLength(500);
+  expect(new Set(titles())).toEqual(new Set(history.map(j=>j.title)));
+  expect(container.querySelector('.rf-board-result-count')?.textContent).toBe('500 of 500 roles');
+  expect(screen.getByText(/1000 saved jobs · Page 2/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('radio',{name:'Applied · 500'}));
+  expect(titles()).toHaveLength(500);
+  expect(new Set(titles())).toEqual(new Set(history.map(j=>j.title)));
+  expect(container.querySelector('.rf-board-result-count')?.textContent).toBe('500 of 500 roles');
+},20000);
+
+test('newly saved application refreshes the selected bounded history page without merging discovery', async () => {
+  mockFetch({status:200,body:{}});
+  const {container,rerender}=render(<RolefitBoard {...baseProps} initialHistory={[]} historyTotal={0}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'Mark as applied'}));
+  await waitFor(()=>expect(refresh).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole('button',{name:'History'}));
+  expect(container.querySelectorAll('.rf-job-card__title')).toHaveLength(0);
+  rerender(<RolefitBoard {...baseProps} initialHistory={[job]} historyTotal={1}/>);
+  expect(container.querySelector('.rf-board-result-count')?.textContent).toBe('1 of 1 roles');
 });

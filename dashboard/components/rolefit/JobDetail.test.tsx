@@ -152,3 +152,32 @@ describe("JobDetail — generation-instructions applied/dirty derivation", () =>
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+for (const status of ["prepared","applied"] as const) {
+  test(`unscored retained ${status} application shows saved artifacts, answers and status without generation`, () => {
+    const resume={name:"Ada",contact:"ada@example.test",headline:"Saved résumé headline",summary:"Retained résumé summary",skills:["TypeScript"],experience:[],education:[],certifications:[]};
+    const letter={greeting:"Dear team,",paragraphs:["Retained cover letter body"],closing:"Sincerely,",signature:"Ada"};
+    const pkg:ApplicationPackage={jobId:"job-1",status,resume,coverLetter:letter,
+      descriptionSnapshot:"Immutable application JD",questionsSnapshot:null,
+      prefilledAnswers:[{question:"Historical orphan question",answer:"Retained historical answer"}],
+      applyUrl:null,profileVersion:null,resumeInstructions:null,coverLetterInstructions:null,
+      resumeInstructionsDraft:null,coverLetterInstructionsDraft:null,coverLetterEditedText:null,
+      preparedAt:baseProps.nowIso,appliedAt:status === "applied" ? baseProps.nowIso : null};
+    render(<JobDetail {...baseProps} job={makeJob({fit_score:null,verdict:null,description:null,url:"https://boards.greenhouse.io/fixture/jobs/1"})} isAuthed pkg={pkg}
+      gen={{"job-1":"done"}} genData={{"job-1":resume}} coverGen={{"job-1":"done"}} coverData={{"job-1":letter}}
+      currentQuestions={{questions:[{label:"Current employer question",required:false,fields:[{name:"current",type:"input_text",options:[]}]}]}}/>);
+    expect(screen.getByText("Not yet reviewed")).toBeTruthy();
+    expect(screen.getAllByRole("link",{name:/Apply/})).toHaveLength(1);
+    expect(screen.getByText("Retained résumé summary")).toBeTruthy();
+    expect(screen.getByText("Retained cover letter body")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:/Application questions/}));
+    expect(screen.getByText("Retained historical answer")).toBeTruthy();
+    expect(screen.getByText("Historical orphan question")).toBeTruthy();
+    expect(screen.getByText(/historical question schema is unavailable/)).toBeTruthy();
+    expect(screen.getByText("Immutable application JD")).toBeTruthy();
+    if(status === "applied") expect(screen.getByText("Applied · you")).toBeTruthy();
+    else expect(screen.getByText("Prepared application")).toBeTruthy();
+    expect(screen.queryByRole("button",{name:/Regenerate|Re-prefill|Generate résumé|Generate cover letter/})).toBeNull();
+    expect(screen.queryByRole("button",{name:/Generation instructions/})).toBeNull();
+  });
+}

@@ -113,7 +113,7 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
   const jobStages: RowSpec[] = [
     { label: "Jobs ever seen", value: j.ever_seen, tone: "stage" },
     { label: "In discovery", value: j.open, tone: "stage", pctBase: j.ever_seen, pctSuffix: "of ever seen" },
-    { label: "Reviewed", value: j.reviewed, tone: "stage", pctBase: j.open, pctSuffix: "of open" },
+    { label: "Reviewed", value: j.reviewed, tone: "stage", pctBase: j.open, pctSuffix: "of discovery" },
   ];
   const jobOutcomes: RowSpec[] = [
     { label: "Gate-rejected", value: j.gate_rejected, tone: "amber", pctBase: j.reviewed, pctSuffix: "of reviewed",
@@ -174,7 +174,7 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
           <Row
             spec={{
               label: "Not yet reviewed", value: j.unreviewed, tone: "muted",
-              pctBase: j.open, pctSuffix: "of open",
+              pctBase: j.open, pctSuffix: "of discovery",
               info: { term: GLOSSARY.unreviewed.label, gloss: GLOSSARY.unreviewed.gloss },
             }}
             barMax={Math.max(1, j.open)}

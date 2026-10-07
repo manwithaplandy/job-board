@@ -405,6 +405,7 @@ export function RolefitBoard({
     const value = (resumeInstructions[jobId] ?? "").trim();
     try {
       await saveGenerationInstructions(jobId, { resumeInstructions: value });
+      router.refresh();
       setSavedResumeInstructions((m) => ({ ...m, [jobId]: value }));
       // Mirror the saved draft into the packages row the server just wrote/created, so
       // un-apply's hasContent check sees it exactly as the SQL bareMarkerPredicate does.
@@ -416,11 +417,12 @@ export function RolefitBoard({
       showActionError(`Couldn't save instructions: ${(e as Error).message}`);
       throw e; // let GenerationInstructions skip its "✓ Saved" confirmation
     }
-  }, [resumeInstructions, showActionError]);
+  }, [resumeInstructions, showActionError, router]);
   const handleSaveCoverInstructions = useCallback(async (jobId: string) => {
     const value = (coverInstructions[jobId] ?? "").trim();
     try {
       await saveGenerationInstructions(jobId, { coverLetterInstructions: value });
+      router.refresh();
       setSavedCoverInstructions((m) => ({ ...m, [jobId]: value }));
       setPackages((p) => {
         const prior = p[jobId] ?? emptyPreparedPackage(jobId, new Date().toISOString());
@@ -430,7 +432,7 @@ export function RolefitBoard({
       showActionError(`Couldn't save instructions: ${(e as Error).message}`);
       throw e;
     }
-  }, [coverInstructions, showActionError]);
+  }, [coverInstructions, showActionError, router]);
 
   // Longer-lived than actionError's 5s: the upsell carries a sentence or two plus a CTA
   // the user may want to click, so give it reading time before it self-dismisses.
@@ -586,11 +588,12 @@ export function RolefitBoard({
     (j.lifecycle && (j.lifecycle.feedEnabled || j.lifecycle.sourceEnabled)
       ? discoveryVisible(j.lifecycle,includeOlderLive,nowIso)
       : !j.closed_at && discoveryVisible(j.lifecycle,includeOlderLive,nowIso))), [boardJobs,includeOlderLive,nowIso]);
-  const historyJobs = useMemo(() => mergeRejectedPool(initialHistory,boardJobs.filter(j =>
-    j.verdict === "approve" || j.corrected || packages[j.id] != null)), [initialHistory,boardJobs,packages]);
+  // Display only the independently selected server page. Saved discovery rows
+  // belong to their own history page; mutations explicitly refresh that page.
+  const historyJobs = useMemo(() => initialHistory.map(j => ({...j,...corrections[j.id]})), [initialHistory,corrections]);
   const appliedSet = useMemo(
-    () => new Set(historyJobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
-    [historyJobs, packages],
+    () => new Set(Object.values(packages).filter(p => p.status === "applied").map(p => p.jobId)),
+    [packages],
   );
 
   // Facet counts scan every job; memoize on `boardJobs` so they aren't recomputed on every
@@ -921,14 +924,14 @@ export function RolefitBoard({
         return next;
       });
       startApply(() => {
-        void unmarkApplied(jobId).catch(() => {
+        void unmarkApplied(jobId).then(() => router.refresh()).catch(() => {
           showActionError("Couldn’t undo. Please try again.");
         });
       });
     }
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(null);
-  }, [toast, unrejectJob, unmarkApplied, showActionError]);
+  }, [toast, unrejectJob, unmarkApplied, showActionError, router]);
 
   // Un-reject from the card/detail (the Rejected view) after the Undo toast has expired.
   // Optimistically un-hides the job, then persists via unrejectJob; rolls back on failure.
@@ -959,7 +962,8 @@ export function RolefitBoard({
       ...prev,
       [jobId]: { ...row, note: form.note, corrected: true },
     }));
-  }, []);
+    router.refresh();
+  }, [router]);
 
   // Retry a failed detail fetch: clear the cache entry + in-flight guard, then refetch
   // directly (the effect no longer depends on `details`, so clearing it won't re-run it).
@@ -1193,6 +1197,7 @@ export function RolefitBoard({
   // "done" with the old artifact, matching the old hadResume/hadCover salvage.
   const applySettledReady = useCallback((g: GenerationJobView, pkg: ApplicationPackage) => {
     setPackages((p) => ({ ...p, [g.jobId]: pkg }));
+    router.refresh();
     // A fresh artifact cleared the draft server-side (upsert lockstep): re-baseline the
     // saved value to the new generated-with so Save reads "not dirty" and the box reads
     // "applied". "" stays "".
@@ -1245,7 +1250,7 @@ export function RolefitBoard({
         },
       }));
     }
-  }, [genData, coverData]);
+  }, [genData, coverData, router]);
 
   // 'failed' (nothing persisted): mirror the old blocking-model catch per kind,
   // with the row's user-safe message standing in for the thrown error.
@@ -1306,7 +1311,7 @@ export function RolefitBoard({
     setPackages((p) => ({ ...p, [job.id]: optimistic }));
     setSelectedId((prev) => (prev === job.id ? selectionAfterRemoval(visibleIds, job.id) : prev));
     startApply(() => {
-      void markApplied(job.id).catch(() => {
+      void markApplied(job.id).then(() => router.refresh()).catch(() => {
         setPackages((p) => {
           const next = { ...p };
           if (prior) next[job.id] = prior;
@@ -1323,7 +1328,7 @@ export function RolefitBoard({
     setToast({ kind: "apply", jobId: job.id, prior });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 5000);
-  }, [packages, markApplied, showActionError, visibleIds]);
+  }, [packages, markApplied, showActionError, visibleIds, router]);
 
   // Un-mark applied from the Applied view (no toast — immediate). Deletes a bare
   // marker; reverts a real prepared package to status='prepared'. Rolls back on error.
@@ -1345,12 +1350,12 @@ export function RolefitBoard({
       return next;
     });
     startApply(() => {
-      void unmarkApplied(job.id).catch(() => {
+      void unmarkApplied(job.id).then(() => router.refresh()).catch(() => {
         if (prior) setPackages((p) => ({ ...p, [job.id]: prior }));
         showActionError("Couldn’t undo. Please try again.");
       });
     });
-  }, [packages, unmarkApplied, showActionError]);
+  }, [packages, unmarkApplied, showActionError, router]);
 
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
@@ -1438,7 +1443,7 @@ export function RolefitBoard({
         openMenu={openMenu}
         visibleCount={visible.length}
         view={view === "history" ? "all" : view}
-        appliedCount={appliedSet.size}
+        appliedCount={historyJobs.filter(j => appliedSet.has(j.id)).length}
         rejectedCount={rejectedIds.size}
         onToggleView={setView}
         onToggleMenu={toggleMenu}

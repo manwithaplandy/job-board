@@ -1,0 +1,449 @@
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ components/analytics/SecondarySurfaceFixes.test.tsx (10 tests | 1 failed | 9 skipped) 440ms
+   × discovery totals do not claim employer openness and distinguish retained applied history 438ms
+ ❯ components/rolefit/JobDetail.test.tsx (6 tests | 2 failed | 4 skipped) 112ms
+   × unscored retained prepared application shows saved artifacts, answers and status without generation 92ms
+   × unscored retained applied application shows saved artifacts, answers and status without generation 18ms
+ ❯ components/rolefit/RolefitBoard.test.tsx (13 tests | 2 failed | 11 skipped) 3257ms
+   × selected history page contains only its 500 server rows, including the applied view 1830ms
+   × newly saved application refreshes the selected bounded history page without merging discovery 1425ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  components/analytics/SecondarySurfaceFixes.test.tsx > discovery totals do not claim employer openness and distinguish retained applied history
+TestingLibraryElementError: Unable to find an element with the text: 100.0% of discovery. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div>
+      <div
+        style="font-size: 12.5px; color: var(--text-secondary); margin: -6px 0px 12px;"
+      >
+        Current discovery and review pool. Applied totals include retained history beyond discovery expiry. Bars within a group share a scale.
+      </div>
+      <div
+        style="display: flex; gap: 32px; flex-wrap: wrap; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px;"
+      >
+        <div
+          style="flex: 1 1 380px; min-width: 0px;"
+        >
+          <div
+            style="font-size: 13.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 10px;"
+          >
+            Companies — Company Discovery
+          </div>
+          <div
+            style="display: flex; flex-direction: column; gap: 7px;"
+          >
+            <div
+              style="font-size: 11px; font-weight: 800; color: var(--text-muted); letter-spacing: 0.4px; margin: 16px 0px 8px; text-transform: uppercase;"
+            >
+              Pipeline stages
+            </div>
+            <div
+              style="display: flex; align-items: center; gap: 10px;"
+            >
+              <div
+                style="width: 148px; flex: 0 0 auto; font-size: 12px; color: var(--text-secondary); font-weight: 600;"
+              >
+                Tracked
+              </div>
+              <div
+                style="flex: 1 1 0%; min-width: 40px; height: 20px; background: var(--bg-muted); border-radius: 6px; overflow: hidden;"
+              >
+                <div
+                  style="width: 100%; height: 100%; background: var(--chart-stage); border-radius: 6px; min-width: 3px;"
+                />
+              </div>
+              <div
+                style="width: 62px; text-align: right; font-size: 12.5px; font-weight: 700; color: var(--text-primary);"
+              >
+                1
+              </div>
+              <div
+                style="width: 74px; text-align: right; font-size: 11px; color: var(--text-secondary);"
+              />
+            </div>
+            <div
+              style="display: flex; align-items: center; gap: 10px;"
+            >
+              <div
+                style="width: 148px; flex: 0 0 auto; font-size: 12px; color: var(--text-secondary); font-weight: 600;"
+              >
+                <span
+                  style="position: relative; display: inline-flex; align-items: center;"
+                >
+                  <span
+                    aria-expanded="false"
+                    aria-label="Found by discovery. Companies the discovery pipeline found automatically (rather than ones added by hand)."
+                    class="rf-info-tip__trigger rf-focusable"
+                    role="button"
+                    style="border-bottom: 1px dotted var(--text-muted); cursor: help; color: var(--text-secondary);"
+                    tabindex="0"
+                  >
+                    Found by discovery
+                  </span>
+                </span>
+              </div>
+              <div
+                style="flex: 1 1 0%; min-width: 40px; height: 20px; background: var(--bg-muted); border-radius: 6px; overflow: hidden;"
+              >
+                <div
+                  style="width: 100%; height: 100%; background: var(--chart-stage); border-radius: 6px; min-width: 3px;"
+                />
+              </div>
+              <div
+                style="width: 62px; text-align: right; font-size: 12.5px; font-weight: 700; color: var(--text-primary);"
+              >
+                1
+              </div>
+              <div
+                style="width: 74px; text-align: right; font-size: 11px; color: var(--text-secondary);"
+              >
+                100% of tracked
+              </div>
+            </div>
+            <div
+              style="display: flex; align-items: center; gap: 10px;"
+            >
+              <div
+                style="width: 148px; flex: 0 0 auto; font-size: 12px; color: var(--text-secondary); font-weight: 600;"
+              >
+                Classified
+              </div>
+              <div
+                style="flex: 1 1 0%; min-width: 40px; height: 20px; background: var(--bg-muted); border-radius: 6px; overflow: hidden;"
+              >
+                <div
+                  style="width: 100%; height: 100%; background: var(--chart-stage); border-radius: 6px; min-width: 3px;"
+                />
+              </div>
+              <div
+                style="width: 62px; text-align: right; font-size: 12.5px; font-weight: 700; color: var(--text-primary);"
+              >
+                1
+              </div>
+              <div
+                style="width: 74px; text-align: right; font-size: 11px; color: var(--text-secondary);"
+              >
+                100% of found
+              </div>
+            </div>
+            <div
+              style="font-size: 11px; font-weight: 800; color: var(--text-muted); letter-spacing: 0.4px; margin: 16px 0px 8px; text-transform: uppercase;"
+            >
+              <span
+                style="position: relative; display: inline-flex; align-items: center;"
+              >
+                <span
+                  aria-expanded="false"
+                  aria-label="Verdicts. Counts every classified company, including a few you added by hand — so these can total slightly more than the discovery-only 'Classified' stage above."
+    ...
+ ❯ Object.getElementError ../../../../dashboard/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:109:15
+ ❯ components/analytics/SecondarySurfaceFixes.test.tsx:120:17
+    118|   render(<FunnelSection funnel={funnel}/>);
+    119|   expect(screen.getByText('In discovery')).toBeTruthy();
+    120|   expect(screen.getAllByText('100.0% of discovery')).toHaveLength(1);
+       |                 ^
+    121|   expect(screen.getAllByText('0.0% of discovery')).toHaveLength(1);
+    122|   expect(screen.queryByText(/of open/)).toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  components/rolefit/JobDetail.test.tsx > unscored retained prepared application shows saved artifacts, answers and status without generation
+ FAIL  components/rolefit/JobDetail.test.tsx > unscored retained applied application shows saved artifacts, answers and status without generation
+TestingLibraryElementError: Unable to find an element with the text: Retained résumé summary. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="rf-job-detail"
+      style="max-width: 880px; margin: 0px auto; padding: 30px 36px 70px;"
+    >
+      <div
+        style="display: flex; gap: 18px; align-items: flex-start;"
+      >
+        <div
+          style="flex: 0 0 54px; height: 54px; border-radius: 13px; background: var(--logo-11); color: var(--text-on-accent); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; letter-spacing: 0.4px;"
+        >
+          AC
+        </div>
+        <div
+          style="flex: 1 1 0%; min-width: 0px;"
+        >
+          <h1
+            style="margin: 0px; font-size: 24px; font-weight: 800; letter-spacing: -0.4px; color: var(--text-primary); line-height: 1.15;"
+          >
+            Staff Engineer
+          </h1>
+          <div
+            style="font-size: 14px; color: var(--text-secondary); margin-top: 5px; font-weight: 600;"
+          >
+            Acme · Phoenix, AZ
+          </div>
+          <div
+            style="display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px;"
+          >
+            <span
+              style="display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 700; color: var(--text-secondary); border-radius: 7px; padding: 4px 2px;"
+            >
+              Discovered 3 days ago
+            </span>
+          </div>
+        </div>
+      </div>
+      <div
+        style="margin-top: 24px; border: 1px solid var(--border); border-radius: 16px; padding: 24px 20px; background: var(--bg-muted); text-align: center;"
+      >
+        <div
+          style="font-size: 14px; font-weight: 700; color: var(--text-secondary);"
+        >
+          Not yet reviewed
+        </div>
+        <div
+          style="font-size: 13px; color: var(--text-muted); margin-top: 6px; font-weight: 500;"
+        >
+          AI analysis for this role is pending.
+        </div>
+      </div>
+      <details
+        style="margin-top: 20px;"
+      >
+        <summary>
+          Current application questions
+        </summary>
+        <p>
+          The historical question schema is unavailable. Saved answers are retained without borrowing the current questions.
+        </p>
+        <ul>
+          <li>
+            Current employer question
+          </li>
+        </ul>
+      </details>
+    </div>
+  </div>
+</body>
+ ❯ Object.getElementError ../../../../dashboard/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ components/rolefit/JobDetail.test.tsx:170:19
+    168|       currentQuestions={{questions:[{label:"Current employer question"…
+    169|     expect(screen.getByText("Not yet reviewed")).toBeTruthy();
+    170|     expect(screen.getByText("Retained résumé summary")).toBeTruthy();
+       |                   ^
+    171|     expect(screen.getByText("Retained cover letter body")).toBeTruthy(…
+    172|     fireEvent.click(screen.getByRole("button",{name:/Application quest…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  components/rolefit/RolefitBoard.test.tsx > selected history page contains only its 500 server rows, including the applied view
+AssertionError: expected [ 'History role 0', …(999) ] to have a length of 500 but got 1000
+
+- Expected
++ Received
+
+- 500
++ 1000
+
+ ❯ components/rolefit/RolefitBoard.test.tsx:265:20
+    263|   fireEvent.click(screen.getByRole('button',{name:'History'}));
+    264|   const titles=()=>[...container.querySelectorAll('.rf-job-card__title…
+    265|   expect(titles()).toHaveLength(500);
+       |                    ^
+    266|   expect(new Set(titles())).toEqual(new Set(history.map(j=>j.title)));
+    267|   expect(container.querySelector('.rf-board-result-count')?.textConten…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  components/rolefit/RolefitBoard.test.tsx > newly saved application refreshes the selected bounded history page without merging discovery
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div>
+      <div
+        class="app-shell app-shell--board"
+        data-ui-contract-geometry="board viewport shell geometry"
+        style="height: 100vh; display: flex; flex-direction: column; background: var(--bg-page); color: var(--text-primary); overflow: hidden;"
+      >
+        <header
+          class="app-header"
+        >
+          <a
+            aria-label="Rolefit board"
+            class="app-header__brand"
+            href="/"
+          >
+            <span
+              aria-hidden="true"
+              class="app-header__logo"
+            >
+              <span />
+            </span>
+            <span
+              class="app-header__wordmark"
+            >
+              Rolefit
+            </span>
+          </a>
+          <nav
+            aria-label="Primary"
+            class="app-header__desktop-nav"
+          >
+            <a
+              aria-current="page"
+              class="app-header__nav-link rf-focusable"
+              href="/"
+            >
+              Board
+            </a>
+            <a
+              class="app-header__nav-link rf-focusable"
+              href="/analytics"
+            >
+              Analytics
+            </a>
+            <a
+              class="app-header__nav-link rf-focusable"
+              href="/companies"
+            >
+              Companies
+            </a>
+          </nav>
+          <div
+            class="app-header__center"
+          >
+            <label
+              class="rf-search app-header__search"
+            >
+              <svg
+                aria-hidden="true"
+                class="rf-icon"
+                fill="none"
+                focusable="false"
+                height="16"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.75"
+                viewBox="0 0 20 20"
+                width="16"
+              >
+                <circle
+                  cx="9"
+                  cy="9"
+                  r="5.5"
+                />
+                <path
+                  d="m13 13 4 4"
+                />
+              </svg>
+              <span
+                class="sr-only"
+              >
+                Search roles
+              </span>
+              <input
+                aria-label="Search roles"
+                data-ui-contract-composite="board search field"
+                placeholder="Search roles, companies, locations…"
+                type="search"
+                value=""
+              />
+            </label>
+          </div>
+          <div
+            class="app-header__actions"
+          >
+            <span
+              class="app-header__reviewed-badge"
+            >
+              AI-REVIEWED
+            </span>
+            <button
+              class="rf-button rf-focusable rf-button--primary rf-button--sm"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                class="rf-icon"
+                fill="none"
+                focusable="false"
+                height="16"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.75"
+                viewBox="0 0 20 20"
+                width="16"
+              >
+                <path
+                  d="m13.5 3.5 3 3L7 16H4v-3z"
+                />
+                <path
+                  d="m11.5 5.5 3 3"
+                />
+              </svg>
+              Résumé
+            </button>
+            <div
+              class="app-header__mobile-nav"
+            >
+              <button
+                aria-expanded="false"
+                aria-haspopup="menu"
+                aria-label="Open navigation"
+                class="rf-icon-button rf-focusable rf-icon-button--md rf-icon-button--default"
+                data-visual-size="44"
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="rf-icon"
+                  fill="none"
+                  focusable="false"
+                  height="18"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.75"
+                  viewBox="0 0 20 20"
+                  width="18"
+                >
+                  <path
+                    d="M3 5h14"
+                  />
+                  <path
+                    d="M3 10h14"
+                  />
+                  <path
+                    d="M3 15h14"
+              ...
+ ❯ components/rolefit/RolefitBoard.test.tsx:279:37
+    277|   const {container,rerender}=render(<RolefitBoard {...baseProps} initi…
+    278|   fireEvent.click(await screen.findByRole('button',{name:'Mark as appl…
+    279|   await waitFor(()=>expect(refresh).toHaveBeenCalledTimes(1));
+       |                                     ^
+    280|   fireEvent.click(screen.getByRole('button',{name:'History'}));
+    281|   expect(container.querySelectorAll('.rf-job-card__title')).toHaveLeng…
+ ❯ runWithExpensiveErrorDiagnosticsDisabled ../../../../dashboard/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback ../../../../dashboard/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback ../../../../dashboard/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  5 failed | 24 skipped (29)
+   Start at  20:46:33
+   Duration  6.34s (transform 1.95s, setup 0ms, import 3.46s, tests 3.81s, environment 3.20s)

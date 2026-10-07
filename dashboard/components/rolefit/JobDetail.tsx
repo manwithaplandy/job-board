@@ -159,6 +159,7 @@ export function JobDetail({
   onRetryDetail,
 }: JobDetailProps) {
   const hasReview = job.fit_score != null;
+  const hasApplication = hasReview || pkg != null;
   const applied = pkg?.status === "applied";
   const fit = job.fit_score ?? 0;
   const c = fitColor(fit);
@@ -392,8 +393,8 @@ export function JobDetail({
         )}
       </div>
 
-      {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
-      {hasReview && (job.human_override || isRejected || applied || (isAuthed && job.verdict === "approve")) && (
+      {/* Persisted applied status is readable even without a scored review. */}
+      {(applied || (hasReview && (job.human_override || isRejected || (isAuthed && job.verdict === "approve")))) && (
         <div
           className="rf-job-detail__actions"
           style={{
@@ -636,8 +637,12 @@ export function JobDetail({
               action={onRetryDetail && <Button variant="ghost" onClick={onRetryDetail}>Retry</Button>} />
           )}
 
-          {/* Application panel — résumé + cover letter + apply */}
+        </>
+      )}
+
+      {hasApplication && (
           <ApplicationPanel
+            allowGeneration={hasReview}
             job={job}
             isAuthed={isAuthed}
             resumeState={genState}
@@ -683,8 +688,13 @@ export function JobDetail({
             status={pkg?.status ?? null}
             appliedAt={pkg?.appliedAt ?? null}
           />
+      )}
 
-        </>
+      {pkg?.descriptionSnapshot && pkg.descriptionSnapshot !== fullJD && pkg.descriptionSnapshot !== (descriptionIsSaved ? job.description : null) && (
+        <details style={{marginTop:"20px"}}>
+          <summary>Saved application description</summary>
+          <p style={{whiteSpace:"pre-wrap"}}>{pkg.descriptionSnapshot}</p>
+        </details>
       )}
 
       {(pkg?.prefilledAnswers != null || !hasReview) && currentQuestions && (
@@ -695,11 +705,9 @@ export function JobDetail({
         </details>
       )}
 
-      {/* ── Full job description (collapsible) + Apply fallback — the Apply button here
-           renders only for not-yet-reviewed roles (which have no Application panel), so an
-           unreviewed role is never a dead end. Reviewed roles apply via the panel's
-           "Apply on {provider}" button. ── */}
-      {(fullJD || (!hasReview && applyUrl)) && (
+      {/* Full description and an Apply fallback for roles without an application
+          panel. Retained unscored packages already have the panel's Apply link. */}
+      {(fullJD || (!hasApplication && applyUrl)) && (
         <div
           style={{ marginTop: "24px", borderTop: "1px solid var(--bg-muted)", paddingTop: "20px" }}
         >
@@ -750,13 +758,7 @@ export function JobDetail({
               <p style={{whiteSpace:"pre-wrap"}}>{job.description}</p>
             </details>
           )}
-          {pkg?.descriptionSnapshot && pkg.descriptionSnapshot !== fullJD && pkg.descriptionSnapshot !== (descriptionIsSaved ? job.description : null) && (
-            <details style={{marginTop:"16px"}}>
-              <summary>Saved application description</summary>
-              <p style={{whiteSpace:"pre-wrap"}}>{pkg.descriptionSnapshot}</p>
-            </details>
-          )}
-          {!hasReview && applyUrl && (
+          {!hasApplication && applyUrl && (
             <div style={{ marginTop: "18px" }}>
               <ApplyButton url={applyUrl} />
             </div>

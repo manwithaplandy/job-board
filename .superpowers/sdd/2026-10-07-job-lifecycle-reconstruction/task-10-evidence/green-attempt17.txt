@@ -1,0 +1,268 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+....F..FF.F.F.F                                                          [100%]
+=================================== FAILURES ===================================
+_________ test_direct_mutation_requires_pair_and_revision_predecessor __________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff74436fdd0>
+
+    @requires_db
+    def test_direct_mutation_requires_pair_and_revision_predecessor(conn):
+        from tests.archive_helpers import seeded_events
+        from job_discovery.archive.schema import event_id
+        claim,refs=seeded_events(conn,1)
+>       with pytest.raises(Exception,match='requires exact transactional'), conn.transaction():
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'requires exact transactional'
+E         Actual message: 'record "old" has no field "content_hash"\nCONTEXT:  SQL expression "TG_TABLE_NAME=\'job_versions\' AND TG_OP=\'DELETE\' AND EXISTS(\n  SELECT FROM public.public_archive_version_coverage c WHERE c.version_id=OLD.id AND c.content_hash=OLD.content_hash\n   AND c.source_listing_id=OLD.source_listing_id AND c.version_revision=OLD.revision)"\nPL/pgSQL function lifecycle_private.require_public_change() line 10 at IF'
+
+tests/test_archive_outbox.py:34: AssertionError
+______________ test_pending_events_have_no_ttl_or_cascade_cleanup ______________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff7443b7d10>
+
+    @requires_db
+    def test_pending_events_have_no_ttl_or_cascade_cleanup(conn):
+        from tests.archive_helpers import seeded_events
+        seeded_events(conn)
+>       with pytest.raises(Exception,match='immutable pending'),conn.transaction():
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'immutable pending'
+E         Actual message: 'record "old" has no field "id"\nCONTEXT:  SQL expression "TG_TABLE_NAME=\'public_change_requirements\' AND NOT EXISTS(SELECT FROM public.public_outbox WHERE requirement_id=OLD.id)\n   AND EXISTS(SELECT FROM public.public_archive_coverage c JOIN public.public_archive_receipts r USING(batch_id)\n     WHERE c.aggregate_type=OLD.aggregate_type AND c.aggregate_id=OLD.aggregate_id AND c.revision=OLD.revision)"\nPL/pgSQL function lifecycle_private.preserve_archive_row() line 16 at IF'
+
+tests/test_archive_outbox.py:79: AssertionError
+__________ test_identity_and_reconcile_mutators_pair_transactionally ___________
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff7443b6720>
+
+    @requires_db
+    def test_identity_and_reconcile_mutators_pair_transactionally(conn):
+        from tests.test_lifecycle_reconcile import setup_source
+        from tests.archive_helpers import activate_fixture
+        from tests.test_lifecycle_admission import admit
+        from job_discovery.models import Posting
+        from job_discovery.lifecycle import reconcile
+        from job_discovery.lifecycle.types import Observation
+        source=setup_source(conn)
+        conn.commit()
+        activate_fixture(conn)
+>       _,claim=admit(conn,source,[Posting('0','Updated','https://example.test/job',raw={'descriptionPlain':'Public content'})])
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_archive_outbox.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_lifecycle_admission.py:18: in admit
+    count = identity.admit_metadata(conn, source["id"], postings, claim, reservation)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+job_discovery/lifecycle/identity.py:466: in admit_metadata
+    row = conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff7443b6720>
+query = 'INSERT INTO jobs(id,company_id,external_id,title,url,location,department,remote)\n                VALUES(%s,%s,%s,%s,...itle,EXCLUDED.url,EXCLUDED.location,EXCLUDED.department,EXCLUDED.remote)\n                RETURNING (xmax=0) AS is_new'
+params = ('lever:fixture:0', 1, '0', 'Updated', 'https://example.test/job', None, ...)
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedFunction: operator does not exist: uuid = text
+E           LINE 2: ...blic_archive_version_coverage c WHERE c.version_id=OLD.id AN...
+E                                                                        ^
+E           HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+E           QUERY:  TG_TABLE_NAME='job_versions' AND TG_OP='DELETE' AND EXISTS(
+E             SELECT FROM public.public_archive_version_coverage c WHERE c.version_id=OLD.id AND c.content_hash=OLD.content_hash
+E              AND c.source_listing_id=OLD.source_listing_id AND c.version_revision=OLD.revision)
+E           CONTEXT:  PL/pgSQL function lifecycle_private.require_public_change() line 10 at IF
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: UndefinedFunction
+_______________ test_persisted_exact_partial_membership_and_ack ________________
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff744366ed0>
+
+    @requires_db
+    def test_persisted_exact_partial_membership_and_ack(conn):
+        claim,refs=seeded_events(conn)
+        batch=claim_batch(conn,BatchLimits(max_events=2),claim)
+        conn.commit()
+        seal=seal_batch(batch,1)
+        assert seal==seal_batch(batch,1)
+        persist_seal(conn,seal)
+        conn.commit()
+>       result=ack_batch(conn,verified(seal),claim)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_archive_batches.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+job_discovery/archive/batches.py:165: in ack_batch
+    tx.execute('DELETE FROM public_change_requirements WHERE id=ANY(%s)',([r['requirement_id'] for r in reqs],))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff744366ed0>
+query = 'DELETE FROM public_change_requirements WHERE id=ANY(%s)'
+params = ([1, 2],), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedColumn: record "old" has no field "event_id"
+E           CONTEXT:  SQL expression "TG_TABLE_NAME='public_outbox' AND EXISTS(SELECT FROM public.public_archive_coverage c
+E               JOIN public.public_archive_receipts r USING(batch_id) WHERE c.event_id=OLD.event_id)"
+E           PL/pgSQL function lifecycle_private.preserve_archive_row() line 14 at IF
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: UndefinedColumn
+_____________ test_ack_rollback_retains_every_exact_pending_event ______________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff7443688f0>
+
+    @requires_db
+    def test_ack_rollback_retains_every_exact_pending_event(conn):
+        claim,refs=seeded_events(conn)
+        batch=claim_batch(conn,BatchLimits(),claim)
+        conn.commit()
+        seal=seal_batch(batch)
+        persist_seal(conn,seal)
+        conn.commit()
+        with pytest.raises(RuntimeError),conn.transaction():
+>           ack_batch(conn,verified(seal),claim)
+
+tests/test_archive_batches.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+job_discovery/archive/batches.py:165: in ack_batch
+    tx.execute('DELETE FROM public_change_requirements WHERE id=ANY(%s)',([r['requirement_id'] for r in reqs],))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff7443688f0>
+query = 'DELETE FROM public_change_requirements WHERE id=ANY(%s)'
+params = ([1, 2, 3],), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedColumn: record "old" has no field "event_id"
+E           CONTEXT:  SQL expression "TG_TABLE_NAME='public_outbox' AND EXISTS(SELECT FROM public.public_archive_coverage c
+E               JOIN public.public_archive_receipts r USING(batch_id) WHERE c.event_id=OLD.event_id)"
+E           PL/pgSQL function lifecycle_private.preserve_archive_row() line 14 at IF
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: UndefinedColumn
+______________ test_per_aggregate_ordering_survives_small_batches ______________
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff7443b6c90>
+
+    @requires_db
+    def test_per_aggregate_ordering_survives_small_batches(conn):
+        from job_discovery.archive.outbox import flush_public_changes
+        claim,_=seeded_events(conn,1)
+        for i in range(2):
+>           conn.execute('UPDATE brands SET name=%s',(f'Changed {i}',))
+
+tests/test_archive_batches.py:94: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=33055 user=postgres database=poller_lifecycle_test) at 0x7ff7443b6c90>
+query = 'UPDATE brands SET name=%s', params = ('Changed 0',), prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedColumn: record "old" has no field "content_hash"
+E           CONTEXT:  SQL expression "TG_TABLE_NAME='job_versions' AND TG_OP='DELETE' AND EXISTS(
+E             SELECT FROM public.public_archive_version_coverage c WHERE c.version_id=OLD.id AND c.content_hash=OLD.content_hash
+E              AND c.source_listing_id=OLD.source_listing_id AND c.version_revision=OLD.revision)"
+E           PL/pgSQL function lifecycle_private.require_public_change() line 10 at IF
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: UndefinedColumn
+=========================== short test summary info ============================
+FAILED tests/test_archive_outbox.py::test_direct_mutation_requires_pair_and_revision_predecessor
+FAILED tests/test_archive_outbox.py::test_pending_events_have_no_ttl_or_cascade_cleanup
+FAILED tests/test_archive_outbox.py::test_identity_and_reconcile_mutators_pair_transactionally
+FAILED tests/test_archive_batches.py::test_persisted_exact_partial_membership_and_ack
+FAILED tests/test_archive_batches.py::test_ack_rollback_retains_every_exact_pending_event
+FAILED tests/test_archive_batches.py::test_per_aggregate_ordering_survives_small_batches
+6 failed, 9 passed in 4.99s

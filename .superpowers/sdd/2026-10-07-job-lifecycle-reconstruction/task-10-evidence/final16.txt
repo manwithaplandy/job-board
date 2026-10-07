@@ -1,0 +1,4 @@
+Owned lifecycle database: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) (required 16)
+......................ordinary operational resource evidence {"after": {"allocated": 38419479, "index_bytes": 1605632, "table_toast_bytes": 1097728}, "before": {"allocated": 38419479, "index_bytes": 1605632, "table_toast_bytes": 1097728}, "delta": {"allocated": 0, "index_bytes": 0, "table_toast_bytes": 0}}
+..............
+36 passed in 37.22s

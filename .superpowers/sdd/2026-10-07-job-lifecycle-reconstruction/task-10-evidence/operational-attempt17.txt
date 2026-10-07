@@ -1,0 +1,693 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+..EEEE.EE.EEEEEEEEEE
+==================================== ERRORS ====================================
+__________ ERROR at setup of test_flag_off_legacy_write_has_no_event ___________
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82090>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+________ ERROR at setup of test_bounded_current_baseline_pairs_rollback ________
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82750>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_direct_mutation_requires_pair_and_revision_predecessor _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82a50>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_____ ERROR at setup of test_unchanged_poll_and_private_cache_do_not_emit ______
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b831d0>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_____ ERROR at setup of test_pending_events_have_no_ttl_or_cascade_cleanup _____
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82f90>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_identity_and_reconcile_mutators_pair_transactionally __
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82690>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+______ ERROR at setup of test_persisted_exact_partial_membership_and_ack _______
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82990>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+________ ERROR at setup of test_seal_membership_and_clock_are_immutable ________
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b83590>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+____ ERROR at setup of test_ack_rollback_retains_every_exact_pending_event _____
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b83a10>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_exact_receipts_and_suppressed_membership_fail_closed __
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201760110>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_____ ERROR at setup of test_per_aggregate_ordering_survives_small_batches _____
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b837d0>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_preallocated_health_membership_and_two_complete_misses _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82c90>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_partial_positive_survives_restart_and_never_certifies_absence _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82990>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+___ ERROR at setup of test_complete_checkpoint_resumes_with_fresh_connection ___
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b82d50>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+________ ERROR at setup of test_active_archive_critical_slots_exact_ack ________
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201b83110>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+________ ERROR at setup of test_missing_preallocation_reports_deferred _________
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f2201760950>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...TE TRIGGER lifecycle_validate BEFORE INSERT ON public_outbox FOR EACH ROW EXECUTE FUNCTION lifecycle_validate_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2805:  IF usage_count+1>CASE WHEN critical THEN 100000 ELSE 87500 ...
+E                                                          ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+=========================== short test summary info ============================
+ERROR tests/test_archive_outbox.py::test_flag_off_legacy_write_has_no_event
+ERROR tests/test_archive_outbox.py::test_bounded_current_baseline_pairs_rollback
+ERROR tests/test_archive_outbox.py::test_direct_mutation_requires_pair_and_revision_predecessor
+ERROR tests/test_archive_outbox.py::test_unchanged_poll_and_private_cache_do_not_emit
+ERROR tests/test_archive_outbox.py::test_pending_events_have_no_ttl_or_cascade_cleanup
+ERROR tests/test_archive_outbox.py::test_identity_and_reconcile_mutators_pair_transactionally
+ERROR tests/test_archive_batches.py::test_persisted_exact_partial_membership_and_ack
+ERROR tests/test_archive_batches.py::test_seal_membership_and_clock_are_immutable
+ERROR tests/test_archive_batches.py::test_ack_rollback_retains_every_exact_pending_event
+ERROR tests/test_archive_batches.py::test_exact_receipts_and_suppressed_membership_fail_closed
+ERROR tests/test_archive_batches.py::test_per_aggregate_ordering_survives_small_batches
+ERROR tests/test_lifecycle_operational.py::test_preallocated_health_membership_and_two_complete_misses
+ERROR tests/test_lifecycle_operational.py::test_partial_positive_survives_restart_and_never_certifies_absence
+ERROR tests/test_lifecycle_operational.py::test_complete_checkpoint_resumes_with_fresh_connection
+ERROR tests/test_lifecycle_operational.py::test_active_archive_critical_slots_exact_ack
+ERROR tests/test_lifecycle_operational.py::test_missing_preallocation_reports_deferred
+4 passed, 16 errors in 7.37s

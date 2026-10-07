@@ -1,0 +1,3 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+...............                                                          [100%]
+15 passed in 7.43s

@@ -121,6 +121,33 @@ def _termination_handlers():
             signal.signal(sig, handler)
 
 
+@contextmanager
+def _defer_termination(on_signal=None):
+    """Finish bounded cleanup before propagating cancellation, including repeats."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    pending = None
+
+    def deferred(signum, frame):
+        nonlocal pending
+        if pending is None:
+            pending = signum
+        if on_signal is not None:
+            on_signal()
+
+    try:
+        for sig in previous:
+            signal.signal(sig, deferred)
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    if pending is not None:
+        raise _HarnessTermination(pending)
+
+
 def _group_has_live_processes(pgid: int) -> bool:
     # The selected Linux Docker environment exposes /proc. Zombies cannot run
     # work; the direct child is reaped by Popen, other parents reap their children.
@@ -142,25 +169,34 @@ def _group_has_live_processes(pgid: int) -> bool:
 
 def _stop_command_group(process: subprocess.Popen, grace_seconds: float | None = None) -> None:
     pgid = process.pid  # start_new_session makes the child's PID its owned PGID.
-    try:
-        os.killpg(pgid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    deadline = time.monotonic() + (COMMAND_TERMINATION_GRACE_SECONDS if grace_seconds is None else grace_seconds)
-    while _group_has_live_processes(pgid) and time.monotonic() < deadline:
-        process.poll()
-        threading.Event().wait(0.05)
-    if _group_has_live_processes(pgid):
+    grace_deadline = time.monotonic() + (COMMAND_TERMINATION_GRACE_SECONDS if grace_seconds is None else grace_seconds)
+
+    def escalate():
+        nonlocal grace_deadline
+        grace_deadline = min(grace_deadline, time.monotonic())
+
+    # Signals can arrive inside the timeout exception handler itself. A sibling
+    # except cannot catch them there; defer them until this group's cleanup is
+    # complete and immediately shorten grace so outer cancellation stays bounded.
+    with _defer_termination(escalate):
         try:
-            os.killpg(pgid, signal.SIGKILL)
+            os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-    process.wait(timeout=5)
-    deadline = time.monotonic() + 5
-    while _group_has_live_processes(pgid) and time.monotonic() < deadline:
-        threading.Event().wait(0.05)
-    if _group_has_live_processes(pgid):
-        raise RuntimeError("owned command process group cleanup failed")
+        while _group_has_live_processes(pgid) and time.monotonic() < grace_deadline:
+            process.poll()
+            threading.Event().wait(0.05)
+        if _group_has_live_processes(pgid):
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        process.wait(timeout=5)
+        deadline = time.monotonic() + 5
+        while _group_has_live_processes(pgid) and time.monotonic() < deadline:
+            threading.Event().wait(0.05)
+        if _group_has_live_processes(pgid):
+            raise RuntimeError("owned command process group cleanup failed")
 
 
 def _cleanup_owned_container(name: str, owner: str, created_id: str | None) -> None:
@@ -234,8 +270,8 @@ def isolated_database(command: list[str], postgres_major: int = 17) -> int:
 
 
 def _isolated_database(command: list[str], postgres_major: int) -> int:
-    owner = secrets.token_hex(12)
-    name = "poller-lifecycle-test-" + owner
+    name = "poller-lifecycle-test-" + secrets.token_hex(12)
+    owner = secrets.token_urlsafe(24)  # Invocation identity is independent of name collision.
     password = secrets.token_urlsafe(32)
     created_id = None
     try:
@@ -278,7 +314,8 @@ def _isolated_database(command: list[str], postgres_major: int) -> int:
         print("Lifecycle test database launch failed", file=sys.stderr)
         return 2
     finally:
-        _cleanup_owned_container(name, owner, created_id)
+        with _defer_termination():
+            _cleanup_owned_container(name, owner, created_id)
 
 
 def main() -> int:

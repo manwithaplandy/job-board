@@ -107,6 +107,7 @@ def test_creation_cleanup_requires_this_invocations_owner_and_immutable_id(monke
     calls = []
     token, cid = "fix-round-one-owner", "a" * 64
     monkeypatch.setattr(module.secrets, "token_hex", lambda *args: token)
+    monkeypatch.setattr(module.secrets, "token_urlsafe", lambda *args: token)
 
     def docker(args, **kwargs):
         calls.append(args)
@@ -129,6 +130,27 @@ def test_creation_cleanup_requires_this_invocations_owner_and_immutable_id(monke
         assert removals == [], "failed creation must not remove an unowned name conflict"
     else:
         assert removals == [["rm", "--force", "--volumes", cid]]
+
+
+def test_prior_harness_name_collision_does_not_reuse_the_prior_owner_marker(monkeypatch):
+    module = harness()
+    suffix, cid, calls = "prior-harness-name-suffix", "b" * 64, []
+    monkeypatch.setattr(module.secrets, "token_hex", lambda *args: suffix)
+    monkeypatch.setattr(module.secrets, "token_urlsafe", lambda *args: "fresh-invocation-marker")
+
+    def docker(args, **kwargs):
+        calls.append(args)
+        if args[0] == "run":
+            raise subprocess.CalledProcessError(125, ["docker", "run"])
+        if args[0] == "inspect":
+            # Exact prior-harness representation at FIX_BASE: marker=name suffix.
+            return json.dumps({"id": cid, "owner": suffix})
+        return ""
+
+    monkeypatch.setattr(module, "_docker", docker)
+    assert module.isolated_database([sys.executable, "-c", "pass"]) == 2
+    assert not any(args[0] == "rm" for args in calls), "prior harness invocation was accepted as this invocation"
+    assert "poller.lifecycle-test.owner=fresh-invocation-marker" in calls[0]
 
 
 @requires_db
@@ -191,6 +213,81 @@ def test_timeout_terminates_and_reaps_a_real_sigterm_ignoring_descendant(monkeyp
             if pid is not None:
                 os.kill(pid, signal.SIGKILL)
                 os.waitpid(pid, 0)
+
+
+def test_outer_cancellation_during_inner_timeout_cleanup_survives_a_second_signal(monkeypatch, tmp_path):
+    module = harness()
+    pidfile = tmp_path / "inner-worker.pid"
+    second_signal = tmp_path / "second-signal"
+    cleanup_started = threading.Event()
+    previous_usr1 = signal.getsignal(signal.SIGUSR1)
+    signal.signal(signal.SIGUSR1, lambda *args: cleanup_started.set())
+    worker = (
+        "import os,signal,threading; from pathlib import Path; "
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        f"Path({str(pidfile)!r}).write_text(str(os.getpid())); threading.Event().wait(30)"
+    )
+    inner = f"""
+import os,signal,sys
+from pathlib import Path
+from tools import lifecycle_test_db as module
+module.COMMAND_TIMEOUT_SECONDS=0.2
+module.COMMAND_TERMINATION_GRACE_SECONDS=20
+real_group=module._group_has_live_processes
+announced=False
+def observed_group(pgid):
+    global announced
+    if not announced:
+        announced=True
+        os.kill({os.getpid()},signal.SIGUSR1)
+    return real_group(pgid)
+module._group_has_live_processes=observed_group
+real_signal=signal.signal
+signal_seen=False
+def observing_signal(sig,handler):
+    if sig==signal.SIGTERM and callable(handler):
+        def repeat(signum,frame):
+            global signal_seen
+            first=not signal_seen
+            signal_seen=True
+            if not first:
+                Path({str(second_signal)!r}).touch()
+            result=handler(signum,frame)
+            if first:
+                os.kill(os.getpid(),signal.SIGTERM)
+            return result
+        return real_signal(sig,repeat)
+    return real_signal(sig,handler)
+signal.signal=observing_signal
+module.run_existing_database([sys.executable,'-c',{worker!r}],{LOCAL!r})
+"""
+    real_stop = module._stop_command_group
+
+    def after_inner_cleanup_started(process, *args, **kwargs):
+        assert cleanup_started.wait(5), "real inner timeout cleanup did not begin"
+        return real_stop(process, *args, **kwargs)
+
+    monkeypatch.setattr(module, "_stop_command_group", after_inner_cleanup_started)
+    monkeypatch.setattr(module, "COMMAND_TIMEOUT_SECONDS", 1)
+    monkeypatch.setattr(module, "COMMAND_TERMINATION_GRACE_SECONDS", 0.5)
+    with adopt_own_descendants():
+        pid = None
+        try:
+            assert module.run_existing_database([sys.executable, "-c", inner], LOCAL) == 124
+            assert cleanup_started.is_set()
+            assert second_signal.exists(), "second termination signal was not exercised"
+            assert pidfile.exists(), "inner worker never acknowledged its PID"
+            pid = int(pidfile.read_text())
+            assert not Path(f"/proc/{pid}").exists(), "inner timeout cleanup was interrupted and its worker survived"
+            pid = None  # The inner Popen has reaped its own worker.
+        finally:
+            signal.signal(signal.SIGUSR1, previous_usr1)
+            if pid is not None:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+                except (ProcessLookupError, ChildProcessError):
+                    pass
 
 
 def test_helper_rechecks_connected_target_before_any_ddl():
@@ -383,14 +480,29 @@ def test_owned_docker_child_failure_and_timeout_cleanup(monkeypatch, capsys):
 def test_outer_timeout_allows_nested_harness_container_and_process_cleanup(monkeypatch, tmp_path):
     module = harness()
     marker = tmp_path / "nested.json"
+    command_started = threading.Event()
+    previous_usr1 = signal.getsignal(signal.SIGUSR1)
+    signal.signal(signal.SIGUSR1, lambda *args: command_started.set())
     script = (
         "import os,json,signal,subprocess,threading; from pathlib import Path; from urllib.parse import urlsplit; "
         "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
         "port=str(urlsplit(os.environ['TEST_DATABASE_URL']).port); "
         f"ids=subprocess.check_output({module.DOCKER!r}+['ps','--no-trunc','-q','--filter','publish='+port],text=True).splitlines(); "
         "assert len(ids)==1; "
-        f"Path({str(marker)!r}).write_text(json.dumps(dict(cid=ids[0],pid=os.getpid()))); threading.Event().wait(30)"
+        f"Path({str(marker)!r}).write_text(json.dumps(dict(cid=ids[0],pid=os.getpid()))); "
+        f"os.kill({os.getpid()},signal.SIGUSR1); threading.Event().wait(30)"
     )
+    real_stop = module._stop_command_group
+
+    def after_command_started(process, *args, **kwargs):
+        # Exercise cancellation of a running child. Docker startup can consume
+        # the outer deadline; a separate test below covers that startup phase.
+        acknowledged = command_started.wait(module.READINESS_TIMEOUT_SECONDS)
+        result = real_stop(process, *args, **kwargs)
+        assert acknowledged, "nested owned database command never acknowledged startup"
+        return result
+
+    monkeypatch.setattr(module, "_stop_command_group", after_command_started)
     monkeypatch.setattr(module, "COMMAND_TIMEOUT_SECONDS", 8)
     monkeypatch.setattr(module, "COMMAND_TERMINATION_GRACE_SECONDS", 10, raising=False)
     command = [sys.executable, str(ROOT / "tools/lifecycle_test_db.py"), "--postgres-major", "17", "--", sys.executable, "-c", script]
@@ -404,6 +516,7 @@ def test_outer_timeout_allows_nested_harness_container_and_process_cleanup(monke
             assert remaining == "", "outer timeout bypassed nested container cleanup"
             assert not Path(f"/proc/{data['pid']}").exists(), "nested command descendant survived"
         finally:
+            signal.signal(signal.SIGUSR1, previous_usr1)
             # Exact IDs/PIDs acknowledged by this test's owned nested child only.
             if data is None and marker.exists():
                 data = json.loads(marker.read_text())
@@ -418,3 +531,86 @@ def test_outer_timeout_allows_nested_harness_container_and_process_cleanup(monke
                     pass
                 if module._docker(["ps", "-aq", "--filter", "id=" + data["cid"]]):
                     module._docker(["rm", "--force", "--volumes", data["cid"]])
+
+
+@requires_db
+def test_outer_timeout_during_owned_database_startup_cleans_its_container(monkeypatch, tmp_path):
+    module = harness()
+    marker = tmp_path / "startup-container-id"
+    command_marker = tmp_path / "command-started"
+    port_known = threading.Event()
+    previous_usr1 = signal.getsignal(signal.SIGUSR1)
+    signal.signal(signal.SIGUSR1, lambda *args: port_known.set())
+    worker = f"from pathlib import Path; Path({str(command_marker)!r}).touch()"
+    driver = f"""
+import os,signal,sys,threading
+from pathlib import Path
+from tools import lifecycle_test_db as module
+real_docker=module._docker
+created_id=None
+def observed_docker(args,**kwargs):
+    global created_id
+    result=real_docker(args,**kwargs)
+    if args[0]=='run':
+        created_id=result
+    if args[0]=='port':
+        Path({str(marker)!r}).write_text(created_id)
+        os.kill({os.getpid()},signal.SIGUSR1)
+        threading.Event().wait(30)
+    return result
+module._docker=observed_docker
+raise SystemExit(module.isolated_database([sys.executable,'-c',{worker!r}],17))
+"""
+    real_stop = module._stop_command_group
+
+    def after_owned_startup(process, *args, **kwargs):
+        acknowledged = port_known.wait(module.READINESS_TIMEOUT_SECONDS)
+        result = real_stop(process, *args, **kwargs)
+        assert acknowledged, "owned container startup never acknowledged its identity"
+        return result
+
+    monkeypatch.setattr(module, "_stop_command_group", after_owned_startup)
+    monkeypatch.setattr(module, "COMMAND_TIMEOUT_SECONDS", 1)
+    monkeypatch.setattr(module, "COMMAND_TERMINATION_GRACE_SECONDS", 10)
+    try:
+        assert module.run_existing_database([sys.executable, "-c", driver], TEST_DSN) == 124
+        assert marker.exists()
+        assert not command_marker.exists(), "test cancellation missed the database startup phase"
+        assert module._docker(["ps", "-aq", "--filter", "id=" + marker.read_text()]) == ""
+    finally:
+        signal.signal(signal.SIGUSR1, previous_usr1)
+        if marker.exists() and module._docker(["ps", "-aq", "--filter", "id=" + marker.read_text()]):
+            module._docker(["rm", "--force", "--volumes", marker.read_text()])
+
+
+@requires_db
+def test_two_real_harness_invocations_with_one_name_preserve_the_first(monkeypatch, tmp_path):
+    module = harness()
+    suffix = module.secrets.token_hex(12)
+    marker = tmp_path / "first-harness.json"
+    first_ready = threading.Event()
+    previous_usr1 = signal.getsignal(signal.SIGUSR1)
+    signal.signal(signal.SIGUSR1, lambda *args: first_ready.set())
+    worker = (
+        "import os,json,signal,subprocess,threading; from pathlib import Path; from urllib.parse import urlsplit; "
+        "port=str(urlsplit(os.environ['TEST_DATABASE_URL']).port); "
+        f"ids=subprocess.check_output({module.DOCKER!r}+['ps','--no-trunc','-q','--filter','publish='+port],text=True).splitlines(); "
+        "assert len(ids)==1; "
+        f"Path({str(marker)!r}).write_text(json.dumps(dict(cid=ids[0],pid=os.getpid()))); "
+        f"os.kill({os.getpid()},signal.SIGUSR1); threading.Event().wait(30)"
+    )
+    driver = (
+        "import sys; from tools import lifecycle_test_db as module; "
+        f"module.secrets.token_hex=lambda *args:{suffix!r}; "
+        f"raise SystemExit(module.isolated_database([sys.executable,'-c',{worker!r}],17))"
+    )
+    first = subprocess.Popen([sys.executable, "-c", driver], env=module.child_environment(TEST_DSN), start_new_session=True)
+    try:
+        assert first_ready.wait(15), "first real harness did not acknowledge its owned container"
+        first_id = json.loads(marker.read_text())["cid"]
+        monkeypatch.setattr(module.secrets, "token_hex", lambda *args: suffix)
+        assert module.isolated_database([sys.executable, "-c", "pass"], 17) == 2
+        assert module._docker(["inspect", "--format", "{{.Id}}", first_id]) == first_id
+    finally:
+        signal.signal(signal.SIGUSR1, previous_usr1)
+        module._stop_command_group(first)

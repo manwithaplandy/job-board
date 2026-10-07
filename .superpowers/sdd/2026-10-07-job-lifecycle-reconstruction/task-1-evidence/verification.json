@@ -75,5 +75,36 @@
     "diff_check": "passed",
     "full_suite_repeated": false,
     "independent_scoped_rereview": "controller-owned, pending"
+  },
+  "fix_round2": {
+    "recorded_utc": "2026-10-07T05:58:30.524170+00:00",
+    "fix_base": "a288a9ad290d45d557953c9133bc61482d571f08",
+    "covered_files": [
+      "tests/test_lifecycle_test_db.py",
+      "tests/test_lifecycle_migrations.py",
+      "tests/test_rls_isolation.py"
+    ],
+    "required_lanes": [
+      {
+        "postgres_version": "17.11 (Debian 17.11-1.pgdg13+2)",
+        "passed": 86,
+        "skipped": 0,
+        "exit_code": 0,
+        "seconds": 53.97
+      },
+      {
+        "postgres_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+        "passed": 86,
+        "skipped": 0,
+        "exit_code": 0,
+        "seconds": 63.4
+      }
+    ],
+    "lint": "passed",
+    "diff_check": "passed",
+    "frozen_schema_unchanged": true,
+    "full_suite_repeated": false,
+    "independent_scoped_rereview": "controller-owned, pending",
+    "scope": "two original security resource-lifetime findings; approved catalog fixes unchanged"
   }
 }

@@ -287,3 +287,121 @@ No fixture/schema/application/CI change, broad Docker cleanup, cloud/provider
 call, or commit rewrite is made in this fix. Controller progress, review package
 and review artifacts are excluded from the forward commit. Fresh independent
 scoped rereview and Library checkpoint remain controller-owned and pending.
+
+## Fix Round 2: nested cancellation and prior-harness collision
+
+Forward fix base: `a288a9ad290d45d557953c9133bc61482d571f08`. This round
+addresses only the two residual original security findings in
+`task-1-fix-1-security-rereview.md`: “Outer cancellation can interrupt an inner
+timeout cleanup” and “A prior harness name collision also collides with its
+marker.” The reviewed global-default and NULL-ACL owner parity fixes are
+unchanged, as are the frozen schema, migration inventory, application and CI.
+The final forward commit SHA is returned with completion; this report and
+evidence are included in that commit.
+
+### Tests-first chronology and phase diagnosis
+
+Before changing the runner, added the review's failed-creation/prior-harness
+marker reproduction, a real nested process reproduction, and a real collision
+between two invocations of this harness. The nested process probe acknowledges
+entry into the inner runner's actual timeout cleanup before outer cancellation;
+the worker ignores SIGTERM, and a second real SIGTERM is delivered while the
+first handler is returning. It requires that the worker be terminated and
+reaped. Cleanup behavior is not mocked. The collision proof creates a real
+owned database through the first harness, forces the second harness to request
+the same name, and verifies that the first immutable ID survives.
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" python tools/lifecycle_test_db.py --postgres-major 17 -- \
+  python -m pytest tests/test_lifecycle_test_db.py \
+  -k 'prior_harness_name or during_inner_timeout or two_real_harness' -q
+```
+
+On PostgreSQL **17.11**, RED was **3 failed, 46 deselected in 5.15s**, exit 1.
+The failures proved prior marker acceptance, a surviving inner worker, and
+deletion of the prior real harness container. The RED probes removed/reaped
+only their exact acknowledged IDs/PIDs and left no owned resource behind.
+After the runner fixes, the same selection was **3 passed, 46 deselected in
+10.30s**, exit 0.
+
+The first covering PostgreSQL 17 run then produced **1 failed, 84 passed,
+zero skipped in 56.21s**, exit 1. The existing ordinary nested timeout test
+never created `nested.json` or printed the nested database version: its
+eight-second outer deadline expired before the nested command acknowledged
+startup. Read-only Docker events showed that nested container started at
+05:49:01.621 UTC and was destroyed at 05:49:04.786 UTC. These timestamps alone
+do not measure individual readiness probes.
+
+A separate real phase observation kept the same eight-second outer deadline:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" python tools/lifecycle_test_db.py --postgres-major 17 -- \
+  python /tmp/lifecycle-task1-fix2-phase-probe.py
+```
+
+It measured Docker creation at **4.777s** and successful database readiness at
+**6.943s** after nested creation began. The command started in that probe,
+outer return was 124, and exact owned cleanup completed at 9.413s. Combined
+with the missing readiness/command acknowledgement in the failed run, this
+established that the old fixed deadline could target startup rather than the
+intended command-cleanup phase. Sanitized phase rows and the exact diagnostic
+script are preserved in `task-1-evidence/fix-round2-phase-probe.json` and
+`fix-round2-phase-probe.py.txt`; no Docker arguments, environment or credentials
+were recorded.
+
+The ordinary nested regression now acknowledges the actual running child with
+an Event before invoking real outer cancellation. Its observation wrapper has
+a bounded wait and always runs actual cleanup before asserting phase success.
+The production execution/readiness/grace constants are unchanged. A separate
+real Docker regression acknowledges the owned immutable ID after creation and
+port publication, then cancels before readiness or command execution; it
+asserts the command never started and the container disappeared. Thus both
+startup cancellation and cancellation of the running SIGTERM-ignoring child
+retain explicit coverage.
+
+### Resulting behavior
+
+An independent 192-bit random invocation marker replaces the marker derived
+from the generated container name. A failed name collision cannot authorize
+cleanup of a prior invocation, including another invocation of this harness.
+Successful and ambiguous creation still require the same exact marker and
+immutable-ID checks before removal.
+
+Process-group cleanup temporarily defers SIGTERM/SIGINT, including repeated
+signals, until termination and reaping finish. Cancellation during an existing
+timeout cleanup shortens the remaining grace to immediate escalation, then
+propagates after bounded cleanup. This closes the sibling-exception-handler
+gap without restarting the grace window. Owned container cleanup also defers
+handler exceptions until its bounded cleanup completes and restores the
+caller's handlers. The real repeated-signal test proves the worker disappears
+before the outer runner returns.
+
+### Fresh covering verification
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" python tools/lifecycle_test_db.py --postgres-major 17 -- \
+  python -m pytest tests/test_lifecycle_test_db.py tests/test_lifecycle_migrations.py \
+  tests/test_rls_isolation.py -q
+# Same command with --postgres-major 16.
+PATH="$PWD/.venv/bin:$PATH" ruff check .
+git diff --check
+sha256sum tests/fixtures/lifecycle/schema-before-lifecycle.sql
+```
+
+| Fresh lane | Result |
+| --- | --- |
+| Owned PostgreSQL **17.11** (Debian 17.11-1.pgdg13+2) | **86 passed, zero skipped**, 53.97s, exit 0 |
+| Owned PostgreSQL **16.15** (Debian 16.15-1.pgdg13+2) | **86 passed, zero skipped**, 63.40s, exit 0 |
+| `ruff check .` | Passed |
+| `git diff --check` | Passed |
+| Frozen schema SHA-256 | Unchanged: `fb9b20f4708e7f60d15fb36e0174aa3de4de5254ea6aedf8b27df10bb7e3b0d6` |
+
+These affected lanes include the complete migration/catalog parity and RLS
+compatibility checks. Initial full-suite results and Fix Round 1 results above
+remain evidence for their respective earlier commits; the full suite was not
+repeated for this scoped fix. There is no outstanding failure in either fresh
+lane. Only Task 1 runner/tests, this report and sanitized evidence are included;
+controller progress and review artifacts remain excluded. No shared Docker
+cleanup, production/cloud/provider calls, schema changes or history rewrite
+occurred. Fresh independent scoped security review and the verified checkpoint
+remain controller-owned before Task 2.

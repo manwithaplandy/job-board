@@ -1,0 +1,41 @@
+import json,os,sys,tempfile,time
+from pathlib import Path
+sys.path.insert(0,os.getcwd())
+from tools import lifecycle_test_db as module
+root=Path(tempfile.mkdtemp(prefix='lifecycle-owned-phase-'))
+phase=root/'phases.jsonl'
+marker=root/'started'
+worker=f"import signal,threading; from pathlib import Path; signal.signal(signal.SIGTERM,signal.SIG_IGN); Path({str(marker)!r}).touch(); threading.Event().wait(30)"
+driver=f'''
+import json,time,sys
+from pathlib import Path
+from tools import lifecycle_test_db as module
+phase=Path({str(phase)!r})
+start=time.monotonic()
+def record(event):
+    with phase.open('a') as f:f.write(json.dumps(dict(event=event,elapsed=round(time.monotonic()-start,3)))+'\\n')
+real_docker=module._docker
+def observed_docker(args,**kwargs):
+    record('docker_'+args[0]+'_begin')
+    try:return real_docker(args,**kwargs)
+    finally:record('docker_'+args[0]+'_end')
+module._docker=observed_docker
+real_run=module.subprocess.run
+def observed_run(args,**kwargs):
+    probe= isinstance(args,list) and len(args)>2 and args[1]=='-c' and 'SHOW server_version' in args[2]
+    if probe:record('readiness_probe_begin')
+    try:
+        result=real_run(args,**kwargs)
+        if probe:record('readiness_probe_success')
+        return result
+    except BaseException:
+        if probe:record('readiness_probe_not_success')
+        raise
+module.subprocess.run=observed_run
+raise SystemExit(module.isolated_database([sys.executable,'-c',{worker!r}],17))
+'''
+module.COMMAND_TIMEOUT_SECONDS=8
+module.COMMAND_TERMINATION_GRACE_SECONDS=10
+code=module.run_existing_database([sys.executable,'-c',driver],os.environ['TEST_DATABASE_URL'])
+print('outer_returncode',code,'nested_command_started',marker.exists())
+print(phase.read_text())

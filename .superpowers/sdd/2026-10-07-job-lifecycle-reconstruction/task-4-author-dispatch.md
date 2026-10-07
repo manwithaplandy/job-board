@@ -1,7 +1,7 @@
 # Task 4 author dispatch preparation
 
-Dispatch only after Task 3's independent Checkpoint A requirements/security gates
-and confirmed Library checkpoint. Record that actual BASE. Use a fresh sole
+Dispatch after the approved REVIEW-SCOPE-AMENDMENT.md and confirmed reduced-scope
+development checkpoint. Task 3 is usable for development, never fully security-approved. Record that actual BASE. Use a fresh sole
 implementation author; no author subagents or self-selected reviewers.
 
 Read repository instructions, complete `task-4-brief.md`, approved spec/plan,
@@ -52,4 +52,6 @@ Write `task-4-report.md` and sanitized `task-4-evidence/` in this ignored plan
 workspace (git add -f). Include exact commands/versions, RED/GREEN, resulting
 behavior, limits and inventory changes. Commit Task 4 files/report/evidence
 forward; exclude controller artifacts. Return DONE + SHA + actual evidence,
-then stop for independent review. No Task 5 before both gates and Library save.
+then stop for independent review. No Task 5 before permitted requirements/quality review and Library save.
+Read REVIEW-SCOPE-AMENDMENT.md first; never retry refused security analysis/probes.
+Ordinary Task 4 correctness tests are permitted; report the deliberately unreviewed gaps.

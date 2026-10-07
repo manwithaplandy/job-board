@@ -1,9 +1,11 @@
 "use server";
 
+import { readPrivateSnapshot } from "@/lib/jobLifecycle";
+
 import { revalidatePath } from "next/cache";
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
-import { withUserSql } from "@/lib/db";
+import { withUserPayloadMutation } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { formToScoreRow, buildResumeGoldenItem, type ResumeScoreForm } from "@/lib/rolefit/resumeScore";
 import { upsertResumeGoldenItem } from "@/lib/resumeGoldenDataset";
@@ -28,7 +30,8 @@ export async function saveResumeScore(
   const scoredAt = new Date().toISOString();
   // Snapshot the exact résumé scored + persist, under the viewer's RLS context in
   // one transaction. Returns the source row for the (post-commit) LangFuse sync.
-  const src = await withUserSql(userId, async (tx) => {
+  const src = await withUserPayloadMutation(userId, jobId, "resume_scores", async (tx) => {
+    const snapshot = await readPrivateSnapshot(tx, jobId, "application_packages");
     const rows = await tx`
       SELECT ap.resume_json, ap.resume_trace_id,
              j.title, COALESCE(c.display_name, c.name) AS company_name, j.description,
@@ -50,10 +53,11 @@ export async function saveResumeScore(
 
     await tx`
       INSERT INTO resume_scores (
-        user_id, job_id, grounding, jd_relevance, comment,
+        user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, grounding, jd_relevance, comment,
         resume_trace_id, resume_snapshot, model, scored_at
       ) VALUES (
-        ${userId}::uuid, ${jobId}, ${row.grounding}, ${row.jd_relevance}, ${row.comment},
+        ${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+        ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${row.grounding}, ${row.jd_relevance}, ${row.comment},
         ${s.resume_trace_id}, ${JSON.stringify(parseTailoredResume(s.resume_json) ?? {})}::jsonb, ${s.model_resume}, now()
       )
       ON CONFLICT (user_id, job_id) DO UPDATE SET
@@ -62,7 +66,7 @@ export async function saveResumeScore(
         resume_snapshot = EXCLUDED.resume_snapshot, model = EXCLUDED.model,
         scored_at = now()
     `;
-    return s;
+    return { ...s, description: snapshot?.description ?? s.description };
   });
 
   // Admin-only push to the shared golden dataset (minor 8). Non-admins: DB row persisted

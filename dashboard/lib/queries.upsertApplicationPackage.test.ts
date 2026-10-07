@@ -29,7 +29,8 @@ vi.mock("@/lib/db", () => {
       },
     ]);
   };
-  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx),
+    withUserPayloadMutation: (_u: string, _j: string, _s: string, fn: (t:unknown)=>unknown)=>fn(tx) };
 });
 
 import { upsertApplicationPackage } from "@/lib/queries";

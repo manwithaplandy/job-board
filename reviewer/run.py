@@ -48,6 +48,10 @@ def _persist_rows(conn, rows: list[dict], chunk_size: int = 20) -> None:
 @dataclass
 class ReviewResult:
     job_id: str
+    job_version_id: object = None
+    description_snapshot: str | None = None
+    questions_snapshot: object = None
+    snapshot_captured_at: object = None
     stage1_decision: str | None = None
     stage1_reason: str | None = None
     verdict: str | None = None
@@ -152,6 +156,8 @@ async def _stage2_inner(candidate: dict, profile_block: str, client,
 
 async def _review_one_inner(candidate: dict, profile_block: str, client) -> ReviewResult:
     res = ReviewResult(job_id=candidate["id"])
+    if not isinstance(candidate.get("description"), str) or not candidate["description"].strip():
+        return res
     try:
         s1 = await client.stage1(
             profile_block=profile_block, title=candidate["title"],
@@ -246,6 +252,7 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
     and remaining jobs stay retryable (no rows). The caller re-checks the tombstone at its
     write boundary and skips all writes.
     """
+    candidates = [c for c in candidates if isinstance(c.get("description"), str) and c["description"].strip()]
     halt = asyncio.Event()
     results: list[ReviewResult] = []
     # ONE semaphore per run, shared across chunks: chunks serialize, but peak in-flight
@@ -272,6 +279,11 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
         # Accumulate then hand THIS chunk's terminal results to the caller. The extend
         # keeps `results` == concat(emitted chunks); the callback fires only for a
         # non-empty chunk so an all-deferred/halted chunk emits nothing.
+        by_id = {c['id']: c for c in candidates}
+        for result in chunk_results:
+            source = by_id[result.job_id]
+            for snapshot_field in ('job_version_id','description_snapshot','questions_snapshot','snapshot_captured_at'):
+                setattr(result, snapshot_field, source.get(snapshot_field))
         results.extend(chunk_results)
         if on_results is not None and chunk_results:
             on_results(chunk_results)
@@ -453,6 +465,11 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             preferred_locations=profile.get("preferred_locations"),
             exclusions=exclusions,
         )
+        from job_discovery.lifecycle.demand import hydrate_candidates
+        ready_ids = set(hydrate_candidates(conn, [c["id"] for c in candidates], user_id))
+        candidates = [c for c in candidates if c["id"] in ready_ids]
+        candidates = db.attach_demand_snapshots(conn, candidates, user_id)
+        conn.commit()
         overflow = total - len(candidates)
         if overflow > 0:
             notes = f"overflow: {overflow} job(s) deferred to next run"

@@ -1,3 +1,4 @@
+import { requestJobPayload, parseRequestBody } from "@/lib/jobLifecycle";
 import { after } from "next/server";
 import { propagateAttributes } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
@@ -10,7 +11,6 @@ import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 import { DEFAULT_PREFILL_MODEL, generatePrefilledAnswers } from "@/lib/rolefit/prefillClient";
-import { fetchGreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import { hasCoverLetterQuestion, stripCoverLetterQuestions } from "@/lib/rolefit/coverLetterQuestion";
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
@@ -62,10 +62,8 @@ export async function POST(req: Request) {
   const userId = claims.id;
 
   const { jobId, resumeInstructions: rawResumeInstr, coverLetterInstructions: rawCoverInstr } =
-    (await req.json().catch(() => ({}))) as {
-      jobId?: string; resumeInstructions?: unknown; coverLetterInstructions?: unknown;
-    };
-  if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
+    parseRequestBody(await req.json().catch(() => null));
+  if (typeof jobId !== "string" || !jobId) return Response.json({ error: "jobId required" }, { status: 400 });
   // Per-job instruction boxes → each leg's own instructions. Over-cap is a caller
   // error (400) rejected BEFORE the gate so a bad request never charges allowance.
   const resumeNorm = normalizeInstructions(rawResumeInstr, "résumé");
@@ -85,27 +83,21 @@ export async function POST(req: Request) {
     return Response.json({ error: "Prefill is available for Greenhouse postings only" }, { status: 400 });
   }
 
+  const payload = await requestJobPayload(userId, jobId, "prepare");
+  if (payload.status === "pending" || payload.status === "deferred") {
+    return Response.json({ payload, message: "Job details are being prepared. Try again shortly." }, {status:202});
+  }
+  if (payload.status === "ready") job.description = payload.description;
+  if (!job.description?.trim()) return Response.json({payload:{status:"deferred"}, message:"Job description unavailable."}, {status:202});
+
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "application prefill not configured" }, { status: 500 });
 
   const resumeModel = profile.model_resume ?? DEFAULT_RESUME_MODEL;
   const coverModel = profile.model_cover ?? DEFAULT_COVER_MODEL;
 
-  // Poll-time question schema (shared). Fall back to an on-demand fetch for a brand-new
-  // job not yet backfilled — used IN-MEMORY ONLY; the poller persists it later (this
-  // route has shared_read access via getJobQuestion and never writes job_questions).
-  let questions = await getJobQuestion(userId, jobId);
-  if (questions == null) {
-    // On-demand fallback runs in the SYNCHRONOUS prologue (before the 202), so a slow/hung
-    // Greenhouse API would stall the user's click for minutes. Bound it to 8s via an
-    // AbortSignal on fetchImpl → on timeout fetchGreenhouseQuestions swallows the abort and
-    // returns null, degrading to a résumé-only reserve exactly as designed.
-    questions = await fetchGreenhouseQuestions({
-      token: job.company_token,
-      externalId: job.external_id,
-      fetchImpl: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(8000) }),
-    });
-  }
+  const questions = payload.status === "ready" ? payload.questions : await getJobQuestion(userId, jobId);
+  if (questions === null) return Response.json({payload:{status:"pending"}, message:"Application questions are being prepared."}, {status:202});
   const wantsCover = hasCoverLetterQuestion(questions);
 
   // Always charge résumé; charge cover ONLY when the posting asks for one. reserveGenerations
@@ -138,7 +130,7 @@ export async function POST(req: Request) {
   // pending row: refund THIS request's extra reservations and 202 idempotently.
   let tracked;
   try {
-    tracked = await createGenerationJob(userId, jobId, "prepare");
+    tracked = await createGenerationJob(userId, jobId, "prepare", payload);
   } catch (e) {
     await refundGenerations(userId, kinds);
     console.error("application prepare tracking failed", {
@@ -253,6 +245,7 @@ export async function POST(req: Request) {
     if (wantsCover && coverResult.status === "rejected") console.error("cover letter generation failed", coverResult.reason);
 
     await upsertApplicationPackage(userId, jobId, {
+      payload,
       resume,
       coverLetter,
       prefilledAnswers,

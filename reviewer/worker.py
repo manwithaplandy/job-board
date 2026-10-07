@@ -68,6 +68,8 @@ def process_one(conn) -> bool:
     a request was handled (caller should poll again immediately), False if the queue
     was empty (caller should sleep). Per-request isolation: any failure is recorded on
     the request row and never propagates out of this function."""
+    from job_discovery.lifecycle.demand import process_pending
+    process_pending(conn)
     recovered = db.recover_stale_review_requests(
         conn, STALE_MINUTES, exclude_ids=_in_flight_snapshot()
     )

@@ -1,7 +1,9 @@
 "use server";
 
+import { requestJobPayload, readPrivateSnapshot } from "@/lib/jobLifecycle";
+
 import { requireUserId } from "@/lib/auth";
-import { withUserSql } from "@/lib/db";
+import { withUserSql, withUserPayloadMutation } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { bareMarkerPredicate } from "@/lib/queries";
 
@@ -12,13 +14,19 @@ import { bareMarkerPredicate } from "@/lib/queries";
 export async function markApplicationApplied(jobId: string): Promise<void> {
   const userId = await requireUserId();
   await assertNotDeleted(userId); // no resurrecting an erased account's rows via a stale JWT
-  await withUserSql(userId, (tx) => tx`
-    INSERT INTO application_packages (user_id, job_id, status, applied_at)
-    VALUES (${userId}::uuid, ${jobId}, 'applied', now())
+  const payload = await requestJobPayload(userId, jobId, "prepare");
+  if (payload.status === "pending" || payload.status === "deferred") throw new Error("Job details are being prepared. Try again shortly.");
+  await withUserPayloadMutation(userId, jobId, "application_packages", async (tx) => {
+    const snapshot = await readPrivateSnapshot(tx, jobId, "application_packages");
+    return tx`
+    INSERT INTO application_packages (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, status, applied_at)
+    VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+      ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, 'applied', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       status     = 'applied',
       applied_at = COALESCE(application_packages.applied_at, now())
-  `);
+  `;
+  });
 }
 
 // Undo "mark applied". A content-less marker row (created by the one-click path) is

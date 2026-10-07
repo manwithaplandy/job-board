@@ -1,3 +1,4 @@
+import { requestJobPayload, parseRequestBody } from "@/lib/jobLifecycle";
 import { after } from "next/server";
 import { propagateAttributes } from "@langfuse/tracing";
 import { getUserClaims } from "@/lib/auth";
@@ -30,8 +31,8 @@ export async function POST(req: Request) {
   const userId = claims.id;
 
   const { jobId, instructions: rawInstructions } =
-    (await req.json().catch(() => ({}))) as { jobId?: string; instructions?: unknown };
-  if (!jobId) return Response.json({ error: "jobId required" }, { status: 400 });
+    parseRequestBody(await req.json().catch(() => null));
+  if (typeof jobId !== "string" || !jobId) return Response.json({ error: "jobId required" }, { status: 400 });
   // Per-job generation instructions ride the generate request (the sole instruction
   // source — profile.instructions is reviewer-only and no longer reaches generation).
   const norm = normalizeInstructions(rawInstructions, "résumé");
@@ -43,6 +44,13 @@ export async function POST(req: Request) {
     return Response.json({ error: "set up your profile résumé first" }, { status: 422 });
   }
   if (!job) return Response.json({ error: "job not found" }, { status: 404 });
+
+  const payload = await requestJobPayload(userId, jobId, "generation");
+  if (payload.status === "pending" || payload.status === "deferred") {
+    return Response.json({ payload, message: "Job details are being prepared. Try again shortly." }, {status:202});
+  }
+  if (payload.status === "ready") job.description = payload.description;
+  if (!job.description?.trim()) return Response.json({payload:{status:"deferred"}, message:"Job description unavailable."}, {status:202});
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "résumé generation not configured" }, { status: 500 });
@@ -77,7 +85,7 @@ export async function POST(req: Request) {
   // idempotently without starting a second background generation.
   let tracked;
   try {
-    tracked = await createGenerationJob(userId, jobId, "resume");
+    tracked = await createGenerationJob(userId, jobId, "resume", payload);
   } catch (e) {
     await refundGenerations(userId, ["resume"]);
     console.error("resume generation tracking failed", {
@@ -117,6 +125,7 @@ export async function POST(req: Request) {
       });
 
       await upsertApplicationPackage(userId, jobId, {
+      payload,
         resume,
         coverLetter: null,
         prefilledAnswers: null,

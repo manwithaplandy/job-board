@@ -1,3 +1,7 @@
+vi.mock("@/lib/jobLifecycle", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // Same async-generation drift as /api/resume: auth/validation/gate stay synchronous
@@ -166,7 +170,7 @@ describe("POST /api/cover-letter — cover-specific contract", () => {
       id: GEN_ROW.id, kind: "cover", status: "pending", jobTitle: "Eng", company: "Acme",
     });
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["cover"]);
-    expect(mocks.createGenerationJob).toHaveBeenCalledWith(USER, "job-1", "cover");
+    expect(mocks.createGenerationJob).toHaveBeenCalledWith(USER, "job-1", "cover", {status:"legacy",id:null});
 
     await flushBackground();
     const pkg = mocks.upsertApplicationPackage.mock.calls[0][2];

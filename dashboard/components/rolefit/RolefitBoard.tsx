@@ -1,5 +1,6 @@
 "use client";
 
+import { jobPayloadNotice } from "@/lib/jobPayloadNotice";
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
@@ -1031,6 +1032,12 @@ export function RolefitBoard({
       if (res.status === 202) {
         // Accepted: hand tracking to the provider (immediate pending + prompt poll).
         const body: unknown = await res.json().catch(() => null);
+        const notice=jobPayloadNotice(body);
+        if(notice) {
+          setGen(g=>({...g,[job.id]:hadResume ? "done" : "idle"}));
+          showActionError(notice);
+          return;
+        }
         const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
         if (generation && tracker) tracker.notifyStarted(generation);
         else tracker?.refresh();
@@ -1053,7 +1060,7 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, genData, resumeInstructions, showUpsell, tracker]);
+  }, [beginRequest, endRequest, genData, resumeInstructions, showActionError, showUpsell, tracker]);
 
   // Cover-letter generation — mirrors handleGenerate against /api/cover-letter (D7).
   const handleGenerateCover = useCallback(async (job: JobRow) => {
@@ -1068,6 +1075,12 @@ export function RolefitBoard({
       });
       if (res.status === 202) {
         const body: unknown = await res.json().catch(() => null);
+        const notice=jobPayloadNotice(body);
+        if(notice) {
+          setCoverGen(g=>({...g,[job.id]:hadCover ? "done" : "idle"}));
+          showActionError(notice);
+          return;
+        }
         const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
         if (generation && tracker) tracker.notifyStarted(generation);
         else tracker?.refresh();
@@ -1088,7 +1101,7 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, coverData, coverInstructions, showUpsell, tracker]);
+  }, [beginRequest, endRequest, coverData, coverInstructions, showActionError, showUpsell, tracker]);
 
   // "Prefill application" — build + PERSIST the package server-side. Async accept
   // contract like handleGenerate: the route reserves BOTH kinds synchronously, 202s
@@ -1114,6 +1127,13 @@ export function RolefitBoard({
       });
       if (res.status === 202) {
         const body: unknown = await res.json().catch(() => null);
+        const notice=jobPayloadNotice(body);
+        if(notice) {
+          setGen(g=>({...g,[job.id]:hadResume ? "done" : "idle"}));
+          setCoverGen(g=>({...g,[job.id]:hadCover ? "done" : "idle"}));
+          showActionError(notice);
+          return;
+        }
         const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
         if (generation && tracker) tracker.notifyStarted(generation);
         else tracker?.refresh();

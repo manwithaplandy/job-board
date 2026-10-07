@@ -106,3 +106,69 @@ export async function withUserMutation<T>(userId: string, fn: (tx: TransactionSq
     return fn(tx);
   });
 }
+
+export type PayloadScope = "job_reviews" | "review_corrections" | "application_packages" |
+  "generation_jobs" | "resume_scores" | "cover_letter_edits";
+
+/** Service capability setup only; all application DML runs as authenticated.
+ * One exact job/scope/backend/transaction reservation, checked by existing guards.
+ * The callback must do database work only. Caller supplies a verified auth user ID.
+ */
+export async function withUserPayloadMutation<T>(
+  userId: string, jobId: string, scope: PayloadScope,
+  fn: (tx: TransactionSql) => Promise<T>,
+): Promise<T> {
+  if (!userId || !jobId) throw new Error("Owner and job required");
+  return (await serviceSql.begin(async (tx) => {
+    await acquireLifecycleGate(tx);
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${'lifecycle:job:' + jobId}, 0))`;
+    const controls = await tx`SELECT safety_stage FROM lifecycle_control WHERE singleton`;
+    let reservation: string | null = null;
+    if (controls[0]?.safety_stage === "enforced") {
+      // Worst case includes a 10 MiB input snapshot and generated output; the
+      // trigger measures actual writes and refuses any underestimate.
+      const bytes = 96 * 1024 * 1024;
+      const claim = await tx`INSERT INTO lifecycle_claims(kind,work_id,owner_token,lease_until,invoking_role)
+        VALUES ('dashboard',gen_random_uuid()::text,gen_random_uuid()::text,
+          clock_timestamp()+interval '180 seconds',current_user)
+        RETURNING work_id,owner_token,generation`;
+      const row = claim[0];
+      if (!row) throw new Error("Payload claim unavailable");
+      const reservations = await tx`INSERT INTO capacity_reservations
+        (claim_kind,claim_id,owner_token,generation,bytes,backend_pid,transaction_id,job_id,scope,subject_id,invoking_role)
+        VALUES ('dashboard',${row.work_id},${row.owner_token},${row.generation},${bytes},
+          pg_backend_pid(),pg_current_xact_id(),${jobId},${scope},${userId}::uuid,'authenticated') RETURNING id`;
+      reservation = typeof reservations[0]?.id === "string" ? reservations[0].id : null;
+      if (!reservation) throw new Error("Payload reservation unavailable");
+      await tx`SELECT set_config('lifecycle.reservation',${reservation},true)`;
+    }
+    await tx`SELECT set_config('request.jwt.claims',${JSON.stringify({sub:userId,role:"authenticated"})},true),
+      set_config('role','authenticated',true)`;
+    const result = await fn(tx);
+    if (reservation) {
+      // Restore only to settle service-owned capability metadata, never user DML.
+      await tx`SELECT set_config('role','none',true),set_config('request.jwt.claims','',true)`;
+      await tx`UPDATE capacity_reservations SET state='settled',terminal_at=clock_timestamp(),
+        measured_database_bytes=pg_database_size(current_database()) WHERE id=${reservation}::uuid`;
+    }
+    return result;
+  })) as T;
+}
+
+/** Read the existing sticky compatibility control, then enqueue/read as owner.
+ * Mirrors lifecycle.config.legacy_description_capture_allowed; no shared DML.
+ */
+export async function withUserDemandSql<T>(
+  userId:string, fn:(tx:TransactionSql,legacyAllowed:boolean)=>Promise<T>,
+):Promise<T> {
+  if(!userId) throw new Error("Owner required");
+  return (await serviceSql.begin(async tx=>{
+    await acquireLifecycleGate(tx);
+    const rows=await tx`SELECT NOT (c.source_enabled OR c.hydration_enabled OR c.maintenance_enabled
+      OR c.safety_stage='enforced' OR c.archive_ever_activated OR m.cutover_at IS NOT NULL) AS legacy_allowed
+      FROM lifecycle_control c CROSS JOIN lifecycle_maintenance_state m WHERE c.singleton AND m.singleton`;
+    const legacyAllowed=rows[0]?.legacy_allowed===true;
+    await tx`SELECT set_config('request.jwt.claims',${JSON.stringify({sub:userId,role:"authenticated"})},true),set_config('role','authenticated',true)`;
+    return fn(tx,legacyAllowed);
+  })) as T;
+}

@@ -43,7 +43,7 @@ def choose_anchor(
     return discovered_at.astimezone(UTC), "local_observation"
 
 
-def migrate_identity_batch(conn, limit: int = 500) -> int:
+def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None = None) -> int:
     """Map <=500 legacy jobs (or remaining empty source accounts) atomically.
 
     The stable listing existence is the checkpoint. A rolled back batch has no
@@ -56,6 +56,8 @@ def migrate_identity_batch(conn, limit: int = 500) -> int:
     """
     if type(limit) is not int or not 1 <= limit <= 500:
         raise ValueError("identity batch limit must be an integer between 1 and 500")
+    if job_ids is not None and (not isinstance(job_ids,list) or len(job_ids)>500 or any(not isinstance(j,str) for j in job_ids)):
+        raise ValueError("identity job filter must contain at most 500 job IDs")
     with conn.cursor(row_factory=dict_row) as cur:
         enter_gate(conn)
         control = read_control(conn)
@@ -68,8 +70,9 @@ def migrate_identity_batch(conn, limit: int = 500) -> int:
             """SELECT j.*, c.ats, c.token, c.active, c.poll_failures
             FROM jobs j JOIN companies c ON c.id=j.company_id
             WHERE NOT EXISTS (SELECT 1 FROM source_listings l WHERE l.job_id=j.id)
+              AND (%s::text[] IS NULL OR j.id=ANY(%s::text[]))
             ORDER BY j.id LIMIT %s""",
-            (limit,),
+            (job_ids,job_ids,limit),
         )
         rows = cur.fetchall()
         # Reserve sorted namespaced Job keys before taking any Job/FK locks.
@@ -140,7 +143,7 @@ def migrate_identity_batch(conn, limit: int = 500) -> int:
                 WHERE job_id=%s AND captured_at IS NULL AND last_used_at IS NULL""",
                 (activation, job["id"]),
             )
-        if rows:
+        if rows or job_ids is not None:
             return len(rows)
         # Source-only boards also need a stable coordinate. Count these only in
         # batches with no jobs so a zero return means the whole mapping is done.

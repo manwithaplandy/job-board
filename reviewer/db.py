@@ -10,11 +10,12 @@ _REVIEW_COLUMNS = (
     "verdict", "experience_match", "industry", "industry_subcategory",
     "confidence", "reasoning", "model_stage1", "model_stage2", "error",
     "role_category", "seniority", "work_arrangement", "about",
+    "job_version_id", "description_snapshot", "questions_snapshot", "snapshot_captured_at",
     "pay_min", "pay_max", "pay_currency", "pay_period", "headcount",
     "skills_score", "experience_score", "comp_score", "fit_score",
     "red_flags", "skill_gaps", "benefits", "requirements",
 )
-_JSONB_COLUMNS = ("red_flags", "skill_gaps", "benefits", "requirements")
+_JSONB_COLUMNS = ("red_flags", "skill_gaps", "benefits", "requirements", "questions_snapshot")
 
 # Built once from the fixed column tuple (the row values are bound per call).
 # The WHERE guard makes a hand-set verdict sticky: once the operator denies a
@@ -265,6 +266,8 @@ def select_candidates(
         LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
         LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = %(uid)s
         WHERE j.closed_at IS NULL
+          AND NOT EXISTS(SELECT FROM source_listings sl WHERE sl.job_id=j.id
+            AND sl.discovery_expires_at<=clock_timestamp())
           -- Deterministic company gate (pre-LLM). A per-user override wins both
           -- ways; otherwise a company is excluded when ANY of its classified
           -- facets is in the user's exclusion list. COALESCE(..., 'unknown')
@@ -326,9 +329,22 @@ def upsert_review(conn, row: dict) -> None:
     full = {c: row.get(c) for c in _REVIEW_COLUMNS}
     full["user_id"] = _uuid(full["user_id"])
     for c in _JSONB_COLUMNS:
-        full[c] = Json(full[c] if full[c] is not None else [])
-    with conn.cursor() as cur:
-        cur.execute(_UPSERT_REVIEW_SQL, full)
+        full[c] = None if c == "questions_snapshot" and full[c] is None else Json(full[c] if full[c] is not None else [])
+    if row.get('job_version_id'):
+        from job_discovery.lifecycle.claims import claim_work
+        from job_discovery.lifecycle.reconcile import _write
+        claim = claim_work(conn, 'review_write', str(uuid.uuid4()), 180)
+        if claim is None:
+            raise RuntimeError('review write capacity unavailable')
+        with _write(conn, claim, 'job_reviews', row['job_id'], size=8192+8*len(str(row).encode())):
+            conn.execute(_UPSERT_REVIEW_SQL, full)
+        if row.get('verdict') and not row.get('error'):
+            conn.execute("""UPDATE job_payload_demands SET consumed_at=clock_timestamp()
+                WHERE user_id=%s AND job_id=%s AND job_version_id=%s AND kind='review' AND status='ready'""",
+                (full['user_id'],row['job_id'],row['job_version_id']))
+    else:
+        with conn.cursor() as cur:
+            cur.execute(_UPSERT_REVIEW_SQL, full)
 
 
 def recent_stage2_reviews(conn, limit: int) -> list[dict]:
@@ -341,7 +357,7 @@ def recent_stage2_reviews(conn, limit: int) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.location, c.ats, j.description,
+            SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.location, c.ats, COALESCE(r.description_snapshot,j.description) AS description,
                    p.resume_text, p.instructions, r.verdict
             FROM job_reviews r
             JOIN jobs j ON j.id = r.job_id
@@ -501,3 +517,17 @@ def golden_corrections(conn) -> list[dict]:
             """
         )
         return cur.fetchall()
+
+
+def attach_demand_snapshots(conn, candidates, user_id):
+    from job_discovery.lifecycle.config import read_control
+    if not read_control(conn).hydration_enabled:
+        return candidates
+    result = []
+    for candidate in candidates:
+        row = conn.execute("""SELECT job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at
+            FROM job_payload_demands WHERE user_id=%s AND job_id=%s AND kind='review' AND status='ready'
+            ORDER BY settled_at DESC LIMIT 1""", (_uuid(user_id),candidate['id'])).fetchone()
+        if row and row['job_version_id'] and row['description_snapshot']:
+            result.append({**candidate, **row, 'description': row['description_snapshot']})
+    return result

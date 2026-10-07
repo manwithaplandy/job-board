@@ -170,3 +170,9 @@ describe("pay range filter wiring", () => {
     expect(screen.getByRole("button", { name: /Pay.*\$100k\+/ })).toBeTruthy();
   });
 });
+
+test("hydration pending clears generation busy state and keeps retry available",async()=>{
+  await renderAndPrepare(202,{payload:{status:"pending",id:"d"},message:"Job details are being prepared. Try again shortly."});
+  expect(await screen.findByText("Job details are being prepared. Try again shortly.")).toBeTruthy();
+  expect(await screen.findByRole("button",{name:/Prefill application/})).toBeTruthy();
+});

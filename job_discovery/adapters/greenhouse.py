@@ -74,7 +74,7 @@ def _parse_fields(fields) -> list[dict]:
         type_ = _as_string(f.get("type"))
         if not name and not type_:           # drop a field only when BOTH are empty
             continue
-        out.append({"name": name, "type": type_, "options": _parse_options(f.get("values"))})
+        out.append({"name": name, "type": type_, "options": _parse_options(f.get("values", f.get("options")))})
     return out
 
 

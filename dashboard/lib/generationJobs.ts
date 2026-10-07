@@ -1,5 +1,6 @@
+import type { DemandResult } from "@/lib/jobLifecycle";
 import { acquireLifecycleGate } from "@/lib/jobLifecycle";
-import { withUserSql } from "@/lib/db";
+import { withUserSql, withUserPayloadMutation } from "@/lib/db";
 import {
   parseGenerationJob,
   type GenerationJobKind,
@@ -47,8 +48,9 @@ export async function createGenerationJob(
   userId: string,
   jobId: string,
   kind: GenerationJobKind,
+  payload?: DemandResult,
 ): Promise<CreatedGenerationJob> {
-  return withUserSql(userId, async (tx) => {
+  return withUserPayloadMutation(userId, jobId, "generation_jobs", async (tx) => {
     await acquireLifecycleGate(tx);
     // Housekeeping: settled rows are only useful within RECENT_WINDOW; prune the
     // viewer's stale ones here (write path) so the table never needs a cron.
@@ -58,11 +60,13 @@ export async function createGenerationJob(
         AND updated_at < now() - interval '1 day'
     `;
     const inserted = await tx.unsafe(
-      `INSERT INTO generation_jobs (user_id, job_id, kind)
-       VALUES ($1::uuid, $2, $3)
+      `INSERT INTO generation_jobs (user_id, job_id, kind, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at)
+       VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6::text::jsonb, CASE WHEN $4::uuid IS NOT NULL THEN clock_timestamp() END)
        ON CONFLICT (user_id, job_id, kind) WHERE status = 'pending' DO NOTHING
        RETURNING ${SELECT_COLS}`,
-      [userId, jobId, kind],
+      [userId, jobId, kind, payload?.status === "ready" ? payload.versionId : null,
+        payload?.status === "ready" ? payload.description : null,
+        payload?.status === "ready" && payload.questions ? JSON.stringify(payload.questions) : null],
     );
     if (inserted.length > 0) {
       const job = parseGenerationJob(inserted[0]);
@@ -94,7 +98,10 @@ export async function settleGenerationJob(
   id: string,
   outcome: { status: "ready" | "failed"; error?: string | null },
 ): Promise<void> {
-  await withUserSql(userId, (tx) => tx`
+  const rows = await withUserSql(userId, tx => tx`SELECT job_id FROM generation_jobs WHERE id=${id}::uuid AND user_id=${userId}::uuid`);
+  const jobId = rows[0]?.job_id;
+  if (typeof jobId !== "string") return;
+  await withUserPayloadMutation(userId, jobId, "generation_jobs", (tx) => tx`
     UPDATE generation_jobs
     SET status = ${outcome.status}, error = ${outcome.error ?? null}, updated_at = now()
     WHERE id = ${id}::uuid AND user_id = ${userId}::uuid AND status = 'pending'
@@ -113,15 +120,12 @@ export async function settleGenerationJob(
  * the old blocking model, where a killed invocation never reached its refund.
  */
 export async function listGenerationActivity(userId: string): Promise<GenerationJobView[]> {
+  const expired = await withUserSql(userId, tx => tx`SELECT id FROM generation_jobs
+    WHERE user_id=${userId}::uuid AND status='pending' AND created_at<now()-interval '10 minutes' LIMIT 50`);
+  for (const row of expired) if (typeof row.id === "string") {
+    await settleGenerationJob(userId,row.id,{status:"failed",error:"Generation timed out — please try again."});
+  }
   return withUserSql(userId, async (tx) => {
-    await tx.unsafe(
-      `UPDATE generation_jobs
-       SET status = 'failed', error = 'Generation timed out — please try again.',
-           updated_at = now()
-       WHERE user_id = $1::uuid AND status = 'pending'
-         AND created_at < now() - interval '${RECENT_WINDOW}'`,
-      [userId],
-    );
     const rows = await tx.unsafe(
       `SELECT g.id, g.job_id, g.kind, g.status, g.error, g.created_at, g.updated_at,
               j.title AS job_title, COALESCE(c.display_name, c.name) AS company

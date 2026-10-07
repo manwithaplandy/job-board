@@ -1,3 +1,7 @@
+vi.mock("@/lib/jobLifecycle", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // The DB read is the only boundary; the JOB_ID_RE gate runs for real so we actually test

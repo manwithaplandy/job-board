@@ -1,3 +1,8 @@
+vi.mock("@/lib/jobLifecycle", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  readPrivateSnapshot: vi.fn(async () => null),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const admin = vi.hoisted(() => ({ isAdmin: true }));
@@ -5,7 +10,8 @@ const admin = vi.hoisted(() => ({ isAdmin: true }));
 const sqlMock = vi.fn();
 vi.mock("@/lib/db", () => {
   const tx = Object.assign((...a: unknown[]) => sqlMock(...a), { json: (v: unknown) => v });
-  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx),
+    withUserPayloadMutation: (_u: string, _j: string, _s: string, fn: (t:unknown)=>unknown)=>fn(tx) };
 });
 vi.mock("@/lib/auth", () => ({
   requireUserId: vi.fn(async () => "u1"),

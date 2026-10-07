@@ -1,3 +1,8 @@
+vi.mock("@/lib/jobLifecycle", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  readPrivateSnapshot: vi.fn(async () => null),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // Introspect the tagged-template SQL: capture the literal fragments (joined) and the
@@ -16,7 +21,7 @@ const tx = (strings: readonly string[], ...values: unknown[]) => {
 
 vi.mock("@/lib/auth", () => ({ requireUserId: mocks.requireUserId }));
 vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: mocks.assertNotDeleted }));
-vi.mock("@/lib/db", () => ({ withUserSql: mocks.withUserSql }));
+vi.mock("@/lib/db", () => ({ withUserSql: mocks.withUserSql, withUserPayloadMutation: (u:string,_j:string,_s:string,fn:unknown)=>mocks.withUserSql(u,fn) }));
 
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
 
@@ -76,12 +81,12 @@ describe("unrejectJob", () => {
     expect(text.toLowerCase()).not.toContain("delete");
     // ...and must only touch rows THIS feature rejected.
     expect(text).toContain("human_override = TRUE");
-    expect(values).toEqual(["approve", USER, "greenhouse:acme:1"]);
+    expect(values).toEqual(["approve", null, null, null, null, USER, "greenhouse:acme:1"]);
   });
 
   test("restore-to-unreviewed binds a null prior verdict", async () => {
     await unrejectJob("greenhouse:acme:1", null);
-    expect(calls[0].values).toEqual([null, USER, "greenhouse:acme:1"]);
+    expect(calls[0].values).toEqual([null, null, null, null, null, USER, "greenhouse:acme:1"]);
   });
 
   test("enforces auth before touching sql", async () => {

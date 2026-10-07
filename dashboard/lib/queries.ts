@@ -1,4 +1,5 @@
-import { withUserSql, withAnonSql } from "@/lib/db";
+import { consumeJobVersion, parseGenerationContext, requestJobPayload, readPrivateSnapshot, type DemandResult } from "@/lib/jobLifecycle";
+import { withUserPayloadMutation, withUserSql, withAnonSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { unstable_cache } from "next/cache";
 import { buildJobsQuery } from "@/lib/jobsQuery";
@@ -200,7 +201,7 @@ export async function getJobReviewDetail(
         COALESCE(rc.red_flags, r.red_flags) AS red_flags,
         COALESCE(rc.benefits, r.benefits) AS benefits,
         COALESCE(rc.requirements, r.requirements) AS requirements,
-        j.description, j.url,
+        COALESCE(rc.description_snapshot,r.description_snapshot,j.description) AS description, j.url,
         COALESCE(rc.experience_match, r.experience_match) AS experience_match,
         COALESCE(rc.industry, r.industry) AS industry,
         COALESCE(rc.industry_subcategory, r.industry_subcategory) AS industry_subcategory,
@@ -416,7 +417,7 @@ export async function getJobForResume(
       FROM jobs j JOIN companies c ON c.id = j.company_id
       WHERE j.id = ${jobId}
     `;
-    return (rows[0] as unknown as { title: string; company_name: string; description: string | null }) ?? null;
+    return parseGenerationContext(rows[0]);
   });
 }
 
@@ -447,15 +448,7 @@ export async function getJobForCoverLetter(
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.id = ${jobId}
     `;
-    return (rows[0] as unknown as {
-      title: string;
-      company_name: string;
-      description: string | null;
-      about: string | null;
-      requirements: { text: string; met: boolean }[];
-      skill_gaps: string[];
-      red_flags: string[];
-    }) ?? null;
+    return parseGenerationContext(rows[0]);
   });
 }
 
@@ -492,19 +485,7 @@ export async function getJobForPackage(
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.id = ${jobId}
     `;
-    return (rows[0] as unknown as {
-      title: string;
-      company_name: string;
-      description: string | null;
-      url: string;
-      external_id: string;
-      ats: string;
-      company_token: string;
-      about: string | null;
-      requirements: { text: string; met: boolean }[];
-      skill_gaps: string[];
-      red_flags: string[];
-    }) ?? null;
+    return parseGenerationContext(rows[0]);
   });
 }
 
@@ -633,6 +614,7 @@ export async function upsertApplicationPackage(
   userId: string,
   jobId: string,
   data: {
+    payload?: DemandResult;
     resume: TailoredResume | null;
     coverLetter: TailoredCoverLetter | null;
     prefilledAnswers: PrefilledAnswer[] | null;
@@ -646,7 +628,7 @@ export async function upsertApplicationPackage(
 ): Promise<ApplicationPackage> {
   // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
   const j = (v: unknown): string | null => (v == null ? null : JSON.stringify(v));
-  return withUserSql(userId, async (tx) => {
+  return withUserPayloadMutation(userId, jobId, "application_packages", async (tx) => {
   // Regenerating the letter cleanly replaces the user's edit in their view: stamp the
   // current edit superseded (the row + its already-pushed golden item persist; re-saving
   // an edit resets superseded_at to NULL — see app/actions/coverLetterEdits.ts).
@@ -658,17 +640,25 @@ export async function upsertApplicationPackage(
   }
   const rows = await tx`
     INSERT INTO application_packages
-      (user_id, job_id, resume_json, cover_letter_json,
+      (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, resume_json, cover_letter_json,
        prefilled_answers, apply_url, resume_trace_id,
        cover_letter_trace_id, resume_instructions, cover_letter_instructions,
        profile_version, status, prepared_at)
     VALUES (${userId}::uuid, ${jobId},
-            ${j(data.resume)}::jsonb, ${j(data.coverLetter)}::jsonb,
-            ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
+            ${data.payload?.status === "ready" ? data.payload.versionId : null}::uuid,
+            ${data.payload?.status === "ready" ? data.payload.description : null},
+            ${data.payload?.status === "ready" && data.payload.questions ? JSON.stringify(data.payload.questions) : null}::text::jsonb,
+            CASE WHEN ${data.payload?.status === "ready"} THEN clock_timestamp() END,
+            ${j(data.resume)}::text::jsonb, ${j(data.coverLetter)}::text::jsonb,
+            ${j(data.prefilledAnswers)}::text::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
             ${data.coverLetterTraceId ?? null}, ${data.resumeInstructions ?? null},
             ${data.coverLetterInstructions ?? null},
             ${data.profileVersion ?? null}, 'prepared', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
+      job_version_id = COALESCE(application_packages.job_version_id, EXCLUDED.job_version_id),
+      description_snapshot = COALESCE(application_packages.description_snapshot, EXCLUDED.description_snapshot),
+      questions_snapshot = COALESCE(application_packages.questions_snapshot, EXCLUDED.questions_snapshot),
+      snapshot_captured_at = COALESCE(application_packages.snapshot_captured_at, EXCLUDED.snapshot_captured_at),
       resume_json          = COALESCE(EXCLUDED.resume_json, application_packages.resume_json),
       cover_letter_json    = COALESCE(EXCLUDED.cover_letter_json, application_packages.cover_letter_json),
       prefilled_answers    = COALESCE(EXCLUDED.prefilled_answers, application_packages.prefilled_answers),
@@ -710,6 +700,9 @@ export async function upsertApplicationPackage(
               resume_instructions_draft, cover_letter_instructions_draft,
               prepared_at, applied_at
   `;
+  if (data.payload?.status === "ready" && (data.resume || data.coverLetter || data.prefilledAnswers)) {
+    await consumeJobVersion(tx, jobId, data.payload.versionId, data.payload.kind ?? "generation");
+  }
   return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);
   });
 }
@@ -725,20 +718,25 @@ export async function upsertInstructionDraft(
   leg: "resume" | "cover",
   value: string,
 ): Promise<void> {
-  await withUserSql(userId, async (tx) => {
+  const payload=await requestJobPayload(userId,jobId,"generation");
+  if(payload.status === "pending" || payload.status === "deferred") throw new Error("Job details are being prepared. Try again shortly.");
+  await withUserPayloadMutation(userId,jobId,"application_packages",async tx => {
+    const snapshot=await readPrivateSnapshot(tx,jobId,"application_packages");
     if (leg === "resume") {
       await tx`
         INSERT INTO application_packages
-          (user_id, job_id, resume_instructions_draft, status, prepared_at)
-        VALUES (${userId}::uuid, ${jobId}, ${value}, 'prepared', now())
+          (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, resume_instructions_draft, status, prepared_at)
+        VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+          ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
         ON CONFLICT (user_id, job_id) DO UPDATE SET
           resume_instructions_draft = EXCLUDED.resume_instructions_draft
       `;
     } else {
       await tx`
         INSERT INTO application_packages
-          (user_id, job_id, cover_letter_instructions_draft, status, prepared_at)
-        VALUES (${userId}::uuid, ${jobId}, ${value}, 'prepared', now())
+          (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, cover_letter_instructions_draft, status, prepared_at)
+        VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+          ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
         ON CONFLICT (user_id, job_id) DO UPDATE SET
           cover_letter_instructions_draft = EXCLUDED.cover_letter_instructions_draft
       `;

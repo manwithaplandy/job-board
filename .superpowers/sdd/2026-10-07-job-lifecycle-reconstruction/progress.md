@@ -41,3 +41,5 @@ Requirements recovered from Library libfile_dbd55aa22d008191a54f7249117d4929 v1 
 No new policy or design choice made. Approved requirements remain authority; prior review lessons may inform regression tests but are not acceptance evidence.
 
 Reconstruction setup verified: Python baseline actual496passed350skipped10.31s without TEST_DATABASE_URL. Skips are expected baseline DB tests, NOT integration acceptance. Docker daemon28.4.0 available; Task1 will provide owned17/16 mandatory lanes. Existing venv/node_modules reused as local ignored symlinks only, never bundled. No production env values read.
+
+Checkpoint00: requirements/setup commit51624db86ae9f1e31363a7ccce8479776f533fd6; fresh unit baseline496pass350expectedDBskip. Full-history Git bundle verified; Library create confirmed IDlibfile_3e9c3823515c8191aa66373a20a5c5c7/file_000000006bac82309da9fc532e4c32bd v0, filenamejob-board-lifecycle-recovery-checkpoint-00.bundle; local Library xattrs successfully applied. This saves actual current source/requirements/briefs/ledger, no DB export/env/credentials. Task1 independent author next; no reconstructed task complete yet.

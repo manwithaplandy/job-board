@@ -270,3 +270,9 @@ def test_guard_reconciles_only_complete_sources_without_ingestion(conn, monkeypa
     assert counts["new_jobs"] == 0
     assert counts["closed_jobs"] == (1 if source_result == "complete" else 0)
     assert counts["failed"] == (0 if source_result == "complete" else 1)
+
+
+@pytest.fixture(autouse=True)
+def legacy_source_control(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(job_discovery_run, 'read_control', lambda c: SimpleNamespace(source_enabled=False))

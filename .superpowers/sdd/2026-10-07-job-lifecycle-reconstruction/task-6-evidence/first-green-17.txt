@@ -1,0 +1,322 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FFFFFF.................................FF............................... [ 83%]
+..............                                                           [100%]
+=================================== FAILURES ===================================
+____________ test_two_distinct_complete_misses_exact_24h_and_replay ____________
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777bbe3e00>
+
+    @requires_db
+    def test_two_distinct_complete_misses_exact_24h_and_replay(conn):
+>       source = setup_source(conn)
+                 ^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_reconcile.py:48:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_reconcile.py:21: in setup_source
+    conn.execute('UPDATE lifecycle_control SET source_enabled=true WHERE singleton')
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777bbe3e00>
+query = 'UPDATE lifecycle_control SET source_enabled=true WHERE singleton'
+params = None, prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.RaiseException: control changes require a newer activation generation
+E           CONTEXT:  PL/pgSQL function public.preserve_lifecycle_control() line 7 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: RaiseException
+_ test_partial_positive_survives_failure_and_old_id_reopens_without_age_reset __
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b76c140>
+
+    @requires_db
+    def test_partial_positive_survives_failure_and_old_id_reopens_without_age_reset(conn):
+>       source = setup_source(conn)
+                 ^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_reconcile.py:69:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_reconcile.py:21: in setup_source
+    conn.execute('UPDATE lifecycle_control SET source_enabled=true WHERE singleton')
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b76c140>
+query = 'UPDATE lifecycle_control SET source_enabled=true WHERE singleton'
+params = None, prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.RaiseException: control changes require a newer activation generation
+E           CONTEXT:  PL/pgSQL function public.preserve_lifecycle_control() line 7 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: RaiseException
+______________________ test_empty_threshold[20-complete] _______________________
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b7685c0>
+count = 20, expected = 'complete'
+
+    @requires_db
+    @pytest.mark.parametrize('count,expected', [(20,'complete'), (21,'partial')])
+    def test_empty_threshold(conn, count, expected):
+>       source = setup_source(conn, count)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_reconcile.py:90:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_reconcile.py:21: in setup_source
+    conn.execute('UPDATE lifecycle_control SET source_enabled=true WHERE singleton')
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b7685c0>
+query = 'UPDATE lifecycle_control SET source_enabled=true WHERE singleton'
+params = None, prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.RaiseException: control changes require a newer activation generation
+E           CONTEXT:  PL/pgSQL function public.preserve_lifecycle_control() line 7 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: RaiseException
+_______________________ test_empty_threshold[21-partial] _______________________
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b76bbc0>
+count = 21, expected = 'partial'
+
+    @requires_db
+    @pytest.mark.parametrize('count,expected', [(20,'complete'), (21,'partial')])
+    def test_empty_threshold(conn, count, expected):
+>       source = setup_source(conn, count)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_reconcile.py:90:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_reconcile.py:21: in setup_source
+    conn.execute('UPDATE lifecycle_control SET source_enabled=true WHERE singleton')
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b76bbc0>
+query = 'UPDATE lifecycle_control SET source_enabled=true WHERE singleton'
+params = None, prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.RaiseException: control changes require a newer activation generation
+E           CONTEXT:  PL/pgSQL function public.preserve_lifecycle_control() line 7 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: RaiseException
+________ test_unknown_or_missing_never_closes_and_partial_never_counts _________
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b768860>
+
+    @requires_db
+    def test_unknown_or_missing_never_closes_and_partial_never_counts(conn):
+>       source = setup_source(conn)
+                 ^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_reconcile.py:99:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_reconcile.py:21: in setup_source
+    conn.execute('UPDATE lifecycle_control SET source_enabled=true WHERE singleton')
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b768860>
+query = 'UPDATE lifecycle_control SET source_enabled=true WHERE singleton'
+params = None, prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.RaiseException: control changes require a newer activation generation
+E           CONTEXT:  PL/pgSQL function public.preserve_lifecycle_control() line 7 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: RaiseException
+__________________ test_cancelled_enumeration_cannot_complete __________________
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b745070>
+
+    @requires_db
+    def test_cancelled_enumeration_cannot_complete(conn):
+>       source = setup_source(conn)
+                 ^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_reconcile.py:110:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_reconcile.py:21: in setup_source
+    conn.execute('UPDATE lifecycle_control SET source_enabled=true WHERE singleton')
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32956 user=postgres database=poller_lifecycle_test) at 0x7f777b745070>
+query = 'UPDATE lifecycle_control SET source_enabled=true WHERE singleton'
+params = None, prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.RaiseException: control changes require a newer activation generation
+E           CONTEXT:  PL/pgSQL function public.preserve_lifecycle_control() line 7 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: RaiseException
+_______________________ test_missing_content_key_raises ________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f777b7473e0>
+
+    def test_missing_content_key_raises(monkeypatch):
+        monkeypatch.setattr(smartrecruiters, "get_json", lambda url: {"error": "gone"})
+>       with pytest.raises(ValueError, match="missing 'content'"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_smartrecruiters.py:205: Failed
+__________ test_short_page_below_reported_total_is_not_authoritative ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f777b7281a0>
+
+    def test_short_page_below_reported_total_is_not_authoritative(monkeypatch):
+        monkeypatch.setattr(smartrecruiters, "get_json", lambda *a: {"totalFound": 50, "content": []})
+>       with pytest.raises(ValueError, match="incomplete"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_smartrecruiters.py:211: Failed
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_reconcile.py::test_two_distinct_complete_misses_exact_24h_and_replay
+FAILED tests/test_lifecycle_reconcile.py::test_partial_positive_survives_failure_and_old_id_reopens_without_age_reset
+FAILED tests/test_lifecycle_reconcile.py::test_empty_threshold[20-complete]
+FAILED tests/test_lifecycle_reconcile.py::test_empty_threshold[21-partial] - ...
+FAILED tests/test_lifecycle_reconcile.py::test_unknown_or_missing_never_closes_and_partial_never_counts
+FAILED tests/test_lifecycle_reconcile.py::test_cancelled_enumeration_cannot_complete
+FAILED tests/test_smartrecruiters.py::test_missing_content_key_raises - Faile...
+FAILED tests/test_smartrecruiters.py::test_short_page_below_reported_total_is_not_authoritative
+8 failed, 78 passed in 2.41s

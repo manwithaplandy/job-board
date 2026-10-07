@@ -2,7 +2,7 @@ from job_discovery.adapters.completeness import SourceResult, SourceStatus
 import logging
 from collections.abc import Iterator
 
-from job_discovery.http import get_json, post_json
+from job_discovery.adapters.completeness import get_json, post_json
 from job_discovery.models import Posting
 from job_discovery.normalize import detect_remote
 
@@ -306,6 +306,8 @@ def _page_walk(
             raise ValueError("workday response missing 'jobPostings' list")
         page_total = page.get("total")
         if isinstance(page_total, int):
+            if page_total != expected:
+                status.complete = False
             expected = max(expected, page_total)
         items = page["jobPostings"]
         if not items:
@@ -384,10 +386,14 @@ def _crawl(
                 raise ValueError("workday response missing 'jobPostings' key")
             page_total = page.get("total")
             if isinstance(page_total, int):
+                if page_total != expected:
+                    status.complete = False
                 expected = max(expected, page_total)
             items = page.get("jobPostings") or []
             if not items:
                 break
+            if any(i.get("externalPath") in partition_ids for i in items):
+                status.complete = False
             partition_ids.update(i.get("externalPath") for i in items)
             yield from _yield_items(items, seen, cxs=cxs, host=host, site=site, status=status)
             offset += _PAGE_LIMIT

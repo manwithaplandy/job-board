@@ -1,5 +1,5 @@
-from job_discovery.adapters.completeness import validate_ids
-from job_discovery.http import get_json
+from job_discovery.adapters.completeness import SourceResult, SourceStatus, validate_ids
+from job_discovery.adapters.completeness import get_json
 from job_discovery.models import Posting
 from job_discovery.normalize import detect_remote
 
@@ -31,10 +31,10 @@ def parse_lever(data: list) -> list[Posting]:
     return postings
 
 
-def fetch_lever(token: str) -> list[Posting]:
+def fetch_lever(token: str, *, fetch_details: bool = True) -> SourceResult:
     url = f"https://api.lever.co/v0/postings/{token}?mode=json"
     data = get_json(url)
     if not isinstance(data, list):
         raise ValueError(f"lever response expected a list, got {type(data).__name__}")
     validate_ids(data, "id")
-    return parse_lever(data)
+    return SourceResult(iter(parse_lever(data)), SourceStatus(fetch_details=fetch_details))

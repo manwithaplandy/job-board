@@ -116,6 +116,7 @@ def test_denied_reconnect_lock_aborts_before_all_optional_phases(monkeypatch, ac
     connections = iter([Connection(True,True),Connection(False)])
     monkeypatch.setattr(run,'pre_admission_maintenance',lambda dsn: SweepResult(0,0,False,None))
     monkeypatch.setattr(run,'load_targets',lambda: [])
+    monkeypatch.setattr(run,'read_control',lambda c: SimpleNamespace(source_enabled=False))
     monkeypatch.setattr(run.db,'connect',lambda dsn: next(connections))
     monkeypatch.setattr(run.db,'over_size_ceiling',lambda c: (False,20,6000))
     monkeypatch.setattr(run.db,'start_run',lambda c: 1)

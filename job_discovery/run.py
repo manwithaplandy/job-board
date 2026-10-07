@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from job_discovery.lifecycle.config import read_control
 from job_discovery.lifecycle.maintenance import pre_admission_maintenance
 from job_discovery.lifecycle.locks import enter_gate
 from job_discovery.lifecycle.capacity import CEILING_BYTES
@@ -106,6 +107,22 @@ def run(dsn: str | None = None) -> dict:
         if not over:
             db.sync_seed(conn, targets)
         conn.commit()
+        from job_discovery.lifecycle.reconcile import verify_due_sources, StorageBlocked
+        source_enabled = read_control(conn).source_enabled
+        conn.commit()
+        if source_enabled:
+            try:
+                db.sync_source_accounts(conn)
+                conn.commit()
+            except StorageBlocked:
+                conn.rollback()
+                log.warning('source catalog storage blocked; verifying registered corpus')
+            counts = verify_due_sources(conn)
+            db.finish_run(conn,run_id,companies_ok=counts['ok'],companies_failed=counts['failed'],
+                          new_jobs=counts['new_jobs'],closed_jobs=counts['closed_jobs'],
+                          notes='full-corpus source verification; payload admission deferred')
+            conn.commit()
+            return counts
         companies = db.active_companies(conn)
         conn.commit()  # No read transaction spans adapter HTTP.
 

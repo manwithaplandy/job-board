@@ -1,7 +1,7 @@
-from job_discovery.adapters.completeness import validate_ids
+from job_discovery.adapters.completeness import SourceResult, SourceStatus, validate_ids
 import logging
 
-from job_discovery.http import get_json
+from job_discovery.adapters.completeness import get_json
 from job_discovery.models import Posting
 from job_discovery.normalize import detect_remote
 
@@ -86,13 +86,13 @@ def _minimal_posting(account: str, job: dict) -> Posting | None:
     )
 
 
-def fetch_workable(token: str) -> list[Posting]:
+def fetch_workable(token: str, *, fetch_details: bool = True) -> SourceResult:
     # ONE no-auth GET returns every published job with its full description
     # inline. Parse each entry inside a try/except so a single malformed job
     # entry yields a minimal posting instead of being dropped or crashing the
     # whole company fetch (a dropped job would let run.py's close-detection
     # falsely close a still-open posting).
-    payload = get_json(_WIDGET_URL.format(account=token))
+    payload = get_json(_WIDGET_URL.format(account=token).replace("details=true", f"details={str(fetch_details).lower()}"))
     if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
         raise ValueError("workable response missing 'jobs' key")
     validate_ids(payload["jobs"], "shortcode")
@@ -108,4 +108,4 @@ def fetch_workable(token: str) -> list[Posting]:
             posting = _minimal_posting(token, job)
         if posting is not None:
             postings.append(posting)
-    return postings
+    return SourceResult(iter(postings), SourceStatus(fetch_details=fetch_details))

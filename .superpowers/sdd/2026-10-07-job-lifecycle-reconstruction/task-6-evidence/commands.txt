@@ -1,0 +1,51 @@
+Working directory: /workspace/job-board/.claude/worktrees/lifecycle-recovery
+
+Shell: /bin/bash; login=false
+
+BASE: ec588ac87f1dc0a3bbf685d9c8dfee0b79e1b409
+
+No ambient DSNs used; harness provisions a distinct owned random-loopback-port container per call.
+
+
+
+red.txt: .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py -q
+
+first-green-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_greenhouse.py tests/test_lever.py tests/test_ashby.py tests/test_workable.py tests/test_smartrecruiters.py tests/test_workday.py tests/test_source_completeness.py -q
+
+second-green-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_greenhouse.py tests/test_lever.py tests/test_ashby.py tests/test_workable.py tests/test_smartrecruiters.py tests/test_workday.py tests/test_source_completeness.py tests/test_run.py tests/test_size_guard.py tests/test_maintenance_controlflow.py -q
+
+third-green-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_greenhouse.py tests/test_lever.py tests/test_ashby.py tests/test_workable.py tests/test_smartrecruiters.py tests/test_workday.py tests/test_source_completeness.py tests/test_run.py tests/test_size_guard.py tests/test_maintenance_controlflow.py -q
+
+fourth-green-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_greenhouse.py tests/test_lever.py tests/test_ashby.py tests/test_workable.py tests/test_smartrecruiters.py tests/test_workday.py tests/test_source_completeness.py tests/test_run.py tests/test_size_guard.py tests/test_maintenance_controlflow.py -q
+
+bounded-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_source_completeness.py -q
+
+final-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_greenhouse.py tests/test_lever.py tests/test_ashby.py tests/test_workable.py tests/test_smartrecruiters.py tests/test_workday.py tests/test_source_completeness.py tests/test_run.py tests/test_size_guard.py tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py tests/test_lifecycle_supervisor.py tests/test_lifecycle_legacy_spool.py tests/test_lifecycle_service_order.py tests/test_run_question_fetch.py -q
+
+final-16.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_greenhouse.py tests/test_lever.py tests/test_ashby.py tests/test_workable.py tests/test_smartrecruiters.py tests/test_workday.py tests/test_source_completeness.py tests/test_run.py tests/test_size_guard.py tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py tests/test_lifecycle_supervisor.py tests/test_lifecycle_legacy_spool.py tests/test_lifecycle_service_order.py tests/test_run_question_fetch.py -q
+
+final-source-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_source_completeness.py -q
+
+final-source-16.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_source_completeness.py -q
+
+callers-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py::test_readonly_fallback_day_rotation_attempts_all_six_with_one_turn_budget tests/test_company_enrich.py -q
+
+qualifying-completion-17.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_source_completeness.py -q
+
+qualifying-completion-16.txt: .venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- .venv/bin/python -m pytest tests/test_lifecycle_reconcile.py tests/test_source_completeness.py -q
+
+
+
+ruff.txt: .venv/bin/python -m ruff check job_discovery tests/test_lifecycle_reconcile.py tests/test_source_completeness.py tests/test_smartrecruiters.py tests/test_workable.py tests/test_size_guard.py tests/test_maintenance_controlflow.py --output-format concise
+
+git diff --check
+
+git diff --cached --check
+
+Python 3.12.14; pytest 9.1.1; Ruff 0.15.20
+
+Owned server versions: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2); PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2)
+
+Read-only cached origin/main: 73ce118205bfdbb56c18207acc0c1c4e3708c860. No network fetch or production access.
+
+Evidence sanitization: trailing whitespace removed; ephemeral fixture owner tokens redacted where present. No outcomes or test messages changed.

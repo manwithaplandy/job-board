@@ -106,6 +106,47 @@ class AckResult:
 
 
 @dataclass(frozen=True)
+class ProjectedFact:
+    aggregate_type: str
+    aggregate_id: str
+    revision: int
+    event_id: UUID
+    fields: dict
+    occurred_at: datetime
+    observed_at: datetime | None
+    recorded_at: datetime
+    provenance: str
+    history_complete: bool  # Only from the declared activation baseline.
+    eligible_until: datetime
+    event_sha256: str
+
+
+@dataclass(frozen=True)
+class ProjectionCoverage:
+    aggregate_type: str
+    aggregate_id: str
+    status: str
+    baseline_revision: int | None
+    complete_history: bool = False  # No assertion about pre-activation history.
+
+
+@dataclass(frozen=True)
+class ProjectionGap:
+    aggregate_type: str
+    aggregate_id: str
+    kind: str
+    reason: str
+    missing_revision: int | None
+    terminal: bool = True  # Never a request for an automatic retry.
+
+
+@dataclass(frozen=True)
 class ProjectionResult:
     applied_event_ids: tuple[UUID, ...]
     ignored_event_ids: tuple[UUID, ...]
+    facts: tuple[ProjectedFact, ...] = ()
+    coverage: tuple[ProjectionCoverage, ...] = ()
+    gaps: tuple[ProjectionGap, ...] = ()
+    retained_revision_ranges: tuple[tuple[str, str, int, int], ...] = ()
+    errors: tuple[str, ...] = ()
+    suppression_epoch: int = 0

@@ -259,3 +259,20 @@ def validate_change(value) -> PublicChange:
     except (TypeError, OverflowError) as exc:
         raise ValueError("invalid public body") from exc
     return value
+
+
+# Version-1 facts that remain interpretable without any historical prefix.
+# In particular no availability/lifespan, foreign endpoints, identity edges,
+# revisions of other entities, or relationship evidence is independent.
+INDEPENDENT_FACT_FIELDS = {
+    "jobs": frozenset("id external_id title url location department remote".split()),
+    "source_accounts": frozenset("id ats public_board_ref public_url".split()),
+    "source_listings": frozenset("id external_id".split()),
+    "job_versions": frozenset("id content_hash public_metadata observed_at".split()),
+    "companies": frozenset(
+        "id name ats token display_name industry industry_subcategory size hq_country".split()
+    ),
+    "locations": frozenset("raw canonicals components source".split()),
+    "brands": frozenset({"id", "name"}),
+    "skills": frozenset({"id", "canonical_name"}),
+}

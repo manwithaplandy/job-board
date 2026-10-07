@@ -1,0 +1,43 @@
+rollback failed for X; attempting reconnect
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/run.py", line 121, in run
+    else ADAPTERS[ats](token))
+         ^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-4-evidence/reviewer_functional_diagnostics.py", line 73, in source
+    raise RuntimeError('ordinary adapter error')
+RuntimeError: ordinary adapter error
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/run.py", line 170, in run
+    conn.rollback()
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-4-evidence/reviewer_functional_diagnostics.py", line 68, in rollback
+    raise RuntimeError('ordinary broken session')
+RuntimeError: ordinary broken session
+reconnect failed; aborting poll
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/run.py", line 121, in run
+    else ADAPTERS[ats](token))
+         ^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-4-evidence/reviewer_functional_diagnostics.py", line 73, in source
+    raise RuntimeError('ordinary adapter error')
+RuntimeError: ordinary adapter error
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/run.py", line 170, in run
+    conn.rollback()
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-4-evidence/reviewer_functional_diagnostics.py", line 68, in rollback
+    raise RuntimeError('ordinary broken session')
+RuntimeError: ordinary broken session
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/run.py", line 188, in run
+    raise RuntimeError("poll lock unavailable after reconnect")
+RuntimeError: poll lock unavailable after reconnect
+TIMING: elapsed=100.0s retired=500 mutations_started_after_90s=50 renewals=[]
+RECONNECT_LOCK_DENIED: later_phases=['finish_run', 'location_enrichment', 'model_review', 'prune']

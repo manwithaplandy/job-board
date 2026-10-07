@@ -1,0 +1,4 @@
+attempt=1 duration=25.08s retired=0 blocked=True cursor=None phase=0 total_mutations=0
+attempt=2 duration=25.08s retired=0 blocked=True cursor=None phase=0 total_mutations=0
+attempt=3 duration=25.08s retired=0 blocked=True cursor=None phase=0 total_mutations=0
+Confirmed: repeated successful per-Job lock calls exhaust the phase before any durable payload/cursor progress; every fresh sweep retries the same prefix.

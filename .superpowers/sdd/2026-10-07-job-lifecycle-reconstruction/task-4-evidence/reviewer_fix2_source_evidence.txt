@@ -1,0 +1,23 @@
+BASE 7825265abac2c2e32a61ace1caebd45563128faa
+HEAD e67d4f4b62c1e2f8ab096e76cd8638856b5124a8
+Full fix review package equals git diff --unified=10 BASE HEAD: PASS
+job_discovery/lifecycle/maintenance.py: working=HEAD sha256=3c806e33fa09760d35624f319165b018a43e6693a87cf3a3a56825d7a1da4426
+tests/test_lifecycle_maintenance.py: working=HEAD sha256=bffc3cf9082130fdf91e4848e560af76498b50a8ab96fada28b0b7c20497319b
+tests/test_maintenance_controlflow.py: working=HEAD sha256=a18e191ca427ef96b6ac7a92f6d7d154ca883dc7f0b7a338b57225f16cdb79a4
+job_discovery/run.py: BASE=HEAD unchanged
+job_discovery/lifecycle/locks.py: BASE=HEAD unchanged
+job_discovery/lifecycle/claims.py: BASE=HEAD unchanged
+job_discovery/lifecycle/capacity.py: BASE=HEAD unchanged
+schema.sql: BASE=HEAD unchanged
+fix2-final17.txt:
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+........................................................................ [ 71%]
+.............................                                            [100%]
+101 passed in 55.99s
+fix2-final16.txt:
+Owned lifecycle database: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) (required 16)
+........................................................................ [ 71%]
+.............................                                            [100%]
+101 passed in 69.19s (0:01:09)
+fix2-ruff.txt:
+All checks passed!

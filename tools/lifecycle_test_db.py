@@ -1,0 +1,192 @@
+"""Run tests in a local, owned, throwaway PostgreSQL 17 (or 16) container.
+
+Never consult ambient DATABASE_URL. The default launcher owns a new database;
+--existing-service reuses CI's explicitly supplied, validated TEST_DATABASE_URL.
+"""
+
+import argparse
+import os
+import secrets
+import subprocess
+import sys
+import threading
+import time
+from urllib.parse import unquote, urlsplit
+
+import psycopg
+
+DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
+COMMAND_TIMEOUT_SECONDS = 1800
+READINESS_TIMEOUT_SECONDS = 60
+_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_DATABASES = {"poller_test", "poller_lifecycle_test"}
+_SAFE_ENV = {"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "TMPDIR", "VIRTUAL_ENV"}
+
+
+def validate_test_dsn(dsn: str) -> None:
+    """Reject ambiguous/remote DSNs without including credentials in errors.
+
+Only explicit URI loopback hosts, ports and test database names are supported.
+No query options: hostaddr/service/passfile/options can bypass the URI target.
+"""
+    try:
+        if not isinstance(dsn, str) or any(char.isspace() for char in dsn):
+            raise ValueError
+        parsed = urlsplit(dsn)
+        if (
+            parsed.scheme not in {"postgres", "postgresql"}
+            or parsed.hostname not in _HOSTS
+            or parsed.port is None or not 1 <= parsed.port <= 65535
+            or not parsed.username or not parsed.password
+            or unquote(parsed.path) not in {f"/{name}" for name in _DATABASES}
+            or parsed.query or parsed.fragment or "?" in dsn or "#" in dsn
+        ):
+            raise ValueError
+        parameters = psycopg.conninfo.conninfo_to_dict(dsn)
+        if parameters.get("host") not in _HOSTS or parameters.get("dbname") not in _DATABASES:
+            raise ValueError
+    except (ValueError, psycopg.ProgrammingError):
+        raise ValueError("unsafe test DSN: explicit loopback test database required") from None
+
+
+def validate_test_connection(conn: psycopg.Connection) -> None:
+    """Recheck an established target before any helper DDL."""
+    if (
+        conn.info.host not in _HOSTS
+        or conn.info.hostaddr not in {"127.0.0.1", "::1"}
+        or conn.info.dbname not in _DATABASES
+        or not 1 <= conn.info.port <= 65535
+    ):
+        raise ValueError("unsafe test connection: loopback test database required")
+
+
+def child_environment(dsn: str) -> dict[str, str]:
+    """An allowlist prevents inherited provider/production/PG credentials.
+
+Existing tests supply offline SDK doubles themselves. Placeholder OpenAI auth
+lets constructors work; AWS credential files and instance metadata are disabled.
+"""
+    validate_test_dsn(dsn)
+    env = {name: value for name, value in os.environ.items() if name in _SAFE_ENV}
+    env.update({
+        "TEST_DATABASE_URL": dsn,
+        "DATABASE_URL": dsn,
+        "LIFECYCLE_REQUIRE_DB_TESTS": "1",
+        "OPENAI_API_KEY": "test-disabled",
+        "AWS_EC2_METADATA_DISABLED": "true",
+        "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
+        "AWS_CONFIG_FILE": os.devnull,
+        "PYTHONUNBUFFERED": "1",
+    })
+    return env
+
+
+def _docker(args: list[str], *, timeout: int = 30) -> str:
+    # Force the local socket; never inherit a remote Docker host or context.
+    result = subprocess.run(
+        DOCKER + args, env={k: v for k, v in os.environ.items() if k in _SAFE_ENV},
+        capture_output=True, text=True, timeout=timeout, check=True,
+    )
+    return result.stdout.strip()
+
+
+def run_existing_database(command: list[str], dsn: str) -> int:
+    """Required CI entry for its already-owned local PostgreSQL service.
+
+The caller must provide TEST_DATABASE_URL explicitly; DATABASE_URL is ignored.
+This entry never creates, drops, stops or cleans up a service/container.
+"""
+    if not command:
+        raise ValueError("a test command is required")
+    env = child_environment(dsn)
+    try:
+        return subprocess.run(command, env=env, timeout=COMMAND_TIMEOUT_SECONDS, check=False).returncode
+    except subprocess.TimeoutExpired:
+        print("Lifecycle test command timed out", file=sys.stderr)
+        return 124
+    except OSError:
+        print("Lifecycle test command failed to start", file=sys.stderr)
+        return 2
+
+
+def isolated_database(command: list[str], postgres_major: int = 17) -> int:
+    """Provision a new owned container, run a bounded child, and clean only it."""
+    if postgres_major not in {16, 17}:
+        raise ValueError("postgres-major must be 17 or 16")
+    if not command:
+        raise ValueError("a test command is required")
+    name = "poller-lifecycle-test-" + secrets.token_hex(12)
+    password = secrets.token_urlsafe(32)
+    try:
+        _docker([
+            "run", "--detach", "--name", name, "--label", "poller.lifecycle-test=owned",
+            "--publish", "127.0.0.1::5432",
+            "--env", "POSTGRES_PASSWORD=" + password,
+            "--env", "POSTGRES_DB=poller_lifecycle_test", f"postgres:{postgres_major}",
+        ], timeout=180)
+        address = _docker(["port", name, "5432/tcp"])
+        host, separator, port = address.partition(":")
+        if host != "127.0.0.1" or not separator or not port.isdigit():
+            raise RuntimeError("Docker did not publish an isolated loopback port")
+        dsn = f"postgresql://postgres:{password}@127.0.0.1:{port}/poller_lifecycle_test"
+        env = child_environment(dsn)
+        deadline = time.monotonic() + READINESS_TIMEOUT_SECONDS
+        while True:
+            try:
+                # The driver probe needs the same clean environment as the tests;
+                # libpq otherwise reads ambient PGHOSTADDR/PGSERVICE defaults.
+                probe = subprocess.run([
+                    sys.executable, "-c",
+                    "import os,psycopg; "
+                    "c=psycopg.connect(os.environ['TEST_DATABASE_URL'],connect_timeout=1); "
+                    "print(c.execute('SHOW server_version').fetchone()[0]); c.close()",
+                ], env=env, capture_output=True, text=True, timeout=5, check=True)
+                version = probe.stdout.strip()
+                if version.split('.', 1)[0] != str(postgres_major):
+                    raise RuntimeError("unexpected PostgreSQL server major")
+                print(f"Owned lifecycle database: PostgreSQL {version} (required {postgres_major})", flush=True)
+                break
+            except subprocess.SubprocessError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("owned PostgreSQL readiness timed out") from None
+                threading.Event().wait(0.2)
+        return run_existing_database(command, dsn)
+    except (subprocess.SubprocessError, OSError, RuntimeError, ValueError):
+        # Never print CalledProcessError: its argv contains the generated password.
+        print("Lifecycle test database launch failed", file=sys.stderr)
+        return 2
+    finally:
+        # Unique name chosen by this invocation only. No prune, drop, or cleanup
+        # of caller-provided ports, services, volumes, or other containers.
+        try:
+            _docker(["rm", "--force", "--volumes", name])
+        except (subprocess.SubprocessError, OSError):
+            # A nonexistent container is expected after a failed docker run.
+            # An existing container that cannot be removed must fail the lane.
+            try:
+                remains = _docker(["ps", "--all", "--quiet", "--filter", f"name=^/{name}$"])
+            except (subprocess.SubprocessError, OSError):
+                remains = "unknown"
+            if remains:
+                raise RuntimeError("owned lifecycle container cleanup failed") from None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--postgres-major", type=int, choices=(17, 16), default=17)
+    parser.add_argument("--existing-service", action="store_true", help="reuse CI's explicit local TEST_DATABASE_URL")
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command:
+        parser.error("provide a command after --")
+    if args.existing_service:
+        try:
+            return run_existing_database(command, os.environ.get("TEST_DATABASE_URL", ""))
+        except ValueError as error:
+            parser.error(str(error))
+    return isolated_database(command, args.postgres_major)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

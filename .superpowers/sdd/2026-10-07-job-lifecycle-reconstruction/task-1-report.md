@@ -20,7 +20,9 @@ random port published only on `127.0.0.1`. It never falls back to ambient
 `DATABASE_URL` or reuses the existing local port 55432 service. Readiness is
 bounded to 60 seconds, individual probes to 5 seconds, Docker creation to 180
 seconds and child execution to 1,800 seconds. A `finally` removes only its unique
-owned container and that container's anonymous volumes. Child failure and
+owned container and that container's anonymous volumes. Fix Round 1 below
+adds invocation-marker verification and immutable-ID cleanup for failure paths.
+Child failure and
 timeout are exercised with real Docker, alongside unchanged-container and
 unchanged-volume assertions.
 
@@ -126,7 +128,7 @@ containers and a fresh per-volume check proved none remained mounted. Cleanup
 used those exact volume IDs, with no prune and no unrelated/shared deletion.
 The current runner cleans its own volumes in `finally`.
 
-## Current verification
+## Initial verification at 241ba32 (before Fix Round 1)
 
 Shell setup for the commands below:
 
@@ -167,7 +169,121 @@ majors. No placeholder tests or fabricated skips were added for future work.
 Task 13 must run that final prescribed file set and dashboard DB tests on 17.
 
 All commits are forward-only; no amend/reset/rebase is used. Final SHA is the
-commit adding this report and is returned in the implementer handoff; retrieve
+latest implementation commit returned in the implementer handoff; retrieve
 it with `git log -1 --format=%H -- .superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-1-report.md`.
 Independent spec/security/code review and Library checkpoint are pending the
 controller's fresh review. Stop before Task 2.
+
+## Fix Round 1 — four reviewed blockers
+
+Fix base: `241ba32c1b5a815659c215b017b3d3afc304a6e0`. Read both fresh pinned
+reviews in full before changing code. Their unique in-scope findings were:
+
+- Security: **[P2] Failed creation can remove a container this invocation never owned**.
+- Security: **[P2] Command timeout does not bound descendants or their owned resources**.
+- Both reviews: **[P2] Catalog parity omits global default privileges** /
+  **Global default privileges are invisible to the parity comparison**.
+- Requirements: **[P2] Object ownership changes can evade effective security parity**.
+
+### Tests-first failure evidence
+
+Added regressions before fixes and ran on owned PostgreSQL 17.11:
+
+```bash
+python tools/lifecycle_test_db.py --postgres-major 17 -- python -m pytest \
+  tests/test_lifecycle_test_db.py tests/test_lifecycle_migrations.py \
+  -k 'creation_cleanup or sigterm_ignoring or outer_timeout or global_default or inherited_global or implicit_owner' -q
+```
+
+Result: **11 failed, 53 deselected in 9.91s**, exit 1. The failures reproduced:
+unowned conflict cleanup; immutable-ID requirements for ambiguous/successful
+creation; a real SIGTERM-ignoring descendant remaining alive; nested container
+cleanup bypass; invisible global defaults; unnoticed inherited global defaults
+during bootstrap; and NULL-ACL owner changes for a table, sequence, SECURITY
+DEFINER function, and public schema. Negative Docker-boundary doubles performed
+no actual Docker mutation. Real RED timeout probes adopted/reaped only their
+acknowledged descendant PIDs and removed only their acknowledged nested container
+IDs, so the regression runs did not leave resources behind.
+
+After the initial fixes this same 11-test selection passed in 10.76s. A stronger
+nested timeout case then installed SIGTERM-ignore in the nested command. It
+reproduced a timing defect before correction:
+
+```bash
+python tools/lifecycle_test_db.py --postgres-major 17 -- python -m pytest \
+  tests/test_lifecycle_test_db.py -k outer_timeout -q
+```
+
+Result: **1 failed, 44 deselected in 18.58s**, exit 1. Equal outer/inner grace
+windows allowed the outer forced termination to interrupt the nested runner's
+container `finally`. Shortening signal-interrupted nested child grace fixed the
+case. A further real, stopped-container name-conflict proof was added to verify
+the Docker-boundary negative probe against actual Docker. The real conflict,
+forced descendant and stronger nested timeout selection passed **3 tests,
+43 deselected in 16.08s**.
+
+### Resulting behavior
+
+Each creation includes an invocation-specific owner marker. The runner retains
+the immutable container ID returned by successful `docker run`. Cleanup inspects
+only ID and marker, never the container environment/password, and removes by
+immutable ID only after the marker matches this invocation. Failed or timed-out
+creation can recover its own container by name only when the marker proves
+ownership; an unrelated conflicting name is preserved. A missing/unverifiable
+failed-create target is never deleted. Real conflicting-container and ordinary
+failure/timeout tests verify cleanup remains scoped to owned resources.
+
+Commands now run in their own session/process group. Timeout sends SIGTERM to
+that group, allows a bounded 10-second grace, then uses SIGKILL for remaining
+live members and bounded forced-exit checks. The direct child is reaped; real
+descendant tests temporarily adopt/reap their own child PIDs. Linux `/proc`
+membership/state checks exclude already-dead zombies. Normal command completion
+also cleans any surviving members of its group. SIGTERM/SIGINT handlers unwind
+nested harness cleanup instead of bypassing `finally`, and restore caller
+handlers afterward. A signal-interrupted nested runner limits its child's grace
+to one second, reserving the outer grace window for its own container cleanup.
+The real nested proof uses a SIGTERM-ignoring command and asserts both its
+container and process disappear. Forced cleanup failure fails the lane.
+
+Catalog defaults now include both `defaclnamespace=0` global scope and
+public-specific scope, with stable role names, object type, scope and full ACL
+text retaining grantee/grantor/grant-option information. Bootstrap refuses any
+inherited global defaults before `DROP SCHEMA`, because global defaults survive
+that drop and could contaminate both comparison builds. The real migration
+probe changes only a global default grant and must change parity; its cleanup
+restores defaults before subsequent fixtures.
+
+Relation/sequence, function and public schema owners are compared as stable
+role names, alongside existing ACL comparisons. Independent real DB probes
+assert ACLs are NULL before and after each owner change and prove table,
+sequence, SECURITY DEFINER function and schema ownership changes affect parity.
+The frozen schema bytes/hash and 47-file inventory remain unchanged.
+
+### Fresh covering verification
+
+```bash
+python tools/lifecycle_test_db.py --postgres-major 17 -- python -m pytest \
+  tests/test_lifecycle_test_db.py tests/test_lifecycle_migrations.py \
+  tests/test_rls_isolation.py -q
+# Same command with --postgres-major 16.
+```
+
+| Fresh lane | Result |
+| --- | --- |
+| Owned PostgreSQL **17.11** (Debian 17.11-1.pgdg13+2) | **82 passed, zero skipped**, 39.85s, exit 0 |
+| Owned PostgreSQL **16.15** (Debian 16.15-1.pgdg13+2) | **82 passed, zero skipped**, 46.68s, exit 0 |
+| `ruff check .` | Passed |
+| `git diff --check` | Passed |
+
+This fix refreshes all affected harness/migration/RLS tests on both required
+majors. The initial 899-test full-suite results remain prior initial-commit
+evidence, not a claim that the full suite was rerun after these fixes. No broader
+baseline repeat was needed: the focused lane covers the changed process/resource
+paths and catalog comparison plus existing RLS compatibility, and exposes no
+unresolved failure. Fix output/chronology is tracked in `task-1-evidence/`.
+
+Only Task 1 tooling, its tests, this report and sanitized evidence are changed.
+No fixture/schema/application/CI change, broad Docker cleanup, cloud/provider
+call, or commit rewrite is made in this fix. Controller progress, review package
+and review artifacts are excluded from the forward commit. Fresh independent
+scoped rereview and Library checkpoint remain controller-owned and pending.

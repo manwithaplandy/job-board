@@ -5,8 +5,12 @@ Never consult ambient DATABASE_URL. The default launcher owns a new database;
 """
 
 import argparse
+from contextlib import contextmanager
+import json
 import os
+from pathlib import Path
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -17,6 +21,7 @@ import psycopg
 
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
 COMMAND_TIMEOUT_SECONDS = 1800
+COMMAND_TERMINATION_GRACE_SECONDS = 10
 READINESS_TIMEOUT_SECONDS = 60
 _HOSTS = {"localhost", "127.0.0.1", "::1"}
 _DATABASES = {"poller_test", "poller_lifecycle_test"}
@@ -90,6 +95,103 @@ def _docker(args: list[str], *, timeout: int = 30) -> str:
     return result.stdout.strip()
 
 
+class _HarnessTermination(BaseException):
+    def __init__(self, signum: int):
+        self.signum = signum
+
+
+@contextmanager
+def _termination_handlers():
+    # SIGTERM must unwind nested runners' finally blocks instead of bypassing
+    # their owned container and command-group cleanup. Restore caller handlers.
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+
+    def interrupted(signum, frame):
+        raise _HarnessTermination(signum)
+
+    try:
+        for sig in previous:
+            signal.signal(sig, interrupted)
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+def _group_has_live_processes(pgid: int) -> bool:
+    # The selected Linux Docker environment exposes /proc. Zombies cannot run
+    # work; the direct child is reaped by Popen, other parents reap their children.
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    for directory in Path("/proc").iterdir():
+        if not directory.name.isdigit():
+            continue
+        try:
+            fields = (directory / "stat").read_text().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pgid and fields[0] != "Z":
+                return True
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+    return False
+
+
+def _stop_command_group(process: subprocess.Popen, grace_seconds: float | None = None) -> None:
+    pgid = process.pid  # start_new_session makes the child's PID its owned PGID.
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    deadline = time.monotonic() + (COMMAND_TERMINATION_GRACE_SECONDS if grace_seconds is None else grace_seconds)
+    while _group_has_live_processes(pgid) and time.monotonic() < deadline:
+        process.poll()
+        threading.Event().wait(0.05)
+    if _group_has_live_processes(pgid):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    process.wait(timeout=5)
+    deadline = time.monotonic() + 5
+    while _group_has_live_processes(pgid) and time.monotonic() < deadline:
+        threading.Event().wait(0.05)
+    if _group_has_live_processes(pgid):
+        raise RuntimeError("owned command process group cleanup failed")
+
+
+def _cleanup_owned_container(name: str, owner: str, created_id: str | None) -> None:
+    candidate = created_id or name
+    # Inspect only immutable identity and invocation marker; never read env/password.
+    template = '{"id":{{json .Id}},"owner":{{json (index .Config.Labels "poller.lifecycle-test.owner")}}}'
+    try:
+        metadata = json.loads(_docker(["inspect", "--type", "container", "--format", template, candidate]))
+    except (subprocess.SubprocessError, OSError):
+        if created_id is None:
+            # Failed/ambiguous creation with no verifiable object: never remove
+            # an arbitrary name. Provisioning has already failed the lane.
+            return
+        remains = _docker(["ps", "--all", "--quiet", "--filter", f"id={created_id}"])
+        if remains:
+            raise RuntimeError("owned lifecycle container identity could not be verified") from None
+        return
+    cid = metadata.get("id", "")
+    if metadata.get("owner") != owner:
+        if created_id is not None:
+            raise RuntimeError("owned lifecycle container marker mismatch")
+        return  # An unowned conflicting name is never a cleanup target.
+    if len(cid) != 64 or any(c not in "0123456789abcdef" for c in cid) or (created_id and cid != created_id):
+        raise RuntimeError("invalid owned lifecycle container identity")
+    try:
+        _docker(["rm", "--force", "--volumes", cid])
+    except (subprocess.SubprocessError, OSError):
+        if _docker(["ps", "--all", "--quiet", "--filter", f"id={cid}"]):
+            raise RuntimeError("owned lifecycle container cleanup failed") from None
+
+
 def run_existing_database(command: list[str], dsn: str) -> int:
     """Required CI entry for its already-owned local PostgreSQL service.
 
@@ -99,14 +201,26 @@ This entry never creates, drops, stops or cleans up a service/container.
     if not command:
         raise ValueError("a test command is required")
     env = child_environment(dsn)
-    try:
-        return subprocess.run(command, env=env, timeout=COMMAND_TIMEOUT_SECONDS, check=False).returncode
-    except subprocess.TimeoutExpired:
-        print("Lifecycle test command timed out", file=sys.stderr)
-        return 124
-    except OSError:
-        print("Lifecycle test command failed to start", file=sys.stderr)
-        return 2
+    with _termination_handlers():
+        try:
+            process = subprocess.Popen(command, env=env, start_new_session=True)
+        except OSError:
+            print("Lifecycle test command failed to start", file=sys.stderr)
+            return 2
+        try:
+            result = process.wait(timeout=COMMAND_TIMEOUT_SECONDS)
+            if _group_has_live_processes(process.pid):
+                _stop_command_group(process)
+            return result
+        except subprocess.TimeoutExpired:
+            _stop_command_group(process)
+            print("Lifecycle test command timed out", file=sys.stderr)
+            return 124
+        except BaseException as error:
+            # An outer deadline already sent SIGTERM. Shorten the nested child's
+            # grace to reserve the outer grace window for our container finally.
+            _stop_command_group(process, grace_seconds=1 if isinstance(error, _HarnessTermination) else None)
+            raise
 
 
 def isolated_database(command: list[str], postgres_major: int = 17) -> int:
@@ -115,16 +229,24 @@ def isolated_database(command: list[str], postgres_major: int = 17) -> int:
         raise ValueError("postgres-major must be 17 or 16")
     if not command:
         raise ValueError("a test command is required")
-    name = "poller-lifecycle-test-" + secrets.token_hex(12)
+    with _termination_handlers():
+        return _isolated_database(command, postgres_major)
+
+
+def _isolated_database(command: list[str], postgres_major: int) -> int:
+    owner = secrets.token_hex(12)
+    name = "poller-lifecycle-test-" + owner
     password = secrets.token_urlsafe(32)
+    created_id = None
     try:
-        _docker([
+        created_id = _docker([
             "run", "--detach", "--name", name, "--label", "poller.lifecycle-test=owned",
+            "--label", "poller.lifecycle-test.owner=" + owner,
             "--publish", "127.0.0.1::5432",
             "--env", "POSTGRES_PASSWORD=" + password,
             "--env", "POSTGRES_DB=poller_lifecycle_test", f"postgres:{postgres_major}",
         ], timeout=180)
-        address = _docker(["port", name, "5432/tcp"])
+        address = _docker(["port", created_id, "5432/tcp"])
         host, separator, port = address.partition(":")
         if host != "127.0.0.1" or not separator or not port.isdigit():
             raise RuntimeError("Docker did not publish an isolated loopback port")
@@ -156,19 +278,7 @@ def isolated_database(command: list[str], postgres_major: int = 17) -> int:
         print("Lifecycle test database launch failed", file=sys.stderr)
         return 2
     finally:
-        # Unique name chosen by this invocation only. No prune, drop, or cleanup
-        # of caller-provided ports, services, volumes, or other containers.
-        try:
-            _docker(["rm", "--force", "--volumes", name])
-        except (subprocess.SubprocessError, OSError):
-            # A nonexistent container is expected after a failed docker run.
-            # An existing container that cannot be removed must fail the lane.
-            try:
-                remains = _docker(["ps", "--all", "--quiet", "--filter", f"name=^/{name}$"])
-            except (subprocess.SubprocessError, OSError):
-                remains = "unknown"
-            if remains:
-                raise RuntimeError("owned lifecycle container cleanup failed") from None
+        _cleanup_owned_container(name, owner, created_id)
 
 
 def main() -> int:
@@ -180,12 +290,15 @@ def main() -> int:
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("provide a command after --")
-    if args.existing_service:
-        try:
-            return run_existing_database(command, os.environ.get("TEST_DATABASE_URL", ""))
-        except ValueError as error:
-            parser.error(str(error))
-    return isolated_database(command, args.postgres_major)
+    try:
+        if args.existing_service:
+            try:
+                return run_existing_database(command, os.environ.get("TEST_DATABASE_URL", ""))
+            except ValueError as error:
+                parser.error(str(error))
+        return isolated_database(command, args.postgres_major)
+    except _HarnessTermination as interrupted:
+        return 128 + interrupted.signum
 
 
 if __name__ == "__main__":

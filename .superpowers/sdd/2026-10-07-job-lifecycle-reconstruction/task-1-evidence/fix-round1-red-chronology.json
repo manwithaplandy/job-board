@@ -1,0 +1,39 @@
+{
+  "fix_base": "241ba32c1b5a815659c215b017b3d3afc304a6e0",
+  "regressions": [
+    {
+      "command": "python tools/lifecycle_test_db.py --postgres-major 17 -- python -m pytest tests/test_lifecycle_test_db.py tests/test_lifecycle_migrations.py -k 'creation_cleanup or sigterm_ignoring or outer_timeout or global_default or inherited_global or implicit_owner' -q",
+      "result": "11 failed, 53 deselected in 9.91s",
+      "exit_code": 1,
+      "failures": [
+        "unowned name conflict removal",
+        "ambiguous create cleanup did not use immutable ID",
+        "successful create cleanup did not use immutable ID",
+        "SIGTERM-ignoring descendant survived timeout",
+        "nested container survived outer timeout",
+        "global default migration drift missed",
+        "inherited global defaults not rejected before bootstrap",
+        "NULL-ACL table owner drift missed",
+        "NULL-ACL sequence owner drift missed",
+        "NULL-ACL SECURITY DEFINER owner drift missed",
+        "NULL-ACL schema owner drift missed"
+      ]
+    },
+    {
+      "command": "python tools/lifecycle_test_db.py --postgres-major 17 -- python -m pytest tests/test_lifecycle_test_db.py -k outer_timeout -q",
+      "result": "1 failed, 44 deselected in 18.58s",
+      "exit_code": 1,
+      "failure": "equal grace windows bypassed nested finally with a SIGTERM-ignoring command"
+    }
+  ],
+  "focused_green": [
+    {
+      "result": "11 passed, 53 deselected in 10.76s",
+      "note": "first fix before strengthened nested SIGTERM-ignore case"
+    },
+    {
+      "result": "3 passed, 43 deselected in 16.08s",
+      "note": "real conflict, forced descendant, stronger nested cleanup after cancellation grace fix"
+    }
+  ]
+}

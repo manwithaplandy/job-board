@@ -45,5 +45,35 @@
   "lint": "passed",
   "diff_check": "passed",
   "independent_review": "controller-owned, pending",
-  "library_checkpoint": "controller-owned, pending"
+  "library_checkpoint": "controller-owned, pending",
+  "initial_verified_head": "241ba32c1b5a815659c215b017b3d3afc304a6e0",
+  "fix_round1": {
+    "recorded_utc": "2026-10-07T05:33:57.305287+00:00",
+    "fix_base": "241ba32c1b5a815659c215b017b3d3afc304a6e0",
+    "covered_files": [
+      "tests/test_lifecycle_test_db.py",
+      "tests/test_lifecycle_migrations.py",
+      "tests/test_rls_isolation.py"
+    ],
+    "required_lanes": [
+      {
+        "postgres_version": "17.11 (Debian 17.11-1.pgdg13+2)",
+        "passed": 82,
+        "skipped": 0,
+        "exit_code": 0,
+        "seconds": 39.85
+      },
+      {
+        "postgres_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+        "passed": 82,
+        "skipped": 0,
+        "exit_code": 0,
+        "seconds": 46.68
+      }
+    ],
+    "lint": "passed",
+    "diff_check": "passed",
+    "full_suite_repeated": false,
+    "independent_scoped_rereview": "controller-owned, pending"
+  }
 }

@@ -28,6 +28,10 @@ def open_sessions(dsn: str, count: int) -> list[psycopg.Connection]:
 
 def bootstrap_schema(conn: psycopg.Connection, schema_sql: str) -> None:
     validate_test_connection(conn)
+    # DROP SCHEMA removes schema-scoped defaults, but global defaults survive
+    # and would affect both comparison builds. Require a clean global baseline.
+    if conn.execute("SELECT EXISTS(SELECT 1 FROM pg_default_acl WHERE defaclnamespace=0) AS dirty").fetchone()["dirty"]:
+        raise ValueError("global default privileges must be reset before bootstrap")
     try:
         conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
         conn.execute(schema_sql)
@@ -59,7 +63,7 @@ migrations behind a ledger skip. Existing BEGIN/COMMIT files are supported.
 _CATALOG_QUERIES = {
     "tables": """
         SELECT c.relname,c.relkind,c.relrowsecurity,c.relforcerowsecurity,
-               c.relreplident,c.reloptions,c.relacl::text
+               c.relreplident,c.reloptions,c.relacl::text,pg_get_userbyid(c.relowner) AS owner
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S') ORDER BY c.relname
     """,
@@ -93,7 +97,8 @@ _CATALOG_QUERIES = {
     """,
     "functions": """
         SELECT p.proname,pg_get_function_identity_arguments(p.oid) AS arguments,
-               pg_get_functiondef(p.oid) AS definition,p.proconfig,p.prosecdef,p.proacl::text
+               pg_get_functiondef(p.oid) AS definition,p.proconfig,p.prosecdef,p.proacl::text,
+               pg_get_userbyid(p.proowner) AS owner
         FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname='public' ORDER BY p.proname,arguments
     """,
@@ -108,12 +113,15 @@ _CATALOG_QUERIES = {
         FROM pg_sequences WHERE schemaname='public' ORDER BY sequencename
     """,
     "schema_grants": """
-        SELECT nspacl::text FROM pg_namespace WHERE nspname='public'
+        SELECT nspacl::text,pg_get_userbyid(nspowner) AS owner
+        FROM pg_namespace WHERE nspname='public'
     """,
     "default_grants": """
-        SELECT r.rolname,d.defaclobjtype,d.defaclacl::text FROM pg_default_acl d
-        JOIN pg_roles r ON r.oid=d.defaclrole JOIN pg_namespace n ON n.oid=d.defaclnamespace
-        WHERE n.nspname='public' ORDER BY r.rolname,d.defaclobjtype
+        SELECT r.rolname,COALESCE(n.nspname,'global') AS scope,d.defaclobjtype,d.defaclacl::text
+        FROM pg_default_acl d JOIN pg_roles r ON r.oid=d.defaclrole
+        LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace
+        WHERE d.defaclnamespace=0 OR n.nspname='public'
+        ORDER BY r.rolname,scope,d.defaclobjtype
     """,
 }
 

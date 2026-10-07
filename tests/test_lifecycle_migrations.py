@@ -107,3 +107,54 @@ def test_bootstrap_accepts_clean_schema_and_same_cluster_roles(conn):
     rows = conn.execute("SELECT rolname,rolsuper,rolbypassrls FROM pg_roles WHERE rolname IN ('anon','authenticated') ORDER BY rolname").fetchall()
     assert len(rows) == 2
     assert all(not row["rolsuper"] and not row["rolbypassrls"] for row in rows)
+
+
+@requires_db
+def test_global_default_grant_migration_changes_catalog_parity(conn, tmp_path):
+    module = helpers()
+    before = module.schema_catalog(conn)
+    migration = tmp_path / "global-default-grant.sql"
+    migration.write_text("ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO authenticated;")
+    try:
+        module.apply_migrations(conn, [migration])
+        assert module.schema_catalog(conn) != before
+        rows = module.schema_catalog(conn)["default_grants"]
+        assert any(row["scope"] == "global" for row in rows)
+    finally:
+        conn.rollback()
+        conn.execute("ALTER DEFAULT PRIVILEGES REVOKE SELECT ON TABLES FROM authenticated")
+        conn.commit()
+
+
+@requires_db
+def test_bootstrap_rejects_inherited_global_defaults_before_drop(conn):
+    module = helpers()
+    conn.execute("ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO anon")
+    conn.commit()
+    before = conn.execute("SELECT 'jobs'::regclass::oid AS id").fetchone()["id"]
+    try:
+        with pytest.raises(ValueError, match="global default"):
+            module.bootstrap_schema(conn, SCHEMA_SQL)
+        assert conn.execute("SELECT 'jobs'::regclass::oid AS id").fetchone()["id"] == before
+    finally:
+        conn.rollback()
+        conn.execute("ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM anon")
+        conn.commit()
+
+
+@requires_db
+@pytest.mark.parametrize("setup,acl_query,mutation", [
+    ("CREATE TABLE owner_probe(id integer)", "SELECT relacl AS acl FROM pg_class WHERE oid='owner_probe'::regclass", "ALTER TABLE owner_probe OWNER TO authenticated"),
+    ("CREATE SEQUENCE owner_probe", "SELECT relacl AS acl FROM pg_class WHERE oid='owner_probe'::regclass", "ALTER SEQUENCE owner_probe OWNER TO authenticated"),
+    ("CREATE FUNCTION owner_probe() RETURNS integer LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'", "SELECT proacl AS acl FROM pg_proc WHERE oid='owner_probe()'::regprocedure", "ALTER FUNCTION owner_probe() OWNER TO authenticated"),
+    ("DROP SCHEMA public CASCADE; CREATE SCHEMA public", "SELECT nspacl AS acl FROM pg_namespace WHERE nspname='public'", "ALTER SCHEMA public OWNER TO authenticated"),
+])
+def test_catalog_detects_implicit_owner_privilege_changes_with_null_acls(conn, setup, acl_query, mutation):
+    module = helpers()
+    conn.execute(setup)
+    assert conn.execute(acl_query).fetchone()["acl"] is None
+    before = module.schema_catalog(conn)
+    conn.execute(mutation)
+    assert conn.execute(acl_query).fetchone()["acl"] is None
+    assert module.schema_catalog(conn) != before
+    conn.rollback()

@@ -1,9 +1,13 @@
 """Safety and real session proofs for the isolated lifecycle test database."""
 
 import importlib
+import ctypes
+from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
 import subprocess
+import signal
 import sys
 import threading
 from types import SimpleNamespace
@@ -95,6 +99,98 @@ def test_invalid_major_is_rejected_before_docker(monkeypatch):
     with pytest.raises(ValueError):
         module.isolated_database([sys.executable, "-c", "pass"], postgres_major=15)
     assert calls == []
+
+
+@pytest.mark.parametrize("creation", ["conflict", "ambiguous-owned", "successful"])
+def test_creation_cleanup_requires_this_invocations_owner_and_immutable_id(monkeypatch, creation):
+    module = harness()
+    calls = []
+    token, cid = "fix-round-one-owner", "a" * 64
+    monkeypatch.setattr(module.secrets, "token_hex", lambda *args: token)
+
+    def docker(args, **kwargs):
+        calls.append(args)
+        if args[0] == "run":
+            if creation == "conflict":
+                raise subprocess.CalledProcessError(125, ["docker", "run"])
+            if creation == "ambiguous-owned":
+                raise subprocess.TimeoutExpired(["docker", "run"], 180)
+            return cid
+        if args[0] == "inspect":
+            return json.dumps({"id": cid, "owner": token if creation != "conflict" else "someone-else"})
+        if args[0] == "port":
+            raise RuntimeError("stop after successful creation")
+        return ""
+
+    monkeypatch.setattr(module, "_docker", docker)
+    assert module.isolated_database([sys.executable, "-c", "pass"]) == 2
+    removals = [args for args in calls if args[0] == "rm"]
+    if creation == "conflict":
+        assert removals == [], "failed creation must not remove an unowned name conflict"
+    else:
+        assert removals == [["rm", "--force", "--volumes", cid]]
+
+
+@requires_db
+def test_real_name_conflict_preserves_the_other_invocations_container(monkeypatch):
+    module = harness()
+    token = module.secrets.token_hex(12)
+    name = "poller-lifecycle-test-" + token
+    # This test owns the sentinel, but the invoked harness does not. Never start
+    # it or contact it as a DB; its immutable ID is the only test cleanup target.
+    sentinel = module._docker([
+        "create", "--name", name, "--label", "poller.lifecycle-test.owner=sentinel-" + token,
+        "postgres:17",
+    ])
+    monkeypatch.setattr(module.secrets, "token_hex", lambda *args: token)
+    try:
+        assert module.isolated_database([sys.executable, "-c", "pass"]) == 2
+        assert module._docker(["inspect", "--format", "{{.Id}}", sentinel]) == sentinel
+    finally:
+        if module._docker(["ps", "-aq", "--filter", "id=" + sentinel]):
+            module._docker(["rm", "--force", "--volumes", sentinel])
+
+
+@contextmanager
+def adopt_own_descendants():
+    # Reap only the descendant PID created by each test, including the RED probe.
+    libc = ctypes.CDLL(None, use_errno=True)
+    original = ctypes.c_int()
+    assert libc.prctl(37, ctypes.byref(original), 0, 0, 0) == 0  # PR_GET_CHILD_SUBREAPER
+    assert libc.prctl(36, 1, 0, 0, 0) == 0  # PR_SET_CHILD_SUBREAPER
+    try:
+        yield
+    finally:
+        assert libc.prctl(36, original.value, 0, 0, 0) == 0
+
+
+def test_timeout_terminates_and_reaps_a_real_sigterm_ignoring_descendant(monkeypatch, tmp_path):
+    module = harness()
+    pidfile = tmp_path / "descendant.pid"
+    worker = "import signal,threading; signal.signal(signal.SIGTERM,signal.SIG_IGN); print('ready',flush=True); threading.Event().wait(30)"
+    parent = (
+        "import subprocess,sys,threading; from pathlib import Path; "
+        f"p=subprocess.Popen([sys.executable,'-c',{worker!r}],stdout=subprocess.PIPE,text=True); "
+        "assert p.stdout.readline().strip()=='ready'; "
+        f"Path({str(pidfile)!r}).write_text(str(p.pid)); threading.Event().wait(30)"
+    )
+    monkeypatch.setattr(module, "COMMAND_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr(module, "COMMAND_TERMINATION_GRACE_SECONDS", 0.5, raising=False)
+    with adopt_own_descendants():
+        pid = None
+        try:
+            assert module.run_existing_database([sys.executable, "-c", parent], LOCAL) == 124
+            assert pidfile.exists(), "descendant readiness was not acknowledged"
+            pid = int(pidfile.read_text())
+            reaped, status = os.waitpid(pid, os.WNOHANG)
+            assert reaped == pid, "owned descendant remained alive after command timeout"
+            pid = None
+            assert os.WIFSIGNALED(status)
+            assert os.WTERMSIG(status) == signal.SIGKILL
+        finally:
+            if pid is not None:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
 
 
 def test_helper_rechecks_connected_target_before_any_ddl():
@@ -281,3 +377,44 @@ def test_owned_docker_child_failure_and_timeout_cleanup(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "PostgreSQL 17." in output
     assert "postgresql://" not in output
+
+
+@requires_db
+def test_outer_timeout_allows_nested_harness_container_and_process_cleanup(monkeypatch, tmp_path):
+    module = harness()
+    marker = tmp_path / "nested.json"
+    script = (
+        "import os,json,signal,subprocess,threading; from pathlib import Path; from urllib.parse import urlsplit; "
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        "port=str(urlsplit(os.environ['TEST_DATABASE_URL']).port); "
+        f"ids=subprocess.check_output({module.DOCKER!r}+['ps','--no-trunc','-q','--filter','publish='+port],text=True).splitlines(); "
+        "assert len(ids)==1; "
+        f"Path({str(marker)!r}).write_text(json.dumps(dict(cid=ids[0],pid=os.getpid()))); threading.Event().wait(30)"
+    )
+    monkeypatch.setattr(module, "COMMAND_TIMEOUT_SECONDS", 8)
+    monkeypatch.setattr(module, "COMMAND_TERMINATION_GRACE_SECONDS", 10, raising=False)
+    command = [sys.executable, str(ROOT / "tools/lifecycle_test_db.py"), "--postgres-major", "17", "--", sys.executable, "-c", script]
+    with adopt_own_descendants():
+        data = None
+        try:
+            assert module.run_existing_database(command, TEST_DSN) == 124
+            assert marker.exists(), "nested owned database command never started"
+            data = json.loads(marker.read_text())
+            remaining = module._docker(["ps", "--all", "--quiet", "--filter", "id=" + data["cid"]])
+            assert remaining == "", "outer timeout bypassed nested container cleanup"
+            assert not Path(f"/proc/{data['pid']}").exists(), "nested command descendant survived"
+        finally:
+            # Exact IDs/PIDs acknowledged by this test's owned nested child only.
+            if data is None and marker.exists():
+                data = json.loads(marker.read_text())
+            if data:
+                try:
+                    os.kill(data["pid"], signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    os.waitpid(data["pid"], 0)
+                except ChildProcessError:
+                    pass
+                if module._docker(["ps", "-aq", "--filter", "id=" + data["cid"]]):
+                    module._docker(["rm", "--force", "--volumes", data["cid"]])

@@ -1,0 +1,25 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_shutdown_does_not_extend_maintenance_90_second_deadline _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcddd352e10>
+
+    def test_shutdown_does_not_extend_maintenance_90_second_deadline(monkeypatch):
+        s = supervisor()
+        clock = Clock()
+        monkeypatch.setattr(s.time, 'sleep', lambda delay: setattr(clock, 'now', clock.now + delay))
+        children = {}
+
+        def spawn(name):
+            children[name] = Child(clock, ignores_term=True)
+            return children[name]
+
+        assert s.supervise(Stop(clock, 85), spawn, clock) == 0
+>       assert children['maintenance'].killed == 90
+E       assert 115.0 == 90
+E        +  where 115.0 = <tests.test_lifecycle_supervisor.Child object at 0x7fcddd3533b0>.killed
+
+tests/test_lifecycle_supervisor.py:374: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_supervisor.py::test_shutdown_does_not_extend_maintenance_90_second_deadline
+1 failed in 0.10s

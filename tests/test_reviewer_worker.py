@@ -68,12 +68,29 @@ def test_two_claimers_never_take_the_same_row(conn):
     _enqueue(conn, UB)
     conn2 = psycopg.connect(TEST_DSN, row_factory=dict_row)
     try:
-        c1 = rdb.claim_next_review_request(conn)   # locks row 1 (uncommitted)
-        c2 = rdb.claim_next_review_request(conn2)  # must skip the locked row → row 2
+        c1 = rdb.claim_next_review_request(conn)
+        # Lifecycle's BEFORE STATEMENT gate serializes these write transactions.
+        # Run the second attempt concurrently and commit the first before waiting.
+        started = threading.Event()
+        results, errors = [], []
+
+        def second_claim():
+            started.set()
+            try:
+                results.append(rdb.claim_next_review_request(conn2))
+                conn2.commit()
+            except Exception as exc:
+                errors.append(exc)
+
+        sibling = threading.Thread(target=second_claim, daemon=True)
+        sibling.start()
+        assert started.wait(timeout=2)
+        conn.commit()
+        sibling.join(timeout=5)
+        assert not sibling.is_alive() and not errors
+        c2 = results[0]
         assert c1 is not None and c2 is not None
         assert c1["id"] != c2["id"]
-        conn.commit()
-        conn2.commit()
     finally:
         conn2.close()
 
@@ -83,7 +100,9 @@ def test_second_claimer_gets_nothing_when_only_row_is_locked(conn):
     _enqueue(conn, UA)
     conn2 = psycopg.connect(TEST_DSN, row_factory=dict_row)
     try:
-        c1 = rdb.claim_next_review_request(conn)   # locks the only pending row
+        # A plain row lock isolates SKIP LOCKED behavior without holding the
+        # separate global BEFORE STATEMENT write gate across the second call.
+        c1 = conn.execute("SELECT id FROM review_requests WHERE status='pending' FOR UPDATE").fetchone()
         c2 = rdb.claim_next_review_request(conn2)  # SKIP LOCKED → nothing
         assert c1 is not None
         assert c2 is None

@@ -1,0 +1,84 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+..............F......................................................... [ 87%]
+..........                                                               [100%]
+=================================== FAILURES ===================================
+_____________ test_real_reviewer_sigterm_bounds_stalled_request[3] _____________
+
+parallelism = 3
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-59/test_real_reviewer_sigterm_bou1')
+
+    @pytest.mark.parametrize('parallelism', [1, 3])
+    def test_real_reviewer_sigterm_bounds_stalled_request(parallelism, tmp_path):
+        marker = tmp_path / 'ready'
+        code = '''
+    import pathlib, sys, time
+    from reviewer import worker
+    worker.DRAIN_SECONDS = 0.1
+    worker.config.REVIEW_WORKER_PARALLELISM = int(sys.argv[2])
+    worker.config.has_api_key = lambda: True
+    class Conn:
+        def close(self): pass
+    worker.jdb.connect = Conn
+    def stalled(conn):
+        pathlib.Path(sys.argv[1]).touch()
+        time.sleep(60)
+    worker.process_one = stalled
+    worker.main()
+    '''
+        process = subprocess.Popen([sys.executable, '-c', code, str(marker), str(parallelism)])
+        try:
+            deadline = time.monotonic() + 5
+            while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert marker.exists()
+            process.terminate()
+>           assert process.wait(timeout=3) == 0
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:321:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/subprocess.py:1264: in wait
+    return self._wait(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <Popen: returncode: -9 args: ['/workspace/job-board/.claude/worktrees/lifecy...>
+timeout = 3
+
+    def _wait(self, timeout):
+        """Internal implementation of wait() on POSIX."""
+        if self.returncode is not None:
+            return self.returncode
+
+        if timeout is not None:
+            endtime = _time() + timeout
+            # Enter a busy loop if we have a timeout.  This busy loop was
+            # cribbed from Lib/threading.py in Thread.wait() at r71065.
+            delay = 0.0005 # 500 us -> initial delay of 1 ms
+            while True:
+                if self._waitpid_lock.acquire(False):
+                    try:
+                        if self.returncode is not None:
+                            break  # Another thread waited.
+                        (pid, sts) = self._try_wait(os.WNOHANG)
+                        assert pid == self.pid or pid == 0
+                        if pid == self.pid:
+                            self._handle_exitstatus(sts)
+                            break
+                    finally:
+                        self._waitpid_lock.release()
+                remaining = self._remaining_time(endtime)
+                if remaining <= 0:
+>                   raise TimeoutExpired(self.args, timeout)
+E                   subprocess.TimeoutExpired: Command '['/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python', '-c', '\nimport pathlib, sys, time\nfrom reviewer import worker\nworker.DRAIN_SECONDS = 0.1\nworker.config.REVIEW_WORKER_PARALLELISM = int(sys.argv[2])\nworker.config.has_api_key = lambda: True\nclass Conn:\n    def close(self): pass\nworker.jdb.connect = Conn\ndef stalled(conn):\n    pathlib.Path(sys.argv[1]).touch()\n    time.sleep(60)\nworker.process_one = stalled\nworker.main()\n', '/tmp/pytest-of-agent/pytest-59/test_real_reviewer_sigterm_bou1/ready', '3']' timed out after 3 seconds
+
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/subprocess.py:2045: TimeoutExpired
+----------------------------- Captured stderr call -----------------------------
+2026-10-07 15:03:00,612 INFO reviewer.worker review worker started (parallelism=3, poll=15s, stale=30min)
+2026-10-07 15:03:00,613 INFO reviewer.worker review loop 0 started (poll=15s, stale=30min)
+2026-10-07 15:03:00,613 INFO reviewer.worker review loop 1 started (poll=15s, stale=30min)
+2026-10-07 15:03:00,618 INFO reviewer.worker review loop 2 started (poll=15s, stale=30min)
+2026-10-07 15:03:00,621 INFO reviewer.worker shutdown signal received; finishing in-flight work then exiting
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_supervisor.py::test_real_reviewer_sigterm_bounds_stalled_request[3]
+1 failed, 81 passed in 36.84s

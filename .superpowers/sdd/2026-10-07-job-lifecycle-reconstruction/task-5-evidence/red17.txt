@@ -1,0 +1,452 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FFFFFFFFFFFFF.FF.....................                                    [100%]
+=================================== FAILURES ===================================
+_____ test_stalled_reviewer_does_not_block_startup_or_quarter_hour_sweeps ______
+
+    def test_stalled_reviewer_does_not_block_startup_or_quarter_hour_sweeps():
+>       s = supervisor()
+            ^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:76:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:17: in supervisor
+    return importlib.import_module('reviewer.supervisor')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'reviewer.supervisor', import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'reviewer.supervisor'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+___ test_maintenance_deadline_and_crash_wait_for_next_tick_reviewer_restarts ___
+
+    def test_maintenance_deadline_and_crash_wait_for_next_tick_reviewer_restarts():
+>       s = supervisor()
+            ^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:93:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:17: in supervisor
+    return importlib.import_module('reviewer.supervisor')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'reviewer.supervisor', import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'reviewer.supervisor'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_______ test_shutdown_has_one_global_30_second_drain_and_no_new_children _______
+
+    def test_shutdown_has_one_global_30_second_drain_and_no_new_children():
+>       s = supervisor()
+            ^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:116:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:17: in supervisor
+    return importlib.import_module('reviewer.supervisor')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'reviewer.supervisor', import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'reviewer.supervisor'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+________ test_spawn_failure_returns_nonzero_and_drains_started_sibling _________
+
+    def test_spawn_failure_returns_nonzero_and_drains_started_sibling():
+>       s = supervisor()
+            ^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:133:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:17: in supervisor
+    return importlib.import_module('reviewer.supervisor')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'reviewer.supervisor', import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'reviewer.supervisor'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_____________________ test_already_stopped_starts_nothing ______________________
+
+    def test_already_stopped_starts_nothing():
+>       s = supervisor()
+            ^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:147:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:17: in supervisor
+    return importlib.import_module('reviewer.supervisor')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'reviewer.supervisor', import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'reviewer.supervisor'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+________________ test_deployment_only_changes_reviewer_command _________________
+
+    def test_deployment_only_changes_reviewer_command():
+        cfg = json.loads(Path('railway.reviewer-worker.json').read_text())['deploy']
+>       assert cfg == {'startCommand': 'python -m reviewer.supervisor',
+                       'restartPolicyType': 'ON_FAILURE', 'restartPolicyMaxRetries': 100}
+E       AssertionError: assert {'startComman...Retries': 100} == {'startComman...Retries': 100}
+E
+E         Omitting 2 identical items, use -vv to show
+E         Differing items:
+E         {'startCommand': 'python -m reviewer.worker'} != {'startCommand': 'python -m reviewer.supervisor'}
+E         Use -v to get more diff
+
+tests/test_lifecycle_supervisor.py:153: AssertionError
+___________ test_real_children_deadline_and_terminated_external_cron ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8ec8acab40>
+
+    def test_real_children_deadline_and_terminated_external_cron(monkeypatch):
+>       s = supervisor()
+            ^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:161:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:17: in supervisor
+    return importlib.import_module('reviewer.supervisor')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'reviewer.supervisor', import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'reviewer.supervisor'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_________________ test_worker_flag_off_closes_owned_connection _________________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32950 user=postgres database=poller_lifecycle_test) at 0x7f8ec8a9a5a0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8ec8a9aae0>
+
+    @requires_db
+    def test_worker_flag_off_closes_owned_connection(conn, monkeypatch):
+>       w = maintenance_worker()
+            ^^^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:196:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:21: in maintenance_worker
+    return importlib.import_module('job_discovery.lifecycle.worker')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'job_discovery.lifecycle.worker'
+import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'job_discovery.lifecycle.worker'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__________ test_worker_scheduled_sweep_and_normal_restart_generations __________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32950 user=postgres database=poller_lifecycle_test) at 0x7f8ec8acb110>
+
+    @requires_db
+    def test_worker_scheduled_sweep_and_normal_restart_generations(conn):
+>       w = maintenance_worker()
+            ^^^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:214:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:21: in maintenance_worker
+    return importlib.import_module('job_discovery.lifecycle.worker')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'job_discovery.lifecycle.worker'
+import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'job_discovery.lifecycle.worker'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+______ test_worker_contended_claim_is_blocked_then_recovers_after_release ______
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32950 user=postgres database=poller_lifecycle_test) at 0x7f8ec8acbda0>
+
+    @requires_db
+    def test_worker_contended_claim_is_blocked_then_recovers_after_release(conn):
+>       w = maintenance_worker()
+            ^^^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:230:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:21: in maintenance_worker
+    return importlib.import_module('job_discovery.lifecycle.worker')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'job_discovery.lifecycle.worker'
+import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'job_discovery.lifecycle.worker'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+______ test_worker_failure_rolls_back_cancels_claim_and_next_worker_runs _______
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32950 user=postgres database=poller_lifecycle_test) at 0x7f8ec8b35c70>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8ec8b34530>
+
+    @requires_db
+    def test_worker_failure_rolls_back_cancels_claim_and_next_worker_runs(conn, monkeypatch):
+>       w = maintenance_worker()
+            ^^^^^^^^^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:243:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:21: in maintenance_worker
+    return importlib.import_module('job_discovery.lifecycle.worker')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'job_discovery.lifecycle.worker'
+import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'job_discovery.lifecycle.worker'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+________________________ test_approved_timing_constants ________________________
+
+    def test_approved_timing_constants():
+>       s = supervisor()
+            ^^^^^^^^^^^^
+
+tests/test_lifecycle_supervisor.py:263:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_lifecycle_supervisor.py:17: in supervisor
+    return importlib.import_module('reviewer.supervisor')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'reviewer.supervisor', import_ = <function _gcd_import at 0x7f8eccd200e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'reviewer.supervisor'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+______________ test_reviewer_drain_returns_when_review_is_stalled ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8ec8b36240>
+
+    def test_reviewer_drain_returns_when_review_is_stalled(monkeypatch):
+        from reviewer import worker
+        stop = worker._Stop()
+        stop.request()
+        release = threading.Event()
+        thread = threading.Thread(target=release.wait, daemon=True)
+        thread.start()
+        clock = Clock()
+        monkeypatch.setattr(worker.time, 'monotonic', clock)
+>       monkeypatch.setattr(worker, 'DRAIN_SECONDS', 0.01)
+E       AttributeError: <module 'reviewer.worker' from '/workspace/job-board/.claude/worktrees/lifecycle-recovery/reviewer/worker.py'> has no attribute 'DRAIN_SECONDS'
+
+tests/test_lifecycle_supervisor.py:278: AttributeError
+__________________ test_two_claimers_never_take_the_same_row ___________________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32950 user=postgres database=poller_lifecycle_test) at 0x7f8ec8acb290>
+
+    @requires_db
+    def test_two_claimers_never_take_the_same_row(conn):
+        # Two pending rows (distinct users — the partial unique index forbids two active
+        # per user). Two concurrent connections must claim DIFFERENT rows (SKIP LOCKED).
+        _enqueue(conn, UA)
+        _enqueue(conn, UB)
+        conn2 = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            c1 = rdb.claim_next_review_request(conn)   # locks row 1 (uncommitted)
+>           c2 = rdb.claim_next_review_request(conn2)  # must skip the locked row → row 2
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_reviewer_worker.py:72:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+reviewer/db.py:395: in claim_next_review_request
+    cur.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f8ec8aecdd0>
+query = "\n            UPDATE review_requests SET status = 'running', started_at = now(),\n                   claim_version = ...         FOR UPDATE SKIP LOCKED LIMIT 1\n            )\n            RETURNING id, user_id, claim_version\n            "
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.LockNotAvailable: canceling statement due to lock timeout
+E           CONTEXT:  SQL statement "SELECT pg_advisory_xact_lock(20916294442894917)"
+E           PL/pgSQL function public.lifecycle_gate() line 6 at PERFORM
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: LockNotAvailable
+___________ test_second_claimer_gets_nothing_when_only_row_is_locked ___________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32950 user=postgres database=poller_lifecycle_test) at 0x7f8ec8b369c0>
+
+    @requires_db
+    def test_second_claimer_gets_nothing_when_only_row_is_locked(conn):
+        _enqueue(conn, UA)
+        conn2 = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            c1 = rdb.claim_next_review_request(conn)   # locks the only pending row
+>           c2 = rdb.claim_next_review_request(conn2)  # SKIP LOCKED → nothing
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_reviewer_worker.py:87:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+reviewer/db.py:395: in claim_next_review_request
+    cur.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7f8eca76f710>
+query = "\n            UPDATE review_requests SET status = 'running', started_at = now(),\n                   claim_version = ...         FOR UPDATE SKIP LOCKED LIMIT 1\n            )\n            RETURNING id, user_id, claim_version\n            "
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.LockNotAvailable: canceling statement due to lock timeout
+E           CONTEXT:  SQL statement "SELECT pg_advisory_xact_lock(20916294442894917)"
+E           PL/pgSQL function public.lifecycle_gate() line 6 at PERFORM
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: LockNotAvailable
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_supervisor.py::test_stalled_reviewer_does_not_block_startup_or_quarter_hour_sweeps
+FAILED tests/test_lifecycle_supervisor.py::test_maintenance_deadline_and_crash_wait_for_next_tick_reviewer_restarts
+FAILED tests/test_lifecycle_supervisor.py::test_shutdown_has_one_global_30_second_drain_and_no_new_children
+FAILED tests/test_lifecycle_supervisor.py::test_spawn_failure_returns_nonzero_and_drains_started_sibling
+FAILED tests/test_lifecycle_supervisor.py::test_already_stopped_starts_nothing
+FAILED tests/test_lifecycle_supervisor.py::test_deployment_only_changes_reviewer_command
+FAILED tests/test_lifecycle_supervisor.py::test_real_children_deadline_and_terminated_external_cron
+FAILED tests/test_lifecycle_supervisor.py::test_worker_flag_off_closes_owned_connection
+FAILED tests/test_lifecycle_supervisor.py::test_worker_scheduled_sweep_and_normal_restart_generations
+FAILED tests/test_lifecycle_supervisor.py::test_worker_contended_claim_is_blocked_then_recovers_after_release
+FAILED tests/test_lifecycle_supervisor.py::test_worker_failure_rolls_back_cancels_claim_and_next_worker_runs
+FAILED tests/test_lifecycle_supervisor.py::test_approved_timing_constants - M...
+FAILED tests/test_lifecycle_supervisor.py::test_reviewer_drain_returns_when_review_is_stalled
+FAILED tests/test_reviewer_worker.py::test_two_claimers_never_take_the_same_row
+FAILED tests/test_reviewer_worker.py::test_second_claimer_gets_nothing_when_only_row_is_locked
+15 failed, 22 passed in 13.80s

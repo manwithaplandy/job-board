@@ -56,3 +56,5 @@ Domains include jobs.andrewmalvani.com and job-board-dashboard-mu.vercel.app.
 get_deployment(withGitRepoInfo=true) returned commit via meta; gitSource was absent,
 so no assertion about a gitSource field. This is baseline state only; recheck
 new exact commit and deployed domains after completed release.
+
+Additional read-only release preflight: Railway whoami succeeded for BOTH configured links, exposing only sanitized actorID; both resolve same actor f9a98432-9fa9-4a45-96e0-384633f9667d and priorlistprojects showed same intendedproject. They are duplicate connections to the same account, not evidenceof distinctaccount ambiguity; futurewrites stillverifyexacttarget/link. No profileemail/name/credentialsprinted/saved. Currenttooldeclaration connect_service_source: livechange ALWAYSappliesallsourcenvironments; environmentIdonlyvalidstaged; commitShapin stopsbranchfollowinguntilreconnectedwithoutpin. Therefore not a safe implicitproduction-only deployfallback; preserve existingGitmainautodeploy workflow and unrelateddiscoverystagedpatch, no live sourcechange/no broadaccept. Redeployreusesoldbuild anddoesnotproveexactnewcommit. No writesperformed.

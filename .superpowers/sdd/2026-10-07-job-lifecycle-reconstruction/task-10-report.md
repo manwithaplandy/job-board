@@ -85,3 +85,11 @@ No broad pytest tests/ run, no test_lifecycle_safety.py, test_lifecycle_activati
 6. Existing deliberately omitted Task3 expiry-enforcement/capacity-accounting/cross-user/adversarial review gaps remain. No refused work was retried or substituted, no new security approval is claimed, and independent permitted Task10 review has not yet happened.
 
 No safeguard rejection occurred in this author session. No remaining ordinary selected test failure. Author work is local-only and ready for the controller's fresh permitted review.
+
+## Fix1 completion — source 01408f0fce8743a98a55726cc9da50f808955443
+
+The same author completed the single correction pass for all seven Important findings R10-1..7. The full authoritative correction report is [task-10-fix1-report.md](task-10-fix1-report.md), with original failure history, exact final commands, source hashes, versions and scope in [task-10-evidence/fix1/commands.md](task-10-evidence/fix1/commands.md) and [inventory.md](task-10-evidence/fix1/inventory.md).
+
+That report supersedes this earlier report's independent operational miss counters, canonical-only byte budget, incomplete current-writer readiness, occurrence-only envelope time, old fixed object layout and forever-full receipt/catalogue retention. It documents the shared authoritative listing history, logical accounting of all live representations, actual archive-pressure fallback, paired bounded current writers, explicit observed/DB-recorded provenance, validated service prefix/UTC/hash manifest contract, and bounded acknowledged-only retirement retaining compact exact/fence/version markers.
+
+Final Fix1 source/test commit: `01408f0fce8743a98a55726cc9da50f808955443`. Actual final verification: 66 passed on PostgreSQL17.11 and 66 passed on PostgreSQL16.15, Ruff passed, both migrations/schema text parity verified. All historical failed outputs remain preserved. No source changed after those runs; no covered checks were duplicated during report handoff. Production configuration remains absent, flags off, archive inactive and retirement dry-run. Finite operational slots, physical MVCC uncertainty, unvalidated destination/readiness and omitted Task3 assurance remain explicit in the full Fix1 report. Controller same-reviewer assessment remains pending; no independent approval or release is claimed by this author.

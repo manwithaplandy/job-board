@@ -1,0 +1,822 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+EE.EEEEEEEEEEEEEEEEE                                                     [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_fix1_operational_miss_normal_positive_operational_miss _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715df10>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_____ ERROR at setup of test_fix1_membership_and_seal_add_to_live_forecast _____
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715e690>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_______ ERROR at setup of test_fix1_actual_seed_and_company_writer_pair ________
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715de50>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_baseline_has_recorded_and_unknown_observed_time __
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715dfd0>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+________ ERROR at setup of test_fix1_seal_layout_and_complete_manifest _________
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715f050>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_terminal_cleanup_retires_full_receipts_and_catalogue _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715f7d0>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_____ ERROR at setup of test_fix1_normal_miss_then_operational_miss_closes _____
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715fb90>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_normal_positive_before_operational_resume_invalidates_absence _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715ff50>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_actual_orchestration_archive_pressure_defers_and_preserves_health[chunk] _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715f710>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_actual_orchestration_archive_pressure_defers_and_preserves_health[final_reconcile] _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715f950>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_current_candidate_classification_name_location_writers _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715d910>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+__________ ERROR at setup of test_fix1_writer_rollback_and_flags_off ___________
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715e8d0>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_observation_time_distinct_from_database_recording _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f6d24590>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+______ ERROR at setup of test_fix1_all_manifest_identity_fields_validated ______
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f6d24a10>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_logical_small_row_forecasts_and_warning_predicate _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715f7d0>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_retirement_preserves_version_coverage_and_pending_batch _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715e5d0>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_critical_observation_and_recording_survive_seal __
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715f050>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_unconfigured_prefix_and_legacy_writer_truthfully_defer _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f715fc50>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+_ ERROR at setup of test_fix1_version_mutator_preserves_its_explicit_observation _
+
+    @pytest.fixture
+    def conn():
+        assert TEST_DSN, "TEST_DATABASE_URL required"
+        validate_test_dsn(TEST_DSN)
+        connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
+        try:
+            with connection.cursor() as cur:
+                cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+>               cur.execute(SCHEMA_SQL)
+
+tests/conftest.py:119: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Cursor [closed] [BAD] at 0x7fa7f6d24710>
+query = 'CREATE TABLE companies (\n  id      SERIAL PRIMARY KEY,\n  name    TEXT NOT NULL,\n  ats     TEXT NOT NULL CHECK (ats...UNCATE ON public_archive_batch_markers FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_private.preserve_archive_row();\n'
+params = None, prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at end of input
+E           LINE 2964: ...seen_at' IS DISTINCT FROM CASE WHEN TG_OP='INSERT' THEN NULL...
+E                                                                           ^
+
+.venv/lib/python3.12/site-packages/psycopg/cursor.py:117: SyntaxError
+=========================== short test summary info ============================
+ERROR tests/test_archive_fix1.py::test_fix1_operational_miss_normal_positive_operational_miss
+ERROR tests/test_archive_fix1.py::test_fix1_membership_and_seal_add_to_live_forecast
+ERROR tests/test_archive_fix1.py::test_fix1_actual_seed_and_company_writer_pair
+ERROR tests/test_archive_fix1.py::test_fix1_baseline_has_recorded_and_unknown_observed_time
+ERROR tests/test_archive_fix1.py::test_fix1_seal_layout_and_complete_manifest
+ERROR tests/test_archive_fix1.py::test_fix1_terminal_cleanup_retires_full_receipts_and_catalogue
+ERROR tests/test_archive_fix1.py::test_fix1_normal_miss_then_operational_miss_closes
+ERROR tests/test_archive_fix1.py::test_fix1_normal_positive_before_operational_resume_invalidates_absence
+ERROR tests/test_archive_fix1.py::test_fix1_actual_orchestration_archive_pressure_defers_and_preserves_health[chunk]
+ERROR tests/test_archive_fix1.py::test_fix1_actual_orchestration_archive_pressure_defers_and_preserves_health[final_reconcile]
+ERROR tests/test_archive_fix1.py::test_fix1_current_candidate_classification_name_location_writers
+ERROR tests/test_archive_fix1.py::test_fix1_writer_rollback_and_flags_off - p...
+ERROR tests/test_archive_fix1.py::test_fix1_observation_time_distinct_from_database_recording
+ERROR tests/test_archive_fix1.py::test_fix1_all_manifest_identity_fields_validated
+ERROR tests/test_archive_fix1.py::test_fix1_logical_small_row_forecasts_and_warning_predicate
+ERROR tests/test_archive_fix1.py::test_fix1_retirement_preserves_version_coverage_and_pending_batch
+ERROR tests/test_archive_fix1.py::test_fix1_critical_observation_and_recording_survive_seal
+ERROR tests/test_archive_fix1.py::test_fix1_unconfigured_prefix_and_legacy_writer_truthfully_defer
+ERROR tests/test_archive_fix1.py::test_fix1_version_mutator_preserves_its_explicit_observation
+1 passed, 19 errors in 7.85s

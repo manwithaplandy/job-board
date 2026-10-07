@@ -1,0 +1,12 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+
+==================================== ERRORS ====================================
+_________________ ERROR collecting tests/test_archive_fix1.py __________________
+tests/test_archive_fix1.py:152: in <module>
+    @pytest.mark.parametrize('boundary',['chunk','final_reconcile'])
+     ^^^^^^
+E   NameError: name 'pytest' is not defined
+=========================== short test summary info ============================
+ERROR tests/test_archive_fix1.py - NameError: name 'pytest' is not defined
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.38s

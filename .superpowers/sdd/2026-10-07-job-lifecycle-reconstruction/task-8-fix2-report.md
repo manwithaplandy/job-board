@@ -5,7 +5,9 @@ Intervening controller documentation commit `bbc64bb` is preserved. This report
 addresses only R8-F1-1 and R8-F1-2 from the complete Fix1 scoped review. Original
 Task8 and Fix1 reports remain historical; phase reports and actual scoped reviews
 are authoritative. Fresh scoped re-review is pending, not implied by author tests.
-The product source pin is recorded after the forward implementation commit below.
+Product source and covering evidence commit: `eaef2fb43199771d3d18a3ed876cc62fb240a6ac`.
+This subsequent report-only commit records that immutable source pin; no product
+implementation changed after the final selected verification described below.
 
 ## R8-F1-1 — actual current and saved detail consumers
 

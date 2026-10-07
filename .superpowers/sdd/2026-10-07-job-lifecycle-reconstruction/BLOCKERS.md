@@ -20,3 +20,10 @@ No production activation, deployment, merge, or policy change is authorized.
 
 The access path above is the platform’s stated route for authorized security work;
 user confirmation alone does not remove the technical safeguard.
+
+## Approved development continuation
+
+Andrew’s 13:53 UTC instruction and REVIEW-SCOPE-AMENDMENT.md now permit
+development continuation despite the missing full security review. The refusal
+and unreviewed gaps remain; they no longer block development Tasks 4–13 under
+permitted correctness/requirements review. Deployment/activation remain blocked.

@@ -282,3 +282,94 @@ prune and question-fetch tests, as listed in the exact commands above. No DB tes
 was skipped. The unchanged migration/security source was not redundantly tested
 or re-reviewed. No new safeguard rejection occurred. Both findings are addressed
 in author implementation/tests; independent scoped re-review remains pending.
+
+## Fix Round 2 — resumable slow candidate-lock acquisition
+
+FIX_BASE: `7825265abac2c2e32a61ace1caebd45563128faa`. Read the complete
+`task-4-fix-1-requirements-rereview.md` and exact saved
+`reviewer_fix1_lock_progress.py` / `.txt`. The review kept **Spec FAIL / Quality
+CHANGES_REQUIRED**, accepted R4-2, and identified R4-1a: acquiring every candidate
+key before processing could exhaust the timed phase and repeatedly roll back the
+same prefix. This was a valid ordinary progress defect introduced by Fix 1.
+
+A shared `_lock_candidate_prefix` now allocates half the remaining phase work
+interval to acquiring a **sorted prefix** of candidate Job keys. It reuses the
+existing gate/key helper, taking no row/FK locks during acquisition. The other
+half remains available for queries and mutations. Payload work selects/locks rows
+only for the acquired prefix, processes what fits, and persists its existing
+completed-Job cursor; neither unacquired keys nor an unfinished paired payload
+are skipped. The same helper bounds key acquisition before archived-version and
+terminal-demand deletion. Their candidate rows are filtered to acquired keys;
+unprocessed rows remain available to subsequent committed chunks. Source gate,
+claim, reservation and security contracts are unchanged.
+
+The exact 2,000/20,000-row, 64 MiB, 90/120/30-second and lock/statement timeout
+values remain unchanged. This is adaptive transaction sizing based on worker
+elapsed time, not a change to DB lease clocks or lock enforcement. It addresses
+successful moderately slow acquisition; actual statement/connection failures
+still follow the existing rollback/block path.
+
+Tests-first evidence:
+
+- `fix2-red17.txt`: **3 failed / 5 passed** before the product fix. The new
+  0.11-second Job-lock fixture failed in the actual payload loop, and equivalent
+  version/terminal-demand fixtures exhausted the phase during upfront locking.
+- `fix2-green-attempt17.txt`: **41 passed, zero skips**, covering control flow
+  and maintenance after the shared-prefix fix.
+- `fix2-green2-17.txt`: **85 passed, zero skips**, including actual owned-DB
+  slow-lock/payload statements plus affected run/guard behavior.
+
+The deterministic fixture has 250 paired caches, 0.11 seconds per successful
+Job-lock statement and 0.2 seconds per successful payload mutation. It drains all
+500 payloads within **at most four fresh sweep invocations**, with nonzero
+committed retirement on each invocation, no blocked result, no skipped payloads
+behind the persisted cursor, and progress through all later maintenance phases.
+It retains the deadline/renewal assertions. The matching owned-DB test executes
+normal SQL and advances only the worker's monotonic scheduler clock, then proves
+persisted cursor progression and complete retirement within the same four-sweep
+fixture bound. No SQL clock, lease or security mechanism is changed.
+
+Separate ordinary version and terminal-demand fixtures use 250 distinct Job
+keys at the same 0.11-second lock cost. Each commits a smaller nonempty chunk,
+checks sorted acquisition and deletion only for acquired keys, and drains its
+fixture within **four committed chunks**. These are explicit finite fixture
+bounds, not a claim about arbitrary database/network latency or the future
+Task 6 source scheduler.
+
+Exact commands, same worktree and `/bin/bash`, `login:false`:
+
+```sh
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py tests/test_prune.py tests/test_run_question_fetch.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- .venv/bin/python -m pytest tests/test_maintenance_controlflow.py tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py tests/test_prune.py tests/test_run_question_fetch.py -q
+.venv/bin/ruff check .
+git diff --check
+git diff --cached --check
+```
+
+This fix changes only maintenance candidate acquisition and its ordinary tests,
+plus the author appendix/evidence. R4-2 remains covered without a new run.py edit.
+No migration, SQL policy, claim/capacity/gate source, controller ledger, reviewer
+artifact or release authorization is included. No excluded expiry/capacity/
+cross-user/adversarial probe or security re-review was attempted; all previously
+recorded independent security gaps persist. No new safeguard rejection occurred.
+Scoped re-review and Library 04 remain controller tasks. Completed-upgrade release
+authorization remains as recorded after all 13 tasks and permitted verification;
+this author has performed only local Task 4 work.
+
+Fix Round 2 final unchanged-source results:
+
+- `fix2-final17.txt`: **101 passed, zero skipped**, actual PostgreSQL **17.11
+  (Debian 17.11-1.pgdg13+2)**, **55.99 seconds**.
+- `fix2-final16.txt`: **101 passed, zero skipped**, actual PostgreSQL **16.15
+  (Debian 16.15-1.pgdg13+2)**, **69.19 seconds**.
+- `fix2-ruff.txt`: repository Ruff passed. Working and staged whitespace checks
+  passed after normalizing only pytest-generated trailing log whitespace.
+
+No product/test edits occurred after these final covering lanes started. The
+selection is exactly the six files shown above; unchanged migration/security
+lanes were not rerun. Author evidence addresses R4-1a's concrete slow-prefix
+fixture and related version/demand prework; independent scoped re-review remains
+pending. Controller and reviewer artifacts are excluded from the forward commit.

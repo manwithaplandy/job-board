@@ -354,7 +354,8 @@ def test_retirement_byte_budget_defers_remaining_payload(conn):
 
 
 @requires_db
-def test_slow_successful_payload_statements_commit_resumable_progress(conn, monkeypatch):
+@pytest.mark.parametrize('lock_cost', [0,0.11])
+def test_slow_successful_payload_statements_commit_resumable_progress(conn, monkeypatch, lock_cost):
     """Virtual worker elapsed time; DB lease clocks and guards stay real/unmodified."""
     from dataclasses import replace
     m = module()
@@ -371,6 +372,8 @@ def test_slow_successful_payload_statements_commit_resumable_progress(conn, monk
     class SlowStatements:
         def execute(self, query, params=None):
             result = conn.execute(query,params)
+            if query.startswith('SELECT pg_advisory_xact_lock(hashtextextended'):
+                clock[0] += lock_cost
             if query.startswith('UPDATE jobs SET description') or query.startswith('DELETE FROM job_questions'):
                 starts.append(clock[0])
                 clock[0] += 0.2
@@ -391,9 +394,17 @@ def test_slow_successful_payload_statements_commit_resumable_progress(conn, monk
     first = m.sweep(SlowStatements(),c,dry_run=False)
     assert clock[0] <= 90 and all(t < 90 for t in starts)
     assert renewals and max(b-a for a,b in zip([0,*renewals],[*renewals,clock[0]])) <= 30
-    assert 0 < first.retired_rows < 500
+    assert 0 < first.retired_rows < 500 and not first.blocked
     assert conn.execute('SELECT cursor FROM lifecycle_maintenance_state').fetchone()['cursor'] == first.cursor
-    second = m.sweep(SlowStatements(),c,dry_run=False)
-    assert first.retired_rows + second.retired_rows == 500
+    total = first.retired_rows
+    for _ in range(3):  # <=4 fresh invocations retire all 250 paired fixtures.
+        if total == 500:
+            break
+        before = clock[0]
+        resumed = m.sweep(SlowStatements(),c,dry_run=False)
+        assert resumed.retired_rows > 0 and not resumed.blocked
+        assert clock[0] - before <= 90
+        total += resumed.retired_rows
+    assert total == 500
     assert conn.execute('SELECT count(*) AS n FROM jobs WHERE description IS NULL').fetchone()['n'] == 250
     assert conn.execute('SELECT count(*) AS n FROM job_questions').fetchone()['n'] == 0

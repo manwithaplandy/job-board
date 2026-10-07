@@ -98,6 +98,31 @@ def legacy_prune_disabled(conn) -> bool:
         conn.execute('SELECT cutover_at FROM lifecycle_maintenance_state WHERE singleton').fetchone()['cutover_at'])
 
 
+def _lock_candidate_prefix(conn, job_ids):
+    """Acquire a sorted prefix, reserving half the available work time for DML.
+
+    All selected Job keys precede row/FK work. Unacquired keys stay eligible for
+    a later committed chunk; callers must only process the returned prefix.
+    """
+    keys = sorted(set(job_ids))
+    if not isinstance(conn, _TimedConnection):
+        lock_jobs(conn, keys)
+        return keys
+    started = monotonic()
+    acquire_until = started + max(0, conn.yield_at - started) / 2
+    acquired = []
+    for key in keys:
+        if monotonic() >= acquire_until:
+            if not acquired:
+                conn.yielded = True
+            break
+        # Reuse the common gate/key protocol. Each singleton follows the same
+        # sorted order, and no row or FK lock is acquired until this loop ends.
+        lock_jobs(conn, [key])
+        acquired.append(key)
+    return acquired
+
+
 def _payload_batch(conn, cursor, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
     # Scan IDs, including protected/NULL rows, so a permanent prefix cannot starve
     # later jobs. <=250 jobs keeps description/question mutations within 500.
@@ -105,8 +130,9 @@ def _payload_batch(conn, cursor, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
                         (cursor, cursor, min(250, limit))).fetchall()
     if not rows:
         return 0, 0, 0, 0, None
-    ids = [r['id'] for r in rows]
-    lock_jobs(conn, ids)
+    ids = _lock_candidate_prefix(conn, [r['id'] for r in rows])
+    if not ids:
+        return 0, 0, 0, 0, cursor
     conn.execute('SELECT id FROM jobs WHERE id=ANY(%s) ORDER BY id COLLATE "C" FOR UPDATE', (ids,)).fetchall()
     # Fresh statement snapshot after the gate and job locks, not candidate data.
     eligible = conn.execute(f'''SELECT j.id, ({_DESCRIPTION_DUE}) AS description_due,
@@ -178,7 +204,9 @@ def _version_batch(conn, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
         if size + row['bytes'] <= byte_limit:
             selected.append(row)
             size += row['bytes']
-    lock_jobs(conn, [r['job_id'] for r in selected])
+    acquired = set(_lock_candidate_prefix(conn, [r['job_id'] for r in selected]))
+    selected = [r for r in selected if r['job_id'] in acquired]
+    size = sum(r['bytes'] for r in selected)
     if not dry_run and selected:
         conn.execute('DELETE FROM job_versions WHERE id=ANY(%s)', ([r['id'] for r in selected],))
     return len(rows), 0 if dry_run else len(selected), 0 if dry_run else size
@@ -250,7 +278,8 @@ def _terminal_batch(conn, limit, phase):
           AND NOT EXISTS(SELECT FROM lifecycle_claims c WHERE c.kind='demand' AND c.work_id=d.id::text
             AND (c.state='active' OR c.generation<=d.claim_generation OR c.replay_floor<GREATEST(d.claim_generation,1)))
           ORDER BY d.settled_at,d.id LIMIT %s''', (limit,)).fetchall()
-        lock_jobs(conn, [r['job_id'] for r in rows])
+        acquired = set(_lock_candidate_prefix(conn, [r['job_id'] for r in rows]))
+        rows = [r for r in rows if r['job_id'] in acquired]
         return conn.execute('DELETE FROM job_payload_demands WHERE id=ANY(%s)', ([r['id'] for r in rows],)).rowcount if rows else 0
     return conn.execute('''DELETE FROM lifecycle_write_checks WHERE id IN
       (SELECT id FROM lifecycle_write_checks WHERE created_at<=clock_timestamp()-interval '168 hours'

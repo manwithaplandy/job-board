@@ -1,0 +1,196 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+..F...FF                                                                 [100%]
+=================================== FAILURES ===================================
+_______ test_actual_payload_loop_yields_commits_renews_and_resumes[0.11] _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb327b18350>
+lock_cost = 0.11
+
+    @pytest.mark.parametrize('lock_cost', [0, 0.02, 0.11])
+    def test_actual_payload_loop_yields_commits_renews_and_resumes(monkeypatch, lock_cost):
+        clock = [0.0]
+        renewal_times, commits, mutations = [], [], []
+        payloads = {f'job:{i:03d}': [True, True] for i in range(250)}
+        state = {'cursor': None, 'next_phase': 0}
+        class Connection:
+            timeout = 5000
+            def execute(self, query, params=None):
+                if query.startswith('SHOW transaction_isolation'):
+                    return Result({'transaction_isolation': 'read committed'})
+                if query.startswith('SELECT 1 FROM lifecycle_claims'):
+                    return Result({'exists': 1})
+                if query.startswith('SELECT cursor,next_phase'):
+                    return Result(state.copy())
+                if query.startswith('SELECT id FROM jobs WHERE ('):
+                    return Result(rows=[{'id': key} for key in payloads if params[0] is None or key > params[0]][:params[2]])
+                if query.startswith('SELECT j.id,'):
+                    return Result(rows=[{'id': key,'description_due': payloads[key][0],
+                        'questions_due': payloads[key][1],'description_bytes': 2,'question_bytes': 2}
+                        for key in params[0]])
+                if query.startswith('SELECT id FROM jobs'):
+                    return Result(rows=[])
+                if query.startswith('SELECT pg_advisory_xact_lock(hashtextextended'):
+                    clock[0] += lock_cost
+                if query.startswith('SET LOCAL statement_timeout'):
+                    self.timeout = 5000  # Actual enter_gate resets this during lock_jobs.
+                if "set_config('statement_timeout'" in query:
+                    self.timeout = int(params[0])
+                if query.startswith('UPDATE lifecycle_maintenance_state SET cursor'):
+                    state.update(cursor=params[0], next_phase=params[1])
+                if query.startswith('UPDATE jobs SET description') or query.startswith('DELETE FROM job_questions'):
+                    mutations.append((clock[0], self.timeout))
+                    payloads[params[0]][0 if query.startswith('UPDATE jobs') else 1] = False
+                    clock[0] += 0.2
+                return Result()
+            def commit(self):
+                commits.append(clock[0])
+            def rollback(self):
+                pass
+        ctl = SimpleNamespace(maintenance_enabled=True,retirement_enabled=True,
+                              retirement_dry_run=False,safety_stage='enforced')
+        monkeypatch.setattr(m,'monotonic',lambda: clock[0])
+        monkeypatch.setattr(m,'validate_claim',lambda *a: None)
+        monkeypatch.setattr(m,'read_control',lambda c: ctl)
+        def renew(c, claim, seconds):
+            assert commits and commits[-1] == clock[0]
+            assert seconds == 120
+            renewal_times.append(clock[0])
+            return claim
+        monkeypatch.setattr(m,'renew_claim',renew)
+        monkeypatch.setattr(m,'_metrics',lambda *a: False)
+        monkeypatch.setattr(m,'_version_batch',lambda *a: (0,0,0))
+        monkeypatch.setattr(m,'_staging_batch',lambda *a: 0)
+        monkeypatch.setattr(m,'_terminal_batch',lambda *a: 0)
+        conn = Connection()
+        claim = SimpleNamespace(owner_token='ordinary-timing',generation=1)
+        result = m.sweep(conn,claim,dry_run=False)
+        assert clock[0] <= 90 + 1e-8
+>       assert mutations and all(start < 90 for start,_ in mutations)
+E       assert ([])
+
+tests/test_maintenance_controlflow.py:79: AssertionError
+_ test_slow_candidate_locks_commit_smaller_version_and_demand_chunks[version] __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb328736de0>
+phase = 'version'
+
+    @pytest.mark.parametrize('phase', ['version','terminal-demand'])
+    def test_slow_candidate_locks_commit_smaller_version_and_demand_chunks(monkeypatch, phase):
+        clock = [0.0]
+        remaining = {f'job:{i:03d}' for i in range(250)}
+        locked, commits = [], []
+        class Connection:
+            def execute(self,query,params=None):
+                if query.startswith('SHOW transaction_isolation'):
+                    return Result({'transaction_isolation':'read committed'})
+                if query.startswith('SELECT v.id') or query.startswith('SELECT d.id'):
+                    return Result(rows=[{'id':key,'job_id':key,'bytes':2} for key in sorted(remaining)])
+                if query.startswith('SELECT pg_advisory_xact_lock(hashtextextended'):
+                    locked.append(params[0].removeprefix('lifecycle:job:'))
+                    clock[0] += 0.11
+                if query.startswith('DELETE FROM job_versions') or query.startswith('DELETE FROM job_payload_demands'):
+                    assert set(params[0]) <= set(locked)
+                    remaining.difference_update(params[0])
+                    result = Result()
+                    result.rowcount = len(params[0])
+                    return result
+                return Result()
+            def commit(self):
+                commits.append(clock[0])
+        monkeypatch.setattr(m,'monotonic',lambda: clock[0])
+        raw = Connection()
+        for _ in range(4):
+            if not remaining:
+                break
+            before = len(remaining)
+            locked.clear()
+            start = clock[0]
+            timed = m._TimedConnection(raw,start+25,start+20)
+            if phase == 'version':
+>               m._version_batch(timed,2000,False)
+
+tests/test_maintenance_controlflow.py:199:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+job_discovery/lifecycle/maintenance.py:181: in _version_batch
+    lock_jobs(conn, [r['job_id'] for r in selected])
+job_discovery/lifecycle/locks.py:20: in lock_jobs
+    conn.execute(
+job_discovery/lifecycle/maintenance.py:73: in execute
+    self._timeout()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <job_discovery.lifecycle.maintenance._TimedConnection object at 0x7fb3270d83b0>
+
+    def _timeout(self):
+        remaining_ms = int((self.end - monotonic()) * 1000)
+        if remaining_ms <= 0:
+>           raise _PhaseEnded()
+E           job_discovery.lifecycle.maintenance._PhaseEnded
+
+job_discovery/lifecycle/maintenance.py:66: _PhaseEnded
+_ test_slow_candidate_locks_commit_smaller_version_and_demand_chunks[terminal-demand] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb3270db2c0>
+phase = 'terminal-demand'
+
+    @pytest.mark.parametrize('phase', ['version','terminal-demand'])
+    def test_slow_candidate_locks_commit_smaller_version_and_demand_chunks(monkeypatch, phase):
+        clock = [0.0]
+        remaining = {f'job:{i:03d}' for i in range(250)}
+        locked, commits = [], []
+        class Connection:
+            def execute(self,query,params=None):
+                if query.startswith('SHOW transaction_isolation'):
+                    return Result({'transaction_isolation':'read committed'})
+                if query.startswith('SELECT v.id') or query.startswith('SELECT d.id'):
+                    return Result(rows=[{'id':key,'job_id':key,'bytes':2} for key in sorted(remaining)])
+                if query.startswith('SELECT pg_advisory_xact_lock(hashtextextended'):
+                    locked.append(params[0].removeprefix('lifecycle:job:'))
+                    clock[0] += 0.11
+                if query.startswith('DELETE FROM job_versions') or query.startswith('DELETE FROM job_payload_demands'):
+                    assert set(params[0]) <= set(locked)
+                    remaining.difference_update(params[0])
+                    result = Result()
+                    result.rowcount = len(params[0])
+                    return result
+                return Result()
+            def commit(self):
+                commits.append(clock[0])
+        monkeypatch.setattr(m,'monotonic',lambda: clock[0])
+        raw = Connection()
+        for _ in range(4):
+            if not remaining:
+                break
+            before = len(remaining)
+            locked.clear()
+            start = clock[0]
+            timed = m._TimedConnection(raw,start+25,start+20)
+            if phase == 'version':
+                m._version_batch(timed,2000,False)
+            else:
+>               m._terminal_batch(timed,2000,4)
+
+tests/test_maintenance_controlflow.py:201:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+job_discovery/lifecycle/maintenance.py:253: in _terminal_batch
+    lock_jobs(conn, [r['job_id'] for r in rows])
+job_discovery/lifecycle/locks.py:20: in lock_jobs
+    conn.execute(
+job_discovery/lifecycle/maintenance.py:73: in execute
+    self._timeout()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <job_discovery.lifecycle.maintenance._TimedConnection object at 0x7fb32717a330>
+
+    def _timeout(self):
+        remaining_ms = int((self.end - monotonic()) * 1000)
+        if remaining_ms <= 0:
+>           raise _PhaseEnded()
+E           job_discovery.lifecycle.maintenance._PhaseEnded
+
+job_discovery/lifecycle/maintenance.py:66: _PhaseEnded
+=========================== short test summary info ============================
+FAILED tests/test_maintenance_controlflow.py::test_actual_payload_loop_yields_commits_renews_and_resumes[0.11]
+FAILED tests/test_maintenance_controlflow.py::test_slow_candidate_locks_commit_smaller_version_and_demand_chunks[version]
+FAILED tests/test_maintenance_controlflow.py::test_slow_candidate_locks_commit_smaller_version_and_demand_chunks[terminal-demand]
+3 failed, 5 passed in 0.37s

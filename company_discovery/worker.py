@@ -19,6 +19,7 @@ from company_discovery import config, dataset, db, jobs_db, serp
 from company_discovery.enrich_apply import enrich_selected
 from company_discovery.llm import OutOfCreditsError
 from job_discovery import db as jdb
+from job_discovery.lifecycle.locks import enter_gate
 
 log = logging.getLogger("company_discovery.worker")
 
@@ -299,40 +300,99 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
         loop.close()
 
 
-def _maybe_ingest(conn) -> None:
-    """LLM-free weekly tick: if the last discovery run is >= INGEST_EVERY old (or there
-    are none), ingest the shipped company dataset AND HTTP-enrich a bounded batch of
-    un-enriched companies, then record a discovery_runs row. Cheap probe (max(started_at))
-    so it is safe to call every poll cycle.
+def _weekly_progress_note(enriched, owner):
+    # Human-readable accounting plus the exact backend incarnation. Keeping this
+    # on the existing run row lets a restart recognize an interrupted attempt,
+    # without holding a database transaction or lock across HTTP.
+    return f"weekly ingest tick (enriched {enriched})\n" + json.dumps(owner)
 
-    Enrichment is LLM-free (board display_name/about fetches) but essential: without it,
-    newly ingested / poller-added companies get board display names + reviewer grounding
-    (c.about) ONLY if an admin classification job happens to select them. Enriching each
-    weekly tick keeps that fresh, matching the old weekly cron's behavior."""
-    with conn.cursor() as cur:
-        cur.execute("SELECT max(started_at) AS last FROM discovery_runs")
-        last = cur.fetchone()["last"]
-    conn.commit()
+
+def _fail_weekly_run(conn, run_id, reason):
+    conn.execute(
+        "UPDATE discovery_runs SET status='error',finished_at=clock_timestamp(), "
+        "errors=COALESCE(errors,0)+1,notes=split_part(notes,chr(10),1)||%s "
+        "WHERE id=%s AND status='running'",
+        (f"; {reason}; retry pending", run_id),
+    )
+
+
+def _maybe_ingest(conn) -> None:
+    """Weekly successful-tick cadence; failed/interrupted work retries next cycle.
+
+    Ingest and each bounded enrichment batch are durable checkpoints. Only a
+    completed discovery run satisfies the weekly interval. A running weekly row
+    belongs to one backend incarnation, so an overlapping live worker is left
+    alone while a disconnected (or prior same-connection) attempt is recovered.
+    """
+    # Serialize only the short probe/start transaction with existing writers.
+    # This gate is committed before any HTTP begins.
+    enter_gate(conn)
+    owner = conn.execute(
+        "SELECT pid,backend_start::text AS started FROM pg_stat_activity "
+        "WHERE pid=pg_backend_pid()"
+    ).fetchone()
+    running = conn.execute(
+        "SELECT id,notes FROM discovery_runs WHERE status='running' "
+        "AND notes LIKE 'weekly ingest tick%' ORDER BY id"
+    ).fetchall()
+    for run in running:
+        try:
+            previous = json.loads(run["notes"].split("\n", 1)[1])
+            live = conn.execute(
+                "SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=%s "
+                "AND backend_start=%s::timestamptz) AS live",
+                (previous["pid"], previous["started"]),
+            ).fetchone()["live"]
+        except (ValueError, KeyError, IndexError, TypeError):
+            previous, live = None, False
+        if live and previous != owner:
+            conn.commit()
+            return
+        _fail_weekly_run(conn, run["id"], "interrupted")
+    last = conn.execute(
+        "SELECT max(started_at) AS last FROM discovery_runs WHERE status='completed'"
+    ).fetchone()["last"]
     if last is not None and datetime.now(timezone.utc) - last < INGEST_EVERY:
+        conn.commit()
         return
     run_id = db.start_discovery_run(conn)
-    ingested = db.upsert_candidates(conn, dataset.load_candidates(config.dataset_dir()))
-    # HTTP enrichment (LLM-free): fetch board metadata for a bounded batch of the newest
-    # un-enriched companies. Ingest is durable before the bounded HTTP batches.
-    with conn.cursor() as cur:
-        cur.execute(
+    try:
+        ingested = db.upsert_candidates(conn, dataset.load_candidates(config.dataset_dir()))
+        pending = conn.execute(
             "SELECT id, ats, token, enriched_at FROM companies "
             "WHERE enriched_at IS NULL ORDER BY first_seen_at DESC LIMIT %(cap)s",
             {"cap": config.BATCH_CAP},
+        ).fetchall()
+        conn.execute(
+            "UPDATE discovery_runs SET ingested=%s,reviewed=0,included=0,excluded=0, "
+            "unknown=0,errors=0,backlog=%s,notes=%s WHERE id=%s",
+            (ingested, len(pending), _weekly_progress_note(0, owner), run_id),
         )
-        pending = cur.fetchall()
-    conn.commit()
-    enriched = enrich_selected(conn, pending)
-    db.finish_discovery_run(conn, run_id, status="completed", ingested=ingested,
-                            reviewed=0, included=0, excluded=0, unknown=0,
-                            errors=0, backlog=0,
-                            notes=f"weekly ingest tick (enriched {enriched})")
-    conn.commit()
+        conn.commit()  # Durable ingest/accounting; no transaction spans HTTP.
+
+        def progress(enriched):
+            conn.execute(
+                "UPDATE discovery_runs SET backlog=%s,notes=%s WHERE id=%s",
+                (len(pending)-enriched, _weekly_progress_note(enriched, owner), run_id),
+            )
+
+        enriched = enrich_selected(conn, pending, record_progress=progress)
+        db.finish_discovery_run(conn, run_id, status="completed", ingested=ingested,
+                                reviewed=0, included=0, excluded=0, unknown=0,
+                                errors=0, backlog=len(pending)-enriched,
+                                notes=f"weekly ingest tick (enriched {enriched})")
+        conn.commit()
+    except Exception:
+        # Before the first commit this removes the whole attempt. Afterwards it
+        # preserves completed batches and closes only the failed batch/run.
+        # Process termination may bypass this; the next worker recovers its row.
+        try:
+            conn.rollback()
+            _fail_weekly_run(conn, run_id, "failed")
+            conn.commit()
+        except Exception:
+            log.exception("could not finalize weekly ingest failure; next worker will recover")
+        raise
 
 
 def process_one(conn, should_stop=None) -> bool:

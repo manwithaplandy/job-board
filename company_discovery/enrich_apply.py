@@ -77,12 +77,14 @@ def fetch_batches(rows, fetch, *, max_workers=MAX_WORKERS):
 
 
 def enrich_selected(conn, candidates: list[dict], *,
-                    max_workers: int = MAX_WORKERS) -> int:
+                    max_workers: int = MAX_WORKERS, record_progress=None) -> int:
     """Fetch outside transactions, then persist up to 50 completed enrichments.
 
     Owns short batch commits, including closing the initial candidate read even
     when nothing needs enrichment. Failed boards remain unstamped and retryable.
     A DB failure rolls back only the current batch; earlier batches are durable.
+    Optional record_progress(total) runs inside that same batch transaction, so
+    its checkpoint and the enrichment writes commit or roll back together.
     """
     pending = [c for c in candidates if c.get("enriched_at") is None]
     conn.commit()
@@ -94,6 +96,8 @@ def enrich_selected(conn, candidates: list[dict], *,
                 if plan is not None:
                     apply_enrichment(conn, c["id"], plan)
                     updated.append((c, plan))
+            if record_progress is not None:
+                record_progress(enriched + len(updated))
             conn.commit()
         except BaseException:
             conn.rollback()

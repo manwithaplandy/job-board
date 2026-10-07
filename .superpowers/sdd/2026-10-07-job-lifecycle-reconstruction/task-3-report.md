@@ -458,3 +458,77 @@ original scope plus the full forward fix remain pending. Task 4, Library 03
 acceptance and production activation are not claimed. All database execution
 used disposable owned harnesses, random loopback ports and local synthetic
 HTTP/model/throttle callbacks; no production/provider/paid calls occurred.
+
+## Fix round 2 — weekly-ingest retry requirements correction only
+
+FIX_BASE: `3880e2eef93cae3ffc0fa33424ae7c2ce4ab6061`. Read the complete
+Fix Round 1 requirements re-review and its exact saved diagnostic and output
+(`fix1-requirements-review-probe.py`, `fix1-requirements-review-probe17.txt`).
+FR1-R1 correctly found that the new pre-HTTP commit made a still-running run
+marker durable, so the unfiltered seven-day probe suppressed its own retry.
+
+This round changes only company weekly orchestration and its batch-accounting
+hook. Completed discovery runs alone satisfy the existing weekly interval.
+Before HTTP, the durable run records the actual committed ingest count and
+selected backlog. The enrichment helper's optional progress callback updates
+that run in the **same transaction** as each completed company batch. A failed
+later batch cannot report uncommitted enrichment, lose earlier batches, or erase
+the committed ingest count. Caught failures finalize the run as error with a
+finish timestamp and preserved progress; the next cycle retries remaining
+unenriched companies. Failures before the initial commit still roll back the
+whole initial attempt, preserving the existing queue-isolation behavior.
+
+A running weekly marker carries its backend PID/start-time incarnation as a
+small metadata suffix to its existing human-readable notes. A subsequent tick
+recovers an interrupted marker when that session is gone or it belongs to an
+earlier attempt on the same connection, marking it error without inventing
+completion. An overlapping live backend is left alone. The existing global
+gate serializes only this short probe/start transaction, and is committed before
+HTTP; no transaction or new session lock spans a fetch. This is local worker
+bookkeeping, not a new lifecycle claim, queue, scheduling policy or migration.
+Completed/failed notes retain the human-readable enrichment count; the running
+ownership suffix is removed at finalization. Untagged historical running rows
+are excluded from the successful-run cadence without guessing which old
+orchestration produced them.
+
+Meaningful RED: `fix2-red17.txt` records **2 failed, 1 passed** on actual
+PostgreSQL 17.11. The real weekly function failed to retry both a persistence
+failure after the initial commit and an interrupted durable marker.
+`fix2-green17.txt` then records **75 passed, zero skips** across the new business
+regressions and affected company suites. Final regressions also cover recovery
+on the same connection, a reconnected worker, and a live overlapping attempt.
+The partial-batch case commits 50 of 55 enrichments, fails in batch two, proves
+the run reports ingested=55 / enriched=50 / backlog=5 / error, then fetches only
+the remaining five and records a completed retry with ingested=0 / backlog=0.
+Fake fetch callbacks assert the real connection is IDLE.
+
+Final unchanged source verification:
+
+- `fix2-final17.txt`: **109 passed, zero skipped**, actual PostgreSQL **17.11
+  (Debian 17.11-1.pgdg13+2)**, **24.72 seconds**.
+- `fix2-final16.txt`: **109 passed, zero skipped**, actual PostgreSQL **16.15
+  (Debian 16.15-1.pgdg13+2)**, **33.60 seconds**.
+- `fix2-ruff.txt`: repository Ruff passed. Working and staged whitespace
+  checks passed. No SQL, migration, grants, dashboard or security source changed;
+  the old 344-test and dashboard lanes were not redundantly rerun.
+
+Exact final commands, same worktree and `/bin/bash`, `login:false`:
+
+```sh
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_weekly_ingest_retry.py tests/test_classification_worker.py tests/test_lifecycle_company_boundaries.py tests/test_company_enrich.py tests/test_name_backfill.py tests/test_company_discovery_run.py tests/test_company_discovery_db.py tests/test_classification_jobs_db.py -q
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- .venv/bin/python -m pytest tests/test_weekly_ingest_retry.py tests/test_classification_worker.py tests/test_lifecycle_company_boundaries.py tests/test_company_enrich.py tests/test_name_backfill.py tests/test_company_discovery_run.py tests/test_company_discovery_db.py tests/test_classification_jobs_db.py -q
+.venv/bin/ruff check .
+git diff --check
+git diff --cached --check
+```
+
+All DB runs used the owned random-loopback harness and local synthetic callbacks;
+no shared port 55432, external HTTP/model/provider/cloud/paid action occurred.
+Controller/reviewer files are excluded from the author commit.
+
+The independent security re-review was separately blocked by a platform
+cybersecurity-risk content flag directing Daybreak access, as reported by the
+controller. This round neither retries nor rephrases that review, performs its
+probes, or delegates around the block. Only the unaffected weekly-retry
+requirements correction was performed. Requirements re-review and the separate
+security gate still prevent Task 3 acceptance, Library 03 and Task 4 progression.

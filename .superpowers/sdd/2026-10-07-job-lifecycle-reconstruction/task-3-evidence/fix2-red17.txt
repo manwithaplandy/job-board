@@ -1,0 +1,80 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FF.                                                                      [100%]
+=================================== FAILURES ===================================
+_ test_failed_weekly_batch_preserves_committed_progress_and_retries_next_cycle _
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32925 user=postgres database=poller_lifecycle_test) at 0x7ff7e2cb1b20>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff7e2a3c8c0>
+
+    @requires_db
+    def test_failed_weekly_batch_preserves_committed_progress_and_retries_next_cycle(conn, monkeypatch):
+        monkeypatch.setattr(worker.dataset, 'load_candidates', lambda _: candidates(55))
+        monkeypatch.setattr(worker.config, 'BATCH_CAP', 100)
+        fetched = []
+        def fetch(ats, token):
+            assert conn.info.transaction_status == TransactionStatus.IDLE
+            fetched.append(token)
+            return enrich_apply.EnrichUpdate(token, 'offline about', 'ats_board')
+        monkeypatch.setattr(enrich_apply, 'plan_enrichment', fetch)
+        real_apply = enrich_apply.apply_enrichment
+        written = 0
+        def fail_second_batch(c, company, plan):
+            nonlocal written
+            real_apply(c, company, plan)
+            written += 1
+            if written == 52:
+                raise RuntimeError('transient enrichment persistence failure')
+        monkeypatch.setattr(enrich_apply, 'apply_enrichment', fail_second_batch)
+        with pytest.raises(RuntimeError, match='transient'):
+            worker._maybe_ingest(conn)
+        conn.rollback()  # Same recovery boundary as process_one.
+        failed = state(conn)[0]
+        assert conn.execute('SELECT count(*) n FROM companies WHERE enriched_at IS NOT NULL').fetchone()['n'] == 50
+        conn.commit()
+        monkeypatch.setattr(enrich_apply, 'apply_enrichment', real_apply)
+        before = len(fetched)
+        worker._maybe_ingest(conn)
+>       assert len(fetched)-before == 5, 'failed tick suppressed the next-cycle retry'
+E       AssertionError: failed tick suppressed the next-cycle retry
+E       assert (55 - 55) == 5
+E        +  where 55 = len(['retry-0', 'retry-1', 'retry-2', 'retry-3', 'retry-4', 'retry-5', ...])
+
+tests/test_weekly_ingest_retry.py:50: AssertionError
+____ test_interrupted_durable_weekly_marker_recovers_on_reconnected_worker _____
+
+conn = <psycopg.Connection [BAD] at 0x7ff7e2a3ed50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ff7e2a3d310>
+
+    @requires_db
+    def test_interrupted_durable_weekly_marker_recovers_on_reconnected_worker(conn, monkeypatch):
+        class ProcessStopped(BaseException):
+            pass
+        monkeypatch.setattr(worker.dataset, 'load_candidates', lambda _: candidates(1))
+        def stop_during_fetch(ats, token):
+            assert conn.info.transaction_status == TransactionStatus.IDLE
+            raise ProcessStopped()
+        monkeypatch.setattr(enrich_apply, 'plan_enrichment', stop_during_fetch)
+        with pytest.raises(ProcessStopped):
+            worker._maybe_ingest(conn)
+        interrupted = state(conn)[0]
+        conn.close()  # The interrupted process's database session is gone.
+        with psycopg.connect(TEST_DSN, row_factory=dict_row) as resumed:
+            calls = []
+            def fetch(ats, token):
+                assert resumed.info.transaction_status == TransactionStatus.IDLE
+                calls.append(token)
+                return enrich_apply.EnrichUpdate(token, 'offline about', 'ats_board')
+            monkeypatch.setattr(enrich_apply, 'plan_enrichment', fetch)
+            worker._maybe_ingest(resumed)
+>           assert calls == ['retry-0'], 'orphan running marker suppressed retry'
+E           AssertionError: orphan running marker suppressed retry
+E           assert [] == ['retry-0']
+E
+E             Right contains one more item: 'retry-0'
+E             Use -v to get more diff
+
+tests/test_weekly_ingest_retry.py:85: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_weekly_ingest_retry.py::test_failed_weekly_batch_preserves_committed_progress_and_retries_next_cycle
+FAILED tests/test_weekly_ingest_retry.py::test_interrupted_durable_weekly_marker_recovers_on_reconnected_worker
+2 failed, 1 passed in 1.43s

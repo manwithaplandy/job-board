@@ -3,6 +3,8 @@
 one-time backfill (enrich_backfill.py) and the standing cron stage
 (enrich_selected, called from company_discovery/run.py). Keeping it here means the
 backfill and the cron ground companies through byte-identical logic."""
+from job_discovery.archive.writers import public_write
+
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import NamedTuple
@@ -56,7 +58,7 @@ def plan_enrichment(ats: str, token: str) -> EnrichUpdate | None:
 def apply_enrichment(conn, company_id, plan: EnrichUpdate) -> None:
     """Persist one enrichment. Main-thread only — one psycopg connection must not
     be shared across threads."""
-    with conn.cursor() as cur:
+    with public_write(conn, 'companies'), conn.cursor() as cur:
         cur.execute(_UPDATE_SQL,
                     (plan.display_name, plan.about, plan.about_source, company_id))
 

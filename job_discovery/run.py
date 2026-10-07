@@ -105,7 +105,9 @@ def run(dsn: str | None = None) -> dict:
 
         run_id = db.start_run(conn)
         if not over:
-            db.sync_seed(conn, targets)
+            for start in range(0,len(targets),100):
+                db.sync_seed(conn, targets[start:start+100])
+                conn.commit()
         conn.commit()
         from job_discovery.lifecycle.reconcile import verify_due_sources, StorageBlocked
         source_enabled = read_control(conn).source_enabled

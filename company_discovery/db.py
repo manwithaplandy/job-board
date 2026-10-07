@@ -1,3 +1,4 @@
+from job_discovery.archive.writers import public_write
 # company_discovery/db.py
 import uuid
 
@@ -46,15 +47,15 @@ def upsert_candidates(conn, candidates: list[Candidate]) -> int:
     inserted = 0
     with conn.cursor() as cur:
         for c in candidates:
-            cur.execute(
-                "INSERT INTO companies (name, ats, token, active, discovery_source) "
-                "VALUES (%s, %s, %s, TRUE, 'dataset') "
-                "ON CONFLICT (ats, token) DO NOTHING",
-                (c.name, c.ats, c.token),
-            )
+            with public_write(conn, 'companies'):
+                cur.execute(
+                    "INSERT INTO companies (name, ats, token, active, discovery_source) "
+                    "VALUES (%s, %s, %s, TRUE, 'dataset') "
+                    "ON CONFLICT (ats, token) DO NOTHING",
+                    (c.name, c.ats, c.token),
+                )
             inserted += cur.rowcount
     return inserted
-
 
 def select_for_review(conn, user_id: str, company_profile_version: str,
                       limit: int) -> list[dict]:

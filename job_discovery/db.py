@@ -1,3 +1,4 @@
+from job_discovery.archive.writers import public_write
 from job_discovery.lifecycle.locks import enter_gate, lock_jobs
 import json
 import os
@@ -59,17 +60,17 @@ def sync_seed(conn, targets: list[dict]) -> None:
     company discovery owns `active` for everything else, so this never deactivates."""
     with conn.cursor() as cur:
         for t in targets:
-            cur.execute(
-                """
-                INSERT INTO companies (name, ats, token, active, discovery_source)
-                VALUES (%(name)s, %(ats)s, %(token)s, TRUE, 'seed')
-                ON CONFLICT (ats, token)
-                DO UPDATE SET name = EXCLUDED.name, active = TRUE,
-                             discovery_source = 'seed'
-                """,
-                t,
-            )
-
+            with public_write(conn, 'companies'):
+                cur.execute(
+                    """
+                    INSERT INTO companies (name, ats, token, active, discovery_source)
+                    VALUES (%(name)s, %(ats)s, %(token)s, TRUE, 'seed')
+                    ON CONFLICT (ats, token)
+                    DO UPDATE SET name = EXCLUDED.name, active = TRUE,
+                                 discovery_source = 'seed'
+                    """,
+                    t,
+                )
 
 def active_companies(conn) -> list[dict]:
     with conn.cursor() as cur:
@@ -138,6 +139,15 @@ def _posting_row(ats: str, token: str, company_id: int, p: Posting, *,
             p.location, p.department, p.remote, description)
 
 
+def _legacy_public_writer(conn):
+    """Legacy public ingestion is unavailable after archive cutover."""
+    from job_discovery.lifecycle.config import read_control
+    from job_discovery.lifecycle.errors import StorageBlocked
+    enter_gate(conn)
+    if read_control(conn).archive_ever_activated:
+        raise StorageBlocked("legacy public job writer disabled; use lifecycle source admission")
+
+
 def upsert_jobs(
     conn, company_id: int, ats: str, token: str, postings: list[Posting]
 ) -> int:
@@ -150,6 +160,7 @@ def upsert_jobs(
     """
     if not postings:
         return 0
+    _legacy_public_writer(conn)
     capture_description = legacy_description_capture_allowed(conn)
     rows = [_posting_row(ats, token, company_id, p, capture_description=capture_description) for p in postings
             if p.metadata_complete and isinstance(p.title,str) and p.title.strip()
@@ -201,6 +212,7 @@ def _lock_company_jobs(conn, company_id, external_ids):
 def reopen_jobs(conn, company_id: int, external_ids: set[str]) -> None:
     """A listing can reopen existing jobs during maintenance without ingestion."""
     if external_ids:
+        _legacy_public_writer(conn)
         _lock_company_jobs(conn, company_id, external_ids)
         conn.execute(
             "UPDATE jobs SET closed_at = NULL WHERE company_id = %s "
@@ -212,6 +224,7 @@ def reopen_jobs(conn, company_id: int, external_ids: set[str]) -> None:
 def close_jobs(conn, company_id: int, external_ids: set[str]) -> int:
     if not external_ids:
         return 0
+    _legacy_public_writer(conn)
     _lock_company_jobs(conn, company_id, external_ids)
     with conn.cursor() as cur:
         cur.execute(

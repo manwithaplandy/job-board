@@ -15,6 +15,9 @@ def activate_fixture(conn):
     conn.execute(
         "ALTER TABLE lifecycle_control ENABLE TRIGGER lifecycle_control_history"
     )
+    conn.execute(
+        "INSERT INTO public_archive_destination(singleton,object_prefix,validated_at) VALUES(true,'fixture/public',clock_timestamp()) ON CONFLICT DO NOTHING"
+    )
     conn.commit()
 
 

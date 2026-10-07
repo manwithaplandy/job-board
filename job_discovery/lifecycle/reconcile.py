@@ -17,6 +17,7 @@ from job_discovery.adapters.completeness import SourceStatus, SourceBudgetExceed
 from .capacity import reserve_capacity, bind_reservation, settle_capacity
 from .claims import claim_work, validate_claim, renew_claim, cancel_claim
 from .config import read_control
+from .errors import StorageBlocked
 from .identity import ADMISSION_CHUNK_SIZE
 from .locks import enter_gate, lock_jobs
 from .types import ClaimRef, EnumerationRef, Observation
@@ -26,10 +27,6 @@ CHUNK = 100  # Multiple row effects per identity stay below 500 per transaction.
 BOARD_SECONDS = 60
 BOARD_REQUESTS = 50
 BOARD_ROWS = 10000
-
-
-class StorageBlocked(RuntimeError):
-    pass
 
 
 @contextmanager
@@ -293,7 +290,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
     """Scheduled verification precedes admission and ignores all user matching."""
     from job_discovery.adapters import ADAPTERS
     from job_discovery.adapters.completeness import source_budget
-    result = {'ok':0,'failed':0,'new_jobs':0,'closed_jobs':0}
+    result = {'ok':0,'failed':0,'new_jobs':0,'closed_jobs':0,'storage_deferred':0}
     deadline = monotonic()+seconds
     for _ in range(max_boards):
         if monotonic() >= deadline:
@@ -302,6 +299,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
             pair = claim_due_source(conn)
             conn.commit()
         except StorageBlocked:
+            result["storage_deferred"] += 1
             conn.rollback()
             verify_storage_blocked(conn, max_boards=max_boards, deadline=deadline)
             break
@@ -315,10 +313,11 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
                 enum = begin_enumeration(conn,source['id'],claim)
             conn.commit()
         except StorageBlocked:
+            result["storage_deferred"] += 1
             conn.rollback()
             cancel_claim(conn,claim)
             conn.commit()
-            verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline)
+            verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])
             break
         chunk = []
         verdict = SourceStatus(complete=resuming)
@@ -349,11 +348,12 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
                             renewed = monotonic()
                     verdict = SourceStatus(complete=postings.complete)
             except StorageBlocked:
+                result["storage_deferred"] += 1
                 conn.rollback()
                 log.warning("source evidence storage blocked; reconciliation deferred")
                 cancel_claim(conn,claim)
                 conn.commit()
-                verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline)
+                verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])
                 break
             except SourceBudgetExceeded:
                 verdict = SourceStatus(complete=False)
@@ -362,6 +362,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
                 log.exception('source enumeration failed or interrupted: %s',source['id'])
                 verdict = SourceStatus(complete=False,failed=True)
                 conn.rollback()
+        storage_deferred = False
         try:
             if chunk:
                 admitted = stage_postings(conn,enum,chunk)
@@ -381,19 +382,24 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
             result['ok' if status == 'complete' else 'failed'] += 1
             conn.commit()
         except StorageBlocked:
+            result["storage_deferred"] += 1
             conn.rollback()
+            storage_deferred = True
             health = 'healthy' if verdict.complete else ('failed' if verdict.failed else 'partial')
             log.warning('source %s %s-but-storage-blocked; reconciliation-deferred',source['id'],health)
         finally:
             conn.rollback()
             cancel_claim(conn,claim)
             conn.commit()
+        if storage_deferred:
+            verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])
+            break
     return result
 
 
-def verify_storage_blocked(conn, *, max_boards, deadline):
+def verify_storage_blocked(conn, *, max_boards, deadline, source_id=None):
     """Persist bounded existing-source evidence through the preallocated lane."""
     from .operational import run_due
-    progress = run_due(conn,max_boards=max_boards,deadline=deadline)
+    progress = run_due(conn,max_boards=max_boards,deadline=deadline,source_id=source_id)
     log.warning('source operational verification: %s; missing slots/readiness remain storage-deferred',progress)
     return progress

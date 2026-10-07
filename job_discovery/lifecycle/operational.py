@@ -158,7 +158,7 @@ def _flush(conn):
         envelope = _envelope(row)
         encoded = canonical_json(envelope)
         health = outbox_health(conn)
-        if not budget_allows(health["events"], health["bytes"], len(encoded), True):
+        if not budget_allows(health["events"], health["bytes"], 2 * len(encoded), True):
             raise OperationalDeferred("critical outbox budget exhausted")
         conn.execute(
             """UPDATE public_critical_event_slots SET state='pending',event_id=%s,predecessor_id=%s,
@@ -188,8 +188,7 @@ def sightings(conn, source_id, sequence, claim, observations):
         if not row or row["seen_sequence"] >= sequence:
             continue
         conn.execute(
-            """UPDATE lifecycle_operational_listings SET seen_sequence=%s,seen_at=clock_timestamp(),seen_kind=%s,
-          miss_count=0,first_miss_at=NULL WHERE listing_id=%s""",
+            """UPDATE lifecycle_operational_listings SET seen_sequence=%s,seen_at=clock_timestamp(),seen_kind=%s WHERE listing_id=%s""",
             (sequence, kind, row["id"]),
         )
         removed = kind in {"removed", "expired"}
@@ -274,22 +273,19 @@ def reconcile(conn, source_id, sequence, claim, *, limit=100):
             and row["successful_last_observed_at"] >= state["started_at"]
         ):
             continue
-        result = conn.execute(
-            """UPDATE lifecycle_operational_listings SET miss_sequence=%s,miss_count=LEAST(2,miss_count+1),
-           first_miss_at=COALESCE(first_miss_at,%s) WHERE listing_id=%s
-           RETURNING miss_count>=2 AND %s>=first_miss_at+interval '24 hours' closed,miss_count,first_miss_at""",
-            (sequence, state["completed_at"], row["listing_id"], state["completed_at"]),
-        ).fetchone()
+        # SourceListing owns absence evidence in both lanes. Operational state
+        # retains only sequence/cursor idempotence, never another miss history.
         conn.execute(
-            """UPDATE source_listings SET consecutive_complete_misses=%s,first_complete_miss_at=%s,
-          source_availability=CASE WHEN %s THEN 'closed' ELSE source_availability END WHERE id=%s""",
-            (
-                result["miss_count"],
-                result["first_miss_at"],
-                result["closed"],
-                row["listing_id"],
-            ),
+            "UPDATE lifecycle_operational_listings SET miss_sequence=%s WHERE listing_id=%s",
+            (sequence, row["listing_id"]),
         )
+        result = conn.execute(
+            """UPDATE source_listings SET consecutive_complete_misses=LEAST(2,consecutive_complete_misses+1),
+          first_complete_miss_at=COALESCE(first_complete_miss_at,%s),
+          source_availability=CASE WHEN consecutive_complete_misses>=1 AND %s>=first_complete_miss_at+interval '24 hours'
+            THEN 'closed' ELSE source_availability END WHERE id=%s RETURNING source_availability='closed' closed""",
+            (state["completed_at"], state["completed_at"], row["listing_id"]),
+        ).fetchone()
         if result["closed"]:
             conn.execute(
                 "UPDATE jobs SET closed_at=COALESCE(closed_at,%s) WHERE id=%s",
@@ -304,7 +300,7 @@ def reconcile(conn, source_id, sequence, claim, *, limit=100):
     return done
 
 
-def run_due(conn, *, max_boards, deadline):
+def run_due(conn, *, max_boards, deadline, source_id=None):
     """Stream complete existing-ID membership; every commit is independently fenced."""
     from job_discovery.adapters import ADAPTERS
     from job_discovery.adapters.completeness import source_budget, SourceBudgetExceeded
@@ -312,9 +308,12 @@ def run_due(conn, *, max_boards, deadline):
     sources = conn.execute(
         """SELECT s.* FROM source_accounts s JOIN lifecycle_operational_sources p ON p.source_id=s.id
       WHERE s.exclusion_state IN ('enabled','failure_disabled') AND (s.next_due_at IS NULL OR s.next_due_at<=clock_timestamp()
-       OR p.status='complete' AND NOT p.reconciled)
+       OR p.status='complete' AND NOT p.reconciled OR s.id=%s)
       ORDER BY GREATEST(s.last_attempt_at,p.last_turn_at) NULLS FIRST,s.id LIMIT %s""",
-        (max_boards,),
+        (
+            source_id,
+            max_boards,
+        ),
     ).fetchall()
     conn.commit()
     missing = conn.execute(

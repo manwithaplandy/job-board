@@ -17,6 +17,8 @@ writes nothing, so a rerun retries it.
 
 ROLLOUT ARTIFACT — the operator runs it once at rollout; safe to rerun.
 """
+from job_discovery.archive.writers import public_write
+
 import logging
 
 from company_discovery.enrich import ENRICHERS, JD_PROBE_ATS, fetch_board_name
@@ -45,6 +47,13 @@ def fetch_name(ats: str, token: str) -> str | None:
     return None
 
 
+def apply_name(conn,company_id,name):
+    """Persist a fetched public name in the caller's bounded transaction."""
+    with public_write(conn,'companies'),conn.cursor() as cur:
+        cur.execute(_UPDATE_SQL,(name,company_id))
+        return cur.rowcount
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -63,9 +72,7 @@ def main() -> None:
                 for row, name in results:
                     if name is None:
                         continue
-                    with conn.cursor() as cur:
-                        cur.execute(_UPDATE_SQL, (name, row["id"]))
-                        batch_updated += cur.rowcount
+                    batch_updated += apply_name(conn,row["id"],name)
                 conn.commit()
             except BaseException:
                 conn.rollback()

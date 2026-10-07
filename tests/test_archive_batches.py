@@ -212,8 +212,17 @@ def test_seven_day_terminal_compaction_preserves_exact_markers(conn):
         "UPDATE public_archive_batches SET acked_at=clock_timestamp()-interval '8 days'"
     )
     conn.execute("ALTER TABLE public_archive_batches ENABLE TRIGGER archive_immutable")
+    conn.execute(
+        "ALTER TABLE public_archive_batch_markers DISABLE TRIGGER archive_immutable"
+    )
+    conn.execute(
+        "UPDATE public_archive_batch_markers SET acked_at=clock_timestamp()-interval '8 days'"
+    )
+    conn.execute(
+        "ALTER TABLE public_archive_batch_markers ENABLE TRIGGER archive_immutable"
+    )
     conn.commit()
-    assert compact_terminal_batches(conn, claim) == 1
+    assert compact_terminal_batches(conn, claim) == 3
     conn.commit()
     assert (
         conn.execute("SELECT event_id FROM public_archive_coverage").fetchone()[
@@ -222,10 +231,13 @@ def test_seven_day_terminal_compaction_preserves_exact_markers(conn):
         == refs[0].event_id
     )
     assert (
-        conn.execute("SELECT canonical_event FROM public_archive_items").fetchone()[
-            "canonical_event"
+        conn.execute("SELECT count(*) n FROM public_archive_items").fetchone()["n"] == 0
+    )
+    assert (
+        conn.execute("SELECT count(*) n FROM public_archive_batch_markers").fetchone()[
+            "n"
         ]
-        == b""
+        == 1
     )
 
 

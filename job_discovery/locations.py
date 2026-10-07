@@ -8,6 +8,8 @@ on the next poll. LLM/API failure leaves those raws unmapped (retried next
 run) — resolution must never fail the poll.
 Spec: docs/superpowers/specs/2026-07-16-location-dedupe-design.md
 """
+from job_discovery.archive.writers import public_write
+
 import asyncio
 import json
 import logging
@@ -33,12 +35,6 @@ _INSERT_SQL = """
     ON CONFLICT (raw) DO NOTHING
 """
 
-_STAMP_SQL = """
-    UPDATE jobs SET location_canonicals = l.canonicals
-    FROM locations l
-    WHERE jobs.location = l.raw
-      AND jobs.location_canonicals IS DISTINCT FROM l.canonicals
-"""
 
 
 def _component(r: Resolved) -> dict:
@@ -47,7 +43,7 @@ def _component(r: Resolved) -> dict:
 
 
 def _insert(conn, raw: str, resolved: list[Resolved], source: str) -> None:
-    with conn.cursor() as cur:
+    with public_write(conn, 'locations'), conn.cursor() as cur:
         cur.execute(_INSERT_SQL, (raw, [r.canonical for r in resolved],
                                   json.dumps([_component(r) for r in resolved]), source))
 
@@ -55,18 +51,26 @@ def _insert(conn, raw: str, resolved: list[Resolved], source: str) -> None:
 def _insert_unmappable(conn, raw: str) -> None:
     components = [{"canonical": raw, "kind": "unmappable", "geonameid": None,
                    "country_code": None, "admin1_code": None}]
-    with conn.cursor() as cur:
+    with public_write(conn, 'locations'), conn.cursor() as cur:
         cur.execute(_INSERT_SQL, (raw, [raw], json.dumps(components), "llm"))
 
 
+def correct_location(conn,raw: str,resolved: list[Resolved]) -> None:
+    """Service manual correction; caller commits the paired public change."""
+    with public_write(conn,'locations'):
+        conn.execute("UPDATE locations SET canonicals=%s,components=%s::jsonb,source='manual' WHERE raw=%s",
+          ([r.canonical for r in resolved],json.dumps([_component(r) for r in resolved]),raw))
+
+
 def stamp_jobs(conn) -> int:
-    """Set-based re-stamp; returns rows updated. Cheap when nothing changed."""
+    """Restamp at most 100 derived cache rows in the caller's transaction."""
     enter_gate(conn)
-    rows = conn.execute("SELECT j.id FROM jobs j JOIN locations l ON j.location=l.raw WHERE j.location_canonicals IS DISTINCT FROM l.canonicals").fetchall()
-    lock_jobs(conn, [r["id"] for r in rows])
-    with conn.cursor() as cur:
-        cur.execute(_STAMP_SQL)
-        return cur.rowcount
+    rows=conn.execute("SELECT j.id,l.canonicals FROM jobs j JOIN locations l ON j.location=l.raw WHERE j.location_canonicals IS DISTINCT FROM l.canonicals ORDER BY j.id LIMIT 100").fetchall()
+    lock_jobs(conn,[r['id'] for r in rows])
+    for row in rows:
+        with public_write(conn,'jobs',job_id=row['id']):
+            conn.execute('UPDATE jobs SET location_canonicals=%s WHERE id=%s',(row['canonicals'],row['id']))
+    return len(rows)
 
 
 def _validated(places) -> list[Resolved]:
@@ -123,7 +127,9 @@ def resolve_new_locations(conn, parse_client=None) -> dict:
         raws = [r["raw"] for r in cur.fetchall()]
     counts = {"rule": 0, "llm": 0, "unmappable": 0, "stamped": 0}
     leftovers: list[str] = []
-    for raw in raws:
+    for index, raw in enumerate(raws):
+        if index and index % 100 == 0:
+            conn.commit()
         resolved = resolve_location(raw)
         if resolved:
             _insert(conn, raw, resolved, "rule")

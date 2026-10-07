@@ -1,6 +1,7 @@
 """Public transaction pairing; no transport, credentials, or activation side effects."""
 
 from datetime import UTC
+from job_discovery.lifecycle.errors import StorageBlocked
 from psycopg import sql
 from psycopg.types.json import Jsonb
 from job_discovery.lifecycle.claims import validate_claim
@@ -20,7 +21,7 @@ HARD_BYTES, HARD_EVENTS = 128 * 1024**2, 100000
 CRITICAL_BYTES, CRITICAL_EVENTS = 16 * 1024**2, 12500
 
 
-class ArchiveBlocked(RuntimeError):
+class ArchiveBlocked(StorageBlocked):
     pass
 
 
@@ -31,7 +32,7 @@ def budget_allows(count: int, size: int, next_size: int, critical: bool) -> bool
 
 
 def outbox_health(conn) -> dict:
-    row = conn.execute("""SELECT count(*) events,COALESCE(sum(octet_length(canonical_event)),0) bytes,
+    row = conn.execute("""SELECT count(*) events,lifecycle_private.archive_live_bytes() bytes,
       COALESCE(extract(epoch FROM clock_timestamp()-min(recorded_at)),0) age_seconds FROM public_pending_events""").fetchone()
     row["warning"] = (
         row["events"] >= WARNING_EVENTS
@@ -60,6 +61,11 @@ def _envelope(row):
         kind=row["kind"],
         body=row["body"],
         occurred_at=row["occurred_at"].astimezone(UTC).isoformat(),
+        observed_at=row["observed_at"].astimezone(UTC).isoformat()
+        if row["observed_at"]
+        else None,
+        recorded_at=row["recorded_at"].astimezone(UTC).isoformat(),
+        provenance=row["provenance"],
         schema_version=1,
     )
 
@@ -89,7 +95,15 @@ def record_public_change(tx, change: PublicChange, claim) -> EventRef:
     encoded = canonical_json(envelope)
     health = outbox_health(tx)
     critical = change.kind in {ChangeKind.CLOSED, ChangeKind.REOPENED}
-    if not budget_allows(health["events"], health["bytes"], len(encoded), critical):
+    if not budget_allows(
+        health["events"],
+        health["bytes"],
+        tx.execute(
+            "SELECT lifecycle_private.archive_row_charge(%s,%s,2048) n",
+            (Jsonb(change.body), encoded),
+        ).fetchone()["n"],
+        critical,
+    ):
         raise ArchiveBlocked("public outbox budget exhausted; mutation must roll back")
     reservation = reserve_capacity(
         tx, claim, max(65536, len(encoded) * 16 + 32768), critical=critical
@@ -101,8 +115,8 @@ def record_public_change(tx, change: PublicChange, claim) -> EventRef:
     bind_reservation(tx, reservation, job_id=None, scope="public_outbox")
     tx.execute(
         """INSERT INTO public_outbox(event_id,requirement_id,aggregate_type,aggregate_id,revision,
-       predecessor_id,kind,body,occurred_at,canonical_event,body_bytes)
-       VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+       predecessor_id,kind,body,occurred_at,canonical_event,body_bytes,observed_at,recorded_at,provenance)
+       VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (
             envelope["event_id"],
             row["id"],
@@ -115,6 +129,9 @@ def record_public_change(tx, change: PublicChange, claim) -> EventRef:
             change.occurred_at,
             encoded,
             len(canonical_json(change.body)),
+            row["observed_at"],
+            row["recorded_at"],
+            row["provenance"],
         ),
     )
     settle_capacity(tx, reservation)

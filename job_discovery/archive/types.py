@@ -40,6 +40,7 @@ class BatchRef:
     eligible_until: datetime
     event_bytes: tuple[bytes, ...] = field(repr=False)
     prior_batch_id: UUID | None = None
+    object_prefix: str | None = None
 
 
 @dataclass(frozen=True)

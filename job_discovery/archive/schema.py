@@ -217,7 +217,9 @@ def validate_change(value) -> PublicChange:
                 }:
                     raise ValueError("invalid version metadata")
                 for k, v in item.items():
-                    if type(v) is not bool if k == "remote" else not isinstance(v, str):
+                    if (k == "remote" and type(v) is not bool) or (
+                        k != "remote" and not isinstance(v, str)
+                    ):
                         raise ValueError("invalid metadata value")
             elif key in {"canonicals", "components"}:
                 if not isinstance(item, (list, dict)):

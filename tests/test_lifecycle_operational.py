@@ -106,13 +106,13 @@ def test_partial_positive_survives_restart_and_never_certifies_absence(conn):
         assert op.reconcile(fresh, source_id, sequence, claim)
         fresh.commit()
         row = fresh.execute(
-            "SELECT * FROM lifecycle_operational_listings WHERE seen_sequence=%s",
+            "SELECT p.*,l.consecutive_complete_misses FROM lifecycle_operational_listings p JOIN source_listings l ON l.id=p.listing_id WHERE seen_sequence=%s",
             (sequence,),
         ).fetchone()
-        assert row["seen_at"] and row["miss_count"] == 0
+        assert row["seen_at"] and row["consecutive_complete_misses"] == 0
         assert (
             fresh.execute(
-                "SELECT max(miss_count) n FROM lifecycle_operational_listings"
+                "SELECT max(consecutive_complete_misses) n FROM source_listings"
             ).fetchone()["n"]
             == 0
         )
@@ -143,7 +143,7 @@ def test_complete_checkpoint_resumes_with_fresh_connection(conn):
         fresh.commit()
         assert (
             fresh.execute(
-                "SELECT sum(miss_count) n FROM lifecycle_operational_listings"
+                "SELECT sum(consecutive_complete_misses) n FROM source_listings"
             ).fetchone()["n"]
             == 3
         )
@@ -202,8 +202,17 @@ def test_active_archive_critical_slots_exact_ack(conn):
         "UPDATE public_archive_batches SET acked_at=clock_timestamp()-interval '8 days'"
     )
     conn.execute("ALTER TABLE public_archive_batches ENABLE TRIGGER archive_immutable")
+    conn.execute(
+        "ALTER TABLE public_archive_batch_markers DISABLE TRIGGER archive_immutable"
+    )
+    conn.execute(
+        "UPDATE public_archive_batch_markers SET acked_at=clock_timestamp()-interval '8 days'"
+    )
+    conn.execute(
+        "ALTER TABLE public_archive_batch_markers ENABLE TRIGGER archive_immutable"
+    )
     conn.commit()
-    assert compact_terminal_batches(conn, claim) == len(batch.ordered_event_ids) + 2
+    assert compact_terminal_batches(conn, claim) == len(batch.ordered_event_ids) + 4
     conn.commit()
     assert (
         conn.execute(

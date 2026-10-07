@@ -192,6 +192,7 @@ def test_migration_reapplication_preserves_flags_and_existing_events(conn):
 
     claim, refs = seeded_events(conn, 1)
     conn.execute(Path("migrations/2026-10-03-04-public-outbox.sql").read_text())
+    conn.execute(Path("migrations/2026-10-03-05-public-outbox-fix1.sql").read_text())
     conn.commit()
     assert {
         r["event_id"]

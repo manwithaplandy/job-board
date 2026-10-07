@@ -13,7 +13,7 @@ from job_discovery.lifecycle.capacity import (
     settle_capacity,
 )
 from .codec import canonical_json, encode_events, MAX_MANIFEST
-from .outbox import ArchiveBlocked
+from .outbox import ArchiveBlocked, outbox_health, HARD_BYTES
 from .types import BatchRef, BatchLimits, SealedBatch, VerifiedBatch, AckResult
 
 
@@ -21,7 +21,76 @@ def _hash(value):
     return hashlib.sha256(value).hexdigest()
 
 
+def _live_capacity(tx, additional):
+    if outbox_health(tx)["bytes"] + additional > HARD_BYTES:
+        raise ArchiveBlocked("archive live forecast exhausted; batch deferred")
+
+
+def _keys(ref, compressed_hash):
+    import re
+
+    if (
+        not ref.object_prefix
+        or not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", ref.object_prefix)
+        or len(ref.object_prefix) > 256
+    ):
+        raise ValueError("validated service object prefix required")
+    stem = f"{ref.object_prefix}/ingestion_date={ref.sealed_at.astimezone(UTC).date().isoformat()}/{ref.batch_id}-{compressed_hash}"
+    return stem + ".jsonl.gz", stem + ".manifest.json"
+
+
+def _manifest(
+    ref,
+    data_key,
+    manifest_key,
+    canonical_hash,
+    compressed_hash,
+    expanded_bytes,
+    compressed_bytes,
+):
+    ids = [str(e) for e in ref.ordered_event_ids]
+    ranges = {}
+    for raw in ref.event_bytes:
+        e = json.loads(raw)
+        key = (e["aggregate_type"], e["aggregate_id"])
+        revisions = ranges.setdefault(key, [])
+        revisions.append(e["revision"])
+    return dict(
+        schema_version=1,
+        serializer_version=ref.serializer_version,
+        batch_id=str(ref.batch_id),
+        object_prefix=ref.object_prefix,
+        ingestion_date=ref.sealed_at.astimezone(UTC).date().isoformat(),
+        ordered_event_ids=ids,
+        event_ids_sha256=_hash(canonical_json(ids)),
+        aggregate_revision_ranges=[
+            dict(
+                aggregate_type=t,
+                aggregate_id=i,
+                first_revision=min(v),
+                last_revision=max(v),
+            )
+            for (t, i), v in sorted(ranges.items())
+        ],
+        sealed_at=ref.sealed_at.astimezone(UTC).isoformat(),
+        eligible_until=ref.eligible_until.astimezone(UTC).isoformat(),
+        prior_batch_id=str(ref.prior_batch_id) if ref.prior_batch_id else None,
+        data_key=data_key,
+        manifest_key=manifest_key,
+        canonical_hash=canonical_hash,
+        compressed_hash=compressed_hash,
+        event_count=len(ids),
+        expanded_bytes=expanded_bytes,
+        compressed_bytes=compressed_bytes,
+    )
+
+
 def _ref(tx, row, claim):
+    if (
+        row["schema_version"] != 1
+        or row["ingestion_date"] != row["sealed_at"].astimezone(UTC).date()
+    ):
+        raise ArchiveBlocked("persisted schema or UTC ingestion identity differs")
     items = tx.execute(
         "SELECT * FROM public_archive_items WHERE batch_id=%s ORDER BY position",
         (row["batch_id"],),
@@ -35,6 +104,7 @@ def _ref(tx, row, claim):
         row["eligible_until"],
         tuple(bytes(i["canonical_event"]) for i in items),
         row["prior_batch_id"],
+        row["object_prefix"],
     )
 
 
@@ -54,6 +124,14 @@ def claim_batch(tx, limits: BatchLimits, claim) -> BatchRef | None:
         (limits.max_events,),
     ).fetchall()
     selected = []
+    selected_ids = set()
+    covered = {
+        r["event_id"]
+        for r in tx.execute(
+            "SELECT event_id FROM public_archive_coverage WHERE event_id=ANY(%s)",
+            ([r["predecessor_id"] for r in rows if r["predecessor_id"]],),
+        ).fetchall()
+    }
     total = 0
     for row in rows:
         size = len(row["canonical_event"]) + 1
@@ -62,26 +140,39 @@ def claim_batch(tx, limits: BatchLimits, claim) -> BatchRef | None:
         # A prior pending predecessor must be included earlier in this same batch.
         if (
             row["revision"] > 1
-            and not any(r["event_id"] == row["predecessor_id"] for r in selected)
-            and not tx.execute(
-                "SELECT 1 FROM public_archive_coverage WHERE event_id=%s",
-                (row["predecessor_id"],),
-            ).fetchone()
+            and row["predecessor_id"] not in selected_ids
+            and row["predecessor_id"] not in covered
         ):
             continue
         selected.append(row)
+        selected_ids.add(row["event_id"])
         total += size
     if not selected:
         return None
+    destination = tx.execute(
+        "SELECT object_prefix FROM public_archive_destination WHERE singleton AND validated_at<=clock_timestamp()"
+    ).fetchone()
+    if not destination:
+        raise ArchiveBlocked("archive destination prefix not validated")
+    _live_capacity(
+        tx, 8192 + sum(2 * len(r["canonical_event"]) + 1024 for r in selected)
+    )
     reservation = reserve_capacity(tx, claim, total * 4 + 65536)
     if reservation is None:
         raise ArchiveBlocked("physical batch capacity unavailable")
     bind_reservation(tx, reservation, job_id=None, scope="public_archive_batches")
     batch_id = uuid4()
     row = tx.execute(
-        """INSERT INTO public_archive_batches(batch_id,owner_token,generation,serializer_version,sealed_at,eligible_until,event_count,expanded_bytes)
-      SELECT %s,%s,%s,1,t,t+interval '17520 hours',%s,%s FROM (SELECT clock_timestamp() t) clock RETURNING *""",
-        (batch_id, claim.owner_token, claim.generation, len(selected), total),
+        """INSERT INTO public_archive_batches(batch_id,owner_token,generation,serializer_version,sealed_at,eligible_until,event_count,expanded_bytes,object_prefix,ingestion_date)
+      SELECT %s,%s,%s,1,t,t+interval '17520 hours',%s,%s,%s,(t AT TIME ZONE 'UTC')::date FROM (SELECT clock_timestamp() t) clock RETURNING *""",
+        (
+            batch_id,
+            claim.owner_token,
+            claim.generation,
+            len(selected),
+            total,
+            destination["object_prefix"],
+        ),
     ).fetchone()
     for position, event in enumerate(selected):
         tx.execute(
@@ -110,27 +201,16 @@ def seal_batch(batch_ref: BatchRef, serializer_version: int = 1) -> SealedBatch:
     ):
         raise ValueError("membership differs from event bytes")
     canonical, compressed = encode_events(events)
-    prefix = f"public/v1/{batch_ref.batch_id}"
-    data_key = f"{prefix}/events.jsonl.gz"
-    manifest_key = f"{prefix}/manifest.json"
+    data_key, manifest_key = _keys(batch_ref, _hash(compressed))
     manifest = canonical_json(
-        dict(
-            schema_version=1,
-            serializer_version=1,
-            batch_id=str(batch_ref.batch_id),
-            ordered_event_ids=[str(e) for e in batch_ref.ordered_event_ids],
-            sealed_at=batch_ref.sealed_at.astimezone(UTC).isoformat(),
-            eligible_until=batch_ref.eligible_until.astimezone(UTC).isoformat(),
-            prior_batch_id=str(batch_ref.prior_batch_id)
-            if batch_ref.prior_batch_id
-            else None,
-            data_key=data_key,
-            manifest_key=manifest_key,
-            canonical_hash=_hash(canonical),
-            compressed_hash=_hash(compressed),
-            event_count=len(events),
-            expanded_bytes=len(canonical),
-            compressed_bytes=len(compressed),
+        _manifest(
+            batch_ref,
+            data_key,
+            manifest_key,
+            _hash(canonical),
+            _hash(compressed),
+            len(canonical),
+            len(compressed),
         )
     )
     if len(manifest) > MAX_MANIFEST:
@@ -220,31 +300,19 @@ def persist_seal(tx, seal: SealedBatch) -> None:
         len(seal.manifest_data),
     ):
         raise ValueError("seal counts or sizes differ")
-    prefix = f"public/v1/{ref.batch_id}"
-    if (seal.data_key, seal.manifest_key) != (
-        f"{prefix}/events.jsonl.gz",
-        f"{prefix}/manifest.json",
-    ):
+    if (seal.data_key, seal.manifest_key) != _keys(ref, seal.compressed_hash):
         raise ValueError("seal object keys differ")
-    manifest = json.loads(seal.manifest_data)
-    for key in (
-        "data_key",
-        "manifest_key",
-        "canonical_hash",
-        "compressed_hash",
-        "event_count",
-        "expanded_bytes",
-        "compressed_bytes",
-    ):
-        if manifest.get(key) != getattr(seal, key):
-            raise ValueError("manifest differs from seal")
-    if (
-        manifest.get("ordered_event_ids") != [str(e) for e in ref.ordered_event_ids]
-        or manifest.get("sealed_at") != ref.sealed_at.astimezone(UTC).isoformat()
-        or manifest.get("eligible_until")
-        != ref.eligible_until.astimezone(UTC).isoformat()
-    ):
-        raise ValueError("manifest identity or horizon differs")
+    manifest = _manifest(
+        ref,
+        seal.data_key,
+        seal.manifest_key,
+        seal.canonical_hash,
+        seal.compressed_hash,
+        seal.expanded_bytes,
+        seal.compressed_bytes,
+    )
+    if seal.manifest_data != canonical_json(manifest):
+        raise ValueError("complete manifest differs from immutable batch identity")
     values = {
         k: getattr(seal, k)
         for k in (
@@ -259,19 +327,30 @@ def persist_seal(tx, seal: SealedBatch) -> None:
             "manifest_bytes",
         )
     }
+    values.update(
+        event_ids_sha256=manifest["event_ids_sha256"],
+        aggregate_revision_ranges=manifest["aggregate_revision_ranges"],
+    )
     if row["state"] != "claimed":
         if any(row[k] != v for k, v in values.items()):
             raise ArchiveBlocked("immutable seal differs")
         return
-    reservation = reserve_capacity(tx, seal.batch.claim, 65536)
+    _live_capacity(tx, 4096 + 2 * seal.manifest_bytes)
+    reservation = reserve_capacity(
+        tx, seal.batch.claim, 65536 + seal.manifest_bytes * 4
+    )
     if reservation is None:
         raise ArchiveBlocked("physical seal capacity unavailable")
     bind_reservation(tx, reservation, job_id=None, scope="public_archive_batches")
     tx.execute(
-        """UPDATE public_archive_batches SET state='sealed',data_key=%(data_key)s,manifest_key=%(manifest_key)s,
+        """UPDATE public_archive_batches SET state='sealed',event_ids_sha256=%(event_ids_sha256)s,aggregate_revision_ranges=%(aggregate_revision_ranges)s,data_key=%(data_key)s,manifest_key=%(manifest_key)s,
       canonical_hash=%(canonical_hash)s,compressed_hash=%(compressed_hash)s,manifest_hash=%(manifest_hash)s,
       compressed_bytes=%(compressed_bytes)s,manifest_bytes=%(manifest_bytes)s WHERE batch_id=%(batch_id)s""",
-        dict(values, batch_id=ref.batch_id),
+        dict(
+            values,
+            aggregate_revision_ranges=Jsonb(values["aggregate_revision_ranges"]),
+            batch_id=ref.batch_id,
+        ),
     )
 
     settle_capacity(tx, reservation)
@@ -347,6 +426,17 @@ def ack_batch(tx, verified_batch: VerifiedBatch, claim) -> AckResult:
             Jsonb(asdict(verified_batch.manifest_receipt)),
         ),
     )
+    tx.execute(
+        """INSERT INTO public_archive_batch_markers(batch_id,owner_token,generation,event_ids_sha256,manifest_hash)
+      VALUES(%s,%s,%s,%s,%s)""",
+        (
+            current.batch_id,
+            claim.owner_token,
+            claim.generation,
+            row["event_ids_sha256"],
+            row["manifest_hash"],
+        ),
+    )
     for item in items:
         tx.execute(
             "INSERT INTO public_archive_coverage(aggregate_type,aggregate_id,revision,event_id,batch_id) VALUES(%s,%s,%s,%s,%s)",
@@ -396,22 +486,38 @@ def ack_batch(tx, verified_batch: VerifiedBatch, claim) -> AckResult:
 
 
 def compact_terminal_batches(tx, claim, *, limit=2000) -> int:
-    """Seven-day terminal byte compaction retains exact IDs, receipts and fences."""
+    """Bounded seven-day retirement; compact exact coverage and fences survive."""
     if type(limit) is not int or not 1 <= limit <= 2000:
         raise ValueError("terminal compaction limit must be 1..2000")
     validate_claim(tx, claim)
-    rows = tx.execute(
-        """UPDATE public_archive_items SET canonical_event=''::bytea WHERE (batch_id,position) IN
-      (SELECT i.batch_id,i.position FROM public_archive_items i JOIN public_archive_batches b USING(batch_id)
-       WHERE b.state='acked' AND b.acked_at<=clock_timestamp()-interval '7 days' AND octet_length(i.canonical_event)>0
-       ORDER BY b.acked_at,i.position LIMIT %s) RETURNING event_id""",
-        (limit,),
-    ).fetchall()
     slots = tx.execute(
         """UPDATE public_critical_event_slots SET body='{}'::jsonb,canonical_event=''::bytea WHERE slot IN
-      (SELECT s.slot FROM public_critical_event_slots s JOIN public_archive_coverage c USING(event_id)
-       JOIN public_archive_batches b USING(batch_id) WHERE s.state='acked' AND b.acked_at<=clock_timestamp()-interval '7 days'
-       AND octet_length(s.canonical_event)>0 ORDER BY s.slot LIMIT %s) RETURNING slot""",
-        (limit - len(rows),),
+     (SELECT s.slot FROM public_critical_event_slots s JOIN public_archive_coverage c USING(event_id)
+      JOIN public_archive_batch_markers m USING(batch_id) WHERE s.state='acked' AND m.acked_at<=clock_timestamp()-interval '7 days'
+      AND octet_length(s.canonical_event)>0 ORDER BY s.slot LIMIT %s) RETURNING slot""",
+        (limit,),
     ).fetchall()
-    return len(rows) + len(slots)
+    count = len(slots)
+    for table, key, extra in [
+        ("public_archive_items", "event_id", ""),
+        (
+            "public_archive_receipts",
+            "batch_id",
+            "AND NOT EXISTS(SELECT FROM public_archive_items i WHERE i.batch_id=t.batch_id)",
+        ),
+        (
+            "public_archive_batches",
+            "batch_id",
+            "AND t.state='acked' AND NOT EXISTS(SELECT FROM public_archive_items i WHERE i.batch_id=t.batch_id) AND NOT EXISTS(SELECT FROM public_archive_receipts r WHERE r.batch_id=t.batch_id)",
+        ),
+    ]:
+        # Identifiers are the fixed service allowlist above, never external input.
+        rows = tx.execute(
+            f"""DELETE FROM {table} WHERE {key} IN
+          (SELECT t.{key} FROM {table} t JOIN public_archive_batch_markers m USING(batch_id)
+           WHERE m.acked_at<=clock_timestamp()-interval '7 days' {extra}
+           ORDER BY m.acked_at,t.{key} LIMIT %s) RETURNING {key}""",
+            (limit - count,),
+        ).fetchall()
+        count += len(rows)
+    return count

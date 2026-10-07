@@ -6,6 +6,8 @@ per-job isolation; SIGTERM-aware sleep.
 Run as: `python -m company_discovery`. Railway service config in railway.discovery.json
 (always-on, no cron). Backend job -> keeps the service role (direct connection).
 """
+from job_discovery.archive.writers import ingest_candidates
+
 import asyncio
 import json
 import logging
@@ -357,7 +359,10 @@ def _maybe_ingest(conn) -> None:
         return
     run_id = db.start_discovery_run(conn)
     try:
-        ingested = db.upsert_candidates(conn, dataset.load_candidates(config.dataset_dir()))
+        def ingest_progress(ingested):
+            conn.execute("UPDATE discovery_runs SET ingested=%s,notes=%s WHERE id=%s",
+              (ingested,_weekly_progress_note(0,owner),run_id))
+        ingested = ingest_candidates(conn, dataset.load_candidates(config.dataset_dir()),record_progress=ingest_progress)
         pending = conn.execute(
             "SELECT id, ats, token, enriched_at FROM companies "
             "WHERE enriched_at IS NULL ORDER BY first_seen_at DESC LIMIT %(cap)s",

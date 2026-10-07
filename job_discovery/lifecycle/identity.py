@@ -464,10 +464,10 @@ def admit_metadata(
             continue
         with _write(conn, claim, "jobs", job_id, size=65536):
             row = conn.execute(
-                """INSERT INTO jobs(id,company_id,external_id,title,url,location,department,remote)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET
+                """INSERT INTO jobs(id,company_id,external_id,title,url,location,department,remote,last_seen_at)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET
                 title=EXCLUDED.title,url=EXCLUDED.url,location=EXCLUDED.location,
-                department=EXCLUDED.department,remote=EXCLUDED.remote
+                department=EXCLUDED.department,remote=EXCLUDED.remote,last_seen_at=EXCLUDED.last_seen_at
                 WHERE (jobs.title,jobs.url,jobs.location,jobs.department,jobs.remote)
                   IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.url,EXCLUDED.location,EXCLUDED.department,EXCLUDED.remote)
                 RETURNING (xmax=0) AS is_new""",
@@ -480,6 +480,7 @@ def admit_metadata(
                     metadata.get("location"),
                     metadata.get("department"),
                     metadata.get("remote"),
+                    now,
                 ),
             ).fetchone()
             admitted += bool(row and row["is_new"])
@@ -494,8 +495,8 @@ def admit_metadata(
                 listing = conn.execute(
                     """INSERT INTO source_listings(source_account_id,external_id,job_id,
                     original_discovered_at,discovery_anchor_at,discovery_anchor_provenance,discovery_expires_at,
-                    source_published_at,source_published_provenance,legacy_closed_at)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                    source_published_at,source_published_provenance,legacy_closed_at,successful_last_observed_at)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                     (
                         source_id,
                         posting.external_id,
@@ -507,6 +508,7 @@ def admit_metadata(
                         published,
                         "ashby.publishedAt" if published else None,
                         job["closed_at"] if job else None,
+                        now,
                     ),
                 ).fetchone()
         capture_version(conn, listing["id"], metadata, now, claim)

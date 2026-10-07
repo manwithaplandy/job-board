@@ -1,3 +1,4 @@
+from job_discovery.archive.writers import ingest_candidates
 # company_discovery/run.py
 import asyncio
 import logging
@@ -150,7 +151,7 @@ def run(conn=None) -> None:
             return
         if tracing.tracing_enabled():
             log.info("langfuse tracing on; sample_rate=%s", tracing.sample_rate())
-        ingested = db.upsert_candidates(conn, dataset.load_candidates(config.dataset_dir()))
+        ingested = ingest_candidates(conn, dataset.load_candidates(config.dataset_dir()))
         conn.commit()
         log.info("ingested %s new candidate companies", ingested)
         profiles = db.load_company_profiles(conn)

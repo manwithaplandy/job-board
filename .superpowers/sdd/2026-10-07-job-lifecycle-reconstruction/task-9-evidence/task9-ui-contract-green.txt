@@ -38,4 +38,3 @@ AssertionError: expected [ { code: 'undersized-target', …(3) } ] to deeply equ
       Tests  1 failed | 31 passed (32)
    Start at  19:54:22
    Duration  5.93s (transform 1.94s, setup 0ms, import 3.32s, tests 3.06s, environment 1.43s)
-

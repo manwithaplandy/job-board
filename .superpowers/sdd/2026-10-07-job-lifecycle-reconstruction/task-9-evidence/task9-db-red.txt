@@ -33,4 +33,3 @@ PostgresError: new row for relation "application_packages" violates check constr
       Tests  4 skipped (4)
    Start at  19:36:34
    Duration  935ms (transform 158ms, setup 0ms, import 275ms, tests 387ms, environment 0ms)
-

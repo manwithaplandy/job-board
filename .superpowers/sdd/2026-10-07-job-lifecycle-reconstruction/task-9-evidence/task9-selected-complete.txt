@@ -112,4 +112,3 @@ Error: ENOENT: no such file or directory, scandir '/workspace/job-board/.claude/
       Tests  11 failed | 172 passed (183)
    Start at  20:00:34
    Duration  19.80s (transform 9.09s, setup 0ms, import 17.47s, tests 13.70s, environment 8.78s)
-

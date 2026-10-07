@@ -34,4 +34,3 @@ PostgresError: null value in column "profile_version" of relation "profiles" vio
       Tests  1 failed | 4 passed (5)
    Start at  19:56:45
    Duration  1.09s (transform 287ms, setup 0ms, import 194ms, tests 543ms, environment 1ms)
-

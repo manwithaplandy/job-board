@@ -150,4 +150,3 @@ Ignored nodes: comments, script, style
       Tests  1 failed | 9 skipped (10)
    Start at  20:06:02
    Duration  1.42s (transform 149ms, setup 0ms, import 238ms, tests 167ms, environment 700ms)
-

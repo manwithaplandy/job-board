@@ -16,7 +16,7 @@ conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33040 user=postgres da
         rows, count = rdb.select_candidates(conn, USER, 'v1', 1)
 >       assert [r['id'] for r in rows] == ['old'] and count == 1
 E       AssertionError: assert ([] == ['old']
-E         
+E
 E         Right contains one more item: 'old'
 E         Use -v to get more diff)
 

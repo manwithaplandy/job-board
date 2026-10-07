@@ -26,4 +26,3 @@ PostgresError: function public.lifecycle_job_state(text) does not exist
       Tests  4 failed (4)
    Start at  19:36:51
    Duration  759ms (transform 139ms, setup 0ms, import 178ms, tests 364ms, environment 0ms)
-

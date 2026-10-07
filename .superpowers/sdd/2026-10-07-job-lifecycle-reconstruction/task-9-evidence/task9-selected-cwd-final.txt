@@ -25,4 +25,3 @@ If this is a long-running test, pass a timeout value as the last argument or con
       Tests  1 failed | 182 passed (183)
    Start at  20:01:24
    Duration  45.47s (transform 32.76s, setup 0ms, import 60.44s, tests 40.15s, environment 17.60s)
-

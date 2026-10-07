@@ -70,4 +70,3 @@ AssertionError: expected [Function] to throw an error
       Tests  5 failed (5)
    Start at  19:34:24
    Duration  658ms (transform 138ms, setup 0ms, import 163ms, tests 16ms, environment 0ms)
-

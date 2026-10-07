@@ -8,4 +8,3 @@ Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 1
       Tests  4 passed (4)
    Start at  19:37:55
    Duration  1.57s (transform 170ms, setup 0ms, import 210ms, tests 737ms, environment 0ms)
-

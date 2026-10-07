@@ -37,4 +37,3 @@ null
       Tests  1 failed | 7 skipped (8)
    Start at  19:58:30
    Duration  964ms (transform 307ms, setup 0ms, import 356ms, tests 10ms, environment 0ms)
-

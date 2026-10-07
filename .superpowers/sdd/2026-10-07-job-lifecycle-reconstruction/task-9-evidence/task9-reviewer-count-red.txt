@@ -8,30 +8,30 @@ conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33052 user=postgres da
     def test_candidate_count_and_rows_share_one_read_statement(conn):
         """A candidate page and its total must use one statement-time boundary."""
         from contextlib import contextmanager
-    
+
         conn.execute("INSERT INTO companies(id,name,ats,token) VALUES(1,'Fixture','lever','fixture')")
         conn.execute("INSERT INTO jobs(id,company_id,external_id,title,url) VALUES('fresh',1,'1','Role','https://example.test/job')")
         conn.commit()
         candidate_reads = []
-    
+
         class RecordedConnection:
             def __getattr__(self, name):
                 return getattr(conn, name)
-    
+
             @contextmanager
             def cursor(self, *args, **kwargs):
                 with conn.cursor(*args, **kwargs) as cursor:
                     class RecordedCursor:
                         def __getattr__(self, name):
                             return getattr(cursor, name)
-    
+
                         def execute(self, query, params=None):
                             if "FROM jobs j" in query:
                                 candidate_reads.append(query)
                             return cursor.execute(query, params)
-    
+
                     yield RecordedCursor()
-    
+
         rows, count = rdb.select_candidates(RecordedConnection(), USER, 'v1', 1)
         assert [row['id'] for row in rows] == ['fresh'] and count == 1
 >       assert len(candidate_reads) == 1

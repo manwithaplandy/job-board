@@ -1,4 +1,7 @@
 from contextlib import nullcontext
+from job_discovery.lifecycle.maintenance import pre_admission_maintenance
+from job_discovery.lifecycle.locks import enter_gate
+from job_discovery.lifecycle.capacity import CEILING_BYTES
 from job_discovery.lifecycle.legacy_spool import spool_feed, spool_questions
 import logging
 
@@ -43,6 +46,29 @@ def _run_prune(conn) -> None:
         log.exception("prune phase failed; poll results unaffected")
 
 
+def _admit_chunk(conn, company_id, ats, token, chunk):
+    """Measure again under the gate before each bounded admission transaction."""
+    try:
+        enter_gate(conn)
+        over, _, _ = db.over_size_ceiling(conn)
+        held = conn.execute("SELECT COALESCE(sum(bytes),0) AS bytes FROM capacity_reservations WHERE state='held'").fetchone()['bytes']
+        # Conservative local forecast includes payload expansion/index/WAL room.
+        # Enforced compatible writers still require their Task 3 reservations.
+        forecast = sum(16384 + 4 * sum(len(str(value).encode('utf-8')) for value in db._posting_row(ats, token, company_id, p) if value is not None) for p in chunk)
+        allocated = conn.execute('SELECT pg_database_size(current_database()) AS bytes').fetchone()['bytes']
+        if over or allocated + held + forecast >= CEILING_BYTES:
+            log.warning('admission paused at chunk boundary; source verification continues')
+            conn.commit()
+            return 0, True
+    except Exception:
+        conn.rollback()
+        log.exception('admission capacity measurement failed; verification only')
+        return 0, True
+    admitted = db.upsert_jobs(conn, company_id, ats, token, chunk)
+    conn.commit()
+    return admitted, False
+
+
 def run(dsn: str | None = None) -> dict:
     """Execute one poll cycle.
 
@@ -50,6 +76,7 @@ def run(dsn: str | None = None) -> dict:
     ``closed_jobs``.  Callers (e.g. ``__main__``) use this to decide the
     process exit code.
     """
+    maintenance = pre_admission_maintenance(dsn)
     targets = load_targets()
     conn = db.connect(dsn)
     try:
@@ -62,10 +89,17 @@ def run(dsn: str | None = None) -> dict:
             log.warning("another poll run holds the lock; exiting")
             return {"ok": 0, "failed": 0, "new_jobs": 0, "closed_jobs": 0}
 
-        over, size_mb, ceiling_mb = db.over_size_ceiling(conn)
+        try:
+            over, size_mb, ceiling_mb = db.over_size_ceiling(conn)
+        except Exception:
+            conn.rollback()
+            log.exception("capacity check failed; verification only")
+            over, size_mb, ceiling_mb = True, 0, 6000
+        over = over or maintenance.blocked
         guard_note = None
         if over:
-            guard_note = f"maintenance only: db at {size_mb:.0f} MB >= ceiling {ceiling_mb:.0f} MB"
+            guard_note = ("maintenance only: safety maintenance blocked admission" if maintenance.blocked
+                          else f"maintenance only: capacity unavailable or db at {size_mb:.0f} MiB; ceiling {ceiling_mb:.0f} MiB")
             log.warning("%s; checking closures without ingestion or enrichment", guard_note)
 
         run_id = db.start_run(conn)
@@ -98,15 +132,15 @@ def run(dsn: str | None = None) -> dict:
                                 continue
                             chunk.append(p)
                             if len(chunk) >= UPSERT_CHUNK_SIZE:
-                                admitted = db.upsert_jobs(conn, company_id, ats, token, chunk)
-                                conn.commit()
+                                admitted, over = _admit_chunk(conn, company_id, ats, token, chunk)
                                 new_jobs += admitted
                                 chunk = []
                         if chunk:
-                            admitted = db.upsert_jobs(conn, company_id, ats, token, chunk)
-                            conn.commit()
+                            admitted, over = _admit_chunk(conn, company_id, ats, token, chunk)
                             new_jobs += admitted
                         for question_index, (external_id, data) in enumerate(questions, 1):
+                            if over:
+                                break
                             # Malformed feed entries were never admitted; retain the
                             # old FK behavior by writing only existing shared Jobs.
                             if conn.execute("SELECT 1 FROM jobs WHERE id=%s", (f"greenhouse:{token}:{external_id}",)).fetchone():
@@ -145,7 +179,19 @@ def run(dsn: str | None = None) -> dict:
                     except Exception:
                         log.exception("closing the broken connection failed")
                     try:
+                        maintenance = pre_admission_maintenance(dsn)
                         conn = db.connect(dsn)
+                        locked = conn.execute(
+                            "SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked"
+                        ).fetchone()["locked"]
+                        if not locked:
+                            raise RuntimeError("poll lock unavailable after reconnect")
+                        try:
+                            reconnect_over, _, _ = db.over_size_ceiling(conn)
+                        except Exception:
+                            conn.rollback()
+                            reconnect_over = True
+                        over = over or maintenance.blocked or reconnect_over
                     except Exception:
                         log.exception("reconnect failed; aborting poll")
                         failures.append(f"{co['name']}: {type(exc).__name__}: {exc}")
@@ -185,7 +231,7 @@ def run(dsn: str | None = None) -> dict:
 
         if over:
             _run_prune(conn)
-            return {"ok": ok, "failed": failed, "new_jobs": 0, "closed_jobs": closed_jobs}
+            return {"ok": ok, "failed": failed, "new_jobs": new_jobs, "closed_jobs": closed_jobs}
 
         # Location canonicalization: resolve any raw location strings first
         # seen this poll, then re-stamp jobs.location_canonicals (also

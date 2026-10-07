@@ -1,0 +1,37 @@
+Workdir: /workspace/job-board/.claude/worktrees/lifecycle-recovery
+Shell: /bin/bash, login:false
+All logs redirected to .superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-4-evidence/<named log> with > ... 2>&1.
+
+red17.txt:
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py tests/test_prune.py tests/test_size_guard.py tests/test_run.py -q
+
+green-attempt17.txt:
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py -q
+
+green-cover-attempt17.txt:
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py tests/test_prune.py tests/test_size_guard.py tests/test_run.py tests/test_lifecycle_migrations.py -q
+
+expanded-attempt17.txt / expanded2-17.txt (successive source/fixture states):
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py -q
+
+green-expanded3-17.txt / green-expanded5-17.txt (successive source/fixture states):
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py tests/test_prune.py tests/test_lifecycle_migrations.py -q
+
+green-expanded4-17.txt:
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py tests/test_lifecycle_migrations.py -q
+
+pre-byte-final17.txt (110 tests, before final byte-bound addition):
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py tests/test_prune.py tests/test_lifecycle_migrations.py tests/test_run_question_fetch.py -q
+
+final17.txt:
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 17 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py tests/test_prune.py tests/test_lifecycle_migrations.py tests/test_run_question_fetch.py -q
+
+final16.txt:
+.venv/bin/python tools/lifecycle_test_db.py --postgres-major 16 -- .venv/bin/python -m pytest tests/test_lifecycle_maintenance.py tests/test_run.py tests/test_size_guard.py tests/test_prune.py tests/test_lifecycle_migrations.py tests/test_run_question_fetch.py -q
+
+ruff.txt:
+.venv/bin/ruff check .
+
+Working/staged whitespace:
+git diff --check
+git diff --cached --check

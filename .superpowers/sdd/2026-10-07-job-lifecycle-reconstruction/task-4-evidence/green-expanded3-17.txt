@@ -1,0 +1,89 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+..................F.F.F................................................. [ 69%]
+..............F.................                                         [100%]
+=================================== FAILURES ===================================
+______ test_completed_and_abandoned_staging_cleanup_windows[True-25-True] ______
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd712f2c00>
+completed = True, hours = 25, cleaned = True
+
+    @requires_db
+    @pytest.mark.parametrize('completed,hours,cleaned', [(True,25,True),(True,23,False),(False,169,True),(False,167,False)])
+    def test_completed_and_abandoned_staging_cleanup_windows(conn, completed, hours, cleaned):
+        m = module()
+        source, eid, old = enumeration(conn, completed=completed, hours=hours)
+        enable(conn)
+        m.sweep(conn, claim(conn), max_rows=50)
+>       assert (conn.execute('SELECT id FROM source_enumerations WHERE id=%s', (eid,)).fetchone() is None) == cleaned
+E       AssertionError: assert ({'id': UUID('392e922f-5189-416d-932d-f6f8f96a376d')} is None) == True
+E        +  where {'id': UUID('392e922f-5189-416d-932d-f6f8f96a376d')} = fetchone()
+E        +    where fetchone = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd712f9f10>.fetchone
+E        +      where <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd712f9f10> = execute('SELECT id FROM source_enumerations WHERE id=%s', (UUID('392e922f-5189-416d-932d-f6f8f96a376d'),))
+E        +        where execute = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd712f2c00>.execute
+
+tests/test_lifecycle_maintenance.py:166: AssertionError
+_____ test_completed_and_abandoned_staging_cleanup_windows[False-169-True] _____
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd713179e0>
+completed = False, hours = 169, cleaned = True
+
+    @requires_db
+    @pytest.mark.parametrize('completed,hours,cleaned', [(True,25,True),(True,23,False),(False,169,True),(False,167,False)])
+    def test_completed_and_abandoned_staging_cleanup_windows(conn, completed, hours, cleaned):
+        m = module()
+        source, eid, old = enumeration(conn, completed=completed, hours=hours)
+        enable(conn)
+        m.sweep(conn, claim(conn), max_rows=50)
+>       assert (conn.execute('SELECT id FROM source_enumerations WHERE id=%s', (eid,)).fetchone() is None) == cleaned
+E       AssertionError: assert ({'id': UUID('c8009145-6581-4787-8bf6-06dcb5965102')} is None) == True
+E        +  where {'id': UUID('c8009145-6581-4787-8bf6-06dcb5965102')} = fetchone()
+E        +    where fetchone = <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd712fa510>.fetchone
+E        +      where <psycopg.Cursor [TUPLES_OK] [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd712fa510> = execute('SELECT id FROM source_enumerations WHERE id=%s', (UUID('c8009145-6581-4787-8bf6-06dcb5965102'),))
+E        +        where execute = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd713179e0>.execute
+
+tests/test_lifecycle_maintenance.py:166: AssertionError
+_______ test_staging_cleanup_is_capped_and_resumes_from_committed_fence ________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd71316d80>
+
+    @requires_db
+    def test_staging_cleanup_is_capped_and_resumes_from_committed_fence(conn):
+        m = module()
+        source, eid, old = enumeration(conn, members=21005)
+        enable(conn)
+        c = claim(conn)
+        result = m.sweep(conn, c)
+        remaining = conn.execute('SELECT count(*) AS n FROM enumeration_members').fetchone()['n']
+>       assert remaining == 1008  # 20,000 total units includes the 3-row fence.
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert 21005 == 1008
+
+tests/test_lifecycle_maintenance.py:181: AssertionError
+__ test_existing_recorded_migrations_reapply_without_catalog_or_ledger_drift ___
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32934 user=postgres database=poller_lifecycle_test) at 0x7fbd712f2240>
+
+    @requires_db
+    def test_existing_recorded_migrations_reapply_without_catalog_or_ledger_drift(conn):
+        module = helpers()
+        before = module.schema_catalog(conn)
+        ledger = conn.execute("SELECT filename,applied_at FROM schema_migrations ORDER BY filename").fetchall()
+        paths = [ROOT / "migrations" / row["filename"] for row in ledger]
+        assert paths, "schema.sql must record mirrored migrations"
+        module.apply_migrations(conn, paths)
+        module.apply_migrations(conn, paths)
+>       assert module.schema_catalog(conn) == before
+E       assert {'tables': [{....}, ...], ...} == {'tables': [{....}, ...], ...}
+E         
+E         Omitting 9 identical items, use -vv to show
+E         Differing items:
+E         {'functions': [{'nspname': 'lifecycle_private', 'proname': 'protect_demand_claim', 'arguments': '', 'definition': "CRE...AND state<>'held';\n DELETE FROM public.lifecycle_write_checks WHERE subject_id=target;\nEND $function$\n", ...}, ...]} != {'functions': [{'nspname': 'lifecycle_private', 'proname': 'protect_demand_claim', 'arguments': '', 'definition': "CRE...AND state<>'held';\n DELETE FROM public.lifecycle_write_checks WHERE subject_id=target;\nEND $function$\n", ...}, ...]}
+E         Use -v to get more diff
+
+tests/test_lifecycle_migrations.py:61: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_maintenance.py::test_completed_and_abandoned_staging_cleanup_windows[True-25-True]
+FAILED tests/test_lifecycle_maintenance.py::test_completed_and_abandoned_staging_cleanup_windows[False-169-True]
+FAILED tests/test_lifecycle_maintenance.py::test_staging_cleanup_is_capped_and_resumes_from_committed_fence
+FAILED tests/test_lifecycle_migrations.py::test_existing_recorded_migrations_reapply_without_catalog_or_ledger_drift
+4 failed, 100 passed in 55.87s

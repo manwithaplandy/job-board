@@ -1,0 +1,40 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+..............................F......................................... [ 67%]
+..................................                                       [100%]
+=================================== FAILURES ===================================
+______ test_only_safely_archived_unreferenced_superseded_versions_retire _______
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32936 user=postgres database=poller_lifecycle_test) at 0x7fe95a165400>
+
+    @requires_db
+    def test_only_safely_archived_unreferenced_superseded_versions_retire(conn):
+        from job_discovery.lifecycle.identity import migrate_identity_batch
+        from job_discovery.lifecycle.locks import enter_gate
+        m = module()
+        cid = _company(conn,'versions')
+        jid = _job(conn,cid,'1')
+        migrate_identity_batch(conn)
+        listing = conn.execute('SELECT id FROM source_listings WHERE job_id=%s',(jid,)).fetchone()['id']
+        for revision in range(2,16):
+            conn.execute("""INSERT INTO job_versions(job_id,source_listing_id,revision,content_hash,public_metadata,observed_at,recorded_at)
+              VALUES(%s,%s,%s,repeat('a',64),'{}',clock_timestamp(),clock_timestamp()-make_interval(hours=>%s))""",
+              (jid,listing,revision,745 if revision in (5,6) else 1))
+        conn.execute('UPDATE source_listings SET current_revision=15,archived_revision=5,current_version_id=(SELECT id FROM job_versions WHERE revision=15)')
+        conn.commit()
+        enter_gate(conn)
+        n,retired,_ = m._version_batch(conn,2000,False)
+        conn.commit()
+        assert n == retired == 4  # 2/3/4 exceed ten superseded; 5 is >30d.
+        remaining = [r['revision'] for r in conn.execute('SELECT revision FROM job_versions ORDER BY revision')]
+>       assert remaining == [1,*range(6,16)]  # 1 referenced, 6 unarchived, 15 current.
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert [6, 7, 8, 9, 10, 11, ...] == [1, 6, 7, 8, 9, 10, ...]
+E         
+E         At index 0 diff: 6 != 1
+E         Right contains one more item: 15
+E         Use -v to get more diff
+
+tests/test_lifecycle_maintenance.py:326: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_maintenance.py::test_only_safely_archived_unreferenced_superseded_versions_retire
+1 failed, 105 passed in 69.43s (0:01:09)

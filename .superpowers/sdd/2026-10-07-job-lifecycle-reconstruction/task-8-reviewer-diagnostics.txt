@@ -1,0 +1,24 @@
+Review target: 4d48602947b84983acc54738bd21e45a52862725.
+New narrow local ordinary diagnostics only. No network, DB, provider, testsuite rerun, product edits or mechanism probes.
+
+Node loaded the installed dashboard TypeScript compiler, transpiled the actual jobLifecycle.ts and greenhouseQuestions.ts into CommonJS in memory, and executed the exported helpers with a recording tagged-SQL boundary. Fixtures described normal same-owner package/demand rows. No assertions about database isolation or enforcement follow from this boundary diagnostic.
+
+requestJobPayload(owner, job, prepare), package-linked generation demand has a usable JD/version but null question schema:
+{"case":"prepare-existing-package-missing-questions","result":{"status":"ready","id":"existing-demand","versionId":"version-1","description":"Original JD","questions":null,"kind":"generation"},"enqueued":false,"queryCount":1}
+
+requestJobPayload(owner, job, generation), package lookup returns the newer same-public-version description demand (question schema differs from the older package snapshot):
+{"case":"same-version-later-demand-selected-over-package-snapshot","result":{"status":"ready","id":"later-description-demand","versionId":"version-1","description":"Original JD","questions":{"questions":[{"label":"Later question","required":false,"fields":[]}]} ,"kind":"generation"},"selectsDemandInsteadOfPackage":true,"sourceDemandKind":"description","receiptKind":"generation"}
+
+readPrivateSnapshot(tx, job, application_packages), first SELECT returns an existing legacy null-version/null-snapshot package; second SELECT returns an unrelated later ready demand:
+{"case":"legacy-existing-package-null-provenance","result":{"versionId":"new-version","description":"A later job description","questions":null,"capturedAt":"new-capture"},"queryCount":2}
+
+Read-only Python textual comparison of migration03 with schema.sql, excluding outer migration BEGIN/COMMIT:
+Migration03/fresh-schema exact parity excluding outer transaction: True
+
+Read-only git check after the controller documentation commit:
+HEAD c293fbd0a89abb2323895acc0975ac147f8545bd
+Changed since product/test pin 4d48602947b84983acc54738bd21e45a52862725:
+.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/CHECKPOINTS.md
+.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/controller-resume.md
+.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/progress.md
+.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-8-review-package.md

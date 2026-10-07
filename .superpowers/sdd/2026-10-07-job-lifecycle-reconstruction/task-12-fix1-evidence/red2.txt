@@ -1,0 +1,273 @@
+FFFFFFFFFF                                                               [100%]
+=================================== FAILURES ===================================
+_______ test_present_prefix_below_floor_cannot_expand_declared_coverage ________
+
+    def test_present_prefix_below_floor_cannot_expand_declared_coverage():
+        policy = ProjectionPolicy(True, NOW, coverage_starts=(("jobs", "job-1", 3),))
+        result = project(manifest(event(), event(2), event(3)), policy=policy)
+        assert not result.errors
+>       assert result.coverage[0].status == "incomplete"
+E       AssertionError: assert 'complete_from_baseline' == 'incomplete'
+E
+E         - incomplete
+E         + complete_from_baseline
+
+tests/test_archive_replay_fix1.py:18: AssertionError
+____ test_present_relationship_prefix_below_floor_cannot_supply_full_fields ____
+
+    def test_present_relationship_prefix_below_floor_cannot_supply_full_fields():
+        rid, brand = str(uuid4()), str(uuid4())
+        values = []
+        for revision in range(1, 4):
+            value = event(revision)
+            value.update(aggregate_type="company_brands", aggregate_id=rid,
+                         event_id=str(event_id("company_brands", rid, revision)),
+                         predecessor_id=str(event_id("company_brands", rid, revision-1)) if revision > 1 else None,
+                         body=dict(id=rid, company_id=1, brand_id=brand, revision=revision,
+                                   status="accepted", evidence_kind="structured_source",
+                                   public_evidence_ref="https://example.test/evidence"))
+            values.append(value)
+        policy = ProjectionPolicy(True, NOW, coverage_starts=(("company_brands", rid, 3),))
+        result = project(manifest(*values), policy=policy)
+>       assert not result.errors and not result.facts
+E       AssertionError: assert (not () and not (ProjectedFact(aggregate_type='company_brands', aggregate_id='a47f91f0-1469-483d-af56-72f3f4094b93', revision=3, event...0, 0, tzinfo=datetime.timezone.utc), event_sha256='585caf3bced88cc0bae564c6729800f5be8c98580f2098599d2fa1f8ee73af94'),))
+E        +  where () = ProjectionResult(applied_event_ids=(UUID('4b5a53dc-4470-5779-96fd-88811d9e3074'), UUID('bb95d590-9297-5535-af4d-37b95e...ed_revision_ranges=(('company_brands', 'a47f91f0-1469-483d-af56-72f3f4094b93', 1, 3),), errors=(), suppression_epoch=0).errors
+E        +  and   (ProjectedFact(aggregate_type='company_brands', aggregate_id='a47f91f0-1469-483d-af56-72f3f4094b93', revision=3, event...0, 0, tzinfo=datetime.timezone.utc), event_sha256='585caf3bced88cc0bae564c6729800f5be8c98580f2098599d2fa1f8ee73af94'),) = ProjectionResult(applied_event_ids=(UUID('4b5a53dc-4470-5779-96fd-88811d9e3074'), UUID('bb95d590-9297-5535-af4d-37b95e...ed_revision_ranges=(('company_brands', 'a47f91f0-1469-483d-af56-72f3f4094b93', 1, 3),), errors=(), suppression_epoch=0).facts
+
+tests/test_archive_replay_fix1.py:45: AssertionError
+__________ test_baseline_at_floor_still_anchors_only_declared_history __________
+
+    def test_baseline_at_floor_still_anchors_only_declared_history():
+        policy = ProjectionPolicy(True, NOW, coverage_starts=(("jobs", "job-1", 3),))
+        result = project(manifest(event(), event(2), event(3, kind="baseline", provenance="current_baseline"), event(4)), policy=policy)
+        assert not result.errors and not result.gaps
+        assert result.coverage[0].status == "complete_from_baseline"
+        assert result.coverage[0].baseline_revision == 3
+        assert not result.coverage[0].complete_history
+        assert result.facts[0].history_complete
+        assert "company_id" in result.facts[0].fields
+>       assert result.retained_revision_ranges == (("jobs", "job-1", 3, 4),)
+E       AssertionError: assert (('jobs', 'job-1', 1, 4),) == (('jobs', 'job-1', 3, 4),)
+E
+E         At index 0 diff: ('jobs', 'job-1', 1, 4) != ('jobs', 'job-1', 3, 4)
+E         Use -v to get more diff
+
+tests/test_archive_replay_fix1.py:61: AssertionError
+_________ test_entirely_below_floor_input_has_truthful_terminal_reason _________
+
+    def test_entirely_below_floor_input_has_truthful_terminal_reason():
+        policy = ProjectionPolicy(True, NOW, coverage_starts=(("jobs", "job-1", 3),))
+        result = project(manifest(event(), event(2)), policy=policy)
+>       assert not result.errors and not result.facts and not result.applied_event_ids
+E       AssertionError: assert (not () and not (ProjectedFact(aggregate_type='jobs', aggregate_id='job-1', revision=2, event_id=UUID('57d7310f-1180-5ef5-aeaf-3151bf0...0, 0, tzinfo=datetime.timezone.utc), event_sha256='e88029593a8f67d971b927c9933501fa0b1479e6b8bfa2f00d1878f75fdd02b7'),))
+E        +  where () = ProjectionResult(applied_event_ids=(UUID('05a808bb-f2dc-502a-a1d9-2d428b4aa161'), UUID('57d7310f-1180-5ef5-aeaf-3151bf...omplete_history=False),), gaps=(), retained_revision_ranges=(('jobs', 'job-1', 1, 2),), errors=(), suppression_epoch=0).errors
+E        +  and   (ProjectedFact(aggregate_type='jobs', aggregate_id='job-1', revision=2, event_id=UUID('57d7310f-1180-5ef5-aeaf-3151bf0...0, 0, tzinfo=datetime.timezone.utc), event_sha256='e88029593a8f67d971b927c9933501fa0b1479e6b8bfa2f00d1878f75fdd02b7'),) = ProjectionResult(applied_event_ids=(UUID('05a808bb-f2dc-502a-a1d9-2d428b4aa161'), UUID('57d7310f-1180-5ef5-aeaf-3151bf...omplete_history=False),), gaps=(), retained_revision_ranges=(('jobs', 'job-1', 1, 2),), errors=(), suppression_epoch=0).facts
+
+tests/test_archive_replay_fix1.py:68: AssertionError
+____ test_count_mismatch_rejected_before_membership_or_seal_builder[2-1-1] _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f705b9cfe30>
+ids = 2, events = 1, declared = 1
+
+    @pytest.mark.parametrize("ids,events,declared", [(2, 1, 1), (1, 2, 2), (2001, 1, 1), (0, 1, 1), (1, 1, 2)])
+    def test_count_mismatch_rejected_before_membership_or_seal_builder(monkeypatch, ids, events, declared):
+        item = manifest(*(event(n) for n in range(1, events+1)))
+        ref = replace(item.seal.batch, ordered_event_ids=_NoTraversal([UUID(int=1)]*ids))
+        item = replace(item, seal=replace(item.seal, batch=ref, event_count=declared))
+        def forbidden(*args, **kwargs):
+            pytest.fail("malformed membership reached accepted seal builder")
+        monkeypatch.setattr(replay, "seal_batch", forbidden)
+>       result = project(item)
+                 ^^^^^^^^^^^^^
+
+tests/test_archive_replay_fix1.py:88:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_archive_replay.py:68: in project
+    return project_archive(
+job_discovery/archive/replay.py:281: in project_archive
+    or any(not isinstance(eid, UUID) for eid in ref.ordered_event_ids)
+                                                ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = (UUID('00000000-0000-0000-0000-000000000001'), UUID('00000000-0000-0000-0000-000000000001'))
+
+    def __iter__(self):
+>       pytest.fail("membership traversal preceded cardinality/event-budget rejection")
+E       Failed: membership traversal preceded cardinality/event-budget rejection
+
+tests/test_archive_replay_fix1.py:77: Failed
+____ test_count_mismatch_rejected_before_membership_or_seal_builder[1-2-2] _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f705b9d64b0>
+ids = 1, events = 2, declared = 2
+
+    @pytest.mark.parametrize("ids,events,declared", [(2, 1, 1), (1, 2, 2), (2001, 1, 1), (0, 1, 1), (1, 1, 2)])
+    def test_count_mismatch_rejected_before_membership_or_seal_builder(monkeypatch, ids, events, declared):
+        item = manifest(*(event(n) for n in range(1, events+1)))
+        ref = replace(item.seal.batch, ordered_event_ids=_NoTraversal([UUID(int=1)]*ids))
+        item = replace(item, seal=replace(item.seal, batch=ref, event_count=declared))
+        def forbidden(*args, **kwargs):
+            pytest.fail("malformed membership reached accepted seal builder")
+        monkeypatch.setattr(replay, "seal_batch", forbidden)
+>       result = project(item)
+                 ^^^^^^^^^^^^^
+
+tests/test_archive_replay_fix1.py:88:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_archive_replay.py:68: in project
+    return project_archive(
+job_discovery/archive/replay.py:281: in project_archive
+    or any(not isinstance(eid, UUID) for eid in ref.ordered_event_ids)
+                                                ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = (UUID('00000000-0000-0000-0000-000000000001'),)
+
+    def __iter__(self):
+>       pytest.fail("membership traversal preceded cardinality/event-budget rejection")
+E       Failed: membership traversal preceded cardinality/event-budget rejection
+
+tests/test_archive_replay_fix1.py:77: Failed
+___ test_count_mismatch_rejected_before_membership_or_seal_builder[2001-1-1] ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f705b95e4e0>
+ids = 2001, events = 1, declared = 1
+
+    @pytest.mark.parametrize("ids,events,declared", [(2, 1, 1), (1, 2, 2), (2001, 1, 1), (0, 1, 1), (1, 1, 2)])
+    def test_count_mismatch_rejected_before_membership_or_seal_builder(monkeypatch, ids, events, declared):
+        item = manifest(*(event(n) for n in range(1, events+1)))
+        ref = replace(item.seal.batch, ordered_event_ids=_NoTraversal([UUID(int=1)]*ids))
+        item = replace(item, seal=replace(item.seal, batch=ref, event_count=declared))
+        def forbidden(*args, **kwargs):
+            pytest.fail("malformed membership reached accepted seal builder")
+        monkeypatch.setattr(replay, "seal_batch", forbidden)
+>       result = project(item)
+                 ^^^^^^^^^^^^^
+
+tests/test_archive_replay_fix1.py:88:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_archive_replay.py:68: in project
+    return project_archive(
+job_discovery/archive/replay.py:281: in project_archive
+    or any(not isinstance(eid, UUID) for eid in ref.ordered_event_ids)
+                                                ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = (UUID('00000000-0000-0000-0000-000000000001'), UUID('00000000-0000-0000-0000-000000000001'), UUID('00000000-0000-0000-...0-0000-0000-000000000001'), UUID('00000000-0000-0000-0000-000000000001'), UUID('00000000-0000-0000-0000-000000000001'))
+
+    def __iter__(self):
+>       pytest.fail("membership traversal preceded cardinality/event-budget rejection")
+E       Failed: membership traversal preceded cardinality/event-budget rejection
+
+tests/test_archive_replay_fix1.py:77: Failed
+____ test_count_mismatch_rejected_before_membership_or_seal_builder[0-1-1] _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f705b942330>
+ids = 0, events = 1, declared = 1
+
+    @pytest.mark.parametrize("ids,events,declared", [(2, 1, 1), (1, 2, 2), (2001, 1, 1), (0, 1, 1), (1, 1, 2)])
+    def test_count_mismatch_rejected_before_membership_or_seal_builder(monkeypatch, ids, events, declared):
+        item = manifest(*(event(n) for n in range(1, events+1)))
+        ref = replace(item.seal.batch, ordered_event_ids=_NoTraversal([UUID(int=1)]*ids))
+        item = replace(item, seal=replace(item.seal, batch=ref, event_count=declared))
+        def forbidden(*args, **kwargs):
+            pytest.fail("malformed membership reached accepted seal builder")
+        monkeypatch.setattr(replay, "seal_batch", forbidden)
+>       result = project(item)
+                 ^^^^^^^^^^^^^
+
+tests/test_archive_replay_fix1.py:88:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_archive_replay.py:68: in project
+    return project_archive(
+job_discovery/archive/replay.py:281: in project_archive
+    or any(not isinstance(eid, UUID) for eid in ref.ordered_event_ids)
+                                                ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = ()
+
+    def __iter__(self):
+>       pytest.fail("membership traversal preceded cardinality/event-budget rejection")
+E       Failed: membership traversal preceded cardinality/event-budget rejection
+
+tests/test_archive_replay_fix1.py:77: Failed
+____ test_count_mismatch_rejected_before_membership_or_seal_builder[1-1-2] _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f705bdf3d40>
+ids = 1, events = 1, declared = 2
+
+    @pytest.mark.parametrize("ids,events,declared", [(2, 1, 1), (1, 2, 2), (2001, 1, 1), (0, 1, 1), (1, 1, 2)])
+    def test_count_mismatch_rejected_before_membership_or_seal_builder(monkeypatch, ids, events, declared):
+        item = manifest(*(event(n) for n in range(1, events+1)))
+        ref = replace(item.seal.batch, ordered_event_ids=_NoTraversal([UUID(int=1)]*ids))
+        item = replace(item, seal=replace(item.seal, batch=ref, event_count=declared))
+        def forbidden(*args, **kwargs):
+            pytest.fail("malformed membership reached accepted seal builder")
+        monkeypatch.setattr(replay, "seal_batch", forbidden)
+>       result = project(item)
+                 ^^^^^^^^^^^^^
+
+tests/test_archive_replay_fix1.py:88:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_archive_replay.py:68: in project
+    return project_archive(
+job_discovery/archive/replay.py:281: in project_archive
+    or any(not isinstance(eid, UUID) for eid in ref.ordered_event_ids)
+                                                ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = (UUID('00000000-0000-0000-0000-000000000001'),)
+
+    def __iter__(self):
+>       pytest.fail("membership traversal preceded cardinality/event-budget rejection")
+E       Failed: membership traversal preceded cardinality/event-budget rejection
+
+tests/test_archive_replay_fix1.py:77: Failed
+_______ test_remaining_event_budget_checked_before_membership_traversal ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f705b9cc7a0>
+
+    def test_remaining_event_budget_checked_before_membership_traversal(monkeypatch):
+        first = manifest(event())
+        second = manifest(event(2), event(3))
+        ref = replace(second.seal.batch, ordered_event_ids=_NoTraversal(second.seal.batch.ordered_event_ids))
+        second = replace(second, seal=replace(second.seal, batch=ref))
+        original = replay.seal_batch
+        calls = []
+        def guarded(ref):
+            assert ref is first.seal.batch, "over-budget descriptor reached seal builder"
+            calls.append(ref.batch_id)
+            return original(ref)
+        monkeypatch.setattr(replay, "seal_batch", guarded)
+>       result = project(first, second, limits=ReplayLimits(max_events=2))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_archive_replay_fix1.py:105:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/test_archive_replay.py:68: in project
+    return project_archive(
+job_discovery/archive/replay.py:281: in project_archive
+    or any(not isinstance(eid, UUID) for eid in ref.ordered_event_ids)
+                                                ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = (UUID('57d7310f-1180-5ef5-aeaf-3151bf024cd2'), UUID('895d39da-1513-5c27-9f4b-c15e65cbdec3'))
+
+    def __iter__(self):
+>       pytest.fail("membership traversal preceded cardinality/event-budget rejection")
+E       Failed: membership traversal preceded cardinality/event-budget rejection
+
+tests/test_archive_replay_fix1.py:77: Failed
+=========================== short test summary info ============================
+FAILED tests/test_archive_replay_fix1.py::test_present_prefix_below_floor_cannot_expand_declared_coverage
+FAILED tests/test_archive_replay_fix1.py::test_present_relationship_prefix_below_floor_cannot_supply_full_fields
+FAILED tests/test_archive_replay_fix1.py::test_baseline_at_floor_still_anchors_only_declared_history
+FAILED tests/test_archive_replay_fix1.py::test_entirely_below_floor_input_has_truthful_terminal_reason
+FAILED tests/test_archive_replay_fix1.py::test_count_mismatch_rejected_before_membership_or_seal_builder[2-1-1]
+FAILED tests/test_archive_replay_fix1.py::test_count_mismatch_rejected_before_membership_or_seal_builder[1-2-2]
+FAILED tests/test_archive_replay_fix1.py::test_count_mismatch_rejected_before_membership_or_seal_builder[2001-1-1]
+FAILED tests/test_archive_replay_fix1.py::test_count_mismatch_rejected_before_membership_or_seal_builder[0-1-1]
+FAILED tests/test_archive_replay_fix1.py::test_count_mismatch_rejected_before_membership_or_seal_builder[1-1-2]
+FAILED tests/test_archive_replay_fix1.py::test_remaining_event_budget_checked_before_membership_traversal
+10 failed in 0.73s

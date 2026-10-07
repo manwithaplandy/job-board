@@ -1,0 +1,16 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+cached_poll {"first": {"ok": 1, "failed": 0, "new_jobs": 2, "closed_jobs": 0}, "second": {"ok": 1, "failed": 0, "new_jobs": 0, "closed_jobs": 0}, "http_calls": ["https://boards-api.greenhouse.io/v1/boards/probe/jobs/1?questions=true", "https://boards-api.greenhouse.io/v1/boards/probe/jobs/2?questions=true"]}
+cached_payload_replaced {"result": {"ok": 1, "failed": 0, "new_jobs": 0, "closed_jobs": 0}, "rows": [{"replaced": true}, {"replaced": true}], "http_calls": 2}
+poll failed for Probe (greenhouse:probe)
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/run.py", line 93, in run
+    with questions_context as questions:
+         ^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/contextlib.py", line 137, in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/lifecycle/legacy_spool.py", line 71, in spool_questions
+    raise ValueError("legacy question spool deadline exceeded")
+ValueError: legacy question spool deadline exceeded
+cached_feed_question_timeout {"result": {"ok": 0, "failed": 1, "new_jobs": 0, "closed_jobs": 0}, "poll_failures": 1, "http_calls": 1}
+company_network_gate {"count": 2, "observed": [{"during_http": "second_company_fetch", "transaction": "INTRANS", "global_gate_available_to_other_backend": false}]}

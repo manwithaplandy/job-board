@@ -27,3 +27,9 @@ covered by both final targeted lanes. No final-SHA full-suite claim is made.
 Tasks 3–13 and the final independent whole-branch review remain pending.
 Production activation, destination setup, deployment, push and merge remain
 unauthorized. Reconstruction continues; this file is not a completion claim.
+
+## Blocked, unaccepted Task 3 recovery checkpoint
+
+Source HEAD: `a17b6427ea06c60e801836e56114890441166842`. Fix Round 1 tested 344 Python tests per PostgreSQL major and 5 dashboard DB tests per major. Final requirements-only Fix Round 2 tested 109 covering business tests per major. Versions: 17.11 / 16.15; zero skips. The 344-test lane predates the subsequent business-only fix and is not claimed as a final whole-suite rerun.
+
+Independent Fix Round 2 requirements/business review: PASS / APPROVED. Independent Fix Round 1 security re-review: platform content safeguard blocked execution, no verdict. Task 3 is UNACCEPTED; this artifact is not accepted checkpoint 03. Tasks 4–13 require the unavailable security gate. See BLOCKERS.md for exact platform response. Full-history blocked bundle and confirmed Library ID are recorded in the next forward persistence ledger.

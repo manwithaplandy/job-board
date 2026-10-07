@@ -1,0 +1,2 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+{"after_transient_failure": [{"status": "running", "finished_at": null, "ingested": null}], "pending_after_failure": 1, "fetches_on_retry": 0, "after_retry": [{"status": "running", "finished_at": null, "ingested": null}], "pending_after_retry": 1}

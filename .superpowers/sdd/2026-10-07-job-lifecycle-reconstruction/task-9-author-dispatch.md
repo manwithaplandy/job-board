@@ -30,3 +30,5 @@ Library checkpoint precede Task10. Any safeguard: report exact error, stop
 only affected work, continue permitted work without bypass. No production,
 activation/deployment/merge/push/IAM/infrastructure/unrelated Railway actions
 by the author. Permanent-deletion/safety-floor actions need applicable approval.
+
+Task6 inherited transport issue (progress.md): adapters use job_discovery.http with redirects. New per-board request/time budgets do not establish full publicfetch deadline20s, redirect<=3, each address/redirect revalidation/pinning and10MiB wire+decompressed cap. Inventory and implement the required normal bounded public transport integration within authorized scope; report any safeguard overlap concretely rather than bypassing it or declaring the contract proved.

@@ -37,3 +37,5 @@ upgrade may publish/merge/deploy after all tasks and permitted verification.
 Controller owns final release; your implementation task remains local-only.
 No permanent deletion, new credentials/IAM/security settings are implicitly
 authorized, and reduced independent-review gaps remain explicit.
+
+Carry the Task6 above-guard functional/rollout conflict in progress.md: bounded read-only verification may proceed, but existing source/staging growth accounting blocks durable reconciliation above 6000 MiB. Do not claim this goal completed or security approved. Assess ordinary integration correctness, preserve flag-off legacy closure, and report a concrete minimal contract repair before changing established enforcement.

@@ -43,3 +43,13 @@ upgrade may publish/merge/deploy after all tasks and permitted verification.
 Controller owns final release; your implementation task remains local-only.
 No permanent deletion, new credentials/IAM/security settings are implicitly
 authorized, and reduced independent-review gaps remain explicit.
+
+Task6 inherited HTTP integration gap: all six adapters retain job_discovery.http,
+which follows redirects and does not establish global full-fetch20s,
+redirect<=3/address revalidation-pinning or10MiB wire+decompressed limits.
+Demand's required bounded public transport should provide an explicit shared
+contract where appropriate; inventory affected source/detail callers and
+coordinate actual integration rather than implement a demand-only guarantee
+and leave source verification unbounded. Carry any residual gap to Task9/13.
+Normal bounded transport functionality is separate from the refused Task3
+mechanism review; report any safeguard overlap concretely before execution.

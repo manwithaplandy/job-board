@@ -48,3 +48,9 @@ tests/report/evidence forward excludecontrollerfiles. Return DONE+SHA and
 stop for permitted task review, Library13checkpoint then freshfinalwholebranch
 permitted review/onecompletefixwave and scopedrereview. Any safeguard: exact
 error, stoponlyaffectedwork, continueindependentallowedwork, no bypass.
+
+Carry the Task6 above-guard functional/rollout conflict in progress.md: bounded read-only verification may proceed, but existing source/staging growth accounting blocks durable reconciliation above 6000 MiB. Do not claim this goal completed or security approved. Assess ordinary integration correctness, preserve flag-off legacy closure, and report a concrete minimal contract repair before changing established enforcement.
+
+Task6 inherited transport issue (progress.md): adapters use job_discovery.http with redirects. New per-board request/time budgets do not establish full publicfetch deadline20s, redirect<=3, each address/redirect revalidation/pinning and10MiB wire+decompressed cap. Inventory and implement the required normal bounded public transport integration within authorized scope; report any safeguard overlap concretely rather than bypassing it or declaring the contract proved.
+
+Task6 reviewer minor: verify_due_sources initializes closed_jobs=0 and never increments despite actual closure writes; run persists this zero. Complete reporting with actual committed close counts and no replay double-counting. R6-4/R6-5 remain Important functional integration blockers until actually resolved; see task-6-requirements-review.md.

@@ -1,0 +1,23 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_retention_window_requires_730_elapsed_utc_days ______________
+
+    def test_retention_window_requires_730_elapsed_utc_days():
+        from zoneinfo import ZoneInfo
+        item = manifest(event())
+        london = ZoneInfo("Europe/London")
+        # The same wall time crosses a DST offset; it is one hour short of730days.
+        start = datetime(2024, 3, 31, 0, 30, tzinfo=london)
+        end = datetime(2026, 3, 31, 0, 30, tzinfo=london)
+        ref = replace(item.seal.batch, sealed_at=start, eligible_until=end)
+        result = project(replace(item, seal=seal_batch(ref)))
+>       assert result.errors == ("invalid_seal_window",)
+E       AssertionError: assert () == ('invalid_seal_window',)
+E
+E         Right contains one more item: 'invalid_seal_window'
+E         Use -v to get more diff
+
+tests/test_archive_replay.py:420: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_archive_replay.py::test_retention_window_requires_730_elapsed_utc_days
+1 failed in 0.20s

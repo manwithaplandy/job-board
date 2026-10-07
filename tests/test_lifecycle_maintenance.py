@@ -146,11 +146,18 @@ def enumeration(conn, *, completed=False, hours=169, members=4):
     c = claim_work(conn, 'source', str(source), 180)
     eid = conn.execute("""INSERT INTO source_enumerations(source_id,sequence,owner_token,generation,status,started_at,reconciled_at)
       VALUES(%s,1,%s,%s,%s,clock_timestamp()-make_interval(hours=>%s),CASE WHEN %s THEN clock_timestamp()-make_interval(hours=>%s) END) RETURNING id""",
-      (source, c.owner_token, c.generation, 'complete' if completed else 'running', hours, completed, hours)).fetchone()['id']
+      (source, c.owner_token, c.generation, 'running', hours, False, hours)).fetchone()['id']
     conn.commit()
     for start in range(1, members+1, 500):
         conn.execute("INSERT INTO enumeration_members SELECT %s,n::text,'{}'::jsonb FROM generate_series(%s::int,%s::int) n", (eid, start, min(start+499,members)))
         conn.commit()
+    if completed:
+        # Membership is immutable once completion is certified. Seed the same
+        # snapshot in production order: running members, then completion.
+        conn.execute("""UPDATE source_enumerations SET status='complete',
+            completed_at=clock_timestamp()-make_interval(hours=>%s),
+            reconciled_at=clock_timestamp()-make_interval(hours=>%s) WHERE id=%s""",
+            (hours, hours, eid))
     conn.execute("INSERT INTO reconciliation_checkpoints(enumeration_id,generation,reconciled_count,completed_at) VALUES(%s,%s,23,CASE WHEN %s THEN clock_timestamp()-make_interval(hours=>%s) END)", (eid, c.generation, completed, hours))
     conn.commit()
     return source, eid, c

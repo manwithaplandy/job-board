@@ -226,8 +226,8 @@ def test_failure_disabled_backoff_and_deliberate_exclusion(conn):
     for days in [1,2,4,7,7]:
         enum = begin(conn,source)
         finish(conn,enum,False)
-        row = conn.execute('SELECT next_due_at-clock_timestamp() delay FROM source_accounts').fetchone()
-        assert timedelta(days=days,seconds=-5) < row['delay'] <= timedelta(days=days)
+        row = conn.execute('SELECT next_due_at,last_attempt_at FROM source_accounts').fetchone()
+        assert row['next_due_at']==row['last_attempt_at'].replace(hour=0,minute=0,second=0,microsecond=0)+timedelta(days=days)
     conn.execute("UPDATE source_accounts SET exclusion_state='deliberate',next_due_at=NULL")
     assert r.claim_due_source(conn) is None
 
@@ -396,3 +396,170 @@ def test_readonly_fallback_day_rotation_attempts_all_six_with_one_turn_budget(co
     assert len(calls)==6 and len(set(calls))==6
     assert all(str(row['id']) in caplog.text for row in before)
     assert conn.execute('SELECT * FROM source_accounts ORDER BY id').fetchall()==before
+
+
+@requires_db
+@pytest.mark.parametrize('ats',['greenhouse','lever','ashby'])
+@pytest.mark.parametrize('defect',['missing_title','duplicate'])
+def test_fix1_single_response_good_positives_commit_despite_later_bad_item(conn,monkeypatch,ats,defect):
+    from job_discovery import http
+    setup_source(conn,3,ats)
+    conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
+    conn.commit()
+    good={'id':'0','title':'Role','text':'Role','absolute_url':'https://example.test/job',
+          'hostedUrl':'https://example.test/job','jobUrl':'https://example.test/job'}
+    bad=dict(good,id='1')
+    bad.pop('title')
+    bad.pop('text')
+    items=[good,bad if defect=='missing_title' else good]
+    monkeypatch.setattr(http,'get_json',lambda *a,**kw:items if ats=='lever' else {'jobs':items})
+    r.verify_due_sources(conn,max_boards=1)
+    rows=conn.execute('SELECT * FROM source_listings ORDER BY external_id').fetchall()
+    assert rows[0]['successful_sighting_count']==1
+    assert rows[0]['source_availability']=='open'
+    assert conn.execute("SELECT closed_at FROM jobs WHERE external_id='0'").fetchone()['closed_at'] is None
+    assert all(row['consecutive_complete_misses']==0 for row in rows)
+    assert conn.execute('SELECT status FROM source_enumerations').fetchone()['status']=='partial'
+
+
+class SourceFixtureClock:
+    """Advance only source scheduling/evidence time, never claim or lease time."""
+    def __init__(self,conn,clock):
+        self.conn,self.clock=conn,clock
+    def __getattr__(self,name):
+        return getattr(self.conn,name)
+    def execute(self,query,params=None):
+        from psycopg import sql
+        # Test-only replacement in precisely the source operations under test.
+        if isinstance(query,str):
+            if ('UPDATE source_accounts SET last_attempt_at=' in query
+                or 'UPDATE source_accounts SET last_outcome=' in query
+                or 'UPDATE source_enumerations SET status=' in query
+                or 'SELECT s.* FROM source_accounts s' in query):
+                literal=sql.Literal(self.clock[0]).as_string(self.conn)+'::timestamptz'
+                query=query.replace('clock_timestamp()',literal)
+        return self.conn.execute(query,params)
+
+
+@requires_db
+@pytest.mark.parametrize('failure_disabled',[False,True])
+def test_fix1_daily_entrypoint_eligibility_with_nonzero_feed_duration(conn,monkeypatch,failure_disabled):
+    from datetime import UTC,datetime
+    from job_discovery import http
+    setup_source(conn)
+    if failure_disabled:
+        conn.execute("UPDATE source_accounts SET exclusion_state='failure_disabled'")
+    conn.commit()
+    slot=datetime(2026,10,1,tzinfo=UTC)
+    clock=[slot]
+    scheduled=SourceFixtureClock(conn,clock)
+    calls=[]
+    def feed(*a,**kw):
+        calls.append(clock[0])
+        clock[0]+=timedelta(seconds=10 if len(calls)==2 else 20)
+        if failure_disabled:
+            raise ValueError('ordinary fixture unavailable source')
+        return []
+    monkeypatch.setattr(http,'get_json',feed)
+    for backoff in ([1,2,4,7] if failure_disabled else [1,1,1,1]):
+        before=len(calls)
+        r.verify_due_sources(scheduled,max_boards=1)
+        assert len(calls)==before+1
+        next_slot=slot+timedelta(days=backoff)
+        row=conn.execute('SELECT next_due_at FROM source_accounts').fetchone()
+        assert row['next_due_at']==next_slot
+        if not failure_disabled and len(calls)==2:
+            assert conn.execute('SELECT closed_at FROM jobs').fetchone()['closed_at'] is None
+        if not failure_disabled and len(calls)==3:
+            assert conn.execute('SELECT closed_at FROM jobs').fetchone()['closed_at'] is not None
+        conn.commit()
+        slot=next_slot
+        clock[0]=slot
+    # Scheduling slots do not relax the separate 24-hour successful evidence rule.
+
+
+@requires_db
+@pytest.mark.parametrize('interruption',['deadline','after_complete'])
+def test_fix1_entrypoint_resumes_complete_membership_tail_after_worker_restart(conn,monkeypatch,interruption):
+    import psycopg
+    from psycopg.rows import dict_row
+    from tests.conftest import TEST_DSN
+    from job_discovery import http
+    source=setup_source(conn,205)
+    conn.commit()
+    calls=[]
+    monkeypatch.setattr(http,'get_json',lambda *a,**kw:calls.append(1) or [{'id':'extra','text':'Role','hostedUrl':'https://example.test/job'}])
+    clock=[0.0]
+    monkeypatch.setattr(r,'monotonic',lambda:clock[0])
+    actual=r.reconcile_chunk
+    chunks=[]
+    def limited(worker,enum,limit=500):
+        if interruption=='after_complete' and not chunks:
+            chunks.append('interrupted')
+            raise KeyboardInterrupt('ordinary worker interruption after membership completion')
+        done=actual(worker,enum,limit)
+        chunks.append(done)
+        clock[0]+=2
+        return done
+    monkeypatch.setattr(r,'reconcile_chunk',limited)
+    saved=None
+    progress=[]
+    for turn in range(4):
+        with psycopg.connect(TEST_DSN,row_factory=dict_row) as worker:
+            if turn==0 and interruption=='after_complete':
+                with pytest.raises(KeyboardInterrupt):
+                    r.verify_due_sources(worker,max_boards=1,seconds=1)
+            else:
+                r.verify_due_sources(worker,max_boards=1,seconds=1)
+        # Every invocation has discarded its worker and connection; it receives
+        # no in-memory EnumerationRef/checkpoint from the preceding invocation.
+        conn.rollback()
+        enum=conn.execute('SELECT * FROM source_enumerations WHERE source_id=%s',(source['id'],)).fetchone()
+        identity=(enum['id'],enum['sequence'],enum['started_at'],enum['completed_at'])
+        if saved is None:
+            saved=identity
+        assert identity==saved
+        progress.append(conn.execute('SELECT sum(consecutive_complete_misses) n FROM source_listings').fetchone()['n'])
+        conn.commit()
+        if enum['reconciled_at']:
+            break
+    assert progress==([100,200,205] if interruption=='deadline' else [0,100,200,205])
+    assert len(calls)==1
+    assert conn.execute('SELECT enumeration_sequence FROM source_accounts').fetchone()['enumeration_sequence']==1
+    assert conn.execute('SELECT min(consecutive_complete_misses) n FROM source_listings').fetchone()['n']==1
+
+
+@requires_db
+@pytest.mark.parametrize('defect',['missing_title','duplicate','missing_id'])
+def test_fix1_workable_mixed_response_retains_good_positive(conn,monkeypatch,defect):
+    from job_discovery import http
+    setup_source(conn,3,'workable')
+    conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
+    conn.commit()
+    good={'shortcode':'0','title':'Role'}
+    bad={'shortcode':'1'} if defect=='missing_title' else (good if defect=='duplicate' else {'title':'No ID'})
+    monkeypatch.setattr(http,'get_json',lambda *a,**kw:{'jobs':[good,bad]})
+    r.verify_due_sources(conn,max_boards=1)
+    row=conn.execute("SELECT * FROM source_listings WHERE external_id='0'").fetchone()
+    assert row['successful_sighting_count']==1 and row['source_availability']=='open'
+    assert conn.execute("SELECT closed_at FROM jobs WHERE external_id='0'").fetchone()['closed_at'] is None
+    assert conn.execute('SELECT status FROM source_enumerations').fetchone()['status']=='partial'
+    assert conn.execute('SELECT sum(consecutive_complete_misses) n FROM source_listings').fetchone()['n']==0
+
+
+@requires_db
+@pytest.mark.parametrize('family',['smartrecruiters','workday'])
+def test_fix1_paged_mixed_nonobject_retains_good_positive(conn,monkeypatch,family):
+    from job_discovery import http
+    setup_source(conn,3,family,'fixture:wd5:External' if family=='workday' else 'fixture')
+    if family=='smartrecruiters':
+        payload={'content':[{'id':'0','name':'Role'},None],'totalFound':2}
+    else:
+        payload={'jobPostings':[{'externalPath':'0','title':'Role'},None],'total':2}
+    monkeypatch.setattr(http,'get_json',lambda *a,**kw:payload)
+    monkeypatch.setattr(http,'post_json',lambda *a,**kw:payload)
+    r.verify_due_sources(conn,max_boards=1)
+    row=conn.execute("SELECT * FROM source_listings WHERE external_id='0'").fetchone()
+    assert row['successful_sighting_count']==1 and row['source_availability']=='open'
+    assert conn.execute('SELECT status FROM source_enumerations').fetchone()['status'] in {'partial','failed'}
+    assert conn.execute('SELECT sum(consecutive_complete_misses) n FROM source_listings').fetchone()['n']==0

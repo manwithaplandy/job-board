@@ -236,6 +236,19 @@ def _choose_subdivider(
     return None if best is None else (best[1], best[2])
 
 
+
+def _page_ids(items, status):
+    """Validate a page's identity coverage without discarding good items."""
+    ids = set()
+    for item in items:
+        path = item.get("externalPath") if isinstance(item, dict) else None
+        if not isinstance(path, str) or not path or path in ids:
+            status.complete = False
+            continue
+        ids.add(path)
+    return ids
+
+
 def _yield_items(
     items: list, seen: set[str], *, cxs: str, host: str, site: str, status: SourceStatus
 ) -> Iterator[Posting]:
@@ -252,8 +265,8 @@ def _yield_items(
     it before the next one is fetched, keeping peak posting memory at O(1).
     """
     for item in items:
-        external_path = item.get("externalPath")
-        if not external_path:
+        external_path = item.get("externalPath") if isinstance(item, dict) else None
+        if not isinstance(external_path, str) or not external_path:
             status.complete = False
             continue
         if external_path in seen:
@@ -317,17 +330,16 @@ def _page_walk(
         # Wrap guard: past the 2000 hard cap Workday wraps back to page 1 rather
         # than returning empty, so if a later page repeats page 1's first posting
         # we've wrapped — stop BEFORE re-ingesting duplicates.
-        this_first = items[0].get("externalPath")
+        this_first = items[0].get("externalPath") if isinstance(items[0], dict) else None
         if offset == 0:
             first_path = this_first
         elif this_first is not None and this_first == first_path:
             status.complete = False
             break
-        for item in items:
-            path = item.get("externalPath")
-            if path in query_ids:
-                status.complete = False
-            query_ids.add(path)
+        page_ids = _page_ids(items, status)
+        if query_ids & page_ids:
+            status.complete = False
+        query_ids.update(page_ids)
         received += len(items)
         yield from _yield_items(items, seen, cxs=cxs, host=host, site=site, status=status)
         offset += _PAGE_LIMIT
@@ -374,8 +386,7 @@ def _crawl(
         yield from _page_walk(cxs, applied_facets, first, seen, host=host, site=site, status=status)
         return
     if total < _HARD_CAP:
-        partition_ids = set()
-        partition_ids.update(i.get("externalPath") for i in first["jobPostings"])
+        partition_ids = _page_ids(first["jobPostings"], status)
         yield from _yield_items(first.get("jobPostings") or [], seen,
                                 cxs=cxs, host=host, site=site, status=status)
         expected = total
@@ -392,9 +403,10 @@ def _crawl(
             items = page.get("jobPostings") or []
             if not items:
                 break
-            if any(i.get("externalPath") in partition_ids for i in items):
+            page_ids = _page_ids(items, status)
+            if partition_ids & page_ids:
                 status.complete = False
-            partition_ids.update(i.get("externalPath") for i in items)
+            partition_ids.update(page_ids)
             yield from _yield_items(items, seen, cxs=cxs, host=host, site=site, status=status)
             offset += _PAGE_LIMIT
         if len(partition_ids - {None}) < expected:

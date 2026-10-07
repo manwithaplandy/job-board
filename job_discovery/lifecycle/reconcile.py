@@ -46,24 +46,32 @@ def claim_due_source(conn) -> tuple[dict, ClaimRef] | None:
     enter_gate(conn)
     if not read_control(conn).source_enabled:
         return None
-    # Last-attempt ordering is essential: an interrupted huge board goes behind
-    # untouched small boards even if neither has ever completed successfully.
+    # Order by the last claimed work turn, including reconciliation-only turns.
+    # The persisted lease start prevents a huge pending tail starving other
+    # sources while last_attempt_at continues to mean an actual feed attempt.
     source = conn.execute("""SELECT s.* FROM source_accounts s
         WHERE exclusion_state IN ('enabled','failure_disabled')
-          AND (next_due_at IS NULL OR next_due_at<=clock_timestamp())
+          AND ((next_due_at IS NULL OR next_due_at<=clock_timestamp()) OR EXISTS
+            (SELECT FROM source_enumerations e WHERE e.source_id=s.id AND e.status='complete'
+             AND e.reconciled_at IS NULL AND e.sequence>s.replay_floor))
           AND NOT EXISTS (SELECT FROM lifecycle_claims c WHERE c.kind='source'
             AND c.work_id=s.id::text AND c.state='active' AND c.lease_until>clock_timestamp())
-        ORDER BY last_attempt_at NULLS FIRST,last_complete_success_at NULLS FIRST,id
+        ORDER BY GREATEST(last_attempt_at,lease_until-interval '180 seconds') NULLS FIRST,
+                 last_complete_success_at NULLS FIRST,id
         LIMIT 1""").fetchone()
     if not source:
         return None
     claim = claim_work(conn, 'source', str(source['id']), 180)
     if claim is None:
         raise StorageBlocked('source claim storage blocked; reconciliation deferred')
+    pending = conn.execute('''SELECT 1 FROM source_enumerations WHERE source_id=%s
+        AND status='complete' AND reconciled_at IS NULL AND sequence>%s LIMIT 1''',
+        (source['id'],source['replay_floor'])).fetchone() is not None
     with _write(conn, claim, 'source_accounts'):
-        conn.execute("""UPDATE source_accounts SET last_attempt_at=clock_timestamp(),
-            last_outcome='attempting',claim_owner_token=%s,claim_generation=%s,
-            lease_until=%s WHERE id=%s""", (claim.owner_token,claim.generation,claim.lease_until,source['id']))
+        conn.execute("""UPDATE source_accounts SET last_attempt_at=CASE WHEN %s THEN last_attempt_at ELSE clock_timestamp() END,
+            last_outcome=CASE WHEN %s THEN last_outcome ELSE 'attempting' END,
+            claim_owner_token=%s,claim_generation=%s,lease_until=%s WHERE id=%s""",
+            (pending,pending,claim.owner_token,claim.generation,claim.lease_until,source['id']))
     return source, claim
 
 
@@ -90,6 +98,30 @@ def begin_enumeration(conn, source_id: UUID, claim: ClaimRef) -> EnumerationRef:
             VALUES(%s,%s,%s,%s,'running') RETURNING id""",
             (source_id,row['enumeration_sequence'],claim.owner_token,claim.generation)).fetchone()
     return EnumerationRef(enum['id'],source_id,row['enumeration_sequence'],claim)
+
+
+
+def resume_enumeration(conn, source_id: UUID, claim: ClaimRef) -> EnumerationRef | None:
+    """Adopt immutable complete membership and its checkpoint in one commit.
+
+    claim_work already fenced the prior generation. The staging trigger permits
+    only an ownership-only change to a complete, unreconciled same-source run.
+    Neither its sequence nor its successful-evidence timestamps advance.
+    """
+    validate_claim(conn, claim)
+    row = conn.execute("""SELECT e.* FROM source_enumerations e JOIN source_accounts s ON s.id=e.source_id
+        WHERE e.source_id=%s AND e.status='complete' AND e.reconciled_at IS NULL
+          AND e.sequence>s.replay_floor ORDER BY e.sequence LIMIT 1 FOR UPDATE OF e""",
+        (source_id,)).fetchone()
+    if row is None:
+        return None
+    with _write(conn, claim, 'source_enumerations'):
+        conn.execute('UPDATE source_enumerations SET owner_token=%s,generation=%s WHERE id=%s',
+                     (claim.owner_token,claim.generation,row['id']))
+    with _write(conn, claim, 'reconciliation_checkpoints'):
+        conn.execute('UPDATE reconciliation_checkpoints SET generation=%s WHERE enumeration_id=%s',
+                     (claim.generation,row['id']))
+    return EnumerationRef(row['id'],source_id,row['sequence'],claim)
 
 
 def _positive(conn, enum, listing, kind, observed_at):
@@ -181,9 +213,9 @@ def complete_enumeration(conn, enumeration: EnumerationRef, verdict: SourceStatu
           last_complete_success_at=CASE WHEN %s='complete' THEN clock_timestamp() ELSE last_complete_success_at END,
           failure_streak=CASE WHEN %s='complete' THEN 0 ELSE failure_streak+1 END,
           suspicious_empty_streak=CASE WHEN %s THEN suspicious_empty_streak+1 ELSE 0 END,
-          next_due_at=clock_timestamp()+interval '24 hours' *
+          next_due_at=(date_trunc('day',last_attempt_at AT TIME ZONE 'UTC')+interval '24 hours' *
              CASE WHEN exclusion_state='failure_disabled' AND %s<>'complete'
-                  THEN LEAST(7,power(2,LEAST(failure_streak,3))) ELSE 1 END
+                  THEN LEAST(7,power(2,LEAST(failure_streak,3))) ELSE 1 END) AT TIME ZONE 'UTC'
           WHERE id=%s""", (outcome,status,status,suspicious,status,enumeration.source_id))
 
 
@@ -263,7 +295,10 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
             break
         source, claim = pair
         try:
-            enum = begin_enumeration(conn,source['id'],claim)
+            enum = resume_enumeration(conn,source['id'],claim)
+            resuming = enum is not None
+            if not resuming:
+                enum = begin_enumeration(conn,source['id'],claim)
             conn.commit()
         except StorageBlocked:
             conn.rollback()
@@ -272,45 +307,46 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
             verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline)
             break
         chunk = []
-        verdict = SourceStatus(complete=False)
+        verdict = SourceStatus(complete=resuming)
         renewed = monotonic()
-        try:
-            def pulse():
-                # No SQL transaction spans network, and each bounded request
-                # starts with a renewed lease (including empty duplicate pages).
-                renew_claim(conn,claim)
+        if not resuming:
+            try:
+                def pulse():
+                    # No SQL transaction spans network, and each bounded request
+                    # starts with a renewed lease (including empty duplicate pages).
+                    renew_claim(conn,claim)
+                    conn.commit()
+                with source_budget(min(BOARD_SECONDS,max(0,deadline-monotonic())),BOARD_REQUESTS,pulse):
+                    postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
+                    count = 0
+                    for posting in postings:
+                        count += 1
+                        if count > BOARD_ROWS:
+                            break
+                        chunk.append(posting)
+                        if len(chunk) >= CHUNK or monotonic()-renewed >= 20:
+                            stage_postings(conn,enum,chunk)
+                            conn.commit()
+                            chunk = []
+                            claim = renew_claim(conn,claim)
+                            conn.commit()
+                            enum = replace(enum,claim=claim)
+                            renewed = monotonic()
+                    verdict = SourceStatus(complete=postings.complete)
+            except StorageBlocked:
+                conn.rollback()
+                log.warning("source evidence storage blocked; reconciliation deferred")
+                cancel_claim(conn,claim)
                 conn.commit()
-            with source_budget(min(BOARD_SECONDS,max(0,deadline-monotonic())),BOARD_REQUESTS,pulse):
-                postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
-                count = 0
-                for posting in postings:
-                    count += 1
-                    if count > BOARD_ROWS:
-                        break
-                    chunk.append(posting)
-                    if len(chunk) >= CHUNK or monotonic()-renewed >= 20:
-                        stage_postings(conn,enum,chunk)
-                        conn.commit()
-                        chunk = []
-                        claim = renew_claim(conn,claim)
-                        conn.commit()
-                        enum = replace(enum,claim=claim)
-                        renewed = monotonic()
-                verdict = SourceStatus(complete=postings.complete)
-        except StorageBlocked:
-            conn.rollback()
-            log.warning("source evidence storage blocked; reconciliation deferred")
-            cancel_claim(conn,claim)
-            conn.commit()
-            verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline)
-            break
-        except SourceBudgetExceeded:
-            verdict = SourceStatus(complete=False)
-            conn.rollback()
-        except Exception:
-            log.exception('source enumeration failed or interrupted: %s',source['id'])
-            verdict = SourceStatus(complete=False,failed=True)
-            conn.rollback()
+                verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline)
+                break
+            except SourceBudgetExceeded:
+                verdict = SourceStatus(complete=False)
+                conn.rollback()
+            except Exception:
+                log.exception('source enumeration failed or interrupted: %s',source['id'])
+                verdict = SourceStatus(complete=False,failed=True)
+                conn.rollback()
         try:
             if chunk:
                 stage_postings(conn,enum,chunk)

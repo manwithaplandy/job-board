@@ -1,4 +1,4 @@
-from job_discovery.adapters.completeness import SourceResult, SourceStatus, validate_ids
+from job_discovery.adapters.completeness import SourceResult, SourceStatus, iter_identified_postings
 from job_discovery.adapters.completeness import get_json
 from job_discovery.models import Posting
 from job_discovery.normalize import detect_remote
@@ -27,5 +27,7 @@ def fetch_ashby(token: str, *, fetch_details: bool = True) -> SourceResult:
     data = get_json(url)
     if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
         raise ValueError("ashby response missing 'jobs' key")
-    validate_ids(data["jobs"], "id")
-    return SourceResult(iter(parse_ashby(data)), SourceStatus(fetch_details=fetch_details))
+    status = SourceStatus(fetch_details=fetch_details)
+    return SourceResult(iter_identified_postings(
+        data["jobs"], lambda item: parse_ashby({"jobs": [item]})[0], status,
+        title_key='title', url_keys=('jobUrl', 'applyUrl')), status)

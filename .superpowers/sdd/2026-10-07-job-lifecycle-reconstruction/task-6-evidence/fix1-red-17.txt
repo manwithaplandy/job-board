@@ -1,0 +1,337 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FFFFFFFF                                                                 [100%]
+=================================== FAILURES ===================================
+_ test_fix1_single_response_good_positives_commit_despite_later_bad_item[missing_title-greenhouse] _
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32968 user=postgres database=poller_lifecycle_test) at 0x7f2b7a56ffb0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2b7a56fc80>
+ats = 'greenhouse', defect = 'missing_title'
+
+    @requires_db
+    @pytest.mark.parametrize('ats',['greenhouse','lever','ashby'])
+    @pytest.mark.parametrize('defect',['missing_title','duplicate'])
+    def test_fix1_single_response_good_positives_commit_despite_later_bad_item(conn,monkeypatch,ats,defect):
+        from job_discovery import http
+        setup_source(conn,3,ats)
+        conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
+        conn.commit()
+        good={'id':'0','title':'Role','text':'Role','absolute_url':'https://example.test/job',
+              'hostedUrl':'https://example.test/job','jobUrl':'https://example.test/job'}
+        bad=dict(good,id='1')
+        bad.pop('title')
+        bad.pop('text')
+        items=[good,bad if defect=='missing_title' else good]
+        monkeypatch.setattr(http,'get_json',lambda *a,**kw:items if ats=='lever' else {'jobs':items})
+        r.verify_due_sources(conn,max_boards=1)
+        rows=conn.execute('SELECT * FROM source_listings ORDER BY external_id').fetchall()
+>       assert rows[0]['successful_sighting_count']==1
+E       assert 0 == 1
+
+tests/test_lifecycle_reconcile.py:418: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    job_discovery.lifecycle.reconcile:reconcile.py:311 source enumeration failed or interrupted: ab0478f5-3c62-4042-8831-ffe2631c697c
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/lifecycle/reconcile.py", line 284, in verify_due_sources
+    postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/greenhouse.py", line 36, in fetch_greenhouse
+    return SourceResult(iter(parse_greenhouse(data)), SourceStatus(fetch_details=fetch_details))
+                             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/greenhouse.py", line 16, in parse_greenhouse
+    title=j["title"],
+          ~^^^^^^^^^
+KeyError: 'title'
+_ test_fix1_single_response_good_positives_commit_despite_later_bad_item[missing_title-lever] _
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32968 user=postgres database=poller_lifecycle_test) at 0x7f2b7a1621e0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2b7a56e1e0>
+ats = 'lever', defect = 'missing_title'
+
+    @requires_db
+    @pytest.mark.parametrize('ats',['greenhouse','lever','ashby'])
+    @pytest.mark.parametrize('defect',['missing_title','duplicate'])
+    def test_fix1_single_response_good_positives_commit_despite_later_bad_item(conn,monkeypatch,ats,defect):
+        from job_discovery import http
+        setup_source(conn,3,ats)
+        conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
+        conn.commit()
+        good={'id':'0','title':'Role','text':'Role','absolute_url':'https://example.test/job',
+              'hostedUrl':'https://example.test/job','jobUrl':'https://example.test/job'}
+        bad=dict(good,id='1')
+        bad.pop('title')
+        bad.pop('text')
+        items=[good,bad if defect=='missing_title' else good]
+        monkeypatch.setattr(http,'get_json',lambda *a,**kw:items if ats=='lever' else {'jobs':items})
+        r.verify_due_sources(conn,max_boards=1)
+        rows=conn.execute('SELECT * FROM source_listings ORDER BY external_id').fetchall()
+>       assert rows[0]['successful_sighting_count']==1
+E       assert 0 == 1
+
+tests/test_lifecycle_reconcile.py:418: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    job_discovery.lifecycle.reconcile:reconcile.py:311 source enumeration failed or interrupted: 0238da9f-9c35-4bc8-baf3-c46f0e2681a8
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/lifecycle/reconcile.py", line 284, in verify_due_sources
+    postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/lever.py", line 40, in fetch_lever
+    return SourceResult(iter(parse_lever(data)), SourceStatus(fetch_details=fetch_details))
+                             ^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/lever.py", line 23, in parse_lever
+    title=j["text"],
+          ~^^^^^^^^
+KeyError: 'text'
+_ test_fix1_single_response_good_positives_commit_despite_later_bad_item[missing_title-ashby] _
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32968 user=postgres database=poller_lifecycle_test) at 0x7f2b7a1639b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2b7a163680>
+ats = 'ashby', defect = 'missing_title'
+
+    @requires_db
+    @pytest.mark.parametrize('ats',['greenhouse','lever','ashby'])
+    @pytest.mark.parametrize('defect',['missing_title','duplicate'])
+    def test_fix1_single_response_good_positives_commit_despite_later_bad_item(conn,monkeypatch,ats,defect):
+        from job_discovery import http
+        setup_source(conn,3,ats)
+        conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
+        conn.commit()
+        good={'id':'0','title':'Role','text':'Role','absolute_url':'https://example.test/job',
+              'hostedUrl':'https://example.test/job','jobUrl':'https://example.test/job'}
+        bad=dict(good,id='1')
+        bad.pop('title')
+        bad.pop('text')
+        items=[good,bad if defect=='missing_title' else good]
+        monkeypatch.setattr(http,'get_json',lambda *a,**kw:items if ats=='lever' else {'jobs':items})
+        r.verify_due_sources(conn,max_boards=1)
+        rows=conn.execute('SELECT * FROM source_listings ORDER BY external_id').fetchall()
+>       assert rows[0]['successful_sighting_count']==1
+E       assert 0 == 1
+
+tests/test_lifecycle_reconcile.py:418: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    job_discovery.lifecycle.reconcile:reconcile.py:311 source enumeration failed or interrupted: e420fad9-3e48-4114-a29e-9d793cf481a9
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/lifecycle/reconcile.py", line 284, in verify_due_sources
+    postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/ashby.py", line 31, in fetch_ashby
+    return SourceResult(iter(parse_ashby(data)), SourceStatus(fetch_details=fetch_details))
+                             ^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/ashby.py", line 14, in parse_ashby
+    title=j["title"],
+          ~^^^^^^^^^
+KeyError: 'title'
+_ test_fix1_single_response_good_positives_commit_despite_later_bad_item[duplicate-greenhouse] _
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32968 user=postgres database=poller_lifecycle_test) at 0x7f2b7a1ca510>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2b7a1ca8a0>
+ats = 'greenhouse', defect = 'duplicate'
+
+    @requires_db
+    @pytest.mark.parametrize('ats',['greenhouse','lever','ashby'])
+    @pytest.mark.parametrize('defect',['missing_title','duplicate'])
+    def test_fix1_single_response_good_positives_commit_despite_later_bad_item(conn,monkeypatch,ats,defect):
+        from job_discovery import http
+        setup_source(conn,3,ats)
+        conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
+        conn.commit()
+        good={'id':'0','title':'Role','text':'Role','absolute_url':'https://example.test/job',
+              'hostedUrl':'https://example.test/job','jobUrl':'https://example.test/job'}
+        bad=dict(good,id='1')
+        bad.pop('title')
+        bad.pop('text')
+        items=[good,bad if defect=='missing_title' else good]
+        monkeypatch.setattr(http,'get_json',lambda *a,**kw:items if ats=='lever' else {'jobs':items})
+        r.verify_due_sources(conn,max_boards=1)
+        rows=conn.execute('SELECT * FROM source_listings ORDER BY external_id').fetchall()
+>       assert rows[0]['successful_sighting_count']==1
+E       assert 0 == 1
+
+tests/test_lifecycle_reconcile.py:418: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    job_discovery.lifecycle.reconcile:reconcile.py:311 source enumeration failed or interrupted: 999a5c36-57b6-4c82-993e-c1c1cb3b36f5
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/lifecycle/reconcile.py", line 284, in verify_due_sources
+    postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/greenhouse.py", line 32, in fetch_greenhouse
+    validate_ids(data["jobs"], "id")
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/completeness.py", line 51, in validate_ids
+    raise ValueError(f"source listing has missing or duplicate {key}")
+ValueError: source listing has missing or duplicate id
+_ test_fix1_single_response_good_positives_commit_despite_later_bad_item[duplicate-lever] _
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32968 user=postgres database=poller_lifecycle_test) at 0x7f2b7a1cb770>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2b7a1ca960>
+ats = 'lever', defect = 'duplicate'
+
+    @requires_db
+    @pytest.mark.parametrize('ats',['greenhouse','lever','ashby'])
+    @pytest.mark.parametrize('defect',['missing_title','duplicate'])
+    def test_fix1_single_response_good_positives_commit_despite_later_bad_item(conn,monkeypatch,ats,defect):
+        from job_discovery import http
+        setup_source(conn,3,ats)
+        conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
+        conn.commit()
+        good={'id':'0','title':'Role','text':'Role','absolute_url':'https://example.test/job',
+              'hostedUrl':'https://example.test/job','jobUrl':'https://example.test/job'}
+        bad=dict(good,id='1')
+        bad.pop('title')
+        bad.pop('text')
+        items=[good,bad if defect=='missing_title' else good]
+        monkeypatch.setattr(http,'get_json',lambda *a,**kw:items if ats=='lever' else {'jobs':items})
+        r.verify_due_sources(conn,max_boards=1)
+        rows=conn.execute('SELECT * FROM source_listings ORDER BY external_id').fetchall()
+>       assert rows[0]['successful_sighting_count']==1
+E       assert 0 == 1
+
+tests/test_lifecycle_reconcile.py:418: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    job_discovery.lifecycle.reconcile:reconcile.py:311 source enumeration failed or interrupted: 367684c5-c68c-41c1-af97-b4e38ab66ac7
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/lifecycle/reconcile.py", line 284, in verify_due_sources
+    postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/lever.py", line 39, in fetch_lever
+    validate_ids(data, "id")
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/completeness.py", line 51, in validate_ids
+    raise ValueError(f"source listing has missing or duplicate {key}")
+ValueError: source listing has missing or duplicate id
+_ test_fix1_single_response_good_positives_commit_despite_later_bad_item[duplicate-ashby] _
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32968 user=postgres database=poller_lifecycle_test) at 0x7f2b7a1c8ce0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2b7a1cbd40>
+ats = 'ashby', defect = 'duplicate'
+
+    @requires_db
+    @pytest.mark.parametrize('ats',['greenhouse','lever','ashby'])
+    @pytest.mark.parametrize('defect',['missing_title','duplicate'])
+    def test_fix1_single_response_good_positives_commit_despite_later_bad_item(conn,monkeypatch,ats,defect):
+        from job_discovery import http
+        setup_source(conn,3,ats)
+        conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
+        conn.commit()
+        good={'id':'0','title':'Role','text':'Role','absolute_url':'https://example.test/job',
+              'hostedUrl':'https://example.test/job','jobUrl':'https://example.test/job'}
+        bad=dict(good,id='1')
+        bad.pop('title')
+        bad.pop('text')
+        items=[good,bad if defect=='missing_title' else good]
+        monkeypatch.setattr(http,'get_json',lambda *a,**kw:items if ats=='lever' else {'jobs':items})
+        r.verify_due_sources(conn,max_boards=1)
+        rows=conn.execute('SELECT * FROM source_listings ORDER BY external_id').fetchall()
+>       assert rows[0]['successful_sighting_count']==1
+E       assert 0 == 1
+
+tests/test_lifecycle_reconcile.py:418: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    job_discovery.lifecycle.reconcile:reconcile.py:311 source enumeration failed or interrupted: 9f6d7b9f-f405-4566-abc1-3ea945b7cbf2
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/lifecycle/reconcile.py", line 284, in verify_due_sources
+    postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/ashby.py", line 30, in fetch_ashby
+    validate_ids(data["jobs"], "id")
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/completeness.py", line 51, in validate_ids
+    raise ValueError(f"source listing has missing or duplicate {key}")
+ValueError: source listing has missing or duplicate id
+___ test_fix1_daily_entrypoint_eligibility_with_nonzero_feed_duration[False] ___
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32968 user=postgres database=poller_lifecycle_test) at 0x7f2b7a1ca780>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2b7a1c9340>
+failure_disabled = False
+
+    @requires_db
+    @pytest.mark.parametrize('failure_disabled',[False,True])
+    def test_fix1_daily_entrypoint_eligibility_with_nonzero_feed_duration(conn,monkeypatch,failure_disabled):
+        from datetime import UTC,datetime
+        from job_discovery import http
+        setup_source(conn)
+        if failure_disabled:
+            conn.execute("UPDATE source_accounts SET exclusion_state='failure_disabled'")
+        conn.commit()
+        slot=datetime(2026,10,1,tzinfo=UTC)
+        clock=[slot]
+        scheduled=SourceFixtureClock(conn,clock)
+        calls=[]
+        def feed(*a,**kw):
+            calls.append(clock[0])
+            clock[0]+=timedelta(seconds=20)
+            if failure_disabled:
+                raise ValueError('ordinary fixture unavailable source')
+            return []
+        monkeypatch.setattr(http,'get_json',feed)
+        for backoff in ([1,2,4,7] if failure_disabled else [1,1,1,1]):
+            before=len(calls)
+            r.verify_due_sources(scheduled,max_boards=1)
+            assert len(calls)==before+1
+            next_slot=slot+timedelta(days=backoff)
+            row=conn.execute('SELECT next_due_at FROM source_accounts').fetchone()
+>           assert row['next_due_at']==next_slot
+E           AssertionError: assert datetime.datetime(2026, 10, 2, 0, 0, 20, tzinfo=zoneinfo.ZoneInfo(key='Etc/UTC')) == datetime.datetime(2026, 10, 2, 0, 0, tzinfo=datetime.timezone.utc)
+
+tests/test_lifecycle_reconcile.py:470: AssertionError
+___ test_fix1_daily_entrypoint_eligibility_with_nonzero_feed_duration[True] ____
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32968 user=postgres database=poller_lifecycle_test) at 0x7f2b7955a930>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2b7955aae0>
+failure_disabled = True
+
+    @requires_db
+    @pytest.mark.parametrize('failure_disabled',[False,True])
+    def test_fix1_daily_entrypoint_eligibility_with_nonzero_feed_duration(conn,monkeypatch,failure_disabled):
+        from datetime import UTC,datetime
+        from job_discovery import http
+        setup_source(conn)
+        if failure_disabled:
+            conn.execute("UPDATE source_accounts SET exclusion_state='failure_disabled'")
+        conn.commit()
+        slot=datetime(2026,10,1,tzinfo=UTC)
+        clock=[slot]
+        scheduled=SourceFixtureClock(conn,clock)
+        calls=[]
+        def feed(*a,**kw):
+            calls.append(clock[0])
+            clock[0]+=timedelta(seconds=20)
+            if failure_disabled:
+                raise ValueError('ordinary fixture unavailable source')
+            return []
+        monkeypatch.setattr(http,'get_json',feed)
+        for backoff in ([1,2,4,7] if failure_disabled else [1,1,1,1]):
+            before=len(calls)
+            r.verify_due_sources(scheduled,max_boards=1)
+            assert len(calls)==before+1
+            next_slot=slot+timedelta(days=backoff)
+            row=conn.execute('SELECT next_due_at FROM source_accounts').fetchone()
+>           assert row['next_due_at']==next_slot
+E           AssertionError: assert datetime.datetime(2026, 10, 2, 0, 0, 20, tzinfo=zoneinfo.ZoneInfo(key='Etc/UTC')) == datetime.datetime(2026, 10, 2, 0, 0, tzinfo=datetime.timezone.utc)
+
+tests/test_lifecycle_reconcile.py:470: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    job_discovery.lifecycle.reconcile:reconcile.py:311 source enumeration failed or interrupted: 590f8a78-2961-44a3-ac2c-1c718c3de4b9
+Traceback (most recent call last):
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/lifecycle/reconcile.py", line 284, in verify_due_sources
+    postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/lever.py", line 36, in fetch_lever
+    data = get_json(url)
+           ^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/completeness.py", line 88, in get_json
+    return _request('get_json',url,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/job_discovery/adapters/completeness.py", line 84, in _request
+    return getattr(http, method)(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/tests/test_lifecycle_reconcile.py", line 461, in feed
+    raise ValueError('ordinary fixture unavailable source')
+ValueError: ordinary fixture unavailable source
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_reconcile.py::test_fix1_single_response_good_positives_commit_despite_later_bad_item[missing_title-greenhouse]
+FAILED tests/test_lifecycle_reconcile.py::test_fix1_single_response_good_positives_commit_despite_later_bad_item[missing_title-lever]
+FAILED tests/test_lifecycle_reconcile.py::test_fix1_single_response_good_positives_commit_despite_later_bad_item[missing_title-ashby]
+FAILED tests/test_lifecycle_reconcile.py::test_fix1_single_response_good_positives_commit_despite_later_bad_item[duplicate-greenhouse]
+FAILED tests/test_lifecycle_reconcile.py::test_fix1_single_response_good_positives_commit_despite_later_bad_item[duplicate-lever]
+FAILED tests/test_lifecycle_reconcile.py::test_fix1_single_response_good_positives_commit_despite_later_bad_item[duplicate-ashby]
+FAILED tests/test_lifecycle_reconcile.py::test_fix1_daily_entrypoint_eligibility_with_nonzero_feed_duration[False]
+FAILED tests/test_lifecycle_reconcile.py::test_fix1_daily_entrypoint_eligibility_with_nonzero_feed_duration[True]
+8 failed, 19 deselected in 5.09s

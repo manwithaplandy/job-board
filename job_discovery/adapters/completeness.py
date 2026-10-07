@@ -90,3 +90,42 @@ def get_json(url, **kwargs):
 
 def post_json(url, **kwargs):
     return _request('post_json',url,**kwargs)
+
+
+def iter_identified_postings(items, parse_one, status, *, title_key, url_keys,
+                             id_key="id", minimal_posting=None):
+    """Keep trustworthy identities even when the same response is incomplete.
+
+    Bad or repeated identities invalidate absence but do not erase other items.
+    An identifiable item with malformed display fields remains a minimal positive;
+    it cannot be admitted as a new Job until its required display fields exist.
+    """
+    seen = set()
+    for item in items:
+        external_id = item.get(id_key) if isinstance(item, dict) else None
+        if (not isinstance(external_id, (str, int)) or isinstance(external_id, bool)
+                or not str(external_id).strip()):
+            status.complete = False
+            continue
+        external_id = str(external_id)
+        if external_id in seen:
+            status.complete = False
+            continue
+        seen.add(external_id)
+        try:
+            posting = parse_one(item)
+            if not isinstance(posting.title, str) or not posting.title.strip():
+                raise ValueError('listing title is missing')
+            if not isinstance(posting.url, str) or not posting.url.strip():
+                raise ValueError('listing URL is missing')
+        except (KeyError, TypeError, AttributeError, ValueError, IndexError) as exc:
+            status.complete = False
+            title = item.get(title_key)
+            url = next((item.get(key) for key in url_keys
+                        if isinstance(item.get(key), str) and item[key].strip()), None)
+            posting = minimal_posting(item, exc) if minimal_posting else None
+            if posting is None:
+                posting = Posting(external_id=external_id,
+                                  title=title if isinstance(title, str) else None,
+                                  url=url, raw=item)
+        yield posting

@@ -104,8 +104,9 @@ def test_fetch_rejects_entries_without_a_shortcode(monkeypatch):
         return payload
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
-    with pytest.raises(ValueError, match="shortcode"):
-        fetch_workable("acme")
+    result=fetch_workable("acme")
+    assert [p.external_id for p in result]==["OK"]
+    assert not result.complete
 
 
 # ── A3: missing top-level key ─────────────────────────────────────────────────

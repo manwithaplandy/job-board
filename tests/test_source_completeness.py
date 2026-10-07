@@ -15,14 +15,14 @@ def test_null_collection_is_not_empty_source(monkeypatch, module, key):
 def test_unidentifiable_entry_cannot_authorize_closure(monkeypatch, module, key, id_key):
     monkeypatch.setattr(module, "get_json", lambda *a: {key: [{id_key: None, "title": "A", "absolute_url": "u"}]})
     fetch = getattr(module, "fetch_" + module.__name__.rsplit(".", 1)[1])
-    with pytest.raises(ValueError):
-        fetch("a")
+    result=fetch("a")
+    assert list(result)==[] and not result.complete
 
 
 def test_greenhouse_reported_total_cannot_exceed_collection(monkeypatch):
     monkeypatch.setattr(greenhouse, "get_json", lambda *a: {"jobs": [], "meta": {"total": 7}})
-    with pytest.raises(ValueError):
-        greenhouse.fetch_greenhouse("a")
+    result=greenhouse.fetch_greenhouse("a")
+    assert list(result)==[] and not result.complete
 
 
 @pytest.mark.parametrize('name', ['greenhouse','lever','ashby','workable','smartrecruiters','workday'])
@@ -46,8 +46,9 @@ def test_single_response_duplicate_identity_never_complete(monkeypatch,name,key,
     from job_discovery.adapters import ADAPTERS
     items=[{id_key:'same'},{id_key:'same'}]
     monkeypatch.setattr(http,'get_json',lambda *a,**kw:{key:items} if key else items)
-    with pytest.raises(ValueError,match='duplicate'):
-        list(ADAPTERS[name]('fixture'))
+    result=ADAPTERS[name]('fixture')
+    assert [p.external_id for p in result]==['same']
+    assert not result.complete
 
 
 @pytest.mark.parametrize('family',['smartrecruiters','workday'])

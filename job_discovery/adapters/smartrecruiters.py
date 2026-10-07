@@ -103,7 +103,7 @@ def _fetch_smartrecruiters(token, status):
             raise ValueError("smartrecruiters response missing 'content' key")
         content = page.get("content") or []
         if any(not isinstance(item,dict) for item in content):
-            raise ValueError('invalid listing item')
+            status.complete = False
         total = page.get("totalFound")
         if previous_total is not None and isinstance(total,int) and total != previous_total:
             status.complete = False
@@ -112,6 +112,8 @@ def _fetch_smartrecruiters(token, status):
         if isinstance(total, int) and total > 0:
             expected_total = max(expected_total, total)
         for item in content:
+            if not isinstance(item, dict):
+                continue
             pid = item.get("id")
             if not pid or pid in seen:
                 raise ValueError("smartrecruiters incomplete listing: missing or repeated id")

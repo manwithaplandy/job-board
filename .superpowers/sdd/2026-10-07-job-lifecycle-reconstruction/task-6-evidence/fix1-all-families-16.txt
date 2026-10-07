@@ -1,0 +1,4 @@
+Owned lifecycle database: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) (required 16)
+........................................................................ [ 75%]
+.......................                                                  [100%]
+95 passed, 23 deselected in 10.76s

@@ -1,4 +1,4 @@
-from job_discovery.adapters.completeness import SourceResult, SourceStatus, validate_ids
+from job_discovery.adapters.completeness import SourceResult, SourceStatus, iter_identified_postings
 import logging
 
 from job_discovery.adapters.completeness import get_json
@@ -95,17 +95,15 @@ def fetch_workable(token: str, *, fetch_details: bool = True) -> SourceResult:
     payload = get_json(_WIDGET_URL.format(account=token).replace("details=true", f"details={str(fetch_details).lower()}"))
     if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
         raise ValueError("workable response missing 'jobs' key")
-    validate_ids(payload["jobs"], "shortcode")
-    postings: list[Posting] = []
-    for job in payload.get("jobs") or []:
-        try:
-            posting = parse_workable_job(job, token)
-        except Exception as exc:  # malformed entry: keep a minimal posting, don't drop
-            log.warning(
-                "workable: malformed job entry for %s/%s; keeping minimal posting: %s: %s",
-                token, job.get("shortcode"), type(exc).__name__, exc,
-            )
-            posting = _minimal_posting(token, job)
-        if posting is not None:
-            postings.append(posting)
-    return SourceResult(iter(postings), SourceStatus(fetch_details=fetch_details))
+    status = SourceStatus(fetch_details=fetch_details)
+
+    def minimal(job, exc):
+        log.warning(
+            "workable: malformed job entry for %s/%s; keeping minimal posting: %s: %s",
+            token, job.get("shortcode"), type(exc).__name__, exc,
+        )
+        return _minimal_posting(token, job)
+
+    return SourceResult(iter_identified_postings(
+        payload["jobs"], lambda job: parse_workable_job(job, token), status,
+        id_key="shortcode", title_key="title", url_keys=(), minimal_posting=minimal), status)

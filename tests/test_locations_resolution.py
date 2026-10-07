@@ -10,9 +10,13 @@ def _seed_job(conn, ext, location):
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
         cid = cur.fetchone()["id"]
-    poller_db.upsert_job(conn, cid, "lever", "acme",
-                         Posting(external_id=ext, title="Eng", url="https://x",
-                                 location=location))
+    poller_db.upsert_job(
+        conn,
+        cid,
+        "lever",
+        "acme",
+        Posting(external_id=ext, title="Eng", url="https://x", location=location),
+    )
     conn.commit()
     return f"lever:acme:{ext}"
 
@@ -25,6 +29,7 @@ def _canonicals(conn, job_id):
 
 class FakeParseClient:
     """mapping: raw -> list[ParsedLocation]; raws absent from mapping get no answer."""
+
     def __init__(self, mapping=None, boom=False):
         self.mapping = mapping or {}
         self.boom = boom
@@ -34,7 +39,9 @@ class FakeParseClient:
         self.calls += 1
         if self.boom:
             raise RuntimeError("llm down")
-        return {i: self.mapping[raw] for i, raw in enumerate(raws) if raw in self.mapping}
+        return {
+            i: self.mapping[raw] for i, raw in enumerate(raws) if raw in self.mapping
+        }
 
 
 @requires_db
@@ -44,7 +51,9 @@ def test_rule_pass_inserts_and_stamps(conn):
     assert counts["rule"] == 1 and counts["stamped"] == 1
     assert _canonicals(conn, jid) == ["Austin, TX"]
     with conn.cursor() as cur:
-        cur.execute("SELECT canonicals, source FROM locations WHERE raw = 'Austin Texas'")
+        cur.execute(
+            "SELECT canonicals, source FROM locations WHERE raw = 'Austin Texas'"
+        )
         row = cur.fetchone()
     assert row["canonicals"] == ["Austin, TX"] and row["source"] == "rule"
 
@@ -59,10 +68,16 @@ def test_multi_location_stamps_array(conn):
 @requires_db
 def test_llm_pass_validates_against_gazetteer(conn):
     jid = _seed_job(conn, "1", "Greater Boston Area")
-    fake = FakeParseClient({"Greater Boston Area": [
-        ParsedLocation(city="Boston", state="MA", country="US"),
-        ParsedLocation(city="Atlantisville", country="US"),  # hallucination -> dropped
-    ]})
+    fake = FakeParseClient(
+        {
+            "Greater Boston Area": [
+                ParsedLocation(city="Boston", state="MA", country="US"),
+                ParsedLocation(
+                    city="Atlantisville", country="US"
+                ),  # hallucination -> dropped
+            ]
+        }
+    )
     counts = resolve_new_locations(conn, parse_client=fake)
     assert counts["llm"] == 1
     assert _canonicals(conn, jid) == ["Boston, MA"]
@@ -79,7 +94,9 @@ def test_llm_empty_answer_becomes_unmappable(conn):
     assert counts["unmappable"] == 1
     assert _canonicals(conn, jid) == ["Multiple Locations"]
     with conn.cursor() as cur:
-        cur.execute("SELECT canonicals, components FROM locations WHERE raw = 'Multiple Locations'")
+        cur.execute(
+            "SELECT canonicals, components FROM locations WHERE raw = 'Multiple Locations'"
+        )
         row = cur.fetchone()
     assert row["canonicals"] == ["Multiple Locations"]
     assert row["components"][0]["kind"] == "unmappable"
@@ -92,7 +109,9 @@ def test_llm_failure_leaves_raw_unmapped_and_does_not_raise(conn):
     assert counts["llm"] == 0 and counts["unmappable"] == 0
     assert _canonicals(conn, jid) is None  # COALESCE fallback keeps it matchable by raw
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) AS n FROM locations WHERE raw = 'Greater Boston Area'")
+        cur.execute(
+            "SELECT count(*) AS n FROM locations WHERE raw = 'Greater Boston Area'"
+        )
         assert cur.fetchone()["n"] == 0  # absent -> retried next run
 
 
@@ -101,7 +120,14 @@ def test_unanswered_index_left_unmapped(conn):
     _seed_job(conn, "1", "Greater Boston Area")
     fake = FakeParseClient(mapping={})  # answers nothing, but doesn't raise
     counts = resolve_new_locations(conn, parse_client=fake)
-    assert counts == {"rule": 0, "llm": 0, "unmappable": 0, "stamped": 0}
+    assert counts == {
+        "rule": 0,
+        "llm": 0,
+        "unmappable": 0,
+        "stamped": 0,
+        "complete": False,
+        "storage_deferred": False,
+    }
 
 
 @requires_db
@@ -109,8 +135,11 @@ def test_manual_correction_propagates_on_restamp(conn):
     jid = _seed_job(conn, "1", "Austin Texas")
     resolve_new_locations(conn, parse_client=FakeParseClient())
     with conn.cursor() as cur:
-        cur.execute("UPDATE locations SET canonicals = %s, source = 'manual' "
-                    "WHERE raw = 'Austin Texas'", (["Austin, MN"],))
+        cur.execute(
+            "UPDATE locations SET canonicals = %s, source = 'manual' "
+            "WHERE raw = 'Austin Texas'",
+            (["Austin, MN"],),
+        )
     conn.commit()
     assert stamp_jobs(conn) == 1
     conn.commit()
@@ -120,10 +149,14 @@ def test_manual_correction_propagates_on_restamp(conn):
 @requires_db
 def test_llm_all_hallucinations_become_unmappable(conn):
     jid = _seed_job(conn, "1", "Atlantis District")
-    fake = FakeParseClient({"Atlantis District": [
-        ParsedLocation(city="Atlantisville", country="US"),
-        ParsedLocation(city="Fooville", country="Canada"),
-    ]})
+    fake = FakeParseClient(
+        {
+            "Atlantis District": [
+                ParsedLocation(city="Atlantisville", country="US"),
+                ParsedLocation(city="Fooville", country="Canada"),
+            ]
+        }
+    )
     counts = resolve_new_locations(conn, parse_client=fake)
     assert counts["unmappable"] == 1 and counts["llm"] == 0
     assert _canonicals(conn, jid) == ["Atlantis District"]
@@ -137,9 +170,13 @@ def test_multi_batch_llm_pass(conn):
         cid = cur.fetchone()["id"]
     raws = [f"Obscureville Sector {i}" for i in range(41)]  # BATCH_SIZE=40 -> 2 batches
     for i, raw in enumerate(raws):
-        poller_db.upsert_job(conn, cid, "lever", "acme",
-                             Posting(external_id=str(i), title="Eng", url="https://x",
-                                     location=raw))
+        poller_db.upsert_job(
+            conn,
+            cid,
+            "lever",
+            "acme",
+            Posting(external_id=str(i), title="Eng", url="https://x", location=raw),
+        )
     conn.commit()
     fake = FakeParseClient({raw: [] for raw in raws})  # every answer: no real place
     counts = resolve_new_locations(conn, parse_client=fake)

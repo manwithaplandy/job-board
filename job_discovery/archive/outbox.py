@@ -32,7 +32,7 @@ def budget_allows(count: int, size: int, next_size: int, critical: bool) -> bool
 
 
 def outbox_health(conn) -> dict:
-    row = conn.execute("""SELECT count(*) events,lifecycle_private.archive_live_bytes() bytes,
+    row = conn.execute("""SELECT count(*) events,lifecycle_private.archive_budget_bytes() bytes,lifecycle_private.archive_live_bytes() live_bytes,
       COALESCE(extract(epoch FROM clock_timestamp()-min(recorded_at)),0) age_seconds FROM public_pending_events""").fetchone()
     row["warning"] = (
         row["events"] >= WARNING_EVENTS
@@ -99,8 +99,8 @@ def record_public_change(tx, change: PublicChange, claim) -> EventRef:
         health["events"],
         health["bytes"],
         tx.execute(
-            "SELECT lifecycle_private.archive_row_charge(%s,%s,2048) n",
-            (Jsonb(change.body), encoded),
+            "SELECT lifecycle_private.archive_row_charge(%s,%s,2048)+lifecycle_private.archive_processing_charge(%s) n",
+            (Jsonb(change.body), encoded, encoded),
         ).fetchone()["n"],
         critical,
     ):

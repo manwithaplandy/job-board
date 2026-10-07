@@ -1,7 +1,11 @@
-from job_discovery.lifecycle.config import read_control, legacy_description_capture_allowed
+from job_discovery.lifecycle.config import (
+    read_control,
+    legacy_description_capture_allowed,
+)
 from job_discovery.lifecycle.maintenance import pre_admission_maintenance
 from job_discovery.lifecycle.locks import enter_gate
 from job_discovery.lifecycle.capacity import CEILING_BYTES
+from job_discovery.lifecycle.errors import StorageBlocked
 from job_discovery.lifecycle.legacy_spool import spool_feed, spool_questions
 import logging
 
@@ -14,21 +18,32 @@ from job_discovery.targets import load_targets
 log = logging.getLogger("job_discovery")
 
 
-def backfill_greenhouse_questions(conn, company_id, token, *, get_json=None, log=log) -> int:
+def backfill_greenhouse_questions(
+    conn, company_id, token, *, get_json=None, log=log
+) -> int:
     """Fetch + persist the question schema for this Greenhouse company's open jobs that
     lack a job_questions row (rolling backfill). One HTTP call per missing job, each
     wrapped so a single failure never aborts the company. Returns the count persisted."""
-    with spool_questions(conn, company_id, token, get_json or _get_json,
-                         parse_greenhouse_questions, db.greenhouse_jobs_missing_questions,
-                         log=log) as questions:
+    with spool_questions(
+        conn,
+        company_id,
+        token,
+        get_json or _get_json,
+        parse_greenhouse_questions,
+        db.greenhouse_jobs_missing_questions,
+        log=log,
+    ) as questions:
         fetched = 0
         for external_id, data in questions:
-            db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", data, overwrite=False)
+            db.insert_job_questions(
+                conn, f"greenhouse:{token}:{external_id}", data, overwrite=False
+            )
             fetched += 1
             if fetched % UPSERT_CHUNK_SIZE == 0:
                 conn.commit()
         conn.commit()
         return fetched
+
 
 # Upsert postings in fixed-size chunks. The workday adapter yields lazily to keep
 # peak memory bounded (A10); buffering a whole tenant into one list before a single
@@ -40,6 +55,7 @@ UPSERT_CHUNK_SIZE = 500
 def _run_prune(conn) -> None:
     try:
         from job_discovery.prune import prune_jobs
+
         prune_jobs(conn)
     except Exception:
         conn.rollback()
@@ -51,19 +67,36 @@ def _admit_chunk(conn, company_id, ats, token, chunk):
     try:
         enter_gate(conn)
         over, _, _ = db.over_size_ceiling(conn)
-        held = conn.execute("SELECT COALESCE(sum(bytes),0) AS bytes FROM capacity_reservations WHERE state='held'").fetchone()['bytes']
+        held = conn.execute(
+            "SELECT COALESCE(sum(bytes),0) AS bytes FROM capacity_reservations WHERE state='held'"
+        ).fetchone()["bytes"]
         # Conservative local forecast includes payload expansion/index/WAL room.
         # Enforced compatible writers still require their Task 3 reservations.
         capture_description = legacy_description_capture_allowed(conn)
-        forecast = sum(16384 + 4 * sum(len(str(value).encode('utf-8')) for value in db._posting_row(ats, token, company_id, p, capture_description=capture_description) if value is not None) for p in chunk)
-        allocated = conn.execute('SELECT pg_database_size(current_database()) AS bytes').fetchone()['bytes']
+        forecast = sum(
+            16384
+            + 4
+            * sum(
+                len(str(value).encode("utf-8"))
+                for value in db._posting_row(
+                    ats, token, company_id, p, capture_description=capture_description
+                )
+                if value is not None
+            )
+            for p in chunk
+        )
+        allocated = conn.execute(
+            "SELECT pg_database_size(current_database()) AS bytes"
+        ).fetchone()["bytes"]
         if over or allocated + held + forecast >= CEILING_BYTES:
-            log.warning('admission paused at chunk boundary; source verification continues')
+            log.warning(
+                "admission paused at chunk boundary; source verification continues"
+            )
             conn.commit()
             return 0, True
     except Exception:
         conn.rollback()
-        log.exception('admission capacity measurement failed; verification only')
+        log.exception("admission capacity measurement failed; verification only")
         return 0, True
     admitted = db.upsert_jobs(conn, company_id, ats, token, chunk)
     conn.commit()
@@ -99,17 +132,39 @@ def run(dsn: str | None = None) -> dict:
         over = over or maintenance.blocked
         guard_note = None
         if over:
-            guard_note = ("maintenance only: safety maintenance blocked admission" if maintenance.blocked
-                          else f"maintenance only: capacity unavailable or db at {size_mb:.0f} MiB; ceiling {ceiling_mb:.0f} MiB")
-            log.warning("%s; checking closures without ingestion or enrichment", guard_note)
+            guard_note = (
+                "maintenance only: safety maintenance blocked admission"
+                if maintenance.blocked
+                else f"maintenance only: capacity unavailable or db at {size_mb:.0f} MiB; ceiling {ceiling_mb:.0f} MiB"
+            )
+            log.warning(
+                "%s; checking closures without ingestion or enrichment", guard_note
+            )
 
         run_id = db.start_run(conn)
+        conn.commit()  # Accounting survives rollback of the first seed chunk.
+        seed_deferred = False
+        seed_committed = 0
         if not over:
-            for start in range(0,len(targets),100):
-                db.sync_seed(conn, targets[start:start+100])
-                conn.commit()
-        conn.commit()
-        from job_discovery.lifecycle.reconcile import verify_due_sources, StorageBlocked
+            for start in range(0, len(targets), 100):
+                try:
+                    chunk = targets[start : start + 100]
+                    db.sync_seed(conn, chunk)
+                    conn.commit()
+                    seed_committed += len(chunk)
+                except StorageBlocked:
+                    conn.rollback()
+                    seed_deferred = True
+                    guard_note = f"seed storage deferred; {seed_committed} seed targets committed; existing-source verification continues"
+                    conn.execute(
+                        "UPDATE poll_runs SET notes=%s WHERE id=%s",
+                        (guard_note, run_id),
+                    )
+                    conn.commit()
+                    log.warning(guard_note)
+                    break
+        from job_discovery.lifecycle.reconcile import verify_due_sources
+
         source_enabled = read_control(conn).source_enabled
         conn.commit()
         if source_enabled:
@@ -118,13 +173,32 @@ def run(dsn: str | None = None) -> dict:
                 conn.commit()
             except StorageBlocked:
                 conn.rollback()
-                log.warning('source catalog storage blocked; verifying registered corpus')
+                log.warning(
+                    "source catalog storage blocked; verifying registered corpus"
+                )
             counts = verify_due_sources(conn)
-            db.finish_run(conn,run_id,companies_ok=counts['ok'],companies_failed=counts['failed'],
-                          new_jobs=counts['new_jobs'],closed_jobs=counts['closed_jobs'],
-                          notes='full-corpus source verification and lean metadata admission')
+            counts["seed_storage_deferred"] = seed_deferred
+            counts["seed_targets_committed"] = seed_committed
+            counts["storage_deferred"] = counts.get("storage_deferred", 0) + int(
+                seed_deferred
+            )
+            db.finish_run(
+                conn,
+                run_id,
+                companies_ok=counts["ok"],
+                companies_failed=counts["failed"],
+                new_jobs=counts["new_jobs"],
+                closed_jobs=counts["closed_jobs"],
+                notes="; ".join(
+                    ([guard_note] if guard_note else [])
+                    + ["full-corpus source verification and lean metadata admission"]
+                ),
+            )
             conn.commit()
             return counts
+        # In legacy mode a seed deferral also stops ordinary payload admission;
+        # existing source close/reopen verification remains in the legacy loop.
+        over = over or seed_deferred
         companies = db.active_companies(conn)
         conn.commit()  # No read transaction spans adapter HTTP.
 
@@ -136,24 +210,35 @@ def run(dsn: str | None = None) -> dict:
             ats, token, company_id = co["ats"], co["token"], co["id"]
             try:
                 company_closed = 0
-                capture_description = not over and legacy_description_capture_allowed(conn)
+                capture_description = not over and legacy_description_capture_allowed(
+                    conn
+                )
                 conn.commit()  # No gate/read transaction spans legacy detail HTTP.
-                postings = (ADAPTERS[ats](token, fetch_details=capture_description)
-                            if ats in {"workday", "smartrecruiters"}
-                            else ADAPTERS[ats](token))
+                postings = (
+                    ADAPTERS[ats](token, fetch_details=capture_description)
+                    if ats in {"workday", "smartrecruiters"}
+                    else ADAPTERS[ats](token)
+                )
                 admissible_ids = set()
-                with spool_feed(postings, admissible_ids=admissible_ids) as (buffered, seen):
+                with spool_feed(postings, admissible_ids=admissible_ids) as (
+                    buffered,
+                    seen,
+                ):
                     chunk: list = []
                     for p in buffered:
                         if over or not p.metadata_complete or not p.url or not p.title:
                             continue
                         chunk.append(p)
                         if len(chunk) >= UPSERT_CHUNK_SIZE:
-                            admitted, over = _admit_chunk(conn, company_id, ats, token, chunk)
+                            admitted, over = _admit_chunk(
+                                conn, company_id, ats, token, chunk
+                            )
                             new_jobs += admitted
                             chunk = []
                     if chunk:
-                        admitted, over = _admit_chunk(conn, company_id, ats, token, chunk)
+                        admitted, over = _admit_chunk(
+                            conn, company_id, ats, token, chunk
+                        )
                         new_jobs += admitted
                     conn.commit()
                 if over:
@@ -162,7 +247,8 @@ def run(dsn: str | None = None) -> dict:
                 if not seen and len(open_ids) > 20:
                     log.error(
                         "%s returned zero postings but has %d open jobs; skipping close-detection",
-                        co["name"], len(open_ids),
+                        co["name"],
+                        len(open_ids),
                     )
                 else:
                     company_closed += db.close_jobs(
@@ -177,8 +263,9 @@ def run(dsn: str | None = None) -> dict:
                 try:
                     conn.rollback()
                 except Exception:
-                    log.exception("rollback failed for %s; attempting reconnect",
-                                  co["name"])
+                    log.exception(
+                        "rollback failed for %s; attempting reconnect", co["name"]
+                    )
                     # The old connection is unusable. Close it first — that releases
                     # its session advisory lock and frees the socket — so we don't
                     # leak the connection (and its lock) when we open a fresh one.
@@ -219,13 +306,19 @@ def run(dsn: str | None = None) -> dict:
                     if deactivated:
                         log.warning(
                             "deactivating dead board %s (%s:%s) after %d consecutive failures",
-                            co["name"], ats, token, db.POLL_FAILURE_DEACTIVATE)
+                            co["name"],
+                            ats,
+                            token,
+                            db.POLL_FAILURE_DEACTIVATE,
+                        )
                 except Exception:
                     try:
                         conn.rollback()
                     except Exception:
-                        log.exception("rollback after failure-record error failed for %s",
-                                      co["name"])
+                        log.exception(
+                            "rollback after failure-record error failed for %s",
+                            co["name"],
+                        )
                     log.exception("recording poll failure for %s failed", co["name"])
 
         if aborted:
@@ -233,28 +326,58 @@ def run(dsn: str | None = None) -> dict:
             # this invocation must never enter any optional post-poll phase.
             try:
                 db.finish_run(
-                    conn, run_id, companies_ok=ok, companies_failed=failed,
-                    new_jobs=new_jobs, closed_jobs=closed_jobs,
-                    notes="; ".join(["poll aborted after reconnect failure", *failures]),
+                    conn,
+                    run_id,
+                    companies_ok=ok,
+                    companies_failed=failed,
+                    new_jobs=new_jobs,
+                    closed_jobs=closed_jobs,
+                    notes="; ".join(
+                        ["poll aborted after reconnect failure", *failures]
+                    ),
                 )
                 conn.commit()
             except Exception:
                 log.exception("could not finalize aborted poll accounting")
-            return {"ok": ok, "failed": failed, "new_jobs": new_jobs, "closed_jobs": closed_jobs}
+            return {
+                "ok": ok,
+                "failed": failed,
+                "new_jobs": new_jobs,
+                "closed_jobs": closed_jobs,
+                "seed_storage_deferred": seed_deferred,
+                "seed_targets_committed": seed_committed,
+                "storage_deferred": int(seed_deferred),
+            }
 
         db.finish_run(
-            conn, run_id,
-            companies_ok=ok, companies_failed=failed,
-            new_jobs=new_jobs, closed_jobs=closed_jobs,
+            conn,
+            run_id,
+            companies_ok=ok,
+            companies_failed=failed,
+            new_jobs=new_jobs,
+            closed_jobs=closed_jobs,
             notes="; ".join(([guard_note] if guard_note else []) + failures) or None,
         )
         conn.commit()
-        log.info("run complete: ok=%s failed=%s new=%s closed=%s",
-                 ok, failed, new_jobs, closed_jobs)
+        log.info(
+            "run complete: ok=%s failed=%s new=%s closed=%s",
+            ok,
+            failed,
+            new_jobs,
+            closed_jobs,
+        )
 
         if over:
             _run_prune(conn)
-            return {"ok": ok, "failed": failed, "new_jobs": new_jobs, "closed_jobs": closed_jobs}
+            return {
+                "ok": ok,
+                "failed": failed,
+                "new_jobs": new_jobs,
+                "closed_jobs": closed_jobs,
+                "seed_storage_deferred": seed_deferred,
+                "seed_targets_committed": seed_committed,
+                "storage_deferred": int(seed_deferred),
+            }
 
         # Location canonicalization: resolve any raw location strings first
         # seen this poll, then re-stamp jobs.location_canonicals (also
@@ -263,14 +386,18 @@ def run(dsn: str | None = None) -> dict:
         # unresolved raws just retry tomorrow.
         try:
             from job_discovery.locations import resolve_new_locations
-            resolve_new_locations(conn)
+
+            location_counts = resolve_new_locations(conn)
             conn.commit()
+            if location_counts and not location_counts.get("complete", True):
+                log.warning("location resolution incomplete: %s", location_counts)
         except Exception:
             conn.rollback()
             log.exception("location resolution failed; poll results unaffected")
 
         try:
             from reviewer.run import review_all
+
             review_all(conn)
         except Exception:
             conn.rollback()
@@ -280,4 +407,12 @@ def run(dsn: str | None = None) -> dict:
     finally:
         conn.close()
 
-    return {"ok": ok, "failed": failed, "new_jobs": new_jobs, "closed_jobs": closed_jobs}
+    return {
+        "ok": ok,
+        "failed": failed,
+        "new_jobs": new_jobs,
+        "closed_jobs": closed_jobs,
+        "seed_storage_deferred": seed_deferred,
+        "seed_targets_committed": seed_committed,
+        "storage_deferred": int(seed_deferred),
+    }

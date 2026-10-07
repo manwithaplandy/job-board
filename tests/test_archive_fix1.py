@@ -44,16 +44,16 @@ def test_fix1_operational_miss_normal_positive_operational_miss(conn):
 @requires_db
 def test_fix1_membership_and_seal_add_to_live_forecast(conn):
     claim, _ = seeded_events(conn, 2)
-    before = outbox.outbox_health(conn)["bytes"]
+    before = outbox.outbox_health(conn)["live_bytes"]
     ref = batches.claim_batch(conn, BatchLimits(), claim)
     conn.commit()
-    after = outbox.outbox_health(conn)["bytes"]
+    after = outbox.outbox_health(conn)["live_bytes"]
     conn.commit()
     assert after > before
     seal = batches.seal_batch(ref)
     batches.persist_seal(conn, seal)
     conn.commit()
-    assert outbox.outbox_health(conn)["bytes"] > after
+    assert outbox.outbox_health(conn)["live_bytes"] > after
 
 
 def test_fix1_archive_pressure_is_storage_deferred():
@@ -387,7 +387,8 @@ def test_fix1_logical_small_row_forecasts_and_warning_predicate(conn, monkeypatc
         "SELECT octet_length(body::text) n FROM public_outbox"
     ).fetchone()["n"]
     expected = 4 * body_size + 2 * len(row["canonical_event"]) + 4096
-    assert outbox.outbox_health(conn)["bytes"] == expected
+    assert outbox.outbox_health(conn)["live_bytes"] == expected
+    assert outbox.outbox_health(conn)["bytes"] > expected
     charge = conn.execute(
         "SELECT lifecycle_private.archive_row_charge(body,canonical_event,2048) n FROM public_outbox"
     ).fetchone()["n"]
@@ -399,14 +400,9 @@ def test_fix1_logical_small_row_forecasts_and_warning_predicate(conn, monkeypatc
         assert not outbox.budget_allows(1, ceiling - charge + 1, charge, critical)
     monkeypatch.setattr(outbox, "WARNING_BYTES", expected)
     assert outbox.outbox_health(conn)["warning"]
-    # Test the new logical admission arithmetic using small rows, no physical pressure.
-    monkeypatch.setattr(batches, "HARD_BYTES", expected + 8192)
-    with pytest.raises(outbox.ArchiveBlocked, match="live forecast"):
-        batches.claim_batch(conn, BatchLimits(), claim)
-    conn.rollback()
-    assert (
-        conn.execute("SELECT count(*) n FROM public_archive_items").fetchone()["n"] == 0
-    )
+    # The admitted event's escrow now guarantees logical processing room.
+    batch = batches.claim_batch(conn, BatchLimits(), claim)
+    assert batch is not None
 
 
 @requires_db
@@ -490,6 +486,11 @@ def test_fix1_critical_observation_and_recording_survive_seal(conn):
         "SELECT * FROM public_critical_event_slots WHERE state='pending'"
     ).fetchall()
     assert len(slots) == 2
+    samples = conn.execute("""SELECT aggregate_type,octet_length(body::text) body_bytes,
+      octet_length(canonical_event) canonical_bytes,lifecycle_private.archive_processing_charge(canonical_event) escrow,
+      lifecycle_private.archive_row_charge(body,canonical_event,2048)+lifecycle_private.archive_processing_charge(canonical_event) lifecycle_bytes
+      FROM public_critical_event_slots WHERE state='pending' ORDER BY aggregate_type""").fetchall()
+    print("actual critical closure costs", json.dumps(samples))
     for slot in slots:
         event = json.loads(bytes(slot["canonical_event"]))
         assert event["observed_at"] and event["provenance"] == "source_observation"

@@ -158,7 +158,15 @@ def _flush(conn):
         envelope = _envelope(row)
         encoded = canonical_json(envelope)
         health = outbox_health(conn)
-        if not budget_allows(health["events"], health["bytes"], 2 * len(encoded), True):
+        if not budget_allows(
+            health["events"],
+            health["bytes"],
+            2 * len(encoded)
+            + conn.execute(
+                "SELECT lifecycle_private.archive_processing_charge(%s) n", (encoded,)
+            ).fetchone()["n"],
+            True,
+        ):
             raise OperationalDeferred("critical outbox budget exhausted")
         conn.execute(
             """UPDATE public_critical_event_slots SET state='pending',event_id=%s,predecessor_id=%s,

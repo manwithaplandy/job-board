@@ -13,7 +13,7 @@ from job_discovery.lifecycle.capacity import (
     settle_capacity,
 )
 from .codec import canonical_json, encode_events, MAX_MANIFEST
-from .outbox import ArchiveBlocked, outbox_health, HARD_BYTES
+from .outbox import ArchiveBlocked
 from .types import BatchRef, BatchLimits, SealedBatch, VerifiedBatch, AckResult
 
 
@@ -21,9 +21,34 @@ def _hash(value):
     return hashlib.sha256(value).hexdigest()
 
 
-def _live_capacity(tx, additional):
-    if outbox_health(tx)["bytes"] + additional > HARD_BYTES:
-        raise ArchiveBlocked("archive live forecast exhausted; batch deferred")
+def _processing_capacity(tx, event_bytes, *, manifest_bytes=None, receipt_bytes=None):
+    """Spend only the selected immutable events' admission-time escrow.
+
+    The bound admits singleton batches, so max_events=1 always makes logical
+    progress. Larger batches share the same bounded header/seal/ack allowance.
+    Physical reservations remain separate and may still defer any phase.
+    """
+    count = len(event_bytes)
+    canonical_bytes = sum(len(value) for value in event_bytes)
+    manifest_bound = 8192 * count + 2 * canonical_bytes
+    if manifest_bytes is not None and manifest_bytes > manifest_bound:
+        raise ArchiveBlocked("manifest exceeds reserved processing workspace")
+    if receipt_bytes is not None and 2 * receipt_bytes + 16384 * count > 98304 * count:
+        raise ArchiveBlocked("acknowledgement exceeds reserved processing workspace")
+    reserved = tx.execute(
+        "SELECT sum(lifecycle_private.archive_processing_charge(value)) n FROM unnest(%s::bytea[]) value",
+        (list(event_bytes),),
+    ).fetchone()["n"]
+    required = (
+        2 * canonical_bytes
+        + 1024 * count
+        + 8192
+        + 4096
+        + 2 * (manifest_bytes if manifest_bytes is not None else manifest_bound)
+        + 98304 * count
+    )
+    if required > reserved:
+        raise ArchiveBlocked("batch exceeds reserved processing workspace")
 
 
 def _keys(ref, compressed_hash):
@@ -137,6 +162,10 @@ def claim_batch(tx, limits: BatchLimits, claim) -> BatchRef | None:
         size = len(row["canonical_event"]) + 1
         if total + size > limits.max_expanded_bytes:
             break
+        # Reserve a manifest bound before selection too. This conservative bound
+        # fits even singleton processing and avoids selecting an unsealable batch.
+        if 8192 * (len(selected) + 1) + 2 * (total + size) > MAX_MANIFEST:
+            break
         # A prior pending predecessor must be included earlier in this same batch.
         if (
             row["revision"] > 1
@@ -154,9 +183,7 @@ def claim_batch(tx, limits: BatchLimits, claim) -> BatchRef | None:
     ).fetchone()
     if not destination:
         raise ArchiveBlocked("archive destination prefix not validated")
-    _live_capacity(
-        tx, 8192 + sum(2 * len(r["canonical_event"]) + 1024 for r in selected)
-    )
+    _processing_capacity(tx, [bytes(r["canonical_event"]) for r in selected])
     reservation = reserve_capacity(tx, claim, total * 4 + 65536)
     if reservation is None:
         raise ArchiveBlocked("physical batch capacity unavailable")
@@ -335,7 +362,7 @@ def persist_seal(tx, seal: SealedBatch) -> None:
         if any(row[k] != v for k, v in values.items()):
             raise ArchiveBlocked("immutable seal differs")
         return
-    _live_capacity(tx, 4096 + 2 * seal.manifest_bytes)
+    _processing_capacity(tx, ref.event_bytes, manifest_bytes=seal.manifest_bytes)
     reservation = reserve_capacity(
         tx, seal.batch.claim, 65536 + seal.manifest_bytes * 4
     )
@@ -414,6 +441,19 @@ def ack_batch(tx, verified_batch: VerifiedBatch, claim) -> AckResult:
     )
     if row["state"] == "acked":
         return AckResult(current.ordered_event_ids, markers)
+    receipt_bytes = tx.execute(
+        "SELECT octet_length(%s::jsonb::text)+octet_length(%s::jsonb::text) n",
+        (
+            Jsonb(asdict(verified_batch.data_receipt)),
+            Jsonb(asdict(verified_batch.manifest_receipt)),
+        ),
+    ).fetchone()["n"]
+    _processing_capacity(
+        tx,
+        current.event_bytes,
+        manifest_bytes=seal.manifest_bytes,
+        receipt_bytes=receipt_bytes,
+    )
     reservation = reserve_capacity(tx, claim, 65536 + len(items) * 16384)
     if reservation is None:
         raise ArchiveBlocked("physical exact acknowledgement capacity unavailable")

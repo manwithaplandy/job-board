@@ -1,0 +1,18 @@
+
+> job-board-dashboard@0.1.0 test
+> NODE_OPTIONS=--no-experimental-webstorage vitest run lib/accountDeletion.test.ts lib/accountExport.test.ts lib/db.test.ts lib/usage.test.ts lib/profileSettings.test.ts lib/serviceRoleAllowlist.test.ts
+
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+
+ Test Files  6 passed (6)
+      Tests  65 passed (65)
+   Start at  06:42:49
+   Duration  986ms (transform 380ms, setup 0ms, import 713ms, tests 187ms, environment 1ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice

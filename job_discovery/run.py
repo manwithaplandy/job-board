@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+from job_discovery.lifecycle.legacy_spool import spool_feed, spool_questions
 import logging
 
 from job_discovery import db
@@ -13,26 +15,17 @@ def backfill_greenhouse_questions(conn, company_id, token, *, get_json=None, log
     """Fetch + persist the question schema for this Greenhouse company's open jobs that
     lack a job_questions row (rolling backfill). One HTTP call per missing job, each
     wrapped so a single failure never aborts the company. Returns the count persisted."""
-    get_json = get_json or _get_json
-    fetched = 0
-    for external_id in db.greenhouse_jobs_missing_questions(conn, company_id):
-        url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{external_id}?questions=true"
-        # ONLY the HTTP fetch + pure parse are swallowed. A DB write error must NOT be
-        # caught here — a failed statement aborts the transaction, and continuing to
-        # issue statements (all silently caught) then `conn.commit()` in the poll loop
-        # would commit an aborted tx (→ rollback), discarding the company's whole
-        # upsert_jobs work with no error. Let db errors propagate to the per-company
-        # handler, which rolls back correctly (mirrors smartrecruiters/workday:
-        # HTTP-only try/except).
-        try:
-            questions = parse_greenhouse_questions(get_json(url))
-        except Exception as e:  # noqa: BLE001 — fetch/parse only; never abort the company
-            log.warning("greenhouse question fetch failed for %s:%s (%s)", token, external_id, e)
-            continue
-        if questions and questions["questions"]:
-            db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", questions)
+    with spool_questions(conn, company_id, token, get_json or _get_json,
+                         parse_greenhouse_questions, db.greenhouse_jobs_missing_questions,
+                         log=log) as questions:
+        fetched = 0
+        for external_id, data in questions:
+            db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", data)
             fetched += 1
-    return fetched
+            if fetched % UPSERT_CHUNK_SIZE == 0:
+                conn.commit()
+        conn.commit()
+        return fetched
 
 # Upsert postings in fixed-size chunks. The workday adapter yields lazily to keep
 # peak memory bounded (A10); buffering a whole tenant into one list before a single
@@ -80,6 +73,7 @@ def run(dsn: str | None = None) -> dict:
             db.sync_seed(conn, targets)
         conn.commit()
         companies = db.active_companies(conn)
+        conn.commit()  # No read transaction spans adapter HTTP.
 
         ok = failed = new_jobs = closed_jobs = 0
         failures: list[str] = []
@@ -87,35 +81,38 @@ def run(dsn: str | None = None) -> dict:
         for co in companies:
             ats, token, company_id = co["ats"], co["token"], co["id"]
             try:
-                company_new = company_closed = 0
+                company_closed = 0
                 postings = (ADAPTERS[ats](token, fetch_details=False)
                             if over and ats in {"workday", "smartrecruiters"}
                             else ADAPTERS[ats](token))
-                seen: set[str] = set()
-                chunk: list = []
-                for p in postings:
-                    if p.external_id:
-                        seen.add(p.external_id)   # close-detection sees every live posting,
-                    if over:
-                        continue
-                    if not p.url or not p.title:  # even ones too malformed to upsert
-                        log.warning(
-                            "skipping malformed posting %s for %s",
-                            p.external_id, co["name"],
-                        )
-                        continue
-                    chunk.append(p)
-                    if len(chunk) >= UPSERT_CHUNK_SIZE:
-                        # Flush and release this chunk so a large (lazily-yielded)
-                        # tenant never holds more than one chunk in memory at once.
-                        company_new += db.upsert_jobs(conn, company_id, ats, token, chunk)
-                        chunk = []
-                if chunk:
-                    company_new += db.upsert_jobs(conn, company_id, ats, token, chunk)
-                # `seen` now holds every truthy external_id from ALL chunks, so
-                # close-detection below never misses a posting from a later chunk.
-                if not getattr(postings, "complete", True):
-                    raise ValueError("source enumeration incomplete; refusing closure reconciliation")
+                with spool_feed(postings) as (buffered, seen):
+                    questions_context = (spool_questions(
+                        conn, company_id, token, _get_json, parse_greenhouse_questions,
+                        db.greenhouse_jobs_missing_questions, seen, log,
+                    ) if not over and ats == "greenhouse" else nullcontext(iter(())))
+                    with questions_context as questions:
+                        chunk: list = []
+                        for p in buffered:
+                            if over or not p.url or not p.title:
+                                continue
+                            chunk.append(p)
+                            if len(chunk) >= UPSERT_CHUNK_SIZE:
+                                admitted = db.upsert_jobs(conn, company_id, ats, token, chunk)
+                                conn.commit()
+                                new_jobs += admitted
+                                chunk = []
+                        if chunk:
+                            admitted = db.upsert_jobs(conn, company_id, ats, token, chunk)
+                            conn.commit()
+                            new_jobs += admitted
+                        for question_index, (external_id, data) in enumerate(questions, 1):
+                            # Malformed feed entries were never admitted; retain the
+                            # old FK behavior by writing only existing shared Jobs.
+                            if conn.execute("SELECT 1 FROM jobs WHERE id=%s", (f"greenhouse:{token}:{external_id}",)).fetchone():
+                                db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", data)
+                            if question_index % UPSERT_CHUNK_SIZE == 0:
+                                conn.commit()
+                        conn.commit()
                 if over:
                     db.reopen_jobs(conn, company_id, seen)
                 open_ids = db.get_open_external_ids(conn, company_id)
@@ -128,12 +125,9 @@ def run(dsn: str | None = None) -> dict:
                     company_closed += db.close_jobs(
                         conn, company_id, db.compute_newly_closed(open_ids, seen)
                     )
-                if not over and ats == "greenhouse":
-                    backfill_greenhouse_questions(conn, company_id, token)
                 # Healthy poll: clear any accrued failure streak in the same tx.
                 db.record_poll_result(conn, company_id, ok=True)
                 conn.commit()
-                new_jobs += company_new
                 closed_jobs += company_closed
                 ok += 1
             except Exception as exc:  # per-company isolation (incl. dead boards)

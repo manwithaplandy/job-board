@@ -1,3 +1,4 @@
+from job_discovery.lifecycle.locks import lock_jobs
 import json
 import os
 
@@ -150,6 +151,7 @@ def upsert_jobs(
         return 0
     rows = [_posting_row(ats, token, company_id, p) for p in postings]
     new = 0
+    lock_jobs(conn, [row[0] for row in rows])
     with conn.cursor() as cur:
         cur.executemany(_UPSERT_SQL, rows, returning=True)
         while True:

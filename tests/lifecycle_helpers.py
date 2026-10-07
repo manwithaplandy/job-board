@@ -96,11 +96,11 @@ _CATALOG_QUERIES = {
         FROM pg_policies WHERE schemaname='public' ORDER BY tablename,policyname
     """,
     "functions": """
-        SELECT p.proname,pg_get_function_identity_arguments(p.oid) AS arguments,
+        SELECT n.nspname,p.proname,pg_get_function_identity_arguments(p.oid) AS arguments,
                pg_get_functiondef(p.oid) AS definition,p.proconfig,p.prosecdef,p.proacl::text,
                pg_get_userbyid(p.proowner) AS owner
         FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname='public' ORDER BY p.proname,arguments
+        WHERE n.nspname IN ('public','lifecycle_private') ORDER BY n.nspname,p.proname,arguments
     """,
     "triggers": """
         SELECT c.relname,t.tgname,t.tgenabled,pg_get_triggerdef(t.oid,true) AS definition
@@ -113,8 +113,8 @@ _CATALOG_QUERIES = {
         FROM pg_sequences WHERE schemaname='public' ORDER BY sequencename
     """,
     "schema_grants": """
-        SELECT nspacl::text,pg_get_userbyid(nspowner) AS owner
-        FROM pg_namespace WHERE nspname='public'
+        SELECT nspname,nspacl::text,pg_get_userbyid(nspowner) AS owner
+        FROM pg_namespace WHERE nspname IN ('public','lifecycle_private') ORDER BY nspname
     """,
     "default_grants": """
         SELECT r.rolname,COALESCE(n.nspname,'global') AS scope,d.defaclobjtype,d.defaclacl::text

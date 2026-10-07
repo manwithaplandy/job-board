@@ -35,3 +35,32 @@ def read_control(conn) -> LifecycleControl:
         raise RuntimeError("lifecycle control is missing; refusing implicit defaults")
     row.pop("singleton")
     return LifecycleControl(**row)
+
+
+def transition_control(
+    conn, expected_generation: int, target: LifecycleControl, claim
+) -> LifecycleControl:
+    """CAS under the common gate. SQL guards remain authoritative for direct DML."""
+    from dataclasses import asdict
+    from psycopg import sql
+    from .claims import validate_claim
+
+    validate_claim(conn, claim)
+    if not conn.execute(
+        "SELECT 1 FROM lifecycle_claims WHERE owner_token=%s AND generation=%s AND kind='control' AND work_id='singleton'",
+        (claim.owner_token, claim.generation),
+    ).fetchone():
+        raise RuntimeError("control transition requires control singleton claim")
+    current = read_control(conn)
+    if current.activation_generation != expected_generation:
+        raise RuntimeError("stale control activation generation")
+    values = asdict(target)
+    values["activation_generation"] = expected_generation + 1
+    assignments = sql.SQL(",").join(
+        sql.SQL("{}=%s").format(sql.Identifier(k)) for k in values
+    )
+    conn.execute(
+        sql.SQL("UPDATE lifecycle_control SET {} WHERE singleton").format(assignments),
+        list(values.values()),
+    )
+    return read_control(conn)

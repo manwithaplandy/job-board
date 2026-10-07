@@ -1,3 +1,5 @@
+from job_discovery.lifecycle.locks import enter_gate, lock_jobs
+from job_discovery.lifecycle.config import read_control
 import logging
 import os
 
@@ -49,7 +51,12 @@ def _run_batched(conn, days: int, batch: int, cap: int) -> int:
     done = 0
     while done < cap:
         try:
+            enter_gate(conn)
+            if read_control(conn).safety_stage == "enforced":
+                raise RuntimeError("legacy destructive prune disabled after lifecycle cutover")
             with conn.cursor() as cur:
+                cur.execute(_SELECT_CLOSED.replace("FOR UPDATE OF j SKIP LOCKED", ""), (days, min(batch, cap - done)))
+                lock_jobs(conn, [row["id"] for row in cur.fetchall()])
                 cur.execute(_SELECT_CLOSED, (days, min(batch, cap - done)))
                 ids = [row["id"] for row in cur.fetchall()]
                 if not ids:

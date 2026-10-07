@@ -1,0 +1,81 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+____________ test_reservation_cannot_release_on_expiry_or_resurrect ____________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32866 user=postgres database=poller_lifecycle_test) at 0x7f5e47d6eed0>
+
+    @requires_db
+    def test_reservation_cannot_release_on_expiry_or_resurrect(conn):
+        claim=api('claims').claim_work(conn,'source','board',180)
+        res=api('capacity').reserve_capacity(conn,claim,4096)
+        conn.commit()
+        conn.execute("UPDATE lifecycle_claims SET lease_until=clock_timestamp()-interval '1 second'")
+        conn.commit()
+>       with pytest.raises(Exception,match='fenc'):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE Exception
+
+tests/test_lifecycle_safety.py:232: Failed
+______ test_all_private_payload_fields_and_repeated_writes_consume_budget ______
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32866 user=postgres database=poller_lifecycle_test) at 0x7f5e47d72c60>
+
+    @requires_db
+    def test_all_private_payload_fields_and_repeated_writes_consume_budget(conn):
+        seed(conn)
+        vid=version(conn)
+        conn.execute("INSERT INTO application_packages(user_id,job_id,job_version_id) VALUES (%s,'lever:x:0',%s)",(A,vid))
+        claim=api('claims').claim_work(conn,'payload','lever:x:0',180)
+        res=api('capacity').reserve_capacity(conn,claim,3000)
+        conn.commit()
+        enforced(conn)
+        for column in ['resume_json','cover_letter_json','answers_snapshot','greenhouse_questions','prefilled_answers']:
+            with pytest.raises(Exception,match='growth_without_reservation'):
+                conn.execute(f"UPDATE application_packages SET {column}='{{\"payload\":\"new\"}}'")
+            conn.rollback()
+        api('capacity').bind_reservation(conn,res,job_id='lever:x:0',scope='application_packages')
+>       conn.execute("UPDATE application_packages SET resume_instructions=repeat('a',400)")
+
+tests/test_lifecycle_safety.py:259:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32866 user=postgres database=poller_lifecycle_test) at 0x7f5e47d72c60>
+query = "UPDATE application_packages SET resume_instructions=repeat('a',400)"
+params = None, prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.RaiseException: invalid capacity reservation owner, scope or budget
+E           CONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 17 at RAISE
+E           SQL statement "INSERT INTO public.lifecycle_write_checks(invoking_role,subject_id,reservation_id,job_id,scope,bytes,row_count)
+E            VALUES(current_user,public.app_user_id(),rid,jid,TG_TABLE_NAME,growth,1)"
+E           PL/pgSQL function public.lifecycle_validate_row() line 72 at SQL statement
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: RaiseException
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_safety.py::test_reservation_cannot_release_on_expiry_or_resurrect
+FAILED tests/test_lifecycle_safety.py::test_all_private_payload_fields_and_repeated_writes_consume_budget
+2 failed, 14 deselected in 0.81s

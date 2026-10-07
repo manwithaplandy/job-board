@@ -156,10 +156,9 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
 }
 
 /**
- * Task2 installs demand prerequisites with no client privileges. Keep the normal
- * owner-scoped wrapper and report unavailable data explicitly, without inventing
- * an empty export or broadening service privileges. A later reviewed owner-read
- * contract can make this same projection available. Never export claim tokens.
+ * Task3 grants owner-scoped demand reads. Keep the normal RLS wrapper and
+ * report unavailable data explicitly when an older schema is still installed.
+ * Never export claim tokens.
  */
 async function collectLifecycleDemands(userId: string): Promise<Pick<AccountExport, "job_payload_demands" | "job_payload_demands_error">> {
   try {

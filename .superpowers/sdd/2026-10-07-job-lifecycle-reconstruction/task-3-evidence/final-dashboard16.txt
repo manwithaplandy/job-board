@@ -1,0 +1,14 @@
+Owned lifecycle database: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) (required 16)
+
+> job-board-dashboard@0.1.0 test
+> NODE_OPTIONS=--no-experimental-webstorage vitest run lib/jobLifecycle.db.test.ts
+
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ✓ lib/jobLifecycle.db.test.ts (4 tests) 544ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  07:00:52
+   Duration  1.06s (transform 63ms, setup 0ms, import 101ms, tests 544ms, environment 0ms)

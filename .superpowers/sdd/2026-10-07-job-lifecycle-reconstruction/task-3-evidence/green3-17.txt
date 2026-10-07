@@ -1,0 +1,12 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+
+==================================== ERRORS ====================================
+_________________ ERROR collecting tests/test_rls_isolation.py _________________
+tests/test_rls_isolation.py:537: in <module>
+    "lifecycle_write_checks": (_R(), _R("SELECT", "INSERT")),
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: frozenset expected at most 1 argument, got 2
+=========================== short test summary info ============================
+ERROR tests/test_rls_isolation.py - TypeError: frozenset expected at most 1 a...
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.38s

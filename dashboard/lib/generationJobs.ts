@@ -1,3 +1,4 @@
+import { acquireLifecycleGate } from "@/lib/jobLifecycle";
 import { withUserSql } from "@/lib/db";
 import {
   parseGenerationJob,
@@ -48,6 +49,7 @@ export async function createGenerationJob(
   kind: GenerationJobKind,
 ): Promise<CreatedGenerationJob> {
   return withUserSql(userId, async (tx) => {
+    await acquireLifecycleGate(tx);
     // Housekeeping: settled rows are only useful within RECENT_WINDOW; prune the
     // viewer's stale ones here (write path) so the table never needs a cron.
     await tx`

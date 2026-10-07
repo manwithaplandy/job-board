@@ -411,7 +411,7 @@ _OWNER_ALL = {
 }
 EXPECTED_RLS = {
     # Early lifecycle prerequisite: service-only until reviewed demand access cutover.
-    "job_payload_demands": {},
+    "job_payload_demands": {"owner_access": ("ALL", frozenset({"authenticated"}))},
     "matching_activity": {"owner_read": ("SELECT", frozenset({"authenticated"}))},
     "feedback": {"feedback_owner_read": ("SELECT", frozenset({"authenticated"}))},
     # Full owner CRUD (owner_access FOR ALL, USING/WITH CHECK = app_user_id()).
@@ -533,6 +533,9 @@ def test_every_user_scoped_table_has_rls_enabled_and_expected_policy_set(conn):
 # are COLUMN-level (not in role_table_grants), so its table-level set is {SELECT, DELETE}.
 _R = frozenset  # (anon_privs, authenticated_privs)
 EXPECTED_GRANTS = {
+    "lifecycle_control": (_R(), _R({"SELECT"})),
+    "lifecycle_write_checks": (_R(), _R({"SELECT", "INSERT"})),
+    "job_payload_demands": (_R(), _R({"SELECT", "DELETE"})),
     "matching_activity": (_R(), _R({"SELECT"})),
     "feedback": (_R(), _R({"SELECT"})),
     "jobs":                 (_R({"SELECT"}), _R({"SELECT"})),

@@ -1,0 +1,54 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_pending_owner_lease_needs_no_payload_and_cannot_write_worker_claim ____
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32880 user=postgres database=poller_lifecycle_test) at 0x7f82d41c09b0>
+
+    @requires_db
+    def test_pending_owner_lease_needs_no_payload_and_cannot_write_worker_claim(conn):
+        seed(conn)
+        conn.commit()
+        enforced(conn)
+        with as_user(conn,A):
+>           conn.execute("INSERT INTO job_payload_demands(user_id,job_id,kind) VALUES (%s,'lever:x:0','description')",(A,))
+
+tests/test_lifecycle_safety.py:651:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32880 user=postgres database=poller_lifecycle_test) at 0x7f82d41c09b0>
+query = "INSERT INTO job_payload_demands(user_id,job_id,kind) VALUES (%s,'lever:x:0','description')"
+params = ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',), prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.RaiseException: active demand requires bounded database-time lease
+E           CONTEXT:  PL/pgSQL function public.lifecycle_validate_row() line 57 at RAISE
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: RaiseException
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_safety.py::test_pending_owner_lease_needs_no_payload_and_cannot_write_worker_claim
+1 failed, 23 deselected in 1.13s

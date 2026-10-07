@@ -1,0 +1,22 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_staging_rejects_wrong_claim_and_source_replay_floor ___________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32870 user=postgres database=poller_lifecycle_test) at 0x7fc795367b30>
+
+    @requires_db
+    def test_staging_rejects_wrong_claim_and_source_replay_floor(conn):
+        seed(conn)
+        api('identity').migrate_identity_batch(conn)
+        source=conn.execute('SELECT id FROM source_accounts').fetchone()['id']
+        claim=api('claims').claim_work(conn,'source',str(source),180)
+        conn.commit()
+>       with pytest.raises(Exception,match='claim|fenced'):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE Exception
+
+tests/test_lifecycle_safety.py:502: Failed
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_safety.py::test_staging_rejects_wrong_claim_and_source_replay_floor
+1 failed, 18 deselected in 0.39s

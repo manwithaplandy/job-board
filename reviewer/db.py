@@ -1,3 +1,4 @@
+from job_discovery.lifecycle.locks import enter_gate
 import uuid
 
 from psycopg.types.json import Json
@@ -106,6 +107,7 @@ def matching_eligible(conn, user_id: str) -> bool:
     Lock the activity row so resume and pause cannot overwrite one another. This
     short transaction is committed by the caller before any external model calls.
     """
+    enter_gate(conn)
     with conn.cursor() as cur:
         cur.execute("SELECT user_id FROM matching_activity WHERE user_id=%s FOR UPDATE", (_uuid(user_id),))
         if cur.fetchone() is None:

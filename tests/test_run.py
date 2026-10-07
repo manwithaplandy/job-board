@@ -546,15 +546,9 @@ def test_over_ceiling_run_writes_poll_run_row(conn, monkeypatch):
 # ── A8⇄A10: chunked upserts keep peak memory bounded ─────────────────────────
 
 @requires_db
-def test_upserts_are_chunked_and_do_not_drain_the_generator(conn, monkeypatch):
-    """run() must consume a lazy adapter in fixed-size chunks and flush each chunk
-    to upsert_jobs before pulling the rest — otherwise A10's lazy workday generator
-    is defeated by buffering the whole tenant (and every detail payload) at once.
-
-    We prove it by recording, at each upsert_jobs call, how many postings the
-    generator has produced so far. With a chunk size of 2, the FIRST flush must
-    fire after exactly 2 postings (one chunk), NOT after the generator is drained.
-    """
+def test_upserts_use_bounded_chunks_after_network_spooling(conn, monkeypatch):
+    """Task3 disk spool finishes HTTP before any gated write; memory/write chunks
+    remain bounded, and a failed feed never authorizes closure or writes."""
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setattr(run_module, "UPSERT_CHUNK_SIZE", 2)
     monkeypatch.setattr(run_module, "load_targets",
@@ -580,9 +574,8 @@ def test_upserts_are_chunked_and_do_not_drain_the_generator(conn, monkeypatch):
 
     run_module.run()
 
-    # First flush: one full chunk (2), and only those 2 have been produced so far
-    # — the generator was NOT drained to 5 before the first upsert.
-    assert flushes[0] == (2, 2), f"expected bounded first flush, got {flushes}"
+    # Network completes into a bounded disk spool before the first DB chunk.
+    assert flushes[0] == (2, 5), f"expected bounded first flush, got {flushes}"
     # Chunks tile the whole feed: 2 + 2 + 1 == 5, none dropped.
     assert [n for n, _ in flushes] == [2, 2, 1]
     with conn.cursor() as cur:

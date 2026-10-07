@@ -1,3 +1,4 @@
+import { acquireLifecycleGate } from "@/lib/jobLifecycle";
 import { createHmac } from "node:crypto";
 // ─────────────────────────────────────────────────────────────────────────────
 // serviceSql JUSTIFICATION (RLS-bypass allowlist — lib/serviceRoleAllowlist.test.ts):
@@ -66,6 +67,7 @@ const _LOOP_DELETE_TABLES = USER_DELETE_TABLES.filter((t) => t !== "invite_redem
 export async function writeTombstone(userId: string, email: string | null): Promise<void> {
   const emailHash = hashEmail(email);
   await serviceSql.begin(async (tx) => {
+    await acquireLifecycleGate(tx);
     await tx.unsafe(
       `INSERT INTO account_deletions (user_id, email_hash) VALUES ($1::uuid, $2)
        ON CONFLICT (user_id) DO NOTHING`,
@@ -110,6 +112,8 @@ export async function cancelStripeForUser(userId: string): Promise<void> {
 export async function deleteUserRowsTx(userId: string, email: string | null): Promise<void> {
   const emailHash = hashEmail(email);
   await serviceSql.begin(async (tx) => {
+    await acquireLifecycleGate(tx);
+    await tx.unsafe("SELECT lifecycle_forget_subject($1::uuid)", [userId]);
     // submit_feedback holds this lock through commit. Wait for any submission that
     // passed its tombstone check before erasure began, then let the next DELETE
     // statement's READ COMMITTED snapshot see and erase that newly committed row.

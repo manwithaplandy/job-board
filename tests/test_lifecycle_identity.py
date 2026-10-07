@@ -216,7 +216,6 @@ def test_defaults_are_service_owned_and_gucs_do_not_enable_controls(conn):
 @requires_db
 def test_new_tables_have_rls_and_no_client_privileges(conn):
     tables = [
-        "lifecycle_control",
         "source_accounts",
         "source_listings",
         "job_versions",
@@ -227,7 +226,6 @@ def test_new_tables_have_rls_and_no_client_privileges(conn):
         "job_locations",
         "job_skills",
         "identity_assertions",
-        "job_payload_demands",
     ]
     for table in tables:
         assert conn.execute(

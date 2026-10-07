@@ -1,0 +1,75 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+.....F...............................................................F.. [ 84%]
+.............                                                            [100%]
+=================================== FAILURES ===================================
+_______ test_valid_capacity_is_backend_transaction_scope_and_owner_bound _______
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32865 user=postgres database=poller_lifecycle_test) at 0x7f70d23a9e20>
+
+    @requires_db
+    def test_valid_capacity_is_backend_transaction_scope_and_owner_bound(conn):
+        seed(conn)
+        vid = version(conn)
+        claim = api('claims').claim_work(conn, 'payload', 'lever:x:0', 180)
+        res = api('capacity').reserve_capacity(conn, claim, 32768)
+        conn.commit()
+        enforced(conn)
+        api('capacity').bind_reservation(conn, res, job_id='lever:x:0', scope='job_reviews', subject_id=A, invoking_role='authenticated')
+        with as_user(conn, B):
+            with pytest.raises(Exception, match='capacity|reservation|owner'):
+                conn.execute("INSERT INTO job_reviews(user_id,job_id,profile_version,verdict,job_version_id,description_snapshot) VALUES (%s,'lever:x:0','v','approve',%s,repeat('x',100))", (B,vid))
+        # Rolled-back binding cannot be replayed from another backend using a token GUC.
+        with connect() as other:
+            with as_user(other,A):
+                other.execute("SELECT set_config('lifecycle.reservation',%s,true)", (str(res.id),))
+>               with pytest.raises(Exception, match='growth_without_reservation'):
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AssertionError: Regex pattern did not match.
+E                 Expected regex: 'growth_without_reservation'
+E                 Actual message: 'invalid capacity reservation owner, scope or budget\nCONTEXT:  PL/pgSQL function lifecycle_private.validate_write() line 17 at RAISE\nSQL statement "INSERT INTO public.lifecycle_write_checks(invoking_role,subject_id,reservation_id,job_id,scope,bytes,row_count)\n VALUES(current_user,public.app_user_id(),rid,jid,TG_TABLE_NAME,growth,1)"\nPL/pgSQL function public.lifecycle_validate_row() line 72 at SQL statement'
+
+tests/test_lifecycle_safety.py:139: AssertionError
+__________________ test_grant_contract_matches_the_allowlist ___________________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32865 user=postgres database=poller_lifecycle_test) at 0x7f70d23b7cb0>
+
+    @requires_db
+    def test_grant_contract_matches_the_allowlist(conn):
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT c.relname AS tbl FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relkind = 'r'"
+            )
+            all_tables = {r["tbl"] for r in cur.fetchall()}
+            cur.execute(
+                "SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants "
+                "WHERE table_schema = 'public' AND grantee IN ('anon','authenticated')"
+            )
+            got: dict[str, dict[str, set]] = {}
+            for r in cur.fetchall():
+                got.setdefault(r["table_name"], {}).setdefault(r["grantee"], set()).add(r["privilege_type"])
+
+        assert all_tables, "no public tables discovered — schema.sql failed to load?"
+        for tbl in sorted(all_tables):
+            anon_expected, auth_expected = EXPECTED_GRANTS.get(tbl, (_R(), _R()))
+            anon_got = frozenset(got.get(tbl, {}).get("anon", set()))
+            auth_got = frozenset(got.get(tbl, {}).get("authenticated", set()))
+            assert anon_got == anon_expected, f"{tbl}: anon grants {set(anon_got)} != {set(anon_expected)}"
+>           assert auth_got == auth_expected, (
+                f"{tbl}: authenticated grants {set(auth_got)} != {set(auth_expected)}"
+            )
+E           AssertionError: job_payload_demands: authenticated grants {'DELETE', 'INSERT', 'SELECT', 'UPDATE'} != set()
+E           assert frozenset({'D...T', 'UPDATE'}) == frozenset()
+E
+E             Extra items in the left set:
+E             'DELETE'
+E             'INSERT'
+E             'SELECT'
+E             'UPDATE'
+E             Use -v to get more diff
+
+tests/test_rls_isolation.py:589: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_safety.py::test_valid_capacity_is_backend_transaction_scope_and_owner_bound
+FAILED tests/test_rls_isolation.py::test_grant_contract_matches_the_allowlist
+2 failed, 83 passed in 32.74s

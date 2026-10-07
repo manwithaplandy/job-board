@@ -1,3 +1,4 @@
+import { acquireLifecycleGate } from "@/lib/jobLifecycle";
 import postgres, { type TransactionSql } from "postgres";
 
 const connectionString = process.env.DATABASE_URL;
@@ -96,4 +97,12 @@ export async function withAnonSql<T>(
                     set_config('role', 'anon', true)`;
     return fn(tx);
   })) as T;
+}
+
+/** Explicit mutating wrapper; read-only transactions retain their existing path. */
+export async function withUserMutation<T>(userId: string, fn: (tx: TransactionSql) => Promise<T>): Promise<T> {
+  return withUserSql(userId, async (tx) => {
+    await acquireLifecycleGate(tx);
+    return fn(tx);
+  });
 }

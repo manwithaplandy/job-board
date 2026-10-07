@@ -1,0 +1,154 @@
+reviewer/db.py:23:    f"INSERT INTO job_reviews ({', '.join(_REVIEW_COLUMNS)}, reviewed_at)\n"
+reviewer/db.py:25:    "ON CONFLICT (user_id, job_id) DO UPDATE SET\n"
+reviewer/db.py:61:    caps/allowances via `UPDATE tier_settings` and have the NEXT run honor it — no
+reviewer/db.py:110:        cur.execute("SELECT user_id FROM matching_activity WHERE user_id=%s FOR UPDATE", (_uuid(user_id),))
+reviewer/db.py:116:            cur.execute("UPDATE matching_activity SET paused_at=coalesce(paused_at,now()) WHERE user_id=%s", (_uuid(user_id),))
+reviewer/db.py:138:# Namespaced key for the per-user review advisory lock (M-TOCTOU). Session-scoped so
+reviewer/db.py:152:    budget. This SESSION-level advisory lock serializes per-user review spend: only one
+reviewer/db.py:153:    run reviews a given user at a time. It is non-blocking (pg_try_advisory_lock) — a
+reviewer/db.py:161:    user holds the "same" lock. hashtext is not usable here — pg_try_advisory_lock takes
+reviewer/db.py:167:            "SELECT pg_try_advisory_lock(hashtextextended(%(k)s, 0)) AS locked",
+reviewer/db.py:177:            "SELECT pg_advisory_unlock(hashtextextended(%(k)s, 0))",
+reviewer/db.py:210:            f"INSERT INTO usage_counters (user_id, day, kind, n) "
+reviewer/db.py:213:            f"DO UPDATE SET n = usage_counters.n + EXCLUDED.n",
+reviewer/db.py:361:            "INSERT INTO review_runs (started_at, user_id) VALUES (now(), %s) RETURNING id",
+reviewer/db.py:372:            UPDATE review_runs SET
+reviewer/db.py:389:    """Atomically claim the oldest pending request → status='running'. FOR UPDATE SKIP
+reviewer/db.py:395:            UPDATE review_requests SET status = 'running', started_at = now(),
+reviewer/db.py:400:              FOR UPDATE SKIP LOCKED LIMIT 1
+reviewer/db.py:409:    """Read under the user advisory lock before spending on queued work."""
+reviewer/db.py:429:            "UPDATE review_requests SET status = CASE WHEN resume_requested THEN 'pending' ELSE %s END, "
+reviewer/db.py:445:    Across processes, the shared per-user advisory lock protects healthy reviews.
+reviewer/db.py:454:            UPDATE review_requests SET status = CASE WHEN resume_requested THEN 'pending' ELSE 'failed' END,
+reviewer/db.py:461:              AND pg_try_advisory_xact_lock(
+job_discovery/prefs_backfill.py:12:the UPDATE only fires when the array actually changes.
+job_discovery/prefs_backfill.py:49:            cur.execute("UPDATE profiles SET preferred_locations = %s WHERE user_id = %s",
+dashboard/app/actions/resumeScores.ts:52:      INSERT INTO resume_scores (
+dashboard/app/actions/resumeScores.ts:59:      ON CONFLICT (user_id, job_id) DO UPDATE SET
+dashboard/app/actions/jobs.ts:16:    INSERT INTO job_reviews
+dashboard/app/actions/jobs.ts:19:    ON CONFLICT (user_id, job_id) DO UPDATE SET
+dashboard/app/actions/jobs.ts:35:    UPDATE job_reviews
+reviewer/worker.py:155:    transactions and the session-level advisory locks _review_user takes are all
+reviewer/worker.py:157:    finally. The claim path (FOR UPDATE SKIP LOCKED) lets K loops on separate connections
+dashboard/app/actions/coverLetterEdits.ts:77:      INSERT INTO cover_letter_edits
+dashboard/app/actions/coverLetterEdits.ts:82:      ON CONFLICT (user_id, job_id) DO UPDATE SET
+dashboard/app/actions/coverLetterEdits.ts:129:    DELETE FROM cover_letter_edits WHERE user_id = ${userId}::uuid AND job_id = ${jobId}
+reviewer/run.py:351:        # the operator's LLM balance. A non-blocking per-user advisory lock lets only one
+reviewer/run.py:424:        # have no UPDATE privilege on that column), so this is defense in depth against
+reviewer/run.py:516:            # end of run). Per-chunk commits do NOT release the session advisory lock — only
+reviewer/run.py:568:    # cap/model resolution. An operator's `UPDATE tier_settings` is honored on the next
+reviewer/backfill_floors.py:59:                    "UPDATE job_reviews SET seniority = %s, work_arrangement = %s "
+job_discovery/prune.py:33:FOR UPDATE OF j SKIP LOCKED
+job_discovery/prune.py:37:DELETE FROM jobs j WHERE {_CLOSED_UNPROTECTED} AND j.id = ANY(%s)
+job_discovery/prune.py:59:                    "SELECT job_id FROM job_reviews WHERE job_id = ANY(%s) FOR UPDATE NOWAIT",
+job_discovery/run.py:63:        # Advisory lock: only one poll run at a time per DB. pg_try_advisory_lock
+job_discovery/run.py:66:            "SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked"
+job_discovery/run.py:146:                    # its session advisory lock and frees the socket — so we don't
+dashboard/lib/subscriptions.ts:75:    INSERT INTO subscriptions (user_id, stripe_customer_id, status)
+dashboard/lib/subscriptions.ts:77:    ON CONFLICT (user_id) DO UPDATE SET
+dashboard/lib/subscriptions.ts:93: * DO UPDATE only fires when the incoming event is NOT older than the last one applied
+dashboard/lib/subscriptions.ts:133:    INSERT INTO subscriptions (
+dashboard/lib/subscriptions.ts:141:    ON CONFLICT (user_id) DO UPDATE SET
+dashboard/lib/planOverrides.ts:40:    INSERT INTO plan_overrides (user_id, plan, expires_at, note)
+dashboard/lib/planOverrides.ts:42:    ON CONFLICT (user_id) DO UPDATE SET
+dashboard/lib/planOverrides.ts:50:  await serviceSql`DELETE FROM plan_overrides WHERE user_id = ${userId}::uuid`;
+dashboard/app/actions/corrections.ts:54:      INSERT INTO review_corrections (
+dashboard/app/actions/corrections.ts:73:      ON CONFLICT (user_id, job_id) DO UPDATE SET
+dashboard/lib/reviewRequests.ts:82:        INSERT INTO review_requests (user_id, status) VALUES (${userId}::uuid, 'pending')
+dashboard/lib/reviewRequests.ts:133:    // (users have no UPDATE privilege on that column), so this is defense in depth
+job_discovery/db.py:63:                INSERT INTO companies (name, ats, token, active, discovery_source)
+job_discovery/db.py:66:                DO UPDATE SET name = EXCLUDED.name, active = TRUE,
+job_discovery/db.py:90:                "UPDATE companies SET poll_failures = 0 WHERE id = %s AND poll_failures > 0",
+job_discovery/db.py:95:            UPDATE companies SET
+job_discovery/db.py:108:    INSERT INTO jobs (id, company_id, external_id, title, url,
+job_discovery/db.py:111:    ON CONFLICT (id) DO UPDATE SET
+job_discovery/db.py:145:    DO UPDATE skips no-op rows entirely (returns no RETURNING row for those), so a
+job_discovery/db.py:188:            "UPDATE jobs SET closed_at = NULL WHERE company_id = %s "
+job_discovery/db.py:199:            "UPDATE jobs SET closed_at = now() "
+job_discovery/db.py:208:        cur.execute("INSERT INTO poll_runs (started_at) VALUES (now()) RETURNING id")
+job_discovery/db.py:225:            UPDATE poll_runs SET
+job_discovery/db.py:243:            INSERT INTO job_questions (job_id, questions, fetched_at)
+dashboard/lib/generationJobs.ts:54:      DELETE FROM generation_jobs
+dashboard/lib/generationJobs.ts:59:      `INSERT INTO generation_jobs (user_id, job_id, kind)
+dashboard/lib/generationJobs.ts:96:    UPDATE generation_jobs
+dashboard/lib/generationJobs.ts:116:      `UPDATE generation_jobs
+dashboard/app/actions/companies.ts:27:    INSERT INTO company_overrides (user_id, company_id, verdict)
+dashboard/app/actions/companies.ts:29:    ON CONFLICT (user_id, company_id) DO UPDATE SET
+dashboard/app/actions/companies.ts:55:    UPDATE discovery_state SET
+job_discovery/lifecycle/identity.py:49:        cur.execute("SELECT pg_advisory_xact_lock(%s)", (LIFECYCLE_GATE_KEY,))
+job_discovery/lifecycle/identity.py:68:                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+job_discovery/lifecycle/identity.py:71:        cur.execute("""UPDATE lifecycle_control
+job_discovery/lifecycle/identity.py:78:                "SELECT id FROM jobs WHERE id=ANY(%s) ORDER BY id FOR UPDATE",
+job_discovery/lifecycle/identity.py:83:                """INSERT INTO source_accounts
+job_discovery/lifecycle/identity.py:104:                """INSERT INTO source_listings(source_account_id,external_id,job_id,
+job_discovery/lifecycle/identity.py:120:                """UPDATE jobs SET description_captured_at=%s,
+job_discovery/lifecycle/identity.py:127:                """UPDATE job_questions SET captured_at=%s,
+job_discovery/lifecycle/identity.py:137:            """INSERT INTO source_accounts
+job_discovery/lifecycle/identity.py:162:        """INSERT INTO company_sources
+dashboard/lib/usage.ts:21:// under a per-(user,kind) advisory lock, so check-then-charge can't race. This is the
+dashboard/lib/usage.ts:55:    `INSERT INTO usage_counters (user_id, day, kind, n)
+dashboard/lib/usage.ts:57:     ON CONFLICT (user_id, day, kind) DO UPDATE SET n = usage_counters.n + 1`,
+dashboard/lib/usage.ts:75: *   1. takes a per-(user,kind) transaction-scoped advisory lock, so concurrent reserves
+dashboard/lib/usage.ts:107:      await tx.unsafe(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [reserveLockKey(userId, kind)]);
+dashboard/lib/usage.ts:136:      `UPDATE usage_counters SET n = GREATEST(n - 1, 0)
+dashboard/app/actions/classification.ts:91:    INSERT INTO classification_jobs (model, company_cap, selection_mode, use_serp, est_cost)
+dashboard/app/actions/classification.ts:106:    UPDATE classification_jobs SET status = 'canceled'
+dashboard/lib/queries.ts:368:    UPDATE profiles
+dashboard/lib/queries.ts:396:    UPDATE profiles
+dashboard/lib/queries.ts:655:      UPDATE cover_letter_edits SET superseded_at = now()
+dashboard/lib/queries.ts:660:    INSERT INTO application_packages
+dashboard/lib/queries.ts:671:    ON CONFLICT (user_id, job_id) DO UPDATE SET
+dashboard/lib/queries.ts:731:        INSERT INTO application_packages
+dashboard/lib/queries.ts:734:        ON CONFLICT (user_id, job_id) DO UPDATE SET
+dashboard/lib/queries.ts:739:        INSERT INTO application_packages
+dashboard/lib/queries.ts:742:        ON CONFLICT (user_id, job_id) DO UPDATE SET
+dashboard/lib/queries.ts:792:    INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
+dashboard/lib/queries.ts:814:    ON CONFLICT (user_id) DO UPDATE SET
+dashboard/app/actions/applications.ts:16:    INSERT INTO application_packages (user_id, job_id, status, applied_at)
+dashboard/app/actions/applications.ts:18:    ON CONFLICT (user_id, job_id) DO UPDATE SET
+dashboard/app/actions/applications.ts:36:      DELETE FROM application_packages
+dashboard/app/actions/applications.ts:41:      UPDATE application_packages
+dashboard/lib/appSettings.ts:130:    INSERT INTO app_settings (key, value, updated_at)
+dashboard/lib/appSettings.ts:132:    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+dashboard/lib/appSettings.ts:149:      INSERT INTO app_settings (key, value, updated_at)
+dashboard/lib/appSettings.ts:151:      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+dashboard/lib/appSettings.ts:154:      INSERT INTO app_settings (key, value, updated_at)
+dashboard/lib/appSettings.ts:156:      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+job_discovery/locations.py:30:    INSERT INTO locations (raw, canonicals, components, source)
+job_discovery/locations.py:36:    UPDATE jobs SET location_canonicals = l.canonicals
+dashboard/lib/invites.ts:34: *   1. UPDATE invite_codes SET uses = uses + 1 WHERE code matches AND is not
+dashboard/lib/invites.ts:38: * max_uses=1 code cannot both pass — the second UPDATE matches zero rows. A duplicate
+dashboard/lib/invites.ts:50:        UPDATE invite_codes
+dashboard/lib/invites.ts:59:        INSERT INTO invite_redemptions (email, code) VALUES (${e}, ${c})
+dashboard/lib/invites.ts:88:        DELETE FROM invite_redemptions WHERE email = ${e} AND code = ${c} RETURNING code
+dashboard/lib/invites.ts:91:        await tx`UPDATE invite_codes SET uses = GREATEST(uses - 1, 0) WHERE code = ${c}`;
+dashboard/lib/invites.ts:116:    UPDATE invite_redemptions
+dashboard/lib/invites.ts:227:        INSERT INTO invite_codes (code, note, max_uses, expires_at)
+dashboard/lib/invites.ts:262:// of the spend rests on the atomic UPDATE … WHERE remaining > 0 RETURNING guard,
+dashboard/lib/invites.ts:296: *   2. UPDATE … SET remaining = remaining - 1 WHERE remaining > 0 RETURNING — the
+dashboard/lib/invites.ts:313:            INSERT INTO invite_allowances (user_id, remaining, granted)
+dashboard/lib/invites.ts:318:            UPDATE invite_allowances
+dashboard/lib/invites.ts:325:            INSERT INTO invite_codes (code, note, max_uses, expires_at, created_by, recipient_email)
+dashboard/lib/invites.ts:355:        DELETE FROM invite_codes
+dashboard/lib/invites.ts:361:          UPDATE invite_allowances
+dashboard/lib/invites.ts:379:    INSERT INTO invite_allowances (user_id, remaining, granted)
+dashboard/lib/invites.ts:381:    ON CONFLICT (user_id) DO UPDATE SET remaining = EXCLUDED.remaining, updated_at = now()
+dashboard/lib/accountDeletion.ts:70:      `INSERT INTO account_deletions (user_id, email_hash) VALUES ($1::uuid, $2)
+dashboard/lib/accountDeletion.ts:118:      `SELECT pg_advisory_xact_lock(hashtextextended('feedback:' || $1::uuid::text, 0))`,
+dashboard/lib/accountDeletion.ts:122:      await tx.unsafe(`DELETE FROM ${table} WHERE user_id = $1::uuid`, [userId]);
+dashboard/lib/accountDeletion.ts:126:      `DELETE FROM invite_redemptions WHERE user_id = $1::uuid OR ($2::text IS NOT NULL AND lower(email) = lower($2))`,
+dashboard/lib/accountDeletion.ts:134:      `UPDATE invite_codes SET created_by = NULL, recipient_email = NULL
+dashboard/lib/accountDeletion.ts:139:      `UPDATE invite_codes SET recipient_email = NULL
+dashboard/lib/accountDeletion.ts:144:    await tx.unsafe(`UPDATE review_runs SET user_id = NULL WHERE user_id = $1::uuid`, [userId]);
+dashboard/lib/accountDeletion.ts:146:      `INSERT INTO account_deletions (user_id, email_hash) VALUES ($1::uuid, $2)
+dashboard/lib/tierConfig.ts:19:// NO-REDEPLOY GUARANTEE: an operator changing a cap via `UPDATE tier_settings ...`
+dashboard/lib/tierConfig.ts:178: * retune caps/allowances/prices with a single UPDATE and no redeploy.
+dashboard/lib/disposableEmailDomains.ts:11:// UPDATE PROCEDURE: add lowercase REGISTRABLE domains only (e.g. "mailinator.com", not
+dashboard/lib/profileSettings.ts:36:    WHERE user_id = ${userId}::uuid FOR UPDATE`;
+dashboard/lib/profileSettings.ts:38:  await tx`UPDATE profiles SET
+dashboard/lib/profileSettings.ts:50:    WHERE user_id = ${userId}::uuid FOR UPDATE`;
+dashboard/lib/profileSettings.ts:52:  await tx`UPDATE profiles SET
+dashboard/lib/profileSettings.ts:62:  await tx`UPDATE profiles SET
+dashboard/lib/profileSettings.ts:73:  await tx`UPDATE profiles SET
+dashboard/lib/profileSettings.ts:87:  await tx`UPDATE profiles SET
+dashboard/lib/profileSettings.ts:97:  await tx`UPDATE profiles SET

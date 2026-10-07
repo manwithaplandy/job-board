@@ -1,3 +1,4 @@
+from job_discovery.lifecycle.locks import enter_gate, lock_jobs
 import asyncio
 import logging
 from collections.abc import Callable
@@ -22,8 +23,13 @@ def _persist_rows(conn, rows: list[dict], chunk_size: int = 20) -> None:
     failure. An exception on a single row is logged and skipped; the chunk
     committed so far is kept and iteration continues from the next row.
     """
+    needs_gate = True
     for i, row in enumerate(rows):
         try:
+            if needs_gate:
+                chunk_end = ((i // chunk_size) + 1) * chunk_size
+                lock_jobs(conn, [pending["job_id"] for pending in rows[i:chunk_end]])
+                needs_gate = False
             db.upsert_review(conn, row)
         except Exception as exc:
             log.warning("persist failed for row %s: %s", row.get("job_id"), exc)
@@ -31,9 +37,11 @@ def _persist_rows(conn, rows: list[dict], chunk_size: int = 20) -> None:
                 conn.rollback()
             except Exception:
                 pass
+            needs_gate = True
             continue
         if (i + 1) % chunk_size == 0:
             conn.commit()
+            needs_gate = True
     conn.commit()  # final commit for the tail
 
 
@@ -461,6 +469,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         )
 
         def _persist_chunk(chunk: list[ReviewResult]) -> None:
+            enter_gate(conn)
             # Persist + count + charge THIS chunk the moment review_batch emits it (once
             # per non-empty chunk), so the dashboard's cursor poll sees committed rows +
             # spend as they land instead of only at end of run. Accumulates into the same
@@ -476,6 +485,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             # own deleted_check halts further LLM work at its next poll; this guard is the
             # write-boundary protection for the chunk already in hand. Cheap EXISTS.
             if db.user_deleted(conn, user_id):
+                conn.commit()
                 return
 
             rows_this_chunk = []
@@ -517,12 +527,18 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             # unlock_user_review does (M-TOCTOU).
             conn.commit()
 
+        conn.commit()  # Candidate/usage reads must not span model work.
+        def deleted_check():
+            deleted = db.user_deleted(conn, user_id)
+            conn.commit()
+            return deleted
+
         _, halted = asyncio.run(review_batch(
             candidates, profile_block, client, config.CONCURRENCY,
             user_id=user_id, run_id=run_id,
             # Cheap per-chunk poll so a mid-run deletion stops issuing LLM calls instead
             # of grinding all ≤cap jobs whose writes the tombstone guard then discards.
-            deleted_check=lambda: db.user_deleted(conn, user_id),
+            deleted_check=deleted_check,
             on_results=_persist_chunk,
         ))
 

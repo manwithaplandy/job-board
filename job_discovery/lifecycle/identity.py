@@ -9,7 +9,8 @@ from uuid import UUID
 
 from psycopg.rows import dict_row
 
-from .config import LIFECYCLE_GATE_KEY, read_control
+from .config import read_control
+from .locks import enter_gate
 from .types import ClaimRef
 
 
@@ -40,13 +41,14 @@ def migrate_identity_batch(conn, limit: int = 500) -> int:
     checkpoint; a committed batch cannot reset its anchor or cache capture. The
     migration activation clock is set once by the first explicit batch, not DDL.
     Inactive boards preserve their old status without guessing why disabled.
-    Legacy/collect mapping has no reservation or claim protocol yet: enforced or
-    ever-activated archive states are rejected until later safety integration.
+    Legacy/collect mapping enters the common gate and sorted job locks. Enforced
+    and ever-activated archive states remain rejected; this mapper has no
+    admission or outbox bypass.
     """
     if type(limit) is not int or not 1 <= limit <= 500:
         raise ValueError("identity batch limit must be an integer between 1 and 500")
     with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("SELECT pg_advisory_xact_lock(%s)", (LIFECYCLE_GATE_KEY,))
+        enter_gate(conn)
         control = read_control(conn)
         if (
             control.safety_stage not in {"legacy", "collect"}
@@ -62,7 +64,7 @@ def migrate_identity_batch(conn, limit: int = 500) -> int:
         )
         rows = cur.fetchall()
         # Reserve sorted namespaced Job keys before taking any Job/FK locks.
-        # Task3's global BEFORE STATEMENT gate will extend this order to callers.
+        # Global BEFORE STATEMENT triggers cover direct callers as well.
         for job in rows:
             cur.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",

@@ -45,7 +45,7 @@ export const GLOSSARY: Record<string, GlossEntry> = {
   },
   unreviewed: {
     label: "Not yet reviewed",
-    gloss: "Open jobs the reviewer hasn't scored yet — the review backlog. Lower means the reviewer is keeping up with new postings.",
+    gloss: "Discovery jobs the reviewer hasn't scored yet — the review backlog. Lower means the reviewer is keeping up with new postings.",
   },
   "inclusion-rate": {
     label: "Inclusion rate",
@@ -85,11 +85,11 @@ export const GLOSSARY: Record<string, GlossEntry> = {
   },
   approved: {
     label: "Approved matches",
-    gloss: "Open jobs the reviewer scored as a genuine fit for your profile — the shortlist worth applying to.",
+    gloss: "Jobs the reviewer scored as a genuine fit for your profile — the shortlist worth applying to.",
   },
   reviewed: {
     label: "Reviewed",
-    gloss: "Open jobs the reviewer has scored for fit. Scope varies by widget — see each section's caption.",
+    gloss: "Jobs the reviewer has scored for fit. Scope varies by widget — see each section's caption.",
   },
   excluded: {
     label: "Excluded",

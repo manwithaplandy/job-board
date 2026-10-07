@@ -216,3 +216,29 @@ test("current posting is visible separately from saved review JD and saved packa
   expect(await screen.findByText("Current application questions")).toBeTruthy();
   expect(await screen.findByText("Current Q")).toBeTruthy();
 });
+
+test('discovery hides expired rows until older-live opt-in, and labels availability separately', async () => {
+  stubMatchMedia(); window.history.replaceState({},'', '/');
+  vi.spyOn(window,'matchMedia').mockImplementation(query => ({matches:true,media:query,onchange:null,addEventListener:()=>{},removeEventListener:()=>{},dispatchEvent:()=>false,addListener:()=>{},removeListener:()=>{}}));
+  mockFetch({status:200,body:{}});
+  render(<RolefitBoard {...baseProps} isAuthed={false} jobs={[{...job,lifecycle:{feedEnabled:true,sourceEnabled:true,sourceAvailability:'open',discoveryAnchorAt:'2026-06-01T00:00:00.000Z',discoveryExpiresAt:'2026-07-01T00:00:00.000Z',payloadAvailability:'retired'}}]} />);
+  expect(screen.queryByText('Staff Engineer')).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox',{name:'Include older live jobs'}));
+  expect(await screen.findByText('Staff Engineer')).toBeTruthy();
+  expect(screen.getByText('Discovery expired')).toBeTruthy();
+  expect(screen.getByText('Source open')).toBeTruthy();
+});
+
+test('history retains a closed saved job independently of discovery and its totals', async () => {
+  stubMatchMedia(); window.history.replaceState({},'', '/');
+  vi.spyOn(window,'matchMedia').mockImplementation(query => ({matches:true,media:query,onchange:null,addEventListener:()=>{},removeEventListener:()=>{},dispatchEvent:()=>false,addListener:()=>{},removeListener:()=>{}}));
+  mockFetch({status:200,body:{}});
+  const saved={...job,id:'saved',title:'Saved Role',closed_at:'2026-07-01T00:00:00Z',lifecycle:{feedEnabled:true,sourceEnabled:true,sourceAvailability:'closed' as const,discoveryAnchorAt:'2026-06-01T00:00:00.000Z',discoveryExpiresAt:'2026-07-01T00:00:00.000Z',payloadAvailability:'retired' as const}};
+  render(<RolefitBoard {...baseProps} initialHistory={[saved]} />);
+  expect(screen.queryByText('Saved Role')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'History'}));
+  expect(await screen.findByText('Saved Role')).toBeTruthy();
+  expect(screen.getByText('Source closed')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:/Saved Role/}));
+  expect(await screen.findByRole('heading',{name:'Saved Role',level:1})).toBeTruthy();
+});

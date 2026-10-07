@@ -1,0 +1,389 @@
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ components/rolefit/RolefitBoard.test.tsx (11 tests | 2 failed | 9 skipped) 1513ms
+   × discovery hides expired rows until older-live opt-in, and labels availability separately 160ms
+   × history retains a closed saved job independently of discovery and its totals 1351ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  components/rolefit/RolefitBoard.test.tsx > discovery hides expired rows until older-live opt-in, and labels availability separately
+AssertionError: expected <h1 …(1)></h1> to be null
+
+- Expected:
+null
+
++ Received:
+<h1
+  style="margin: 0px; font-size: 24px; font-weight: 800; letter-spacing: -0.4px; color: var(--text-primary); line-height: 1.15;"
+>
+  Staff Engineer
+</h1>
+
+ ❯ components/rolefit/RolefitBoard.test.tsx:223:48
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  components/rolefit/RolefitBoard.test.tsx > history retains a closed saved job independently of discovery and its totals
+TestingLibraryElementError: Unable to find an element with the text: Saved Role. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"app-shell app-shell--board"[39m
+      [33mdata-ui-contract-geometry[39m=[32m"board viewport shell geometry"[39m
+      [33mstyle[39m=[32m"height: 100vh; display: flex; flex-direction: column; background: var(--bg-page); color: var(--text-primary); overflow: hidden;"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"app-header"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Rolefit board"[39m
+          [33mclass[39m=[32m"app-header__brand"[39m
+          [33mhref[39m=[32m"/"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"app-header__logo"[39m
+          [36m>[39m
+            [36m<span />[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"app-header__wordmark"[39m
+          [36m>[39m
+            [0mRolefit[0m
+          [36m</span>[39m
+        [36m</a>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"Primary"[39m
+          [33mclass[39m=[32m"app-header__desktop-nav"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-current[39m=[32m"page"[39m
+            [33mclass[39m=[32m"app-header__nav-link rf-focusable"[39m
+            [33mhref[39m=[32m"/"[39m
+          [36m>[39m
+            [0mBoard[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"app-header__nav-link rf-focusable"[39m
+            [33mhref[39m=[32m"/analytics"[39m
+          [36m>[39m
+            [0mAnalytics[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"app-header__nav-link rf-focusable"[39m
+            [33mhref[39m=[32m"/companies"[39m
+          [36m>[39m
+            [0mCompanies[0m
+          [36m</a>[39m
+        [36m</nav>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"app-header__center"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"rf-search app-header__search"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"rf-icon"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.75"[39m
+              [33mviewBox[39m=[32m"0 0 20 20"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<circle[39m
+                [33mcx[39m=[32m"9"[39m
+                [33mcy[39m=[32m"9"[39m
+                [33mr[39m=[32m"5.5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m13 13 4 4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0mSearch roles[0m
+            [36m</span>[39m
+            [36m<input[39m
+              [33maria-label[39m=[32m"Search roles"[39m
+              [33mdata-ui-contract-composite[39m=[32m"board search field"[39m
+              [33mplaceholder[39m=[32m"Search roles, companies, locations…"[39m
+              [33mtype[39m=[32m"search"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</label>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"app-header__actions"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"app-header__reviewed-badge"[39m
+          [36m>[39m
+            [0mAI-REVIEWED[0m
+          [36m</span>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rf-button rf-focusable rf-button--primary rf-button--sm"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"rf-icon"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.75"[39m
+              [33mviewBox[39m=[32m"0 0 20 20"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m13.5 3.5 3 3L7 16H4v-3z"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m11.5 5.5 3 3"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mRésumé[0m
+          [36m</button>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"app-header__mobile-nav"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"menu"[39m
+              [33maria-label[39m=[32m"Open navigation"[39m
+              [33mclass[39m=[32m"rf-icon-button rf-focusable rf-icon-button--md rf-icon-button--default"[39m
+              [33mdata-visual-size[39m=[32m"44"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rf-icon"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mfocusable[39m=[32m"false"[39m
+                [33mheight[39m=[32m"18"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"1.75"[39m
+                [33mviewBox[39m=[32m"0 0 20 20"[39m
+                [33mwidth[39m=[32m"18"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 5h14"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 10h14"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 15h14"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"position: relative; flex: 0 0 auto;"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"app-shell app-shell--board"[39m
+      [33mdata-ui-contract-geometry[39m=[32m"board viewport shell geometry"[39m
+      [33mstyle[39m=[32m"height: 100vh; display: flex; flex-direction: column; background: var(--bg-page); color: var(--text-primary); overflow: hidden;"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"app-header"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Rolefit board"[39m
+          [33mclass[39m=[32m"app-header__brand"[39m
+          [33mhref[39m=[32m"/"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"app-header__logo"[39m
+          [36m>[39m
+            [36m<span />[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"app-header__wordmark"[39m
+          [36m>[39m
+            [0mRolefit[0m
+          [36m</span>[39m
+        [36m</a>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"Primary"[39m
+          [33mclass[39m=[32m"app-header__desktop-nav"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-current[39m=[32m"page"[39m
+            [33mclass[39m=[32m"app-header__nav-link rf-focusable"[39m
+            [33mhref[39m=[32m"/"[39m
+          [36m>[39m
+            [0mBoard[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"app-header__nav-link rf-focusable"[39m
+            [33mhref[39m=[32m"/analytics"[39m
+          [36m>[39m
+            [0mAnalytics[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"app-header__nav-link rf-focusable"[39m
+            [33mhref[39m=[32m"/companies"[39m
+          [36m>[39m
+            [0mCompanies[0m
+          [36m</a>[39m
+        [36m</nav>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"app-header__center"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"rf-search app-header__search"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"rf-icon"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.75"[39m
+              [33mviewBox[39m=[32m"0 0 20 20"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<circle[39m
+                [33mcx[39m=[32m"9"[39m
+                [33mcy[39m=[32m"9"[39m
+                [33mr[39m=[32m"5.5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m13 13 4 4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0mSearch roles[0m
+            [36m</span>[39m
+            [36m<input[39m
+              [33maria-label[39m=[32m"Search roles"[39m
+              [33mdata-ui-contract-composite[39m=[32m"board search field"[39m
+              [33mplaceholder[39m=[32m"Search roles, companies, locations…"[39m
+              [33mtype[39m=[32m"search"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</label>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"app-header__actions"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"app-header__reviewed-badge"[39m
+          [36m>[39m
+            [0mAI-REVIEWED[0m
+          [36m</span>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"rf-button rf-focusable rf-button--primary rf-button--sm"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"rf-icon"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.75"[39m
+              [33mviewBox[39m=[32m"0 0 20 20"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m13.5 3.5 3 3L7 16H4v-3z"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m11.5 5.5 3 3"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mRésumé[0m
+          [36m</button>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"app-header__mobile-nav"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"menu"[39m
+              [33maria-label[39m=[32m"Open navigation"[39m
+              [33mclass[39m=[32m"rf-icon-button rf-focusable rf-icon-button--md rf-icon-button--default"[39m
+              [33mdata-visual-size[39m=[32m"44"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"rf-icon"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mfocusable[39m=[32m"false"[39m
+                [33mheight[39m=[32m"18"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"1.75"[39m
+                [33mviewBox[39m=[32m"0 0 20 20"[39m
+                [33mwidth[39m=[32m"18"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 5h14"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 10h14"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 15h14"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"position: relative; flex: 0 0 auto;"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32...
+ ❯ waitForWrapper ../../../../dashboard/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ components/rolefit/RolefitBoard.test.tsx:236:23
+    234|   expect(screen.queryByText('Saved Role')).toBeNull();
+    235|   fireEvent.click(screen.getByRole('button',{name:'History'}));
+    236|   expect(await screen.findByText('Saved Role')).toBeTruthy();
+       |                       ^
+    237|   expect(screen.getByText('Source closed')).toBeTruthy();
+    238| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 9 skipped (11)
+   Start at  19:41:30
+   Duration  4.14s (transform 1.00s, setup 0ms, import 1.51s, tests 1.51s, environment 778ms)
+

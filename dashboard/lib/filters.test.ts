@@ -6,6 +6,7 @@ const D = { include: ["engineer"] };
 describe("parseFilters", () => {
   test("empty params → defaults incl. verdict=approve", () => {
     expect(parseFilters({}, D)).toEqual({
+      includeOlderLive: false,
       companies: [],
       include: ["engineer"],
       exclude: [],

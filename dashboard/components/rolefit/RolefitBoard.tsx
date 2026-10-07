@@ -1,6 +1,7 @@
 "use client";
+import { discoveryVisible } from "@/lib/jobLifecycleState";
 
-import { jobPayloadNotice, currentJobDetail } from "@/lib/jobPayloadNotice";
+import { jobPayloadNotice, currentJobDetail, parseJobDetailResponse } from "@/lib/jobPayloadNotice";
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
@@ -32,7 +33,7 @@ import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
 import { DetailErrorBoundary } from "./DetailErrorBoundary";
 import { saveGenerationInstructions } from "@/app/actions/generationInstructions";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 
 // The lazy /api/jobs/[id] payload: the heavy review detail PLUS the opened job's Greenhouse
@@ -59,6 +60,11 @@ const NO_PENDING: GenerationJobView[] = [];
 
 export interface RolefitBoardProps {
   jobs: JobRow[];
+  initialHistory?: JobRow[];
+  discoveryTotal?: number;
+  historyTotal?: number;
+  discoveryPage?: number;
+  historyPage?: number;
   nowIso: string;
   isAuthed: boolean;
   initialFilters: BoardFilterState;
@@ -85,10 +91,8 @@ export interface RolefitBoardProps {
   // board loads only approves, so these seed the Rejected view for cross-session recovery
   // of a mis-clicked reject. Empty on the anon path.
   initialRejected: JobRow[];
-  // ISR anon board (/board): the page is edge-cached identically for every anonymous
-  // visitor, so the per-visitor board_filters cookie (httpOnly — unreadable from JS)
-  // cannot influence the server render. When set, the saved filters are fetched from
-  // GET /api/board-filters after mount instead.
+  // Public board can hydrate the anonymous viewer's existing saved client filters
+  // from the cookie API; discovery navigation remains query-string controlled.
   hydrateFiltersFromApi?: boolean;
 }
 
@@ -142,6 +146,8 @@ function emptyPreparedPackage(jobId: string, preparedAt: string): ApplicationPac
 
 export function RolefitBoard({
   jobs,
+  initialHistory = [],
+  discoveryTotal, historyTotal, discoveryPage = 0, historyPage = 0,
   nowIso,
   isAuthed,
   initialFilters,
@@ -163,6 +169,7 @@ export function RolefitBoard({
   const isNarrow = useIsNarrow();
   const router = useRouter();
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
+  const [includeOlderLive, setIncludeOlderLive] = useState(initialFilters.includeOlderLive === true);
   const [search, setSearch] = useState(initialFilters.search);
   const deferredSearch = useDeferredValue(search);
   const [cats, setCats] = useState<string[]>(initialFilters.cats);
@@ -184,7 +191,7 @@ export function RolefitBoard({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [view, setView] = useState<"all" | "applied" | "rejected">("all");
+  const [view, setView] = useState<"all" | "applied" | "rejected" | "history">("all");
   // True while the inline ReviewPanel correction editor is open with in-progress edits.
   // Lifted here (mirroring profileOpen) and fed to the keydown guard so the global j/k/
   // Arrow/Esc nav can't remount/unmount the detail pane — and silently discard the
@@ -459,8 +466,8 @@ export function RolefitBoard({
   }, []);
 
   const filterState: BoardFilterState = useMemo(
-    () => ({ search: deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, payMin: deferredPayMin, payMax: deferredPayMax, payIncludeUndisclosed, sort }),
-    [deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, deferredPayMin, deferredPayMax, payIncludeUndisclosed, sort],
+    () => ({ includeOlderLive, search: deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, payMin: deferredPayMin, payMax: deferredPayMax, payIncludeUndisclosed, sort }),
+    [includeOlderLive, deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, deferredPayMin, deferredPayMax, payIncludeUndisclosed, sort],
   );
 
   // Persist filter changes (debounced) so they survive navigation/visits.
@@ -498,10 +505,8 @@ export function RolefitBoard({
     return () => window.removeEventListener("pagehide", handlePageHide);
   }, [filterState]);
 
-  // ISR anon board: pull the visitor's saved filters (httpOnly cookie, server-read)
-  // after mount, since the edge-cached render couldn't. lastSavedRef is pre-seeded
-  // with the fetched state — SAME literal shape/key order as the filterState memo —
-  // so applying it doesn't echo a no-op save back through the persistence effect.
+  // Pull the anonymous visitor's saved client filters without allowing a cookie
+  // to activate older-live discovery. The server resolves that explicit URL choice.
   useEffect(() => {
     if (!hydrateFiltersFromApi) return;
     let cancelled = false;
@@ -531,10 +536,10 @@ export function RolefitBoard({
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const v = params.get("view");
-    if (v === "applied" || v === "rejected") setView(v);
+    if (v === "applied" || v === "rejected" || (v === "history" && isAuthed)) setView(v);
     const job = params.get("job");
     if (job) setSelectedId(job);
-  }, []);
+  }, [isAuthed]);
   // The completion toast's "View" action (GenerationToastProvider): claim the event
   // (preventDefault) and select the job in place — unclaimed events make the provider
   // fall back to a /?job= router push, which the mount-time seed above resolves.
@@ -577,14 +582,21 @@ export function RolefitBoard({
     return extras.length ? [...jobs, ...extras] : jobs;
   }, [jobs, liveMatches]);
 
+  const discoveryJobs = useMemo(() => boardJobs.filter(j =>
+    (j.lifecycle && (j.lifecycle.feedEnabled || j.lifecycle.sourceEnabled)
+      ? discoveryVisible(j.lifecycle,includeOlderLive,nowIso)
+      : !j.closed_at && discoveryVisible(j.lifecycle,includeOlderLive,nowIso))), [boardJobs,includeOlderLive,nowIso]);
+  const historyJobs = useMemo(() => mergeRejectedPool(initialHistory,boardJobs.filter(j =>
+    j.verdict === "approve" || j.corrected || packages[j.id] != null)), [initialHistory,boardJobs,packages]);
   const appliedSet = useMemo(
-    () => new Set(boardJobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
-    [boardJobs, packages],
+    () => new Set(historyJobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
+    [historyJobs, packages],
   );
 
   // Facet counts scan every job; memoize on `boardJobs` so they aren't recomputed on every
   // keystroke/render (FilterBar used to recompute them internally each render).
-  const facets = useMemo(() => facetCounts(boardJobs), [boardJobs]);
+  const activePool = view === "history" || view === "applied" ? historyJobs : discoveryJobs;
+  const facets = useMemo(() => facetCounts(activePool), [activePool]);
 
   // The Rejected view draws from the approve list plus the server rejects (the latter
   // aren't in `boardJobs`); every other view draws from `boardJobs` alone so server rejects
@@ -596,12 +608,12 @@ export function RolefitBoard({
 
   const visible = useMemo(
     () => filterByView(
-      sortJobs(applyFilters(view === "rejected" ? rejectedPool : boardJobs, filterState), filterState.sort),
+      sortJobs(applyFilters(view === "rejected" ? rejectedPool : activePool, filterState), filterState.sort),
       view,
       rejectedIds,
       appliedSet,
     ),
-    [boardJobs, rejectedPool, filterState, rejectedIds, appliedSet, view],
+    [activePool, rejectedPool, filterState, rejectedIds, appliedSet, view],
   );
 
   // Visible ids in render order — the input to selectionAfterRemoval so reject/apply can
@@ -659,8 +671,8 @@ export function RolefitBoard({
   // `visible`, minus `applyFilters`. This is the "N of M" counter's denominator so the
   // Rejected/Applied views read against their own totals, not the all-jobs total (#13).
   const totalInView = useMemo(
-    () => filterByView(view === "rejected" ? rejectedPool : boardJobs, view, rejectedIds, appliedSet).length,
-    [boardJobs, rejectedPool, view, rejectedIds, appliedSet],
+    () => filterByView(view === "rejected" ? rejectedPool : activePool, view, rejectedIds, appliedSet).length,
+    [activePool, rejectedPool, view, rejectedIds, appliedSet],
   );
 
   // Display-only overlay of `corrections` on top of the filtered/sorted/bucketed
@@ -675,8 +687,8 @@ export function RolefitBoard({
   // server-sourced rejected job — which isn't in the approve list — still renders its
   // detail pane, and with it the un-reject action.
   const selectedJob = useMemo(
-    () => rejectedPool.find((j) => j.id === selectedId) ?? null,
-    [rejectedPool, selectedId],
+    () => rejectedPool.find((j) => j.id === selectedId) ?? historyJobs.find((j) => j.id === selectedId) ?? null,
+    [rejectedPool, historyJobs, selectedId],
   );
 
   // Heavy, detail-only review fields (reasoning/about/requirements/benefits/
@@ -696,8 +708,9 @@ export function RolefitBoard({
     setDetails((prev) => ({ ...prev, [id]: { status: "loading" } }));
     fetch(`/api/jobs/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: JobDetailResponse) => {
-        setDetails((prev) => ({ ...prev, [id]: { status: "done", detail: {...d, ...currentJobDetail(d)} } }));
+      .then((raw: unknown) => {
+        const detail=parseJobDetailResponse(raw);
+        setDetails((prev) => ({ ...prev, [id]: { status: "done", detail } }));
       })
       .catch((e) => {
         console.error("job detail fetch failed", e);
@@ -1390,6 +1403,23 @@ export function RolefitBoard({
         // already modal-only.)
         onOpenProfile={() => setProfileOpen(true)}
       />
+      <div className="rf-lifecycle-controls">
+        <label className="rf-lifecycle-older" data-ui-contract-composite="Native labelled checkbox controls explicit older-live navigation"><input type="checkbox" checked={includeOlderLive} onChange={event => {
+          const enabled=event.target.checked; setIncludeOlderLive(enabled);
+          const url=new URL(window.location.href);
+          if (enabled) url.searchParams.set("older","1"); else url.searchParams.delete("older");
+          url.searchParams.delete("page"); router.push(url.pathname+url.search);
+        }} /> Include older live jobs</label>
+        {isAuthed && <Button variant="ghost" aria-pressed={view === "history"} onClick={() => setView(view === "history" ? "all" : "history")}>History</Button>}
+        {(() => {
+          const historical=view === "history" || view === "applied";
+          const total=historical ? historyTotal : discoveryTotal;
+          const page=historical ? historyPage : discoveryPage;
+          const param=historical ? "historyPage" : "page";
+          const href=(next:number) => { const params=new URLSearchParams(); if(includeOlderLive) params.set("older","1"); if(historical) params.set("view",view); params.set(param,String(next)); return `?${params}`; };
+          return total !== undefined ? <span>{total} {historical ? "saved jobs" : "discovery jobs"} · Page {page+1} {page>0 && <ButtonLink variant="text-link" href={href(page-1)}>Previous page</ButtonLink>} {(page+1)*500<total && <ButtonLink variant="text-link" href={href(page+1)}>Next page</ButtonLink>}</span> : null;
+        })()}
+      </div>
       <FilterBar
         totalInView={totalInView}
         facets={facets}
@@ -1407,7 +1437,7 @@ export function RolefitBoard({
         sort={sort}
         openMenu={openMenu}
         visibleCount={visible.length}
-        view={view}
+        view={view === "history" ? "all" : view}
         appliedCount={appliedSet.size}
         rejectedCount={rejectedIds.size}
         onToggleView={setView}
@@ -1447,6 +1477,7 @@ export function RolefitBoard({
             className="rf-board-list-pane rf-scroll"
           >
             <JobList
+              nowIso={nowIso}
               jobs={visibleWithCorrections}
               selectedId={selectedId}
               onSelect={handleSelect}

@@ -242,8 +242,9 @@ def select_candidates(
 ) -> tuple[list[dict], int]:
     """Return (rows, total_stale) where total_stale is the unbounded stale count.
 
-    Splitting the count into a separate bounded SELECT avoids materialising the
-    full stale set before LIMIT when the window-aggregate approach would do.
+    Count and bounded rows are independent subqueries in one statement, so they
+    share the same snapshot and expiry boundary without materialising all stale
+    rows before LIMIT. The job-ID tie breaker keeps equal-date pages stable.
 
     `exclusions` is the parsed company_exclusions dict (parse_company_exclusions):
     a deterministic, per-user, pre-LLM gate on the company's globally-classified
@@ -265,9 +266,7 @@ def select_candidates(
         JOIN companies c ON c.id = j.company_id
         LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
         LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = %(uid)s
-        WHERE j.closed_at IS NULL
-          AND NOT EXISTS(SELECT FROM source_listings sl WHERE sl.job_id=j.id
-            AND sl.discovery_expires_at<=clock_timestamp())
+        WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false)
           -- Deterministic company gate (pre-LLM). A per-user override wins both
           -- ways; otherwise a company is excluded when ANY of its classified
           -- facets is in the user's exclusion list. COALESCE(..., 'unknown')
@@ -309,20 +308,23 @@ def select_candidates(
               "exc_ctry": exc["countries"], "exc_flag": exc["red_flag_categories"]}
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT count(*)::int AS n {_where}",
+            f"""SELECT totals.n,
+              COALESCE(jsonb_agg(to_jsonb(candidate) - '_candidate_first_seen'
+                ORDER BY candidate._candidate_first_seen DESC, candidate.id ASC)
+                FILTER (WHERE candidate.id IS NOT NULL), '[]'::jsonb) AS rows
+            FROM (SELECT count(*)::int AS n {_where}) totals
+            LEFT JOIN (
+              SELECT j.id, j.title, j.location, j.remote, j.description,
+                c.ats, COALESCE(c.display_name, c.name) AS company_name,
+                c.industry, c.industry_subcategory, c.size, c.hq_country,
+                c.red_flags, c.about, j.first_seen_at AS _candidate_first_seen
+              {_where} ORDER BY j.first_seen_at DESC, j.id ASC LIMIT %(lim)s
+            ) candidate ON true
+            GROUP BY totals.n""",
             params,
         )
-        total = cur.fetchone()["n"]
-        cur.execute(
-            f"SELECT j.id, j.title, j.location, j.remote, j.description,"
-            f" c.ats, COALESCE(c.display_name, c.name) AS company_name,"
-            f" c.industry, c.industry_subcategory, c.size, c.hq_country,"
-            f" c.red_flags, c.about"
-            f" {_where} ORDER BY j.first_seen_at DESC LIMIT %(lim)s",
-            params,
-        )
-        rows = cur.fetchall()
-    return rows, total
+        result = cur.fetchone()
+    return result["rows"], result["n"]
 
 
 

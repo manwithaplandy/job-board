@@ -104,7 +104,7 @@ describe("buildJobsQuery", () => {
     expect(q.text).not.toContain("job_reviews");
     expect(q.text).not.toContain("r.verdict");
     expect(q.text).not.toContain("r.error IS NULL");
-    expect(q.text).toContain("j.closed_at IS NULL"); // plain status filter still applies
+    expect(q.text).toContain("public.lifecycle_discovery_visible(j.id, j.closed_at, false)"); // persisted flag-aware discovery
     expect(q.values).toEqual([]);
   });
 

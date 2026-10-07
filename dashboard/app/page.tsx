@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { serverBoardFilters } from "@/lib/filters";
 import {
-  getApplicationPackages, getJobs, getLatestPollRun,
+  getApplicationPackages, getJobsPage, getLatestPollRun,
   getProfile, getRejectedJobs, getReviewStats,
 } from "@/lib/queries";
 import { STALE_HEALTH_HOURS } from "@/lib/config";
@@ -28,32 +28,37 @@ export default async function Page({
 }) {
   const claims = await getUserClaims();
   const viewerId = claims?.id ?? null;
-  await searchParams; // filters now client-side; keep the param contract
+  const params = await searchParams;
+  const includeOlderLive=params.older === "1";
+  const pageNumber=(value:unknown) => typeof value === "string" && /^\d{1,6}$/.test(value) ? Number(value) : 0;
+  const page=pageNumber(params.page), historyPage=pageNumber(params.historyPage);
 
   if (viewerId) {
     // Authed board: the reviewer's approve join already curates it, so no title
     // prefilter (include: []). See lib/filters.ts serverBoardFilters.
-    const filters = serverBoardFilters("authed");
-    // Single wave. getJobs/getRejectedJobs self-serve the viewer's preferred_locations via
-    // a correlated subquery, so getProfile no longer gates them — all six board queries run
+    const filters = {...serverBoardFilters("authed"),includeOlderLive};
+    // Single wave. Discovery/rejected queries self-serve the viewer's preferred_locations via
+    // a correlated subquery, so getProfile no longer gates them — all seven board queries run
     // through ONE dbLimit(3). Pool max is 3 (lib/db.ts), so exactly three execute at a time
     // and postgres.js never queues (preserving the "fired ≤ pool max" invariant the old
     // jobs+dbLimit(2) split held). The render-critical trio (profile, jobs, rejected) leads
-    // the array so it starts first; the secondary trio drains as those slots free.
-    const [profile, jobs, rejectedJobs, pollRun, reviewStats, packages] = await dbLimit<unknown>([
+    // the array so it starts first; the remaining queries drain as those slots free.
+    const [profile, jobsPage, rejectedJobs, pollRun, reviewStats, packages, savedPage] = await dbLimit<unknown>([
       () => getProfile(viewerId),
-      () => getJobs(filters, viewerId),
+      () => getJobsPage(filters, viewerId,page),
       () => getRejectedJobs(viewerId),
       () => getLatestPollRun(viewerId),
       () => getReviewStats(viewerId),
       () => getApplicationPackages(viewerId),
+      () => getJobsPage(filters,viewerId,historyPage,true),
     ], 3) as [
       Awaited<ReturnType<typeof getProfile>>,
-      Awaited<ReturnType<typeof getJobs>>,
+      Awaited<ReturnType<typeof getJobsPage>>,
       Awaited<ReturnType<typeof getRejectedJobs>>,
       Awaited<ReturnType<typeof getLatestPollRun>>,
       Awaited<ReturnType<typeof getReviewStats>>,
       Awaited<ReturnType<typeof getApplicationPackages>>,
+      Awaited<ReturnType<typeof getJobsPage>>,
     ];
     // A brand-new account has no profile row yet — send them through onboarding before any
     // board render (the concurrently-fetched jobs are simply discarded on this rare path).
@@ -67,10 +72,16 @@ export default async function Page({
       unreviewed: reviewStats.unreviewed,
       reviewed: reviewStats.reviewed,
     };
-    const initialFilters = parseBoardFilters(profile.board_filters);
+    const initialFilters = {...parseBoardFilters(profile.board_filters),includeOlderLive};
     return (
       <RolefitBoard
-        jobs={jobs}
+        key={`${includeOlderLive}:${page}:${historyPage}`}
+        jobs={jobsPage.rows}
+        initialHistory={savedPage.rows}
+        discoveryTotal={jobsPage.total}
+        historyTotal={savedPage.total}
+        discoveryPage={page}
+        historyPage={historyPage}
         nowIso={new Date().toISOString()}
         isAuthed
         initialFilters={initialFilters}
@@ -93,13 +104,16 @@ export default async function Page({
 
   // Anonymous viewer: plain open jobs, no review join, no operator telemetry.
   // The public board keeps the deliberate engineer-only editorial curation.
-  const filters = serverBoardFilters("anon");
-  const jobs = await getJobs(filters, null);
+  const filters = {...serverBoardFilters("anon"),includeOlderLive};
+  const jobsPage = await getJobsPage(filters, null,page);
   const store = await cookies();
-  const initialFilters = parseBoardFilters(store.get("board_filters")?.value);
+  const initialFilters = {...parseBoardFilters(store.get("board_filters")?.value),includeOlderLive};
   return (
     <RolefitBoard
-      jobs={jobs}
+      key={`${includeOlderLive}:${page}`}
+      jobs={jobsPage.rows}
+      discoveryTotal={jobsPage.total}
+      discoveryPage={page}
       nowIso={new Date().toISOString()}
       isAuthed={false}
       initialFilters={initialFilters}

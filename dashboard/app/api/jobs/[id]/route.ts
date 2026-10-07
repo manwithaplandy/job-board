@@ -1,4 +1,4 @@
-import { requestJobPayload } from "@/lib/jobLifecycle";
+import { parseJobLifecycle, requestJobPayload, type DemandResult } from "@/lib/jobLifecycle";
 import { getJobReviewDetail, getJobQuestion } from "@/lib/queries";
 import { getUserId } from "@/lib/auth";
 import { JOB_ID_RE } from "@/lib/jobIdValidator";
@@ -37,7 +37,12 @@ export async function GET(
   // The body is viewer-scoped (their own review). It MUST NOT be cached in a shared
   // CDN cache — a `public` cache would leak one tenant's review to another. Keep it
   // private and uncached.
-  const payload = viewerId && detail ? await requestJobPayload(viewerId, id, "description") : null;
+  const lifecycle=parseJobLifecycle(detail?.lifecycle);
+  const payload: DemandResult | null = viewerId && detail
+    ? lifecycle?.sourceAvailability === "closed"
+      ? {status:"deferred",id:null,reason:"Source closed. Your saved review and application history remains available."}
+      : await requestJobPayload(viewerId,id,"description")
+    : null;
   return Response.json({ ...(detail ?? EMPTY), questions,
     ...(payload?.status === "ready" ? {currentDescription:payload.description,currentQuestions:payload.questions} : {}), ...(payload && payload.status !== "legacy" ? {payload} : {}) }, {
     headers: { "Cache-Control": "private, no-store" },

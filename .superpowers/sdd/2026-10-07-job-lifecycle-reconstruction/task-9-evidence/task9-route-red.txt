@@ -1,0 +1,26 @@
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ app/api/jobs/[id]/route.test.ts (14 tests | 1 failed | 13 skipped) 34ms
+   × closed source exposes retained history without enqueueing current hydration 32ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  app/api/jobs/[id]/route.test.ts > closed source exposes retained history without enqueueing current hydration
+TypeError: Cannot read properties of undefined (reading 'status')
+ ❯ app/api/jobs/[id]/route.test.ts:125:23
+    123|   expect(body.description).toBe('Saved JD');
+    124|   expect(body.lifecycle.sourceAvailability).toBe('closed');
+    125|   expect(body.payload.status).toBe('deferred');
+       |                       ^
+    126|   expect(requestJobPayload).not.toHaveBeenCalled();
+    127| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+   Start at  19:46:57
+   Duration  483ms (transform 127ms, setup 0ms, import 155ms, tests 34ms, environment 0ms)
+

@@ -1,8 +1,8 @@
-import { consumeJobVersion, assertPackageInput, parseGenerationContext, requestJobPayload, readPrivateSnapshot, type DemandResult } from "@/lib/jobLifecycle";
+import { parseStringList, parseRequirements, parseJobLifecycle, unwrapLifecycleJson, consumeJobVersion, assertPackageInput, parseGenerationContext, requestJobPayload, readPrivateSnapshot, type DemandResult } from "@/lib/jobLifecycle";
 import { withUserPayloadMutation, withUserSql, withAnonSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { unstable_cache } from "next/cache";
-import { buildJobsQuery } from "@/lib/jobsQuery";
+import { buildJobsQuery, buildJobsCountQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
 import type { ApplicationPackage, CompanyRow, CompanyBrowseRow, DiscoveryStateRow, ReviewedJobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
 import { toCompanyBrowseRow } from "@/lib/companies/browseCodec";
@@ -38,6 +38,7 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
           (v): v is string => typeof v === "string")
       : null,
     remote: (row.remote as boolean | null) ?? null,
+    lifecycle: parseJobLifecycle(row.lifecycle),
     first_seen_at: iso(row.first_seen_at),
     closed_at: row.closed_at != null ? iso(row.closed_at) : null,
     company_name: row.company_name as string,
@@ -60,7 +61,7 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
     experience_score: (row.experience_score as number | null) ?? null,
     comp_score: (row.comp_score as number | null) ?? null,
     fit_score: (row.fit_score as number | null) ?? null,
-    skill_gaps: (row.skill_gaps as string[] | null) ?? null,
+    skill_gaps: parseStringList(row.skill_gaps),
   };
 }
 
@@ -85,6 +86,24 @@ export async function getJobs(
   // authed board runs under the viewer's `authenticated` context so RLS scopes the
   // review join to their own rows.
   return userId ? withUserSql(userId, run) : withAnonSql(run);
+}
+
+export async function getJobsPage(f: Filters, userId: string | null, page=0, historyOnly=false) {
+  const offset=Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0))*500;
+  const opts={locationFromProfile:true,companyFiltersFromProfile:true,historyOnly,offset};
+  const query=buildJobsQuery(f,userId,[],opts);
+  const count=buildJobsCountQuery(f,userId,[],opts);
+  const run=async(tx: TransactionSql) => {
+    // One statement gives count and page the same membership/expiry snapshot.
+    const result=await tx.unsafe(`WITH total AS (${count.text})
+      SELECT total.total, COALESCE(jsonb_agg(page ORDER BY page.first_seen_at DESC,page.id ASC) FILTER (WHERE page.id IS NOT NULL),'[]'::jsonb) AS rows
+      FROM total LEFT JOIN (${query.text}) page ON true GROUP BY total.total`,query.values as never[]);
+    const raw=unwrapLifecycleJson(result[0]?.rows);
+    const rows=Array.isArray(raw) ? raw.flatMap(item =>
+      item && typeof item === "object" && !Array.isArray(item) ? [toJobRow(Object.fromEntries(Object.entries(item)))] : []) : [];
+    return {rows,total:typeof result[0]?.total === "number" ? result[0].total : 0,page:offset/500};
+  };
+  return userId ? withUserSql(userId,run) : withAnonSql(run);
 }
 
 // The operator's deliberate rejects (verdict='deny' + human_override) — loaded so a
@@ -167,12 +186,13 @@ export async function getReviewFeed(
 // into the typed shape at the boundary instead of an `as unknown as` cast.
 function toJobReviewDetail(row: Record<string, unknown>): JobReviewDetail {
   return {
+    lifecycle: parseJobLifecycle(row.lifecycle),
     descriptionIsSaved: row.description_is_saved === true,
     reasoning: (row.reasoning as string | null) ?? null,
     about: (row.about as string | null) ?? null,
-    red_flags: (row.red_flags as string[] | null) ?? null,
-    benefits: (row.benefits as string[] | null) ?? null,
-    requirements: (row.requirements as { text: string; met: boolean }[] | null) ?? null,
+    red_flags: parseStringList(row.red_flags),
+    benefits: parseStringList(row.benefits),
+    requirements: parseRequirements(row.requirements),
     description: (row.description as string | null) ?? null,
     url: (row.url as string | null) ?? null,
     experience_match: (row.experience_match as string | null) ?? null,
@@ -197,6 +217,7 @@ export async function getJobReviewDetail(
   const run = async (tx: TransactionSql): Promise<JobReviewDetail | null> => {
     const rows = await tx`
       SELECT
+        public.lifecycle_job_state(j.id) AS lifecycle,
         COALESCE(rc.reasoning, r.reasoning) AS reasoning,
         COALESCE(rc.about, r.about) AS about,
         COALESCE(rc.red_flags, r.red_flags) AS red_flags,
@@ -264,7 +285,7 @@ export async function reviewStatsWith(tx: TransactionSql, userId: string): Promi
       (count(*) FILTER (WHERE r.error IS NOT NULL))::int     AS errors
     FROM jobs j
     LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
-    WHERE j.closed_at IS NULL
+    WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false)
       AND (
         COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(
           (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid),
@@ -307,11 +328,11 @@ export async function distinctLocationsWith(
       SELECT loc AS location, count(*)::int AS count
       FROM jobs j
       CROSS JOIN LATERAL unnest(COALESCE(j.location_canonicals, ARRAY[j.location])) AS loc
-      WHERE j.closed_at IS NULL AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
+      WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
       GROUP BY loc
       UNION ALL
-      SELECT 'Remote', count(*)::int FROM jobs
-      WHERE closed_at IS NULL AND remote IS TRUE
+      SELECT 'Remote', count(*)::int FROM jobs j
+      WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) AND remote IS TRUE
       HAVING count(*) > 0
     ) t
     ORDER BY count DESC, location ASC

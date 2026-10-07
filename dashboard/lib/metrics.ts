@@ -130,7 +130,7 @@ export async function reviewAggWith(tx: TransactionSql, userId: string): Promise
              count(*) FILTER (WHERE r.verdict = 'deny' AND r.human_override)::int AS manual_rejected
       FROM jobs j
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
-      WHERE j.closed_at IS NULL
+      WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false)
         AND (
           COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(
             (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid),
@@ -166,9 +166,9 @@ async function getFunnel(
     `,
     () => tx`
       SELECT count(*)::int AS ever_seen,
-             count(*) FILTER (WHERE closed_at IS NULL)::int AS open,
-             count(*) FILTER (WHERE closed_at IS NOT NULL)::int AS closed
-      FROM jobs
+             count(*) FILTER (WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false))::int AS open,
+             count(*) FILTER (WHERE public.lifecycle_source_closed(j.id,j.closed_at))::int AS closed
+      FROM jobs j
     `,
     () => reviewAggWith(tx, userId),
     () => tx`
@@ -317,24 +317,24 @@ async function getDistributions(tx: TransactionSql, userId: string): Promise<Dis
         SELECT loc AS location, count(*)::int AS count
         FROM jobs j
         CROSS JOIN LATERAL unnest(COALESCE(j.location_canonicals, ARRAY[j.location])) AS loc
-        WHERE j.closed_at IS NULL AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
+        WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
         GROUP BY loc
         UNION ALL
-        SELECT 'Remote', count(*)::int FROM jobs
-        WHERE closed_at IS NULL AND remote IS TRUE
+        SELECT 'Remote', count(*)::int FROM jobs j
+        WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) AND remote IS TRUE
         HAVING count(*) > 0
       ) t ORDER BY count DESC LIMIT ${TOP_N}`,
-    () => tx`SELECT department AS label, count(*)::int AS count FROM jobs
-        WHERE closed_at IS NULL AND department IS NOT NULL AND department <> ''
+    () => tx`SELECT department AS label, count(*)::int AS count FROM jobs j
+        WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) AND department IS NOT NULL AND department <> ''
         GROUP BY department ORDER BY count DESC LIMIT ${TOP_N}`,
     () => tx`SELECT CASE WHEN remote THEN 'Remote' ELSE 'On-site / hybrid' END AS label, count(*)::int AS count
-        FROM jobs WHERE closed_at IS NULL GROUP BY 1 ORDER BY count DESC`,
+        FROM jobs j WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) GROUP BY 1 ORDER BY count DESC`,
     () => tx`SELECT COALESCE(c.display_name, c.name) AS label, count(*)::int AS count
         FROM jobs j JOIN companies c ON c.id = j.company_id
-        WHERE j.closed_at IS NULL GROUP BY COALESCE(c.display_name, c.name) ORDER BY count DESC LIMIT ${TOP_N}`,
+        WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) GROUP BY COALESCE(c.display_name, c.name) ORDER BY count DESC LIMIT ${TOP_N}`,
     () => tx`SELECT c.ats AS label, count(*)::int AS count
         FROM jobs j JOIN companies c ON c.id = j.company_id
-        WHERE j.closed_at IS NULL GROUP BY c.ats ORDER BY count DESC`,
+        WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) GROUP BY c.ats ORDER BY count DESC`,
     () => tx`SELECT CASE
                WHEN d < 1 THEN '<1d' WHEN d < 3 THEN '1-3d' WHEN d < 7 THEN '3-7d'
                WHEN d < 14 THEN '1-2w' WHEN d < 30 THEN '2-4w' WHEN d < 60 THEN '1-2mo'

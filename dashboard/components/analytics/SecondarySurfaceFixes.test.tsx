@@ -111,3 +111,11 @@ describe("analytics content width", () => {
     );
   });
 });
+
+test('discovery totals do not claim employer openness and distinguish retained applied history', async () => {
+  const {FunnelSection}=await import('./FunnelSection');
+  const funnel={companies:{tracked:1,active:1,discovery_sourced:1,reviewed:1,include:1,exclude:0,unknown:0,backlog:0},jobs:{ever_seen:4,open:2,closed:1,reviewed:2,gate_rejected:0,approved:1,applied:3,denied:0,manual_rejected:0,unreviewed:0,errors:0}};
+  render(<FunnelSection funnel={funnel}/>);
+  expect(screen.getByText('In discovery')).toBeTruthy();
+  expect(screen.getByText(/Applied totals include retained history/)).toBeTruthy();
+});

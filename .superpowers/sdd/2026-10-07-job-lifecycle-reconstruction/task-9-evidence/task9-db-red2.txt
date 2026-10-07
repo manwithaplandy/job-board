@@ -1,0 +1,29 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ lib/jobLifecycleConsumers.db.test.ts (4 tests | 4 failed) 364ms
+   × flag-off anonymous legacy path and unmapped fallback stay readable 22ms
+   × source/expiry/payload remain independent, count matches concatenated page boundaries 6ms
+   × approved/corrected/prepared/applied history is independent of discovery and owner profile gates 7ms
+   × flag rollback changes no frozen dates, retired payload or proven closure 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/jobLifecycleConsumers.db.test.ts > flag-off anonymous legacy path and unmapped fallback stay readable
+ FAIL  lib/jobLifecycleConsumers.db.test.ts > source/expiry/payload remain independent, count matches concatenated page boundaries
+ FAIL  lib/jobLifecycleConsumers.db.test.ts > approved/corrected/prepared/applied history is independent of discovery and owner profile gates
+ FAIL  lib/jobLifecycleConsumers.db.test.ts > flag rollback changes no frozen dates, retired payload or proven closure
+PostgresError: function public.lifecycle_job_state(text) does not exist
+ ❯ ErrorResponse ../../../../dashboard/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../../../../dashboard/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../../../../dashboard/node_modules/postgres/src/connection.js:324:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  19:36:51
+   Duration  759ms (transform 139ms, setup 0ms, import 178ms, tests 364ms, environment 0ms)
+

@@ -1,0 +1,37 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ lib/jobLifecycleConsumers.db.test.ts (5 tests | 1 failed) 543ms
+   ✓ flag-off anonymous legacy path and unmapped fallback stay readable 24ms
+   ✓ source/expiry/payload remain independent, count matches concatenated page boundaries 23ms
+   ✓ approved/corrected/prepared/applied history is independent of discovery and owner profile gates 15ms
+   ✓ flag rollback changes no frozen dates, retired payload or proven closure 9ms
+   × actual server paging DTO keeps private history independent of discovery location preferences 230ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/jobLifecycleConsumers.db.test.ts > actual server paging DTO keeps private history independent of discovery location preferences
+PostgresError: null value in column "profile_version" of relation "profiles" violates not-null constraint
+ ❯ ErrorResponse ../../../../dashboard/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../../../../dashboard/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../../../../dashboard/node_modules/postgres/src/connection.js:324:9
+ ❯ cachedError ../../../../dashboard/node_modules/postgres/src/query.js:170:23
+ ❯ new Query ../../../../dashboard/node_modules/postgres/src/query.js:36:24
+ ❯ sql ../../../../dashboard/node_modules/postgres/src/index.js:112:11
+ ❯ lib/jobLifecycleConsumers.db.test.ts:88:9
+     86|   expect(publicPage.total).toBe(2);
+     87|   expect(publicPage.rows.map(r=>r.id).sort()).toEqual(['fresh','unmapp…
+     88|   await sql`INSERT INTO profiles(user_id,preferred_locations) VALUES($…
+       |         ^
+     89|   const discovery=await getJobsPage(serverBoardFilters('authed'),owner…
+     90|   expect(discovery.total).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  19:56:45
+   Duration  1.09s (transform 287ms, setup 0ms, import 194ms, tests 543ms, environment 1ms)
+

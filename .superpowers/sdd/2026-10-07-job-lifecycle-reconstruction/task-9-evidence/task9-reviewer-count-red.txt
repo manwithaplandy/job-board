@@ -1,0 +1,44 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_candidate_count_and_rows_share_one_read_statement ____________
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33052 user=postgres database=poller_lifecycle_test) at 0x7fa725b766f0>
+
+    def test_candidate_count_and_rows_share_one_read_statement(conn):
+        """A candidate page and its total must use one statement-time boundary."""
+        from contextlib import contextmanager
+    
+        conn.execute("INSERT INTO companies(id,name,ats,token) VALUES(1,'Fixture','lever','fixture')")
+        conn.execute("INSERT INTO jobs(id,company_id,external_id,title,url) VALUES('fresh',1,'1','Role','https://example.test/job')")
+        conn.commit()
+        candidate_reads = []
+    
+        class RecordedConnection:
+            def __getattr__(self, name):
+                return getattr(conn, name)
+    
+            @contextmanager
+            def cursor(self, *args, **kwargs):
+                with conn.cursor(*args, **kwargs) as cursor:
+                    class RecordedCursor:
+                        def __getattr__(self, name):
+                            return getattr(cursor, name)
+    
+                        def execute(self, query, params=None):
+                            if "FROM jobs j" in query:
+                                candidate_reads.append(query)
+                            return cursor.execute(query, params)
+    
+                    yield RecordedCursor()
+    
+        rows, count = rdb.select_candidates(RecordedConnection(), USER, 'v1', 1)
+        assert [row['id'] for row in rows] == ['fresh'] and count == 1
+>       assert len(candidate_reads) == 1
+E       assert 2 == 1
+E        +  where 2 = len(["SELECT count(*)::int AS n \n        FROM jobs j\n        JOIN companies c ON c.id = j.company_id\n        LEFT JOIN ...       OR ('Remote' = ANY(%(prefs)s::text[]) AND j.remote IS TRUE))\n     ORDER BY j.first_seen_at DESC LIMIT %(lim)s"])
+
+tests/test_reviewer_lifecycle_feed.py:56: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_reviewer_lifecycle_feed.py::test_candidate_count_and_rows_share_one_read_statement
+1 failed, 1 deselected in 0.43s

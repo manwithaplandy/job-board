@@ -1,0 +1,10 @@
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+Not implemented: Window's scrollTo() method
+
+ Test Files  2 passed (2)
+      Tests  2 passed | 15 skipped (17)
+   Start at  19:50:09
+   Duration  2.86s (transform 1.05s, setup 0ms, import 1.62s, tests 528ms, environment 738ms)
+

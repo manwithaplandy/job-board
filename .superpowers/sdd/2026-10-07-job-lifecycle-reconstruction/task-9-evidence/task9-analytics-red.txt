@@ -1,0 +1,153 @@
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ components/analytics/SecondarySurfaceFixes.test.tsx (10 tests | 1 failed | 9 skipped) 167ms
+   × discovery totals do not claim employer openness and distinguish retained applied history 165ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  components/analytics/SecondarySurfaceFixes.test.tsx > discovery totals do not claim employer openness and distinguish retained applied history
+TestingLibraryElementError: Unable to find an element with the text: In discovery. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mstyle[39m=[32m"font-size: 12.5px; color: var(--text-secondary); margin: -6px 0px 12px;"[39m
+      [36m>[39m
+        [0mCurrent snapshot — job rows count open jobs only; bars within a group share a scale, and the % text is the honest figure.[0m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mstyle[39m=[32m"display: flex; gap: 32px; flex-wrap: wrap; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px;"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mstyle[39m=[32m"flex: 1 1 380px; min-width: 0px;"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"font-size: 13.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 10px;"[39m
+          [36m>[39m
+            [0mCompanies — Company Discovery[0m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"display: flex; flex-direction: column; gap: 7px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"font-size: 11px; font-weight: 800; color: var(--text-muted); letter-spacing: 0.4px; margin: 16px 0px 8px; text-transform: uppercase;"[39m
+            [36m>[39m
+              [0mPipeline stages[0m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"display: flex; align-items: center; gap: 10px;"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 148px; flex: 0 0 auto; font-size: 12px; color: var(--text-secondary); font-weight: 600;"[39m
+              [36m>[39m
+                [0mTracked[0m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"flex: 1 1 0%; min-width: 40px; height: 20px; background: var(--bg-muted); border-radius: 6px; overflow: hidden;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mstyle[39m=[32m"width: 100%; height: 100%; background: var(--chart-stage); border-radius: 6px; min-width: 3px;"[39m
+                [36m/>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 62px; text-align: right; font-size: 12.5px; font-weight: 700; color: var(--text-primary);"[39m
+              [36m>[39m
+                [0m1[0m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 74px; text-align: right; font-size: 11px; color: var(--text-secondary);"[39m
+              [36m/>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"display: flex; align-items: center; gap: 10px;"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 148px; flex: 0 0 auto; font-size: 12px; color: var(--text-secondary); font-weight: 600;"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mstyle[39m=[32m"position: relative; display: inline-flex; align-items: center;"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33maria-expanded[39m=[32m"false"[39m
+                    [33maria-label[39m=[32m"Found by discovery. Companies the discovery pipeline found automatically (rather than ones added by hand)."[39m
+                    [33mclass[39m=[32m"rf-info-tip__trigger rf-focusable"[39m
+                    [33mrole[39m=[32m"button"[39m
+                    [33mstyle[39m=[32m"border-bottom: 1px dotted var(--text-muted); cursor: help; color: var(--text-secondary);"[39m
+                    [33mtabindex[39m=[32m"0"[39m
+                  [36m>[39m
+                    [0mFound by discovery[0m
+                  [36m</span>[39m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"flex: 1 1 0%; min-width: 40px; height: 20px; background: var(--bg-muted); border-radius: 6px; overflow: hidden;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mstyle[39m=[32m"width: 100%; height: 100%; background: var(--chart-stage); border-radius: 6px; min-width: 3px;"[39m
+                [36m/>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 62px; text-align: right; font-size: 12.5px; font-weight: 700; color: var(--text-primary);"[39m
+              [36m>[39m
+                [0m1[0m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 74px; text-align: right; font-size: 11px; color: var(--text-secondary);"[39m
+              [36m>[39m
+                [0m100% of tracked[0m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"display: flex; align-items: center; gap: 10px;"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 148px; flex: 0 0 auto; font-size: 12px; color: var(--text-secondary); font-weight: 600;"[39m
+              [36m>[39m
+                [0mClassified[0m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"flex: 1 1 0%; min-width: 40px; height: 20px; background: var(--bg-muted); border-radius: 6px; overflow: hidden;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mstyle[39m=[32m"width: 100%; height: 100%; background: var(--chart-stage); border-radius: 6px; min-width: 3px;"[39m
+                [36m/>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 62px; text-align: right; font-size: 12.5px; font-weight: 700; color: var(--text-primary);"[39m
+              [36m>[39m
+                [0m1[0m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mstyle[39m=[32m"width: 74px; text-align: right; font-size: 11px; color: var(--text-secondary);"[39m
+              [36m>[39m
+                [0m100% of found[0m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"font-size: 11px; font-weight: 800; color: var(--text-muted); letter-spacing: 0.4px; margin: 16px 0px 8px; text-transform: uppercase;"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mstyle[39m=[32m"position: relative; display: inline-flex; align-items: center;"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33maria-expanded[39m=[32m"false"[39m
+                  [33maria-label[39m=[32m"Verdicts. Counts every classified company, including a few you added by hand — so these can total slightly more than the discovery-only 'Classified' stage above."[39m
+                 ...
+ ❯ Object.getElementError ../../../../dashboard/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../../../dashboard/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ components/analytics/SecondarySurfaceFixes.test.tsx:119:17
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 skipped (10)
+   Start at  20:06:02
+   Duration  1.42s (transform 149ms, setup 0ms, import 238ms, tests 167ms, environment 700ms)
+

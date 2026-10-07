@@ -1,6 +1,7 @@
 import type { JobRow } from "@/lib/types";
 
 export interface BoardFilterState {
+  includeOlderLive?: boolean;
   search: string;
   cats: string[];
   locs: string[];
@@ -19,6 +20,7 @@ export interface BoardFilterState {
 }
 
 export const DEFAULT_FILTERS: BoardFilterState = {
+  includeOlderLive: false,
   search: "",
   cats: [],
   locs: [],
@@ -180,10 +182,11 @@ export function mergeRejectedPool(jobs: JobRow[], serverRejected: JobRow[]): Job
 // in-session rejects (see RolefitBoard), so both a reload and a live reject show up.
 export function filterByView(
   jobs: JobRow[],
-  view: "all" | "applied" | "rejected",
+  view: "all" | "applied" | "rejected" | "history",
   rejectedIds: ReadonlySet<string>,
   appliedIds: ReadonlySet<string>,
 ): JobRow[] {
+  if (view === "history") return jobs;
   if (view === "rejected") return jobs.filter((j) => rejectedIds.has(j.id));
   if (view === "applied") return jobs.filter((j) => appliedIds.has(j.id));
   // "all" — hide both rejected and applied

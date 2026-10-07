@@ -1,6 +1,9 @@
 import type { TransactionSql } from "postgres";
 import { parseGreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 
+export {sourceClosedPredicate,parseJobLifecycle,unwrapLifecycleJson,discoveryPredicate,discoveryVisible,lifecycleLabels,parseStringList,parseRequirements} from "./jobLifecycleState";
+export type {JobLifecycle,SqlFragment} from "./jobLifecycleState";
+
 export type LifecycleStage = "legacy" | "collect" | "enforced";
 export function parseLifecycleStage(value: unknown): LifecycleStage | null {
   return value === "legacy" || value === "collect" || value === "enforced" ? value : null;

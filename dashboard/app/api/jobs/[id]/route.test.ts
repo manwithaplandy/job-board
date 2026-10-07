@@ -114,3 +114,14 @@ test("saved review JD remains authoritative while current public detail is separ
   expect(body.currentDescription).toBe("Current JD");
   expect(body.reasoning).toBe("Saved reasoning");
 });
+
+test('closed source exposes retained history without enqueueing current hydration',async()=>{
+  const {requestJobPayload}=await import('@/lib/jobLifecycle');
+  const lifecycle={feedEnabled:true,sourceEnabled:true,sourceAvailability:'closed',discoveryAnchorAt:'2026-09-01T00:00:00Z',discoveryExpiresAt:'2026-10-01T00:00:00Z',payloadAvailability:'retired'};
+  mocks.getJobReviewDetail.mockResolvedValue({description:'Saved JD',descriptionIsSaved:true,lifecycle});
+  const body=await (await call('greenhouse:acme:123')).json();
+  expect(body.description).toBe('Saved JD');
+  expect(body.lifecycle.sourceAvailability).toBe('closed');
+  expect(body.payload.status).toBe('deferred');
+  expect(requestJobPayload).not.toHaveBeenCalled();
+});

@@ -1,0 +1,126 @@
+
+> job-board-dashboard@0.1.0 test
+> NODE_OPTIONS=--no-experimental-webstorage vitest run --exclude **/*.db.test.ts
+
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ❯ tests/visual/deployment-workflow-contract.test.ts (17 tests | 1 failed) 541ms
+     × uses only inert local infrastructure placeholders in ordinary dashboard CI 23ms
+Not implemented: Window's scrollTo() method
+ ❯ app/ui-contract.test.ts (15 tests | 1 failed) 676ms
+     × production UI satisfies every source contract 638ms
+ ❯ app/actions/tombstoneGuard.test.ts (10 tests | 2 failed) 28ms
+     × markApplicationApplied proceeds to the DB write for a live account 10ms
+     × unrejectJob proceeds to the DB write for a live account 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  app/ui-contract.test.ts > cohesive interface source contracts > production UI satisfies every source contract
+AssertionError: expected [ …(5) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "code": "inline-geometry",
++     "detail": "Move geometry to shared CSS or mark the exact node, or the smallest data-driven composite scope, with a reason.",
++     "file": "components/rolefit/RolefitBoard.tsx",
++     "line": 1410,
++   },
++   {
++     "code": "raw-control",
++     "detail": "Use a shared primitive or a locally marked semantic composite wrapper with a reason.",
++     "file": "components/rolefit/RolefitBoard.tsx",
++     "line": 1411,
++   },
++   {
++     "code": "raw-control",
++     "detail": "Use a shared primitive or a locally marked semantic composite wrapper with a reason.",
++     "file": "components/rolefit/RolefitBoard.tsx",
++     "line": 1417,
++   },
++   {
++     "code": "unapproved-action",
++     "detail": "Use ButtonLink/BackLink or a marked semantic navigation composite.",
++     "file": "components/rolefit/RolefitBoard.tsx",
++     "line": 1424,
++   },
++   {
++     "code": "unapproved-action",
++     "detail": "Use ButtonLink/BackLink or a marked semantic navigation composite.",
++     "file": "components/rolefit/RolefitBoard.tsx",
++     "line": 1424,
++   },
++ ]
+
+ ❯ app/ui-contract.test.ts:44:33
+     42|
+     43|   test("production UI satisfies every source contract", () => {
+     44|     expect(auditProductionUi()).toEqual([]);
+       |                                 ^
+     45|   });
+     46| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  app/actions/tombstoneGuard.test.ts > mutating actions honor the tombstone guard > markApplicationApplied proceeds to the DB write for a live account
+ FAIL  app/actions/tombstoneGuard.test.ts > mutating actions honor the tombstone guard > unrejectJob proceeds to the DB write for a live account
+AssertionError: promise rejected "Error: [vitest] No "withUserDemandSql" ex… { codeFrame: '…' }" instead of resolving
+ ❯ app/actions/tombstoneGuard.test.ts:57:23
+     55|   test.each(ACTIONS)("%s proceeds to the DB write for a live account",…
+     56|     state.deleted = false;
+     57|     await expect(run()).resolves.toBeUndefined();
+       |                       ^
+     58|     expect(withUserSql).toHaveBeenCalledTimes(1);
+     59|   });
+
+Caused by: Error: [vitest] No "withUserDemandSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("@/lib/db"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ requestJobPayload lib/jobLifecycle.ts:143:11
+ ❯ markApplicationApplied app/actions/applications.ts:17:19
+ ❯ app/actions/tombstoneGuard.test.ts:57:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/visual/deployment-workflow-contract.test.ts > deployment-triggered authenticated visual workflow > uses only inert local infrastructure placeholders in ordinary dashboard CI
+AssertionError: expected [ '          DATABASE_URL:', …(2) ] to have a length of 2 but got 3
+
+- Expected
++ Received
+
+- 2
++ 3
+
+ ❯ tests/visual/deployment-workflow-contract.test.ts:60:53
+     58|       expect(job).toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY: test");
+     59|     }
+     60|     expect(ordinaryCi.match(/^\s+DATABASE_URL:/gm)).toHaveLength(2);
+       |                                                     ^
+     61|     for (const variable of [
+     62|       "DATABASE_URL",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  3 failed | 214 passed (217)
+      Tests  4 failed | 1706 passed | 2 skipped (1712)
+   Start at  19:51:16
+   Duration  69.15s (transform 12.08s, setup 0ms, import 37.28s, tests 43.91s, environment 67.75s)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice

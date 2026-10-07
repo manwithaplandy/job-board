@@ -112,7 +112,7 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
   const jobStageMax = Math.max(1, j.ever_seen);
   const jobStages: RowSpec[] = [
     { label: "Jobs ever seen", value: j.ever_seen, tone: "stage" },
-    { label: "Open now", value: j.open, tone: "stage", pctBase: j.ever_seen, pctSuffix: "of ever seen" },
+    { label: "In discovery", value: j.open, tone: "stage", pctBase: j.ever_seen, pctSuffix: "of ever seen" },
     { label: "Reviewed", value: j.reviewed, tone: "stage", pctBase: j.open, pctSuffix: "of open" },
   ];
   const jobOutcomes: RowSpec[] = [
@@ -132,7 +132,7 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
   return (
     <div>
       <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", margin: "-6px 0 12px" }}>
-        Current snapshot — job rows count open jobs only; bars within a group share a scale, and the % text is the honest figure.
+        Current discovery and review pool. Applied totals include retained history beyond discovery expiry. Bars within a group share a scale.
       </div>
       <div
         style={{

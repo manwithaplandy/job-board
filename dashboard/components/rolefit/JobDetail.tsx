@@ -1,4 +1,5 @@
 "use client";
+import { lifecycleLabels } from "@/lib/jobLifecycleState";
 
 import { useState } from "react";
 import type { ApplicationPackage, JobReviewDetail, JobRow } from "@/lib/types";
@@ -175,7 +176,7 @@ export function JobDetail({
   const metaLine = [job.company_name, job.location, arrangement]
     .filter(Boolean)
     .join(" · ");
-  const postedText = "Posted " + fmtPosted(job.first_seen_at, nowIso);
+  const postedText = "Discovered " + fmtPosted(job.first_seen_at, nowIso);
 
   // Per-job gen state
   const genState = gen[job.id];
@@ -324,6 +325,7 @@ export function JobDetail({
               }}
             >
               {postedText}
+              {lifecycleLabels(job.lifecycle,nowIso).map(label => <span key={label}> · {label}</span>)}
             </span>
           </div>
         </div>
@@ -688,7 +690,7 @@ export function JobDetail({
       {(pkg?.prefilledAnswers != null || !hasReview) && currentQuestions && (
         <details style={{marginTop:"20px"}}>
           <summary>Current application questions</summary>
-          {pkg?.prefilledAnswers != null && <p>Saved answers above use the questions captured with your application.</p>}
+          {pkg?.prefilledAnswers != null && <p>{pkg.questionsSnapshot ? "Saved answers above use the questions captured with your application." : "The historical question schema is unavailable. Saved answers are retained without borrowing the current questions."}</p>}
           <ul>{currentQuestions.questions.map((question, index) => <li key={`${index}:${question.label}`}>{question.label}</li>)}</ul>
         </details>
       )}

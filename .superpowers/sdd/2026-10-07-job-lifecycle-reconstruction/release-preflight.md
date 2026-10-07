@@ -39,3 +39,20 @@ The redeploy tool reuses a prior deployment commit, so it is not proof of shippi
 the new exact commit. Use existing main auto-deploy workflow and verify scoped
 service exact deployment metadata after merge; do not create another service or
 apply the unrelated patch to obtain a release.
+
+Vercel read-only list_projects(search=job-board) and get_project succeeded.
+Intended dashboard: job-board-dashboard / prj_7Z7btXKAhM80SgKkdw35K8UaOUtH,
+team/account team_2w1ofxlgr52EIaZZXJaItBf6, framework nextjs. Connected project
+response did not expose rootDirectory/Git link/production targets in the
+selected fields; these are not claimed verified. README supplies dashboard/
+root only. Exact deployment gitSource/commit and current production alias must
+be resolved and verified at actual release. No deployment or env-values calls
+were made. Vercel deployments-cicd skill read; existing Git workflow preferred.
+
+Vercel current production deployment resolved read-only: dpl_ARhsncvQVGE4ykLerrdcj6gZVd4B,
+READY/production, metadata githubCommitSha a8c4b82d95b35c0259600c19c1506faae807c3fc
+(matches reconstruction base). URL job-board-dashboard-blesz20rv-andrews-projects-ecc12687.vercel.app.
+Domains include jobs.andrewmalvani.com and job-board-dashboard-mu.vercel.app.
+get_deployment(withGitRepoInfo=true) returned commit via meta; gitSource was absent,
+so no assertion about a gitSource field. This is baseline state only; recheck
+new exact commit and deployed domains after completed release.

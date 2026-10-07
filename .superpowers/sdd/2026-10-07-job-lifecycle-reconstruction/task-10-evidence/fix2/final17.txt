@@ -1,0 +1,7 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+logical escrow sample {"body_bytes": 65, "canonical_bytes": 422, "escrow": 130532, "ordinary_event_cost": 135732, "critical_slot_cost": 133554, "ordinary_byte_capacity": 865, "critical_reserved_capacity": 125}
+........logical escrow sample {"body_bytes": 8058, "canonical_bytes": 8415, "escrow": 178490, "ordinary_event_cost": 231648, "critical_slot_cost": 213484, "ordinary_byte_capacity": 506, "critical_reserved_capacity": 78}
+.logical escrow sample {"body_bytes": 8058, "canonical_bytes": 8415, "escrow": 178490, "ordinary_event_cost": 231648, "critical_slot_cost": 213484, "ordinary_byte_capacity": 506, "critical_reserved_capacity": 78}
+.........................actual critical closure costs [{"aggregate_type": "jobs", "body_bytes": 217, "canonical_bytes": 601, "escrow": 131606, "lifecycle_bytes": 135290}, {"aggregate_type": "source_listings", "body_bytes": 572, "canonical_bytes": 978, "escrow": 133868, "lifecycle_bytes": 139016}]
+...
+37 passed in 52.06s

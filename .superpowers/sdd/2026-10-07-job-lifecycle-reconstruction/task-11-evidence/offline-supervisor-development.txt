@@ -9,12 +9,12 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f833deb0830>
         clock = Clock()
         monkeypatch.setattr(s.time, 'sleep', lambda delay: setattr(clock, 'now', clock.now + delay))
         children = []
-    
+
         def spawn(name):
             child = Child(clock, ignores_term=True)
             children.append(child)
             return child
-    
+
         assert s.supervise(Stop(clock, 10), spawn, clock) == 0
 >       assert len(children) == 2
 E       assert 3 == 2

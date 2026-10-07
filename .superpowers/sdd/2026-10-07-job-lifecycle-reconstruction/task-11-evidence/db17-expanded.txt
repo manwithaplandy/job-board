@@ -12,17 +12,17 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f20ffdd3ef0>
             s.time, "sleep", lambda delay: setattr(clock, "now", clock.now + delay)
         )
         children = []
-    
+
         def spawn(name):
             child = Child(clock, ignores_term=True)
             children.append(child)
             return child
-    
+
         assert s.supervise(Stop(clock, 10), spawn, clock) == 0
         assert len(children) == 3
 >       assert [c.terminated for c in children] == [10, 10]
 E       assert [10.0, 10.0, 10.0] == [10, 10]
-E         
+E
 E         Left contains one more item: 10.0
 E         Use -v to get more diff
 

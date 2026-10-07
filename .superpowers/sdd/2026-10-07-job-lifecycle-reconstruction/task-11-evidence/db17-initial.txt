@@ -12,8 +12,8 @@ phase = 'seal'
 >       batch,refs=setup_batch(conn)
                    ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:50: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:50:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -24,7 +24,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a6270>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -34,17 +34,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -55,7 +55,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -63,13 +63,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -89,8 +89,8 @@ phase = 'data'
 >       batch,refs=setup_batch(conn)
                    ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:50: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:50:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -101,7 +101,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a4260>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -111,17 +111,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -132,7 +132,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -140,13 +140,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -166,8 +166,8 @@ phase = 'manifest'
 >       batch,refs=setup_batch(conn)
                    ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:50: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:50:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -178,7 +178,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a5760>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -188,17 +188,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -209,7 +209,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -217,13 +217,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -243,8 +243,8 @@ phase = 'verify'
 >       batch,refs=setup_batch(conn)
                    ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:50: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:50:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -255,7 +255,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad705190>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -265,17 +265,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -286,7 +286,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -294,13 +294,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -320,8 +320,8 @@ phase = 'ack-rollback'
 >       batch,refs=setup_batch(conn)
                    ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:50: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:50:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -332,7 +332,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad706990>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -342,17 +342,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -363,7 +363,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -371,13 +371,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -397,8 +397,8 @@ phase = 'ack-commit'
 >       batch,refs=setup_batch(conn)
                    ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:50: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:50:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -409,7 +409,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad706540>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -419,17 +419,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -440,7 +440,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -448,13 +448,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -471,8 +471,8 @@ conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres datab
 >       batch,refs=setup_batch(conn)
                    ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:110: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:110:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -483,7 +483,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad704b60>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -493,17 +493,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -514,7 +514,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -522,13 +522,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -545,8 +545,8 @@ conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres datab
 >       batch,_=setup_batch(conn)
                 ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:154: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:154:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -557,7 +557,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad704950>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -567,17 +567,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -588,7 +588,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -596,13 +596,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -620,8 +620,8 @@ conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres datab
         assert worker.export_once(TEST_DSN,client) is None
 >       setup_batch(conn)
 
-tests/test_archive_retention_recovery.py:167: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:167:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -632,7 +632,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad8a5790>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -642,17 +642,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -663,7 +663,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -671,13 +671,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:
@@ -694,8 +694,8 @@ conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres datab
 >       batch,_=setup_batch(conn)
                 ^^^^^^^^^^^^^^^^^
 
-tests/test_archive_retention_recovery.py:174: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_archive_retention_recovery.py:174:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 tests/test_archive_retention_recovery.py:35: in setup_batch
     conn.commit()
 .venv/lib/python3.12/site-packages/psycopg/connection.py:309: in commit
@@ -706,7 +706,7 @@ psycopg_binary/_psycopg/waiting.pyx:255: in psycopg_binary._psycopg.wait_c
     ???
 .venv/lib/python3.12/site-packages/psycopg/_connection_base.py:592: in _commit_gen
     yield from self._exec_command(b"COMMIT")
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33086 user=postgres database=poller_lifecycle_test) at 0x7f88ad765af0>
 command = b'COMMIT', result_format = <Format.TEXT: 0>
@@ -716,17 +716,17 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
     ) -> PQGen[PGresult | None]:
         """
         Generator to send a command and receive the result to the backend.
-    
+
         Only used to implement internal commands such as "commit", with eventual
         arguments bound client-side. The cursor can do more complex stuff.
         """
         self._check_connection_ok()
-    
+
         if isinstance(command, str):
             command = command.encode(self.pgconn._encoding)
         elif isinstance(command, Composable):
             command = command.as_bytes(self)
-    
+
         if self._pipeline:
             cmd = partial(
                 self.pgconn.send_query_params,
@@ -737,7 +737,7 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self._pipeline.command_queue.append(cmd)
             self._pipeline.result_queue.append(None)
             return None
-    
+
         # Unless needed, use the simple query protocol, e.g. to interact with
         # pgbouncer. In pipeline mode we always use the advanced query protocol
         # instead, see #350
@@ -745,13 +745,13 @@ command = b'COMMIT', result_format = <Format.TEXT: 0>
             self.pgconn.send_query(command)
         else:
             self.pgconn.send_query_params(command, None, result_format=result_format)
-    
+
         results: list[PGresult] = (yield from generators.execute(self.pgconn))
         if len(results) != 1:
             raise e.InternalError(
                 f"received {len(results)} results from command {command.decode()!r}"
             )
-    
+
         result = results[0]
         if result.status != COMMAND_OK and result.status != TUPLES_OK:
             if result.status == FATAL_ERROR:

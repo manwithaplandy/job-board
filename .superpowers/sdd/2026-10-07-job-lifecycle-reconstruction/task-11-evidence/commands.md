@@ -44,3 +44,7 @@ git diff --cached --check
 Ruff output is ruff-final.txt. All checks exit0. A Python hashlib comparison checked all14 owned source/test/dependency files against candidate-source-hashes.json after all final runs; final-source-hashes.json is identical. Migration07 text occurs verbatim in schema.sql. No source changed during final verification.
 
 `/usr/bin/time` was unavailable (import-resources-tool-error.txt). A Python process then measured one offline `import reviewer.archive_worker` with time.monotonic/process_time and resource.getrusage(RUSAGE_SELF): import-resources.txt. This is import overhead only, not production total runtime load or cost evidence.
+
+## Documentation-only handoff correction
+
+The documentation staged whitespace check reported trailing spaces in raw pytest failure traces. Source checks above were clean. A forward documentation-only commit strips line-end whitespace from offline-supervisor-development.txt, db17-expanded.txt, db17-initial.txt, db17-development.txt. Original byte-for-byte output remains in report commit `d128ce8aef7fb7efea18592acba02f013e32991b`; failure text, counts and chronology are unchanged. No source changed and no tests were rerun for this formatting cleanup. Final staged documentation whitespace check passes.

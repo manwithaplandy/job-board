@@ -39,3 +39,11 @@ No permanent deletion, new credentials/IAM/security settings are implicitly
 authorized, and reduced independent-review gaps remain explicit.
 
 Carry the Task6 above-guard functional/rollout conflict in progress.md: bounded read-only verification may proceed, but existing source/staging growth accounting blocks durable reconciliation above 6000 MiB. Do not claim this goal completed or security approved. Assess ordinary integration correctness, preserve flag-off legacy closure, and report a concrete minimal contract repair before changing established enforcement.
+
+Task6 all-family mixed-response handling preserves minimal identifiable positive
+postings when display fields are malformed and marks the feed incomplete.
+Availability evidence is not a complete metadata/content assertion. Admission
+must not replace known fields or manufacture meaningful versions from fallback
+placeholder values; preserve honest unknown provenance and existing good public
+metadata while recording source availability. Inspect final Posting/SourceResult
+interfaces and retain conservative completeness through ingestion.

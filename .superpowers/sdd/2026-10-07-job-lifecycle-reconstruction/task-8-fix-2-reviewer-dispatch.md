@@ -1,0 +1,7 @@
+# Task8 Fix2 scoped same-reviewer dispatch preparation
+
+Dispatch only once original author DONE and final report actual commands/results are read. Fix BASE29d34ec9a3de95c3a1bd86e5ce215e07b5bc7743; generate full BASE..actualHEAD package. Read original task8 brief, scope/release amendments, Fix1 scoped review, current task8-fix2-report and actual covering evidence. Initial report and Fix1 are historical phase context; original six addressed findings remain covered.
+
+Review ONLY R8-F1-1 and R8-F1-2 from original SAME reviewer's Fix1 report, plus Important/Critical regressions introduced in Fix2 diff. Do not renew whole-task review or rerun author-covered tests; no replacement security/expiry/capacity/cross-user/adversarial review/probes. Preserve previously explicit unknown real historical artifact full-recapture availability limitation without declaring universal functionality. Determine independently whether current hydrated detail reaches actual UI while retained historical context/package question schema stays honest, and instruction-only rows can establish genuine first input/output through owner→worker→transactional persistence with pending before charge.
+
+Return each finding ADDRESSED/NOT ADDRESSED, scoped SpecPASS/FAIL and QualityAPPROVED/CHANGES_REQUIRED, any new Important/Critical Fix2 breakage with actual evidence. Write task-8-fix-2-requirements-review.md, exact pins and evidence limits. No product edits/commits/delegation/production/network/paid calls/covered-suite reruns. No security, activation or release approval inferred.

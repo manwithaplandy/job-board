@@ -158,3 +158,36 @@ def test_catalog_detects_implicit_owner_privilege_changes_with_null_acls(conn, s
     assert conn.execute(acl_query).fetchone()["acl"] is None
     assert module.schema_catalog(conn) != before
     conn.rollback()
+
+
+@requires_db
+def test_lifecycle_ddl_does_not_backfill_or_reset_legacy_rows(conn):
+    module = helpers()
+    module.bootstrap_schema(conn, FROZEN.read_text())
+    cid = conn.execute(
+        "INSERT INTO companies(name,ats,token) VALUES ('Legacy','lever','legacy') RETURNING id"
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO jobs(id,company_id,external_id,title,url,description,first_seen_at) VALUES ('legacy',%s,'1','Engineer','u','retained','2020-01-01Z')",
+        (cid,),
+    )
+    conn.commit()
+    migration = ROOT / "migrations/2026-10-03-01-lifecycle-core.sql"
+    assert migration.exists(), "additive lifecycle migration absent"
+    module.apply_migrations(conn, [migration])
+    assert conn.execute("SELECT count(*) n FROM source_listings").fetchone()["n"] == 0
+    assert (
+        conn.execute("SELECT description_captured_at FROM jobs").fetchone()[
+            "description_captured_at"
+        ]
+        is None
+    )
+    identity = importlib.import_module("job_discovery.lifecycle.identity")
+    assert identity.migrate_identity_batch(conn, 1) == 1
+    conn.commit()
+    before = conn.execute("SELECT * FROM source_listings").fetchall()
+    control = conn.execute("SELECT * FROM lifecycle_control").fetchone()
+    module.apply_migrations(conn, [migration])
+    assert conn.execute("SELECT * FROM source_listings").fetchall() == before
+    assert conn.execute("SELECT * FROM lifecycle_control").fetchone() == control
+    assert identity.migrate_identity_batch(conn) == 0

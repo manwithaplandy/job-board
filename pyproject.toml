@@ -26,7 +26,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["job_discovery", "job_discovery.adapters", "reviewer", "company_discovery", "observability"]
+packages = ["job_discovery", "job_discovery.adapters", "job_discovery.lifecycle", "reviewer", "company_discovery", "observability"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests intentionally import after module-level env/stub setup.

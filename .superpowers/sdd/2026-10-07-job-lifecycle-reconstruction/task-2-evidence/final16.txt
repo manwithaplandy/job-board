@@ -1,0 +1,63 @@
+Owned lifecycle database: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) (required 16)
+..................................F..................................... [ 80%]
+.................                                                        [100%]
+=================================== FAILURES ===================================
+______ test_service_account_erasure_inventory_deletes_only_target_demands ______
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32844 user=postgres database=poller_lifecycle_test) at 0x7f3cda94b8f0>
+
+    @requires_db
+    def test_service_account_erasure_inventory_deletes_only_target_demands(conn):
+        """Exercise the actual registry's bounded account erasure statements locally.
+
+        The existing accountDeletion.ts serviceSql loop is privileged, derives its
+        user from the verified caller and filters each DELETE by that user_id.
+        No authenticated demand DELETE privilege is added for this path.
+        """
+        import re
+        from pathlib import Path
+
+        seed(conn)
+        users = [uuid4(), uuid4()]
+        for user in users:
+>           conn.execute("INSERT INTO profiles(user_id) VALUES (%s)",(user,))
+
+tests/test_lifecycle_identity.py:503:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32844 user=postgres database=poller_lifecycle_test) at 0x7f3cda94b8f0>
+query = 'INSERT INTO profiles(user_id) VALUES (%s)'
+params = (UUID('4c483fd4-b742-4d7e-8ad7-d6a94074721f'),), prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.NotNullViolation: null value in column "profile_version" of relation "profiles" violates not-null constraint
+E           DETAIL:  Failing row contains (4c483fd4-b742-4d7e-8ad7-d6a94074721f, null, null, null, null, null, {}, null, null, null, null, null, null, null, null, null, {}, null, null, null, null, null, null, null, {}, null, null, null, null, null, null, 2026-10-07 06:12:51.202911+00, null).
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: NotNullViolation
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_identity.py::test_service_account_erasure_inventory_deletes_only_target_demands
+1 failed, 88 passed in 50.68s

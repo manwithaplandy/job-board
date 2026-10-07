@@ -1,0 +1,45 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+......................................................................F. [ 81%]
+................                                                         [100%]
+=================================== FAILURES ===================================
+_____ test_every_user_scoped_table_has_rls_enabled_and_expected_policy_set _____
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32841 user=postgres database=poller_lifecycle_test) at 0x7f0bedbc6390>
+
+    @requires_db
+    def test_every_user_scoped_table_has_rls_enabled_and_expected_policy_set(conn):
+        with conn.cursor() as cur:
+            # Discover every base table storing a user_id, with its RLS flag.
+            cur.execute(
+                """
+                SELECT c.relname AS tbl, c.relrowsecurity AS rls
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'public' AND c.relkind = 'r'
+                  AND EXISTS (
+                    SELECT 1 FROM pg_attribute a
+                    WHERE a.attrelid = c.oid AND a.attname = 'user_id'
+                      AND a.attnum > 0 AND NOT a.attisdropped
+                  )
+                ORDER BY c.relname
+                """
+            )
+            user_tables = {r["tbl"]: r["rls"] for r in cur.fetchall()}
+
+        assert user_tables, "no user-scoped tables discovered — schema.sql failed to load?"
+
+        # (1) Systemic: every user_id table has RLS ON and a declared contract. A new one
+        # that slips in RLS-off or unclassified fails one of these — before it can leak.
+        for tbl, rls in sorted(user_tables.items()):
+            assert rls is True, f"{tbl} stores user_id but RLS is DISABLED"
+>           assert tbl in EXPECTED_RLS, (
+                f"{tbl} stores user_id but has no declared RLS contract — add it to "
+                f"EXPECTED_RLS (and the deletion/export lists) before shipping"
+            )
+E           AssertionError: job_payload_demands stores user_id but has no declared RLS contract — add it to EXPECTED_RLS (and the deletion/export lists) before shipping
+E           assert 'job_payload_demands' in {'matching_activity': {'owner_read': ('SELECT', frozenset({'authenticated'}))}, 'feedback': {'feedback_owner_read': ('...views': {'no_anon_access': ('ALL', frozenset({'public'})), 'owner_access': ('ALL', frozenset({'authenticated'}))}, ...}
+
+tests/test_rls_isolation.py:498: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_rls_isolation.py::test_every_user_scoped_table_has_rls_enabled_and_expected_policy_set
+1 failed, 87 passed in 22.22s

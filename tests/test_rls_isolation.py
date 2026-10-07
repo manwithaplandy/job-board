@@ -410,6 +410,8 @@ _OWNER_ALL = {
     "owner_access": ("ALL", frozenset({"authenticated"})),
 }
 EXPECTED_RLS = {
+    # Early lifecycle prerequisite: service-only until reviewed demand access cutover.
+    "job_payload_demands": {},
     "matching_activity": {"owner_read": ("SELECT", frozenset({"authenticated"}))},
     "feedback": {"feedback_owner_read": ("SELECT", frozenset({"authenticated"}))},
     # Full owner CRUD (owner_access FOR ALL, USING/WITH CHECK = app_user_id()).

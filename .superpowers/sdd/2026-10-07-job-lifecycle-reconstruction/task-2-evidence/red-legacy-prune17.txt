@@ -1,0 +1,80 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+.........FF...                                                           [100%]
+=================================== FAILURES ===================================
+_ test_mapped_flag_off_legacy_prune_and_direct_delete_preserve_protected_rows __
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32840 user=postgres database=poller_lifecycle_test) at 0x7f2a5d362c00>
+
+    @requires_db
+    def test_mapped_flag_off_legacy_prune_and_direct_delete_preserve_protected_rows(conn):
+        from job_discovery.prune import prune_jobs
+        seed(conn,5)
+        conn.execute("UPDATE jobs SET closed_at=now()-interval '40 days'")
+        user = uuid4()
+        conn.execute("INSERT INTO job_reviews(user_id,job_id,profile_version,verdict) VALUES (%s,'lever:x:1','v','approve')",(user,))
+        conn.execute("INSERT INTO review_corrections(user_id,job_id,description_snapshot) VALUES (%s,'lever:x:2','protected')",(user,))
+        conn.execute("INSERT INTO application_packages(user_id,job_id) VALUES (%s,'lever:x:3')",(user,))
+        identity().migrate_identity_batch(conn)
+        conn.commit()
+        # Staged compatibility: unmigrated legacy callers may delete pre-cutover
+        # unprotected Jobs. Later gate/cutover must prohibit these identity deletes.
+>       conn.execute("DELETE FROM jobs WHERE id='lever:x:4'")
+
+tests/test_lifecycle_identity.py:212:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=32840 user=postgres database=poller_lifecycle_test) at 0x7f2a5d362c00>
+query = "DELETE FROM jobs WHERE id='lever:x:4'", params = None, prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.ForeignKeyViolation: update or delete on table "jobs" violates foreign key constraint "source_listings_job_id_fkey" on table "source_listings"
+E           DETAIL:  Key (id)=(lever:x:4) is still referenced from table "source_listings".
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: ForeignKeyViolation
+_ test_mapping_defaults_to_500_and_maps_empty_boards_without_invented_evidence _
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=32840 user=postgres database=poller_lifecycle_test) at 0x7f2a5d363620>
+
+    @requires_db
+    def test_mapping_defaults_to_500_and_maps_empty_boards_without_invented_evidence(conn):
+        seed(conn,501)
+        conn.execute("INSERT INTO companies(name,ats,token,active) VALUES ('Empty','ashby','empty',false)")
+        assert identity().migrate_identity_batch(conn) == 500
+        assert conn.execute('SELECT count(*) n FROM source_listings').fetchone()['n'] == 500
+        conn.commit()
+        assert identity().migrate_identity_batch(conn) == 1
+        conn.commit()
+        assert identity().migrate_identity_batch(conn) == 1  # Remaining empty board.
+        assert identity().migrate_identity_batch(conn) == 0
+>       assert conn.execute('SELECT count(*) n FROM company_sources').fetchone()['n'] == 2
+E       assert 0 == 2
+
+tests/test_lifecycle_identity.py:233: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_identity.py::test_mapped_flag_off_legacy_prune_and_direct_delete_preserve_protected_rows
+FAILED tests/test_lifecycle_identity.py::test_mapping_defaults_to_500_and_maps_empty_boards_without_invented_evidence
+2 failed, 12 passed in 4.68s

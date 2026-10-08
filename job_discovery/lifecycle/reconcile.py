@@ -174,14 +174,18 @@ def commit_sightings(conn, enumeration: EnumerationRef, observations: list[Obser
             _positive(conn, enumeration, listing, o.kind, o.observed_at)
 
 
-def stage_postings(conn, enum, postings):
-    """Retain IDs and tiny evidence only; no unused detail/raw payload persistence."""
+def stage_postings(conn, enum, postings, *, admission_allowed=True):
+    """Retain IDs/evidence even when the caller must defer metadata admission.
+
+    A failed maintenance decision must not create Jobs, listings or versions;
+    exact membership and existing-listing observations remain permitted.
+    """
     if len(postings) > ADMISSION_CHUNK_SIZE:
         raise ValueError('posting checkpoint too large')
     from .identity import admit_metadata
     ids = [p.external_id for p in postings]
     admitted = 0
-    if postings:
+    if postings and admission_allowed:
         reservation = reserve_capacity(conn, enum.claim, 65536 * len(postings))
         if reservation is None:
             raise StorageBlocked('metadata admission capacity unavailable')
@@ -292,7 +296,7 @@ def _reconcile_chunk(conn, enumeration: EnumerationRef, limit: int = 500) -> tup
     return done, closed
 
 
-def verify_due_sources(conn, *, max_boards=100, seconds=300):
+def verify_due_sources(conn, *, max_boards=100, seconds=300, admission_allowed=True):
     """Scheduled verification precedes admission and ignores all user matching."""
     from job_discovery.adapters import ADAPTERS
     from job_discovery.adapters.completeness import source_budget
@@ -344,7 +348,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
                             break
                         chunk.append(posting)
                         if len(chunk) >= ADMISSION_CHUNK_SIZE or monotonic()-renewed >= 20:
-                            admitted = stage_postings(conn,enum,chunk)
+                            admitted = stage_postings(conn,enum,chunk,admission_allowed=admission_allowed)
                             conn.commit()
                             result['new_jobs'] += admitted
                             chunk = []
@@ -371,7 +375,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
         storage_deferred = False
         try:
             if chunk:
-                admitted = stage_postings(conn,enum,chunk)
+                admitted = stage_postings(conn,enum,chunk,admission_allowed=admission_allowed)
                 conn.commit()
                 result['new_jobs'] += admitted
             complete_enumeration(conn,enum,verdict)

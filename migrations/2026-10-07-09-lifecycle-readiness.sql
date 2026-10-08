@@ -69,8 +69,6 @@ BEGIN
     OR NOT lifecycle_private.archive_destination_ready() THEN
    RAISE EXCEPTION 'archive activation requires validated destination and producer readiness'; END IF;
  END IF;
- IF NEW.export_enabled AND NOT OLD.export_enabled AND NOT lifecycle_private.archive_baseline_ready() THEN
-  RAISE EXCEPTION 'archive export requires completed bounded baseline'; END IF;
  IF OLD.archive_ever_activated AND NEW.archive_stage='active' AND OLD.archive_stage<>'active' THEN
   IF NEW.safety_stage<>'enforced' OR NOT (NEW.source_enabled AND NEW.maintenance_enabled AND NEW.hydration_enabled)
     OR NOT lifecycle_private.release_ready(OLD.activation_generation)

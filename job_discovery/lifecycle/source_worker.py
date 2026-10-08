@@ -28,8 +28,11 @@ def run_source_once(dsn=None):
             return None
         # Same bounded prerequisite as daily admission; verification can still
         # use the accepted operational lane when ordinary storage is deferred.
-        pre_admission_maintenance(dsn)
-        return verify_due_sources(conn, max_boards=MAX_BOARDS, seconds=TURN_SECONDS)
+        maintenance = pre_admission_maintenance(dsn)
+        return verify_due_sources(
+            conn, max_boards=MAX_BOARDS, seconds=TURN_SECONDS,
+            admission_allowed=not maintenance.blocked,
+        )
     finally:
         conn.close()
 

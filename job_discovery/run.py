@@ -168,15 +168,16 @@ def run(dsn: str | None = None) -> dict:
         source_enabled = read_control(conn).source_enabled
         conn.commit()
         if source_enabled:
-            try:
-                db.sync_source_accounts(conn)
-                conn.commit()
-            except StorageBlocked:
-                conn.rollback()
-                log.warning(
-                    "source catalog storage blocked; verifying registered corpus"
-                )
-            counts = verify_due_sources(conn)
+            if not over:
+                try:
+                    db.sync_source_accounts(conn)
+                    conn.commit()
+                except StorageBlocked:
+                    conn.rollback()
+                    log.warning(
+                        "source catalog storage blocked; verifying registered corpus"
+                    )
+            counts = verify_due_sources(conn, admission_allowed=not over)
             counts["seed_storage_deferred"] = seed_deferred
             counts["seed_targets_committed"] = seed_committed
             counts["storage_deferred"] = counts.get("storage_deferred", 0) + int(

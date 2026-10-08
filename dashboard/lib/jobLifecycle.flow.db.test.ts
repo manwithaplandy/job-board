@@ -7,6 +7,8 @@ import {beforeAll,afterAll,expect,test} from "vitest";
 import {requestJobPayload,consumeJobVersion} from "./jobLifecycle";
 
 const dsn=process.env.TEST_DATABASE_URL;
+const python=process.env.LIFECYCLE_TEST_PYTHON;
+if(!python) throw new Error("Owned acceptance runner Python required");
 if(!dsn || process.env.LIFECYCLE_REQUIRE_DB_TESTS!=="1") throw new Error("Owned harness required");
 const address=new URL(dsn);
 if(address.hostname!=="127.0.0.1" || !address.port || address.port==="55432" || address.pathname!=="/poller_lifecycle_test") throw new Error("Unsafe test target");
@@ -174,7 +176,7 @@ test("instruction-only and application marker rows acquire their genuine first i
   expect(pending.status).toBe("pending");
   // Execute the actual Python service worker against this same owned database.
   // Only its public fetch boundary is replaced, with an outside-TX assertion.
-  execFileSync(resolve(process.cwd(),"../.venv/bin/python"), ["-c", `
+  execFileSync(python, ["-c", `
 import os, psycopg
 from psycopg.rows import dict_row
 from job_discovery.lifecycle import demand

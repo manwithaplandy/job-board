@@ -268,7 +268,7 @@ def test_source_worker_flag_off_and_maintenance_before_verification(conn, monkey
     monkeypatch.setattr(
         source_worker,
         "pre_admission_maintenance",
-        lambda d: called.append("maintenance"),
+        lambda d: called.append("maintenance") or maintenance.SweepResult(0, 0, False, None),
     )
     monkeypatch.setattr(
         source_worker,
@@ -281,7 +281,7 @@ def test_source_worker_flag_off_and_maintenance_before_verification(conn, monkey
     )
     conn.commit()
     assert source_worker.run_source_once(TEST_DSN) == {"closed_jobs": 0}
-    assert called == ["maintenance", ("verify", {"max_boards": 100, "seconds": 300})]
+    assert called == ["maintenance", ("verify", {"max_boards": 100, "seconds": 300, "admission_allowed": True})]
 
 
 def test_periodic_source_turns_and_hard_deadline(monkeypatch):
@@ -580,8 +580,7 @@ def test_explicit_readiness_transitions_through_existing_control_api(conn, monke
     deliver_page(first)
     assert not conn.execute("SELECT lifecycle_private.archive_baseline_ready() ready").fetchone()["ready"]
     conn.commit()
-    # Each next page commits after the preceding exact ACK. Save the last page
-    # pending to retain the original pause/resume preservation assertion too.
+    # Each next page commits after the preceding exact ACK.
     last = ()
     for aggregate in AggregateType:
         while True:

@@ -79,7 +79,9 @@
     "tests/test_company_schema.py::test_company_discovery_schema",
     "tests/test_locations_schema.py::test_locations_table_shape",
     "tests/test_locations_schema.py::test_locations_source_check",
-    "tests/test_locations_schema.py::test_jobs_location_canonicals_column"
+    "tests/test_locations_schema.py::test_jobs_location_canonicals_column",
+    "tests/test_lifecycle_final_fix1.py",
+    "tests/test_lifecycle_maintenance.py::test_only_safely_archived_unreferenced_superseded_versions_retire"
   ],
   "dashboard_owned": [
     "lib/jobLifecycle.flow.db.test.ts",

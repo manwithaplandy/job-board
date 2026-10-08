@@ -265,7 +265,7 @@ test.each([true,false])("applied status preserves existing known=%s résumé wit
   await sql`INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,resume_json)
     VALUES(${owner},${actualJob},${known?version:null},${known?"Saved JD":null},'{"retained":"resume"}')`;
   const before=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${actualJob}`)[0];
-  const {markApplicationApplied}=await import("@/app/actions/applications");
+  const {markApplicationApplied,unmarkApplicationApplied}=await import("@/app/actions/applications");
   await sql.begin(async tx=>{
     await tx`ALTER TABLE lifecycle_control DISABLE TRIGGER lifecycle_control_history`;
     await tx`UPDATE lifecycle_control SET safety_stage='enforced',activation_generation=activation_generation+1`;
@@ -277,6 +277,13 @@ test.each([true,false])("applied status preserves existing known=%s résumé wit
   expect(after.status).toBe("applied");
   for(const key of ['resume_json','cover_letter_json','prefilled_answers','job_version_id','description_snapshot','questions_snapshot','snapshot_captured_at']) expect(after[key]).toEqual(before[key]);
   expect(await sql`SELECT 1 FROM job_payload_demands WHERE user_id=${owner} AND job_id=${actualJob}`).toHaveLength(0);
+  await markApplicationApplied(actualJob);
+  expect((await sql`SELECT applied_at FROM application_packages WHERE user_id=${owner} AND job_id=${actualJob}`)[0].applied_at).toEqual(after.applied_at);
+  await unmarkApplicationApplied(actualJob);
+  const undone=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${actualJob}`)[0];
+  expect(undone.status).toBe("prepared");
+  expect(undone.applied_at).toBeNull();
+  for(const key of ["resume_json","job_version_id","description_snapshot","questions_snapshot"]) expect(undone[key]).toEqual(before[key]);
   } finally {
     await sql.begin(async tx=>{
       await tx`ALTER TABLE lifecycle_control DISABLE TRIGGER lifecycle_control_history`;

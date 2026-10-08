@@ -1,0 +1,53 @@
+{
+  "source_sha": "ce256702f85b5e42fecb99002d7c2f36f009e405",
+  "actual_base": "41c9d179d4d273d707a994467ce9c8031df50a91",
+  "upstream_readonly": "a8c4b82d95b35c0259600c19c1506faae807c3fc",
+  "cwd": "/workspace/job-board/.claude/worktrees/lifecycle-recovery",
+  "python_lane": [
+    ".venv/bin/python",
+    "tools/lifecycle_test_db.py",
+    "--postgres-major",
+    "17|16",
+    "--",
+    ".venv/bin/python",
+    "tools/run_lifecycle_acceptance.py"
+  ],
+  "owned_dashboard_lane": [
+    ".venv/bin/python",
+    "tools/lifecycle_test_db.py",
+    "--postgres-major",
+    "17|16",
+    "--",
+    ".venv/bin/python",
+    "tools/run_lifecycle_acceptance.py",
+    "dashboard"
+  ],
+  "browser": [
+    "node",
+    ".superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-evidence/browser/run.cjs"
+  ],
+  "checks": [
+    ".venv/bin/ruff check .",
+    "git diff --check",
+    "npm test -- --maxWorkers=2",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "npm run build -- --webpack"
+  ],
+  "environment": {
+    "dashboard": "clean PATH/HOME/LANG/USER/TMPDIR; DATABASE_URL=postgresql://test:test@127.0.0.1:1/test; NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:1; NEXT_PUBLIC_SUPABASE_ANON_KEY=test; OPENAI_API_KEY=test-disabled; NEXT_TELEMETRY_DISABLED=1",
+    "offline_build": "NEXT_FONT_GOOGLE_MOCKED_RESPONSES=<evidence>/font-mock.cjs; system DejaVu stand-in",
+    "database": "owned harness strips ambient targets/secrets and generates per-invocation random loopback target; generated passwords never copied"
+  },
+  "notes": [
+    "Exact per-phase orchestration copied under commands/; paths refer to original execution workspace.",
+    "Development phase: owned17 pytest tests/test_lifecycle_end_to_end.py tests/test_lifecycle_supervisor.py -q -s; subsequent fix phases first five E2E tests.",
+    "Narrow readiness phase: owned17 new explicit_readiness_transitions, operational_fallback_reports_committed_closures_without_replay and existing clean_schema_matches_frozen_baseline_plus_all_new_migrations -q -s.",
+    "Catalog diagnostic: owned17 existing_recorded_migrations_reapply_without_catalog_or_ledger_drift -vv; full output retained.",
+    "Restart diagnostics: owned17 exact existing restart node[after_complete] and node[deadline] -vv -o faulthandler_timeout=15 --full-trace, each separate harness.",
+    "Full selected diagnostic repeats same381 nodes with -vv -ra -o faulthandler_timeout=20 --full-trace; does not select additional tests.",
+    "Final current helper full selection uses copied task13_housekeeping_both.py and task13_observed_selected.py: same381 nodes + read-only owned wait/reset-file observations; no timeout/selection changes."
+  ],
+  "product_checkpoint": "2858d42b3171964cc3363bf9e09ae0ddb6babf2d"
+}

@@ -1,0 +1,12 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0 -- /workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/job-board/.claude/worktrees/lifecycle-recovery
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collecting ... collected 1 item
+
+tests/test_lifecycle_reconcile.py::test_fix1_entrypoint_resumes_complete_membership_tail_after_worker_restart[after_complete] PASSED [100%]
+
+============================== 1 passed in 6.29s ===============================

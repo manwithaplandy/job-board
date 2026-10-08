@@ -1,0 +1,24 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ✓ lib/jobLifecycle.flow.db.test.ts (7 tests) 2162ms
+   ✓ package persistence copies pinned input and records consumption with the artifact  341ms
+   ✓ instruction-only and application marker rows acquire their genuine first input and output  865ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  00:00:11
+   Duration  2.68s (transform 344ms, setup 0ms, import 207ms, tests 2.16s, environment 0ms)
+
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ✓ lib/jobLifecycleConsumers.db.test.ts (6 tests) 1181ms
+   ✓ actual server paging DTO keeps private history independent of discovery location preferences  403ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  00:00:15
+   Duration  1.73s (transform 387ms, setup 0ms, import 221ms, tests 1.18s, environment 0ms)
+

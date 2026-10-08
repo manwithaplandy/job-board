@@ -1,0 +1,35 @@
+
+> job-board-dashboard@0.1.0 test
+> NODE_OPTIONS=--no-experimental-webstorage vitest run app/api/stripe/webhook/route.test.ts app/api/stripe/webhookDedupe.test.ts components/billing/BillingPlanCard.test.tsx
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard[39m
+
+ [32m✓[39m app/api/stripe/webhook/route.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 99[2mms[22m[39m
+[90mstderr[2m | app/api/stripe/webhookDedupe.test.ts[2m > [22m[2mcancelOtherActiveSubscriptions[2m > [22m[2mcancels every active subscription except the one to keep
+[22m[39mstripe webhook: canceled duplicate subscription sub_dup1 for customer cus_1
+
+[90mstderr[2m | app/api/stripe/webhookDedupe.test.ts[2m > [22m[2mcancelOtherActiveSubscriptions[2m > [22m[2mcancels every active subscription except the one to keep
+[22m[39mstripe webhook: canceled duplicate subscription sub_dup2 for customer cus_1
+
+[90mstderr[2m | app/api/stripe/webhookDedupe.test.ts[2m > [22m[2mcancelOtherActiveSubscriptions[2m > [22m[2ma list failure is swallowed (best-effort, never throws)
+[22m[39mstripe webhook: could not list subscriptions to dedupe cus_1 Error: stripe down
+    at Object.list [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/stripe/webhookDedupe.test.ts:68:17[90m)[39m
+    at cancelOtherActiveSubscriptions [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/billingSubscriptionDedupe.ts:16:39[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/stripe/webhookDedupe.test.ts:74:18
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+
+ [32m✓[39m app/api/stripe/webhookDedupe.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m components/billing/BillingPlanCard.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 188[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m23 passed[39m[22m[90m (23)[39m
+[2m   Start at [22m 00:06:41
+[2m   Duration [22m 2.36s[2m (transform 329ms, setup 0ms, import 521ms, tests 302ms, environment 1.11s)[22m
+

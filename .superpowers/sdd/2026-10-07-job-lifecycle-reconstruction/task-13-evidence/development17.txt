@@ -1,0 +1,145 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+F..FTASK13_RUNTIME {"seconds": 0.935, "aggregate_rss_peak_bytes": 120651776, "sampled_cpu_seconds": 1.88, "database_sessions_peak_including_observer": 3, "scope": "four actual processes; real maintenance and fake-S3 export turn; stalled reviewer; source disabled"}
+..............2026-10-07 23:50:10,533 INFO reviewer.worker review worker started (parallelism=1, poll=15s, stale=30min)
+2026-10-07 23:50:10,534 INFO reviewer.worker review loop 0 started (poll=15s, stale=30min)
+2026-10-07 23:50:10,543 INFO reviewer.worker shutdown signal received; draining in-flight work for at most 30 seconds
+2026-10-07 23:50:11,535 WARNING reviewer.worker review drain deadline reached; process exiting with unfinished work
+2026-10-07 23:50:11,535 INFO reviewer.worker review worker stopped
+.2026-10-07 23:50:11,887 INFO reviewer.worker review worker started (parallelism=3, poll=15s, stale=30min)
+2026-10-07 23:50:11,888 INFO reviewer.worker review loop 0 started (poll=15s, stale=30min)
+2026-10-07 23:50:11,888 INFO reviewer.worker review loop 1 started (poll=15s, stale=30min)
+2026-10-07 23:50:11,888 INFO reviewer.worker review loop 2 started (poll=15s, stale=30min)
+2026-10-07 23:50:11,896 INFO reviewer.worker shutdown signal received; draining in-flight work for at most 30 seconds
+2026-10-07 23:50:12,889 WARNING reviewer.worker review drain deadline reached; process exiting with unfinished work
+2026-10-07 23:50:12,889 INFO reviewer.worker review worker stopped
+......
+=================================== FAILURES ===================================
+___ test_six_family_identity_demand_retirement_and_exact_archive_composition ___
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33097 user=postgres database=poller_lifecycle_test) at 0x7f7acb707680>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7acb706990>
+
+    @requires_db
+    def test_six_family_identity_demand_retirement_and_exact_archive_composition(
+        conn, monkeypatch
+    ):
+        started = time.monotonic()
+        for family in FAMILIES:
+            setup_source(
+                conn,
+                2,
+                family,
+                "fixture:wd5:External" if family == "workday" else "fixture",
+            )
+        owner = uuid4()
+        conn.execute(
+            "UPDATE jobs SET description='Public cached JD',description_captured_at=clock_timestamp()-interval '31 days'"
+        )
+        conn.execute(
+            """INSERT INTO application_packages(user_id,job_id,description_snapshot,resume_json)
+            SELECT %s,id,'Saved private JD','{"name":"Fixture"}' FROM jobs WHERE external_id='0'""",
+            (owner,),
+        )
+        conn.commit()
+        identities = conn.execute(
+            "SELECT id,job_id,discovery_anchor_at FROM source_listings ORDER BY id"
+        ).fetchall()
+        private = conn.execute(
+            "SELECT * FROM application_packages ORDER BY job_id"
+        ).fetchall()
+        members = ["0", "1"]
+        feeds(monkeypatch, conn, members)
+        first = reconcile.verify_due_sources(conn, max_boards=6)
+        assert first["ok"] == 6 and first["closed_jobs"] == 0
+        members[:] = ["0"]
+        due(conn)
+        assert reconcile.verify_due_sources(conn, max_boards=6)["closed_jobs"] == 0
+        # Ordinary source evidence fixture represents the first complete miss 25h ago;
+        # no claim/lease/guard time overrides or expiry-enforcement probes.
+        conn.execute(
+            "UPDATE source_listings SET first_complete_miss_at=clock_timestamp()-interval '25 hours' WHERE external_id='1'"
+        )
+        due(conn)
+        second = reconcile.verify_due_sources(conn, max_boards=6)
+        assert second["closed_jobs"] == 6
+        assert (
+            conn.execute(
+                "SELECT count(*) n FROM jobs WHERE closed_at IS NOT NULL"
+            ).fetchone()["n"]
+            == 6
+        )
+        due(conn)
+        assert reconcile.verify_due_sources(conn, max_boards=6)["closed_jobs"] == 0
+        job = conn.execute(
+            "SELECT id FROM jobs WHERE external_id='1' ORDER BY id LIMIT 1"
+        ).fetchone()["id"]
+        demand = request_demand(conn, job, str(owner), "description")
+        conn.commit()
+    
+        def fetch(_):
+            assert conn.info.transaction_status.name == "IDLE"
+            return {"description": "Actual demanded input"}
+    
+>       assert hydrate_demand(conn, demand, fetch) == "ready"
+E       AssertionError: assert 'deferred' == 'ready'
+E         
+E         - ready
+E         + deferred
+
+tests/test_lifecycle_end_to_end.py:154: AssertionError
+_ test_superseded_shell_seven_day_cleanup_preserves_pending_and_authorization __
+
+conn = <psycopg.Connection [INERROR] (host=127.0.0.1 port=33097 user=postgres database=poller_lifecycle_test) at 0x7f7acb743d70>
+
+    @requires_db
+    def test_superseded_shell_seven_day_cleanup_preserves_pending_and_authorization(conn):
+        batch, _ = setup_batch(conn)
+        set_archive_clock(conn, batch.eligible_until + timedelta(seconds=1))
+        authorization = uuid4()
+>       conn.execute(
+            """INSERT INTO public_archive_recovery_authorizations(authorization_id,batch_id,event_ids_sha256,manifest_hash,approved_by,reason,expires_at)
+          SELECT %s,batch_id,event_ids_sha256,manifest_hash,'fixture','offline cleanup',clock_timestamp()+interval '1 hour'
+          FROM public_archive_batches WHERE batch_id=%s""",
+            (authorization, batch.batch_id),
+        )
+
+tests/test_lifecycle_end_to_end.py:306: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [INERROR] (host=127.0.0.1 port=33097 user=postgres database=poller_lifecycle_test) at 0x7f7acb743d70>
+query = "INSERT INTO public_archive_recovery_authorizations(authorization_id,batch_id,event_ids_sha256,manifest_hash,approved_...h,'fixture','offline cleanup',clock_timestamp()+interval '1 hour'\n      FROM public_archive_batches WHERE batch_id=%s"
+params = (UUID('612ac7ca-70b6-4503-ba35-2244b259dc6b'), UUID('8471b219-a7d5-449e-aae3-8845997f6c2a'))
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.NotNullViolation: null value in column "event_ids_sha256" of relation "public_archive_recovery_authorizations" violates not-null constraint
+E           DETAIL:  Failing row contains (612ac7ca-70b6-4503-ba35-2244b259dc6b, 8471b219-a7d5-449e-aae3-8845997f6c2a, null, null, fixture, offline cleanup, 2026-10-07 23:50:05.290706+00, 2026-10-08 00:50:05.290705+00, null, null).
+
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: NotNullViolation
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_end_to_end.py::test_six_family_identity_demand_retirement_and_exact_archive_composition
+FAILED tests/test_lifecycle_end_to_end.py::test_superseded_shell_seven_day_cleanup_preserves_pending_and_authorization
+2 failed, 23 passed in 16.48s

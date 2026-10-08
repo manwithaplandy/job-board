@@ -1,0 +1,997 @@
+
+> job-board-dashboard@0.1.0 test
+> NODE_OPTIONS=--no-experimental-webstorage vitest run --maxWorkers=2
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard[39m
+
+ [32m✓[39m app/actions/tombstoneGuard.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m lib/rolefit/coverLetterClient.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 2070[2mms[22m[39m
+     [33m[2m✓[22m[39m throws on non-ok response [33m 2006[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumeClient.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 2040[2mms[22m[39m
+     [33m[2m✓[22m[39m throws on non-ok response [33m 2005[2mms[22m[39m
+Not implemented: Window's scrollTo() method
+ [32m✓[39m lib/rolefit/prefillClient.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 2020[2mms[22m[39m
+     [33m[2m✓[22m[39m throws on non-ok response [33m 2007[2mms[22m[39m
+ [32m✓[39m components/rolefit/RolefitBoard.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 4603[2mms[22m[39m
+     [33m[2m✓[22m[39m 429 allowance_exhausted → monthly-limit message + Upgrade-to-Pro link; panes revert, no error state [33m 1081[2mms[22m[39m
+     [33m[2m✓[22m[39m 402 subscription_required → subscribe invitation with a See-plans link to /billing [33m 336[2mms[22m[39m
+   [33m[2m✓[22m[39m current posting is visible separately from saved review JD and saved package answers [33m 302[2mms[22m[39m
+   [33m[2m✓[22m[39m selected history page contains only its 500 server rows, including the applied view [33m 1103[2mms[22m[39m
+   [33m[2m✓[22m[39m newly saved application refreshes the selected bounded history page without merging discovery [32m 300[2mms[22m[39m
+ [32m✓[39m app/profile/profileRoutes.test.tsx [2m([22m[2m33 tests[22m[2m)[22m[33m 955[2mms[22m[39m
+ [32m✓[39m components/profile/ResumeSettingsForm.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 905[2mms[22m[39m
+     [33m[2m✓[22m[39m summarizes the canonical reviewed text and keeps the editor collapsed [33m 373[2mms[22m[39m
+ [32m✓[39m components/shell/ProfileSectionNav.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 335[2mms[22m[39m
+     [33m[2m✓[22m[39m has desktop links and exactly one compact mobile section selector [33m 307[2mms[22m[39m
+ [32m✓[39m components/profile/SettingsPrimitives.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 1169[2mms[22m[39m
+     [33m[2m✓[22m[39m is pristine initially, becomes dirty from input, and has no serious accessibility violations [33m 587[2mms[22m[39m
+ [32m✓[39m app/AuthEntryRoutes.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 381[2mms[22m[39m
+ [32m✓[39m components/shell/AppHeader.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 1098[2mms[22m[39m
+ [32m✓[39m components/rolefit/AccountMenu.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 1707[2mms[22m[39m
+     [33m[2m✓[22m[39m is a closed menu-button showing the email initial with the email as accessible name [33m 329[2mms[22m[39m
+ [32m✓[39m components/rolefit/FilterBar.collapse.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 879[2mms[22m[39m
+     [33m[2m✓[22m[39m renders collapsed by default: toggle aria-expanded=false, no data-filters-open [33m 329[2mms[22m[39m
+ [32m✓[39m components/rolefit/VisualBoardState.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 528[2mms[22m[39m
+     [33m[2m✓[22m[39m generation story renders the production busy state and cancellation action [33m 526[2mms[22m[39m
+ [32m✓[39m app/ui-contract.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 941[2mms[22m[39m
+     [33m[2m✓[22m[39m production UI satisfies every source contract [33m 813[2mms[22m[39m
+ [32m✓[39m components/rolefit/ProfileModal.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 705[2mms[22m[39m
+ [32m✓[39m components/rolefit/JobDetail.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1329[2mms[22m[39m
+     [33m[2m✓[22m[39m box matches the generated-with instructions → "Applied", Save disabled (not dirty) [33m 587[2mms[22m[39m
+ [32m✓[39m components/admin/ClassificationLauncher.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 543[2mms[22m[39m
+     [33m[2m✓[22m[39m renders a dollar estimate that moves when SERP is toggled and the cap changes [33m 333[2mms[22m[39m
+ [32m✓[39m components/rolefit/ApplicationPanel.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 751[2mms[22m[39m
+     [33m[2m✓[22m[39m Apply link leads with accent styling even before Prepare runs [33m 352[2mms[22m[39m
+ [32m✓[39m components/ModelPicker.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 379[2mms[22m[39m
+ [32m✓[39m components/profile/ApplicationDetailsForm.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 363[2mms[22m[39m
+     [33m[2m✓[22m[39m renders current application fields in semantic sections [33m 361[2mms[22m[39m
+ [32m✓[39m components/profile/JobPreferencesForm.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 565[2mms[22m[39m
+ [32m✓[39m components/rolefit/Header.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 465[2mms[22m[39m
+ [32m✓[39m components/rolefit/RolefitBoard.rejectAffordance.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 613[2mms[22m[39m
+     [33m[2m✓[22m[39m authed board offers a per-card Reject control in the all view [33m 459[2mms[22m[39m
+ [32m✓[39m app/ui-gallery/page.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 405[2mms[22m[39m
+   [33m[2m✓[22m[39m renders every Phase 1 primitive in an independently reviewable gallery [33m 404[2mms[22m[39m
+ [32m✓[39m components/rolefit/RolefitBoard.liveMatches.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 308[2mms[22m[39m
+ [32m✓[39m components/rolefit/ReviewNowPanel.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 408[2mms[22m[39m
+ [32m✓[39m components/profile/CompanyFiltersForm.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 513[2mms[22m[39m
+ [32m✓[39m components/LocationPicker.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 553[2mms[22m[39m
+     [33m[2m✓[22m[39m stays expanded and announces an empty result set [33m 315[2mms[22m[39m
+ [32m✓[39m components/rolefit/GenerationInstructions.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 419[2mms[22m[39m
+ [32m✓[39m components/rolefit/ApplicationPanel.edited.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 479[2mms[22m[39m
+     [33m[2m✓[22m[39m expander seeds from the persisted value and propagates edits [33m 303[2mms[22m[39m
+ [32m✓[39m components/admin/AdminNav.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 231[2mms[22m[39m
+ [32m✓[39m components/ui/Button.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 348[2mms[22m[39m
+     [33m[2m✓[22m[39m exposes the complete canonical variant and size vocabulary without inline presentation [33m 319[2mms[22m[39m
+ [32m✓[39m components/admin/PlanOverrideControl.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 354[2mms[22m[39m
+ [32m✓[39m components/analytics/SecondarySurfaceFixes.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 426[2mms[22m[39m
+ [32m✓[39m components/profile/ProfileDesignSystem.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 343[2mms[22m[39m
+ [32m✓[39m components/rolefit/InviteModal.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 693[2mms[22m[39m
+ [32m✓[39m components/admin/InviteGenerator.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 590[2mms[22m[39m
+     [33m[2m✓[22m[39m renders note / max-uses / expires fields and a submit control; custom code starts collapsed [33m 363[2mms[22m[39m
+ [32m✓[39m components/ui/FormControls.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 284[2mms[22m[39m
+ [32m✓[39m components/rolefit/JobCard.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 396[2mms[22m[39m
+ [32m✓[39m app/error.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 261[2mms[22m[39m
+ [32m✓[39m components/profile/AccountSettings.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 328[2mms[22m[39m
+ [32m✓[39m components/rolefit/UpsellNotice.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 201[2mms[22m[39m
+ [32m✓[39m components/profile/ProfileHub.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 309[2mms[22m[39m
+ [32m✓[39m components/profile/SectionFormShell.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 267[2mms[22m[39m
+ [32m✓[39m components/theme/AppearanceToggle.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 366[2mms[22m[39m
+ [32m✓[39m components/rolefit/CoverLetterEditor.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 307[2mms[22m[39m
+ [32m✓[39m components/analytics/AnalyticsSystemStates.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 270[2mms[22m[39m
+ [32m✓[39m components/OnboardingForm.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 278[2mms[22m[39m
+ [32m✓[39m components/feedback/FeedbackForm.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 295[2mms[22m[39m
+ [32m✓[39m components/ui/Action.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 260[2mms[22m[39m
+[90mstderr[2m | app/admin/AdminEmptyStates.test.tsx[2m > [22m[2mAdmin first-run empty states[2m > [22m[2mrenders invites through compact shared EmptyState
+[22m[39mappSettings: failed to load app_settings; using compiled defaults AggregateError: 
+[90m    at internalConnectMultiple (node:net:1339:18)[39m
+[90m    at afterConnectMultiple (node:net:1942:7)[39m {
+  code: [32m'ECONNREFUSED'[39m,
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+    [90m    at createConnectionError (node:net:1905:14)[39m
+    [90m    at afterConnectMultiple (node:net:1935:16)[39m {
+      errno: [33m-111[39m,
+      code: [32m'ECONNREFUSED'[39m,
+      syscall: [32m'connect'[39m,
+      address: [32m'::1'[39m,
+      port: [33m5432[39m
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+    [90m    at createConnectionError (node:net:1905:14)[39m
+    [90m    at afterConnectMultiple (node:net:1935:16)[39m {
+      errno: [33m-111[39m,
+      code: [32m'ECONNREFUSED'[39m,
+      syscall: [32m'connect'[39m,
+      address: [32m'127.0.0.1'[39m,
+      port: [33m5432[39m
+    }
+  ]
+}
+
+[90mstderr[2m | app/admin/AdminEmptyStates.test.tsx[2m > [22m[2mAdmin first-run empty states[2m > [22m[2mrenders tenants through compact shared EmptyState
+[22m[39mappSettings: failed to load app_settings; using compiled defaults AggregateError: 
+[90m    at internalConnectMultiple (node:net:1339:18)[39m
+[90m    at afterConnectMultiple (node:net:1942:7)[39m {
+  code: [32m'ECONNREFUSED'[39m,
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+    [90m    at createConnectionError (node:net:1905:14)[39m
+    [90m    at afterConnectMultiple (node:net:1935:16)[39m {
+      errno: [33m-111[39m,
+      code: [32m'ECONNREFUSED'[39m,
+      syscall: [32m'connect'[39m,
+      address: [32m'::1'[39m,
+      port: [33m5432[39m
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+    [90m    at createConnectionError (node:net:1905:14)[39m
+    [90m    at afterConnectMultiple (node:net:1935:16)[39m {
+      errno: [33m-111[39m,
+      code: [32m'ECONNREFUSED'[39m,
+      syscall: [32m'connect'[39m,
+      address: [32m'127.0.0.1'[39m,
+      port: [33m5432[39m
+    }
+  ]
+}
+
+ [32m✓[39m app/admin/AdminEmptyStates.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 258[2mms[22m[39m
+ [32m✓[39m tests/visual/deployment-workflow-contract.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 183[2mms[22m[39m
+ [32m✓[39m lib/rolefit/fileToResumeMarkdown.test.ts [2m([22m[2m4 tests[22m[2m | [22m[33m1 skipped[39m[2m)[22m[32m 131[2mms[22m[39m
+ [32m✓[39m components/billing/BillingPlanCard.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 258[2mms[22m[39m
+ [32m✓[39m components/account/DangerZone.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 299[2mms[22m[39m
+ [32m✓[39m components/ui/SystemStates.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 247[2mms[22m[39m
+ [32m✓[39m components/ui/Navigation.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 271[2mms[22m[39m
+ [32m✓[39m app/companies/CompaniesEmptyState.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 310[2mms[22m[39m
+ [32m✓[39m lib/profileResume.action.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 101[2mms[22m[39m
+ [32m✓[39m components/shell/AppShell.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 183[2mms[22m[39m
+ [32m✓[39m components/profile/AdvancedAiForm.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 201[2mms[22m[39m
+ [32m✓[39m components/ui/AccessibilityResponsive.contract.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 246[2mms[22m[39m
+ [32m✓[39m components/rolefit/PayRangeSlider.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[32m 170[2mms[22m[39m
+ [32m✓[39m components/profile/ApplicationPersonalizationForm.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 94[2mms[22m[39m
+ [32m✓[39m components/generation/GenerationToastProvider.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[32m 181[2mms[22m[39m
+ [32m✓[39m app/api/application/prepare/route.test.ts [2m([22m[2m32 tests[22m[2m)[22m[32m 142[2mms[22m[39m
+ [32m✓[39m components/admin/ClassificationJobsPanel.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 160[2mms[22m[39m
+ [32m✓[39m components/rolefit/DetailErrorBoundary.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 77[2mms[22m[39m
+ [32m✓[39m components/theme/ThemeProvider.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 164[2mms[22m[39m
+ [32m✓[39m app/api/stripe/webhook/route.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 99[2mms[22m[39m
+ [32m✓[39m components/ReasoningEffortSelect.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 151[2mms[22m[39m
+[90mstderr[2m | app/actions/profileSettings.test.ts[2m > [22m[2mprofile settings actions[2m > [22m[2mreturns failure, never success, when tombstoned during application details save
+[22m[39m[profile.section-save] Error: account has been deleted
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/actions/profileSettings.test.ts:216:33
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2025:60
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+
+[90mstderr[2m | app/actions/profileSettings.test.ts[2m > [22m[2mprofile settings actions[2m > [22m[2mreturns failure, never success, when tombstoned during job preferences save
+[22m[39m[profile.section-save] Error: account has been deleted
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/actions/profileSettings.test.ts:216:33
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2025:60
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+
+[90mstderr[2m | app/actions/profileSettings.test.ts[2m > [22m[2mprofile settings actions[2m > [22m[2mreturns failure, never success, when tombstoned during personalization save
+[22m[39m[profile.section-save] Error: account has been deleted
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/actions/profileSettings.test.ts:216:33
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2025:60
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+
+[90mstderr[2m | app/actions/profileSettings.test.ts[2m > [22m[2mprofile settings actions[2m > [22m[2mreturns failure, never success, when tombstoned during advanced settings save
+[22m[39m[profile.section-save] Error: account has been deleted
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/actions/profileSettings.test.ts:216:33
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2025:60
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+
+[90mstderr[2m | app/actions/profileSettings.test.ts[2m > [22m[2mprofile settings actions[2m > [22m[2mreturns failure, never success, when tombstoned during résumé save
+[22m[39m[profile.section-save] Error: account has been deleted
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/actions/profileSettings.test.ts:216:33
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2025:60
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+
+[90mstderr[2m | app/actions/profileSettings.test.ts[2m > [22m[2mprofile settings actions[2m > [22m[2mchecks deletion before creating a storage client
+[22m[39m[profile.section-save] Error: account has been deleted
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/actions/profileSettings.test.ts:273:46
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2955:64
+
+[90mstderr[2m | app/actions/profileSettings.test.ts[2m > [22m[2mprofile settings actions[2m > [22m[2mremoves a newly uploaded file when the profile update fails
+[22m[39m[profile.section-save] Error: db host secret
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/actions/profileSettings.test.ts:283:48
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2955:64
+
+[90mstderr[2m | app/actions/profileSettings.test.ts[2m > [22m[2mprofile settings actions[2m > [22m[2mreturns a generic safe error from non-upload actions
+[22m[39m[profile.section-save] Error: postgres credentials
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/actions/profileSettings.test.ts:305:54
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2955:64
+
+ [32m✓[39m app/actions/profileSettings.test.ts [2m([22m[2m30 tests[22m[2m)[22m[32m 115[2mms[22m[39m
+[90mstderr[2m | lib/coverLetterEdits.action.test.ts[2m > [22m[2msaveCoverLetterEdit[2m > [22m[2mreturns langfuseSynced=false when the push throws (DB already committed)
+[22m[39mcover-letter-golden dataset upsert failed Error: langfuse down
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/coverLetterEdits.action.test.ts:80:38
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2955:64
+
+ [32m✓[39m lib/coverLetterEdits.action.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 43[2mms[22m[39m
+[90mstderr[2m | app/api/cover-letter/route.test.ts[2m > [22m[2mPOST /api/cover-letter — background failure → refund + user-safe settled error[2m > [22m[2mError("response truncated") → settles failed containing "cut off", refunds the cover slot
+[22m[39mcover letter generation failed {
+  userId: [32m'33333333-3333-3333-3333-333333333333'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-cover-model'[39m,
+  error: [32m'response truncated'[39m
+}
+
+[90mstderr[2m | app/api/cover-letter/route.test.ts[2m > [22m[2mPOST /api/cover-letter — background failure → refund + user-safe settled error[2m > [22m[2mError("429 too many") → settles failed containing "Rate limited", refunds the cover slot
+[22m[39mcover letter generation failed {
+  userId: [32m'33333333-3333-3333-3333-333333333333'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-cover-model'[39m,
+  error: [32m'429 too many'[39m
+}
+
+[90mstderr[2m | app/api/cover-letter/route.test.ts[2m > [22m[2mPOST /api/cover-letter — background failure → refund + user-safe settled error[2m > [22m[2mError("402 no credits") → settles failed containing "Insufficient credits.", refunds the cover slot
+[22m[39mcover letter generation failed {
+  userId: [32m'33333333-3333-3333-3333-333333333333'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-cover-model'[39m,
+  error: [32m'402 no credits'[39m
+}
+
+[90mstderr[2m | app/api/cover-letter/route.test.ts[2m > [22m[2mPOST /api/cover-letter — background failure → refund + user-safe settled error[2m > [22m[2mError("generic boom") → settles failed containing "Generation failed", refunds the cover slot
+[22m[39mcover letter generation failed {
+  userId: [32m'33333333-3333-3333-3333-333333333333'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-cover-model'[39m,
+  error: [32m'generic boom'[39m
+}
+
+ [32m✓[39m app/api/cover-letter/route.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 84[2mms[22m[39m
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — 202 accept + background completion[2m > [22m[2mtracking row failed → 502 and the reservation is refunded (no orphaned charge)
+[22m[39mresume generation tracking failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  error: [32m'db down'[39m
+}
+
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — background failure → refund + user-safe settled error[2m > [22m[2mError("response truncated mid-stream") → settles failed containing "cut off", refunds the résumé slot
+[22m[39mresume generation failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-resume-model'[39m,
+  error: [32m'response truncated mid-stream'[39m
+}
+
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — background failure → refund + user-safe settled error[2m > [22m[2mError("OpenRouter returned non-JSON résumé content") → settles failed containing "cut off", refunds the résumé slot
+[22m[39mresume generation failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-resume-model'[39m,
+  error: [32m'OpenRouter returned non-JSON résumé content'[39m
+}
+
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — background failure → refund + user-safe settled error[2m > [22m[2mError("The operation was aborted due to timeout") → settles failed containing "timed out", refunds the résumé slot
+[22m[39mresume generation failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-resume-model'[39m,
+  error: [32m'The operation was aborted due to timeout'[39m
+}
+
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — background failure → refund + user-safe settled error[2m > [22m[2mError("429 rate limited") → settles failed containing "Rate limited", refunds the résumé slot
+[22m[39mresume generation failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-resume-model'[39m,
+  error: [32m'429 rate limited'[39m
+}
+
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — background failure → refund + user-safe settled error[2m > [22m[2mError("rate limit exceeded") → settles failed containing "Rate limited", refunds the résumé slot
+[22m[39mresume generation failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-resume-model'[39m,
+  error: [32m'rate limit exceeded'[39m
+}
+
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — background failure → refund + user-safe settled error[2m > [22m[2mError("402 payment required") → settles failed containing "Insufficient credits.", refunds the résumé slot
+[22m[39mresume generation failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-resume-model'[39m,
+  error: [32m'402 payment required'[39m
+}
+
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — background failure → refund + user-safe settled error[2m > [22m[2mError("some generic boom") → settles failed containing "Generation failed", refunds the résumé slot
+[22m[39mresume generation failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-resume-model'[39m,
+  error: [32m'some generic boom'[39m
+}
+
+[90mstderr[2m | app/api/resume/route.test.ts[2m > [22m[2mPOST /api/resume — background failure → refund + user-safe settled error[2m > [22m[2mnon-Error throw (string) → generic copy and still refunds
+[22m[39mresume generation failed {
+  userId: [32m'22222222-2222-2222-2222-222222222222'[39m,
+  jobId: [32m'job-1'[39m,
+  model: [32m'default-resume-model'[39m,
+  error: [32m'plain string failure'[39m
+}
+
+ [32m✓[39m lib/rolefit/boardFilters.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m app/api/resume/route.test.ts [2m([22m[2m25 tests[22m[2m)[22m[32m 114[2mms[22m[39m
+ [32m✓[39m app/auth/confirm/route.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 73[2mms[22m[39m
+[90mstderr[2m | app/api/board-filters/route.test.ts[2m > [22m[2mPOST /api/board-filters — total-parser robustness[2m > [22m[2mpersistence failure never blocks filtering → 200 { ok:false }
+[22m[39mboard-filters save failed Error: db down
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/board-filters/route.test.ts:104:46
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2955:64
+
+ [32m✓[39m app/api/board-filters/route.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 106[2mms[22m[39m
+ [32m✓[39m lib/invites.test.ts [2m([22m[2m26 tests[22m[2m)[22m[32m 46[2mms[22m[39m
+ [32m✓[39m lib/rolefit/coverLetterQuestion.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m app/signup/page.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 75[2mms[22m[39m
+ [32m✓[39m lib/db.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+ [32m✓[39m app/api/jobs/[id]/route.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 52[2mms[22m[39m
+ [32m✓[39m app/api/resume/extract/route.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 94[2mms[22m[39m
+ [32m✓[39m app/api/stripe/checkout/route.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 87[2mms[22m[39m
+ [32m✓[39m app/api/stripe/portal/route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 79[2mms[22m[39m
+ [32m✓[39m app/api/review/request/route.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 84[2mms[22m[39m
+ [32m✓[39m app/login/page.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+[90mstderr[2m | lib/inviteEmail.test.ts[2m > [22m[2msendInviteEmail[2m > [22m[2man SES throw → send_failed (caller refunds the invite)
+[22m[39msendInviteEmail failed Error: ses down
+    at SESv2Client.send [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/inviteEmail.test.ts:9:27[90m)[39m
+    at Module.sendInviteEmail [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/inviteEmail.ts:177:23[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/inviteEmail.test.ts:103:21
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+
+ [32m✓[39m lib/inviteEmail.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m app/api/account/export/route.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 52[2mms[22m[39m
+ [32m✓[39m app/actions/signup.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+ [32m✓[39m app/no-raw-hex.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 58[2mms[22m[39m
+ [32m✓[39m app/api/generations/route.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 59[2mms[22m[39m
+ [32m✓[39m lib/jobsReject.action.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m lib/rolefit/parseProfile.test.ts [2m([22m[2m26 tests[22m[2m | [22m[33m1 skipped[39m[2m)[22m[32m 24[2mms[22m[39m
+[90mstderr[2m | lib/subscriptions.test.ts[2m > [22m[2mstripe webhook[2m > [22m[2mcheckout.session.completed retrieves the subscription then upserts
+[22m[39mstripe webhook: could not list subscriptions to dedupe cus_123 TypeError: stripe.subscriptions.list is not a function
+    at cancelOtherActiveSubscriptions [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/stripe/webhook/route.ts:118:39[90m)[39m
+    at handleEvent [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/stripe/webhook/route.ts:154:13[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.POST [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/stripe/webhook/route.ts:33:5[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/subscriptions.test.ts:220:17
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20
+
+[90mstderr[2m | lib/subscriptions.test.ts[2m > [22m[2mstripe webhook[2m > [22m[2macks-and-skips the upsert for a tombstoned (deleted) user (M-RESURRECT-1)
+[22m[39mstripe webhook: skipping write for deleted account user-1 sub_123
+
+[90mstderr[2m | lib/subscriptions.test.ts[2m > [22m[2mgetViewerPlan[2m > [22m[2mpasses the subscription mirror + invite proof through resolvePlan
+[22m[39mappSettings: failed to load app_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:73:24[90m)[39m
+    at loadAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:116:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at async Promise.all (index 2)
+    at Module.getViewerPlan [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/subscriptions.ts:50:46[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/subscriptions.test.ts:258:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/subscriptions.test.ts[2m > [22m[2mgetViewerPlan[2m > [22m[2mno subscription but invited → comped Standard
+[22m[39mappSettings: failed to load app_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:73:24[90m)[39m
+    at loadAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:116:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at async Promise.all (index 2)
+    at Module.getViewerPlan [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/subscriptions.ts:50:46[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/subscriptions.test.ts:264:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/subscriptions.test.ts[2m > [22m[2mgetViewerPlan[2m > [22m[2mstranger with neither → null
+[22m[39mappSettings: failed to load app_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:73:24[90m)[39m
+    at loadAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:116:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at async Promise.all (index 2)
+    at Module.getViewerPlan [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/subscriptions.ts:50:46[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/subscriptions.test.ts:268:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+ [32m✓[39m lib/subscriptions.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+[90mstderr[2m | lib/usage.test.ts[2m > [22m[2mreserveGenerations (atomic reserve, minor 4)[2m > [22m[2m29/30 on Standard → allowed and the slot is charged
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.reserveGenerations [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.ts:103:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.test.ts:62:15
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/usage.test.ts[2m > [22m[2mreserveGenerations (atomic reserve, minor 4)[2m > [22m[2m30/30 on Standard → 429 naming used/limit and tier, and NOTHING charged
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.reserveGenerations [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.ts:103:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.test.ts:70:15
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/usage.test.ts[2m > [22m[2mreserveGenerations (atomic reserve, minor 4)[2m > [22m[2mdual-kind is all-or-nothing: EITHER exhausted → 429 and NEITHER charged
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.reserveGenerations [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.ts:103:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.test.ts:88:15
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/usage.test.ts[2m > [22m[2mreserveGenerations (atomic reserve, minor 4)[2m > [22m[2mpro under both caps → charges BOTH kinds
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.reserveGenerations [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.ts:103:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.test.ts:102:15
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/usage.test.ts[2m > [22m[2mreserveGenerations (atomic reserve, minor 4)[2m > [22m[2mtakes a per-(user,kind) advisory lock (hashtextextended, 64-bit) before checking
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.reserveGenerations [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.ts:103:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.test.ts:110:5
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/usage.test.ts[2m > [22m[2mreserveGenerations (atomic reserve, minor 4)[2m > [22m[2mreserve reads + charges on the SERVICE role (B-COST — never the user's role)
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.reserveGenerations [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.ts:103:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/usage.test.ts:120:5
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:20 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+ [32m✓[39m lib/usage.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+ [32m✓[39m lib/companiesOverride.action.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+[90mstderr[2m | lib/tenantMetrics.test.ts[2m > [22m[2mgetTenantMetrics[2m > [22m[2mmaps rows, resolves effective plan, and computes the 30d cost proxy
+[22m[39mappSettings: failed to load app_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:73:24[90m)[39m
+    at loadAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:116:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at getTenantMetrics [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.ts:120:20[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.test.ts:33:17 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/tenantMetrics.test.ts[2m > [22m[2mgetTenantMetrics[2m > [22m[2mempty result is an empty array
+[22m[39mappSettings: failed to load app_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:73:24[90m)[39m
+    at loadAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:116:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at getTenantMetrics [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.ts:120:20[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.test.ts:45:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/tenantMetrics.test.ts[2m > [22m[2mgetTenantMetrics[2m > [22m[2mmaps invites_remaining through (null = never initialized)
+[22m[39mappSettings: failed to load app_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:73:24[90m)[39m
+    at loadAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:116:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at getTenantMetrics [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.ts:120:20[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.test.ts:59:21 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/tenantMetrics.test.ts[2m > [22m[2mgetTenantMetrics[2m > [22m[2man ACTIVE override pins the effective plan and surfaces its fields
+[22m[39mappSettings: failed to load app_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:73:24[90m)[39m
+    at loadAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:116:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at getTenantMetrics [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.ts:120:20[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.test.ts:74:17 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/tenantMetrics.test.ts[2m > [22m[2mgetTenantMetrics[2m > [22m[2man EXPIRED override does not entitle but is still surfaced for the editor
+[22m[39mappSettings: failed to load app_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:73:24[90m)[39m
+    at loadAppSettings [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/appSettings.ts:116:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at getTenantMetrics [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.ts:120:20[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tenantMetrics.test.ts:91:17 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+ [32m✓[39m lib/tenantMetrics.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 55[2mms[22m[39m
+ [32m✓[39m lib/rolefit/openrouterClient.test.ts [2m([22m[2m20 tests[22m[2m)[22m[32m 38[2mms[22m[39m
+ [32m✓[39m lib/rolefit/filter.test.ts [2m([22m[2m49 tests[22m[2m)[22m[32m 71[2mms[22m[39m
+ [32m✓[39m tests/visual/auth.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m✓[39m components/ui/criticalControls.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m lib/openrouter.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m lib/jobLifecycle.fix.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m✓[39m lib/accountDeletion.test.ts [2m([22m[2m28 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+[90mstderr[2m | lib/reviewRequests.test.ts[2m > [22m[2mremainingDailyBudget[2m > [22m[2mcap minus today's review spend, floored at 0
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.remainingDailyBudget [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.ts:132:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.test.ts:77:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/reviewRequests.test.ts[2m > [22m[2mremainingDailyBudget[2m > [22m[2mhonors a per-profile daily_review_cap override (below tier → lowers)
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.remainingDailyBudget [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.ts:132:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.test.ts:85:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/reviewRequests.test.ts[2m > [22m[2mremainingDailyBudget[2m > [22m[2mPro with no picked model defaults to the premium-slot cap (mirrors reviewer)
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.remainingDailyBudget [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.ts:132:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.test.ts:95:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/reviewRequests.test.ts[2m > [22m[2mremainingDailyBudget[2m > [22m[2mclamps an override ABOVE the tier cap down to the tier cap (B-COST)
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.remainingDailyBudget [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.ts:132:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.test.ts:103:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+[90mstderr[2m | lib/reviewRequests.test.ts[2m > [22m[2mremainingDailyBudget[2m > [22m[2mspent beyond cap floors at 0
+[22m[39mtierConfig: failed to load tier_settings; using compiled defaults Error: [vitest] No "withAnonSql" export is defined on the "@/lib/db" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:62:17)
+    at Object.get (file:///workspace/job-board/dashboard/node_modules/[4mvitest[24m/dist/chunks/startVitestModuleRunner.CCBQZ9DQ.js:327:16)
+    at fetchTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:159:24[90m)[39m
+    at loadTierConfig [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/tierConfig.ts:187:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.remainingDailyBudget [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.ts:132:28[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/reviewRequests.test.ts:109:12 {
+  codeFrame: [32m'vi.mock(import("@/lib/db"), async (importOriginal) => {\n'[39m +
+    [32m'  const actual = await importOriginal()\n'[39m +
+    [32m'  return {\n'[39m +
+    [32m'    ...actual,\n'[39m +
+    [32m'    // your mocked methods\n'[39m +
+    [32m'  }\n'[39m +
+    [32m'})'[39m
+}
+
+ [32m✓[39m lib/reviewRequests.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+ [32m✓[39m app/actions/invites.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 55[2mms[22m[39m
+ [32m✓[39m app/visual-regression-contract.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+[90mstderr[2m | lib/resumeScore.action.test.ts[2m > [22m[2msaveResumeScore[2m > [22m[2mreturns langfuseSynced=false when the push throws (DB already committed)
+[22m[39mresume-golden dataset upsert failed Error: langfuse down
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mlib/resumeScore.action.test.ts:60:38
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2955:64
+
+ [32m✓[39m lib/resumeScore.action.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m✓[39m app/actions/userInvites.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m lib/jobsQuery.test.ts [2m([22m[2m43 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumeSchema.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m lib/theme.script.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumeClient.tracing.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m lib/queries.companiesBrowse.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m lib/rolefit/packageCodec.test.ts [2m([22m[2m23 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m lib/entitlements.test.ts [2m([22m[2m49 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+[90mstderr[2m | app/api/stripe/webhookDedupe.test.ts[2m > [22m[2mcancelOtherActiveSubscriptions[2m > [22m[2mcancels every active subscription except the one to keep
+[22m[39mstripe webhook: canceled duplicate subscription sub_dup1 for customer cus_1
+
+[90mstderr[2m | app/api/stripe/webhookDedupe.test.ts[2m > [22m[2mcancelOtherActiveSubscriptions[2m > [22m[2mcancels every active subscription except the one to keep
+[22m[39mstripe webhook: canceled duplicate subscription sub_dup2 for customer cus_1
+
+[90mstderr[2m | app/api/stripe/webhookDedupe.test.ts[2m > [22m[2mcancelOtherActiveSubscriptions[2m > [22m[2ma list failure is swallowed (best-effort, never throws)
+[22m[39mstripe webhook: could not list subscriptions to dedupe cus_1 Error: stripe down
+    at Object.list [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/stripe/webhookDedupe.test.ts:68:17[90m)[39m
+    at cancelOtherActiveSubscriptions [90m(/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/stripe/webhook/route.ts:118:39[90m)[39m
+    at [90m/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard/[39mapp/api/stripe/webhookDedupe.test.ts:74:18
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10)
+    at file:///workspace/job-board/dashboard/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+
+ [32m✓[39m app/api/stripe/webhookDedupe.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m app/actions/classification.action.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m lib/jobLifecycleConsumers.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m lib/dbLimit.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m app/auth/signout/route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m✓[39m app/EntryAndSystemStates.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m lib/serviceRoleAllowlist.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m✓[39m lib/rolefit/greenhouseQuestions.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m lib/generationJobCodec.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m lib/applicationActions.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m✓[39m lib/metrics.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m lib/rolefit/applyUrl.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m tests/visual/auth-setup-contract.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m components/rolefit/BoardWorkspaceDesign.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m lib/stripe.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m lib/paths.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m lib/auth.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+[90mstderr[2m | lib/appSettings.test.ts[2m > [22m[2moverlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipline)[2m > [22m[2mgarbage values keep the default field-by-field
+[22m[39mappSettings: invite_comp_plan invalid; keeping default platinum
+appSettings: invite_default_allowance invalid; keeping default [33m-2[39m
+
+[90mstderr[2m | lib/appSettings.test.ts[2m > [22m[2moverlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipline)[2m > [22m[2mallowance rejects floats/strings/negatives, accepts 0 (invites off)
+[22m[39mappSettings: invite_default_allowance invalid; keeping default [33m2.5[39m
+appSettings: invite_default_allowance invalid; keeping default 5
+
+ [32m✓[39m lib/appSettings.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/companies/browseCodec.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m lib/generationInstructions.action.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m lib/queries.upsertApplicationPackage.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m lib/safeError.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m lib/rolefit/generationSettings.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m app/actions/adminSettings.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m lib/rolefit/companyExclusions.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/rolefit/correction.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m lib/accountExport.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m app/admin/classification/page.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/queries.reviewFeed.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m lib/schedules.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m lib/rolefit/taxonomy.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/generationNotifications.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m lib/corrections.action.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m lib/queries.jobDetail.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m lib/redFlags.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m lib/profileSettings.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m lib/queries.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m lib/trend.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m lib/feedback.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m lib/rolefit/fit.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m lib/analyticsLabels.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m lib/resumeStorage.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m lib/rolefit/generationInstructions.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m lib/queries.applicationPackages.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m lib/queries.upsertProfile.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m lib/classificationEstimate.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumeSkills.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m lib/rolefit/coverLetterClient.tracing.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m app/admin/invites/page.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumePdf.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m lib/classificationJobCodec.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m lib/profileReadiness.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m lib/rolefit/coverLetterSchema.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m lib/admin.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m lib/tierConfig.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m components/shell/AppShell.contract.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m lib/langfuseHost.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m lib/preferredLocations.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m lib/rolefit/serializeProfileToMarkdown.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m lib/rolefit/tierGate.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m lib/status.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m lib/getViewerPlan.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m app/admin/adminWrap.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m app/secondary-surfaces-ui-contract.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/applicationAnswers.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumeChecks.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m lib/filters.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m lib/screeningAnswers.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m lib/rolefit/greenhouseAnswers.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m lib/jobLifecycle.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/queries.boardFilters.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m lib/companies/format.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m lib/rolefit/coverLetterScore.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m lib/rolefit/selection.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m app/admin/tenants/page.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m lib/theme.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m lib/rolefit/coverLetterJudgeRubric.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m lib/queries.coverLetterEdits.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m lib/profileVersion.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m lib/emailGuard.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumeText.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m lib/profileLinks.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m lib/tombstone.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m lib/resumeGoldenDataset.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m lib/queries.jobQuestions.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m lib/onboarding.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m lib/pdf.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m lib/rolefit/promptPolicy.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m lib/resumeStale.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumeSource.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m lib/companyProfileVersion.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m app/globals.theme.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m lib/rolefit/prefillSchema.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m lib/rolefit/ats.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m lib/coverLetterGoldenDataset.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m lib/rolefit/resumeScore.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m lib/jobIdValidator.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m lib/queries.bareMarker.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m217 passed[39m[22m[90m (217)[39m
+[2m      Tests [22m [1m[32m1717 passed[39m[22m[2m | [22m[33m2 skipped[39m[90m (1719)[39m
+[2m   Start at [22m 23:58:56
+[2m   Duration [22m 97.55s[2m (transform 9.99s, setup 0ms, import 34.95s, tests 42.51s, environment 65.02s)[22m
+

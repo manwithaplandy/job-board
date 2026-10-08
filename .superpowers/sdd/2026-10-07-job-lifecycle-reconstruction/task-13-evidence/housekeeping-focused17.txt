@@ -1,0 +1,5 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+TASK13_METRICS {"seconds": 10.318, "jobs": 12, "retired_rows": 5, "retired_bytes": 80, "job_row_bytes": 1744, "database_allocated_bytes": 28497587, "canonical_event_bytes": 6340, "compressed_event_bytes": 925, "manifest_bytes": 2671, "pending": {"events": 0, "bytes": 0, "live_bytes": 0, "age_seconds": "0", "warning": false, "ordinary_paused": false}}
+....TASK13_RUNTIME {"seconds": 2.353, "aggregate_rss_peak_bytes": 112779264, "sampled_cpu_seconds": 2.99, "database_sessions_peak_including_observer": 2, "scope": "four actual processes; real maintenance and fake-S3 export turn; stalled reviewer; source disabled"}
+...
+7 passed in 20.09s

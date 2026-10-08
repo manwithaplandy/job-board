@@ -1,0 +1,1 @@
+Synthetic fixture/catalog/log/browser content only. No generated DB credentials, environment dumps, provider secrets or production payloads copied; credential-pattern scan found no candidates. Paths/opaque synthetic IDs and test counts remain.

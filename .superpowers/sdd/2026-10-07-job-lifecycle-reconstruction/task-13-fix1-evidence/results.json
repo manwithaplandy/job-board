@@ -1,0 +1,159 @@
+{
+  "python-red17": {
+    "name": "python-red17",
+    "cwd": "/workspace/job-board/.claude/worktrees/lifecycle-recovery",
+    "command": [
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python",
+      "tools/lifecycle_test_db.py",
+      "--postgres-major",
+      "17",
+      "--",
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/test_lifecycle_task13_fix1.py",
+      "tests/test_lifecycle_end_to_end.py::test_explicit_readiness_transitions_through_existing_control_api",
+      "-vv",
+      "-ra"
+    ],
+    "exit": 1,
+    "seconds": 16.417,
+    "pytest_summary": "3 failed, 2 passed in 5.84s"
+  },
+  "dashboard-red17": {
+    "name": "dashboard-red17",
+    "cwd": "/tmp/task13-fix1-layout",
+    "command": [
+      "/tmp/task13-fix1-python/bin/python",
+      "tools/lifecycle_test_db.py",
+      "--postgres-major",
+      "17",
+      "--",
+      "/tmp/task13-fix1-python/bin/python",
+      "tools/run_lifecycle_acceptance.py",
+      "dashboard"
+    ],
+    "exit": 1,
+    "seconds": 11.635,
+    "vitest_test_summaries": [
+      "1 failed | 6 passed (7)"
+    ]
+  },
+  "python-green17": {
+    "name": "python-green17",
+    "cwd": "/workspace/job-board/.claude/worktrees/lifecycle-recovery",
+    "command": [
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python",
+      "tools/lifecycle_test_db.py",
+      "--postgres-major",
+      "17",
+      "--",
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/test_lifecycle_task13_fix1.py",
+      "tests/test_lifecycle_end_to_end.py::test_source_worker_flag_off_and_maintenance_before_verification",
+      "tests/test_lifecycle_end_to_end.py::test_explicit_readiness_transitions_through_existing_control_api",
+      "tests/test_lifecycle_end_to_end.py::test_six_family_identity_demand_retirement_and_exact_archive_composition",
+      "tests/test_lifecycle_admission.py::test_actual_source_orchestration_admits_and_records_sightings",
+      "tests/test_lifecycle_reconcile.py::test_scheduler_finite_six_cycle_bound_across_families_and_request_budget",
+      "tests/test_lifecycle_migrations.py::test_clean_schema_matches_frozen_baseline_plus_all_new_migrations",
+      "tests/test_lifecycle_migrations.py::test_existing_recorded_migrations_reapply_without_catalog_or_ledger_drift",
+      "-vv",
+      "-ra",
+      "-s"
+    ],
+    "exit": 0,
+    "seconds": 58.888,
+    "pytest_summary": "12 passed in 46.87s"
+  },
+  "dashboard-green17": {
+    "name": "dashboard-green17",
+    "cwd": "/tmp/task13-fix1-layout",
+    "command": [
+      "/tmp/task13-fix1-python/bin/python",
+      "tools/lifecycle_test_db.py",
+      "--postgres-major",
+      "17",
+      "--",
+      "/tmp/task13-fix1-python/bin/python",
+      "tools/run_lifecycle_acceptance.py",
+      "dashboard"
+    ],
+    "exit": 0,
+    "seconds": 22.201,
+    "vitest_test_summaries": [
+      "7 passed (7)",
+      "6 passed (6)"
+    ]
+  },
+  "python-green16": {
+    "name": "python-green16",
+    "cwd": "/workspace/job-board/.claude/worktrees/lifecycle-recovery",
+    "command": [
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python",
+      "tools/lifecycle_test_db.py",
+      "--postgres-major",
+      "16",
+      "--",
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/test_lifecycle_task13_fix1.py",
+      "tests/test_lifecycle_end_to_end.py::test_source_worker_flag_off_and_maintenance_before_verification",
+      "tests/test_lifecycle_end_to_end.py::test_explicit_readiness_transitions_through_existing_control_api",
+      "tests/test_lifecycle_end_to_end.py::test_six_family_identity_demand_retirement_and_exact_archive_composition",
+      "tests/test_lifecycle_admission.py::test_actual_source_orchestration_admits_and_records_sightings",
+      "tests/test_lifecycle_reconcile.py::test_scheduler_finite_six_cycle_bound_across_families_and_request_budget",
+      "tests/test_lifecycle_migrations.py::test_clean_schema_matches_frozen_baseline_plus_all_new_migrations",
+      "tests/test_lifecycle_migrations.py::test_existing_recorded_migrations_reapply_without_catalog_or_ledger_drift",
+      "-vv",
+      "-ra",
+      "-s"
+    ],
+    "exit": 0,
+    "seconds": 50.537,
+    "pytest_summary": "12 passed in 38.50s"
+  },
+  "dashboard-green16": {
+    "name": "dashboard-green16",
+    "cwd": "/tmp/task13-fix1-layout",
+    "command": [
+      "/tmp/task13-fix1-python/bin/python",
+      "tools/lifecycle_test_db.py",
+      "--postgres-major",
+      "16",
+      "--",
+      "/tmp/task13-fix1-python/bin/python",
+      "tools/run_lifecycle_acceptance.py",
+      "dashboard"
+    ],
+    "exit": 0,
+    "seconds": 15.369,
+    "vitest_test_summaries": [
+      "7 passed (7)",
+      "6 passed (6)"
+    ]
+  },
+  "ruff": {
+    "name": "ruff",
+    "command": [
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/ruff",
+      "check",
+      "."
+    ],
+    "exit": 0,
+    "seconds": 0.04
+  },
+  "typecheck": {
+    "name": "typecheck",
+    "command": [
+      "npm",
+      "run",
+      "typecheck"
+    ],
+    "exit": 0,
+    "seconds": 14.387
+  },
+  "source": "efc4c67869d65261b80e189175b318118837566b"
+}

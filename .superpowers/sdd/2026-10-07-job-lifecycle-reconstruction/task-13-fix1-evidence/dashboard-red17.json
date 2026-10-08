@@ -1,0 +1,16 @@
+{
+  "name": "dashboard-red17",
+  "cwd": "/tmp/task13-fix1-layout",
+  "command": [
+    "/tmp/task13-fix1-python/bin/python",
+    "tools/lifecycle_test_db.py",
+    "--postgres-major",
+    "17",
+    "--",
+    "/tmp/task13-fix1-python/bin/python",
+    "tools/run_lifecycle_acceptance.py",
+    "dashboard"
+  ],
+  "exit": 1,
+  "seconds": 11.635
+}

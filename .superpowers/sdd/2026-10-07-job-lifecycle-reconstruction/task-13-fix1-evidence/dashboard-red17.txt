@@ -1,0 +1,33 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+
+ RUN  v4.1.9 /tmp/task13-fix1-layout/dashboard
+
+ ❯ lib/jobLifecycle.flow.db.test.ts (7 tests | 1 failed) 1057ms
+   ✓ owner demand coalesces, ready pins a durable input, generation copies it and consumption follows success 123ms
+   ✓ flag-off missing Greenhouse questions queues service work and accepts its exact ready snapshot 20ms
+   ✓ package persistence copies pinned input and records consumption with the artifact 274ms
+   ✓ résumé-first preparation queues missing Q, pins the saved tuple, and consumes its exact receipt 96ms
+   ✓ calibration SQL reads saved score/edit JD and explicitly falls back for legacy NULL 15ms
+   × instruction-only and application marker rows acquire their genuine first input and output 51ms
+   ✓ new payload wrapper preserves authenticated invoking role in an ordinary enforced write 38ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/jobLifecycle.flow.db.test.ts > instruction-only and application marker rows acquire their genuine first input and output
+Error: spawnSync /tmp/task13-fix1-layout/.venv/bin/python ENOENT
+ ❯ lib/jobLifecycle.flow.db.test.ts:177:3
+    175|   // Execute the actual Python service worker against this same owned …
+    176|   // Only its public fetch boundary is replaced, with an outside-TX as…
+    177|   execFileSync(resolve(process.cwd(),"../.venv/bin/python"), ["-c", `
+       |   ^
+    178| import os, psycopg
+    179| from psycopg.rows import dict_row
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  09:47:44
+   Duration  1.45s (transform 273ms, setup 0ms, import 160ms, tests 1.06s, environment 0ms)
+

@@ -1,0 +1,11 @@
+{
+  "browser": "151.0.7922.173",
+  "target": "owned random loopback",
+  "boundary": "actual FunnelSection; static fixture metrics; no server/auth/provider",
+  "assertions": [
+    "desktop: actual FunnelSection shows lifetime applied=10, approved=2, no cross-cohort percentage, retained-history caption",
+    "mobile: actual FunnelSection shows lifetime applied=10, approved=2, no cross-cohort percentage, retained-history caption"
+  ],
+  "errors": [],
+  "blocked": []
+}

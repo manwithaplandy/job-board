@@ -1,0 +1,30 @@
+{
+  "source": "2719f614b015066a455966ad7f69c6d9cbb6ac8e",
+  "product_source": "b4e114392a54a54d2e1d8e32d9d6c4e5264a4afe",
+  "files": {
+    "dashboard/app/actions/applications.ts": "93f9a5b4e56328adfe709da519486d8f491b4e1cd5bc0dbb774f8d9214471acc",
+    "dashboard/app/api/jobs/[id]/route.test.ts": "6bb536b0f253f30ec63e4ba7d76455c3415e4fdf3d834d21f7903dcaf0269d2d",
+    "dashboard/app/api/jobs/[id]/route.ts": "4cfd90397f0bfef5d1cb376789795a728fd8a9b4080791e9c1c7b1f2bf53d75a",
+    "dashboard/components/analytics/FunnelSection.tsx": "e73ab6cdb3fb3d422f4f6addba6fc04fb301ad3f50e5412489aff124c28f7093",
+    "dashboard/components/analytics/SecondarySurfaceFixes.test.tsx": "55466a7e0d5e7566c1cc22f37b9a9f0c24f6dbe5d077b02c97fec3e9cccfc5c4",
+    "dashboard/lib/db.ts": "d96050976d12fc365222fe1380240e6072175719d40721f6c08041f6389739c5",
+    "dashboard/lib/jobLifecycle.flow.db.test.ts": "7e364578911a1280e14e07855e586bd9a44da7599002ad74cf1aaa877a758b2c",
+    "docs/runbooks/job-lifecycle-outbox.md": "ef06350559abeb8a6e817435000cba25acc8cd999fc3fb7b955e94db454c2aa6",
+    "job_discovery/adapters/completeness.py": "b54a6feee563a0da7b8d4159d968a43d6ebe3f4eba213d64a70a81d302b4bcde",
+    "job_discovery/lifecycle/demand.py": "6ad2e2fcfd793b83fd9017d9e03060c55aa39820968d67676da645297f0042bf",
+    "job_discovery/lifecycle/followup.py": "5e667823fd71616430fffeb12d185d0a8c688cddfcbe57a1ab698da8927b0ad7",
+    "job_discovery/lifecycle/identity.py": "8afb15ffa3f5fc5d30b7bc45c6bc1fa1eaa772dc9dc43b757702384cc795e55b",
+    "job_discovery/lifecycle/maintenance.py": "2a0d7007632c0c688683a2642d4ca33391fc9c1bc733bc211ae530dd72dd5091",
+    "job_discovery/lifecycle/operational.py": "3ed25757a7f8ec2b88424c366585e24e237b66dfc334d160888e5b705ffb7046",
+    "job_discovery/lifecycle/reconcile.py": "83572249e332a144ce16df78fb441374f285c180bb7d0215e9f5847359d59a2a",
+    "job_discovery/lifecycle/version_retention.py": "50d56227565178f7eeebfc7e0972378666fd1b4f1ce21e806f558dd6e501a3bf",
+    "migrations/2026-10-08-10-lifecycle-composition.sql": "595ae906aef6e77e459e74bb5fdbcfd26bc76a8a4ed065cf1682b7fca1edef56",
+    "reviewer/db.py": "c04c3816d6c7e335055b41c73452f69b463e7032aa7164f4bbe55151bae7fa68",
+    "reviewer/run.py": "7e035da950e1b0a986865442815eb0fbd1d90a3617e59acc4a41cb0f9d39baae",
+    "schema.sql": "23fc027194dff286d7d9e93ca4822bc57ebdba53365f4cdcde05a959036ae0bf",
+    "tests/test_lifecycle_demand.py": "16334f2b09e962f7672201e8b53dc363c33d388511330cba735715792a0a0411",
+    "tests/test_lifecycle_final_fix1.py": "e0691f68216f9584f97b5e5e8d43f80cc6646c8db1319f3874ff17c41f38e85a",
+    "tests/test_lifecycle_maintenance.py": "9ac7c03bb92ac219f8c9eeecf643a6ab2bf1efbc979a954e6c8de80d6a6662cd",
+    "tools/lifecycle_test_selection.json": "7d464f14e3f2312f9a4254beca93f26d9383e7f6ba7b56c4ac116e96e4432331"
+  }
+}

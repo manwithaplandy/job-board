@@ -1,0 +1,19 @@
+
+> job-board-dashboard@0.1.0 test
+> NODE_OPTIONS=--no-experimental-webstorage vitest run
+
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+Not implemented: Window's scrollTo() method
+
+ Test Files  217 passed (217)
+      Tests  1717 passed | 2 skipped (1719)
+   Start at  11:31:31
+   Duration  89.07s (transform 8.08s, setup 0ms, import 30.63s, tests 39.87s, environment 62.01s)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice

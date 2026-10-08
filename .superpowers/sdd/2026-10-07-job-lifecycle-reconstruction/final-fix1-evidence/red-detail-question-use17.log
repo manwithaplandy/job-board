@@ -1,0 +1,36 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0 -- /workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/job-board/.claude/worktrees/lifecycle-recovery
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collecting ... collected 1 item
+
+tests/test_lifecycle_final_fix1.py::test_delivered_detail_questions_apply_use_to_matching_capture_only FAILED [100%]
+
+=================================== FAILURES ===================================
+______ test_delivered_detail_questions_apply_use_to_matching_capture_only ______
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33133 user=postgres database=poller_lifecycle_test) at 0x7faeab5e22a0>
+
+    @requires_db
+    def test_delivered_detail_questions_apply_use_to_matching_capture_only(conn):
+        from psycopg.types.json import Jsonb
+        setup_source(conn,ats="greenhouse")
+        request = demand.request_demand(conn,"greenhouse:fixture:0",str(uuid4()),"description")
+        conn.commit()
+        questions = {"questions":[]}
+        assert demand.hydrate_demand(conn,request,lambda _: {"description":"Detail JD","questions":questions}) == "ready"
+        row = conn.execute("SELECT * FROM job_payload_demands WHERE id=%s",(request.id,)).fetchone()
+        conn.execute("INSERT INTO job_questions(job_id,job_version_id,questions,captured_at) VALUES(%s,%s,%s,clock_timestamp())",(request.job_id,row['job_version_id'],Jsonb(questions)))
+        conn.execute("UPDATE job_payload_demands SET consumed_at=clock_timestamp() WHERE id=%s",(request.id,))
+        conn.commit()
+        demand.apply_consumptions(conn)
+>       assert conn.execute("SELECT last_used_at FROM job_questions").fetchone()["last_used_at"] == conn.execute("SELECT consumed_at FROM job_payload_demands WHERE id=%s",(request.id,)).fetchone()["consumed_at"]
+E       AssertionError: assert None == datetime.datetime(2026, 10, 8, 10, 58, 45, 270377, tzinfo=zoneinfo.ZoneInfo(key='Etc/UTC'))
+
+tests/test_lifecycle_final_fix1.py:211: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_final_fix1.py::test_delivered_detail_questions_apply_use_to_matching_capture_only - AssertionError: assert None == datetime.datetime(2026, 10, 8, 10, 58, 45, 270377, tzinfo=zoneinfo.ZoneInfo(key='Etc/UTC'))
+============================== 1 failed in 1.38s ===============================

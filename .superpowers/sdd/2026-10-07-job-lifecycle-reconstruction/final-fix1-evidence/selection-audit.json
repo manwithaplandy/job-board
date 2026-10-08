@@ -1,0 +1,11 @@
+{
+  "original_python_selectors": 79,
+  "final_python_selectors": 81,
+  "appended": [
+    "tests/test_lifecycle_final_fix1.py",
+    "tests/test_lifecycle_maintenance.py::test_only_safely_archived_unreferenced_superseded_versions_retire"
+  ],
+  "original_order_unchanged": true,
+  "excluded_security_unchanged": true,
+  "dashboard_owned_unchanged": true
+}

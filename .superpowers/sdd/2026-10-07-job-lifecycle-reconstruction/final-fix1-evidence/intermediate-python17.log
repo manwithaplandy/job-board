@@ -1,0 +1,122 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0 -- /workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/job-board/.claude/worktrees/lifecycle-recovery
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collecting ... collected 11 items
+
+tests/test_lifecycle_final_fix1.py::test_archived_admission_resumes_at_prospective_bound[old_current] PASSED [  9%]
+tests/test_lifecycle_final_fix1.py::test_archived_admission_resumes_at_prospective_bound[count] PASSED [ 18%]
+tests/test_lifecycle_final_fix1.py::test_archived_admission_resumes_at_prospective_bound[old_location] PASSED [ 27%]
+tests/test_lifecycle_final_fix1.py::test_unarchived_or_private_versions_still_pause[False] PASSED [ 36%]
+tests/test_lifecycle_final_fix1.py::test_unarchived_or_private_versions_still_pause[True] PASSED [ 45%]
+tests/test_lifecycle_final_fix1.py::test_live_demand_records_one_positive_and_defeats_older_absence PASSED [ 54%]
+tests/test_lifecycle_final_fix1.py::test_poll_and_live_demand_share_unicode_hash PASSED [ 63%]
+tests/test_lifecycle_final_fix1.py::test_detail_capture_and_bookkeeping_retire_without_erasing_saved_inputs FAILED [ 72%]
+tests/test_lifecycle_final_fix1.py::test_actual_public_writer_reaches_terminal_cleanup PASSED [ 81%]
+tests/test_lifecycle_final_fix1.py::test_suspicious_empty_scheduler_has_finite_followup[normal] FAILED [ 90%]
+tests/test_lifecycle_final_fix1.py::test_suspicious_empty_scheduler_has_finite_followup[operational] FAILED [100%]
+
+=================================== FAILURES ===================================
+___ test_detail_capture_and_bookkeeping_retire_without_erasing_saved_inputs ____
+
+conn = <psycopg.Connection [INTRANS] (host=127.0.0.1 port=33125 user=postgres database=poller_lifecycle_test) at 0x7f74b69d19a0>
+
+    @requires_db
+    def test_detail_capture_and_bookkeeping_retire_without_erasing_saved_inputs(conn):
+        setup_source(conn, count=3)
+        requests = []
+        for i in range(3):
+            request = demand.request_demand(conn, f"lever:fixture:{i}", str(uuid4()), "description")
+            conn.commit()
+            assert demand.hydrate_demand(conn, request, lambda _: {"description": "Live JD"}) == "ready"
+            requests.append(request)
+        assert conn.execute("SELECT count(*) n FROM lifecycle_claims WHERE kind='demand' AND state='active'").fetchone()["n"] == 0
+        conn.execute("UPDATE job_payload_demands SET settled_at=clock_timestamp()-interval '8 days',snapshot_captured_at=clock_timestamp()-interval '31 days',protection_until=clock_timestamp()-interval '1 hour'")
+        conn.execute("UPDATE jobs SET description_captured_at=clock_timestamp()-interval '31 days'")
+        conn.execute("INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,snapshot_captured_at) SELECT user_id,job_id,job_version_id,description_snapshot,snapshot_captured_at FROM job_payload_demands WHERE id=%s", (requests[1].id,))
+        conn.execute("INSERT INTO generation_jobs(user_id,job_id,kind,job_version_id,description_snapshot,snapshot_captured_at) SELECT user_id,job_id,'resume',job_version_id,description_snapshot,snapshot_captured_at FROM job_payload_demands WHERE id=%s", (requests[2].id,))
+        conn.commit()
+>       assert maintenance._terminal_batch(conn, 100, 4) == 2
+E       assert 0 == 2
+E        +  where 0 = <function _terminal_batch at 0x7f74b61347c0>(<psycopg.Connection [INTRANS] (host=127.0.0.1 port=33125 user=postgres database=poller_lifecycle_test) at 0x7f74b69d19a0>, 100, 4)
+E        +    where <function _terminal_batch at 0x7f74b61347c0> = maintenance._terminal_batch
+
+tests/test_lifecycle_final_fix1.py:140: AssertionError
+_________ test_suspicious_empty_scheduler_has_finite_followup[normal] __________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33125 user=postgres database=poller_lifecycle_test) at 0x7f74b69d2e40>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f74b69d3d10>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7f74b69d3920>
+lane = 'normal'
+
+    @requires_db
+    @pytest.mark.parametrize("lane", ["normal", "operational"])
+    def test_suspicious_empty_scheduler_has_finite_followup(conn, monkeypatch, caplog, lane):
+        from job_discovery.adapters.completeness import SourceResult
+        source = setup_source(conn, count=21)
+        calls = []
+        monkeypatch.setitem(__import__("job_discovery.adapters", fromlist=["ADAPTERS"]).ADAPTERS, "lever", lambda *a, **kw: SourceResult(iter([]), reconcile.SourceStatus()))
+        monkeypatch.setattr("job_discovery.lifecycle.demand.fetch_payload", lambda coordinates: calls.append(coordinates["external_id"]))
+        if lane == "operational":
+            claim = claim_work(conn, "source", str(source["id"]), 180)
+            operational.provision(conn, source["id"], claim)
+            conn.commit()
+            cancel_claim(conn, claim)
+            conn.commit()
+        for _ in range(3):
+            conn.execute("UPDATE source_accounts SET next_due_at=NULL")
+            conn.commit()
+            if lane == "normal":
+                reconcile.verify_due_sources(conn, max_boards=1, admission_allowed=False)
+            else:
+                operational.run_due(conn, max_boards=1, deadline=monotonic()+60)
+>       assert len(calls) == 3
+E       assert 0 == 3
+E        +  where 0 = len([])
+
+tests/test_lifecycle_final_fix1.py:193: AssertionError
+_______ test_suspicious_empty_scheduler_has_finite_followup[operational] _______
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=33125 user=postgres database=poller_lifecycle_test) at 0x7f74b69d36b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f74b6951940>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7f74b69d1b20>
+lane = 'operational'
+
+    @requires_db
+    @pytest.mark.parametrize("lane", ["normal", "operational"])
+    def test_suspicious_empty_scheduler_has_finite_followup(conn, monkeypatch, caplog, lane):
+        from job_discovery.adapters.completeness import SourceResult
+        source = setup_source(conn, count=21)
+        calls = []
+        monkeypatch.setitem(__import__("job_discovery.adapters", fromlist=["ADAPTERS"]).ADAPTERS, "lever", lambda *a, **kw: SourceResult(iter([]), reconcile.SourceStatus()))
+        monkeypatch.setattr("job_discovery.lifecycle.demand.fetch_payload", lambda coordinates: calls.append(coordinates["external_id"]))
+        if lane == "operational":
+            claim = claim_work(conn, "source", str(source["id"]), 180)
+            operational.provision(conn, source["id"], claim)
+            conn.commit()
+            cancel_claim(conn, claim)
+            conn.commit()
+        for _ in range(3):
+            conn.execute("UPDATE source_accounts SET next_due_at=NULL")
+            conn.commit()
+            if lane == "normal":
+                reconcile.verify_due_sources(conn, max_boards=1, admission_allowed=False)
+            else:
+                operational.run_due(conn, max_boards=1, deadline=monotonic()+60)
+>       assert len(calls) == 3
+E       assert 0 == 3
+E        +  where 0 = len([])
+
+tests/test_lifecycle_final_fix1.py:193: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_lifecycle_final_fix1.py::test_detail_capture_and_bookkeeping_retire_without_erasing_saved_inputs - assert 0 == 2
+ +  where 0 = <function _terminal_batch at 0x7f74b61347c0>(<psycopg.Connection [INTRANS] (host=127.0.0.1 port=33125 user=postgres database=poller_lifecycle_test) at 0x7f74b69d19a0>, 100, 4)
+ +    where <function _terminal_batch at 0x7f74b61347c0> = maintenance._terminal_batch
+FAILED tests/test_lifecycle_final_fix1.py::test_suspicious_empty_scheduler_has_finite_followup[normal] - assert 0 == 3
+ +  where 0 = len([])
+FAILED tests/test_lifecycle_final_fix1.py::test_suspicious_empty_scheduler_has_finite_followup[operational] - assert 0 == 3
+ +  where 0 = len([])
+========================= 3 failed, 8 passed in 17.41s =========================

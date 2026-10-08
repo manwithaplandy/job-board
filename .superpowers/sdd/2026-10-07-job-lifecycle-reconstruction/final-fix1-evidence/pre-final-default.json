@@ -1,0 +1,13 @@
+{
+  "name": "final-default",
+  "command": [
+    "npm",
+    "test"
+  ],
+  "cwd": "/workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard",
+  "source": "1cb3ab03e7194d61563f52b5802ccb14b52d7272",
+  "start_utc": "2026-10-08T11:28:39Z",
+  "seconds": 96.61,
+  "exit": 1,
+  "environment": "owned harness or offline local tool"
+}

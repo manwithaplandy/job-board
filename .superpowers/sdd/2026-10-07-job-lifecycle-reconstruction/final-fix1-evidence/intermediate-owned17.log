@@ -1,0 +1,25 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+Owned dashboard Python: /workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ✓ lib/jobLifecycle.flow.db.test.ts (10 tests) 2956ms
+   ✓ package persistence copies pinned input and records consumption with the artifact  315ms
+   ✓ instruction-only and application marker rows acquire their genuine first input and output  777ms
+   ✓ actual non-Greenhouse worker supports applied status and ready detail exact use  962ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  10:40:32
+   Duration  3.45s (transform 409ms, setup 0ms, import 249ms, tests 2.96s, environment 0ms)
+
+
+ RUN  v4.1.9 /workspace/job-board/.claude/worktrees/lifecycle-recovery/dashboard
+
+ ✓ lib/jobLifecycleConsumers.db.test.ts (6 tests) 1020ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  10:40:36
+   Duration  1.55s (transform 385ms, setup 0ms, import 278ms, tests 1.02s, environment 0ms)
+

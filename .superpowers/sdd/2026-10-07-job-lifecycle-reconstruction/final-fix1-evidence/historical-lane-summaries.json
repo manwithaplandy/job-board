@@ -1,0 +1,182 @@
+{
+  "affected-default.log": {
+    "exit": 0,
+    "summary": [
+      "Test Files  6 passed (6)",
+      "Tests  40 passed (40)",
+      "Duration  3.41s (transform 763ms, setup 0ms, import 1.13s, tests 1.51s, environment 1.08s)"
+    ]
+  },
+  "affected-owned17.log": {
+    "exit": 0,
+    "summary": [
+      "Test Files  1 passed (1)",
+      "Tests  10 passed (10)",
+      "Duration  3.81s (transform 332ms, setup 0ms, import 219ms, tests 3.40s, environment 0ms)",
+      "Test Files  1 passed (1)",
+      "Tests  6 passed (6)",
+      "Duration  1.42s (transform 311ms, setup 0ms, import 234ms, tests 957ms, environment 0ms)"
+    ]
+  },
+  "affected-python16.log": {
+    "exit": 1,
+    "summary": [
+      "======================== 1 failed, 20 passed in 28.71s ========================="
+    ]
+  },
+  "affected-python17.log": {
+    "exit": 0,
+    "summary": [
+      "============================= 14 passed in 23.09s =============================="
+    ]
+  },
+  "affected-retained-undo17.log": {
+    "exit": 0,
+    "summary": [
+      "Test Files  1 passed (1)",
+      "Tests  10 passed (10)",
+      "Duration  3.57s (transform 512ms, setup 0ms, import 216ms, tests 3.14s, environment 0ms)",
+      "Test Files  1 passed (1)",
+      "Tests  6 passed (6)",
+      "Duration  1.09s (transform 272ms, setup 0ms, import 187ms, tests 708ms, environment 0ms)"
+    ]
+  },
+  "candidate-final-owned17.log": {
+    "exit": 0,
+    "summary": [
+      "Test Files  1 passed (1)",
+      "Tests  10 passed (10)",
+      "Duration  3.32s (transform 331ms, setup 0ms, import 198ms, tests 2.92s, environment 0ms)",
+      "Test Files  1 passed (1)",
+      "Tests  6 passed (6)",
+      "Duration  1.47s (transform 289ms, setup 0ms, import 191ms, tests 1.07s, environment 0ms)"
+    ]
+  },
+  "candidate-final-python16.log": {
+    "exit": 2,
+    "summary": [
+      "======================= 383 passed in 199.04s (0:03:19) ========================"
+    ]
+  },
+  "candidate-final-python17.log": {
+    "exit": 0,
+    "summary": [
+      "======================= 406 passed in 255.26s (0:04:15) ========================"
+    ]
+  },
+  "candidate-typecheck.log": {
+    "exit": 0,
+    "summary": []
+  },
+  "green-candidate-python17.log": {
+    "exit": 0,
+    "summary": [
+      "============================= 11 passed in 16.58s =============================="
+    ]
+  },
+  "green-detail-question-use17.log": {
+    "exit": 0,
+    "summary": [
+      "============================== 1 passed in 0.91s ==============================="
+    ]
+  },
+  "green-live-completion-order17.log": {
+    "exit": 0,
+    "summary": [
+      "============================== 2 passed in 2.27s ==============================="
+    ]
+  },
+  "intermediate-owned17.log": {
+    "exit": 0,
+    "summary": [
+      "Test Files  1 passed (1)",
+      "Tests  10 passed (10)",
+      "Duration  3.45s (transform 409ms, setup 0ms, import 249ms, tests 2.96s, environment 0ms)",
+      "Test Files  1 passed (1)",
+      "Tests  6 passed (6)",
+      "Duration  1.55s (transform 385ms, setup 0ms, import 278ms, tests 1.02s, environment 0ms)"
+    ]
+  },
+  "intermediate-python17.log": {
+    "exit": 1,
+    "summary": [
+      "========================= 3 failed, 8 passed in 17.41s ========================="
+    ]
+  },
+  "pre-final-default.log": {
+    "exit": 1,
+    "summary": [
+      "Test Files  1 failed | 216 passed (217)",
+      "Tests  1 failed | 1716 passed | 2 skipped (1719)",
+      "Duration  95.46s (transform 8.21s, setup 0ms, import 32.43s, tests 40.82s, environment 68.79s)"
+    ]
+  },
+  "pre-final-python17.log": {
+    "exit": 1,
+    "summary": [
+      "================== 1 failed, 405 passed in 216.92s (0:03:36) ==================="
+    ]
+  },
+  "red-analytics.log": {
+    "exit": 1,
+    "summary": [
+      "Test Files  1 failed (1)",
+      "Tests  1 failed | 9 passed (10)",
+      "Duration  4.26s (transform 696ms, setup 0ms, import 996ms, tests 947ms, environment 1.87s)"
+    ]
+  },
+  "red-detail-question-use17.log": {
+    "exit": 1,
+    "summary": [
+      "============================== 1 failed in 1.38s ==============================="
+    ]
+  },
+  "red-enforced-legacy-status17.log": {
+    "exit": 1,
+    "summary": [
+      "Test Files  1 failed (1)",
+      "Tests  2 failed | 8 passed (10)",
+      "Duration  3.49s (transform 328ms, setup 0ms, import 199ms, tests 3.05s, environment 0ms)"
+    ]
+  },
+  "red-live-completion-order17.log": {
+    "exit": 1,
+    "summary": [
+      "========================= 1 failed, 1 passed in 2.40s =========================="
+    ]
+  },
+  "red-owned17-detail.log": {
+    "exit": 1,
+    "summary": [
+      "Test Files  1 failed (1)",
+      "Tests  4 failed | 6 passed (10)",
+      "Duration  4.32s (transform 740ms, setup 0ms, import 346ms, tests 3.61s, environment 0ms)"
+    ]
+  },
+  "red-owned17.log": {
+    "exit": 1,
+    "summary": [
+      "Test Files  1 failed (1)",
+      "Tests  4 failed | 6 passed (10)",
+      "Duration  3.70s (transform 517ms, setup 0ms, import 349ms, tests 3.02s, environment 0ms)"
+    ]
+  },
+  "red-python17-fixed-fixture.log": {
+    "exit": 1,
+    "summary": [
+      "========================= 9 failed, 2 passed in 46.06s ========================="
+    ]
+  },
+  "red-python17.log": {
+    "exit": 1,
+    "summary": [
+      "========================= 9 failed, 2 passed in 18.34s ========================="
+    ]
+  },
+  "red-review-pin.log": {
+    "exit": 1,
+    "summary": [
+      "============================== 1 failed in 1.23s ==============================="
+    ]
+  }
+}

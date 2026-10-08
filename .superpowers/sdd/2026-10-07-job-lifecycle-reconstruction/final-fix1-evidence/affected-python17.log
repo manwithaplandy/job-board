@@ -1,0 +1,25 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.6.0 -- /workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/job-board/.claude/worktrees/lifecycle-recovery
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collecting ... collected 14 items
+
+tests/test_lifecycle_final_fix1.py::test_archived_admission_resumes_at_prospective_bound[old_current] PASSED [  7%]
+tests/test_lifecycle_final_fix1.py::test_archived_admission_resumes_at_prospective_bound[count] PASSED [ 14%]
+tests/test_lifecycle_final_fix1.py::test_archived_admission_resumes_at_prospective_bound[old_location] PASSED [ 21%]
+tests/test_lifecycle_final_fix1.py::test_unarchived_or_private_versions_still_pause[False] PASSED [ 28%]
+tests/test_lifecycle_final_fix1.py::test_unarchived_or_private_versions_still_pause[True] PASSED [ 35%]
+tests/test_lifecycle_final_fix1.py::test_live_demand_records_one_positive_and_defeats_older_absence PASSED [ 42%]
+tests/test_lifecycle_final_fix1.py::test_poll_and_live_demand_share_unicode_hash PASSED [ 50%]
+tests/test_lifecycle_final_fix1.py::test_detail_capture_and_bookkeeping_retire_without_erasing_saved_inputs PASSED [ 57%]
+tests/test_lifecycle_final_fix1.py::test_actual_public_writer_reaches_terminal_cleanup PASSED [ 64%]
+tests/test_lifecycle_final_fix1.py::test_suspicious_empty_scheduler_has_finite_followup[normal] PASSED [ 71%]
+tests/test_lifecycle_final_fix1.py::test_suspicious_empty_scheduler_has_finite_followup[operational] PASSED [ 78%]
+tests/test_lifecycle_final_fix1.py::test_actual_async_review_retains_exact_input_during_consumer PASSED [ 85%]
+tests/test_lifecycle_maintenance.py::test_only_safely_archived_unreferenced_superseded_versions_retire PASSED [ 92%]
+tests/test_lifecycle_migrations.py::test_clean_schema_matches_frozen_baseline_plus_all_new_migrations PASSED [100%]
+
+============================= 14 passed in 23.09s ==============================

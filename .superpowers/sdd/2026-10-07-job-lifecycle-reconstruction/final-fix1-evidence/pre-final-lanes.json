@@ -1,0 +1,20 @@
+[
+  {
+    "name": "final-python17",
+    "command": [
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python",
+      "tools/lifecycle_test_db.py",
+      "--postgres-major",
+      "17",
+      "--",
+      "/workspace/job-board/.claude/worktrees/lifecycle-recovery/.venv/bin/python",
+      "tools/run_lifecycle_acceptance.py"
+    ],
+    "cwd": "/workspace/job-board/.claude/worktrees/lifecycle-recovery",
+    "source": "b4e114392a54a54d2e1d8e32d9d6c4e5264a4afe",
+    "start_utc": "2026-10-08T11:04:46Z",
+    "seconds": 232.99,
+    "exit": 1,
+    "environment": "owned harness or offline local tool"
+  }
+]

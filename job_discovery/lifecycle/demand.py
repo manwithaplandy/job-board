@@ -175,6 +175,10 @@ def _record_live_verification(conn, demand, claim, listing_id):
           source_availability='open',consecutive_complete_misses=0,first_complete_miss_at=NULL
           WHERE id=%s AND last_demand_verification_id IS DISTINCT FROM %s""",
           (demand.id,listing_id,demand.id))
+    # Reconciliation may have closed this exact Job while the live request was
+    # in flight. The newer successful observation restores its current status.
+    with _write(conn, claim, "jobs", demand.job_id):
+        conn.execute("UPDATE jobs SET closed_at=NULL WHERE id=%s", (demand.job_id,))
 
 
 def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:

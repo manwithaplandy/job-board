@@ -209,6 +209,12 @@ def test_delivered_detail_questions_apply_use_to_matching_capture_only(conn):
     conn.commit()
     demand.apply_consumptions(conn)
     assert conn.execute("SELECT last_used_at FROM job_questions").fetchone()["last_used_at"] == conn.execute("SELECT consumed_at FROM job_payload_demands WHERE id=%s",(request.id,)).fetchone()["consumed_at"]
+    before = conn.execute("SELECT last_used_at FROM job_questions").fetchone()["last_used_at"]
+    conn.execute("UPDATE job_questions SET questions=%s",(Jsonb({"questions":[{"label":"New question"}]}),))
+    conn.execute("UPDATE job_payload_demands SET consumed_at=clock_timestamp() WHERE id=%s",(request.id,))
+    conn.commit()
+    demand.apply_consumptions(conn)
+    assert conn.execute("SELECT last_used_at FROM job_questions").fetchone()["last_used_at"] == before
 
 
 @requires_db

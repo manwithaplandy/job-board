@@ -491,7 +491,7 @@ def test_operational_fallback_reports_committed_closures_without_replay(
 
 
 @requires_db
-def test_explicit_readiness_transitions_through_existing_control_api(conn):
+def test_explicit_readiness_transitions_through_existing_control_api(conn, monkeypatch):
     """New positive readiness integration, not the omitted activation probe suite.
 
     Service attestations below are local fixture evidence only. No production
@@ -552,17 +552,50 @@ def test_explicit_readiness_transitions_through_existing_control_api(conn):
     )
     conn.commit()
     assert active.archive_ever_activated and not active.export_enabled
-    # Quiescent current-state baseline, not invented prior event history.
-    for aggregate in AggregateType:
-        while baseline_batch(conn, aggregate, claim, limit=1):
-            conn.commit()
-        conn.commit()
+    # Deliver a bounded first page while the rest of the corpus is incomplete.
+    first = baseline_batch(conn, "jobs", claim, limit=1)
+    conn.commit()
+    assert len(first) == 1
+    assert not conn.execute("SELECT lifecycle_private.archive_baseline_ready() ready").fetchone()["ready"]
+    conn.commit()
     certify()
     exporting = transition_control(
         conn, active.activation_generation, replace(active, export_enabled=True), claim
     )
     conn.commit()
     assert exporting.export_enabled
+    # One-event flush threshold keeps this ordinary fixture small; no budget changes.
+    monkeypatch.setattr(export, "BatchLimits", lambda: BatchLimits(max_events=1))
+    client = ArchiveClient(destination(), FakeS3())
+    delivered = []
+
+    def deliver_page(refs):
+        assert len(refs) == 1
+        result = export.export_once(TEST_DSN, client)
+        assert result is not None
+        assert result.exact_event_ids == (refs[0].event_id,)
+        assert not pending(conn)
+        delivered.extend(result.exact_event_ids)
+
+    deliver_page(first)
+    assert not conn.execute("SELECT lifecycle_private.archive_baseline_ready() ready").fetchone()["ready"]
+    conn.commit()
+    # Each next page commits after the preceding exact ACK. Save the last page
+    # pending to retain the original pause/resume preservation assertion too.
+    last = ()
+    for aggregate in AggregateType:
+        while True:
+            if last:
+                deliver_page(last)
+                last = ()
+            page = baseline_batch(conn, aggregate, claim, limit=1)
+            conn.commit()
+            if not page:
+                break
+            last = page
+    assert len(delivered) > 1
+    assert conn.execute("SELECT lifecycle_private.archive_baseline_ready() ready").fetchone()["ready"]
+    conn.commit()
     paused = transition_control(
         conn,
         exporting.activation_generation,
@@ -571,6 +604,10 @@ def test_explicit_readiness_transitions_through_existing_control_api(conn):
     )
     conn.commit()
     assert paused.archive_ever_activated and paused.archive_stage == "active"
+    from job_discovery.archive.writers import public_write
+    with public_write(conn, "companies"):
+        conn.execute("UPDATE companies SET name='Fixture updated' WHERE name='Fixture'")
+    conn.commit()
     before = pending(conn)
     assert before
     producer_paused = transition_control(

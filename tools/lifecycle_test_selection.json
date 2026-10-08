@@ -51,6 +51,7 @@
     "tests/test_archive_replay.py::test_later_baseline_does_not_invent_earlier_history",
     "tests/test_archive_replay.py::test_projection_expiry_recomputes_no_retained_facts_after_horizon",
     "tests/test_lifecycle_end_to_end.py",
+    "tests/test_lifecycle_task13_fix1.py",
     "tests/test_taxonomy_parity.py",
     "tests/test_db_companies.py",
     "tests/test_company_discovery_dataset.py",

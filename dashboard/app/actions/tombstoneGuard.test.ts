@@ -59,6 +59,7 @@ describe("mutating actions honor the tombstone guard", () => {
   test.each(ACTIONS)("%s proceeds to the DB write for a live account", async (_name, run) => {
     state.deleted = false;
     await expect(run()).resolves.toBeUndefined();
-    expect(withUserSql).toHaveBeenCalledTimes(1);
+    // Mark-applied reads retained input before its status mutation.
+    expect(withUserSql).toHaveBeenCalledTimes(_name === "markApplicationApplied" ? 2 : 1);
   });
 });

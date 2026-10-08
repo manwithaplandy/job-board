@@ -48,7 +48,7 @@ def posting(title="Role", location=None, body="JD"):
 def test_archived_admission_resumes_at_prospective_bound(conn, case):
     source = setup_source(conn)
     if case == "old_location":
-        conn.execute("INSERT INTO locations(raw,canonicals,source) VALUES('London',ARRAY['London'],'manual')")
+        conn.execute("INSERT INTO locations(raw,canonicals,components,source) VALUES('London',ARRAY['London'],'[]','manual')")
     activate_fixture(conn)
     _, claim = admit(conn, source, [posting(location="London" if case == "old_location" else None)])
     if case == "count":
@@ -195,3 +195,48 @@ def test_suspicious_empty_scheduler_has_finite_followup(conn, monkeypatch, caplo
     assert conn.execute("SELECT count(*) n FROM jobs WHERE closed_at IS NULL").fetchone()["n"] == 21
     assert conn.execute("SELECT followup_status FROM source_accounts").fetchone()["followup_status"] == "migration_review"
     assert "migration review" in caplog.text
+
+
+@requires_db
+def test_actual_async_review_retains_exact_input_during_consumer(conn, monkeypatch):
+    import asyncio
+    import reviewer.run as run
+    import reviewer.db as review_db
+    from tests.test_reviewer_run import StubClient
+    setup_source(conn)
+    user = str(uuid4())
+    request = demand.request_demand(conn, "lever:fixture:0", user, "review")
+    conn.commit()
+    assert demand.hydrate_demand(conn,request,lambda _: {"description":"Review JD"}) == "ready"
+    conn.execute("UPDATE lifecycle_control SET hydration_enabled=true,activation_generation=activation_generation+1")
+    conn.execute("UPDATE job_payload_demands SET settled_at=clock_timestamp()-interval '8 days',protection_until=clock_timestamp()-interval '1 hour'")
+    candidates = review_db.attach_demand_snapshots(conn,[{"id":"lever:fixture:0","title":"Role","company_name":"Fixture"}],user)
+    conn.commit()
+    class Consumer(StubClient):
+        async def stage2(self, **kwargs):
+            before = conn.execute("SELECT protection_until FROM job_payload_demands WHERE id=%s",(request.id,)).fetchone()["protection_until"]
+            conn.commit()
+            await asyncio.sleep(0.05)
+            assert conn.info.transaction_status.name == "IDLE"
+            after = conn.execute("SELECT protection_until FROM job_payload_demands WHERE id=%s",(request.id,)).fetchone()["protection_until"]
+            assert after > before
+            assert maintenance._terminal_batch(conn,100,4) == 0
+            conn.commit()
+            return await super().stage2(**kwargs)
+    monkeypatch.setattr(run,"INPUT_PIN_RENEW_SECONDS",0.01,raising=False)
+    def persist(results):
+        for result in results:
+            review_db.upsert_review(conn,result.as_row(user_id=user,profile_version="v1"))
+        conn.commit()
+    results, halted = asyncio.run(run.review_with_input_pins(conn,user,candidates,lambda: run.review_batch(candidates,"",Consumer(),1,on_results=persist)))
+    assert not halted and results[0].verdict == "approve"
+    assert conn.execute("SELECT description_snapshot FROM job_reviews").fetchone()["description_snapshot"] == "Review JD"
+    demand.apply_consumptions(conn)
+    conn.execute("UPDATE job_payload_demands SET protection_until=clock_timestamp()-interval '1 hour'")
+    conn.commit()
+    class LaterRetention:
+        def execute(self, query, params=None):
+            return conn.execute(query.replace("clock_timestamp()-interval '168 hours'","clock_timestamp()+interval '1 hour'"),params)
+    assert maintenance._terminal_batch(LaterRetention(),100,4) == 1
+    conn.commit()
+    assert conn.execute("SELECT description_snapshot FROM job_reviews").fetchone()["description_snapshot"] == "Review JD"

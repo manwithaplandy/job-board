@@ -1,3 +1,0 @@
-lib/coverLetterEdits.action.test.ts(120,37): error TS2493: Tuple type '[]' of length '0' has no element at index '0'.
-lib/jobLifecycle.fix.test.ts(2,15): error TS2459: Module '"./db"' declares 'TransactionSql' locally, but it is not exported.
-lib/resumeScore.action.test.ts(90,37): error TS2493: Tuple type '[]' of length '0' has no element at index '0'.

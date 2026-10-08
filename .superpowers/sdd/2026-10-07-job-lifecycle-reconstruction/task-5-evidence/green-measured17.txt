@@ -1,7 +1,0 @@
-Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
-RESOURCE server: 17.11 (Debian 17.11-1.pgdg13+2)
-RESOURCE Python: 3.12.14
-........................................................................ [ 86%]
-...........                                                              [100%]
-83 passed in 37.53s
-RESOURCE {"wall_seconds": 38.193, "child_user_cpu_seconds": 4.195, "child_system_cpu_seconds": 1.053, "waited_child_max_rss_kib": 56276, "sampled_peak_test_process_tree_rss_bytes": 90001408, "sampled_peak_test_database_connections": 4, "database_connections_before": 0, "database_connections_after": 0, "monitor_extra_connections": 1, "samples": 632, "sampling_interval_seconds": 0.05, "scope": "test client processes; excludes DB server CPU/memory and harness/container overhead"}

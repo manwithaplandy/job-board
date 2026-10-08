@@ -1,5 +1,0 @@
-Owned lifecycle database: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) (required 16)
-logical escrow sample {"body_bytes": 65, "canonical_bytes": 422, "escrow": 97764, "ordinary_event_cost": 102964, "critical_slot_cost": 100786, "ordinary_byte_capacity": 1140, "critical_reserved_capacity": 166}
-........logical escrow sample {"body_bytes": 8058, "canonical_bytes": 8415, "escrow": 145722, "ordinary_event_cost": 198880, "critical_slot_cost": 180716, "ordinary_byte_capacity": 590, "critical_reserved_capacity": 92}
-.......................................................
-63 passed in 110.64s (0:01:50)

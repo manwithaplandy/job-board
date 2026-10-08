@@ -1,1 +1,0 @@
-Task10 migrations04,05,06 each appear verbatim in schema.sql. Physical row enforcement/role/claim functions unchanged by06.

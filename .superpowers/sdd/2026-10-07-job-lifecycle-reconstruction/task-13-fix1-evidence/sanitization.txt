@@ -1,1 +1,0 @@
-Evidence is local synthetic fixture output. No environment/credential dumps or production payloads. Secret-shape scan found only the explicit test:test@127.0.0.1:1 inert dashboard checks placeholder in its saved command script. Actual generated owned DB passwords/DSNs are not printed. No cloud/provider calls. Raw failure whitespace/ANSI output retained.

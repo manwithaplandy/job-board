@@ -1,6 +1,0 @@
-components/rolefit/RolefitBoard.tsx(1522,130): error TS2339: Property 'detail' does not exist on type 'DetailState'.
-  Property 'detail' does not exist on type '{ status: "loading"; }'.
-components/rolefit/RolefitBoard.tsx(1523,128): error TS2339: Property 'detail' does not exist on type 'DetailState'.
-  Property 'detail' does not exist on type '{ status: "loading"; }'.
-components/rolefit/RolefitBoard.tsx(1524,131): error TS2339: Property 'detail' does not exist on type 'DetailState'.
-  Property 'detail' does not exist on type '{ status: "loading"; }'.

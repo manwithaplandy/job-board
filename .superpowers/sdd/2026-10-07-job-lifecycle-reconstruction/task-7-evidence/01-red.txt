@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/workspace/job-board/.claude/worktrees/lifecycle-recovery/tools/lifecycle_test_db.py", line 20, in <module>
-    import psycopg
-ModuleNotFoundError: No module named 'psycopg'

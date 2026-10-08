@@ -1,4 +1,0 @@
-Compared full09 migration to controllerBASE: the only removed text is the two-line archive_baseline_ready export condition. Exact modified09 body occurs in schema.sql. Every other readiness/history/generation/role/claim/physical predicate is unchanged.
-R13-1 public boolean reconcile_chunk APIs untouched; both stage_postings sites receive the backward-compatible keyword. Existing _write/commit ordering/operational fallback unmodified. Daily catalog sync skips only when its combined over decision blocks admission.
-R13-3 DSN target guard text and real Python hydration body unchanged; runner selects sys.executable explicitly and passes it in subprocess environment.
-Author self-review only, no omitted independent mechanism review.

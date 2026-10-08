@@ -1,5 +1,0 @@
-Owned lifecycle database: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) (required 16)
-Traceback (most recent call last):
-  File "/tmp/task13_observed_selected.py", line 5, in <module>
-    from tools.lifecycle_test_db import validate_test_dsn
-ModuleNotFoundError: No module named 'tools'

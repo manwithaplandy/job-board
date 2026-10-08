@@ -1,1 +1,0 @@
-PASS: product/source/test/harness paths match ce256702f85b5e42fecb99002d7c2f36f009e405 after both complete current-source381-case lanes. Only author report/evidence and preserved controller documents are dirty.

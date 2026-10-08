@@ -1,7 +1,0 @@
-{
-  "schema.sql": "9d3e87fad26d19730b54ae03469d8c0ead621b60415a80049615bd28b02e5036",
-  "migrations/2026-10-03-07-archive-export.sql": "f9b341f5a71421197d08c994d01b661648dfd006d824df08484bee78bcc56a93",
-  "migrations/2026-10-03-08-archive-recovery-approval-history.sql": "8c366f44c1ee6c7b55584752a80eb669d4ccb9123d6ff02c00cdeed527d30e15",
-  "job_discovery/archive/recovery.py": "bbfafaf28950a3ee6351613a069c3b363b18a903ac9033c8e011d979b741a7ba",
-  "tests/test_archive_recovery_authorization.py": "3838a66324d444d7e103e0c19abf48c59299087843a0a3cc7eef0db9573b653e"
-}

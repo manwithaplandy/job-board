@@ -1,1 +1,0 @@
-Both full Task10 migrations appear verbatim in schema.sql. Original 04 remains unchanged; 05 contains the Fix1 overrides once each.

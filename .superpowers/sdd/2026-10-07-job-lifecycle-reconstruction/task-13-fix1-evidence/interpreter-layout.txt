@@ -1,6 +1,0 @@
-Independent interpreter: /tmp/task13-fix1-python/bin/python
-Fresh source layout: /tmp/task13-fix1-layout
-Repository-local .venv exists: False
-Node modules symlink: /workspace/job-board/dashboard/node_modules
-Offline setup: initial default uv cache was read-only; redirected to /workspace/.cache/uv. Full requirements offline resolution lacked boto3 in that cache; no download attempted. Installed only the real worker imports needed by the selected TS hydration case with uv --cache-dir /workspace/.cache/uv pip install --offline --python /tmp/task13-fix1-python/bin/python psycopg[binary] requests httpx.
-No source/test/harness weakening or shared virtualenv mutation. Local Node24 differs from CI Node22; no GitHub CI run is claimed.

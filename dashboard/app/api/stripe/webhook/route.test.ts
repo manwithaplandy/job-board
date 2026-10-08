@@ -28,7 +28,8 @@ vi.mock("@/lib/subscriptions", () => ({ upsertSubscription: mocks.upsertSubscrip
 vi.mock("@/lib/tombstone", () => ({ isAccountDeleted: mocks.isAccountDeleted }));
 vi.mock("@/lib/db", () => ({ serviceSql: mocks.serviceSql }));
 
-import { POST, cancelOtherActiveSubscriptions } from "@/app/api/stripe/webhook/route";
+import { POST } from "@/app/api/stripe/webhook/route";
+import { cancelOtherActiveSubscriptions } from "@/lib/billingSubscriptionDedupe";
 
 const SECRET = "whsec_test";
 

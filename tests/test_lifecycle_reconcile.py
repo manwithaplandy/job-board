@@ -497,7 +497,7 @@ def test_fix1_entrypoint_resumes_complete_membership_tail_after_worker_restart(c
     monkeypatch.setattr(http,'get_json',lambda *a,**kw:calls.append(1) or [{'id':'extra','text':'Role','hostedUrl':'https://example.test/job'}])
     clock=[0.0]
     monkeypatch.setattr(r,'monotonic',lambda:clock[0])
-    actual=r.reconcile_chunk
+    actual=r._reconcile_chunk
     chunks=[]
     def limited(worker,enum,limit=500):
         if interruption=='after_complete' and not chunks:
@@ -507,7 +507,7 @@ def test_fix1_entrypoint_resumes_complete_membership_tail_after_worker_restart(c
         chunks.append(done)
         clock[0]+=2
         return done
-    monkeypatch.setattr(r,'reconcile_chunk',limited)
+    monkeypatch.setattr(r,'_reconcile_chunk',limited)
     saved=None
     progress=[]
     for turn in range(4):

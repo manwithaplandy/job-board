@@ -20,6 +20,8 @@ MAINTENANCE_DEADLINE_SECONDS = 90
 DRAIN_SECONDS = 30
 ARCHIVE_INTERVAL_SECONDS = 60
 ARCHIVE_DEADLINE_SECONDS = 120
+SOURCE_INTERVAL_SECONDS = 60
+SOURCE_DEADLINE_SECONDS = 330
 
 
 @dataclass
@@ -34,6 +36,7 @@ def spawn_child(name: str) -> subprocess.Popen:
         "reviewer": "reviewer.worker",
         "maintenance": "job_discovery.lifecycle.worker",
         "archive": "reviewer.archive_worker",
+        "source": "job_discovery.lifecycle.source_worker",
     }
     # Inherit stdout/stderr: no pipe can fill and stall a child or the supervisor.
     return subprocess.Popen([sys.executable, "-m", modules[name]])
@@ -63,6 +66,7 @@ def _drain(children: dict[str, Child], clock: Callable) -> bool:
         for name, seconds in [
             ("maintenance", MAINTENANCE_DEADLINE_SECONDS),
             ("archive", ARCHIVE_DEADLINE_SECONDS),
+            ("source", SOURCE_DEADLINE_SECONDS),
         ]:
             child = children.get(name)
             if child is not None and child.process.poll() is None and not child.killed:
@@ -92,6 +96,7 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
     children: dict[str, Child] = {}
     next_maintenance = clock()
     next_archive = clock()
+    next_source = clock()
     failed = False
     try:
         while not stop.is_set():
@@ -102,7 +107,7 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
                     log.info("%s child exited status=%s", name, code)
                     del children[name]
                 elif (
-                    name in {"maintenance", "archive"}
+                    name in {"maintenance", "archive", "source"}
                     and not child.killed
                     and now
                     >= child.started
@@ -110,6 +115,8 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
                         MAINTENANCE_DEADLINE_SECONDS
                         if name == "maintenance"
                         else ARCHIVE_DEADLINE_SECONDS
+                        if name == "archive"
+                        else SOURCE_DEADLINE_SECONDS
                     )
                 ):
                     log.warning("%s process deadline reached", name)
@@ -131,6 +138,10 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
                 started = clock()
                 children["archive"] = Child(spawn("archive"), started)
                 next_archive = started + ARCHIVE_INTERVAL_SECONDS
+            if not stop.is_set() and now >= next_source and "source" not in children:
+                started = clock()
+                children["source"] = Child(spawn("source"), started)
+                next_source = started + SOURCE_INTERVAL_SECONDS
             wake = clock() + CHECK_SECONDS
             child = children.get("maintenance")
             if child is not None and not child.killed:
@@ -138,6 +149,11 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
             archive = children.get("archive")
             if archive is not None and not archive.killed:
                 wake = min(wake, archive.started + ARCHIVE_DEADLINE_SECONDS)
+            source = children.get("source")
+            if source is not None and not source.killed:
+                wake = min(wake, source.started + SOURCE_DEADLINE_SECONDS)
+            if next_source > clock():
+                wake = min(wake, next_source)
             if next_archive > clock():
                 wake = min(wake, next_archive)
             if next_maintenance > clock():

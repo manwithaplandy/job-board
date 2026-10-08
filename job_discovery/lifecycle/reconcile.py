@@ -231,6 +231,11 @@ def complete_enumeration(conn, enumeration: EnumerationRef, verdict: SourceStatu
 
 
 def reconcile_chunk(conn, enumeration: EnumerationRef, limit: int = 500) -> bool:
+    """Preserve the public caller-owned transaction and bool completion API."""
+    return _reconcile_chunk(conn, enumeration, limit)[0]
+
+
+def _reconcile_chunk(conn, enumeration: EnumerationRef, limit: int = 500) -> tuple[bool, int]:
     if type(limit) is not int or not 1 <= limit <= 500:
         raise ValueError('reconciliation limit must be 1..500')
     enter_gate(conn)
@@ -242,7 +247,7 @@ def reconcile_chunk(conn, enumeration: EnumerationRef, limit: int = 500) -> bool
     checkpoint = conn.execute('SELECT * FROM reconciliation_checkpoints WHERE enumeration_id=%s', (enumeration.id,)).fetchone()
     if checkpoint and checkpoint['completed_at']:
         _check(conn,enumeration)
-        return True
+        return True, 0
     cursor = checkpoint['last_external_id'] if checkpoint else None
     rows = []
     if e['status'] == 'complete':
@@ -251,6 +256,7 @@ def reconcile_chunk(conn, enumeration: EnumerationRef, limit: int = 500) -> bool
             (enumeration.source_id,cursor,cursor,min(limit,CHUNK))).fetchall()
     lock_jobs(conn,[r['job_id'] for r in rows])
     e = _check(conn,enumeration)
+    closed = 0
     for row in rows:
         if (row['last_membership_sequence'] >= enumeration.sequence
             or row['last_direct_verification_sequence'] >= enumeration.sequence
@@ -268,8 +274,8 @@ def reconcile_chunk(conn, enumeration: EnumerationRef, limit: int = 500) -> bool
                  AND %s>=first_complete_miss_at+interval '24 hours' THEN 'closed' ELSE source_availability END
                WHERE id=%s""", (e['completed_at'],enumeration.sequence,enumeration.id,e['completed_at'],row['id']))
         with _write(conn,enumeration.claim,'jobs',row['job_id']):
-            conn.execute("""UPDATE jobs SET closed_at=COALESCE(closed_at,%s) WHERE id=%s
-                AND EXISTS(SELECT FROM source_listings WHERE id=%s AND source_availability='closed')""", (e['completed_at'],row['job_id'],row['id']))
+            closed += conn.execute("""UPDATE jobs SET closed_at=%s WHERE id=%s AND closed_at IS NULL
+                AND EXISTS(SELECT FROM source_listings WHERE id=%s AND source_availability='closed')""", (e['completed_at'],row['job_id'],row['id'])).rowcount
     cursor = rows[-1]['external_id'] if rows else cursor
     done = len(rows) < min(limit,CHUNK)
     with _write(conn,enumeration.claim,'reconciliation_checkpoints'):
@@ -283,7 +289,7 @@ def reconcile_chunk(conn, enumeration: EnumerationRef, limit: int = 500) -> bool
     if done:
         with _write(conn,enumeration.claim,'source_enumerations'):
             conn.execute('UPDATE source_enumerations SET reconciled_at=clock_timestamp() WHERE id=%s', (enumeration.id,))
-    return done
+    return done, closed
 
 
 def verify_due_sources(conn, *, max_boards=100, seconds=300):
@@ -301,7 +307,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
         except StorageBlocked:
             result["storage_deferred"] += 1
             conn.rollback()
-            verify_storage_blocked(conn, max_boards=max_boards, deadline=deadline)
+            result["closed_jobs"] += verify_storage_blocked(conn, max_boards=max_boards, deadline=deadline)["closed_jobs"]
             break
         if pair is None:
             break
@@ -317,7 +323,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
             conn.rollback()
             cancel_claim(conn,claim)
             conn.commit()
-            verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])
+            result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])["closed_jobs"]
             break
         chunk = []
         verdict = SourceStatus(complete=resuming)
@@ -353,7 +359,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
                 log.warning("source evidence storage blocked; reconciliation deferred")
                 cancel_claim(conn,claim)
                 conn.commit()
-                verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])
+                result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])["closed_jobs"]
                 break
             except SourceBudgetExceeded:
                 verdict = SourceStatus(complete=False)
@@ -371,8 +377,9 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
             complete_enumeration(conn,enum,verdict)
             conn.commit()
             while True:
-                done = reconcile_chunk(conn,enum)
+                done, closed = _reconcile_chunk(conn,enum)
                 conn.commit()
+                result["closed_jobs"] += closed
                 if done or monotonic() >= deadline:
                     break
                 claim = renew_claim(conn,claim)
@@ -392,7 +399,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300):
             cancel_claim(conn,claim)
             conn.commit()
         if storage_deferred:
-            verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])
+            result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])["closed_jobs"]
             break
     return result
 

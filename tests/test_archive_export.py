@@ -171,7 +171,7 @@ def test_sdk_stubber_request_contract():
 
 
 @pytest.mark.parametrize(
-    "case", ["oversize", "lying-length", "checksum", "read-error", "deadline", "bomb"]
+    "case", ["oversize", "lying-length", "checksum", "read-error", "deadline", "compressed-length"]
 )
 def test_bounded_body_closed_for_all_read_failures(case):
     import gzip
@@ -180,7 +180,8 @@ def test_bounded_body_closed_for_all_read_failures(case):
     seal = sealed()
     sdk = FakeS3()
     client = ArchiveClient(destination(), sdk)
-    raw = gzip.compress(b"x" * (8 * 1024**2 + 1)) if case == "bomb" else b"abc"
+    # This case checks compressed ContentLength rejection, not decompression.
+    raw = gzip.compress(b"x" * (8 * 1024**2 + 1)) if case == "compressed-length" else b"abc"
 
     class Body(io.BytesIO):
         def read(self, n=-1):
@@ -216,7 +217,7 @@ def test_bounded_body_closed_for_all_read_failures(case):
         with pytest.raises((ValueError, OSError)):
             client.bounded_read(
                 seal.data_key,
-                2 if case in {"lying-length", "bomb"} else 16 * 1024**2,
+                2 if case in {"lying-length", "compressed-length"} else 16 * 1024**2,
                 time.monotonic() + 10,
             )
     assert body.closed

@@ -14,7 +14,7 @@ vi.mock("@/lib/stripe", () => ({
   subscriptionPlan: () => null,
 }));
 
-const { cancelOtherActiveSubscriptions } = await import("@/app/api/stripe/webhook/route");
+const { cancelOtherActiveSubscriptions } = await import("@/lib/billingSubscriptionDedupe");
 
 function fakeStripe(activeIds: string[]) {
   const canceled: string[] = [];

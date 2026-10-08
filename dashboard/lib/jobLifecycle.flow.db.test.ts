@@ -11,7 +11,7 @@ if(!dsn || process.env.LIFECYCLE_REQUIRE_DB_TESTS!=="1") throw new Error("Owned 
 const address=new URL(dsn);
 if(address.hostname!=="127.0.0.1" || !address.port || address.port==="55432" || address.pathname!=="/poller_lifecycle_test") throw new Error("Unsafe test target");
 process.env.DATABASE_URL=dsn;
-const sql=postgres(dsn,{max:2,prepare:false,onnotice:()=>{}});
+const sql=postgres(dsn,{max:1,prepare:false,onnotice:()=>{}});
 const user="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 let db:typeof import("./db");
 let generation:typeof import("./generationJobs");

@@ -143,9 +143,9 @@ def test_shutdown_has_one_global_30_second_drain_and_no_new_children(monkeypatch
         return child
 
     assert s.supervise(Stop(clock, 10), spawn, clock) == 0
-    assert len(children) == 3
-    assert [c.terminated for c in children] == [10, 10, 10]
-    assert [c.killed for c in children] == [40, 40, 40]
+    assert len(children) == 4
+    assert [c.terminated for c in children] == [10, 10, 10, 10]
+    assert [c.killed for c in children] == [40, 40, 40, 40]
     assert clock() == 40
 
 
@@ -424,19 +424,20 @@ sys.exit(s.main())
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 lines = marker.read_text().splitlines() if marker.exists() else []
-                if len(lines) == cycle * 3:
+                if len(lines) == cycle * 4:
                     break
                 time.sleep(0.01)
-            assert len(lines) == cycle * 3
+            assert len(lines) == cycle * 4
             process.terminate()
             assert process.wait(timeout=3) == 0
-            assert [line.split(":")[0] for line in lines[-3:]] == [
+            assert [line.split(":")[0] for line in lines[-4:]] == [
                 "reviewer",
                 "maintenance",
                 "archive",
+                "source",
             ]
             assert all(
-                not Path("/proc", line.split(":")[1]).exists() for line in lines[-3:]
+                not Path("/proc", line.split(":")[1]).exists() for line in lines[-4:]
             )
         finally:
             if process.poll() is None:

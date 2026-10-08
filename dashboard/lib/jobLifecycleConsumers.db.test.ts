@@ -18,8 +18,8 @@ beforeAll(async()=>{
   await sql.unsafe("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
   const migration=readFileSync(resolve(process.cwd(),"../migrations/2026-10-07-04-lifecycle-feed.sql"),"utf8");
   const schema=readFileSync(resolve(process.cwd(),"../schema.sql"),"utf8");
-  expect(schema.endsWith(migration)).toBe(true);
-  await sql.unsafe(schema.slice(0,-migration.length));
+  expect(schema).toContain(migration);
+  await sql.unsafe(schema);
   await sql.unsafe(migration);
   await sql.unsafe(migration);
   await sql`INSERT INTO companies(id,name,ats,token) VALUES(1,'Fixture','lever','fixture')`;

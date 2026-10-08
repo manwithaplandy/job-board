@@ -257,14 +257,19 @@ def complete(conn, source_id, sequence, claim, *, successful, failed=False):
 
 
 def reconcile(conn, source_id, sequence, claim, *, limit=100):
+    """Public bool API; callers still own the transaction."""
+    return _reconcile(conn, source_id, sequence, claim, limit=limit)[0]
+
+
+def _reconcile(conn, source_id, sequence, claim, *, limit=100) -> tuple[bool, int]:
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("operational reconcile chunk exceeds 100")
     enter_gate(conn)
     state = _state(conn, source_id, sequence)
     if state["status"] != "complete":
-        return True
+        return True, 0
     if state["reconciled"]:
-        return True
+        return True, 0
     rows = conn.execute(
         """SELECT p.*,l.job_id,l.successful_last_observed_at FROM lifecycle_operational_listings p
        JOIN source_listings l ON l.id=p.listing_id WHERE p.source_id=%s
@@ -273,6 +278,7 @@ def reconcile(conn, source_id, sequence, claim, *, limit=100):
     ).fetchall()
     lock_jobs(conn, [r["job_id"] for r in rows])
     _receipt(conn, source_id, claim)
+    closed = 0
     for row in rows:
         if (
             row["seen_sequence"] >= sequence
@@ -295,17 +301,17 @@ def reconcile(conn, source_id, sequence, claim, *, limit=100):
             (state["completed_at"], state["completed_at"], row["listing_id"]),
         ).fetchone()
         if result["closed"]:
-            conn.execute(
-                "UPDATE jobs SET closed_at=COALESCE(closed_at,%s) WHERE id=%s",
+            closed += conn.execute(
+                "UPDATE jobs SET closed_at=%s WHERE id=%s AND closed_at IS NULL",
                 (state["completed_at"], row["job_id"]),
-            )
+            ).rowcount
         _flush(conn)
     done = len(rows) < limit
     conn.execute(
         "UPDATE lifecycle_operational_sources SET cursor=%s,reconciled=%s WHERE source_id=%s",
         (rows[-1]["listing_id"] if rows else state["cursor"], done, source_id),
     )
-    return done
+    return done, closed
 
 
 def run_due(conn, *, max_boards, deadline, source_id=None):
@@ -328,7 +334,7 @@ def run_due(conn, *, max_boards, deadline, source_id=None):
         "SELECT count(*) n FROM source_accounts s WHERE exclusion_state IN ('enabled','failure_disabled') AND (next_due_at IS NULL OR next_due_at<=clock_timestamp()) AND NOT EXISTS(SELECT FROM lifecycle_operational_sources p WHERE p.source_id=s.id)"
     ).fetchone()["n"]
     conn.commit()
-    progress = {"complete": 0, "deferred": missing}
+    progress = {"complete": 0, "deferred": missing, "closed_jobs": 0}
     for source in sources:
         if monotonic() >= deadline:
             break
@@ -410,8 +416,9 @@ def run_due(conn, *, max_boards, deadline, source_id=None):
                 if status != "complete":
                     continue
             while monotonic() < deadline:
-                done = reconcile(conn, source["id"], sequence, claim)
+                done, closed = _reconcile(conn, source["id"], sequence, claim)
                 conn.commit()
+                progress["closed_jobs"] += closed
                 if done:
                     progress["complete"] += 1
                     break

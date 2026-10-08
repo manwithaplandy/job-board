@@ -233,6 +233,11 @@ with psycopg.connect(os.environ["TEST_DATABASE_URL"],row_factory=dict_row) as c:
   expect((await response.json()).currentDescription).toBe("Delivered JD");
   const consumed=(await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${ready.id}`)[0].consumed_at;
   expect(consumed).toBeInstanceOf(Date);
+  await requestJobPayload(owner,jobId,"description"); // Status/helper read is not delivery.
+  session.user=null;
+  await GET(new Request(`http://local/api/jobs/${jobId}`),{params:Promise.resolve({id:jobId})});
+  session.user=owner;
+  expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${ready.id}`)[0].consumed_at).toEqual(consumed);
   expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${other}`)[0].consumed_at).toBeNull();
   execFileSync(python!,["-c",`
 import os, psycopg
@@ -261,11 +266,24 @@ test.each([true,false])("applied status preserves existing known=%s résumé wit
     VALUES(${owner},${actualJob},${known?version:null},${known?"Saved JD":null},'{"retained":"resume"}')`;
   const before=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${actualJob}`)[0];
   const {markApplicationApplied}=await import("@/app/actions/applications");
+  await sql.begin(async tx=>{
+    await tx`ALTER TABLE lifecycle_control DISABLE TRIGGER lifecycle_control_history`;
+    await tx`UPDATE lifecycle_control SET safety_stage='enforced',activation_generation=activation_generation+1`;
+    await tx`ALTER TABLE lifecycle_control ENABLE TRIGGER lifecycle_control_history`;
+  });
+  try {
   await markApplicationApplied(actualJob);
   const after=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${actualJob}`)[0];
   expect(after.status).toBe("applied");
   for(const key of ['resume_json','cover_letter_json','prefilled_answers','job_version_id','description_snapshot','questions_snapshot','snapshot_captured_at']) expect(after[key]).toEqual(before[key]);
   expect(await sql`SELECT 1 FROM job_payload_demands WHERE user_id=${owner} AND job_id=${actualJob}`).toHaveLength(0);
+  } finally {
+    await sql.begin(async tx=>{
+      await tx`ALTER TABLE lifecycle_control DISABLE TRIGGER lifecycle_control_history`;
+      await tx`UPDATE lifecycle_control SET safety_stage='legacy',activation_generation=activation_generation+1`;
+      await tx`ALTER TABLE lifecycle_control ENABLE TRIGGER lifecycle_control_history`;
+    });
+  }
 });
 
 test("new payload wrapper preserves authenticated invoking role in an ordinary enforced write",async()=>{
@@ -283,4 +301,15 @@ test("new payload wrapper preserves authenticated invoking role in an ordinary e
   });
   expect((await sql`SELECT description_snapshot FROM job_reviews WHERE user_id=${user}`)[0].description_snapshot).toBe("Exact input");
   expect((await sql`SELECT count(*)::int n FROM lifecycle_claims WHERE kind='dashboard' AND state='active'`)[0].n).toBe(0);
+  execFileSync(python!,["-c",`
+import os, psycopg
+from psycopg.rows import dict_row
+from job_discovery.lifecycle.maintenance import _terminal_batch
+with psycopg.connect(os.environ['TEST_DATABASE_URL'],row_factory=dict_row) as c:
+    class Cutoff:
+        def execute(self,q,p=None): return c.execute(q.replace("clock_timestamp()-interval '168 hours'","clock_timestamp()+interval '1 hour'"),p)
+    assert _terminal_batch(Cutoff(),100,3)>0
+    c.commit()
+`],{cwd:resolve(process.cwd(),".."),env:process.env,timeout:20000});
+  expect(await sql`SELECT 1 FROM capacity_reservations WHERE claim_kind='dashboard'`).toHaveLength(0);
 });

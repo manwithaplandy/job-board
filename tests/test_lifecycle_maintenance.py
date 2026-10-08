@@ -294,27 +294,26 @@ def test_deleted_reservation_detail_requires_persisted_claim_floor(conn):
 
 @requires_db
 def test_only_safely_archived_unreferenced_superseded_versions_retire(conn):
-    from job_discovery.lifecycle.identity import migrate_identity_batch
+    from tests.test_lifecycle_reconcile import setup_source
+    from tests.test_lifecycle_admission import admit
+    from tests.test_lifecycle_final_fix1 import acknowledge, posting, retirement_fixture
+    from tests.archive_helpers import activate_fixture
     from job_discovery.lifecycle.locks import enter_gate
-    m = module()
-    cid = _company(conn,'versions')
-    jid = _job(conn,cid,'1')
-    migrate_identity_batch(conn)
-    listing = conn.execute('SELECT id FROM source_listings WHERE job_id=%s',(jid,)).fetchone()['id']
-    for revision in range(1,16):
-        conn.execute("""INSERT INTO job_versions(job_id,source_listing_id,revision,content_hash,public_metadata,observed_at,recorded_at)
-          VALUES(%s,%s,%s,repeat('a',64),'{}',clock_timestamp(),clock_timestamp()-make_interval(hours=>%s))""",
-          (jid,listing,revision,745 if revision in (5,6) else 1))
-    conn.execute('UPDATE jobs SET description_version_id=(SELECT id FROM job_versions WHERE revision=1)')
-    conn.execute('UPDATE source_listings SET current_revision=15,archived_revision=5,current_version_id=(SELECT id FROM job_versions WHERE revision=15)')
-    conn.commit()
+    source = setup_source(conn)
+    activate_fixture(conn)
+    _, claim = admit(conn,source,[posting()])
+    for i in range(2,12):
+        admit(conn,source,[posting(title=f"Role {i}")],claim)
+    acknowledge(conn)
+    retirement_fixture(conn)
     enter_gate(conn)
-    n,retired,_ = m._version_batch(conn,2000,False)
+    n, retired, _ = module()._version_batch(conn,100,False)
     conn.commit()
-    assert n == retired == 4  # 2/3/4 exceed ten superseded; 5 is >30d.
-    remaining = [r['revision'] for r in conn.execute('SELECT revision FROM job_versions ORDER BY revision')]
-    assert remaining == [1,*range(6,16)]  # 1 referenced, 6 unarchived, 15 current.
-    assert conn.execute('SELECT id FROM jobs').fetchone()['id'] == jid
+    assert n == retired == 1
+    assert [r['revision'] for r in conn.execute('SELECT revision FROM job_versions ORDER BY revision')] == list(range(2,12))
+    admit(conn,source,[posting(title="Next revision")],claim)
+    assert conn.execute('SELECT current_revision FROM source_listings').fetchone()['current_revision'] == 12
+    assert conn.execute('SELECT count(*) n FROM job_versions').fetchone()['n'] == 11
 
 
 @requires_db

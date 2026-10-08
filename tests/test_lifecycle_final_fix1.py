@@ -66,6 +66,9 @@ def test_archived_admission_resumes_at_prospective_bound(conn, case):
     assert conn.execute("SELECT title FROM jobs").fetchone()["title"] == "Changed"
     assert conn.execute("SELECT count(*) n FROM job_versions").fetchone()["n"] <= 11
     assert not conn.execute("SELECT 1 FROM job_versions v JOIN source_listings l ON l.id=v.source_listing_id WHERE v.id<>l.current_version_id AND v.recorded_at<clock_timestamp()-interval '30 days'").fetchone()
+    if case == "old_location":
+        assert conn.execute("SELECT location_id FROM job_locations WHERE job_version_id=%s",(current["current_version_id"],)).fetchone()["location_id"] == "London"
+        assert conn.execute("SELECT count(*) n FROM public_archive_coverage WHERE aggregate_type='job_locations'").fetchone()["n"] == 1
     assert not conn.execute("SELECT 1 FROM public_pending_events WHERE aggregate_type IN ('job_versions','job_locations','job_skills') AND kind='removed'").fetchone()
 
 
@@ -170,13 +173,36 @@ def test_actual_public_writer_reaches_terminal_cleanup(conn):
 
 
 @requires_db
+@pytest.mark.parametrize("copy_private", [False,True])
+def test_failed_fetch_and_private_copy_are_not_source_observations(conn,copy_private):
+    setup_source(conn)
+    user = str(uuid4())
+    first = demand.request_demand(conn,"lever:fixture:0",user,"description")
+    conn.commit()
+    assert demand.hydrate_demand(conn,first,lambda _: {"description":"Original JD"}) == "ready"
+    before = conn.execute("SELECT successful_sighting_count,successful_last_observed_at FROM source_listings").fetchone()
+    if copy_private:
+        conn.execute("""INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,snapshot_captured_at,resume_json)
+          SELECT user_id,job_id,job_version_id,description_snapshot,snapshot_captured_at,'{}' FROM job_payload_demands WHERE id=%s""",(first.id,))
+        conn.execute("DELETE FROM job_payload_demands WHERE id=%s",(first.id,))
+    request = demand.request_demand(conn,"lever:fixture:0",user,"generation")
+    conn.commit()
+    def fetch(_):
+        if copy_private:
+            pytest.fail("private copy fetched a source")
+        return None
+    assert demand.hydrate_demand(conn,request,fetch) == ("ready" if copy_private else "deferred")
+    assert conn.execute("SELECT successful_sighting_count,successful_last_observed_at FROM source_listings").fetchone() == before
+
+
+@requires_db
 @pytest.mark.parametrize("lane", ["normal", "operational"])
 def test_suspicious_empty_scheduler_has_finite_followup(conn, monkeypatch, caplog, lane):
     from job_discovery.adapters.completeness import SourceResult
     source = setup_source(conn, count=21)
     calls = []
     monkeypatch.setitem(__import__("job_discovery.adapters", fromlist=["ADAPTERS"]).ADAPTERS, "lever", lambda *a, **kw: SourceResult(iter([]), reconcile.SourceStatus()))
-    monkeypatch.setattr("job_discovery.lifecycle.demand.fetch_payload", lambda coordinates: calls.append(coordinates["external_id"]))
+    monkeypatch.setattr("job_discovery.http.get_json", lambda url, **kwargs: calls.append(url))
     if lane == "operational":
         claim = claim_work(conn, "source", str(source["id"]), 180)
         operational.provision(conn, source["id"], claim)

@@ -8,7 +8,7 @@ import pytest
 import psycopg
 from psycopg.rows import dict_row
 
-from tools.lifecycle_test_db import validate_test_dsn
+from tools.lifecycle_test_db import validate_test_dsn, checkpoint_owned_reset
 
 SCHEMA_SQL = (Path(__file__).resolve().parent.parent / "schema.sql").read_text()
 TEST_DSN = os.environ.get("TEST_DATABASE_URL")
@@ -121,6 +121,7 @@ def conn():
             # These are idempotent (IF NOT EXISTS) and safe to run every time.
             cur.execute(_CLANE_DDL)
         connection.commit()
+        checkpoint_owned_reset(connection)
         yield connection
     finally:
         connection.close()

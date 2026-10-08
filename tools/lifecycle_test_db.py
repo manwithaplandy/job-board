@@ -65,6 +65,39 @@ def validate_test_connection(conn: psycopg.Connection) -> None:
         raise ValueError("unsafe test connection: loopback test database required")
 
 
+
+def checkpoint_owned_reset(conn: psycopg.Connection) -> bool:
+    """Release obsolete fixture files after schema reset, only in this owned cluster.
+
+    This is test housekeeping, never a capacity credit or production operation.
+    Existing-service callers cannot inherit these markers through child_environment.
+    """
+    cid = os.environ.get("LIFECYCLE_TEST_CONTAINER_ID")
+    owner = os.environ.get("LIFECYCLE_TEST_CONTAINER_OWNER")
+    if not cid and not owner:
+        return False
+    validate_test_connection(conn)
+    if (
+        not cid or not owner or len(cid) != 64
+        or any(c not in "0123456789abcdef" for c in cid)
+        or conn.info.host != "127.0.0.1"
+        or conn.info.dbname != "poller_lifecycle_test" or conn.info.port == 55432
+    ):
+        raise ValueError("owned fixture reset identity unavailable")
+    template = '{"id":{{json .Id}},"owner":{{json (index .Config.Labels "poller.lifecycle-test.owner")}}}'
+    metadata = json.loads(_docker(["inspect", "--type", "container", "--format", template, cid]))
+    address = _docker(["port", cid, "5432/tcp"])
+    if metadata.get("id") != cid or metadata.get("owner") != owner or address != f"127.0.0.1:{conn.info.port}":
+        raise ValueError("owned fixture reset target mismatch")
+    conn.commit()  # Caller has just completed its clean schema fixture reset.
+    previous = conn.autocommit
+    conn.autocommit = True
+    try:
+        conn.execute("CHECKPOINT")
+    finally:
+        conn.autocommit = previous
+    return True
+
 def child_environment(dsn: str) -> dict[str, str]:
     """An allowlist prevents inherited provider/production/PG credentials.
 
@@ -228,7 +261,9 @@ def _cleanup_owned_container(name: str, owner: str, created_id: str | None) -> N
             raise RuntimeError("owned lifecycle container cleanup failed") from None
 
 
-def run_existing_database(command: list[str], dsn: str) -> int:
+def run_existing_database(
+    command: list[str], dsn: str, *, owned_container: tuple[str, str] | None = None
+) -> int:
     """Required CI entry for its already-owned local PostgreSQL service.
 
 The caller must provide TEST_DATABASE_URL explicitly; DATABASE_URL is ignored.
@@ -237,6 +272,8 @@ This entry never creates, drops, stops or cleans up a service/container.
     if not command:
         raise ValueError("a test command is required")
     env = child_environment(dsn)
+    if owned_container is not None:
+        env["LIFECYCLE_TEST_CONTAINER_ID"], env["LIFECYCLE_TEST_CONTAINER_OWNER"] = owned_container
     with _termination_handlers():
         try:
             process = subprocess.Popen(command, env=env, start_new_session=True)
@@ -308,7 +345,7 @@ def _isolated_database(command: list[str], postgres_major: int) -> int:
                 if time.monotonic() >= deadline:
                     raise RuntimeError("owned PostgreSQL readiness timed out") from None
                 threading.Event().wait(0.2)
-        return run_existing_database(command, dsn)
+        return run_existing_database(command, dsn, owned_container=(created_id, owner))
     except (subprocess.SubprocessError, OSError, RuntimeError, ValueError):
         # Never print CalledProcessError: its argv contains the generated password.
         print("Lifecycle test database launch failed", file=sys.stderr)

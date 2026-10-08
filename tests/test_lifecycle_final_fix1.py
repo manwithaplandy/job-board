@@ -197,12 +197,21 @@ def test_failed_fetch_and_private_copy_are_not_source_observations(conn,copy_pri
 
 @requires_db
 @pytest.mark.parametrize("lane", ["normal", "operational"])
-def test_suspicious_empty_scheduler_has_finite_followup(conn, monkeypatch, caplog, lane):
+@pytest.mark.parametrize("response", ["unknown", "failed", "live"])
+def test_suspicious_empty_scheduler_has_finite_followup(conn, monkeypatch, caplog, lane, response):
     from job_discovery.adapters.completeness import SourceResult
     source = setup_source(conn, count=21)
     calls = []
     monkeypatch.setitem(__import__("job_discovery.adapters", fromlist=["ADAPTERS"]).ADAPTERS, "lever", lambda *a, **kw: SourceResult(iter([]), reconcile.SourceStatus()))
-    monkeypatch.setattr("job_discovery.http.get_json", lambda url, **kwargs: calls.append(url))
+    def exact_response(url, **kwargs):
+        assert conn.info.transaction_status.name == "IDLE"
+        calls.append(url)
+        if response == "failed":
+            raise ValueError("offline request failed")
+        if response == "live":
+            return {"id":url.rsplit('/',1)[-1].split('?')[0],"descriptionPlain":"Still live"}
+        return None
+    monkeypatch.setattr("job_discovery.http.get_json", exact_response)
     if lane == "operational":
         claim = claim_work(conn, "source", str(source["id"]), 180)
         operational.provision(conn, source["id"], claim)
@@ -221,6 +230,18 @@ def test_suspicious_empty_scheduler_has_finite_followup(conn, monkeypatch, caplo
     assert conn.execute("SELECT count(*) n FROM jobs WHERE closed_at IS NULL").fetchone()["n"] == 21
     assert conn.execute("SELECT followup_status FROM source_accounts").fetchone()["followup_status"] == "migration_review"
     assert "migration review" in caplog.text
+
+
+@requires_db
+def test_completion_recovery_retains_unfinished_accounting(conn):
+    from job_discovery.lifecycle.capacity import reserve_capacity
+    claim = claim_work(conn,"public_writer","unfinished-local-fixture",180)
+    reservation = reserve_capacity(conn,claim,8192)
+    conn.commit()
+    assert maintenance.finalize_completed_producers(conn,100) == 0
+    conn.commit()
+    assert conn.execute("SELECT state FROM capacity_reservations WHERE id=%s",(reservation.id,)).fetchone()["state"] == "held"
+    assert conn.execute("SELECT state FROM lifecycle_claims WHERE owner_token=%s",(claim.owner_token,)).fetchone()["state"] == "active"
 
 
 @requires_db

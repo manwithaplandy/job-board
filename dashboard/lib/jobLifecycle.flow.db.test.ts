@@ -3,8 +3,10 @@ import {readFileSync} from "node:fs";
 import {execFileSync} from "node:child_process";
 import {resolve} from "node:path";
 import postgres from "postgres";
-import {beforeAll,afterAll,expect,test} from "vitest";
+import {beforeAll,afterAll,expect,test,vi} from "vitest";
 import {requestJobPayload,consumeJobVersion} from "./jobLifecycle";
+const session=vi.hoisted(()=>({user:"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as string|null}));
+vi.mock("@/lib/auth",()=>({requireUserId:async()=>session.user,getUserId:async()=>session.user}));
 
 const dsn=process.env.TEST_DATABASE_URL;
 const python=process.env.LIFECYCLE_TEST_PYTHON;
@@ -203,6 +205,68 @@ with psycopg.connect(os.environ["TEST_DATABASE_URL"], row_factory=dict_row) as c
   expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${ready.id}`)[0].consumed_at).toBeInstanceOf(Date);
 });
 
+test("actual non-Greenhouse worker supports applied status and ready detail exact use",async()=>{
+  const jobId="lever:final:delivery",owner=session.user!;
+  await sql`UPDATE companies SET ats='lever' WHERE id=1`;
+  await sql`INSERT INTO jobs(id,company_id,external_id,title,url) VALUES(${jobId},1,'delivery','Role','https://example.test/job')`;
+  const source=(await sql`SELECT id FROM source_accounts LIMIT 1`)[0].id;
+  await sql`INSERT INTO source_listings(source_account_id,external_id,job_id,original_discovered_at,discovery_anchor_at,discovery_anchor_provenance,discovery_expires_at)
+    VALUES(${source},'delivery',${jobId},now(),now(),'local_observation',now()+interval '30 days')`;
+  const first=await requestJobPayload(owner,jobId,"description");
+  expect(first.status).toBe("pending");
+  execFileSync(python!,["-c",`
+import os, psycopg
+from psycopg.rows import dict_row
+from job_discovery.lifecycle.demand import hydrate_demand
+from job_discovery.lifecycle.types import DemandRef
+with psycopg.connect(os.environ["TEST_DATABASE_URL"],row_factory=dict_row) as c:
+    r=c.execute("SELECT * FROM job_payload_demands WHERE job_id='lever:final:delivery'").fetchone()
+    c.commit()
+    assert hydrate_demand(c,DemandRef(r['id'],r['job_id'],r['kind'],None,r['status']),lambda _: {'description':'Delivered JD'})=='ready'
+`],{cwd:resolve(process.cwd(),".."),env:process.env,timeout:20000});
+  const ready=await requestJobPayload(owner,jobId,"description");
+  if(ready.status!=="ready") throw new Error("ready expected");
+  const other=(await sql`INSERT INTO job_payload_demands(user_id,job_id,kind,status,job_version_id,description_snapshot,snapshot_captured_at,settled_at)
+    VALUES(${owner},${jobId},'generation','ready',${ready.versionId},'Other JD',clock_timestamp(),clock_timestamp()) RETURNING id`)[0].id;
+  const {markApplicationApplied,unmarkApplicationApplied}=await import("@/app/actions/applications");
+  await markApplicationApplied(jobId);
+  const saved=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`)[0];
+  expect(saved).toMatchObject({status:"applied",description_snapshot:"Delivered JD",questions_snapshot:null,job_version_id:ready.versionId});
+  await markApplicationApplied(jobId);
+  expect((await sql`SELECT applied_at FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`)[0].applied_at).toEqual(saved.applied_at);
+  await unmarkApplicationApplied(jobId);
+  expect(await sql`SELECT 1 FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`).toHaveLength(0);
+  const {GET}=await import("@/app/api/jobs/[id]/route");
+  const response=await GET(new Request(`http://local/api/jobs/${jobId}`),{params:Promise.resolve({id:jobId})});
+  expect((await response.json()).currentDescription).toBe("Delivered JD");
+  const consumed=(await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${ready.id}`)[0].consumed_at;
+  expect(consumed).toBeInstanceOf(Date);
+  expect((await sql`SELECT consumed_at FROM job_payload_demands WHERE id=${other}`)[0].consumed_at).toBeNull();
+  execFileSync(python!,["-c",`
+import os, psycopg
+from psycopg.rows import dict_row
+from job_discovery.lifecycle.demand import apply_consumptions
+with psycopg.connect(os.environ['TEST_DATABASE_URL'],row_factory=dict_row) as c: apply_consumptions(c)
+`],{cwd:resolve(process.cwd(),".."),env:process.env,timeout:20000});
+  expect((await sql`SELECT description_last_used_at FROM jobs WHERE id=${jobId}`)[0].description_last_used_at).toEqual(consumed);
+});
+
+test.each([true,false])("applied status preserves existing known=%s résumé without questions or recapture",async known=>{
+  const owner=session.user!,jobId=known?"lever:final:known":"lever:final:legacy";
+  await sql`INSERT INTO jobs(id,company_id,external_id,title,url) VALUES(${jobId},1,${jobId},'Role','https://example.test/job')`;
+  // The known package uses the existing Job's exact version; legacy remains honestly nullable.
+  const actualJob=known?"job":jobId;
+  await sql`INSERT INTO application_packages(user_id,job_id,job_version_id,description_snapshot,resume_json)
+    VALUES(${owner},${actualJob},${known?version:null},${known?"Saved JD":null},'{"retained":"resume"}')`;
+  const before=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${actualJob}`)[0];
+  const {markApplicationApplied}=await import("@/app/actions/applications");
+  await markApplicationApplied(actualJob);
+  const after=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${actualJob}`)[0];
+  expect(after.status).toBe("applied");
+  for(const key of ['resume_json','cover_letter_json','prefilled_answers','job_version_id','description_snapshot','questions_snapshot','snapshot_captured_at']) expect(after[key]).toEqual(before[key]);
+  expect(await sql`SELECT 1 FROM job_payload_demands WHERE user_id=${owner} AND job_id=${actualJob}`).toHaveLength(0);
+});
+
 test("new payload wrapper preserves authenticated invoking role in an ordinary enforced write",async()=>{
   // Local fixture selects the installed writer contract; no control transition is claimed.
   await sql.begin(async tx=>{
@@ -217,4 +281,5 @@ test("new payload wrapper preserves authenticated invoking role in an ordinary e
       VALUES(${user},'job','v','approve',${version},'Exact input')`;
   });
   expect((await sql`SELECT description_snapshot FROM job_reviews WHERE user_id=${user}`)[0].description_snapshot).toBe("Exact input");
+  expect((await sql`SELECT count(*)::int n FROM lifecycle_claims WHERE kind='dashboard' AND state='active'`)[0].n).toBe(0);
 });

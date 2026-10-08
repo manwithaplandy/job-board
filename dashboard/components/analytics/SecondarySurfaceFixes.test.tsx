@@ -120,5 +120,6 @@ test('discovery totals do not claim employer openness and distinguish retained a
   expect(screen.getAllByText('100% of discovery')).toHaveLength(1);
   expect(screen.getAllByText('0.0% of discovery')).toHaveLength(1);
   expect(screen.queryByText(/of open/)).toBeNull();
+  expect(screen.queryByText(/of approved/)).toBeNull();
   expect(screen.getByText(/Applied totals include retained history/)).toBeTruthy();
 });

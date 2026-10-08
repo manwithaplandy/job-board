@@ -1,9 +1,15 @@
+vi.mock("@/lib/jobLifecycle", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  readPrivateSnapshot: vi.fn(async () => null),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const sqlMock = vi.fn();
 vi.mock("@/lib/db", () => {
   const tx = Object.assign((...a: unknown[]) => sqlMock(...a), { json: (v: unknown) => v });
-  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx),
+    withUserPayloadMutation: (_u: string, _j: string, _s: string, fn: (t:unknown)=>unknown)=>fn(tx) };
 });
 vi.mock("@/lib/auth", () => ({
   requireUserId: vi.fn(async () => "u1"),
@@ -99,4 +105,17 @@ describe("deleteCoverLetterEdit", () => {
     await expect(deleteCoverLetterEdit("j1")).resolves.toEqual({ ok: true });
     expect(sqlMock).toHaveBeenCalledOnce();
   });
+});
+
+it("legacy cover editing preserves unknown provenance after unrelated hydration", async () => {
+  const lifecycle = await import("@/lib/jobLifecycle");
+  const actual = await vi.importActual<typeof lifecycle>("@/lib/jobLifecycle");
+  vi.mocked(lifecycle.readPrivateSnapshot).mockImplementationOnce(actual.readPrivateSnapshot);
+  sqlMock.mockResolvedValueOnce([{job_version_id:null,description_snapshot:null,questions_snapshot:null,snapshot_captured_at:null}])
+    .mockResolvedValueOnce([{...SRC_ROW,description:"Later shared JD"}])
+    .mockResolvedValueOnce(undefined);
+  await saveCoverLetterEdit("j1", "Edited legacy letter");
+  expect(sqlMock).toHaveBeenCalledTimes(3);
+  expect(sqlMock.mock.calls[2].slice(1,7)).toEqual(["u1","j1",null,null,null,null]);
+  expect(upsertMock).toHaveBeenCalledWith(expect.objectContaining({input:expect.objectContaining({job:expect.objectContaining({description:null})})}));
 });

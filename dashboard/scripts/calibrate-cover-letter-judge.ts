@@ -65,7 +65,7 @@ async function loadEdits(): Promise<EditRow[]> {
     SELECT e.user_id, e.job_id, e.edited_text, e.original_text, e.cover_letter_trace_id,
            e.model, e.comment, e.edited_at::text AS edited_at,
            ap.cover_letter_instructions,
-           j.title, COALESCE(c.display_name, c.name) AS company_name, j.description,
+           j.title, COALESCE(c.display_name, c.name) AS company_name, COALESCE(e.description_snapshot, j.description) AS description,
            r.about,
            COALESCE(r.requirements, '[]'::jsonb) AS requirements,
            COALESCE(r.skill_gaps,   '[]'::jsonb) AS skill_gaps,

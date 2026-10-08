@@ -1,3 +1,12 @@
+from job_discovery.lifecycle.config import (
+    read_control,
+    legacy_description_capture_allowed,
+)
+from job_discovery.lifecycle.maintenance import pre_admission_maintenance
+from job_discovery.lifecycle.locks import enter_gate
+from job_discovery.lifecycle.capacity import CEILING_BYTES
+from job_discovery.lifecycle.errors import StorageBlocked
+from job_discovery.lifecycle.legacy_spool import spool_feed, spool_questions
 import logging
 
 from job_discovery import db
@@ -9,30 +18,32 @@ from job_discovery.targets import load_targets
 log = logging.getLogger("job_discovery")
 
 
-def backfill_greenhouse_questions(conn, company_id, token, *, get_json=None, log=log) -> int:
+def backfill_greenhouse_questions(
+    conn, company_id, token, *, get_json=None, log=log
+) -> int:
     """Fetch + persist the question schema for this Greenhouse company's open jobs that
     lack a job_questions row (rolling backfill). One HTTP call per missing job, each
     wrapped so a single failure never aborts the company. Returns the count persisted."""
-    get_json = get_json or _get_json
-    fetched = 0
-    for external_id in db.greenhouse_jobs_missing_questions(conn, company_id):
-        url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{external_id}?questions=true"
-        # ONLY the HTTP fetch + pure parse are swallowed. A DB write error must NOT be
-        # caught here — a failed statement aborts the transaction, and continuing to
-        # issue statements (all silently caught) then `conn.commit()` in the poll loop
-        # would commit an aborted tx (→ rollback), discarding the company's whole
-        # upsert_jobs work with no error. Let db errors propagate to the per-company
-        # handler, which rolls back correctly (mirrors smartrecruiters/workday:
-        # HTTP-only try/except).
-        try:
-            questions = parse_greenhouse_questions(get_json(url))
-        except Exception as e:  # noqa: BLE001 — fetch/parse only; never abort the company
-            log.warning("greenhouse question fetch failed for %s:%s (%s)", token, external_id, e)
-            continue
-        if questions and questions["questions"]:
-            db.insert_job_questions(conn, f"greenhouse:{token}:{external_id}", questions)
+    with spool_questions(
+        conn,
+        company_id,
+        token,
+        get_json or _get_json,
+        parse_greenhouse_questions,
+        db.greenhouse_jobs_missing_questions,
+        log=log,
+    ) as questions:
+        fetched = 0
+        for external_id, data in questions:
+            db.insert_job_questions(
+                conn, f"greenhouse:{token}:{external_id}", data, overwrite=False
+            )
             fetched += 1
-    return fetched
+            if fetched % UPSERT_CHUNK_SIZE == 0:
+                conn.commit()
+        conn.commit()
+        return fetched
+
 
 # Upsert postings in fixed-size chunks. The workday adapter yields lazily to keep
 # peak memory bounded (A10); buffering a whole tenant into one list before a single
@@ -44,10 +55,52 @@ UPSERT_CHUNK_SIZE = 500
 def _run_prune(conn) -> None:
     try:
         from job_discovery.prune import prune_jobs
+
         prune_jobs(conn)
     except Exception:
         conn.rollback()
         log.exception("prune phase failed; poll results unaffected")
+
+
+def _admit_chunk(conn, company_id, ats, token, chunk):
+    """Measure again under the gate before each bounded admission transaction."""
+    try:
+        enter_gate(conn)
+        over, _, _ = db.over_size_ceiling(conn)
+        held = conn.execute(
+            "SELECT COALESCE(sum(bytes),0) AS bytes FROM capacity_reservations WHERE state='held'"
+        ).fetchone()["bytes"]
+        # Conservative local forecast includes payload expansion/index/WAL room.
+        # Enforced compatible writers still require their Task 3 reservations.
+        capture_description = legacy_description_capture_allowed(conn)
+        forecast = sum(
+            16384
+            + 4
+            * sum(
+                len(str(value).encode("utf-8"))
+                for value in db._posting_row(
+                    ats, token, company_id, p, capture_description=capture_description
+                )
+                if value is not None
+            )
+            for p in chunk
+        )
+        allocated = conn.execute(
+            "SELECT pg_database_size(current_database()) AS bytes"
+        ).fetchone()["bytes"]
+        if over or allocated + held + forecast >= CEILING_BYTES:
+            log.warning(
+                "admission paused at chunk boundary; source verification continues"
+            )
+            conn.commit()
+            return 0, True
+    except Exception:
+        conn.rollback()
+        log.exception("admission capacity measurement failed; verification only")
+        return 0, True
+    admitted = db.upsert_jobs(conn, company_id, ats, token, chunk)
+    conn.commit()
+    return admitted, False
 
 
 def run(dsn: str | None = None) -> dict:
@@ -57,6 +110,7 @@ def run(dsn: str | None = None) -> dict:
     ``closed_jobs``.  Callers (e.g. ``__main__``) use this to decide the
     process exit code.
     """
+    maintenance = pre_admission_maintenance(dsn)
     targets = load_targets()
     conn = db.connect(dsn)
     try:
@@ -69,79 +123,150 @@ def run(dsn: str | None = None) -> dict:
             log.warning("another poll run holds the lock; exiting")
             return {"ok": 0, "failed": 0, "new_jobs": 0, "closed_jobs": 0}
 
-        over, size_mb, ceiling_mb = db.over_size_ceiling(conn)
+        try:
+            over, size_mb, ceiling_mb = db.over_size_ceiling(conn)
+        except Exception:
+            conn.rollback()
+            log.exception("capacity check failed; verification only")
+            over, size_mb, ceiling_mb = True, 0, 6000
+        over = over or maintenance.blocked
         guard_note = None
         if over:
-            guard_note = f"maintenance only: db at {size_mb:.0f} MB >= ceiling {ceiling_mb:.0f} MB"
-            log.warning("%s; checking closures without ingestion or enrichment", guard_note)
+            guard_note = (
+                "maintenance only: safety maintenance blocked admission"
+                if maintenance.blocked
+                else f"maintenance only: capacity unavailable or db at {size_mb:.0f} MiB; ceiling {ceiling_mb:.0f} MiB"
+            )
+            log.warning(
+                "%s; checking closures without ingestion or enrichment", guard_note
+            )
 
         run_id = db.start_run(conn)
+        conn.commit()  # Accounting survives rollback of the first seed chunk.
+        seed_deferred = False
+        seed_committed = 0
         if not over:
-            db.sync_seed(conn, targets)
+            for start in range(0, len(targets), 100):
+                try:
+                    chunk = targets[start : start + 100]
+                    db.sync_seed(conn, chunk)
+                    conn.commit()
+                    seed_committed += len(chunk)
+                except StorageBlocked:
+                    conn.rollback()
+                    seed_deferred = True
+                    guard_note = f"seed storage deferred; {seed_committed} seed targets committed; existing-source verification continues"
+                    conn.execute(
+                        "UPDATE poll_runs SET notes=%s WHERE id=%s",
+                        (guard_note, run_id),
+                    )
+                    conn.commit()
+                    log.warning(guard_note)
+                    break
+        from job_discovery.lifecycle.reconcile import verify_due_sources
+
+        source_enabled = read_control(conn).source_enabled
         conn.commit()
+        if source_enabled:
+            if not over:
+                try:
+                    db.sync_source_accounts(conn)
+                    conn.commit()
+                except StorageBlocked:
+                    conn.rollback()
+                    log.warning(
+                        "source catalog storage blocked; verifying registered corpus"
+                    )
+            counts = verify_due_sources(conn, admission_allowed=not over)
+            counts["seed_storage_deferred"] = seed_deferred
+            counts["seed_targets_committed"] = seed_committed
+            counts["storage_deferred"] = counts.get("storage_deferred", 0) + int(
+                seed_deferred
+            )
+            db.finish_run(
+                conn,
+                run_id,
+                companies_ok=counts["ok"],
+                companies_failed=counts["failed"],
+                new_jobs=counts["new_jobs"],
+                closed_jobs=counts["closed_jobs"],
+                notes="; ".join(
+                    ([guard_note] if guard_note else [])
+                    + ["full-corpus source verification and lean metadata admission"]
+                ),
+            )
+            conn.commit()
+            return counts
+        # In legacy mode a seed deferral also stops ordinary payload admission;
+        # existing source close/reopen verification remains in the legacy loop.
+        over = over or seed_deferred
         companies = db.active_companies(conn)
+        conn.commit()  # No read transaction spans adapter HTTP.
 
         ok = failed = new_jobs = closed_jobs = 0
+        aborted = False
         failures: list[str] = []
 
         for co in companies:
             ats, token, company_id = co["ats"], co["token"], co["id"]
             try:
-                company_new = company_closed = 0
-                postings = (ADAPTERS[ats](token, fetch_details=False)
-                            if over and ats in {"workday", "smartrecruiters"}
-                            else ADAPTERS[ats](token))
-                seen: set[str] = set()
-                chunk: list = []
-                for p in postings:
-                    if p.external_id:
-                        seen.add(p.external_id)   # close-detection sees every live posting,
-                    if over:
-                        continue
-                    if not p.url or not p.title:  # even ones too malformed to upsert
-                        log.warning(
-                            "skipping malformed posting %s for %s",
-                            p.external_id, co["name"],
+                company_closed = 0
+                capture_description = not over and legacy_description_capture_allowed(
+                    conn
+                )
+                conn.commit()  # No gate/read transaction spans legacy detail HTTP.
+                postings = (
+                    ADAPTERS[ats](token, fetch_details=capture_description)
+                    if ats in {"workday", "smartrecruiters"}
+                    else ADAPTERS[ats](token)
+                )
+                admissible_ids = set()
+                with spool_feed(postings, admissible_ids=admissible_ids) as (
+                    buffered,
+                    seen,
+                ):
+                    chunk: list = []
+                    for p in buffered:
+                        if over or not p.metadata_complete or not p.url or not p.title:
+                            continue
+                        chunk.append(p)
+                        if len(chunk) >= UPSERT_CHUNK_SIZE:
+                            admitted, over = _admit_chunk(
+                                conn, company_id, ats, token, chunk
+                            )
+                            new_jobs += admitted
+                            chunk = []
+                    if chunk:
+                        admitted, over = _admit_chunk(
+                            conn, company_id, ats, token, chunk
                         )
-                        continue
-                    chunk.append(p)
-                    if len(chunk) >= UPSERT_CHUNK_SIZE:
-                        # Flush and release this chunk so a large (lazily-yielded)
-                        # tenant never holds more than one chunk in memory at once.
-                        company_new += db.upsert_jobs(conn, company_id, ats, token, chunk)
-                        chunk = []
-                if chunk:
-                    company_new += db.upsert_jobs(conn, company_id, ats, token, chunk)
-                # `seen` now holds every truthy external_id from ALL chunks, so
-                # close-detection below never misses a posting from a later chunk.
-                if not getattr(postings, "complete", True):
-                    raise ValueError("source enumeration incomplete; refusing closure reconciliation")
+                        new_jobs += admitted
+                    conn.commit()
                 if over:
                     db.reopen_jobs(conn, company_id, seen)
                 open_ids = db.get_open_external_ids(conn, company_id)
                 if not seen and len(open_ids) > 20:
                     log.error(
                         "%s returned zero postings but has %d open jobs; skipping close-detection",
-                        co["name"], len(open_ids),
+                        co["name"],
+                        len(open_ids),
                     )
                 else:
                     company_closed += db.close_jobs(
                         conn, company_id, db.compute_newly_closed(open_ids, seen)
                     )
-                if not over and ats == "greenhouse":
-                    backfill_greenhouse_questions(conn, company_id, token)
                 # Healthy poll: clear any accrued failure streak in the same tx.
                 db.record_poll_result(conn, company_id, ok=True)
                 conn.commit()
-                new_jobs += company_new
                 closed_jobs += company_closed
                 ok += 1
             except Exception as exc:  # per-company isolation (incl. dead boards)
                 try:
                     conn.rollback()
                 except Exception:
-                    log.exception("rollback failed for %s; attempting reconnect",
-                                  co["name"])
+                    log.exception(
+                        "rollback failed for %s; attempting reconnect", co["name"]
+                    )
                     # The old connection is unusable. Close it first — that releases
                     # its session advisory lock and frees the socket — so we don't
                     # leak the connection (and its lock) when we open a fresh one.
@@ -150,8 +275,21 @@ def run(dsn: str | None = None) -> dict:
                     except Exception:
                         log.exception("closing the broken connection failed")
                     try:
+                        maintenance = pre_admission_maintenance(dsn)
                         conn = db.connect(dsn)
+                        locked = conn.execute(
+                            "SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked"
+                        ).fetchone()["locked"]
+                        if not locked:
+                            raise RuntimeError("poll lock unavailable after reconnect")
+                        try:
+                            reconnect_over, _, _ = db.over_size_ceiling(conn)
+                        except Exception:
+                            conn.rollback()
+                            reconnect_over = True
+                        over = over or maintenance.blocked or reconnect_over
                     except Exception:
+                        aborted = True
                         log.exception("reconnect failed; aborting poll")
                         failures.append(f"{co['name']}: {type(exc).__name__}: {exc}")
                         failed += 1
@@ -169,28 +307,78 @@ def run(dsn: str | None = None) -> dict:
                     if deactivated:
                         log.warning(
                             "deactivating dead board %s (%s:%s) after %d consecutive failures",
-                            co["name"], ats, token, db.POLL_FAILURE_DEACTIVATE)
+                            co["name"],
+                            ats,
+                            token,
+                            db.POLL_FAILURE_DEACTIVATE,
+                        )
                 except Exception:
                     try:
                         conn.rollback()
                     except Exception:
-                        log.exception("rollback after failure-record error failed for %s",
-                                      co["name"])
+                        log.exception(
+                            "rollback after failure-record error failed for %s",
+                            co["name"],
+                        )
                     log.exception("recording poll failure for %s failed", co["name"])
 
+        if aborted:
+            # Reconnect/lock acquisition failed: accounting is best effort, and
+            # this invocation must never enter any optional post-poll phase.
+            try:
+                db.finish_run(
+                    conn,
+                    run_id,
+                    companies_ok=ok,
+                    companies_failed=failed,
+                    new_jobs=new_jobs,
+                    closed_jobs=closed_jobs,
+                    notes="; ".join(
+                        ["poll aborted after reconnect failure", *failures]
+                    ),
+                )
+                conn.commit()
+            except Exception:
+                log.exception("could not finalize aborted poll accounting")
+            return {
+                "ok": ok,
+                "failed": failed,
+                "new_jobs": new_jobs,
+                "closed_jobs": closed_jobs,
+                "seed_storage_deferred": seed_deferred,
+                "seed_targets_committed": seed_committed,
+                "storage_deferred": int(seed_deferred),
+            }
+
         db.finish_run(
-            conn, run_id,
-            companies_ok=ok, companies_failed=failed,
-            new_jobs=new_jobs, closed_jobs=closed_jobs,
+            conn,
+            run_id,
+            companies_ok=ok,
+            companies_failed=failed,
+            new_jobs=new_jobs,
+            closed_jobs=closed_jobs,
             notes="; ".join(([guard_note] if guard_note else []) + failures) or None,
         )
         conn.commit()
-        log.info("run complete: ok=%s failed=%s new=%s closed=%s",
-                 ok, failed, new_jobs, closed_jobs)
+        log.info(
+            "run complete: ok=%s failed=%s new=%s closed=%s",
+            ok,
+            failed,
+            new_jobs,
+            closed_jobs,
+        )
 
         if over:
             _run_prune(conn)
-            return {"ok": ok, "failed": failed, "new_jobs": 0, "closed_jobs": closed_jobs}
+            return {
+                "ok": ok,
+                "failed": failed,
+                "new_jobs": new_jobs,
+                "closed_jobs": closed_jobs,
+                "seed_storage_deferred": seed_deferred,
+                "seed_targets_committed": seed_committed,
+                "storage_deferred": int(seed_deferred),
+            }
 
         # Location canonicalization: resolve any raw location strings first
         # seen this poll, then re-stamp jobs.location_canonicals (also
@@ -199,14 +387,18 @@ def run(dsn: str | None = None) -> dict:
         # unresolved raws just retry tomorrow.
         try:
             from job_discovery.locations import resolve_new_locations
-            resolve_new_locations(conn)
+
+            location_counts = resolve_new_locations(conn)
             conn.commit()
+            if location_counts and not location_counts.get("complete", True):
+                log.warning("location resolution incomplete: %s", location_counts)
         except Exception:
             conn.rollback()
             log.exception("location resolution failed; poll results unaffected")
 
         try:
             from reviewer.run import review_all
+
             review_all(conn)
         except Exception:
             conn.rollback()
@@ -216,4 +408,12 @@ def run(dsn: str | None = None) -> dict:
     finally:
         conn.close()
 
-    return {"ok": ok, "failed": failed, "new_jobs": new_jobs, "closed_jobs": closed_jobs}
+    return {
+        "ok": ok,
+        "failed": failed,
+        "new_jobs": new_jobs,
+        "closed_jobs": closed_jobs,
+        "seed_storage_deferred": seed_deferred,
+        "seed_targets_committed": seed_committed,
+        "storage_deferred": int(seed_deferred),
+    }

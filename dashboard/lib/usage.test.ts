@@ -21,7 +21,7 @@ vi.mock("@/lib/db", () => {
     }
     return Promise.resolve([]);
   };
-  const tx = { unsafe: exec };
+  const tx = Object.assign((parts: TemplateStringsArray, ...values: unknown[]) => exec(parts.join(""), values), { unsafe: exec });
   // reserveGenerations runs inside serviceSql.begin (one transaction); refundGenerations
   // calls serviceSql.unsafe directly. tierConfig's withAnonSql is intentionally absent —
   // loadTierConfig degrades to the compiled ENTITLEMENTS defaults, which these caps use.
@@ -108,7 +108,7 @@ describe("reserveGenerations (atomic reserve, minor 4)", () => {
     state.plan = "standard";
     state.spendQueue = [0];
     await reserveGenerations("u", "e@x.com", ["resume"]);
-    const l = locks();
+    const l = locks().filter(c => !c.text.includes("20916294442894917"));
     expect(l).toHaveLength(1);
     expect(l[0].text).toContain("hashtextextended");
     expect(l[0].params).toEqual(["usage:u:resume"]);

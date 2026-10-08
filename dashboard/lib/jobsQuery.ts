@@ -1,3 +1,4 @@
+import { discoveryPredicate, sourceClosedPredicate } from "@/lib/jobLifecycle";
 import type { Filters } from "@/lib/filters";
 
 export interface SqlQuery {
@@ -10,12 +11,22 @@ export function buildJobsQuery(
   userId: string | null,
   viewerLocations: string[] = [],
   opts: {
+    historyOnly?: boolean;
+    countOnly?: boolean;
+    limit?: number;
+    offset?: number;
     humanOverrideOnly?: boolean;
     reviewedSince?: string;
     locationFromProfile?: boolean;
     companyFiltersFromProfile?: boolean;
   } = {},
 ): SqlQuery {
+  if (opts.historyOnly) {
+    if (!userId) throw new Error("History requires a viewer");
+    f = {...f, status:"all", verdict:"all", companies:[],include:[],exclude:[],remoteOnly:false,location:"",experience:"",industry:"",subcategory:""};
+    opts = {...opts,locationFromProfile:false,companyFiltersFromProfile:false};
+    viewerLocations = [];
+  }
   const values: unknown[] = [];
   const ph = () => `$${values.length + 1}`;
   const where: string[] = [];
@@ -40,7 +51,8 @@ export function buildJobsQuery(
     else if (f.verdict === "gate_rejected") where.push("r.stage1_decision = 'reject'");
     else if (f.verdict === "pending") where.push("r.job_id IS NULL");
     // "all" adds no verdict clause
-    where.push("r.error IS NULL");
+    if (!opts.historyOnly) where.push("r.error IS NULL");
+    if (opts.historyOnly) where.push(`(COALESCE(rc.verdict,r.verdict)='approve' OR rc.job_id IS NOT NULL OR EXISTS (SELECT 1 FROM application_packages ap WHERE ap.job_id=j.id AND ap.user_id=${viewerPh}::uuid))`);
     // Rejected-view recovery (getRejectedJobs): restrict to the operator's deliberate
     // rejects so AI denies — the bulk of deny rows — don't flood the view.
     if (opts.humanOverrideOnly) where.push("r.human_override IS TRUE");
@@ -55,8 +67,8 @@ export function buildJobsQuery(
   }
 
   // --- plain job filters (apply with or without an owner) ---
-  if (f.status === "open") where.push("j.closed_at IS NULL");
-  else if (f.status === "closed") where.push("j.closed_at IS NOT NULL");
+  if (f.status === "open") where.push(discoveryPredicate(f.includeOlderLive === true).text);
+  else if (f.status === "closed") where.push(sourceClosedPredicate().text);
 
   if (f.companies.length) {
     where.push(`j.company_id = ANY(${ph()})`);
@@ -165,6 +177,7 @@ export function buildJobsQuery(
   // unnecessary, not filtering on them.
   const selectCols = [
     "j.id", "j.title", "j.location", "j.location_canonicals", "j.remote",
+    "public.lifecycle_job_state(j.id) AS lifecycle",
     "j.first_seen_at", "j.closed_at", "COALESCE(c.display_name, c.name) AS company_name",
     // c.ats drives the Source facet; c.industry/size/hq_country are the global company
     // classification facts — selected ALWAYS (the anon board's facet filters read them
@@ -199,19 +212,28 @@ export function buildJobsQuery(
     : "";
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const finiteInt = (value: number | undefined, fallback: number) =>
+    value !== undefined && Number.isFinite(value) ? Math.trunc(value) : fallback;
+  const limit = Math.min(500, Math.max(1, finiteInt(opts.limit,500)));
+  const offset = Math.max(0, finiteInt(opts.offset,0));
+  // These literals are bounded integers derived here, never boundary text.
+  const pageSql = opts.countOnly ? [] : ["ORDER BY j.first_seen_at DESC, j.id ASC", `LIMIT ${limit}`, `OFFSET ${offset}`];
   const text = [
-    `SELECT ${selectCols.join(", ")}`,
+    opts.countOnly ? "SELECT count(*)::int AS total" : `SELECT ${selectCols.join(", ")}`,
     "FROM jobs j",
     "JOIN companies c ON c.id = j.company_id",
     reviewJoin,
     correctionsJoin,
     overridesJoin,
     whereSql,
-    "ORDER BY j.first_seen_at DESC",
-    "LIMIT 500",
+    ...pageSql,
   ]
     .filter(Boolean)
     .join("\n");
 
   return { text, values };
+}
+
+export function buildJobsCountQuery(f: Filters, userId: string | null, viewerLocations: string[] = [], opts: Parameters<typeof buildJobsQuery>[3] = {}): SqlQuery {
+  return buildJobsQuery(f,userId,viewerLocations,{...opts,countOnly:true});
 }

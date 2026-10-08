@@ -1,3 +1,8 @@
+vi.mock("@/lib/jobLifecycle", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  readPrivateSnapshot: vi.fn(async () => null),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const admin = vi.hoisted(() => ({ isAdmin: true }));
@@ -5,7 +10,8 @@ const admin = vi.hoisted(() => ({ isAdmin: true }));
 const sqlMock = vi.fn();
 vi.mock("@/lib/db", () => {
   const tx = Object.assign((...a: unknown[]) => sqlMock(...a), { json: (v: unknown) => v });
-  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx),
+    withUserPayloadMutation: (_u: string, _j: string, _s: string, fn: (t:unknown)=>unknown)=>fn(tx) };
 });
 vi.mock("@/lib/auth", () => ({
   requireUserId: vi.fn(async () => "u1"),
@@ -68,4 +74,18 @@ describe("saveResumeScore", () => {
     expect(upsertMock).not.toHaveBeenCalled();
     expect(res).toEqual({ ok: true, langfuseSynced: true });
   });
+});
+
+it("legacy résumé scoring preserves unknown provenance after unrelated hydration", async () => {
+  const lifecycle = await import("@/lib/jobLifecycle");
+  const actual = await vi.importActual<typeof lifecycle>("@/lib/jobLifecycle");
+  vi.mocked(lifecycle.readPrivateSnapshot).mockImplementationOnce(actual.readPrivateSnapshot);
+  sqlMock.mockResolvedValueOnce([{job_version_id:null,description_snapshot:null,questions_snapshot:null,snapshot_captured_at:null}])
+    .mockResolvedValueOnce([{resume_json:{name:"A"},resume_trace_id:null,title:"Role",company_name:"Acme",description:"Later shared JD",resume_text:"bg",model_resume:null}])
+    .mockResolvedValueOnce(undefined);
+  await saveResumeScore("j1", {grounding:4,jdRelevance:3,comment:null});
+  expect(sqlMock).toHaveBeenCalledTimes(3);
+  const insert = sqlMock.mock.calls[2];
+  expect(insert.slice(1,7)).toEqual(["u1","j1",null,null,null,null]);
+  expect(upsertMock).toHaveBeenCalledWith(expect.objectContaining({input:expect.objectContaining({description:null})}));
 });

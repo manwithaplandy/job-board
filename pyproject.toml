@@ -5,6 +5,8 @@ description = "Remote job tracker"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
+    "boto3==1.42.74",
+    "botocore==1.42.97",
     "requests>=2.31",
     "psycopg[binary]>=3.2",
     "openai>=1.50.0",
@@ -26,7 +28,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["job_discovery", "job_discovery.adapters", "reviewer", "company_discovery", "observability"]
+packages = ["job_discovery", "job_discovery.adapters", "job_discovery.lifecycle", "job_discovery.archive", "reviewer", "company_discovery", "observability"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests intentionally import after module-level env/stub setup.

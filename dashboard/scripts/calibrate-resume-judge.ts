@@ -22,7 +22,7 @@ async function loadScores(): Promise<ScoreRow[]> {
   return (await serviceSql`
     SELECT s.user_id, s.job_id, s.grounding, s.jd_relevance, s.comment,
            s.resume_trace_id, s.model, s.scored_at::text AS scored_at,
-           j.title, c.name AS company_name, j.description, p.resume_text
+           j.title, c.name AS company_name, COALESCE(s.description_snapshot, j.description) AS description, p.resume_text
     FROM resume_scores s
     JOIN jobs j       ON j.id = s.job_id
     JOIN companies c  ON c.id = j.company_id

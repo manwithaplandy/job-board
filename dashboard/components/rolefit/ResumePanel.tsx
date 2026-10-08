@@ -30,6 +30,8 @@ function legacyCopy(text: string) {
 export interface ResumePanelProps {
   job: JobRow;
   isAuthed: boolean;
+  /** Retained content stays readable when review prerequisites do not permit generation. */
+  allowGeneration?: boolean;
   /** undefined → idle; "busy" | "done" | "error" */
   state: string | undefined;
   data: TailoredResume | undefined;
@@ -58,6 +60,7 @@ export interface ResumePanelProps {
 export function ResumePanel({
   job,
   isAuthed,
+  allowGeneration = true,
   state,
   data,
   error,
@@ -92,7 +95,7 @@ export function ResumePanel({
   return (
     <Panel className="rf-generation-panel" style={{ marginTop: "24px", padding: 0, overflow: "hidden" }}>
       {/* ── Anon: sign-in prompt ── */}
-      {isAuthed === false && isIdle && (
+      {allowGeneration && isAuthed === false && isIdle && (
         <div
           className="rf-generation-panel__row"
           style={{
@@ -144,7 +147,7 @@ export function ResumePanel({
       )}
 
       {/* ── Idle (authed) ── */}
-      {isAuthed !== false && isIdle && (
+      {allowGeneration && isAuthed !== false && isIdle && (
         <div
           className="rf-generation-panel__row"
           style={{
@@ -183,14 +186,14 @@ export function ResumePanel({
                 for a sharper result.
               </div>
             )}
-            <GenerationInstructions
+            {allowGeneration && (<GenerationInstructions
               value={instructions}
               onChange={onInstructionsChange}
               kind="résumé"
               onSave={onSaveInstructions}
               dirty={instructionsDirty}
               appliedState={instructionsApplied}
-            />
+            />)}
           </div>
           <Button variant="primary" onClick={onGenerate} disabled={generating} style={{ flex: "0 0 auto" }}>
             <Icon name="sparkle" size={16} />Generate résumé
@@ -280,7 +283,7 @@ export function ResumePanel({
                   padding: "3px 8px",
                 }}
               >
-                Outdated — regenerate
+                {allowGeneration ? "Outdated — regenerate" : "Older profile version"}
               </span>
             )}
           </div>
@@ -342,29 +345,29 @@ export function ResumePanel({
               <Icon name="copy" size={16} />
               <span aria-live="polite">{copyLabel}</span>
             </Button>
-            <Button
+            {allowGeneration && (<Button
               type="button"
               variant="outline"
               onClick={onRegenerate}
               disabled={generating}
             >
               <Icon name="refresh" size={16} />Regenerate
-            </Button>
+            </Button>)}
           </div>
-          <GenerationInstructions
+          {allowGeneration && (<GenerationInstructions
             value={instructions}
             onChange={onInstructionsChange}
             kind="résumé"
             onSave={onSaveInstructions}
             dirty={instructionsDirty}
             appliedState={instructionsApplied}
-          />
-          <ResumeScorePanel job={job} resume={data} isAuthed={isAuthed} />
+          />)}
+          {allowGeneration && <ResumeScorePanel job={job} resume={data} isAuthed={isAuthed} />}
         </div>
       )}
 
       {/* ── Error ── */}
-      {isError && (
+      {allowGeneration && isError && (
         <div
           className="rf-generation-panel__row"
           style={{

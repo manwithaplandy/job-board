@@ -1,8 +1,10 @@
 "use server";
 
+import { readPrivateSnapshot } from "@/lib/jobLifecycle";
+
 import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
-import { withUserSql } from "@/lib/db";
+import { withUserSql, withUserPayloadMutation } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { parseTailoredCoverLetter } from "@/lib/rolefit/packageCodec";
 import { composeCoverLetterText } from "@/lib/rolefit/coverLetterText";
@@ -38,7 +40,8 @@ export async function saveCoverLetterEdit(
   const editedAt = new Date().toISOString();
   // Read the full replay context + persist the edit under the viewer's RLS context in
   // one transaction. Returns the source row for the (post-commit) LangFuse push.
-  const src = await withUserSql(userId, async (tx) => {
+  const src = await withUserPayloadMutation(userId, jobId, "cover_letter_edits", async (tx) => {
+    const snapshot = await readPrivateSnapshot(tx, jobId, "application_packages");
     const rows = await tx`
       SELECT ap.cover_letter_json, ap.cover_letter_trace_id, ap.cover_letter_instructions,
              j.title, COALESCE(c.display_name, c.name) AS company_name, j.description,
@@ -75,16 +78,17 @@ export async function saveCoverLetterEdit(
     // (superseded_at back to NULL) — the fresh edit is current again.
     await tx`
       INSERT INTO cover_letter_edits
-        (user_id, job_id, edited_text, original_text, cover_letter_trace_id,
+        (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, edited_text, original_text, cover_letter_trace_id,
          model, comment, superseded_at, edited_at)
-      VALUES (${userId}::uuid, ${jobId}, ${text}, ${originalText}, ${s.cover_letter_trace_id},
+      VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+        ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${text}, ${originalText}, ${s.cover_letter_trace_id},
               ${s.model_cover}, ${comment}, NULL, now())
       ON CONFLICT (user_id, job_id) DO UPDATE SET
         edited_text = EXCLUDED.edited_text, original_text = EXCLUDED.original_text,
         cover_letter_trace_id = EXCLUDED.cover_letter_trace_id, model = EXCLUDED.model,
         comment = EXCLUDED.comment, superseded_at = NULL, edited_at = now()
     `;
-    return { ...s, originalText };
+    return { ...s, description: snapshot ? snapshot.description : s.description, originalText };
   });
 
   // Push this edit to the shared golden dataset as the expected_output. Best-effort:

@@ -232,7 +232,10 @@ def test_guard_reconciles_only_complete_sources_without_ingestion(conn, monkeypa
     _job(conn, cid, "live", closed_days=40 if source_result == "complete" else 1)
     _job(conn, cid, "missing")
     monkeypatch.setattr(job_discovery_run, "load_targets", lambda: [])
-    monkeypatch.setattr(db, "connect", lambda dsn=None: conn)
+    # Each phase owns its connection; maintenance closes its session before poll.
+    original_connect = db.connect
+    from tests.conftest import TEST_DSN
+    monkeypatch.setattr(db, "connect", lambda dsn=None: original_connect(TEST_DSN))
     monkeypatch.setattr(db, "over_size_ceiling", lambda c: (True, 6500, 6000))
     def forbidden(*args, **kwargs):
         pytest.fail("guard allowed ingestion or enrichment")
@@ -257,7 +260,6 @@ def test_guard_reconciles_only_complete_sources_without_ingestion(conn, monkeypa
     # run owns its connection; query persisted results on a separate connection.
     import psycopg
     from psycopg.rows import dict_row
-    from tests.conftest import TEST_DSN
     counts = job_discovery_run.run()
     with psycopg.connect(TEST_DSN, row_factory=dict_row) as check:
         rows = check.execute("SELECT external_id, title, closed_at FROM jobs ORDER BY external_id").fetchall()
@@ -268,3 +270,9 @@ def test_guard_reconciles_only_complete_sources_without_ingestion(conn, monkeypa
     assert counts["new_jobs"] == 0
     assert counts["closed_jobs"] == (1 if source_result == "complete" else 0)
     assert counts["failed"] == (0 if source_result == "complete" else 1)
+
+
+@pytest.fixture(autouse=True)
+def legacy_source_control(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(job_discovery_run, 'read_control', lambda c: SimpleNamespace(source_enabled=False))

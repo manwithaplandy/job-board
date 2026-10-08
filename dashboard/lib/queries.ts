@@ -1,7 +1,8 @@
-import { withUserSql, withAnonSql } from "@/lib/db";
+import { parseStringList, parseRequirements, parseJobLifecycle, unwrapLifecycleJson, consumeJobVersion, assertPackageInput, parseGenerationContext, requestJobPayload, readPrivateSnapshot, type DemandResult } from "@/lib/jobLifecycle";
+import { withUserPayloadMutation, withUserSql, withAnonSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { unstable_cache } from "next/cache";
-import { buildJobsQuery } from "@/lib/jobsQuery";
+import { buildJobsQuery, buildJobsCountQuery } from "@/lib/jobsQuery";
 import type { Filters } from "@/lib/filters";
 import type { ApplicationPackage, CompanyRow, CompanyBrowseRow, DiscoveryStateRow, ReviewedJobRow, JobReviewDetail, PollRunRow, ReviewRunRow, ProfileLinks, ProfileRow, ReviewStats, ScreeningAnswers } from "@/lib/types";
 import { toCompanyBrowseRow } from "@/lib/companies/browseCodec";
@@ -37,6 +38,7 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
           (v): v is string => typeof v === "string")
       : null,
     remote: (row.remote as boolean | null) ?? null,
+    lifecycle: parseJobLifecycle(row.lifecycle),
     first_seen_at: iso(row.first_seen_at),
     closed_at: row.closed_at != null ? iso(row.closed_at) : null,
     company_name: row.company_name as string,
@@ -59,7 +61,7 @@ function toJobRow(row: Record<string, unknown>): ReviewedJobRow {
     experience_score: (row.experience_score as number | null) ?? null,
     comp_score: (row.comp_score as number | null) ?? null,
     fit_score: (row.fit_score as number | null) ?? null,
-    skill_gaps: (row.skill_gaps as string[] | null) ?? null,
+    skill_gaps: parseStringList(row.skill_gaps),
   };
 }
 
@@ -84,6 +86,24 @@ export async function getJobs(
   // authed board runs under the viewer's `authenticated` context so RLS scopes the
   // review join to their own rows.
   return userId ? withUserSql(userId, run) : withAnonSql(run);
+}
+
+export async function getJobsPage(f: Filters, userId: string | null, page=0, historyOnly=false) {
+  const offset=Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0))*500;
+  const opts={locationFromProfile:true,companyFiltersFromProfile:true,historyOnly,offset};
+  const query=buildJobsQuery(f,userId,[],opts);
+  const count=buildJobsCountQuery(f,userId,[],opts);
+  const run=async(tx: TransactionSql) => {
+    // One statement gives count and page the same membership/expiry snapshot.
+    const result=await tx.unsafe(`WITH total AS (${count.text})
+      SELECT total.total, COALESCE(jsonb_agg(page ORDER BY page.first_seen_at DESC,page.id ASC) FILTER (WHERE page.id IS NOT NULL),'[]'::jsonb) AS rows
+      FROM total LEFT JOIN (${query.text}) page ON true GROUP BY total.total`,query.values as never[]);
+    const raw=unwrapLifecycleJson(result[0]?.rows);
+    const rows=Array.isArray(raw) ? raw.flatMap(item =>
+      item && typeof item === "object" && !Array.isArray(item) ? [toJobRow(Object.fromEntries(Object.entries(item)))] : []) : [];
+    return {rows,total:typeof result[0]?.total === "number" ? result[0].total : 0,page:offset/500};
+  };
+  return userId ? withUserSql(userId,run) : withAnonSql(run);
 }
 
 // The operator's deliberate rejects (verdict='deny' + human_override) — loaded so a
@@ -166,11 +186,13 @@ export async function getReviewFeed(
 // into the typed shape at the boundary instead of an `as unknown as` cast.
 function toJobReviewDetail(row: Record<string, unknown>): JobReviewDetail {
   return {
+    lifecycle: parseJobLifecycle(row.lifecycle),
+    descriptionIsSaved: row.description_is_saved === true,
     reasoning: (row.reasoning as string | null) ?? null,
     about: (row.about as string | null) ?? null,
-    red_flags: (row.red_flags as string[] | null) ?? null,
-    benefits: (row.benefits as string[] | null) ?? null,
-    requirements: (row.requirements as { text: string; met: boolean }[] | null) ?? null,
+    red_flags: parseStringList(row.red_flags),
+    benefits: parseStringList(row.benefits),
+    requirements: parseRequirements(row.requirements),
     description: (row.description as string | null) ?? null,
     url: (row.url as string | null) ?? null,
     experience_match: (row.experience_match as string | null) ?? null,
@@ -195,12 +217,14 @@ export async function getJobReviewDetail(
   const run = async (tx: TransactionSql): Promise<JobReviewDetail | null> => {
     const rows = await tx`
       SELECT
+        public.lifecycle_job_state(j.id) AS lifecycle,
         COALESCE(rc.reasoning, r.reasoning) AS reasoning,
         COALESCE(rc.about, r.about) AS about,
         COALESCE(rc.red_flags, r.red_flags) AS red_flags,
         COALESCE(rc.benefits, r.benefits) AS benefits,
         COALESCE(rc.requirements, r.requirements) AS requirements,
-        j.description, j.url,
+        COALESCE(rc.description_snapshot,r.description_snapshot,j.description) AS description, j.url,
+        (COALESCE(rc.description_snapshot,r.description_snapshot) IS NOT NULL) AS description_is_saved,
         COALESCE(rc.experience_match, r.experience_match) AS experience_match,
         COALESCE(rc.industry, r.industry) AS industry,
         COALESCE(rc.industry_subcategory, r.industry_subcategory) AS industry_subcategory,
@@ -261,7 +285,7 @@ export async function reviewStatsWith(tx: TransactionSql, userId: string): Promi
       (count(*) FILTER (WHERE r.error IS NOT NULL))::int     AS errors
     FROM jobs j
     LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
-    WHERE j.closed_at IS NULL
+    WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false)
       AND (
         COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(
           (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid),
@@ -304,11 +328,11 @@ export async function distinctLocationsWith(
       SELECT loc AS location, count(*)::int AS count
       FROM jobs j
       CROSS JOIN LATERAL unnest(COALESCE(j.location_canonicals, ARRAY[j.location])) AS loc
-      WHERE j.closed_at IS NULL AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
+      WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
       GROUP BY loc
       UNION ALL
-      SELECT 'Remote', count(*)::int FROM jobs
-      WHERE closed_at IS NULL AND remote IS TRUE
+      SELECT 'Remote', count(*)::int FROM jobs j
+      WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false) AND remote IS TRUE
       HAVING count(*) > 0
     ) t
     ORDER BY count DESC, location ASC
@@ -416,7 +440,7 @@ export async function getJobForResume(
       FROM jobs j JOIN companies c ON c.id = j.company_id
       WHERE j.id = ${jobId}
     `;
-    return (rows[0] as unknown as { title: string; company_name: string; description: string | null }) ?? null;
+    return parseGenerationContext(rows[0]);
   });
 }
 
@@ -447,15 +471,7 @@ export async function getJobForCoverLetter(
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.id = ${jobId}
     `;
-    return (rows[0] as unknown as {
-      title: string;
-      company_name: string;
-      description: string | null;
-      about: string | null;
-      requirements: { text: string; met: boolean }[];
-      skill_gaps: string[];
-      red_flags: string[];
-    }) ?? null;
+    return parseGenerationContext(rows[0]);
   });
 }
 
@@ -492,19 +508,7 @@ export async function getJobForPackage(
       LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
       WHERE j.id = ${jobId}
     `;
-    return (rows[0] as unknown as {
-      title: string;
-      company_name: string;
-      description: string | null;
-      url: string;
-      external_id: string;
-      ats: string;
-      company_token: string;
-      about: string | null;
-      requirements: { text: string; met: boolean }[];
-      skill_gaps: string[];
-      red_flags: string[];
-    }) ?? null;
+    return parseGenerationContext(rows[0]);
   });
 }
 
@@ -525,6 +529,8 @@ export function toApplicationPackage(row: Record<string, unknown>): ApplicationP
   };
   return {
     jobId,
+    descriptionSnapshot: typeof row.description_snapshot === "string" ? row.description_snapshot : null,
+    questionsSnapshot: parseGreenhouseQuestionsJsonb(row.questions_snapshot),
     status: row.status as "prepared" | "applied",
     resume: parseField("resume_json", row.resume_json, parseTailoredResume),
     coverLetter: parseField("cover_letter_json", row.cover_letter_json, parseTailoredCoverLetter),
@@ -569,7 +575,7 @@ export async function getApplicationPackage(
 ): Promise<ApplicationPackage | null> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json,
+      SELECT ap.job_id, ap.status, ap.description_snapshot, ap.questions_snapshot, ap.resume_json, ap.cover_letter_json,
              ap.prefilled_answers, ap.apply_url, ap.profile_version,
              ap.resume_instructions, ap.cover_letter_instructions,
              ap.resume_instructions_draft, ap.cover_letter_instructions_draft,
@@ -591,7 +597,7 @@ export async function getApplicationPackage(
 export async function getApplicationPackages(userId: string): Promise<ApplicationPackage[]> {
   return withUserSql(userId, async (tx) => {
     const rows = await tx`
-      SELECT ap.job_id, ap.status, ap.resume_json, ap.cover_letter_json,
+      SELECT ap.job_id, ap.status, ap.description_snapshot, ap.questions_snapshot, ap.resume_json, ap.cover_letter_json,
              ap.prefilled_answers, ap.apply_url, ap.profile_version,
              ap.resume_instructions, ap.cover_letter_instructions,
              ap.resume_instructions_draft, ap.cover_letter_instructions_draft,
@@ -633,6 +639,7 @@ export async function upsertApplicationPackage(
   userId: string,
   jobId: string,
   data: {
+    payload?: DemandResult;
     resume: TailoredResume | null;
     coverLetter: TailoredCoverLetter | null;
     prefilledAnswers: PrefilledAnswer[] | null;
@@ -646,7 +653,8 @@ export async function upsertApplicationPackage(
 ): Promise<ApplicationPackage> {
   // Bind jsonb as text + ::jsonb (mirrors upsertProfile); NULL stays SQL NULL.
   const j = (v: unknown): string | null => (v == null ? null : JSON.stringify(v));
-  return withUserSql(userId, async (tx) => {
+  return withUserPayloadMutation(userId, jobId, "application_packages", async (tx) => {
+  const firstOutput = await assertPackageInput(tx, jobId, data.payload);
   // Regenerating the letter cleanly replaces the user's edit in their view: stamp the
   // current edit superseded (the row + its already-pushed golden item persist; re-saving
   // an edit resets superseded_at to NULL — see app/actions/coverLetterEdits.ts).
@@ -658,17 +666,25 @@ export async function upsertApplicationPackage(
   }
   const rows = await tx`
     INSERT INTO application_packages
-      (user_id, job_id, resume_json, cover_letter_json,
+      (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, resume_json, cover_letter_json,
        prefilled_answers, apply_url, resume_trace_id,
        cover_letter_trace_id, resume_instructions, cover_letter_instructions,
        profile_version, status, prepared_at)
     VALUES (${userId}::uuid, ${jobId},
-            ${j(data.resume)}::jsonb, ${j(data.coverLetter)}::jsonb,
-            ${j(data.prefilledAnswers)}::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
+            ${data.payload?.status === "ready" ? data.payload.versionId : null}::uuid,
+            ${data.payload?.status === "ready" ? data.payload.description : null},
+            ${data.payload?.status === "ready" && data.payload.questions ? JSON.stringify(data.payload.questions) : null}::text::jsonb,
+            CASE WHEN ${data.payload?.status === "ready"} THEN clock_timestamp() END,
+            ${j(data.resume)}::text::jsonb, ${j(data.coverLetter)}::text::jsonb,
+            ${j(data.prefilledAnswers)}::text::jsonb, ${data.applyUrl}, ${data.resumeTraceId ?? null},
             ${data.coverLetterTraceId ?? null}, ${data.resumeInstructions ?? null},
             ${data.coverLetterInstructions ?? null},
             ${data.profileVersion ?? null}, 'prepared', now())
     ON CONFLICT (user_id, job_id) DO UPDATE SET
+      job_version_id = CASE WHEN ${firstOutput} THEN EXCLUDED.job_version_id ELSE application_packages.job_version_id END,
+      description_snapshot = CASE WHEN ${firstOutput} THEN EXCLUDED.description_snapshot ELSE application_packages.description_snapshot END,
+      questions_snapshot = CASE WHEN ${firstOutput} THEN EXCLUDED.questions_snapshot ELSE COALESCE(application_packages.questions_snapshot, EXCLUDED.questions_snapshot) END,
+      snapshot_captured_at = CASE WHEN ${firstOutput} THEN EXCLUDED.snapshot_captured_at ELSE application_packages.snapshot_captured_at END,
       resume_json          = COALESCE(EXCLUDED.resume_json, application_packages.resume_json),
       cover_letter_json    = COALESCE(EXCLUDED.cover_letter_json, application_packages.cover_letter_json),
       prefilled_answers    = COALESCE(EXCLUDED.prefilled_answers, application_packages.prefilled_answers),
@@ -704,12 +720,15 @@ export async function upsertApplicationPackage(
                                              THEN NULL
                                              ELSE application_packages.cover_letter_instructions_draft END,
       prepared_at          = now()
-    RETURNING job_id, status, resume_json, cover_letter_json,
+    RETURNING job_id, status, description_snapshot, questions_snapshot, resume_json, cover_letter_json,
               prefilled_answers, apply_url, profile_version,
               resume_instructions, cover_letter_instructions,
               resume_instructions_draft, cover_letter_instructions_draft,
               prepared_at, applied_at
   `;
+  if (data.payload?.status === "ready" && (data.resume || data.coverLetter || data.prefilledAnswers)) {
+    await consumeJobVersion(tx, jobId, data.payload.versionId, data.payload.kind, data.payload.id, data.payload);
+  }
   return toApplicationPackage(rows[0] as unknown as Record<string, unknown>);
   });
 }
@@ -725,20 +744,25 @@ export async function upsertInstructionDraft(
   leg: "resume" | "cover",
   value: string,
 ): Promise<void> {
-  await withUserSql(userId, async (tx) => {
+  const payload=await requestJobPayload(userId,jobId,"generation");
+  if(payload.status === "pending" || payload.status === "deferred") throw new Error("Job details are being prepared. Try again shortly.");
+  await withUserPayloadMutation(userId,jobId,"application_packages",async tx => {
+    const snapshot=await readPrivateSnapshot(tx,jobId,"application_packages");
     if (leg === "resume") {
       await tx`
         INSERT INTO application_packages
-          (user_id, job_id, resume_instructions_draft, status, prepared_at)
-        VALUES (${userId}::uuid, ${jobId}, ${value}, 'prepared', now())
+          (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, resume_instructions_draft, status, prepared_at)
+        VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+          ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
         ON CONFLICT (user_id, job_id) DO UPDATE SET
           resume_instructions_draft = EXCLUDED.resume_instructions_draft
       `;
     } else {
       await tx`
         INSERT INTO application_packages
-          (user_id, job_id, cover_letter_instructions_draft, status, prepared_at)
-        VALUES (${userId}::uuid, ${jobId}, ${value}, 'prepared', now())
+          (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, cover_letter_instructions_draft, status, prepared_at)
+        VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+          ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
         ON CONFLICT (user_id, job_id) DO UPDATE SET
           cover_letter_instructions_draft = EXCLUDED.cover_letter_instructions_draft
       `;

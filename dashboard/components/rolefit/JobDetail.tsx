@@ -1,4 +1,5 @@
 "use client";
+import { lifecycleLabels } from "@/lib/jobLifecycleState";
 
 import { useState } from "react";
 import type { ApplicationPackage, JobReviewDetail, JobRow } from "@/lib/types";
@@ -50,6 +51,9 @@ function logoColor(name: string): string {
 
 export interface JobDetailProps {
   job: JobRow;
+  currentDescription?: string | null;
+  currentQuestions?: GreenhouseQuestions | null;
+  descriptionIsSaved?: boolean;
   nowIso: string;
   isAuthed: boolean;
   gen: Record<string, string>;
@@ -110,6 +114,9 @@ export interface JobDetailProps {
 
 export function JobDetail({
   job,
+  currentDescription,
+  currentQuestions,
+  descriptionIsSaved,
   nowIso,
   isAuthed,
   gen,
@@ -152,6 +159,7 @@ export function JobDetail({
   onRetryDetail,
 }: JobDetailProps) {
   const hasReview = job.fit_score != null;
+  const hasApplication = hasReview || pkg != null;
   const applied = pkg?.status === "applied";
   const fit = job.fit_score ?? 0;
   const c = fitColor(fit);
@@ -169,7 +177,7 @@ export function JobDetail({
   const metaLine = [job.company_name, job.location, arrangement]
     .filter(Boolean)
     .join(" · ");
-  const postedText = "Posted " + fmtPosted(job.first_seen_at, nowIso);
+  const postedText = "Discovered " + fmtPosted(job.first_seen_at, nowIso);
 
   // Per-job gen state
   const genState = gen[job.id];
@@ -191,7 +199,7 @@ export function JobDetail({
   // pop in a beat after open (like the other detail-only fields). Collapsed by
   // default; toggle resets per job via key={job.id} on this component.
   const applyUrl = normalizeApplyUrl(job.ats, job.url);
-  const fullJD = job.description;
+  const fullJD = currentDescription ?? job.description;
   const [showJD, setShowJD] = useState(false);
 
   return (
@@ -318,6 +326,7 @@ export function JobDetail({
               }}
             >
               {postedText}
+              {lifecycleLabels(job.lifecycle,nowIso).map(label => <span key={label}> · {label}</span>)}
             </span>
           </div>
         </div>
@@ -384,8 +393,8 @@ export function JobDetail({
         )}
       </div>
 
-      {/* ── Action row — Apply + operator controls (reviewed jobs only) ── */}
-      {hasReview && (job.human_override || isRejected || applied || (isAuthed && job.verdict === "approve")) && (
+      {/* Persisted applied status is readable even without a scored review. */}
+      {(applied || (hasReview && (job.human_override || isRejected || (isAuthed && job.verdict === "approve")))) && (
         <div
           className="rf-job-detail__actions"
           style={{
@@ -628,8 +637,12 @@ export function JobDetail({
               action={onRetryDetail && <Button variant="ghost" onClick={onRetryDetail}>Retry</Button>} />
           )}
 
-          {/* Application panel — résumé + cover letter + apply */}
+        </>
+      )}
+
+      {hasApplication && (
           <ApplicationPanel
+            allowGeneration={hasReview}
             job={job}
             isAuthed={isAuthed}
             resumeState={genState}
@@ -675,15 +688,26 @@ export function JobDetail({
             status={pkg?.status ?? null}
             appliedAt={pkg?.appliedAt ?? null}
           />
-
-        </>
       )}
 
-      {/* ── Full job description (collapsible) + Apply fallback — the Apply button here
-           renders only for not-yet-reviewed roles (which have no Application panel), so an
-           unreviewed role is never a dead end. Reviewed roles apply via the panel's
-           "Apply on {provider}" button. ── */}
-      {(fullJD || (!hasReview && applyUrl)) && (
+      {pkg?.descriptionSnapshot && pkg.descriptionSnapshot !== fullJD && pkg.descriptionSnapshot !== (descriptionIsSaved ? job.description : null) && (
+        <details style={{marginTop:"20px"}}>
+          <summary>Saved application description</summary>
+          <p style={{whiteSpace:"pre-wrap"}}>{pkg.descriptionSnapshot}</p>
+        </details>
+      )}
+
+      {(pkg?.prefilledAnswers != null || !hasReview) && currentQuestions && (
+        <details style={{marginTop:"20px"}}>
+          <summary>Current application questions</summary>
+          {pkg?.prefilledAnswers != null && <p>{pkg.questionsSnapshot ? "Saved answers above use the questions captured with your application." : "The historical question schema is unavailable. Saved answers are retained without borrowing the current questions."}</p>}
+          <ul>{currentQuestions.questions.map((question, index) => <li key={`${index}:${question.label}`}>{question.label}</li>)}</ul>
+        </details>
+      )}
+
+      {/* Full description and an Apply fallback for roles without an application
+          panel. Retained unscored packages already have the panel's Apply link. */}
+      {(fullJD || (!hasApplication && applyUrl)) && (
         <div
           style={{ marginTop: "24px", borderTop: "1px solid var(--bg-muted)", paddingTop: "20px" }}
         >
@@ -722,12 +746,19 @@ export function JobDetail({
                     fontWeight: 500,
                   }}
                 >
+                  {currentDescription && <p>Current job description</p>}
                   {fullJD}
                 </div>
               )}
             </>
           )}
-          {!hasReview && applyUrl && (
+          {descriptionIsSaved && job.description && job.description !== fullJD && (
+            <details style={{marginTop:"16px"}}>
+              <summary>Saved review description</summary>
+              <p style={{whiteSpace:"pre-wrap"}}>{job.description}</p>
+            </details>
+          )}
+          {!hasApplication && applyUrl && (
             <div style={{ marginTop: "18px" }}>
               <ApplyButton url={applyUrl} />
             </div>

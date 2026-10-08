@@ -8,6 +8,8 @@ import pytest
 import psycopg
 from psycopg.rows import dict_row
 
+from tools.lifecycle_test_db import validate_test_dsn, checkpoint_owned_reset
+
 SCHEMA_SQL = (Path(__file__).resolve().parent.parent / "schema.sql").read_text()
 TEST_DSN = os.environ.get("TEST_DATABASE_URL")
 
@@ -31,6 +33,46 @@ def apply_clane_ddl(conn) -> None:
     conn.commit()
 
 requires_db = pytest.mark.skipif(TEST_DSN is None, reason="TEST_DATABASE_URL not set")
+
+
+def pytest_sessionstart(session):
+    # Runs before any fixture (including old direct DROP SCHEMA fixtures).
+    if TEST_DSN is not None:
+        try:
+            validate_test_dsn(TEST_DSN)
+        except ValueError as error:
+            raise pytest.UsageError(str(error)) from None
+    if os.environ.get("LIFECYCLE_REQUIRE_DB_TESTS") == "1" and not TEST_DSN:
+        raise pytest.UsageError("required database lane needs TEST_DATABASE_URL")
+    # URI validation alone is insufficient: libpq can take PGHOSTADDR or a
+    # service file from the caller's environment and connect elsewhere. All test
+    # credentials/targets are explicit in the validated URI, so discard defaults
+    # before collection or any legacy fixture's direct psycopg.connect/DDL.
+    for name in list(os.environ):
+        if name.startswith("PG"):
+            os.environ.pop(name)
+    _REQUIRED_SKIPS.clear()
+
+
+def pytest_runtest_logreport(report):
+    if report.skipped and os.environ.get("LIFECYCLE_REQUIRE_DB_TESTS") == "1":
+        _REQUIRED_SKIPS.append(report.nodeid)
+
+
+def pytest_collectreport(report):
+    if report.skipped and os.environ.get("LIFECYCLE_REQUIRE_DB_TESTS") == "1":
+        _REQUIRED_SKIPS.append(report.nodeid)
+
+
+_REQUIRED_SKIPS = []
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if _REQUIRED_SKIPS and os.environ.get("LIFECYCLE_REQUIRE_DB_TESTS") == "1":
+        terminal = session.config.pluginmanager.getplugin("terminalreporter")
+        if terminal:
+            terminal.write_line(f"required database tests skipped: {len(_REQUIRED_SKIPS)}", red=True)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @contextmanager
@@ -69,6 +111,7 @@ def _no_real_langfuse(monkeypatch):
 @pytest.fixture
 def conn():
     assert TEST_DSN, "TEST_DATABASE_URL required"
+    validate_test_dsn(TEST_DSN)
     connection = psycopg.connect(TEST_DSN, row_factory=dict_row)
     try:
         with connection.cursor() as cur:
@@ -78,6 +121,7 @@ def conn():
             # These are idempotent (IF NOT EXISTS) and safe to run every time.
             cur.execute(_CLANE_DDL)
         connection.commit()
+        checkpoint_owned_reset(connection)
         yield connection
     finally:
         connection.close()

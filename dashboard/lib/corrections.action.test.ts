@@ -1,3 +1,8 @@
+vi.mock("@/lib/jobLifecycle", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  readPrivateSnapshot: vi.fn(async () => null),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const admin = vi.hoisted(() => ({ isAdmin: true }));
@@ -19,7 +24,8 @@ vi.mock("@/lib/db", () => {
     },
     { json: (v: unknown) => v },
   );
-  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx) };
+  return { withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(tx),
+    withUserPayloadMutation: (_u: string, _j: string, _s: string, fn: (t:unknown)=>unknown)=>fn(tx) };
 });
 vi.mock("@/lib/auth", () => ({
   requireUserId: async () => "user-uuid",
@@ -87,4 +93,15 @@ describe("saveReviewCorrection golden-dataset gate (minor 8)", () => {
     expect(upsertDatasetItem).not.toHaveBeenCalled();
     expect(res).toEqual({ ok: true, langfuseSynced: true });
   });
+});
+
+it("legacy review correction does not borrow an unrelated later demand", async () => {
+  const lifecycle = await import("@/lib/jobLifecycle");
+  const actual = await vi.importActual<typeof lifecycle>("@/lib/jobLifecycle");
+  vi.mocked(lifecycle.readPrivateSnapshot).mockImplementationOnce(actual.readPrivateSnapshot);
+  await saveReviewCorrection("greenhouse:acme:1", baseForm);
+  expect(calls).toHaveLength(3);
+  expect(calls.some(c => c.strings.join("").includes("job_payload_demands"))).toBe(false);
+  const insert = calls[2];
+  expect(insert.values.slice(-6,-2)).toEqual([null,null,null,null]);
 });

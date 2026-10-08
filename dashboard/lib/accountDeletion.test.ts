@@ -30,12 +30,12 @@ const s = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/db", () => {
-  const tx = {
+  const tx = Object.assign(vi.fn(async (parts: TemplateStringsArray) => { s.txSql.push(parts.join("")); return []; }), {
     unsafe: vi.fn(async (sql: string) => {
       s.txSql.push(sql);
       return [] as unknown[];
     }),
-  };
+  });
   const serviceSql = Object.assign(
     vi.fn(async () => s.subRow), // tagged-template SELECT of the subscription row
     {

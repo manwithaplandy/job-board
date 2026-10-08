@@ -138,9 +138,9 @@ export function KpiStrip({ snapshot, series, nowIso }: { snapshot: PipelineSnaps
       <div className="rf-analytics-kpi-grid">
         <Tile
           value={j.open}
-          label="Open jobs"
-          gloss="Jobs currently open across every tracked company — the live pool the reviewer works through."
-          glossTerm="Open jobs"
+          label="Discovery jobs"
+          gloss="Jobs in the default discovery pool. Source availability may be open or unknown; discovery expiry does not mean employer closure."
+          glossTerm="Discovery jobs"
           delta={<Delta current={newJobs7} prior={newJobsPrior7} noun="found this week" spikeDay={newJobsPriorSpike} />}
         />
         <Tile

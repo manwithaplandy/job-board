@@ -44,6 +44,8 @@ export interface AccountExport {
   invite_redemptions: unknown[];
   created_invite_codes: unknown[];
   generation_jobs: unknown[];
+  job_payload_demands: unknown[] | null;
+  job_payload_demands_error: string | null;
   invite_allowances: unknown;
   plan_overrides: unknown;
   review_runs: unknown[];
@@ -92,7 +94,7 @@ export async function listResumeFiles(userId: string, expiresIn = 300): Promise<
   return refs;
 }
 
-async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes">> {
+async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes" | "job_payload_demands" | "job_payload_demands_error">> {
   return withUserSql(userId, async (tx) => {
     const [
       profiles, jobReviews, reviewCorrections, companyReviews, companyOverrides,
@@ -154,6 +156,24 @@ async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exp
 }
 
 /**
+ * Task3 grants owner-scoped demand reads. Keep the normal RLS wrapper and
+ * report unavailable data explicitly when an older schema is still installed.
+ * Never export claim tokens.
+ */
+async function collectLifecycleDemands(userId: string): Promise<Pick<AccountExport, "job_payload_demands" | "job_payload_demands_error">> {
+  try {
+    const rows = await withUserSql(userId, async (tx) =>
+      tx`SELECT id, job_id, kind, status, created_at, settled_at, job_version_id,
+                description_snapshot, questions_snapshot, snapshot_captured_at
+         FROM job_payload_demands WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+    );
+    return { job_payload_demands: Array.from(rows), job_payload_demands_error: null };
+  } catch {
+    return { job_payload_demands: null, job_payload_demands_error: "lifecycle demand export unavailable" };
+  }
+}
+
+/**
  * invite_redemptions is service-role-only under RLS (no authenticated grant), so read
  * it in its OWN withUserSql transaction guarded against a permission error — a blocked
  * read yields an empty array rather than poisoning the main export transaction. The row
@@ -190,7 +210,7 @@ export async function buildAccountExport(
   email: string | null,
   resumeFiles: (uid: string) => Promise<ResumeFileRef[]> = listResumeFiles,
 ): Promise<AccountExport> {
-  const [rows, invites, createdCodes, filesResult] = await Promise.all([
+  const [rows, invites, createdCodes, filesResult, lifecycleDemands] = await Promise.all([
     collectUserRows(userId),
     collectInviteRedemptions(userId),
     collectCreatedInviteCodes(userId),
@@ -204,12 +224,14 @@ export async function buildAccountExport(
         console.error("account export: résumé files could not be listed", e);
         return { files: [] as ResumeFileRef[], error: "résumé files could not be listed" };
       }),
+    collectLifecycleDemands(userId),
   ]);
   return {
     exported_at: new Date().toISOString(),
     user_id: userId,
     email,
     ...rows,
+    ...lifecycleDemands,
     invite_redemptions: invites,
     created_invite_codes: createdCodes,
     resume_files: filesResult.files,

@@ -1,3 +1,4 @@
+import { parseRequestBody } from "@/lib/jobLifecycle";
 import { withUserSql } from "@/lib/db";
 import { CHEAP_MODEL, resolveStage2Model, dailyReviewCap, type Plan } from "@/lib/entitlements";
 import { loadTierConfig } from "@/lib/tierConfig";
@@ -43,6 +44,17 @@ export interface ReviewRequestRow {
   notes: string | null;
 }
 
+export function parseReviewRequest(value: unknown): ReviewRequestRow | null {
+  const row = parseRequestBody(value);
+  const status=row.status;
+  if (status!=="pending" && status!=="running" && status!=="done" && status!=="failed") return null;
+  const id=typeof row.id === "number" ? row.id : typeof row.id === "string" ? Number(row.id) : NaN;
+  const date=(v:unknown):string|null=>v instanceof Date && Number.isFinite(v.getTime()) ? v.toISOString() : typeof v === "string" && Number.isFinite(Date.parse(v)) ? v : null;
+  const requested=date(row.requested_at);
+  if(!Number.isSafeInteger(id) || typeof row.user_id!=="string" || !requested) return null;
+  return {id,user_id:row.user_id,status,requested_at:requested,started_at:date(row.started_at),finished_at:date(row.finished_at),notes:typeof row.notes === "string" ? row.notes : null};
+}
+
 /** Newest request for the user (any status), or null. */
 export async function getLatestReviewRequest(userId: string): Promise<ReviewRequestRow | null> {
   return withUserSql(userId, async (tx) => {
@@ -51,7 +63,7 @@ export async function getLatestReviewRequest(userId: string): Promise<ReviewRequ
       FROM review_requests WHERE user_id = ${userId}::uuid
       ORDER BY requested_at DESC LIMIT 1
     `;
-    return (rows[0] as unknown as ReviewRequestRow) ?? null;
+    return parseReviewRequest(rows[0]);
   });
 }
 
@@ -63,7 +75,7 @@ async function getActiveReviewRequest(userId: string): Promise<ReviewRequestRow 
       WHERE user_id = ${userId}::uuid AND status IN ('pending','running')
       ORDER BY requested_at DESC LIMIT 1
     `;
-    return (rows[0] as unknown as ReviewRequestRow) ?? null;
+    return parseReviewRequest(rows[0]);
   });
 }
 

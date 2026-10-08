@@ -1,3 +1,4 @@
+from job_discovery.lifecycle.locks import enter_gate
 import uuid
 
 from psycopg.types.json import Json
@@ -9,11 +10,12 @@ _REVIEW_COLUMNS = (
     "verdict", "experience_match", "industry", "industry_subcategory",
     "confidence", "reasoning", "model_stage1", "model_stage2", "error",
     "role_category", "seniority", "work_arrangement", "about",
+    "job_version_id", "description_snapshot", "questions_snapshot", "snapshot_captured_at",
     "pay_min", "pay_max", "pay_currency", "pay_period", "headcount",
     "skills_score", "experience_score", "comp_score", "fit_score",
     "red_flags", "skill_gaps", "benefits", "requirements",
 )
-_JSONB_COLUMNS = ("red_flags", "skill_gaps", "benefits", "requirements")
+_JSONB_COLUMNS = ("red_flags", "skill_gaps", "benefits", "requirements", "questions_snapshot")
 
 # Built once from the fixed column tuple (the row values are bound per call).
 # The WHERE guard makes a hand-set verdict sticky: once the operator denies a
@@ -106,6 +108,7 @@ def matching_eligible(conn, user_id: str) -> bool:
     Lock the activity row so resume and pause cannot overwrite one another. This
     short transaction is committed by the caller before any external model calls.
     """
+    enter_gate(conn)
     with conn.cursor() as cur:
         cur.execute("SELECT user_id FROM matching_activity WHERE user_id=%s FOR UPDATE", (_uuid(user_id),))
         if cur.fetchone() is None:
@@ -239,8 +242,9 @@ def select_candidates(
 ) -> tuple[list[dict], int]:
     """Return (rows, total_stale) where total_stale is the unbounded stale count.
 
-    Splitting the count into a separate bounded SELECT avoids materialising the
-    full stale set before LIMIT when the window-aggregate approach would do.
+    Count and bounded rows are independent subqueries in one statement, so they
+    share the same snapshot and expiry boundary without materialising all stale
+    rows before LIMIT. The job-ID tie breaker keeps equal-date pages stable.
 
     `exclusions` is the parsed company_exclusions dict (parse_company_exclusions):
     a deterministic, per-user, pre-LLM gate on the company's globally-classified
@@ -262,7 +266,7 @@ def select_candidates(
         JOIN companies c ON c.id = j.company_id
         LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = %(uid)s
         LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = %(uid)s
-        WHERE j.closed_at IS NULL
+        WHERE public.lifecycle_discovery_visible(j.id,j.closed_at,false)
           -- Deterministic company gate (pre-LLM). A per-user override wins both
           -- ways; otherwise a company is excluded when ANY of its classified
           -- facets is in the user's exclusion list. COALESCE(..., 'unknown')
@@ -291,31 +295,36 @@ def select_candidates(
           -- IS DISTINCT FROM treats NULL (never-reviewed) as NOT 'deny', so
           -- unreviewed jobs still pass through correctly.
           AND (r.verdict IS DISTINCT FROM 'deny')
-          AND NOT COALESCE(j.description_pruned, FALSE)
+          AND (%(hydrate)s OR NOT COALESCE(j.description_pruned, FALSE))
           AND (NOT %(has_prefs)s
                OR COALESCE(j.location_canonicals, ARRAY[j.location]) && %(prefs)s::text[]
                OR ('Remote' = ANY(%(prefs)s::text[]) AND j.remote IS TRUE))
     """
+    from job_discovery.lifecycle.config import read_control
     params = {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,
+              "hydrate": read_control(conn).hydration_enabled,
               "has_prefs": bool(prefs), "prefs": prefs,
               "exc_ind": exc["industries"], "exc_size": exc["sizes"],
               "exc_ctry": exc["countries"], "exc_flag": exc["red_flag_categories"]}
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT count(*)::int AS n {_where}",
+            f"""SELECT totals.n,
+              COALESCE(jsonb_agg(to_jsonb(candidate) - '_candidate_first_seen'
+                ORDER BY candidate._candidate_first_seen DESC, candidate.id ASC)
+                FILTER (WHERE candidate.id IS NOT NULL), '[]'::jsonb) AS rows
+            FROM (SELECT count(*)::int AS n {_where}) totals
+            LEFT JOIN (
+              SELECT j.id, j.title, j.location, j.remote, j.description,
+                c.ats, COALESCE(c.display_name, c.name) AS company_name,
+                c.industry, c.industry_subcategory, c.size, c.hq_country,
+                c.red_flags, c.about, j.first_seen_at AS _candidate_first_seen
+              {_where} ORDER BY j.first_seen_at DESC, j.id ASC LIMIT %(lim)s
+            ) candidate ON true
+            GROUP BY totals.n""",
             params,
         )
-        total = cur.fetchone()["n"]
-        cur.execute(
-            f"SELECT j.id, j.title, j.location, j.remote, j.description,"
-            f" c.ats, COALESCE(c.display_name, c.name) AS company_name,"
-            f" c.industry, c.industry_subcategory, c.size, c.hq_country,"
-            f" c.red_flags, c.about"
-            f" {_where} ORDER BY j.first_seen_at DESC LIMIT %(lim)s",
-            params,
-        )
-        rows = cur.fetchall()
-    return rows, total
+        result = cur.fetchone()
+    return result["rows"], result["n"]
 
 
 
@@ -324,9 +333,24 @@ def upsert_review(conn, row: dict) -> None:
     full = {c: row.get(c) for c in _REVIEW_COLUMNS}
     full["user_id"] = _uuid(full["user_id"])
     for c in _JSONB_COLUMNS:
-        full[c] = Json(full[c] if full[c] is not None else [])
-    with conn.cursor() as cur:
-        cur.execute(_UPSERT_REVIEW_SQL, full)
+        full[c] = None if c == "questions_snapshot" and full[c] is None else Json(full[c] if full[c] is not None else [])
+    if row.get('job_version_id'):
+        from job_discovery.lifecycle.claims import claim_work
+        from job_discovery.lifecycle.reconcile import _write
+        claim = claim_work(conn, 'review_write', str(uuid.uuid4()), 180)
+        if claim is None:
+            raise RuntimeError('review write capacity unavailable')
+        with _write(conn, claim, 'job_reviews', row['job_id'], size=8192+8*len(str(row).encode())):
+            conn.execute(_UPSERT_REVIEW_SQL, full)
+        if row.get('verdict') and not row.get('error') and row.get('demand_id'):
+            conn.execute("""UPDATE job_payload_demands SET consumed_at=clock_timestamp()
+                WHERE id=%s AND user_id=%s AND job_id=%s AND job_version_id=%s AND kind='review' AND status='ready'
+                AND description_snapshot=%s AND questions_snapshot IS NOT DISTINCT FROM %s""",
+                (row['demand_id'],full['user_id'],row['job_id'],row['job_version_id'],
+                 row['description_snapshot'],full['questions_snapshot']))
+    else:
+        with conn.cursor() as cur:
+            cur.execute(_UPSERT_REVIEW_SQL, full)
 
 
 def recent_stage2_reviews(conn, limit: int) -> list[dict]:
@@ -339,7 +363,7 @@ def recent_stage2_reviews(conn, limit: int) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.location, c.ats, j.description,
+            SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.location, c.ats, COALESCE(r.description_snapshot,j.description) AS description,
                    p.resume_text, p.instructions, r.verdict
             FROM job_reviews r
             JOIN jobs j ON j.id = r.job_id
@@ -499,3 +523,41 @@ def golden_corrections(conn) -> list[dict]:
             """
         )
         return cur.fetchall()
+
+
+def attach_demand_snapshots(conn, candidates, user_id):
+    from job_discovery.lifecycle.config import read_control, legacy_description_capture_allowed
+    if not read_control(conn).hydration_enabled:
+        return candidates if legacy_description_capture_allowed(conn) else []
+    result = []
+    for candidate in candidates:
+        row = conn.execute("""SELECT id AS demand_id,job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at
+            FROM job_payload_demands WHERE user_id=%s AND job_id=%s AND kind='review' AND status='ready'
+            ORDER BY settled_at DESC LIMIT 1""", (_uuid(user_id),candidate['id'])).fetchone()
+        if row and row['job_version_id'] and row['description_snapshot']:
+            result.append({**candidate, **row, 'description': row['description_snapshot']})
+    return result
+
+
+def pin_review_inputs(conn, user_id, candidates):
+    """Renew only the exact attached review input, without recording use."""
+    from job_discovery.lifecycle.locks import lock_jobs
+    from psycopg.types.json import Jsonb
+    pinned = sorted((c for c in candidates if c.get('demand_id')), key=lambda c: c['id'])
+    try:
+        for start in range(0,len(pinned),100):
+            chunk = pinned[start:start+100]
+            lock_jobs(conn,[c['id'] for c in chunk])
+            for row in chunk:
+                updated = conn.execute("""UPDATE job_payload_demands SET protection_until=clock_timestamp()+interval '180 seconds'
+                  WHERE id=%s AND user_id=%s AND job_id=%s AND kind='review' AND status='ready'
+                  AND job_version_id=%s AND description_snapshot=%s
+                  AND questions_snapshot IS NOT DISTINCT FROM %s RETURNING id""",
+                  (row['demand_id'],_uuid(user_id),row['id'],row['job_version_id'],row['description_snapshot'],
+                   Jsonb(row['questions_snapshot']) if row.get('questions_snapshot') is not None else None)).fetchone()
+                if not updated:
+                    raise RuntimeError('Review input unavailable; retry hydration')
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise

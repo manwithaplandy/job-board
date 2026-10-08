@@ -1,3 +1,4 @@
+from job_discovery.lifecycle.locks import enter_gate, lock_jobs
 import asyncio
 import logging
 from collections.abc import Callable
@@ -22,8 +23,13 @@ def _persist_rows(conn, rows: list[dict], chunk_size: int = 20) -> None:
     failure. An exception on a single row is logged and skipped; the chunk
     committed so far is kept and iteration continues from the next row.
     """
+    needs_gate = True
     for i, row in enumerate(rows):
         try:
+            if needs_gate:
+                chunk_end = ((i // chunk_size) + 1) * chunk_size
+                lock_jobs(conn, [pending["job_id"] for pending in rows[i:chunk_end]])
+                needs_gate = False
             db.upsert_review(conn, row)
         except Exception as exc:
             log.warning("persist failed for row %s: %s", row.get("job_id"), exc)
@@ -31,15 +37,22 @@ def _persist_rows(conn, rows: list[dict], chunk_size: int = 20) -> None:
                 conn.rollback()
             except Exception:
                 pass
+            needs_gate = True
             continue
         if (i + 1) % chunk_size == 0:
             conn.commit()
+            needs_gate = True
     conn.commit()  # final commit for the tail
 
 
 @dataclass
 class ReviewResult:
     job_id: str
+    demand_id: object = None
+    job_version_id: object = None
+    description_snapshot: str | None = None
+    questions_snapshot: object = None
+    snapshot_captured_at: object = None
     stage1_decision: str | None = None
     stage1_reason: str | None = None
     verdict: str | None = None
@@ -74,6 +87,8 @@ class ReviewResult:
         row = {c: getattr(self, c, None) for c in db._REVIEW_COLUMNS}
         row["user_id"] = user_id
         row["profile_version"] = profile_version
+        if self.demand_id is not None:
+            row["demand_id"] = self.demand_id
         return row
 
 
@@ -144,6 +159,8 @@ async def _stage2_inner(candidate: dict, profile_block: str, client,
 
 async def _review_one_inner(candidate: dict, profile_block: str, client) -> ReviewResult:
     res = ReviewResult(job_id=candidate["id"])
+    if not isinstance(candidate.get("description"), str) or not candidate["description"].strip():
+        return res
     try:
         s1 = await client.stage1(
             profile_block=profile_block, title=candidate["title"],
@@ -197,6 +214,35 @@ async def review_one(candidate: dict, profile_block: str, client,
     )
 
 
+INPUT_PIN_RENEW_SECONDS = 30
+
+
+async def review_with_input_pins(conn, user_id, candidates, operation):
+    """Keep exact temporary input alive for the full actual consumer lifetime.
+
+    Synchronous DB callbacks share the event loop and never overlap connection
+    use. Every pin transaction commits before awaiting provider work.
+    """
+    if not any(c.get('demand_id') for c in candidates):
+        return await operation()
+    db.pin_review_inputs(conn,user_id,candidates)
+    async def renew():
+        while True:
+            await asyncio.sleep(INPUT_PIN_RENEW_SECONDS)
+            db.pin_review_inputs(conn,user_id,candidates)
+    consumer = asyncio.create_task(operation())
+    heartbeat = asyncio.create_task(renew())
+    try:
+        done, _ = await asyncio.wait((consumer,heartbeat),return_when=asyncio.FIRST_COMPLETED)
+        if heartbeat in done:
+            await heartbeat  # Renewal failure stops further provider work.
+        return await consumer
+    finally:
+        heartbeat.cancel()
+        consumer.cancel()
+        await asyncio.gather(heartbeat,consumer,return_exceptions=True)
+
+
 async def review_batch(candidates: list[dict], profile_block: str, client,
                        concurrency: int, *, user_id: str | None = None,
                        run_id=None,
@@ -238,6 +284,7 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
     and remaining jobs stay retryable (no rows). The caller re-checks the tombstone at its
     write boundary and skips all writes.
     """
+    candidates = [c for c in candidates if isinstance(c.get("description"), str) and c["description"].strip()]
     halt = asyncio.Event()
     results: list[ReviewResult] = []
     # ONE semaphore per run, shared across chunks: chunks serialize, but peak in-flight
@@ -264,6 +311,11 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
         # Accumulate then hand THIS chunk's terminal results to the caller. The extend
         # keeps `results` == concat(emitted chunks); the callback fires only for a
         # non-empty chunk so an all-deferred/halted chunk emits nothing.
+        by_id = {c['id']: c for c in candidates}
+        for result in chunk_results:
+            source = by_id[result.job_id]
+            for snapshot_field in ('demand_id','job_version_id','description_snapshot','questions_snapshot','snapshot_captured_at'):
+                setattr(result, snapshot_field, source.get(snapshot_field))
         results.extend(chunk_results)
         if on_results is not None and chunk_results:
             on_results(chunk_results)
@@ -445,6 +497,11 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             preferred_locations=profile.get("preferred_locations"),
             exclusions=exclusions,
         )
+        from job_discovery.lifecycle.demand import hydrate_candidates
+        ready_ids = set(hydrate_candidates(conn, [c["id"] for c in candidates], user_id))
+        candidates = [c for c in candidates if c["id"] in ready_ids]
+        candidates = db.attach_demand_snapshots(conn, candidates, user_id)
+        conn.commit()
         overflow = total - len(candidates)
         if overflow > 0:
             notes = f"overflow: {overflow} job(s) deferred to next run"
@@ -461,6 +518,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         )
 
         def _persist_chunk(chunk: list[ReviewResult]) -> None:
+            enter_gate(conn)
             # Persist + count + charge THIS chunk the moment review_batch emits it (once
             # per non-empty chunk), so the dashboard's cursor poll sees committed rows +
             # spend as they land instead of only at end of run. Accumulates into the same
@@ -476,6 +534,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             # own deleted_check halts further LLM work at its next poll; this guard is the
             # write-boundary protection for the chunk already in hand. Cheap EXISTS.
             if db.user_deleted(conn, user_id):
+                conn.commit()
                 return
 
             rows_this_chunk = []
@@ -517,14 +576,20 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             # unlock_user_review does (M-TOCTOU).
             conn.commit()
 
-        _, halted = asyncio.run(review_batch(
+        conn.commit()  # Candidate/usage reads must not span model work.
+        def deleted_check():
+            deleted = db.user_deleted(conn, user_id)
+            conn.commit()
+            return deleted
+
+        _, halted = asyncio.run(review_with_input_pins(conn,user_id,candidates,lambda: review_batch(
             candidates, profile_block, client, config.CONCURRENCY,
             user_id=user_id, run_id=run_id,
             # Cheap per-chunk poll so a mid-run deletion stops issuing LLM calls instead
             # of grinding all ≤cap jobs whose writes the tombstone guard then discards.
-            deleted_check=lambda: db.user_deleted(conn, user_id),
+            deleted_check=deleted_check,
             on_results=_persist_chunk,
-        ))
+        )))
 
         # M-RESURRECT-2 (final note): the account can be erased mid-run. The per-chunk
         # guard already skips writes; here we set the run note. The deletion note REPLACES

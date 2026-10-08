@@ -1,7 +1,9 @@
 "use server";
 
+import { requestJobPayload, readPrivateSnapshot } from "@/lib/jobLifecycle";
+
 import { requireUserId } from "@/lib/auth";
-import { withUserSql } from "@/lib/db";
+import { withUserSql, withUserPayloadMutation } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 
 // Manual reject. Mirrors an AI deny: flips the operator's review row to
@@ -31,9 +33,19 @@ export async function unrejectJob(
 ): Promise<void> {
   const userId = await requireUserId();
   await assertNotDeleted(userId);
-  await withUserSql(userId, (tx) => tx`
+  if (priorVerdict === "approve") {
+    const payload=await requestJobPayload(userId,jobId,"review");
+    if(payload.status === "pending" || payload.status === "deferred") throw new Error("Job details are being prepared. Try again shortly.");
+  }
+  await withUserPayloadMutation(userId,jobId,"job_reviews",async tx => {
+    const snapshot=await readPrivateSnapshot(tx,jobId,"job_reviews");
+    await tx`
     UPDATE job_reviews
-       SET verdict = ${priorVerdict}, human_override = FALSE, reviewed_at = now()
-     WHERE user_id = ${userId}::uuid AND job_id = ${jobId} AND human_override = TRUE
-  `);
+       SET verdict=${priorVerdict},human_override=FALSE,reviewed_at=now(),
+           job_version_id=COALESCE(job_version_id,${snapshot?.versionId ?? null}::uuid),
+           description_snapshot=COALESCE(description_snapshot,${snapshot?.description ?? null}),
+           questions_snapshot=COALESCE(questions_snapshot,${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb),
+           snapshot_captured_at=COALESCE(snapshot_captured_at,${snapshot?.capturedAt ?? null})
+     WHERE user_id=${userId}::uuid AND job_id=${jobId} AND human_override = TRUE`;
+  });
 }

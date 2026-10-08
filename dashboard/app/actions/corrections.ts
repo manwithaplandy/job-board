@@ -1,8 +1,10 @@
 "use server";
 
+import { readPrivateSnapshot, parseRequestBody } from "@/lib/jobLifecycle";
+
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
-import { withUserSql } from "@/lib/db";
+import { withUserPayloadMutation } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { formToCorrection, buildDatasetItem } from "@/lib/rolefit/correction";
 import type { CorrectionForm } from "@/lib/rolefit/correction";
@@ -28,7 +30,8 @@ export async function saveReviewCorrection(
   // Read inputs + persist the correction under the viewer's RLS context, in one
   // transaction. Returns the source row for the (post-commit) LangFuse sync.
   const correctedAt = new Date().toISOString(); // used for LangFuse dataset item only
-  const src = await withUserSql(userId, async (tx) => {
+  const src = await withUserPayloadMutation(userId, jobId, "review_corrections", async (tx) => {
+    const snapshot = await readPrivateSnapshot(tx, jobId, "job_reviews");
     // Model snapshot + dataset input, one round-trip.
     const inputRows = await tx`
       SELECT j.title, COALESCE(c.display_name, c.name) AS company_name, j.location, c.ats, j.description,
@@ -57,7 +60,7 @@ export async function saveReviewCorrection(
         skills_score, experience_score, comp_score, fit_score,
         reasoning, about, pay_min, pay_max, pay_currency, pay_period, headcount,
         red_flags, skill_gaps, benefits, requirements, model_snapshot, note, corrected_at,
-        description_snapshot, resume_text_snapshot, instructions_snapshot
+        job_version_id, questions_snapshot, snapshot_captured_at, description_snapshot, resume_text_snapshot, instructions_snapshot
       ) VALUES (
         ${userId}::uuid, ${jobId}, ${row.verdict}, ${row.experience_match},
         ${row.industry}, ${row.industry_subcategory}, ${row.confidence},
@@ -67,8 +70,9 @@ export async function saveReviewCorrection(
         ${row.pay_currency}, ${row.pay_period}, ${row.headcount},
         ${tx.json(row.red_flags)}, ${tx.json(row.skill_gaps)},
         ${tx.json(row.benefits)}, ${tx.json(row.requirements)},
-        ${tx.json((s.model_snapshot ?? {}) as Parameters<typeof tx.json>[0])}, ${form.note}, now(),
-        ${s.description}, ${s.resume_text}, ${s.instructions}
+        ${JSON.stringify(parseRequestBody(s.model_snapshot))}::text::jsonb, ${form.note}, now(),
+        ${snapshot?.versionId ?? null}::uuid, ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb,
+        ${snapshot?.capturedAt ?? null}, ${snapshot ? snapshot.description : s.description}, ${s.resume_text}, ${s.instructions}
       )
       ON CONFLICT (user_id, job_id) DO UPDATE SET
         verdict = EXCLUDED.verdict, experience_match = EXCLUDED.experience_match,
@@ -84,11 +88,14 @@ export async function saveReviewCorrection(
         skill_gaps = EXCLUDED.skill_gaps, benefits = EXCLUDED.benefits,
         requirements = EXCLUDED.requirements, model_snapshot = EXCLUDED.model_snapshot,
         note = EXCLUDED.note, corrected_at = now(),
-        description_snapshot = EXCLUDED.description_snapshot,
+        description_snapshot = COALESCE(review_corrections.description_snapshot, EXCLUDED.description_snapshot),
+        job_version_id = COALESCE(review_corrections.job_version_id, EXCLUDED.job_version_id),
+        questions_snapshot = COALESCE(review_corrections.questions_snapshot, EXCLUDED.questions_snapshot),
+        snapshot_captured_at = COALESCE(review_corrections.snapshot_captured_at, EXCLUDED.snapshot_captured_at),
         resume_text_snapshot = EXCLUDED.resume_text_snapshot,
         instructions_snapshot = EXCLUDED.instructions_snapshot
     `;
-    return s;
+    return { ...s, description: snapshot ? snapshot.description : s.description };
   });
 
   // Admin-only push to the shared golden dataset (minor 8). Non-admins: DB row persisted

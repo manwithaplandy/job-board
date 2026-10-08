@@ -1,3 +1,4 @@
+import { unwrapLifecycleJson } from "@/lib/jobLifecycleState";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import { DEFAULT_FILTERS, PAY_CEIL, PAY_FLOOR } from "@/lib/rolefit/filter";
 
@@ -40,19 +41,12 @@ function defaults(): BoardFilterState {
 }
 
 export function parseBoardFilters(raw: unknown): BoardFilterState {
-  let obj: unknown = raw;
-  if (typeof raw === "string") {
-    // LOAD-BEARING string tolerance — do NOT remove. Legit string inputs: the anon
-    // board-filter cookie (app/api/board-filters/route.ts stores serializeBoardFilters())
-    // replayed at login (app/login/page.tsx), plus legacy double-encoded
-    // profiles.board_filters rows. The write path (saveBoardFilters) now stores jsonb
-    // objects, but this branch must stay for those inputs.
-    try { obj = JSON.parse(raw); } catch { return defaults(); }
-  }
-  if (obj == null || typeof obj !== "object") return defaults();
-  const o = obj as Record<string, unknown>;
+  const obj = unwrapLifecycleJson(raw);
+  if (obj == null || typeof obj !== "object" || Array.isArray(obj)) return defaults();
+  const o = Object.fromEntries(Object.entries(obj));
   const payMin = payFloor(o.payMin);
   return {
+    includeOlderLive: o.includeOlderLive === true,
     search: typeof o.search === "string" ? o.search.slice(0, MAX_SEARCH) : DEFAULT_FILTERS.search,
     cats: strList(o.cats),
     locs: strList(o.locs),

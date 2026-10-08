@@ -9,11 +9,12 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/SystemStates";
 
 export interface JobListProps {
+  nowIso?: string;
   jobs: JobRow[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onClearFilters: () => void;
-  view?: "all" | "applied" | "rejected";
+  view?: "all" | "applied" | "rejected" | "history";
   onBackToAll?: () => void;
   // Whether the board's "all" pool has any jobs before search/facet filtering. Lets the
   // empty state distinguish a pipeline with zero roles from a filter that matched none.
@@ -41,7 +42,7 @@ export interface JobListProps {
 // a render optimization. Row heights vary slightly (chips wrap), so measureElement refines
 // the estimate as rows mount.
 function VirtualJobList({
-  jobs,
+  nowIso, jobs,
   selectedId,
   onSelect,
   scrollParentRef,
@@ -49,6 +50,7 @@ function VirtualJobList({
   onReject,
   freshIds,
 }: {
+  nowIso?: string;
   jobs: JobRow[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -111,7 +113,7 @@ function VirtualJobList({
               transform: `translateY(${vi.start}px)`,
             }}
           >
-            <JobCard job={job} selected={job.id === selectedId} onSelect={onSelect} onReject={onReject} isNew={freshIds?.has(job.id) ?? false} />
+            <JobCard nowIso={nowIso} job={job} selected={job.id === selectedId} onSelect={onSelect} onReject={onReject} isNew={freshIds?.has(job.id) ?? false} />
           </div>
         );
       })}
@@ -120,7 +122,7 @@ function VirtualJobList({
 }
 
 export function JobList({
-  jobs,
+  nowIso, jobs,
   selectedId,
   onSelect,
   onClearFilters,
@@ -148,7 +150,9 @@ export function JobList({
       // Empty bucket (viewPoolCount === 0): it isn't "filtered out", it's genuinely empty.
       // Say so, and offer a route back to the full board instead of a no-op "Clear filters".
       const msg =
-        view === "applied"
+        view === "history"
+          ? "You have no saved review or application history yet."
+          : view === "applied"
           ? "You haven't marked any roles as applied yet."
           : "You haven't rejected any roles yet.";
       return (
@@ -179,6 +183,7 @@ export function JobList({
   if (scrollParentRef) {
     return (
       <VirtualJobList
+        nowIso={nowIso}
         jobs={jobs}
         selectedId={selectedId}
         onSelect={onSelect}
@@ -195,6 +200,7 @@ export function JobList({
       {jobs.map((job) => (
         <div role="listitem" key={job.id}>
           <JobCard
+            nowIso={nowIso}
             job={job}
             selected={job.id === selectedId}
             onSelect={onSelect}

@@ -9,6 +9,7 @@ export interface Filters {
   exclude: string[];
   remoteOnly: boolean;
   status: Status;
+  includeOlderLive?: boolean;
   verdict: Verdict;
   experience: string;
   industry: string;
@@ -18,7 +19,7 @@ export interface Filters {
 
 const FILTER_KEYS = [
   "company", "include", "exclude", "remote", "status",
-  "verdict", "experience", "industry", "subcategory", "location",
+  "older", "verdict", "experience", "industry", "subcategory", "location",
 ] as const;
 
 function first(v: string | string[] | undefined): string | undefined {
@@ -50,6 +51,7 @@ export function parseFilters(
     exclude: csv(first(params.exclude)),
     remoteOnly: first(params.remote) === "1",
     status: validStatus,
+    includeOlderLive: first(params.older) === "1",
     verdict,
     experience: first(params.experience) ?? "",
     industry: first(params.industry) ?? "",

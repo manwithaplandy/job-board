@@ -23,6 +23,7 @@ log = logging.getLogger("reviewer.worker")
 # 'running' requests older than this are presumed orphaned by a crashed worker and
 # failed so the user's single active slot is freed.
 STALE_MINUTES = 30
+DRAIN_SECONDS = 30
 
 # In-flight registry: request ids THIS process is actively working right now, so a
 # parallel sibling loop's recovery sweep (Task 3) never reaps a healthy long-running
@@ -49,14 +50,16 @@ def _in_flight_snapshot() -> set[int]:
 
 
 class _Stop:
-    """Cooperative shutdown flag set by SIGTERM/SIGINT so the loop exits cleanly
-    AFTER the in-flight request finishes (never mid-review)."""
+    """Request cooperative shutdown with a bounded in-flight drain window."""
 
     def __init__(self) -> None:
         self.stop = False
+        self.deadline = None
 
     def request(self, *_a) -> None:
-        log.info("shutdown signal received; finishing in-flight work then exiting")
+        log.info("shutdown signal received; draining in-flight work for at most 30 seconds")
+        if self.deadline is None:
+            self.deadline = time.monotonic() + DRAIN_SECONDS
         self.stop = True
 
 
@@ -65,6 +68,8 @@ def process_one(conn) -> bool:
     a request was handled (caller should poll again immediately), False if the queue
     was empty (caller should sleep). Per-request isolation: any failure is recorded on
     the request row and never propagates out of this function."""
+    from job_discovery.lifecycle.demand import process_pending
+    process_pending(conn)
     recovered = db.recover_stale_review_requests(
         conn, STALE_MINUTES, exclude_ids=_in_flight_snapshot()
     )
@@ -157,10 +162,9 @@ def _run_loop(stop, fatal, idx) -> None:
     finally. The claim path (FOR UPDATE SKIP LOCKED) lets K loops on separate connections
     poll the same queue without ever double-claiming.
 
-    A SystemExit from reconnect (DB genuinely down) propagates OUT of here UNCAUGHT: the
-    caller decides what it means — K=1 runs this on the main thread so it exits the
-    process exactly as the historical single-loop worker did; K>1 runs it in a thread
-    whose wrapper converts the SystemExit into `fatal` so the whole process restarts.
+    A SystemExit from reconnect propagates to the thread wrapper, which requests
+    bounded sibling drain. main() preserves the single-loop exit code and exits
+    nonzero on parallel-loop failure so the supervisor restarts this child.
     """
     poll = config.REVIEW_WORKER_POLL_SECONDS
     conn = jdb.connect()
@@ -189,6 +193,26 @@ def _run_loop(stop, fatal, idx) -> None:
         log.info("review loop %s stopped", idx)
 
 
+def _drain_threads(threads, stop, fatal) -> bool:
+    """Wait for loops, allowing at most 30 seconds after stop/fatal is observed.
+
+    Daemon threads allow process exit even when a provider call never returns.
+    The supervisor independently enforces the same bound from signal delivery.
+    """
+    deadline = None
+    while any(t.is_alive() for t in threads):
+        for thread in threads:
+            if stop.stop:
+                deadline = stop.deadline if deadline is None else min(deadline, stop.deadline)
+            elif deadline is None and fatal.is_set():
+                deadline = time.monotonic() + DRAIN_SECONDS
+            remaining = 1.0 if deadline is None else min(1.0, deadline - time.monotonic())
+            if remaining <= 0:
+                return False
+            thread.join(timeout=remaining)
+    return True
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -198,28 +222,20 @@ def main() -> None:
         log.warning("OPENROUTER_API_KEY not set; requests will fail until it is configured")
 
     stop = _Stop()
-    # Signal handlers must be installed on the main thread (signal.signal only works
-    # there); a set stop.stop then drains every loop, and fatal drains them the same way.
+    # Keep signals on the main thread while each review loop owns its connection.
+    # Both a stop signal and a fatal sibling start a bounded drain.
     signal.signal(signal.SIGTERM, stop.request)
     signal.signal(signal.SIGINT, stop.request)
 
     fatal = threading.Event()
-    k = config.REVIEW_WORKER_PARALLELISM  # read at call time so tests can monkeypatch it
+    # Preserve the historical k <= 1 fallback while keeping every loop drainable.
+    k = max(1, config.REVIEW_WORKER_PARALLELISM)
     log.info(
         "review worker started (parallelism=%s, poll=%ss, stale=%smin)",
         k, config.REVIEW_WORKER_POLL_SECONDS, STALE_MINUTES,
     )
 
-    if k <= 1:
-        # Single loop on the main thread: a SystemExit from reconnect propagates out
-        # exactly as it did historically (preserves Railway restart semantics and the
-        # existing reconnect tests). No thread wrapper, no fatal conversion. On a clean
-        # shutdown (stop set) _run_loop returns and we log the same stop line the K>1 path
-        # and the historical single-loop worker emit; a SystemExit skips it (as does the
-        # K>1 path's sys.exit), keeping behavior otherwise identical.
-        _run_loop(stop, fatal, 0)
-        log.info("review worker stopped")
-        return
+    exits = []
 
     def _thread_body(idx):
         # Fail CLOSED: ANY exception escaping _run_loop must set `fatal` so main() exits
@@ -230,24 +246,24 @@ def main() -> None:
         # reconnect, already logged there); the Exception arm needs its own log.exception.
         try:
             _run_loop(stop, fatal, idx)
-        except SystemExit:
+        except SystemExit as exc:
+            exits.append(exc)
             fatal.set()  # a loop's reconnect gave up → whole process must restart
         except Exception:
             log.exception("review loop %s crashed; draining siblings for a restart", idx)
             fatal.set()
 
     threads = [
-        threading.Thread(target=_thread_body, args=(i,), name=f"review-loop-{i}", daemon=False)
+        threading.Thread(target=_thread_body, args=(i,), name=f"review-loop-{i}", daemon=True)
         for i in range(k)
     ]
     for t in threads:
         t.start()
-    # Join in 1s slices so the main thread stays responsive: signal handlers only run on
-    # the main thread and only get scheduled between its bytecode ops, so a bare
-    # (untimed) join would starve the SIGTERM handler and defeat graceful drain.
-    while any(t.is_alive() for t in threads):
-        for t in threads:
-            t.join(timeout=1.0)
+    drained = _drain_threads(threads, stop, fatal)
+    if not drained:
+        log.warning("review drain deadline reached; process exiting with unfinished work")
+    if k <= 1 and exits:
+        raise exits[0]  # Retain the single-loop SystemExit contract.
 
     if fatal.is_set():
         # A loop hit an unrecoverable DB error → exit nonzero so Railway restarts us.

@@ -62,7 +62,7 @@ def test_fetch_is_a_single_widget_call_with_no_pagination(monkeypatch):
         return WIDGET
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
-    postings = fetch_workable("acme")
+    postings = list(fetch_workable("acme"))
 
     assert [p.external_id for p in postings] == ["ENG123", "OPS456", "DS789"]
     # exactly ONE call: the widget endpoint — no per-job detail fetch, no paging
@@ -85,7 +85,7 @@ def test_fetch_keeps_minimal_posting_when_job_malformed(monkeypatch):
         return payload
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
-    postings = fetch_workable("acme")
+    postings = list(fetch_workable("acme"))
     assert [p.external_id for p in postings] == ["ENG123", "BAD"]
     bad = postings[1]
     assert bad.title is None  # no title available in the listing entry
@@ -104,8 +104,9 @@ def test_fetch_rejects_entries_without_a_shortcode(monkeypatch):
         return payload
 
     monkeypatch.setattr(workable, "get_json", fake_get_json)
-    with pytest.raises(ValueError, match="shortcode"):
-        fetch_workable("acme")
+    result=fetch_workable("acme")
+    assert [p.external_id for p in result]==["OK"]
+    assert not result.complete
 
 
 # ── A3: missing top-level key ─────────────────────────────────────────────────

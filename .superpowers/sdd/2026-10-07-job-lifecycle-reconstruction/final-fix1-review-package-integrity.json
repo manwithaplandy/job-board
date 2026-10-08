@@ -1,0 +1,18 @@
+{
+  "base": "6cb16037aa667d11ea673e2d6d4b876df9b9f4b1",
+  "head": "799cb7c44a594f2bbe6fe8f804fcff8d2c9506f0",
+  "raw": {
+    "file": ".superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-fix1-review-package.md",
+    "bytes": 5217546,
+    "lines": 70537,
+    "sha256": "24eb2286ba6094e8e813343a1803ab948ff0e82a52a43f5712f0ef71d7129bb5"
+  },
+  "entrypoint": {
+    "file": ".superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-fix1-product-review-entrypoint.md",
+    "bytes": 158914,
+    "lines": 2523,
+    "sha256": "6e86f5f43bbdba90a5e8408ef9c6a2aaa8eb4134f777f338e95393d8b8fe91b9",
+    "product_paths": 25,
+    "diff_blocks": 25
+  }
+}

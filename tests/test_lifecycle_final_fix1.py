@@ -301,6 +301,10 @@ def test_actual_async_review_retains_exact_input_during_consumer(conn, monkeypat
     assert not halted and results[0].verdict == "approve"
     assert conn.execute("SELECT description_snapshot FROM job_reviews").fetchone()["description_snapshot"] == "Review JD"
     demand.apply_consumptions(conn)
+    assert maintenance.finalize_completed_producers(conn,100) >= 1
+    conn.commit()
+    completed = conn.execute("SELECT * FROM lifecycle_claims WHERE kind='review_write'").fetchone()
+    assert completed['state'] == 'cancelled' and completed['generation'] > completed['replay_floor'] >= 1
     conn.execute("UPDATE job_payload_demands SET protection_until=clock_timestamp()-interval '1 hour'")
     conn.commit()
     class LaterRetention:
@@ -308,4 +312,7 @@ def test_actual_async_review_retains_exact_input_during_consumer(conn, monkeypat
             return conn.execute(query.replace("clock_timestamp()-interval '168 hours'","clock_timestamp()+interval '1 hour'"),params)
     assert maintenance._terminal_batch(LaterRetention(),100,4) == 1
     conn.commit()
+    assert maintenance._terminal_batch(LaterRetention(),100,3) >= 1
+    conn.commit()
+    assert not conn.execute("SELECT 1 FROM capacity_reservations WHERE claim_kind='review_write'").fetchone()
     assert conn.execute("SELECT description_snapshot FROM job_reviews").fetchone()["description_snapshot"] == "Review JD"

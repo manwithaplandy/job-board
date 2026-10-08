@@ -529,17 +529,13 @@ def test_retained_package_creates_a_new_private_copy_without_network_or_old_hist
             source["snapshot_captured_at"],
         ),
     )
-    from job_discovery.lifecycle.claims import cancel_claim
-    from job_discovery.lifecycle.types import ClaimRef
-
-    cancel_claim(
-        conn,
-        ClaimRef(
-            source["claim_owner_token"],
-            source["claim_generation"],
-            source["lease_until"],
-        ),
-    )
+    completed = conn.execute(
+        "SELECT state,generation,replay_floor FROM lifecycle_claims WHERE kind='demand' AND work_id=%s",
+        (str(original.id),),
+    ).fetchone()
+    assert completed["state"] == "cancelled"
+    assert completed["generation"] > source["claim_generation"]
+    assert completed["replay_floor"] >= source["claim_generation"]
     conn.execute("DELETE FROM job_payload_demands WHERE id=%s", (original.id,))
     conn.commit()
     copy = request_demand(conn, job, owner, "generation")

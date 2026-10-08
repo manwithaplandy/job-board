@@ -196,6 +196,22 @@ def test_failed_fetch_and_private_copy_are_not_source_observations(conn,copy_pri
 
 
 @requires_db
+def test_delivered_detail_questions_apply_use_to_matching_capture_only(conn):
+    from psycopg.types.json import Jsonb
+    setup_source(conn,ats="greenhouse")
+    request = demand.request_demand(conn,"greenhouse:fixture:0",str(uuid4()),"description")
+    conn.commit()
+    questions = {"questions":[]}
+    assert demand.hydrate_demand(conn,request,lambda _: {"description":"Detail JD","questions":questions}) == "ready"
+    row = conn.execute("SELECT * FROM job_payload_demands WHERE id=%s",(request.id,)).fetchone()
+    conn.execute("INSERT INTO job_questions(job_id,job_version_id,questions,captured_at) VALUES(%s,%s,%s,clock_timestamp())",(request.job_id,row['job_version_id'],Jsonb(questions)))
+    conn.execute("UPDATE job_payload_demands SET consumed_at=clock_timestamp() WHERE id=%s",(request.id,))
+    conn.commit()
+    demand.apply_consumptions(conn)
+    assert conn.execute("SELECT last_used_at FROM job_questions").fetchone()["last_used_at"] == conn.execute("SELECT consumed_at FROM job_payload_demands WHERE id=%s",(request.id,)).fetchone()["consumed_at"]
+
+
+@requires_db
 @pytest.mark.parametrize("lane", ["normal", "operational"])
 @pytest.mark.parametrize("response", ["unknown", "failed", "live"])
 def test_suspicious_empty_scheduler_has_finite_followup(conn, monkeypatch, caplog, lane, response):

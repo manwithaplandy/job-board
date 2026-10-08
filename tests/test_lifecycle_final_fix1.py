@@ -48,7 +48,7 @@ def posting(title="Role", location=None, body="JD"):
 def test_archived_admission_resumes_at_prospective_bound(conn, case):
     source = setup_source(conn)
     if case == "old_location":
-        conn.execute("INSERT INTO locations(raw) VALUES('London')")
+        conn.execute("INSERT INTO locations(raw,canonicals,source) VALUES('London',ARRAY['London'],'manual')")
     activate_fixture(conn)
     _, claim = admit(conn, source, [posting(location="London" if case == "old_location" else None)])
     if case == "count":

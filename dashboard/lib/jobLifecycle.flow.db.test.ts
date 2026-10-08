@@ -228,14 +228,6 @@ with psycopg.connect(os.environ["TEST_DATABASE_URL"],row_factory=dict_row) as c:
   if(ready.status!=="ready") throw new Error("ready expected");
   const other=(await sql`INSERT INTO job_payload_demands(user_id,job_id,kind,status,job_version_id,description_snapshot,snapshot_captured_at,settled_at)
     VALUES(${owner},${jobId},'generation','ready',${ready.versionId},'Other JD',clock_timestamp(),clock_timestamp()) RETURNING id`)[0].id;
-  const {markApplicationApplied,unmarkApplicationApplied}=await import("@/app/actions/applications");
-  await markApplicationApplied(jobId);
-  const saved=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`)[0];
-  expect(saved).toMatchObject({status:"applied",description_snapshot:"Delivered JD",questions_snapshot:null,job_version_id:ready.versionId});
-  await markApplicationApplied(jobId);
-  expect((await sql`SELECT applied_at FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`)[0].applied_at).toEqual(saved.applied_at);
-  await unmarkApplicationApplied(jobId);
-  expect(await sql`SELECT 1 FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`).toHaveLength(0);
   const {GET}=await import("@/app/api/jobs/[id]/route");
   const response=await GET(new Request(`http://local/api/jobs/${jobId}`),{params:Promise.resolve({id:jobId})});
   expect((await response.json()).currentDescription).toBe("Delivered JD");
@@ -249,6 +241,15 @@ from job_discovery.lifecycle.demand import apply_consumptions
 with psycopg.connect(os.environ['TEST_DATABASE_URL'],row_factory=dict_row) as c: apply_consumptions(c)
 `],{cwd:resolve(process.cwd(),".."),env:process.env,timeout:20000});
   expect((await sql`SELECT description_last_used_at FROM jobs WHERE id=${jobId}`)[0].description_last_used_at).toEqual(consumed);
+  const {markApplicationApplied,unmarkApplicationApplied}=await import("@/app/actions/applications");
+  await markApplicationApplied(jobId);
+  const saved=(await sql`SELECT * FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`)[0];
+  expect(saved).toMatchObject({status:"applied",description_snapshot:"Delivered JD",questions_snapshot:null,job_version_id:ready.versionId});
+  await markApplicationApplied(jobId);
+  expect((await sql`SELECT applied_at FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`)[0].applied_at).toEqual(saved.applied_at);
+  await unmarkApplicationApplied(jobId);
+  expect(await sql`SELECT 1 FROM application_packages WHERE user_id=${owner} AND job_id=${jobId}`).toHaveLength(0);
+
 });
 
 test.each([true,false])("applied status preserves existing known=%s résumé without questions or recapture",async known=>{

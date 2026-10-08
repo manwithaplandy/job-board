@@ -1,6 +1,8 @@
+vi.mock("@/lib/db", () => ({withUserMutation: async (_u: string, fn: (tx: unknown) => Promise<unknown>) => fn({})}));
 vi.mock("@/lib/jobLifecycle", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
   requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+  consumeJobVersion: vi.fn(async () => {}),
 }));
 import { beforeEach, describe, expect, test, vi } from "vitest";
 

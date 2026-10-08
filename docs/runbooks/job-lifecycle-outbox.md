@@ -18,12 +18,12 @@ This is a release procedure, not authorization to execute it. All controls remai
 | --- | --- |
 | `job_discovery.run` | Daily one-shot; pre-admission maintenance; source-enabled uses existing due scheduler; flag-off retains legacy paths. Actual persisted run closed_jobs now counts successful normal/fallback closure commits. |
 | `lifecycle.source_worker` | Independent bounded supervisor child using the same maintenance and due scheduler/operational path. Both it and the daily caller pass the actual admission decision: blocked maintenance defers new metadata/version admission while exact membership and existing-source progress continue. Daily blocked runs also defer novel source catalog registration. No new transport, claim or capacity mechanism. |
-| `lifecycle.metadata`, `versions`, `reconcile` | Metadata/version/listing observations and availability updates use paired public writes; unchanged polls keep compact markers rather than historical events. |
+| `lifecycle.identity.admit_metadata`, `capture_version`, `reconcile` | Metadata/version/listing observations and availability updates use paired public writes; unchanged polls keep compact markers rather than historical events. |
 | `job_discovery.db.sync_seed`, `company_discovery.db.upsert_candidates`, `worker.ingest_candidates`, `weekly_ingest` | Existing paired company/source writers,100-row ingestion boundaries and committed progress. Verify all deployed entrypoints are these versions. Legacy unpaired archive writers fail closed. |
 | `company_discovery.enrich_apply`, `jobs_db.apply_classification`, `name_backfill.apply_name` | Accepted paired public mutations; model/external work remains outside transactions. |
 | `job_discovery.locations` | `_insert`, `_insert_unmappable`, `correct_location` pair canonical public changes; resolver bounded100-row commits. `stamp_jobs` changes cache references, not public facts. |
 | Brands/skills/relations/assertions | Typed projections, baseline and paired APIs exist for all supported tables. No invented populated skill dictionary or speculative brand/identity merge. Any new producer needs an evaluated attestation. |
-| Operational verification | Existing preallocated source/listing state and critical event slots. Provision below guard before readiness; missing/exhausted rows defer. Initial per-listing slots16; global critical slots12,500 are finite and not automatically recycled. |
+| Operational verification | Existing preallocated source/listing state and critical event slots. Provision below guard before readiness; missing/exhausted rows defer. Initial global critical-slot increment: 16 per provision batch (not per listing); global critical slots: 12,500 are finite and not automatically recycled. |
 | Reviewer | Lifecycle feed filters before candidate hydration; actual consumed version/snapshots follow successful matching. `backfill_floors` takes gate/sorted jobs for private metadata updates; it is an administrative whole-selection transaction, not a measured bounded ingestion path. Quiesce it during cutover and evaluate before subsequent use. |
 | Dashboard private writes | `withUserPayloadMutation`, demand wrappers, `jobLifecycle`, `generationJobs`, `queries` and corrections/resumeScores/coverLetterEdits/applications/jobs actions preserve snapshots/receipts. Known package inputs remain authoritative. |
 | Dashboard consumers | `jobsQuery`, board server loaders, detail/history/application/calibration consumers distinguish source, discovery and payload. Count and rows use matching semantics. Public120-second ISR was removed for per-request expiry; load/cost impact is unmeasured. |
@@ -44,7 +44,7 @@ Existing lifecycle controls, claims, reservations, readiness, outbox, destinatio
 | Collect + individual feature flags | Evaluate mapping and ordinary source/demand/feed behavior. Retirement remains dry-run until enforced readiness. |
 | Enforced + dry-run | No claim that old unreserved writers remain compatible; deploy current wrappers and stop incompatible tools. |
 | Retirement live | Requires enforced stage and complete readiness. Disabling retirement pauses it; it never deletes lean Job identity or protected snapshots. |
-| Producer active + export off | Paired writes remain subject to logical backlog limits. Pending events retained. Baseline is built before enabling export. |
+| Producer active + export off | Paired writes remain subject to logical backlog limits. Pending events retained. A bounded first baseline page is built before enabling export; subsequent pages interleave export and exact acknowledgement. |
 | Export pause | Producers stay paired and stop at applicable backpressure. No pending/event/seal deletion. |
 | Producer paused after any activation | Eventful changes remain blocked; archive history cannot reset to never-activated. Revalidate runtime/destination, recertify and resume through claim/CAS. |
 | Rollback | Pause affected features/workers, retain schema/identity/private work/outbox/history. Never restore old prune/refill consumers, fabricate timestamps or clear permanent activation history. |
@@ -70,3 +70,42 @@ Task13 evidence is under `.superpowers/sdd/2026-10-07-job-lifecycle-reconstructi
 The six-family fixture retained12 Job identities and six private snapshots, retired five unprotected descriptions totaling80 logical bytes, and measured1,744 Job row bytes with28,448,435 allocated database bytes. One archive fixture produced6,340 canonical/922 gzip/2,671 manifest bytes. These tiny synthetic ratios are illustrative, not population forecasts. Extrapolate only from an authorized representative sample using independent identity/row-index, cache-size/expiry/protection, meaningful event rate, escrow and retention dimensions. Do not infer savings for already deleted history. The combined offline sample measured four processes (real maintenance/fake-S3 export, inert stalled reviewer, source disabled), not active production model/source throughput. See exact phase metrics; no cost neutrality or provisioning promise follows.
 
 Deliberately absent are the Task3 independent expiry-enforcement, physical-capacity, cross-user and related adversarial review/probes. Selected functional successes, service attestations and catalog parity do not supply those guarantees. Preserve that gap through final review and release decisions. Unknown legacy full recapture, actual runtime compatibility, sustained source coverage, physical runway, production17.6/TLS, archive destination/IAM/retention and cost/load remain explicit gates or functional limitations.
+
+
+Final composition migration `2026-10-08-10-lifecycle-composition.sql` adds compact
+service-only demand observation and suspicious-empty follow-up fields. Neither the
+private demand UUID nor follow-up bookkeeping enters public archive/anonymous
+projections. After two suspicious-empty turns, schedule at most three deterministic
+existing-open exact-coordinate checks per source per 24 hours, sharing the original
+board request/time budget. Logs and `followup_status` request migration review;
+failed/malformed/missing details remain unknown and do not close postings. These
+diagnostics do not infer migration links or reactivate excluded boards.
+
+With retirement explicitly enabled and dry-run disabled, prospective replacement
+can compact at most 12 archived version/edge row effects per admitted posting;
+25-posting admission remains within 500 row effects. Maintenance independently
+retires eligible superseded versions/edges, including the oldest at current plus
+ten. Exact version/hash and current edge-head acknowledgement are required; any
+private/cache reference, missing proof or pending event retains the needed row.
+Replacement establishes its current public location edge before compacting the
+superseded edge. Compact archive coverage/heads remain; no false relation-removal
+event or physical space credit is produced.
+
+Temporary terminal demand bodies/receipts become eligible seven days after the
+latest settlement or actual consumption, after application of consumption receipts
+and expiry of a short handoff pin. Durable private snapshots and active generation
+remain protected. Actual review batches renew exact input pins every 30 seconds;
+ready-input handoff pins last 180 seconds. Detail use means successful authenticated
+ready payload delivery (which may be delivered but not seen), using its exact
+receipt/input tuple. Queue/status-only helper reads do not count as use. When an
+origin receipt is gone, retained package input uses the existing genuine new
+private-copy capture; historical provenance is not reconstructed.
+
+Demand and dashboard producers finalize only after their result transactions and
+optional cache writes have committed/rolled back. Maintenance performs bounded
+committed-only completion for transaction-specific public writers, review writers,
+dashboard leftovers and terminal demand recovery; unresolved held reservations
+remain. Demand recovery waits the original final-write window before finalizing.
+Seven-day detail cleanup retains compact claim generations/replay floors. None of
+these local functional changes supplies the deliberately omitted Task3 assurance,
+production activation, live destination proof, or physical-reclamation evidence.

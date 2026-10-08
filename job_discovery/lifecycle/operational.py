@@ -253,6 +253,8 @@ def complete(conn, source_id, sequence, claim, *, successful, failed=False):
             source_id,
         ),
     )
+    from .followup import schedule
+    schedule(conn,source_id,claim,operational=True)
     return status
 
 
@@ -357,6 +359,7 @@ def run_due(conn, *, max_boards, deadline, source_id=None):
                 success = False
                 failed = False
                 pending = []
+                board_budget = None
                 try:
 
                     def pulse():
@@ -369,7 +372,7 @@ def run_due(conn, *, max_boards, deadline, source_id=None):
 
                     with source_budget(
                         min(60, max(0, deadline - monotonic())), 50, pulse
-                    ):
+                    ) as board_budget:
                         feed = ADAPTERS[source["ats"]](
                             source["public_board_ref"], fetch_details=False
                         )
@@ -413,6 +416,8 @@ def run_due(conn, *, max_boards, deadline, source_id=None):
                     failed=failed,
                 )
                 conn.commit()
+                from .followup import run as run_followup
+                run_followup(conn,source,claim,board_budget,operational=True)
                 if status != "complete":
                     continue
             while monotonic() < deadline:

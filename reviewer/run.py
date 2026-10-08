@@ -214,6 +214,35 @@ async def review_one(candidate: dict, profile_block: str, client,
     )
 
 
+INPUT_PIN_RENEW_SECONDS = 30
+
+
+async def review_with_input_pins(conn, user_id, candidates, operation):
+    """Keep exact temporary input alive for the full actual consumer lifetime.
+
+    Synchronous DB callbacks share the event loop and never overlap connection
+    use. Every pin transaction commits before awaiting provider work.
+    """
+    if not any(c.get('demand_id') for c in candidates):
+        return await operation()
+    db.pin_review_inputs(conn,user_id,candidates)
+    async def renew():
+        while True:
+            await asyncio.sleep(INPUT_PIN_RENEW_SECONDS)
+            db.pin_review_inputs(conn,user_id,candidates)
+    consumer = asyncio.create_task(operation())
+    heartbeat = asyncio.create_task(renew())
+    try:
+        done, _ = await asyncio.wait((consumer,heartbeat),return_when=asyncio.FIRST_COMPLETED)
+        if heartbeat in done:
+            await heartbeat  # Renewal failure stops further provider work.
+        return await consumer
+    finally:
+        heartbeat.cancel()
+        consumer.cancel()
+        await asyncio.gather(heartbeat,consumer,return_exceptions=True)
+
+
 async def review_batch(candidates: list[dict], profile_block: str, client,
                        concurrency: int, *, user_id: str | None = None,
                        run_id=None,
@@ -553,14 +582,14 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             conn.commit()
             return deleted
 
-        _, halted = asyncio.run(review_batch(
+        _, halted = asyncio.run(review_with_input_pins(conn,user_id,candidates,lambda: review_batch(
             candidates, profile_block, client, config.CONCURRENCY,
             user_id=user_id, run_id=run_id,
             # Cheap per-chunk poll so a mid-run deletion stops issuing LLM calls instead
             # of grinding all ≤cap jobs whose writes the tombstone guard then discards.
             deleted_check=deleted_check,
             on_results=_persist_chunk,
-        ))
+        )))
 
         # M-RESURRECT-2 (final note): the account can be erased mid-run. The per-chunk
         # guard already skips writes; here we set the run note. The deletion note REPLACES

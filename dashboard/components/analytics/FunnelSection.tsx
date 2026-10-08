@@ -165,10 +165,9 @@ export function FunnelSection({ funnel }: { funnel: FunnelCounts }) {
           <Row
             spec={{
               label: "Applied", value: j.applied, tone: "good",
-              pctBase: j.approved, pctSuffix: "of approved",
               info: { term: GLOSSARY.applied.label, gloss: GLOSSARY.applied.gloss },
             }}
-            barMax={Math.max(1, j.approved)}
+            barMax={Math.max(1, j.applied)}
           />
           <SubHead>Queue</SubHead>
           <Row

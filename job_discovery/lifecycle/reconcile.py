@@ -136,7 +136,7 @@ def _positive(conn, enum, listing, kind, observed_at):
     removed = kind in {'removed','expired'}
     with _write(conn, enum.claim, 'source_listings', listing['job_id']):
         conn.execute("""UPDATE source_listings SET successful_last_observed_at=%s,
-           successful_sighting_count=successful_sighting_count+%s,
+           successful_sighting_count=successful_sighting_count+%s,last_observation_kind='enumeration',
            last_membership_sequence=GREATEST(last_membership_sequence,%s),
            last_direct_verification_sequence=CASE WHEN %s THEN %s ELSE last_direct_verification_sequence END,
            source_availability=%s,consecutive_complete_misses=0,first_complete_miss_at=NULL
@@ -232,6 +232,9 @@ def complete_enumeration(conn, enumeration: EnumerationRef, verdict: SourceStatu
              CASE WHEN exclusion_state='failure_disabled' AND %s<>'complete'
                   THEN LEAST(7,power(2,LEAST(failure_streak,3))) ELSE 1 END) AT TIME ZONE 'UTC'
           WHERE id=%s""", (outcome,status,status,suspicious,status,enumeration.source_id))
+
+    from .followup import schedule
+    schedule(conn,enumeration.source_id,enumeration.claim)
 
 
 def reconcile_chunk(conn, enumeration: EnumerationRef, limit: int = 500) -> bool:
@@ -332,6 +335,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300, admission_allowed=T
         chunk = []
         verdict = SourceStatus(complete=resuming)
         renewed = monotonic()
+        board_budget = None
         if not resuming:
             try:
                 def pulse():
@@ -339,7 +343,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300, admission_allowed=T
                     # starts with a renewed lease (including empty duplicate pages).
                     renew_claim(conn,claim)
                     conn.commit()
-                with source_budget(min(BOARD_SECONDS,max(0,deadline-monotonic())),BOARD_REQUESTS,pulse):
+                with source_budget(min(BOARD_SECONDS,max(0,deadline-monotonic())),BOARD_REQUESTS,pulse) as board_budget:
                     postings = ADAPTERS[source['ats']](source['public_board_ref'],fetch_details=False)
                     count = 0
                     for posting in postings:
@@ -380,6 +384,8 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300, admission_allowed=T
                 result['new_jobs'] += admitted
             complete_enumeration(conn,enum,verdict)
             conn.commit()
+            from .followup import run as run_followup
+            run_followup(conn,source,claim,board_budget)
             while True:
                 done, closed = _reconcile_chunk(conn,enum)
                 conn.commit()

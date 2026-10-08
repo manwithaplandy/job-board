@@ -1,4 +1,5 @@
-import { parseJobLifecycle, requestJobPayload, type DemandResult } from "@/lib/jobLifecycle";
+import { withUserMutation } from "@/lib/db";
+import { parseJobLifecycle, requestJobPayload, consumeJobVersion, type DemandResult } from "@/lib/jobLifecycle";
 import { getJobReviewDetail, getJobQuestion } from "@/lib/queries";
 import { getUserId } from "@/lib/auth";
 import { JOB_ID_RE } from "@/lib/jobIdValidator";
@@ -43,6 +44,11 @@ export async function GET(
       ? {status:"deferred",id:null,reason:"Source closed. Your saved review and application history remains available."}
       : await requestJobPayload(viewerId,id,"description")
     : null;
+  // Authenticated ready payload delivery is the concrete detail-use boundary.
+  // Pending/status-only helper reads do not stamp consumption.
+  if (viewerId && payload?.status === "ready") {
+    await withUserMutation(viewerId, tx => consumeJobVersion(tx,id,payload.versionId,payload.kind,payload.id,payload));
+  }
   return Response.json({ ...(detail ?? EMPTY), questions,
     ...(payload?.status === "ready" ? {currentDescription:payload.description,currentQuestions:payload.questions} : {}), ...(payload && payload.status !== "legacy" ? {payload} : {}) }, {
     headers: { "Cache-Control": "private, no-store" },

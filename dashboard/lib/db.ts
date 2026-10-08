@@ -119,7 +119,8 @@ export async function withUserPayloadMutation<T>(
   fn: (tx: TransactionSql) => Promise<T>,
 ): Promise<T> {
   if (!userId || !jobId) throw new Error("Owner and job required");
-  return (await serviceSql.begin(async (tx) => {
+  let completedClaim: {workId:string;ownerToken:string;generation:number} | null = null;
+  const result = (await serviceSql.begin(async (tx) => {
     await acquireLifecycleGate(tx);
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${'lifecycle:job:' + jobId}, 0))`;
     const controls = await tx`SELECT safety_stage FROM lifecycle_control WHERE singleton`;
@@ -134,6 +135,7 @@ export async function withUserPayloadMutation<T>(
         RETURNING work_id,owner_token,generation`;
       const row = claim[0];
       if (!row) throw new Error("Payload claim unavailable");
+      completedClaim = {workId:row.work_id,ownerToken:row.owner_token,generation:row.generation};
       const reservations = await tx`INSERT INTO capacity_reservations
         (claim_kind,claim_id,owner_token,generation,bytes,backend_pid,transaction_id,job_id,scope,subject_id,invoking_role)
         VALUES ('dashboard',${row.work_id},${row.owner_token},${row.generation},${bytes},
@@ -153,14 +155,36 @@ export async function withUserPayloadMutation<T>(
     }
     return result;
   })) as T;
+  // The original transaction (including deferred checks) has committed. A
+  // failure here leaves durable work for bounded maintenance finalization.
+  if (completedClaim) {
+    const claim: {workId:string;ownerToken:string;generation:number} = completedClaim;
+    try {
+    await serviceSql.begin(async tx => {
+      await acquireLifecycleGate(tx);
+      await tx`UPDATE lifecycle_claims SET replay_floor=generation,generation=generation+1,
+        state='cancelled',terminal_at=clock_timestamp()
+        WHERE kind='dashboard' AND work_id=${claim.workId} AND owner_token=${claim.ownerToken}
+          AND generation=${claim.generation} AND state='active' AND invoking_role=current_user
+          AND subject_id IS NOT DISTINCT FROM app_user_id()
+          AND NOT EXISTS(SELECT FROM capacity_reservations WHERE claim_kind='dashboard'
+            AND claim_id=${claim.workId} AND state='held')`;
+    });
+    } catch (error) {
+      // Do not report a committed private artifact as failed (or refund its
+      // generation). Maintenance retries only the settled completion metadata.
+      console.warn("Payload completion metadata deferred",error instanceof Error ? error.name : "unknown");
+    }
+  }
+  return result;
 }
 
 /** Read the existing sticky compatibility control, then enqueue/read as owner.
  * Mirrors lifecycle.config.legacy_description_capture_allowed; no shared DML.
  */
-export async function withUserDemandSql<T>(
-  userId:string, fn:(tx:TransactionSql,legacyAllowed:boolean)=>Promise<T>,
-):Promise<T> {
+export async function withUserDemandSql(
+  userId:string, fn:(tx:TransactionSql,legacyAllowed:boolean)=>Promise<import("./jobLifecycle").DemandResult>,
+):Promise<import("./jobLifecycle").DemandResult> {
   if(!userId) throw new Error("Owner required");
   return (await serviceSql.begin(async tx=>{
     await acquireLifecycleGate(tx);
@@ -169,6 +193,16 @@ export async function withUserDemandSql<T>(
       FROM lifecycle_control c CROSS JOIN lifecycle_maintenance_state m WHERE c.singleton AND m.singleton`;
     const legacyAllowed=rows[0]?.legacy_allowed===true;
     await tx`SELECT set_config('request.jwt.claims',${JSON.stringify({sub:userId,role:"authenticated"})},true),set_config('role','authenticated',true)`;
-    return fn(tx,legacyAllowed);
-  })) as T;
+    const result = await fn(tx,legacyAllowed);
+    if (result.status === "ready") {
+      await tx`SELECT set_config('role','none',true),set_config('request.jwt.claims','',true)`;
+      const pinned = await tx`UPDATE job_payload_demands SET protection_until=clock_timestamp()+interval '180 seconds'
+        WHERE id=${result.id}::uuid AND user_id=${userId}::uuid AND status='ready'
+          AND job_version_id=${result.versionId}::uuid AND kind=${result.kind}
+          AND description_snapshot=${result.description}
+          AND questions_snapshot IS NOT DISTINCT FROM ${result.questions ? JSON.stringify(result.questions) : null}::text::jsonb RETURNING id`;
+      if (pinned.length !== 1) throw new Error("Ready input changed; retry the request");
+    }
+    return result;
+  })) as import("./jobLifecycle").DemandResult;
 }

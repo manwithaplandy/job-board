@@ -537,3 +537,27 @@ def attach_demand_snapshots(conn, candidates, user_id):
         if row and row['job_version_id'] and row['description_snapshot']:
             result.append({**candidate, **row, 'description': row['description_snapshot']})
     return result
+
+
+def pin_review_inputs(conn, user_id, candidates):
+    """Renew only the exact attached review input, without recording use."""
+    from job_discovery.lifecycle.locks import lock_jobs
+    from psycopg.types.json import Jsonb
+    pinned = sorted((c for c in candidates if c.get('demand_id')), key=lambda c: c['id'])
+    try:
+        for start in range(0,len(pinned),100):
+            chunk = pinned[start:start+100]
+            lock_jobs(conn,[c['id'] for c in chunk])
+            for row in chunk:
+                updated = conn.execute("""UPDATE job_payload_demands SET protection_until=clock_timestamp()+interval '180 seconds'
+                  WHERE id=%s AND user_id=%s AND job_id=%s AND kind='review' AND status='ready'
+                  AND job_version_id=%s AND description_snapshot=%s
+                  AND questions_snapshot IS NOT DISTINCT FROM %s RETURNING id""",
+                  (row['demand_id'],_uuid(user_id),row['id'],row['job_version_id'],row['description_snapshot'],
+                   Jsonb(row['questions_snapshot']) if row.get('questions_snapshot') is not None else None)).fetchone()
+                if not updated:
+                    raise RuntimeError('Review input unavailable; retry hydration')
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise

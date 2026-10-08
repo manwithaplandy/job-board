@@ -31,7 +31,8 @@ AND NOT EXISTS(SELECT FROM cover_letter_edits WHERE job_id=j.id)
 AND NOT EXISTS(SELECT FROM generation_jobs WHERE job_id=j.id AND status IN ('pending','running'))
 AND NOT EXISTS(SELECT FROM job_payload_demands WHERE job_id=j.id AND
  (status IN ('pending','running') AND COALESCE(lease_until,protection_until)>clock_timestamp()
-  OR description_snapshot IS NOT NULL OR questions_snapshot IS NOT NULL))
+  OR protection_until>clock_timestamp()
+  OR consumed_at IS NOT NULL AND (consumption_applied_at IS NULL OR consumption_applied_at<consumed_at)))
 """
 _DESCRIPTION_DUE = """j.description IS NOT NULL AND
  COALESCE(j.description_last_used_at,j.description_captured_at)<=clock_timestamp()-interval '720 hours'"""
@@ -178,39 +179,26 @@ def _payload_batch(conn, cursor, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
 
 
 def _version_batch(conn, limit, dry_run, byte_limit=MAX_RETIRE_BYTES):
-    # Exact version/hash coverage is required; a listing watermark cannot certify unknown versions.
-    # FK references are deliberately retained, including terminal private work.
-    rows = conn.execute('''SELECT v.id,v.job_id,octet_length(v.public_metadata::text) AS bytes
+    from .version_retention import ELIGIBLE, COST, BYTES, compact_versions
+    rows = conn.execute(f'''SELECT v.id,v.job_id,({BYTES}) AS bytes,({COST}) AS cost
       FROM job_versions v JOIN source_listings s ON s.id=v.source_listing_id
-      WHERE v.id IS DISTINCT FROM s.current_version_id AND EXISTS(SELECT FROM public_archive_version_coverage c WHERE c.version_id=v.id
-        AND c.source_listing_id=v.source_listing_id AND c.version_revision=v.revision AND c.content_hash=v.content_hash)
+      WHERE v.id IS DISTINCT FROM s.current_version_id AND {ELIGIBLE}
       AND (v.recorded_at<=clock_timestamp()-interval '720 hours' OR
         (SELECT count(*) FROM job_versions newer WHERE newer.source_listing_id=v.source_listing_id
-         AND newer.id IS DISTINCT FROM s.current_version_id AND newer.revision>v.revision)>=10)
-      AND NOT EXISTS(SELECT FROM jobs WHERE description_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM job_questions WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM job_reviews WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM review_corrections WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM application_packages WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM resume_scores WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM cover_letter_edits WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM generation_jobs WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM job_payload_demands WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM job_locations WHERE job_version_id=v.id)
-      AND NOT EXISTS(SELECT FROM job_skills WHERE job_version_id=v.id)
-      ORDER BY v.recorded_at,v.id LIMIT %s''', (limit,)).fetchall()
+         AND newer.id IS DISTINCT FROM s.current_version_id AND newer.revision>v.revision)>=9)
+      ORDER BY v.recorded_at,v.id LIMIT %s''', (min(limit,100),)).fetchall()
     selected = []
-    size = 0
+    size = effects = 0
     for row in rows:
-        if size + row['bytes'] <= byte_limit:
+        if size+row['bytes']<=byte_limit and effects+row['cost']<=min(limit,400):
             selected.append(row)
             size += row['bytes']
+            effects += row['cost']
     acquired = set(_lock_candidate_prefix(conn, [r['job_id'] for r in selected]))
     selected = [r for r in selected if r['job_id'] in acquired]
-    size = sum(r['bytes'] for r in selected)
-    if not dry_run and selected:
-        conn.execute('DELETE FROM job_versions WHERE id=ANY(%s)', ([r['id'] for r in selected],))
-    return len(rows), 0 if dry_run else len(selected), 0 if dry_run else size
+    if not dry_run:
+        compact_versions(conn,[r['id'] for r in selected])
+    return sum(r['cost'] for r in selected), 0 if dry_run else len(selected), 0 if dry_run else sum(r['bytes'] for r in selected)
 
 
 def _staging_batch(conn, limit):
@@ -261,8 +249,34 @@ def _staging_batch(conn, limit):
     return n
 
 
+def finalize_completed_producers(conn, limit=100):
+    """Complete only committed settled producer work, retaining compact floors.
+
+    Public-writer identities are transaction-specific. Dashboard and terminal
+    demand recovery covers interruption after the durable result and before its
+    normal finalization. Held accounting is never silently released here.
+    """
+    enter_gate(conn)
+    rows = conn.execute("""SELECT c.* FROM lifecycle_claims c WHERE state='active'
+      AND invoking_role=current_user AND subject_id IS NOT DISTINCT FROM app_user_id()
+      AND (kind IN ('public_writer','dashboard','review_write') OR kind='demand' AND EXISTS(
+        SELECT FROM job_payload_demands d WHERE d.id::text=c.work_id
+          AND d.status IN ('ready','deferred','failed','cancelled')
+          AND d.settled_at<=clock_timestamp()-interval '180 seconds'))
+      AND EXISTS(SELECT FROM capacity_reservations r WHERE r.claim_kind=c.kind AND r.claim_id=c.work_id AND r.generation=c.generation)
+      AND NOT EXISTS(SELECT FROM capacity_reservations r WHERE r.claim_kind=c.kind AND r.claim_id=c.work_id
+        AND (r.state='held' OR r.transaction_id=pg_current_xact_id()))
+      ORDER BY c.kind,c.work_id LIMIT %s""", (min(limit,100),)).fetchall()
+    for row in rows:
+        cancel_claim(conn, ClaimRef(row['owner_token'],row['generation'],row['lease_until']))
+    return len(rows)
+
+
 def _terminal_batch(conn, limit, phase):
     if phase == 3:
+        finalized = finalize_completed_producers(conn, min(limit,100))
+        if finalized:
+            return finalized
         # Settled callbacks also need a retained generation fence before removing
         # the row. A current generation is left intact, however old its timestamp.
         return conn.execute('''DELETE FROM capacity_reservations WHERE id IN
@@ -274,8 +288,12 @@ def _terminal_batch(conn, limit, phase):
     if phase == 4:
         rows = conn.execute('''SELECT d.id,d.job_id FROM job_payload_demands d
           WHERE d.status IN ('ready','deferred','failed','cancelled')
-          AND d.description_snapshot IS NULL AND d.questions_snapshot IS NULL
-          AND d.settled_at<=clock_timestamp()-interval '168 hours'
+          AND GREATEST(d.settled_at,d.consumed_at)<=clock_timestamp()-interval '168 hours'
+          AND (d.protection_until IS NULL OR d.protection_until<=clock_timestamp())
+          AND (d.consumed_at IS NULL OR d.consumption_applied_at>=d.consumed_at)
+          AND NOT EXISTS(SELECT FROM generation_jobs g WHERE g.user_id=d.user_id AND g.job_id=d.job_id AND g.status IN ('pending','running'))
+          AND NOT EXISTS(SELECT FROM job_payload_demands active WHERE active.user_id=d.user_id AND active.job_id=d.job_id
+            AND active.status IN ('pending','running') AND COALESCE(active.lease_until,active.protection_until)>clock_timestamp())
           AND NOT EXISTS(SELECT FROM lifecycle_claims c WHERE c.kind='demand' AND c.work_id=d.id::text
             AND (c.state='active' OR c.generation<=d.claim_generation OR c.replay_floor<GREATEST(d.claim_generation,1)))
           ORDER BY d.settled_at,d.id LIMIT %s''', (limit,)).fetchall()

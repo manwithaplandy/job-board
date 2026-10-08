@@ -189,6 +189,10 @@ def _text(value):
     )
 
 
+def description_hash(value: str) -> str:
+    return hashlib.sha256(_text(value).encode()).hexdigest()
+
+
 def _public_ref(value):
     if not isinstance(value, str) or len(value.encode()) > 2048:
         raise ValueError("bounded public evidence URL required")
@@ -239,7 +243,7 @@ def posting_metadata(
         body = None
     body = _text(body)
     if body:
-        metadata["description_hash"] = hashlib.sha256(body.encode()).hexdigest()
+        metadata["description_hash"] = description_hash(body)
     if len(json.dumps(metadata, ensure_ascii=False).encode()) > 6144:
         return None
     return metadata
@@ -262,16 +266,8 @@ def _source_publication(ats, raw, now):
 
 
 def _version_room(conn, listing):
-    # Retain evidence until maintenance can retire exact archived, unreferenced
-    # versions. Private references may continue to prevent retirement.
-    # A changed version would supersede the current row too, so include its age.
-    row = conn.execute(
-        """SELECT count(*) n,
-        bool_or(recorded_at<clock_timestamp()-interval '30 days') old
-        FROM job_versions WHERE source_listing_id=%s""",
-        (listing["id"],),
-    ).fetchone()
-    return row["n"] < 11 and not row["old"]
+    from .version_retention import replacement_plan
+    return replacement_plan(conn, listing) is not None
 
 
 def capture_version(
@@ -323,7 +319,9 @@ def capture_version(
     digest = hashlib.sha256(encoded).hexdigest()
     if digest == listing["content_hash"]:
         return listing["current_version_id"]
-    if not _version_room(conn, listing):
+    from .version_retention import replacement_plan, compact_versions
+    retire = replacement_plan(conn, listing)
+    if retire is None:
         return None
     revision = listing["current_revision"] + 1
     with _write(conn, claim, "job_versions", listing["job_id"], size=65536):
@@ -358,6 +356,7 @@ def capture_version(
                 public_evidence_ref,observed_at,status) VALUES(%s,%s,'structured_source',%s,%s,'accepted')""",
                 (version, location, normalized["url"], observed_at),
             )
+    compact_versions(conn, [row["id"] for row in retire])
     return version
 
 

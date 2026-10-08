@@ -1,17 +1,16 @@
 """Service hydration. Network occurs only between committed, fenced transactions."""
 
-import hashlib
 import re
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
-from job_discovery.http import get_json
+from job_discovery.adapters.completeness import get_json
 from job_discovery.jd import extract_description
 from job_discovery.adapters.greenhouse import parse_greenhouse_questions
-from .claims import claim_work, renew_claim, validate_claim
+from .claims import claim_work, renew_claim, validate_claim, cancel_claim
 from .config import read_control, legacy_description_capture_allowed
-from .identity import capture_version
+from .identity import capture_version, description_hash
 from .locks import lock_jobs
 from .reconcile import _write, StorageBlocked
 from .types import DemandRef
@@ -116,6 +115,7 @@ def request_demand(conn, job_id: str, user_id: str, kind: str) -> DemandRef:
         (UUID(user_id), job_id, kind),
     ).fetchone()
     if ready:
+        conn.execute("UPDATE job_payload_demands SET protection_until=clock_timestamp()+interval '180 seconds' WHERE id=%s", (ready["id"],))
         return DemandRef(ready["id"], job_id, kind, None, "ready")
     row = conn.execute(
         """INSERT INTO job_payload_demands(user_id,job_id,kind)
@@ -131,7 +131,7 @@ def request_demand(conn, job_id: str, user_id: str, kind: str) -> DemandRef:
     return DemandRef(row["id"], job_id, kind, None, row["status"])
 
 
-def _finish(conn, demand, claim, status, version=None, payload=None):
+def _finish(conn, demand, claim, status, version=None, payload=None, *, finalize=True):
     validate_claim(conn, claim)
     payload = payload or {}
     size = 8192 + 8 * len(str(payload).encode())
@@ -158,7 +158,23 @@ def _finish(conn, demand, claim, status, version=None, payload=None):
         if row is None:
             raise RuntimeError("demand completion superseded")
     conn.commit()
+    if finalize:
+        cancel_claim(conn, claim)
+        conn.commit()
     return status
+
+
+def _record_live_verification(conn, demand, claim, listing_id):
+    # The exact running demand and the compact terminal claim floor provide the
+    # durable deduplication identity; ready reuse/private copies never call here.
+    with _write(conn, claim, "source_listings", demand.job_id):
+        conn.execute("""UPDATE source_listings SET
+          successful_last_observed_at=clock_timestamp(),
+          successful_sighting_count=successful_sighting_count+1,
+          last_demand_verification_id=%s,last_observation_kind='demand',
+          source_availability='open',consecutive_complete_misses=0,first_complete_miss_at=NULL
+          WHERE id=%s AND last_demand_verification_id IS DISTINCT FROM %s""",
+          (demand.id,listing_id,demand.id))
 
 
 def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
@@ -286,6 +302,7 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
         # First question acquisition preserves the original private JD/version.
         # The demand's capture timestamp records this new Q capture; the package
         # and its original JD capture timestamp are not changed by hydration.
+        _record_live_verification(conn, demand, claim, coordinates["listing_id"])
         payload["description"] = saved_package["description_snapshot"]
         return _finish(
             conn, demand, claim, "ready", saved_package["job_version_id"], payload
@@ -294,9 +311,7 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
         coordinates["public_metadata"]
         or {"title": coordinates["title"], "url": coordinates["url"]}
     )
-    metadata["description_hash"] = hashlib.sha256(
-        " ".join(payload["description"].split()).encode()
-    ).hexdigest()
+    metadata["description_hash"] = description_hash(payload["description"])
     version = capture_version(
         conn,
         coordinates["listing_id"],
@@ -306,7 +321,8 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
     )
     if version is None:
         return _finish(conn, demand, claim, "deferred")
-    result = _finish(conn, demand, claim, "ready", version, payload)
+    _record_live_verification(conn, demand, claim, coordinates["listing_id"])
+    result = _finish(conn, demand, claim, "ready", version, payload, finalize=False)
     # Demand completion is durable first. An empty shared cache may be filled by
     # this explicit demand; existing/protected content is never replaced.
     try:
@@ -327,6 +343,8 @@ def _hydrate_demand(conn, demand: DemandRef, fetch=fetch_payload) -> str:
         conn.commit()
     except Exception:
         conn.rollback()  # private ready snapshot remains authoritative
+    cancel_claim(conn, claim)
+    conn.commit()
     return result
 
 
@@ -395,7 +413,7 @@ def apply_consumptions(conn, limit=100):
 
     enter_gate(conn)
     rows = conn.execute(
-        """SELECT id,job_id,job_version_id,kind,consumed_at FROM job_payload_demands
+        """SELECT id,job_id,job_version_id,kind,questions_snapshot,consumed_at FROM job_payload_demands
         WHERE consumed_at IS NOT NULL AND (consumption_applied_at IS NULL OR consumed_at>consumption_applied_at)
         ORDER BY consumed_at,id LIMIT %s""",
         (limit,),
@@ -407,11 +425,11 @@ def apply_consumptions(conn, limit=100):
             WHERE id=%s AND description_version_id=%s""",
             (row["consumed_at"], row["job_id"], row["job_version_id"]),
         )
-        if row["kind"] in {"questions", "prepare"}:
+        if row["kind"] in {"description", "questions", "prepare"} and row["questions_snapshot"] is not None:
             conn.execute(
                 """UPDATE job_questions SET last_used_at=GREATEST(last_used_at,%s)
-                WHERE job_id=%s AND job_version_id=%s""",
-                (row["consumed_at"], row["job_id"], row["job_version_id"]),
+                WHERE job_id=%s AND job_version_id=%s AND questions=%s""",
+                (row["consumed_at"], row["job_id"], row["job_version_id"], Jsonb(row["questions_snapshot"])),
             )
         conn.execute(
             "UPDATE job_payload_demands SET consumption_applied_at=%s WHERE id=%s",

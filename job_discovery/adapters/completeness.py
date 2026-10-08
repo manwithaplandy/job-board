@@ -64,9 +64,10 @@ _budget = ContextVar('source_budget', default=None)
 
 @contextmanager
 def source_budget(seconds, requests, pulse=None):
-    token = _budget.set([monotonic()+seconds,requests,pulse])
+    budget = [monotonic()+seconds,requests,pulse]
+    token = _budget.set(budget)
     try:
-        yield
+        yield budget
     finally:
         _budget.reset(token)
 

@@ -19,6 +19,10 @@ def test_maintenance_result_defers_admission_but_commits_source_progress(
     conn.execute("UPDATE jobs SET closed_at=clock_timestamp() WHERE external_id='0'")
     before = conn.execute("SELECT count(*) n FROM job_versions").fetchone()["n"]
     conn.commit()
+    # Inactive unknown company is a catalog candidate, but is not a due board.
+    if caller == "daily":
+        conn.execute("INSERT INTO companies(name,ats,token,active) VALUES('Unregistered','lever','unregistered',false)")
+        conn.commit()
     calls = []
 
     def maintenance(dsn):
@@ -59,6 +63,7 @@ def test_maintenance_result_defers_admission_but_commits_source_progress(
         assert conn.execute("SELECT count(*) n FROM job_versions").fetchone()["n"] == before
         assert conn.execute("SELECT title FROM jobs WHERE external_id='0'").fetchone()["title"] == "Role"
     if caller == "daily":
+        assert conn.execute("SELECT count(*) n FROM source_accounts WHERE public_board_ref='unregistered'").fetchone()["n"] == int(not blocked)
         recorded = conn.execute("SELECT new_jobs,closed_jobs,companies_ok,finished_at FROM poll_runs ORDER BY id DESC LIMIT 1").fetchone()
         assert recorded["new_jobs"] == result["new_jobs"]
         assert recorded["closed_jobs"] == 0 and recorded["companies_ok"] == 1

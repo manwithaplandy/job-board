@@ -92,14 +92,24 @@ def test_unarchived_or_private_versions_still_pause(conn, protected):
 
 
 @requires_db
-def test_live_demand_records_one_positive_and_defeats_older_absence(conn):
+@pytest.mark.parametrize("close_during_fetch", [False,True])
+def test_live_demand_records_one_positive_and_defeats_older_absence(conn, close_during_fetch):
     source = setup_source(conn)
     conn.execute("UPDATE source_listings SET consecutive_complete_misses=1,first_complete_miss_at=clock_timestamp()-interval '25 hours'")
     older = begin(conn, source)
     before = conn.execute("SELECT * FROM source_listings").fetchone()
     request = demand.request_demand(conn, before["job_id"], str(uuid4()), "description")
     conn.commit()
-    assert demand.hydrate_demand(conn, request, lambda _: {"description": "Live JD"}) == "ready"
+    def fetch(_):
+        assert conn.info.transaction_status.name == "IDLE"
+        if close_during_fetch:
+            reconcile.complete_enumeration(conn, older, reconcile.SourceStatus(complete=True))
+            reconcile.reconcile_chunk(conn, older)
+            conn.commit()
+            assert conn.execute("SELECT closed_at FROM jobs").fetchone()["closed_at"] is not None
+            conn.commit()
+        return {"description":"Live JD"}
+    assert demand.hydrate_demand(conn, request, fetch) == "ready"
     after = conn.execute("SELECT * FROM source_listings").fetchone()
     assert after["successful_sighting_count"] == before["successful_sighting_count"] + 1
     assert after["last_demand_verification_id"] == request.id
@@ -107,9 +117,10 @@ def test_live_demand_records_one_positive_and_defeats_older_absence(conn):
     assert after["consecutive_complete_misses"] == 0
     assert after["discovery_anchor_at"] == before["discovery_anchor_at"]
     assert demand.hydrate_demand(conn, request, lambda _: pytest.fail("ready reuse fetched")) == "ready"
-    reconcile.complete_enumeration(conn, older, reconcile.SourceStatus(complete=True))
-    reconcile.reconcile_chunk(conn, older)
-    conn.commit()
+    if not close_during_fetch:
+        reconcile.complete_enumeration(conn, older, reconcile.SourceStatus(complete=True))
+        reconcile.reconcile_chunk(conn, older)
+        conn.commit()
     assert conn.execute("SELECT closed_at FROM jobs").fetchone()["closed_at"] is None
     assert conn.execute("SELECT successful_sighting_count FROM source_listings").fetchone()["successful_sighting_count"] == after["successful_sighting_count"]
 

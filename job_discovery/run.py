@@ -103,13 +103,21 @@ def _admit_chunk(conn, company_id, ats, token, chunk):
     return admitted, False
 
 
-def run(dsn: str | None = None) -> dict:
+def run(dsn: str | None = None, *, require_source_enabled: bool = False) -> dict:
     """Execute one poll cycle.
 
     Returns a counts dict with keys ``ok``, ``failed``, ``new_jobs``,
     ``closed_jobs``.  Callers (e.g. ``__main__``) use this to decide the
     process exit code.
     """
+    # Scheduled deployments must never fall back to the unbounded legacy sweep.
+    # Keep explicit legacy callers compatible during the staged cutover.
+    paused = {"ok": 0, "failed": 0, "new_jobs": 0, "closed_jobs": 0, "paused": True}
+    if require_source_enabled:
+        with db.connect(dsn) as control_conn:
+            if not read_control(control_conn).source_enabled:
+                log.warning("scheduled poll paused: lifecycle source processing is disabled")
+                return paused
     maintenance = pre_admission_maintenance(dsn)
     targets = load_targets()
     conn = db.connect(dsn)
@@ -167,6 +175,18 @@ def run(dsn: str | None = None) -> dict:
 
         source_enabled = read_control(conn).source_enabled
         conn.commit()
+        if require_source_enabled and not source_enabled:
+            db.finish_run(
+                conn,
+                run_id,
+                companies_ok=0,
+                companies_failed=0,
+                new_jobs=0,
+                closed_jobs=0,
+                notes="scheduled poll paused: source processing disabled during startup",
+            )
+            conn.commit()
+            return paused
         if source_enabled:
             if not over:
                 try:

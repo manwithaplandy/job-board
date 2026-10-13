@@ -1,4 +1,6 @@
-# Global lean catalog: PR 20 design and rollout hold
+# Global lean catalog: design and bounded rollout
+
+Release status: PR 20 is merged and deployed at `8a2a6e15da5246c17e60a444c8daaf7ce8b51f70`; main CI passed. The owner applied the additive identity-campaign migration, and both ledgers plus the private schema were verified. Calibration remains pending. See the [current release record and execution boundaries](../plans/2026-10-13-identity-campaign-rollout.md).
 
 Andrew selected option 2 on October 13, superseding the proposed demand-scoped source design. No user-activity, location-evidence, job-age, or explicit-include gate will restrict source coverage.
 
@@ -40,12 +42,12 @@ Bounds: 100 rows/transaction, at most 20 mapping transactions/turn, 240 seconds 
 
 Before every batch, collect/identity-on controls and the exact generation must match; source, hydration, maintenance, feed, retirement and export must remain off, retirement dry run on, archive never activated. The database allocation plus held reservations plus a 32 MiB growth margin must be below 5800 MiB. A post-batch measurement at/above 5800 MiB rolls back that checkpoint and stops. This prevents further committed work; neither this margin nor rollback guarantees the database/volume cannot grow within a batch. WAL, temporary space and concurrent allocation need independent volume headroom and monitoring. No deletion or automatic capacity expansion is included.
 
-The concrete calibration and subsequent paired activation proposal is in [the rollout runbook](../plans/2026-10-13-identity-campaign-rollout.md). Implementation and local verification do not authorize live execution.
+The concrete calibration and subsequent paired activation proposal is in [the rollout runbook](../plans/2026-10-13-identity-campaign-rollout.md). The owner subsequently approved only the bounded calibration described there; larger continuation and source activation remain outside that approval.
 
-## Exact rollout prerequisites and hold
+## Rollout prerequisites and remaining holds
 
-1. Ordinary PostgreSQL 16/17 tests, independent review and exact-head CI pass for the runtime guard/retry fixes; PR stays draft pending release review.
-2. Approve a concrete calibration campaign and execution code/migration/configuration after it is prepared and tested. No live mapping is part of PR 20. Preserve all unrelated staged settings.
+1. Completed: ordinary PostgreSQL 16/17 tests, independent review, exact-head and merged-main CI pass. PR 20 is merged and deployed.
+2. Approved but not yet executed: one calibration capped at 2000 job rows, 2000 new accounts, one turn and a 30-minute expiry. Its additive migration is already applied and verified; do not repeat it. Capture current revision/generation/boundaries and preserve unrelated settings.
 3. Measure calibration growth/time and remaining capacity; approve any longer fixed-budget campaign separately. Full source-account coverage, job mapping/cache provenance and required writer compatibility must be verified. The existing global readiness certificate remains global; no selective replacement is needed for this product choice.
 4. Verify all ten existing writer contracts at the deployed revision, operational preallocation and mapping readiness before any transition requiring them. Do not fabricate readiness, reapply original migrations, or enable archive/export.
 5. After readiness evidence and separate rollout approval, use one control transition to enable source and hydration together, or enable hydration first and source last. Enabling source processing alone makes new metadata-only jobs unavailable to matching while hydration remains disabled. Source activation also wakes the reviewer source child even if the poller cron stays paused. Therefore the flag is an operational start, not a harmless preparatory change.

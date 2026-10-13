@@ -1,10 +1,26 @@
 # Identity continuation calibration and global lean rollout proposal
 
-Status: prepared for review only. PR 20 stays draft. No merge, deployment, migration application, worker activation, production mapping, polling restart, deletion, archive/export activation or credential change is authorized by this document.
+Status as of October 13, 2026, 23:02 UTC: implementation is merged and deployed; the additive campaign migration is applied and verified. Calibration has not started. The approved scope remains one campaign capped at 2000 additional job rows, 2000 newly mapped source accounts, one bounded turn and an absolute expiry no later than 30 minutes after execution starts. Normal polling stays paused.
+
+## Verified release and migration
+
+- [PR 20](https://github.com/manwithaplandy/job-board/pull/20) was merged by the owner at 21:40:08 UTC as `8a2a6e15da5246c17e60a444c8daaf7ce8b51f70`. Its tree matches reviewed head `cd4b36308c2a0d36fba52d0b3864f5a3a17e7df2`.
+- [Main CI 38472326481](https://github.com/manwithaplandy/job-board/actions/runs/38472326481) passed all four jobs. The reviewed head's [authenticated visual run](https://github.com/manwithaplandy/job-board/actions/runs/38456196962) also passed: 68 authenticated tests and successful authentication-state cleanup.
+- Railway reviewer, poller and discovery deployments, plus Vercel deployment, succeeded at the merged revision. Reviewer runtime logs confirm the supervisor starts normally with source work inactive. The five unrelated staged Railway settings were not applied.
+- The owner applied only `migrations/2026-10-13-13-identity-campaign.sql`. Native read-only verification at 21:58:17 UTC confirmed the expected table, constraints, index, row-level security/access restrictions and zero campaigns. A later read-only check at 23:02 UTC again found the table, enabled RLS and zero campaigns.
+- Both migration ledgers are present: `public.schema_migrations` records filename `2026-10-13-13-identity-campaign.sql` at `2026-10-13 21:55:06.279325+00`; `supabase_migrations.schema_migrations` records version `20261013215506`, name `identity_campaign`, with matching DDL.
+
+**Do not reapply this migration.** The public filename ledger and Supabase migration history are separate records; merely executing SQL in an editor does not generally establish both. Both were independently verified for this release.
+
+## Remaining bounded execution
+
+Recheck current deployment, controls, capacity and reviewer baseline before preparing the sole calibration. Create its paused ledger entry using the deployed full SHA, current activation generation and captured high-water boundaries; retain its generated UUID and concrete UTC expiry. Activate only within the existing approved caps, observe its checkpoints and stop conditions, then remove the reviewer opt-in and verify cleanup. No broader campaign, normal polling restart, production deletion, archive/export activation, credential expansion or unrelated settings change is included.
+
+The release/migration steps below are historical prerequisites already completed for this revision. The preparation and monitoring instructions still govern the remaining calibration.
 
 ## Proposed first calibration
 
-Use the existing production reviewer service and database credentials. Deploy the reviewed final main revision with `IDENTITY_BACKFILL_CAMPAIGN` absent. Apply only the new `2026-10-13-13-identity-campaign.sql` additive migration once, after independently checking its ledger entry. Do not reapply the original lifecycle migrations. Preserve all five unrelated staged discovery settings; do not accept their deployment patch.
+Use the existing production reviewer service and database credentials. The reviewed main revision is deployed with `IDENTITY_BACKFILL_CAMPAIGN` absent, and the new additive migration is already applied. Verify those states; do not reapply this or any original lifecycle migration. Preserve all five unrelated staged discovery settings; do not accept their deployment patch.
 
 Prepare exactly one paused campaign, pinned to that full deployed 40-character SHA and the then-current collect activation generation (last observed: 1). Capture `max(jobs.id)` and `max(companies.id)` in the preparation transaction. Approve at most 2000 additional job rows, 2000 total newly mapped accounts, one worker turn and a 30-minute absolute expiry from the approved start. Accounts created by job batches consume the account budget. A one-turn calibration may stop before account-only work; it does not claim corpus completion.
 
@@ -52,10 +68,8 @@ Source enablement immediately starts global source work through the existing rev
 
 Eligible matching retains activity, entitlement/comp, location/company and budget checks before demand hydration and model review. Ordinary source enumeration and identity mapping perform no model inference. Local functional verification covers paired flags, filtered metadata-only demand hydration and exact-version review snapshots; this does not authorize a new global review run.
 
-## Decisions still requiring approval
+## Authorization boundaries
 
-1. Final PR merge/deployment and one new additive migration (no reapplication).
-2. The concrete 2000-row, one-turn, 30-minute campaign plus its reviewer environment opt-in/restart.
-3. Any longer campaign after measured calibration and independent capacity review.
-4. Reviewed recovery classifications for ambiguous inactive sources, if desired.
-5. Exact paired source/hydration control transition and subsequent daily cron time after readiness. No automatic retention, archive/export or production deletion is included.
+The owner approved the merged deployment, this one additive migration and the capped calibration, including its reviewer opt-in/restart and cleanup. Migration application is complete; do not repeat it. Any authorization-system denial is a blocker to report, not permission to use another route.
+
+Separate approval remains necessary for any longer campaign after measured calibration, recovery classification of ambiguous inactive sources, paired source/hydration activation, or restoration of a daily cron schedule. No retention, archive/export or production deletion is included.

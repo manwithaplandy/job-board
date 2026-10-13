@@ -1,5 +1,5 @@
-import { discoveryPredicate, sourceClosedPredicate } from "@/lib/jobLifecycle";
 import type { Filters } from "@/lib/filters";
+import { discoveryPredicate, sourceClosedPredicate } from "@/lib/jobLifecycleState";
 
 export interface SqlQuery {
   text: string;
@@ -67,8 +67,16 @@ export function buildJobsQuery(
   }
 
   // --- plain job filters (apply with or without an owner) ---
-  if (f.status === "open") where.push(discoveryPredicate(f.includeOlderLive === true).text);
-  else if (f.status === "closed") where.push(sourceClosedPredicate().text);
+  // Incremental review feeds touch only a small recent slice. Keep their indexed
+  // scalar checks so polling does not materialize visibility for the whole corpus.
+  const selectiveVisibility = Boolean(opts.reviewedSince);
+  const visibilityJoin = !selectiveVisibility && (f.status === "open" || f.status === "closed")
+    ? `JOIN public.lifecycle_job_visibility(${f.includeOlderLive === true ? "true" : "false"}) visibility ON visibility.job_id = j.id`
+    : "";
+  if (f.status === "open") where.push(selectiveVisibility
+    ? discoveryPredicate(f.includeOlderLive === true).text : "visibility.discovery_visible");
+  else if (f.status === "closed") where.push(selectiveVisibility
+    ? sourceClosedPredicate().text : "visibility.source_closed");
 
   if (f.companies.length) {
     where.push(`j.company_id = ANY(${ph()})`);
@@ -221,6 +229,7 @@ export function buildJobsQuery(
   const text = [
     opts.countOnly ? "SELECT count(*)::int AS total" : `SELECT ${selectCols.join(", ")}`,
     "FROM jobs j",
+    visibilityJoin,
     "JOIN companies c ON c.id = j.company_id",
     reviewJoin,
     correctionsJoin,

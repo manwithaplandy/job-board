@@ -74,6 +74,27 @@ the actor, reconciliation time and supporting historical provenance were not
 verified. Preserve the October 10 gap as historical evidence and do not infer a
 rerun or an independently verified original application time from the new row.
 
+## Visibility performance migration — October 13
+
+Following explicit release authorization, the separate additive
+`2026-10-13-11-lifecycle-visibility.sql` migration was applied at 01:33:24 UTC.
+Both ledgers were verified immediately: application filename above and Supabase
+version `20261013013324`, name `lifecycle_visibility`. None of the original 13
+migrations was reapplied; the August ledger entry was not modified.
+
+The pre-application 500-row comparison matched both existing scalar predicates.
+The new helper is owned by `postgres`, is `SECURITY DEFINER` with fixed
+`search_path=pg_catalog,public`, and has the same execution-role ACL as the existing
+scalar helpers. Its result contains only job ID and the two visibility booleans.
+See the [future RLS-review requirement](job-lifecycle-outbox.md#dashboard-visibility-query-follow-up).
+Control generation remained 0, all feature flags off, retirement disabled/dry-run,
+and archive never-activated/export-off.
+
+The production location-query `EXPLAIN ANALYZE` under `authenticated` completed in
+13,187.683ms after application, compared with previously observed scalar-query
+21–24-second timings. This single measurement is not an authenticated visual pass
+or a sustained production-load guarantee. Dashboard callers still require deployment.
+
 ## Audit procedure and next steps
 
 Use an authorized service connection for these read-only queries:

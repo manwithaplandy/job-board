@@ -10,6 +10,7 @@
     "tests/test_source_completeness.py",
     "tests/test_normalize.py",
     "tests/test_reviewer_lifecycle_feed.py",
+    "tests/test_lifecycle_visibility.py",
     "tests/test_db_closed.py",
     "tests/test_db_runs.py",
     "tests/test_smoke.py",

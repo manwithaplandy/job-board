@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { discoveryPredicate, parseJobLifecycle, lifecycleLabels, discoveryVisible } from "./jobLifecycle";
+import { parseJobLifecycle, lifecycleLabels, discoveryVisible } from "./jobLifecycle";
 import { parseBoardFilters } from "./rolefit/boardFilters";
 import { buildJobsQuery, buildJobsCountQuery } from "./jobsQuery";
 import { serverBoardFilters } from "./filters";
@@ -31,8 +31,8 @@ describe("lifecycle consumers", () => {
     const filters = {...serverBoardFilters("anon"), includeOlderLive:true};
     const rows = buildJobsQuery(filters, null, [], {limit:2,offset:2});
     const count = buildJobsCountQuery(filters,null);
-    expect(rows.text).toContain(discoveryPredicate(true).text);
-    expect(count.text).toContain(discoveryPredicate(true).text);
+    expect(rows.text).toContain("public.lifecycle_job_visibility(true)");
+    expect(count.text).toContain("public.lifecycle_job_visibility(true)");
     expect(rows.text).toContain("j.id ASC");
     expect(rows.text).toContain("LIMIT 2\nOFFSET 2");
   });
@@ -41,6 +41,7 @@ describe("lifecycle consumers", () => {
     const query = buildJobsQuery(serverBoardFilters("authed"),"owner",[],{historyOnly:true,locationFromProfile:true,companyFiltersFromProfile:true});
     expect(query.text).toContain("application_packages");
     expect(query.text).not.toContain("lifecycle_discovery_visible");
+    expect(query.text).not.toContain("lifecycle_job_visibility");
     expect(query.text).not.toContain("preferred_locations");
     expect(query.text).not.toContain("company_exclusions");
   });
@@ -54,7 +55,7 @@ it('total-parses HTTP detail arrays and lifecycle instead of trusting legacy sca
 
 it('closed filter uses proven source closure instead of discovery expiry',()=>{
   const query=buildJobsQuery({...serverBoardFilters('anon'),status:'closed'},null);
-  expect(query.text).toContain('public.lifecycle_source_closed(j.id, j.closed_at)');
+  expect(query.text).toContain('visibility.source_closed');
   expect(query.text).not.toContain('WHERE j.closed_at IS NOT NULL');
 });
 

@@ -22,6 +22,29 @@ mapping, deployed-writer readiness or activation; verify those gates separately.
 
 ## Runtime and writer inventory
 
+### Dashboard visibility query follow-up
+
+`2026-10-13-11-lifecycle-visibility.sql` is a separate additive performance migration;
+apply it before deploying dashboard callers of `lifecycle_job_visibility(boolean)`.
+Do not reapply the original 13 lifecycle migrations. The helper batches the existing
+scalar discovery/closure reads for corpus queries; incremental review polling keeps
+the indexed scalar predicates. It changes no rollout controls or population data.
+
+The SQL helper is `STABLE SECURITY DEFINER` with fixed `search_path=pg_catalog,public`
+and explicit PUBLIC execution revocation. Its job IDs and derived booleans are
+already readable by `anon` and `authenticated` through jobs' unrestricted shared-read
+policy and the existing scalar helpers. It grants no direct source-listing access.
+**Re-review this helper if jobs' shared-read RLS policy becomes narrower**, because
+its definer execution reads jobs independently of caller RLS. Preserve the existing
+private-data boundary when extending either the return type or its source tables.
+
+Local verification: 408 permitted Python tests on each PostgreSQL 16/17; 1,717
+dashboard unit tests; ordinary visibility equivalence across feed/source flags and
+nullable older-live options; typecheck, lint and production build. On 835,501
+synthetic jobs, the exact location query returned identical results in 2.59 seconds
+versus 14.46 seconds for scalar calls, and 4.93 seconds with 835,500 mapped listings.
+These local timings do not establish production performance or visual success.
+
 | Runtime path | Current integration and readiness evidence needed |
 | --- | --- |
 | `job_discovery.run` | Daily one-shot; pre-admission maintenance; source-enabled uses existing due scheduler; flag-off retains legacy paths. Actual persisted run closed_jobs now counts successful normal/fallback closure commits. |

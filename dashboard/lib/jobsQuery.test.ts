@@ -104,7 +104,7 @@ describe("buildJobsQuery", () => {
     expect(q.text).not.toContain("job_reviews");
     expect(q.text).not.toContain("r.verdict");
     expect(q.text).not.toContain("r.error IS NULL");
-    expect(q.text).toContain("public.lifecycle_discovery_visible(j.id, j.closed_at, false)"); // persisted flag-aware discovery
+    expect(q.text).toContain("public.lifecycle_job_visibility(false)"); // persisted flag-aware discovery
     expect(q.values).toEqual([]);
   });
 
@@ -254,6 +254,8 @@ describe("buildJobsQuery", () => {
 
   test("reviewedSince adds an overlapped reviewed_at predicate bound as a parameter", () => {
     const q = buildJobsQuery(base, UID, [], { reviewedSince: "2026-07-16T00:00:00.000Z" });
+    expect(q.text).not.toContain("lifecycle_job_visibility");
+    expect(q.text).toContain("lifecycle_discovery_visible");
     expect(q.text).toContain(
       "r.reviewed_at > $2::timestamptz - interval '10 seconds'",
     );

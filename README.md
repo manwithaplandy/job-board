@@ -148,6 +148,10 @@ start `python -m reviewer.worker`.
   Every migration must be idempotent (`IF [NOT] EXISTS`), transactional where possible
   (`BEGIN/COMMIT`), and mirrored into `schema.sql`. `CREATE INDEX CONCURRENTLY` statements
   cannot run inside a transaction — keep them outside `BEGIN/COMMIT` and run them individually.
+  Supabase's version/name history and the repository's `public.schema_migrations`
+  filename ledger are separate. Compare both and the actual schema before deciding
+  a migration is missing; absence from the filename ledger alone does not justify
+  rerunning SQL. See the [classification and lifecycle ledger checkpoints](docs/runbooks/migration-ledger-state.md).
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
 - **OpenRouter spend alert** → Railway **cron** service (`railway.spend-alert.json`, hourly
   `0 * * * *`), root `/`, start `python -m observability.spend_alert`. It snapshots

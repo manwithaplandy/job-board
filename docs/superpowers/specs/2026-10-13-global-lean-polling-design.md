@@ -1,6 +1,6 @@
 # Global lean catalog: design and bounded rollout
 
-Release status: PR 20 is merged and deployed at `8a2a6e15da5246c17e60a444c8daaf7ce8b51f70`; main CI passed. The owner applied the additive identity-campaign migration, and both ledgers plus the private schema were verified. Calibration remains pending. See the [current release record and execution boundaries](../plans/2026-10-13-identity-campaign-rollout.md).
+Release status: PR 20 is merged and deployed at `8a2a6e15da5246c17e60a444c8daaf7ce8b51f70`; main CI passed. The owner applied the additive identity-campaign migration, and both ledgers plus the private schema were verified. The single bounded calibration is complete and its opt-in cleared. Lifecycle-gate contention observed during the turn blocks a longer campaign until transaction duration and concurrent reviewer behavior are addressed. See the [current release record and execution boundaries](../plans/2026-10-13-identity-campaign-rollout.md).
 
 Andrew selected option 2 on October 13, superseding the proposed demand-scoped source design. No user-activity, location-evidence, job-age, or explicit-include gate will restrict source coverage.
 
@@ -47,7 +47,7 @@ The concrete calibration and subsequent paired activation proposal is in [the ro
 ## Rollout prerequisites and remaining holds
 
 1. Completed: ordinary PostgreSQL 16/17 tests, independent review, exact-head and merged-main CI pass. PR 20 is merged and deployed.
-2. Approved but not yet executed: one calibration capped at 2000 job rows, 2000 new accounts, one turn and a 30-minute expiry. Its additive migration is already applied and verified; do not repeat it. Capture current revision/generation/boundaries and preserve unrelated settings.
+2. Completed: the one approved calibration, capped at 2000 job rows, 2000 new accounts, one turn and a 30-minute expiry, reached its turn budget and stopped. Opt-in is cleared. Neither the calibration nor its verified migration should be repeated. Address the observed reviewer gate contention before proposing any larger campaign.
 3. Measure calibration growth/time and remaining capacity; approve any longer fixed-budget campaign separately. Full source-account coverage, job mapping/cache provenance and required writer compatibility must be verified. The existing global readiness certificate remains global; no selective replacement is needed for this product choice.
 4. Verify all ten existing writer contracts at the deployed revision, operational preallocation and mapping readiness before any transition requiring them. Do not fabricate readiness, reapply original migrations, or enable archive/export.
 5. After readiness evidence and separate rollout approval, use one control transition to enable source and hydration together, or enable hydration first and source last. Enabling source processing alone makes new metadata-only jobs unavailable to matching while hydration remains disabled. Source activation also wakes the reviewer source child even if the poller cron stays paused. Therefore the flag is an operational start, not a harmless preparatory change.

@@ -1,6 +1,6 @@
 # Identity continuation calibration and global lean rollout proposal
 
-Status as of October 13, 2026, 23:02 UTC: implementation is merged and deployed; the additive campaign migration is applied and verified. Calibration has not started. The approved scope remains one campaign capped at 2000 additional job rows, 2000 newly mapped source accounts, one bounded turn and an absolute expiry no later than 30 minutes after execution starts. Normal polling stays paused.
+Status after the October 13, 2026 calibration: implementation is merged and deployed; the additive campaign migration is applied and verified. The sole approved calibration finished within its fixed caps and is terminal; its reviewer opt-in has been cleared. The approved scope remains one campaign capped at 2000 additional job rows, 2000 newly mapped source accounts, one bounded turn and an absolute expiry no later than 30 minutes after execution starts. Normal polling stays paused.
 
 ## Verified release and migration
 
@@ -12,11 +12,17 @@ Status as of October 13, 2026, 23:02 UTC: implementation is merged and deployed;
 
 **Do not reapply this migration.** The public filename ledger and Supabase migration history are separate records; merely executing SQL in an editor does not generally establish both. Both were independently verified for this release.
 
-## Remaining bounded execution
+## Calibration outcome and remaining hold
 
-Recheck current deployment, controls, capacity and reviewer baseline before preparing the sole calibration. Create its paused ledger entry using the deployed full SHA, current activation generation and captured high-water boundaries; retain its generated UUID and concrete UTC expiry. Activate only within the existing approved caps, observe its checkpoints and stop conditions, then remove the reviewer opt-in and verify cleanup. No broader campaign, normal polling restart, production deletion, archive/export activation, credential expansion or unrelated settings change is included.
+The sole approved calibration ran at the merged revision and activation generation, reached its approved one-turn budget, and stopped in `budget_exhausted` with reason `approved turn budget reached`. Its committed checkpoints stayed inside the fixed row/account limits and absolute expiry. No additional campaign or retry turn was authorized or executed.
 
-The release/migration steps below are historical prerequisites already completed for this revision. The preparation and monitoring instructions still govern the remaining calibration.
+Cleanup cleared `IDENTITY_BACKFILL_CAMPAIGN` to an empty value (the entrypoint treats it as disabled), and a successful reviewer redeployment at the same revision replaced the opted-in deployment. The campaign claim is cancelled; its terminal counters remain stable. Normal source polling, hydration, maintenance, feed, retirement and export controls remain off; the unrelated staged settings remain untouched.
+
+**Do not extend this calibration or begin a larger campaign.** Post-turn log inspection found lifecycle-gate contention: reviewer demand checks reached their existing lock timeout and reconnected, while archive checks deferred. The reviewer queue was empty, so this run does not establish request latency under load. Resource and storage measurements stayed within their limits, but that does not establish safe coexistence with reviewer work.
+
+Before proposing continuation, shorten identity transactions enough to coexist with the existing two-second gate wait (for example, optimize repeated per-row database round trips and measure smaller batches). Preserve the shared gate, claim fencing and existing timeouts; do not mask contention by weakening them. Verify with concurrent reviewer work and live-like database latency, then obtain separate approval for any new fixed-budget campaign. Detailed operational measurements were reported separately rather than publishing service telemetry here.
+
+The instructions below are the historical preparation/monitoring procedure for the completed calibration, retained for review. They are not authorization to repeat it. The migration is already applied and must not be reapplied.
 
 ## Proposed first calibration
 

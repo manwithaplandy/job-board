@@ -25,7 +25,11 @@ mapping, deployed-writer readiness or activation; verify those gates separately.
 ### Dashboard visibility query follow-up
 
 `2026-10-13-11-lifecycle-visibility.sql` is a separate additive performance migration;
-apply it before deploying dashboard callers of `lifecycle_job_visibility(boolean)`.
+it remains installed for compatibility. The follow-up
+`2026-10-13-12-lifecycle-listing-visibility.sql` must be applied before deploying
+current dashboard callers of `lifecycle_listing_visibility(boolean)`. The latter
+returns only mapped-listing overrides; callers retain their existing `closed_at`
+fallback via a left join, avoiding a redundant whole-jobs scan inside the helper.
 Do not reapply the original 13 lifecycle migrations. The helper batches the existing
 scalar discovery/closure reads for corpus queries; incremental review polling keeps
 the indexed scalar predicates. It changes no rollout controls or population data.
@@ -35,7 +39,7 @@ and explicit PUBLIC execution revocation. Its job IDs and derived booleans are
 already readable by `anon` and `authenticated` through jobs' unrestricted shared-read
 policy and the existing scalar helpers. It grants no direct source-listing access.
 **Re-review this helper if jobs' shared-read RLS policy becomes narrower**, because
-its definer execution reads jobs independently of caller RLS. Preserve the existing
+their definer execution exposes IDs independently of caller RLS. Preserve the existing
 private-data boundary when extending either the return type or its source tables.
 
 Local verification: 408 permitted Python tests on each PostgreSQL 16/17; 1,717

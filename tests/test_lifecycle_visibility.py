@@ -44,6 +44,16 @@ def test_bulk_visibility_matches_scalar_predicates_across_rollout_flags(conn):
                 FROM public.lifecycle_job_visibility(%s) v JOIN jobs j ON j.id=v.job_id
                 """, (older, older)).fetchone()
             assert result == {'total': 10, 'discovery_matches': True, 'closure_matches': True}
+            mapped_result = conn.execute("""SELECT count(*) AS total,
+                bool_and(COALESCE(v.discovery_visible,j.closed_at IS NULL)
+                  IS NOT DISTINCT FROM public.lifecycle_discovery_visible(j.id,j.closed_at,%s))
+                  AS discovery_matches,
+                bool_and(COALESCE(v.source_closed,j.closed_at IS NOT NULL)
+                  IS NOT DISTINCT FROM public.lifecycle_source_closed(j.id,j.closed_at))
+                  AS closure_matches
+                FROM jobs j LEFT JOIN public.lifecycle_listing_visibility(%s) v ON j.id=v.job_id
+                """, (older, older)).fetchone()
+            assert mapped_result == result
     # The two source listings for mixed must yield one result, including count paths.
     assert conn.execute("""SELECT count(*) AS n FROM public.lifecycle_job_visibility(false)
         WHERE job_id='mixed' AND discovery_visible""").fetchone()['n'] == 1

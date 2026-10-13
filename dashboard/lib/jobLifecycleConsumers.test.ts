@@ -31,8 +31,8 @@ describe("lifecycle consumers", () => {
     const filters = {...serverBoardFilters("anon"), includeOlderLive:true};
     const rows = buildJobsQuery(filters, null, [], {limit:2,offset:2});
     const count = buildJobsCountQuery(filters,null);
-    expect(rows.text).toContain("public.lifecycle_job_visibility(true)");
-    expect(count.text).toContain("public.lifecycle_job_visibility(true)");
+    expect(rows.text).toContain("public.lifecycle_listing_visibility(true)");
+    expect(count.text).toContain("public.lifecycle_listing_visibility(true)");
     expect(rows.text).toContain("j.id ASC");
     expect(rows.text).toContain("LIMIT 2\nOFFSET 2");
   });
@@ -41,7 +41,7 @@ describe("lifecycle consumers", () => {
     const query = buildJobsQuery(serverBoardFilters("authed"),"owner",[],{historyOnly:true,locationFromProfile:true,companyFiltersFromProfile:true});
     expect(query.text).toContain("application_packages");
     expect(query.text).not.toContain("lifecycle_discovery_visible");
-    expect(query.text).not.toContain("lifecycle_job_visibility");
+    expect(query.text).not.toContain("lifecycle_listing_visibility");
     expect(query.text).not.toContain("preferred_locations");
     expect(query.text).not.toContain("company_exclusions");
   });

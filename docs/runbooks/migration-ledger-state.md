@@ -95,6 +95,25 @@ The production location-query `EXPLAIN ANALYZE` under `authenticated` completed 
 21–24-second timings. This single measurement is not an authenticated visual pass
 or a sustained production-load guarantee. Dashboard callers still require deployment.
 
+The first helper passed ordinary CI at `426122fd0fc1b4b8f806493b262dfe5db65d4dcd`,
+but authenticated visual run `38332922424` still timed out on analytics under
+concurrent load. Location queries reached 30 seconds in that workload. The
+follow-up `2026-10-13-12-lifecycle-listing-visibility.sql` removes the redundant
+jobs scan, returning only mapped-listing overrides with the existing caller-side
+`closed_at` fallback. It was applied at 01:55:18 UTC; both ledgers were verified:
+Supabase version `20261013015518`, name `lifecycle_listing_visibility`, and its
+exact application filename. Owner, execution roles and fixed search path match
+the first helper; controls remained unchanged. The preceding 500-row comparison
+matched both scalar predicates and the shared jobs read policy remained `true`.
+
+The new production location-query EXPLAIN under `authenticated` completed in
+5,481.912ms. Local follow-up verification passed 408 PostgreSQL 17 tests, 1,717
+dashboard unit tests, typechecking and production build. The expanded fixture
+compares both helpers with existing scalar predicates across all feed/source
+flag combinations and false/true/null older-live arguments. Concurrent visual
+verification and dashboard deployment remain required; no rollout is established
+by these timings or migration entries.
+
 ## Audit procedure and next steps
 
 Use an authorized service connection for these read-only queries:

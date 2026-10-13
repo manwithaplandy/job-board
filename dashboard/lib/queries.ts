@@ -283,9 +283,9 @@ export async function reviewStatsWith(tx: TransactionSql, userId: string): Promi
       (count(*) FILTER (WHERE r.job_id IS NULL))::int       AS unreviewed,
       (count(*) FILTER (WHERE r.job_id IS NOT NULL))::int    AS reviewed,
       (count(*) FILTER (WHERE r.error IS NOT NULL))::int     AS errors
-    FROM jobs j JOIN public.lifecycle_job_visibility(false) visibility ON visibility.job_id=j.id
+    FROM jobs j LEFT JOIN public.lifecycle_listing_visibility(false) visibility ON visibility.job_id=j.id
     LEFT JOIN job_reviews r ON r.job_id = j.id AND r.user_id = ${userId}::uuid
-    WHERE visibility.discovery_visible
+    WHERE COALESCE(visibility.discovery_visible, j.closed_at IS NULL)
       AND (
         COALESCE(j.location_canonicals, ARRAY[j.location]) && COALESCE(
           (SELECT p.preferred_locations FROM profiles p WHERE p.user_id = ${userId}::uuid),
@@ -326,13 +326,13 @@ export async function distinctLocationsWith(
   const rows = await tx`
     SELECT location, count FROM (
       SELECT loc AS location, count(*)::int AS count
-      FROM jobs j JOIN public.lifecycle_job_visibility(false) visibility ON visibility.job_id=j.id
+      FROM jobs j LEFT JOIN public.lifecycle_listing_visibility(false) visibility ON visibility.job_id=j.id
       CROSS JOIN LATERAL unnest(COALESCE(j.location_canonicals, ARRAY[j.location])) AS loc
-      WHERE visibility.discovery_visible AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
+      WHERE COALESCE(visibility.discovery_visible, j.closed_at IS NULL) AND loc IS NOT NULL AND loc <> '' AND loc <> 'Remote'
       GROUP BY loc
       UNION ALL
-      SELECT 'Remote', count(*)::int FROM jobs j JOIN public.lifecycle_job_visibility(false) visibility ON visibility.job_id=j.id
-      WHERE visibility.discovery_visible AND remote IS TRUE
+      SELECT 'Remote', count(*)::int FROM jobs j LEFT JOIN public.lifecycle_listing_visibility(false) visibility ON visibility.job_id=j.id
+      WHERE COALESCE(visibility.discovery_visible, j.closed_at IS NULL) AND remote IS TRUE
       HAVING count(*) > 0
     ) t
     ORDER BY count DESC, location ASC

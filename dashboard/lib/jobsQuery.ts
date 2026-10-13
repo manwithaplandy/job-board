@@ -71,12 +71,12 @@ export function buildJobsQuery(
   // scalar checks so polling does not materialize visibility for the whole corpus.
   const selectiveVisibility = Boolean(opts.reviewedSince);
   const visibilityJoin = !selectiveVisibility && (f.status === "open" || f.status === "closed")
-    ? `JOIN public.lifecycle_job_visibility(${f.includeOlderLive === true ? "true" : "false"}) visibility ON visibility.job_id = j.id`
+    ? `LEFT JOIN public.lifecycle_listing_visibility(${f.includeOlderLive === true ? "true" : "false"}) visibility ON visibility.job_id = j.id`
     : "";
   if (f.status === "open") where.push(selectiveVisibility
-    ? discoveryPredicate(f.includeOlderLive === true).text : "visibility.discovery_visible");
+    ? discoveryPredicate(f.includeOlderLive === true).text : "COALESCE(visibility.discovery_visible, j.closed_at IS NULL)");
   else if (f.status === "closed") where.push(selectiveVisibility
-    ? sourceClosedPredicate().text : "visibility.source_closed");
+    ? sourceClosedPredicate().text : "COALESCE(visibility.source_closed, j.closed_at IS NOT NULL)");
 
   if (f.companies.length) {
     where.push(`j.company_id = ANY(${ph()})`);

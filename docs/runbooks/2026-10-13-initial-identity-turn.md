@@ -49,3 +49,15 @@ staged changes and the poller's deliberate leap-day schedule.
 
 Mapping a bounded initial slice does not establish whole-corpus readiness.
 Do not activate later stages or invent readiness attestations from this result.
+
+## Initial turn result
+
+Commit `4aa2576ab791d4ad910a955df6181fd1cfef8a65` deployed successfully as
+`4e9f8687-4efa-46ae-b58a-4a5bbf25a6cc`. Exactly 20 batches of 100 committed,
+mapping 2,000 jobs in 47.0 seconds. The completion marker explicitly reports
+`corpus_complete=false`. Supervisor startup then reported zero retirements,
+no source verification work and zero archive acknowledgments.
+
+The cleanup commit removes both temporary configuration fields and restores the
+original exact deployment-config assertion. The script remains available for
+read-only inspection; its first-backfill mode refuses the now non-pristine state.

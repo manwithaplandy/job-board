@@ -265,7 +265,7 @@ def test_filtered_candidates_hydrate_before_review_and_persist_exact_input(
         (jobs[0],),
     )
     conn.execute(
-        "UPDATE lifecycle_control SET hydration_enabled=true,activation_generation=activation_generation+1"
+        "UPDATE lifecycle_control SET source_enabled=true,hydration_enabled=true,activation_generation=activation_generation+1"
     )
     conn.commit()
     user = str(uuid4())

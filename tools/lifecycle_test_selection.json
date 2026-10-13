@@ -1,6 +1,7 @@
 {
   "scope": "Permitted ordinary functional selection; not unrestricted suite or independent security approval.",
   "python": [
+    "tests/test_identity_campaign.py",
     "tests/test_lifecycle_reconcile.py::test_fix1_daily_entrypoint_eligibility_with_nonzero_feed_duration",
     "tests/test_matching_inactivity.py::test_free_boundary",
     "tests/test_matching_inactivity.py::test_only_actual_valid_paid_subscription_is_exempt",

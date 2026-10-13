@@ -12,7 +12,7 @@
     ]
   },
   "deploy": {
-    "preDeployCommand": "python -m tools.lifecycle_release",
+    "preDeployCommand": "python -m tools.lifecycle_release --first-backfill",
     "preDeployTimeoutSeconds": 300,
     "startCommand": "python -m reviewer.supervisor",
     "restartPolicyType": "ON_FAILURE",

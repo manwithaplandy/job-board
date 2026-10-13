@@ -2,6 +2,7 @@
   "scope": "Permitted ordinary functional selection; not unrestricted suite or independent security approval.",
   "python": [
     "tests/test_lifecycle_release.py::test_release_probe_reports_state_without_changing_it",
+    "tests/test_lifecycle_release.py::test_first_release_turn_is_bounded_and_refuses_a_second_turn",
     "tests/test_ashby.py",
     "tests/test_greenhouse.py",
     "tests/test_greenhouse_questions.py",

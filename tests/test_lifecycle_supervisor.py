@@ -174,6 +174,8 @@ def test_already_stopped_starts_nothing():
 def test_deployment_only_changes_reviewer_command():
     cfg = json.loads(Path("railway.reviewer-worker.json").read_text())["deploy"]
     assert cfg == {
+        "preDeployCommand": "python -m tools.lifecycle_release --first-backfill",
+        "preDeployTimeoutSeconds": 300,
         "startCommand": "python -m reviewer.supervisor",
         "restartPolicyType": "ON_FAILURE",
         "restartPolicyMaxRetries": 100,

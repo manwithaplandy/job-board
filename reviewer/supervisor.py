@@ -5,6 +5,7 @@ The maintenance child owns its existing database lease and transactions.
 """
 
 import logging
+import os
 import signal
 import subprocess
 import sys
@@ -22,6 +23,8 @@ ARCHIVE_INTERVAL_SECONDS = 60
 ARCHIVE_DEADLINE_SECONDS = 120
 SOURCE_INTERVAL_SECONDS = 60
 SOURCE_DEADLINE_SECONDS = 330
+IDENTITY_INTERVAL_SECONDS = 60
+IDENTITY_DEADLINE_SECONDS = 300
 
 
 @dataclass
@@ -37,6 +40,7 @@ def spawn_child(name: str) -> subprocess.Popen:
         "maintenance": "job_discovery.lifecycle.worker",
         "archive": "reviewer.archive_worker",
         "source": "job_discovery.lifecycle.source_worker",
+        "identity": "job_discovery.lifecycle.identity_campaign",
     }
     # Inherit stdout/stderr: no pipe can fill and stall a child or the supervisor.
     return subprocess.Popen([sys.executable, "-m", modules[name]])
@@ -67,6 +71,7 @@ def _drain(children: dict[str, Child], clock: Callable) -> bool:
             ("maintenance", MAINTENANCE_DEADLINE_SECONDS),
             ("archive", ARCHIVE_DEADLINE_SECONDS),
             ("source", SOURCE_DEADLINE_SECONDS),
+            ("identity", IDENTITY_DEADLINE_SECONDS),
         ]:
             child = children.get(name)
             if child is not None and child.process.poll() is None and not child.killed:
@@ -92,11 +97,14 @@ def _drain(children: dict[str, Child], clock: Callable) -> bool:
     return reaped
 
 
-def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
+def supervise(
+    stop: threading.Event, spawn: Callable, clock: Callable, *, identity_enabled=False
+) -> int:
     children: dict[str, Child] = {}
     next_maintenance = clock()
     next_archive = clock()
     next_source = clock()
+    next_identity = clock()
     failed = False
     try:
         while not stop.is_set():
@@ -107,7 +115,7 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
                     log.info("%s child exited status=%s", name, code)
                     del children[name]
                 elif (
-                    name in {"maintenance", "archive", "source"}
+                    name in {"maintenance", "archive", "source", "identity"}
                     and not child.killed
                     and now
                     >= child.started
@@ -117,6 +125,8 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
                         else ARCHIVE_DEADLINE_SECONDS
                         if name == "archive"
                         else SOURCE_DEADLINE_SECONDS
+                        if name == "source"
+                        else IDENTITY_DEADLINE_SECONDS
                     )
                 ):
                     log.warning("%s process deadline reached", name)
@@ -142,6 +152,15 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
                 started = clock()
                 children["source"] = Child(spawn("source"), started)
                 next_source = started + SOURCE_INTERVAL_SECONDS
+            if (
+                identity_enabled
+                and not stop.is_set()
+                and now >= next_identity
+                and "identity" not in children
+            ):
+                started = clock()
+                children["identity"] = Child(spawn("identity"), started)
+                next_identity = started + IDENTITY_INTERVAL_SECONDS
             wake = clock() + CHECK_SECONDS
             child = children.get("maintenance")
             if child is not None and not child.killed:
@@ -152,6 +171,11 @@ def supervise(stop: threading.Event, spawn: Callable, clock: Callable) -> int:
             source = children.get("source")
             if source is not None and not source.killed:
                 wake = min(wake, source.started + SOURCE_DEADLINE_SECONDS)
+            identity = children.get("identity")
+            if identity is not None and not identity.killed:
+                wake = min(wake, identity.started + IDENTITY_DEADLINE_SECONDS)
+            if identity_enabled and next_identity > clock():
+                wake = min(wake, next_identity)
             if next_source > clock():
                 wake = min(wake, next_source)
             if next_archive > clock():
@@ -175,7 +199,12 @@ def main() -> int:
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
-    return supervise(stop, spawn_child, time.monotonic)
+    return supervise(
+        stop,
+        spawn_child,
+        time.monotonic,
+        identity_enabled=bool(os.environ.get("IDENTITY_BACKFILL_CAMPAIGN")),
+    )
 
 
 if __name__ == "__main__":

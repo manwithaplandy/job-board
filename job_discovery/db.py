@@ -304,8 +304,8 @@ def sync_source_accounts(conn, limit: int = 100) -> int:
     """Register a bounded slice of the whole company corpus for verification.
 
     Existing source exclusions are authoritative. An inactive legacy company
-    whose reason is unknown remains unknown; only the recorded failure threshold
-    supplies failure-disabled provenance. No user preferences participate.
+    remains unknown: a legacy failure counter cannot prove the disable reason.
+    Existing trusted failure-disabled states remain unchanged. No user preferences participate.
     Caller commits before enumeration/network work.
     """
     from job_discovery.lifecycle.claims import claim_work
@@ -325,7 +325,7 @@ def sync_source_accounts(conn, limit: int = 100) -> int:
     if claim is None:
         raise StorageBlocked('source catalog registration deferred')
     for co in companies:
-        exclusion = 'enabled' if co['active'] else ('failure_disabled' if co['poll_failures']>=POLL_FAILURE_DEACTIVATE else 'unknown')
+        exclusion = 'enabled' if co['active'] else 'unknown'
         with _write(conn,claim,'source_accounts'):
             conn.execute("""INSERT INTO source_accounts(legacy_company_id,ats,public_board_ref,legacy_active,exclusion_state,failure_streak)
                 VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(ats,public_board_ref) DO NOTHING""",

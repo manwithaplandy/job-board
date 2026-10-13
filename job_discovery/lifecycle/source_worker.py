@@ -8,6 +8,7 @@ work, seed expansion or new infrastructure provisioning.
 import logging
 import signal
 import sys
+from time import monotonic
 
 from job_discovery import db
 from .config import read_control
@@ -20,6 +21,7 @@ MAX_BOARDS = 100
 
 
 def run_source_once(dsn=None):
+    deadline = monotonic() + TURN_SECONDS
     conn = db.connect(dsn)
     try:
         enabled = read_control(conn).source_enabled
@@ -30,7 +32,7 @@ def run_source_once(dsn=None):
         # use the accepted operational lane when ordinary storage is deferred.
         maintenance = pre_admission_maintenance(dsn)
         return verify_due_sources(
-            conn, max_boards=MAX_BOARDS, seconds=TURN_SECONDS,
+            conn, max_boards=MAX_BOARDS, seconds=max(0, deadline-monotonic()),
             admission_allowed=not maintenance.blocked,
         )
     finally:

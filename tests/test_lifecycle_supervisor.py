@@ -546,3 +546,19 @@ def test_archive_successful_children_run_every_sixty_seconds():
 
     assert s.supervise(Stop(clock, 185), spawn, clock) == 0
     assert [c.started for name, c in children if name == "archive"] == [0, 60, 120, 180]
+
+
+def test_identity_child_requires_opt_in_and_has_independent_deadline(monkeypatch):
+    s = supervisor()
+    clock = Clock()
+    children = []
+    monkeypatch.setattr(s.time, 'sleep', lambda delay: setattr(clock, 'now', clock.now + delay))
+    def spawn(name):
+        child = Child(clock, ignores_term=True)
+        children.append((name, child))
+        return child
+    assert s.supervise(Stop(clock, 310), spawn, clock, identity_enabled=True) == 0
+    identity = [c for n,c in children if n=='identity']
+    assert identity[0].started == 0 and identity[0].killed == 300
+    assert len(identity)==2 and identity[1].started==305
+    assert identity[1].killed == 340

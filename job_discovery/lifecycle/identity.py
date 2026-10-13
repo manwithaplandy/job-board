@@ -43,7 +43,8 @@ def choose_anchor(
     return discovered_at.astimezone(UTC), "local_observation"
 
 
-def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None = None) -> int:
+def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None = None,
+                           company_ids: list[int] | None = None) -> int:
     """Map <=500 legacy jobs (or remaining empty source accounts) atomically.
 
     The stable listing existence is the checkpoint. A rolled back batch has no
@@ -58,6 +59,9 @@ def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None 
         raise ValueError("identity batch limit must be an integer between 1 and 500")
     if job_ids is not None and (not isinstance(job_ids,list) or len(job_ids)>500 or any(not isinstance(j,str) for j in job_ids)):
         raise ValueError("identity job filter must contain at most 500 job IDs")
+    if company_ids is not None and (job_ids is not None or not isinstance(company_ids,list)
+            or len(company_ids)>500 or any(type(c) is not int for c in company_ids)):
+        raise ValueError("identity company filter must contain at most 500 integer IDs and no job filter")
     with conn.cursor(row_factory=dict_row) as cur:
         enter_gate(conn)
         control = read_control(conn)
@@ -71,8 +75,9 @@ def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None 
             FROM jobs j JOIN companies c ON c.id=j.company_id
             WHERE NOT EXISTS (SELECT 1 FROM source_listings l WHERE l.job_id=j.id)
               AND (%s::text[] IS NULL OR j.id=ANY(%s::text[]))
+              AND %s
             ORDER BY j.id LIMIT %s""",
-            (job_ids,job_ids,limit),
+            (job_ids,job_ids,company_ids is None,limit),
         )
         rows = cur.fetchall()
         # Reserve sorted namespaced Job keys before taking any Job/FK locks.
@@ -153,9 +158,10 @@ def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None 
             SELECT c.id,c.ats,c.token,c.active,CASE WHEN c.active THEN 'enabled' ELSE 'unknown' END,c.poll_failures
             FROM companies c WHERE NOT EXISTS
               (SELECT 1 FROM source_accounts s WHERE s.ats=c.ats AND s.public_board_ref=c.token)
+              AND (%s::bigint[] IS NULL OR c.id=ANY(%s::bigint[]))
             ORDER BY c.id LIMIT %s ON CONFLICT (ats,public_board_ref) DO NOTHING
             RETURNING id,legacy_company_id,ats,public_board_ref""",
-            (limit,),
+            (company_ids,company_ids,limit),
         )
         accounts = cur.fetchall()
         for account in accounts:

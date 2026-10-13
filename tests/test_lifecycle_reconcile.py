@@ -337,7 +337,7 @@ def test_new_corpus_sources_registered_in_bounded_slices_without_reactivating_ex
     conn.commit()
     rows=conn.execute('SELECT public_board_ref,exclusion_state FROM source_accounts ORDER BY public_board_ref').fetchall()
     assert {'public_board_ref':'fixture','exclusion_state':'deliberate'} in rows
-    assert {'public_board_ref':'failed','exclusion_state':'failure_disabled'} in rows
+    assert {'public_board_ref':'failed','exclusion_state':'unknown'} in rows
     assert {'public_board_ref':'unknown','exclusion_state':'unknown'} in rows
     assert conn.execute('SELECT legacy_company_id FROM source_accounts WHERE id=%s',(source['id'],)).fetchone()
 

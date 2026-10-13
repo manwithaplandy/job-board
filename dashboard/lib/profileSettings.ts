@@ -1,3 +1,4 @@
+import { acquireLifecycleGate } from "@/lib/jobLifecycle";
 import type { TransactionSql } from "postgres";
 import { withUserSql } from "@/lib/db";
 import { AccountDeletedError, isAccountDeleted } from "@/lib/tombstone";
@@ -32,6 +33,7 @@ export interface ModelPreferencesInput {
 export async function updateResumeSourceWith(
   tx: TransactionSql, userId: string, input: ResumeSourceInput,
 ): Promise<void> {
+  await acquireLifecycleGate(tx);
   const rows = await tx`SELECT instructions FROM profiles
     WHERE user_id = ${userId}::uuid FOR UPDATE`;
   const instructions = (rows[0] as { instructions: string | null } | undefined)?.instructions ?? null;
@@ -46,6 +48,7 @@ export async function updateResumeSourceWith(
 export async function updateReviewPreferencesWith(
   tx: TransactionSql, userId: string, instructions: string | null,
 ): Promise<void> {
+  await acquireLifecycleGate(tx);
   const rows = await tx`SELECT resume_text FROM profiles
     WHERE user_id = ${userId}::uuid FOR UPDATE`;
   const resumeText = (rows[0] as { resume_text: string | null } | undefined)?.resume_text ?? null;

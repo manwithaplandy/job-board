@@ -1,5 +1,5 @@
 import { serverBoardFilters } from "@/lib/filters";
-import { getJobs } from "@/lib/queries";
+import { getJobsPage } from "@/lib/queries";
 import { parseBoardFilters } from "@/lib/rolefit/boardFilters";
 import { saveProfileResume } from "@/app/actions/profile";
 import { rejectJob, unrejectJob } from "@/app/actions/jobs";
@@ -8,32 +8,33 @@ import {
 } from "@/app/actions/applications";
 import { RolefitBoard } from "@/components/rolefit/RolefitBoard";
 
-// The public board, edge-cached (ISR): identical for every anonymous visitor, so
-// anon hits stop paying the ~400ms 500-row dynamic SSR on every request. The auth
-// proxy REWRITES anon GET / here (the URL stays "/"); authed / renders dynamically
-// in app/page.tsx, and an authed visitor navigating here directly is redirected
-// back to / by the proxy. Per-visitor state (the board_filters cookie — httpOnly)
-// cannot vary a cached render, so RolefitBoard hydrates it client-side after mount
-// (hydrateFiltersFromApi). nowIso freshness labels tolerate the staleness window.
-export const revalidate = 120;
+// Anonymous / rewrites here. Discovery expiry/count/page are evaluated per request;
+// caching the complete page would retain rows across the exact expiry boundary.
+// The older-live choice is explicit in the query string; other saved client filters
+// still hydrate from the existing cookie API.
+export const dynamic = "force-dynamic";
 
-export default async function PublicBoardPage() {
+export default async function PublicBoardPage({searchParams}: {searchParams:Promise<Record<string,string|string[]|undefined>>}) {
+  const params=await searchParams;
+  const includeOlderLive=params.older === "1";
+  const page=typeof params.page === "string" && /^\d{1,6}$/.test(params.page) ? Number(params.page) : 0;
   // Anonymous viewer: plain open jobs, no review join, no operator telemetry.
   // The public board keeps the deliberate engineer-only editorial curation.
-  // In production a failed fetch must THROW so a failed ISR revalidation keeps
-  // serving the last good cached board (stale-while-error) instead of caching an
-  // empty one. Outside production (the infra-less public visual gate runs `next
-  // dev` against an unreachable DB) render the empty board shell instead.
-  const jobs = await getJobs(serverBoardFilters("anon"), null).catch((error: unknown) => {
+  // Production failures remain visible to the route error boundary. The existing
+  // infra-less development visual harness can render an empty shell.
+  const jobsPage = await getJobsPage({...serverBoardFilters("anon"),includeOlderLive}, null,page).catch((error: unknown) => {
     if (process.env.NODE_ENV === "production") throw error;
-    return [];
+    return {rows:[],total:0,page};
   });
   return (
     <RolefitBoard
-      jobs={jobs}
+      key={`${includeOlderLive}:${page}`}
+      jobs={jobsPage.rows}
+      discoveryTotal={jobsPage.total}
+      discoveryPage={page}
       nowIso={new Date().toISOString()}
       isAuthed={false}
-      initialFilters={parseBoardFilters(undefined)}
+      initialFilters={{...parseBoardFilters(undefined),includeOlderLive}}
       hydrateFiltersFromApi
       saveResume={saveProfileResume}
       rejectJob={rejectJob}

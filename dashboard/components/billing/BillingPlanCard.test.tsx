@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ENTITLEMENTS, PLAN_PRICE_USD, type Plan } from "@/lib/entitlements";
-import { TierCard } from "@/app/billing/page";
+import { TierCard } from "@/components/billing/TierCard";
 
 afterEach(cleanup);
 

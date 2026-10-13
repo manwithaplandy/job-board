@@ -1,3 +1,4 @@
+import { acquireLifecycleGate } from "@/lib/jobLifecycle";
 import postgres, { type TransactionSql } from "postgres";
 
 const connectionString = process.env.DATABASE_URL;
@@ -96,4 +97,112 @@ export async function withAnonSql<T>(
                     set_config('role', 'anon', true)`;
     return fn(tx);
   })) as T;
+}
+
+/** Explicit mutating wrapper; read-only transactions retain their existing path. */
+export async function withUserMutation<T>(userId: string, fn: (tx: TransactionSql) => Promise<T>): Promise<T> {
+  return withUserSql(userId, async (tx) => {
+    await acquireLifecycleGate(tx);
+    return fn(tx);
+  });
+}
+
+export type PayloadScope = "job_reviews" | "review_corrections" | "application_packages" |
+  "generation_jobs" | "resume_scores" | "cover_letter_edits";
+
+/** Service capability setup only; all application DML runs as authenticated.
+ * One exact job/scope/backend/transaction reservation, checked by existing guards.
+ * The callback must do database work only. Caller supplies a verified auth user ID.
+ */
+export async function withUserPayloadMutation<T>(
+  userId: string, jobId: string, scope: PayloadScope,
+  fn: (tx: TransactionSql) => Promise<T>,
+): Promise<T> {
+  if (!userId || !jobId) throw new Error("Owner and job required");
+  let completedClaim: {workId:string;ownerToken:string;generation:number} | null = null;
+  const result = (await serviceSql.begin(async (tx) => {
+    await acquireLifecycleGate(tx);
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${'lifecycle:job:' + jobId}, 0))`;
+    const controls = await tx`SELECT safety_stage FROM lifecycle_control WHERE singleton`;
+    let reservation: string | null = null;
+    if (controls[0]?.safety_stage === "enforced") {
+      // Worst case includes a 10 MiB input snapshot and generated output; the
+      // trigger measures actual writes and refuses any underestimate.
+      const bytes = 96 * 1024 * 1024;
+      const claim = await tx`INSERT INTO lifecycle_claims(kind,work_id,owner_token,lease_until,invoking_role)
+        VALUES ('dashboard',gen_random_uuid()::text,gen_random_uuid()::text,
+          clock_timestamp()+interval '180 seconds',current_user)
+        RETURNING work_id,owner_token,generation`;
+      const row = claim[0];
+      if (!row) throw new Error("Payload claim unavailable");
+      completedClaim = {workId:row.work_id,ownerToken:row.owner_token,generation:row.generation};
+      const reservations = await tx`INSERT INTO capacity_reservations
+        (claim_kind,claim_id,owner_token,generation,bytes,backend_pid,transaction_id,job_id,scope,subject_id,invoking_role)
+        VALUES ('dashboard',${row.work_id},${row.owner_token},${row.generation},${bytes},
+          pg_backend_pid(),pg_current_xact_id(),${jobId},${scope},${userId}::uuid,'authenticated') RETURNING id`;
+      reservation = typeof reservations[0]?.id === "string" ? reservations[0].id : null;
+      if (!reservation) throw new Error("Payload reservation unavailable");
+      await tx`SELECT set_config('lifecycle.reservation',${reservation},true)`;
+    }
+    await tx`SELECT set_config('request.jwt.claims',${JSON.stringify({sub:userId,role:"authenticated"})},true),
+      set_config('role','authenticated',true)`;
+    const result = await fn(tx);
+    if (reservation) {
+      // Restore only to settle service-owned capability metadata, never user DML.
+      await tx`SELECT set_config('role','none',true),set_config('request.jwt.claims','',true)`;
+      await tx`UPDATE capacity_reservations SET state='settled',terminal_at=clock_timestamp(),
+        measured_database_bytes=pg_database_size(current_database()) WHERE id=${reservation}::uuid`;
+    }
+    return result;
+  })) as T;
+  // The original transaction (including deferred checks) has committed. A
+  // failure here leaves durable work for bounded maintenance finalization.
+  if (completedClaim) {
+    const claim: {workId:string;ownerToken:string;generation:number} = completedClaim;
+    try {
+    await serviceSql.begin(async tx => {
+      await acquireLifecycleGate(tx);
+      await tx`UPDATE lifecycle_claims SET replay_floor=generation,generation=generation+1,
+        state='cancelled',terminal_at=clock_timestamp()
+        WHERE kind='dashboard' AND work_id=${claim.workId} AND owner_token=${claim.ownerToken}
+          AND generation=${claim.generation} AND state='active' AND invoking_role=current_user
+          AND subject_id IS NOT DISTINCT FROM app_user_id()
+          AND NOT EXISTS(SELECT FROM capacity_reservations WHERE claim_kind='dashboard'
+            AND claim_id=${claim.workId} AND state='held')`;
+    });
+    } catch (error) {
+      // Do not report a committed private artifact as failed (or refund its
+      // generation). Maintenance retries only the settled completion metadata.
+      console.warn("Payload completion metadata deferred",error instanceof Error ? error.name : "unknown");
+    }
+  }
+  return result;
+}
+
+/** Read the existing sticky compatibility control, then enqueue/read as owner.
+ * Mirrors lifecycle.config.legacy_description_capture_allowed; no shared DML.
+ */
+export async function withUserDemandSql(
+  userId:string, fn:(tx:TransactionSql,legacyAllowed:boolean)=>Promise<import("./jobLifecycle").DemandResult>,
+):Promise<import("./jobLifecycle").DemandResult> {
+  if(!userId) throw new Error("Owner required");
+  return (await serviceSql.begin(async tx=>{
+    await acquireLifecycleGate(tx);
+    const rows=await tx`SELECT NOT (c.source_enabled OR c.hydration_enabled OR c.maintenance_enabled
+      OR c.safety_stage='enforced' OR c.archive_ever_activated OR m.cutover_at IS NOT NULL) AS legacy_allowed
+      FROM lifecycle_control c CROSS JOIN lifecycle_maintenance_state m WHERE c.singleton AND m.singleton`;
+    const legacyAllowed=rows[0]?.legacy_allowed===true;
+    await tx`SELECT set_config('request.jwt.claims',${JSON.stringify({sub:userId,role:"authenticated"})},true),set_config('role','authenticated',true)`;
+    const result = await fn(tx,legacyAllowed);
+    if (result.status === "ready") {
+      await tx`SELECT set_config('role','none',true),set_config('request.jwt.claims','',true)`;
+      const pinned = await tx`UPDATE job_payload_demands SET protection_until=clock_timestamp()+interval '180 seconds'
+        WHERE id=${result.id}::uuid AND user_id=${userId}::uuid AND status='ready'
+          AND job_version_id=${result.versionId}::uuid AND kind=${result.kind}
+          AND description_snapshot=${result.description}
+          AND questions_snapshot IS NOT DISTINCT FROM ${result.questions ? JSON.stringify(result.questions) : null}::text::jsonb RETURNING id`;
+      if (pinned.length !== 1) throw new Error("Ready input changed; retry the request");
+    }
+    return result;
+  })) as import("./jobLifecycle").DemandResult;
 }

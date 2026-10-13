@@ -1,3 +1,4 @@
+from job_discovery.archive.writers import ingest_candidates
 # company_discovery/run.py
 import asyncio
 import logging
@@ -94,8 +95,8 @@ def _review_user(conn, profile: dict) -> None:
     try:
         candidates = db.select_for_review(conn, user_id, pv, config.BATCH_CAP)
         enriched = enrich_selected(conn, candidates)
+        conn.commit()  # Includes the no-enrichment branch before model work.
         if enriched:
-            conn.commit()  # persist grounding before the long, credit-gated review
             log.info("enriched %s selected companies before review", enriched)
         company_block = build_company_block(profile.get("company_instructions"))
         client = CompanyReviewClient(model=profile.get("model_company"))
@@ -150,7 +151,7 @@ def run(conn=None) -> None:
             return
         if tracing.tracing_enabled():
             log.info("langfuse tracing on; sample_rate=%s", tracing.sample_rate())
-        ingested = db.upsert_candidates(conn, dataset.load_candidates(config.dataset_dir()))
+        ingested = ingest_candidates(conn, dataset.load_candidates(config.dataset_dir()))
         conn.commit()
         log.info("ingested %s new candidate companies", ingested)
         profiles = db.load_company_profiles(conn)
@@ -160,6 +161,7 @@ def run(conn=None) -> None:
         for profile in profiles:
             _review_user(conn, profile)
     finally:
+        conn.rollback()  # Close any early-return read before network tracing flush.
         tracing.flush()
         if own:
             conn.close()

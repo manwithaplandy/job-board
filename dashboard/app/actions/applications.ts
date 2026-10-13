@@ -1,7 +1,9 @@
 "use server";
 
+import { requestJobPayload, consumeJobVersion } from "@/lib/jobLifecycle";
+
 import { requireUserId } from "@/lib/auth";
-import { withUserSql } from "@/lib/db";
+import { withUserSql, withUserPayloadMutation } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { bareMarkerPredicate } from "@/lib/queries";
 
@@ -12,13 +14,26 @@ import { bareMarkerPredicate } from "@/lib/queries";
 export async function markApplicationApplied(jobId: string): Promise<void> {
   const userId = await requireUserId();
   await assertNotDeleted(userId); // no resurrecting an erased account's rows via a stale JWT
-  await withUserSql(userId, (tx) => tx`
-    INSERT INTO application_packages (user_id, job_id, status, applied_at)
-    VALUES (${userId}::uuid, ${jobId}, 'applied', now())
-    ON CONFLICT (user_id, job_id) DO UPDATE SET
-      status     = 'applied',
-      applied_at = COALESCE(application_packages.applied_at, now())
-  `);
+  const existing = await withUserSql(userId, tx => tx`SELECT 1 FROM application_packages WHERE user_id=${userId}::uuid AND job_id=${jobId}`);
+  const payload = existing.length ? null : await requestJobPayload(userId, jobId, "description");
+  if (payload?.status === "pending" || payload?.status === "deferred") throw new Error("Job details are being prepared. Try again shortly.");
+  await withUserPayloadMutation(userId, jobId, "application_packages", async (tx) => {
+    // A status transition never recaptures or relabels a retained artifact.
+    const updated = await tx`UPDATE application_packages SET status='applied',
+      applied_at=COALESCE(applied_at,now()) WHERE user_id=${userId}::uuid AND job_id=${jobId} RETURNING job_id`;
+    if (updated.length) return;
+    if (!payload) throw new Error("Application changed; retry marking it applied.");
+    const captured = payload.status === "ready"
+      ? await tx`SELECT snapshot_captured_at FROM job_payload_demands WHERE id=${payload.id}::uuid AND user_id=${userId}::uuid`
+      : [];
+    await tx`
+      INSERT INTO application_packages (user_id,job_id,job_version_id,description_snapshot,questions_snapshot,snapshot_captured_at,status,applied_at)
+      VALUES (${userId}::uuid,${jobId},${payload.status === "ready" ? payload.versionId : null}::uuid,
+        ${payload.status === "ready" ? payload.description : null},
+        ${payload.status === "ready" && payload.questions ? JSON.stringify(payload.questions) : null}::text::jsonb,
+        ${captured[0]?.snapshot_captured_at ?? null},'applied',now())`;
+    if (payload.status === "ready") await consumeJobVersion(tx,jobId,payload.versionId,payload.kind,payload.id,payload);
+  });
 }
 
 // Undo "mark applied". A content-less marker row (created by the one-click path) is

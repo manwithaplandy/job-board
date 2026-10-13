@@ -21,7 +21,11 @@ const withUserSql = vi.fn(async (_userId: string, fn: (tx: unknown) => unknown) 
   const tx = (..._a: unknown[]) => Promise.resolve([]);
   return fn(tx);
 });
-vi.mock("@/lib/db", () => ({ withUserSql, serviceSql: (..._a: unknown[]) => Promise.resolve([]) }));
+vi.mock("@/lib/db", () => ({ withUserSql, withUserPayloadMutation: (userId: string, _job: string, _scope: string, fn: (tx: unknown) => unknown) => withUserSql(userId, fn), serviceSql: (..._a: unknown[]) => Promise.resolve([]) }));
+vi.mock("@/lib/jobLifecycle", () => ({
+  requestJobPayload: async () => ({ status: "legacy", id: null }),
+  readPrivateSnapshot: async () => null,
+}));
 vi.mock("@/lib/queries", () => ({ bareMarkerPredicate: () => "TRUE" }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/admin", () => ({ isAdmin: () => false }));
@@ -55,6 +59,7 @@ describe("mutating actions honor the tombstone guard", () => {
   test.each(ACTIONS)("%s proceeds to the DB write for a live account", async (_name, run) => {
     state.deleted = false;
     await expect(run()).resolves.toBeUndefined();
-    expect(withUserSql).toHaveBeenCalledTimes(1);
+    // Mark-applied reads retained input before its status mutation.
+    expect(withUserSql).toHaveBeenCalledTimes(_name === "markApplicationApplied" ? 2 : 1);
   });
 });

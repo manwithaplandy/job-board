@@ -109,7 +109,7 @@ start `python -m reviewer.worker`.
 
 ## Deployment
 
-- **Job Discovery** → Railway cron service (`0 */2 * * *` UTC), root `/`, start `python -m job_discovery`.
+- **Job Discovery** → Railway cron service (`0 0 * * *` UTC), root `/`, start `python -m job_discovery`.
   Railway **watch patterns** are scoped to backend paths (`job_discovery/**`, `requirements.txt`,
   `pyproject.toml`, `railway.json`, `targets.json`, `schema.sql`), so frontend/docs-only
   commits do not rebuild Job Discovery.
@@ -148,6 +148,10 @@ start `python -m reviewer.worker`.
   Every migration must be idempotent (`IF [NOT] EXISTS`), transactional where possible
   (`BEGIN/COMMIT`), and mirrored into `schema.sql`. `CREATE INDEX CONCURRENTLY` statements
   cannot run inside a transaction — keep them outside `BEGIN/COMMIT` and run them individually.
+  Supabase's version/name history and the repository's `public.schema_migrations`
+  filename ledger are separate. Compare both and the actual schema before deciding
+  a migration is missing; absence from the filename ledger alone does not justify
+  rerunning SQL. See the [classification and lifecycle ledger checkpoints](docs/runbooks/migration-ledger-state.md).
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
 - **OpenRouter spend alert** → Railway **cron** service (`railway.spend-alert.json`, hourly
   `0 * * * *`), root `/`, start `python -m observability.spend_alert`. It snapshots
@@ -167,3 +171,9 @@ Pushes to `main` auto-deploy the affected component.
   procedure + post-restore checklist (schema-migration audit, Stripe re-sync, stuck
   review-request cleanup, worker restart), the not-restorable list (storage objects,
   LangFuse traces), and the RPO/RTO the current setup provides.
+
+### Lifecycle and archive rollout
+
+The lifecycle controls default off, payload retirement defaults to dry-run, and public archive producers/export remain inactive. The daily discovery cron remains `0 0 * * *` UTC; the reviewer supervisor owns separate bounded maintenance, archive and source-verification children. Follow [the lifecycle/outbox runbook](docs/runbooks/job-lifecycle-outbox.md) for additive migrations, explicit readiness, writer compatibility, rollback and operational limits. Production activation and destination changes require their applicable authorization.
+
+Local and CI acceptance uses the explicit ordinary selection in `tools/lifecycle_test_selection.json` through `python tools/lifecycle_test_db.py --postgres-major 17 -- python tools/run_lifecycle_acceptance.py` (also16; append `dashboard` for the separate owned dashboard lane). Default dashboard unit tests exclude DB fixtures. This deliberately scoped evidence is not unrestricted security certification.

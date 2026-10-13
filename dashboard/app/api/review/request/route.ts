@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 
 // On-demand "review my board now" (spec F core). Authed only — NOT in PUBLIC_PREFIXES.
 // The reviewer worker (reviewer/worker.py) consumes the enqueued row and runs the
-// SAME _review_user path, so the cap + location filter (T8) bound it for free.
+// SAME _review_user path: entitlement/location/company filters precede demand
+// hydration, and only durable description versions reach either model stage.
 
 // POST → enqueue (idempotent). 402 if no plan, 409 if the daily budget is spent.
 export async function POST() {

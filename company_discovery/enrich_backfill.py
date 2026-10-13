@@ -25,14 +25,10 @@ ROLLOUT ARTIFACT — must NOT be run against the production DB during feature
 development; the operator runs it at rollout.
 """
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from company_discovery.enrich_apply import MAX_WORKERS, apply_enrichment, plan_enrichment
+from company_discovery.enrich_apply import apply_enrichment, fetch_batches, plan_enrichment
 
 log = logging.getLogger("enrich_backfill")
-
-# Commit cadence (rows written) so a long run is durable and resumable.
-_COMMIT_EVERY = 50
 
 # UNKNOWNS-ONLY: a company qualifies if ANY user's effective verdict is 'unknown',
 # or it has no review at all (COALESCE default 'unknown'). Currently-active/included
@@ -70,22 +66,21 @@ def main() -> None:
         log.info("enrichment scope: %s companies (enriched_at IS NULL, effective verdict unknown)",
                  len(rows))
         updated = 0
-        # Board fetches (HTTP) run concurrently across a small thread pool; the DB
-        # writes stay on the main thread — one psycopg connection must not be shared
-        # across threads.
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {pool.submit(plan_enrichment, r["ats"], r["token"]): r for r in rows}
-            for fut in as_completed(futures):
-                row = futures[fut]
-                plan = fut.result()  # plan_enrichment never raises (it skips instead)
-                if plan is None:
-                    continue
-                apply_enrichment(conn, row["id"], plan)
-                updated += 1
-                if updated % _COMMIT_EVERY == 0:
-                    conn.commit()
-                    log.info("enriched %s companies so far", updated)
         conn.commit()
+        for results in fetch_batches(rows, plan_enrichment):
+            batch_updated = 0
+            try:
+                for row, plan in results:
+                    if plan is None:
+                        continue
+                    apply_enrichment(conn, row["id"], plan)
+                    batch_updated += 1
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+            updated += batch_updated
+            log.info("enriched %s companies so far", updated)
         log.info("enrichment complete: updated %s of %s companies", updated, len(rows))
     finally:
         conn.close()

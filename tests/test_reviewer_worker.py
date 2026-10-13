@@ -68,12 +68,29 @@ def test_two_claimers_never_take_the_same_row(conn):
     _enqueue(conn, UB)
     conn2 = psycopg.connect(TEST_DSN, row_factory=dict_row)
     try:
-        c1 = rdb.claim_next_review_request(conn)   # locks row 1 (uncommitted)
-        c2 = rdb.claim_next_review_request(conn2)  # must skip the locked row → row 2
+        c1 = rdb.claim_next_review_request(conn)
+        # Lifecycle's BEFORE STATEMENT gate serializes these write transactions.
+        # Run the second attempt concurrently and commit the first before waiting.
+        started = threading.Event()
+        results, errors = [], []
+
+        def second_claim():
+            started.set()
+            try:
+                results.append(rdb.claim_next_review_request(conn2))
+                conn2.commit()
+            except Exception as exc:
+                errors.append(exc)
+
+        sibling = threading.Thread(target=second_claim, daemon=True)
+        sibling.start()
+        assert started.wait(timeout=2)
+        conn.commit()
+        sibling.join(timeout=5)
+        assert not sibling.is_alive() and not errors
+        c2 = results[0]
         assert c1 is not None and c2 is not None
         assert c1["id"] != c2["id"]
-        conn.commit()
-        conn2.commit()
     finally:
         conn2.close()
 
@@ -83,7 +100,9 @@ def test_second_claimer_gets_nothing_when_only_row_is_locked(conn):
     _enqueue(conn, UA)
     conn2 = psycopg.connect(TEST_DSN, row_factory=dict_row)
     try:
-        c1 = rdb.claim_next_review_request(conn)   # locks the only pending row
+        # A plain row lock isolates SKIP LOCKED behavior without holding the
+        # separate global BEFORE STATEMENT write gate across the second call.
+        c1 = conn.execute("SELECT id FROM review_requests WHERE status='pending' FOR UPDATE").fetchone()
         c2 = rdb.claim_next_review_request(conn2)  # SKIP LOCKED → nothing
         assert c1 is not None
         assert c2 is None
@@ -571,3 +590,44 @@ def test_delayed_worker_rechecks_claim_after_acquiring_user_lock(conn, monkeypat
     note = conn.execute('SELECT notes FROM review_runs ORDER BY id DESC LIMIT 1').fetchone()['notes']
     assert note == 'review request claim superseded; skipped'
     assert conn.execute('SELECT status FROM review_requests WHERE id=%s', (rid,)).fetchone()['status'] == 'running'
+
+
+@pytest.mark.parametrize('parallelism', [-1, 0, 1, 3])
+def test_nonpositive_parallelism_preserves_single_loop_processing(monkeypatch, parallelism):
+    """Each effective loop reaches request processing and closes its connection."""
+    effective = max(1, parallelism)
+    rendezvous = threading.Barrier(effective)
+    connections, processed = [], []
+    lock = threading.Lock()
+
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    def connect():
+        connection = Connection()
+        with lock:
+            connections.append(connection)
+        return connection
+
+    def process(connection):
+        with lock:
+            processed.append(connection)
+        # All parallel loops must reach the request path before one signals fatal.
+        rendezvous.wait(timeout=2)
+        raise SystemExit(7)
+
+    monkeypatch.setattr(worker.config, 'REVIEW_WORKER_PARALLELISM', parallelism)
+    monkeypatch.setattr(worker.config, 'has_api_key', lambda: True)
+    monkeypatch.setattr(worker.signal, 'signal', lambda *_: None)
+    monkeypatch.setattr(worker.jdb, 'connect', connect)
+    monkeypatch.setattr(worker, 'process_one', process)
+    with pytest.raises(SystemExit) as exited:
+        worker.main()
+    assert exited.value.code == (7 if parallelism <= 1 else 1)
+    assert len(connections) == len(processed) == effective
+    assert set(connections) == set(processed)
+    assert all(connection.closed for connection in connections)
+    assert _review_loop_threads() == []

@@ -15,6 +15,7 @@ describe("parseBoardFilters", () => {
       '{"search":"eng","cats":["Backend"],"locs":["Berlin"],"remote":"remote","minFit":75,"payMin":150,"sort":"pay"}',
     );
     expect(f).toEqual({
+      includeOlderLive: false,
       search: "eng", cats: ["Backend"], locs: ["Berlin"], sources: [],
       industries: [], sizes: [], countries: [],
       remote: "remote", minFit: 75, payMin: 150, payMax: null, payIncludeUndisclosed: false, sort: "pay",

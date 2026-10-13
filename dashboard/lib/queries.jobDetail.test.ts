@@ -55,3 +55,10 @@ describe("getJobReviewDetail", () => {
     expect(values).toContain(null);
   });
 });
+
+test("detail marks an actual saved review/correction JD for separate current display", async () => {
+  rows.push({description:"Saved JD",description_is_saved:true});
+  expect(await getJobReviewDetail("greenhouse:acme:123","user-1"))
+    .toMatchObject({description:"Saved JD",descriptionIsSaved:true});
+  expect(calls[0].strings.join("")).toContain("COALESCE(rc.description_snapshot,r.description_snapshot) IS NOT NULL");
+});

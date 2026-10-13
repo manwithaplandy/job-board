@@ -3,6 +3,7 @@ import time
 from typing import Any
 
 import httpx
+from job_discovery import public_fetch
 
 DEFAULT_TIMEOUT = 10.0
 _TIMEOUT = DEFAULT_TIMEOUT
@@ -14,10 +15,13 @@ _HEADERS = {"User-Agent": "job-board/0.1"}
 _DEFAULT_RETRIES = 2
 _DEFAULT_BACKOFF = 0.5
 
-# Shared client: connection pool is reused across all requests in one process.
-# Avoids the per-call TCP handshake overhead of the previous httpx.get() calls.
-# follow_redirects=True handles 301/302 transparently.
-_client = httpx.Client(timeout=_TIMEOUT, headers=_HEADERS, follow_redirects=True)
+# Shared facade: each real public fetch gets a bounded disposable transport.
+class _PublicClient:
+    follow_redirects = False
+    request = staticmethod(public_fetch.request)
+
+
+_client = _PublicClient()
 
 
 def _sleep_backoff(attempt: int, backoff: float) -> None:
@@ -42,28 +46,43 @@ def _request(
       - Non-429 4xx (client error): retrying cannot help; raise immediately.
       - Network errors / JSON decode errors: exponential back-off + jitter.
     """
+    deadline = time.monotonic() + public_fetch.MAX_SECONDS
     attempts = retries + 1
     last_exc: Exception | None = None
     for attempt in range(attempts):
         try:
-            resp = _client.request(method, url, **kw)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise httpx.TimeoutException("public fetch deadline exceeded")
+            kw["timeout"] = min(float(kw.get("timeout", remaining)), remaining)
+            resp = _client.request(method, url, parse_json=parse is None, **kw)
             resp.raise_for_status()
-            return parse(resp) if parse is not None else resp.json()
+            result = parse(resp) if parse is not None else (resp.extensions["public_json"] if "public_json" in getattr(resp,"extensions",{}) else resp.json())
+            if time.monotonic() >= deadline:
+                raise httpx.TimeoutException("public parse deadline exceeded")
+            return result
         except httpx.HTTPStatusError as e:
             last_exc = e
             code = e.response.status_code
             if code == 429 and attempt < attempts - 1:
                 delay = float(e.response.headers.get("Retry-After") or
                               backoff * (2 ** attempt))
-                time.sleep(delay + random.uniform(0, 0.25))
+                delay = delay + random.uniform(0, 0.25)
+                if delay >= deadline - time.monotonic():
+                    raise httpx.TimeoutException("retry exceeds public fetch deadline")
+                time.sleep(delay)
                 continue
             if 400 <= code < 500:
                 raise  # non-429 4xx: retrying cannot help
             if attempt < attempts - 1:
+                if backoff * (2 ** attempt) + 0.25 >= deadline - time.monotonic():
+                    raise httpx.TimeoutException("retry exceeds public fetch deadline")
                 _sleep_backoff(attempt, backoff)  # 5xx: back off and retry
         except (httpx.HTTPError, ValueError) as e:
             last_exc = e
             if attempt < attempts - 1:
+                if backoff * (2 ** attempt) + 0.25 >= deadline - time.monotonic():
+                    raise httpx.TimeoutException("retry exceeds public fetch deadline")
                 _sleep_backoff(attempt, backoff)
     assert last_exc is not None
     raise last_exc

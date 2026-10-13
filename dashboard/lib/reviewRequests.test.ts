@@ -47,7 +47,7 @@ describe("enqueueReviewRequest", () => {
   test("maps the partial-unique 23505 to idempotent success (existing active request)", async () => {
     state.throwOnInsert = true;
     // After the failed INSERT, the active-request lookup returns a running row.
-    state.rowQueue.push([{ status: "running" }]);
+    state.rowQueue.push([{ id:1,user_id:"u",requested_at:"2026-10-07T00:00:00Z",status: "running" }]);
     const r = await enqueueReviewRequest("u");
     expect(r).toEqual({ status: "running", existing: true });
     // The active-request SELECT ran after the aborted insert.
@@ -57,7 +57,7 @@ describe("enqueueReviewRequest", () => {
 
 describe("getLatestReviewRequest", () => {
   test("returns the newest row or null", async () => {
-    state.rowQueue.push([{ id: 5, status: "done" }]);
+    state.rowQueue.push([{ id: 5,user_id:"u",requested_at:"2026-10-07T00:00:00Z",status: "done" }]);
     expect(await getLatestReviewRequest("u")).toMatchObject({ id: 5, status: "done" });
     expect(await getLatestReviewRequest("u")).toBeNull(); // empty queue → []
   });

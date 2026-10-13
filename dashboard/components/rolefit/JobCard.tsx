@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+import { lifecycleLabels } from "@/lib/jobLifecycleState";
 import type { JobRow } from "@/lib/types";
 import { fitColor, initialsOf, fmtPay } from "@/lib/rolefit/fit";
 import { displayEnumLabel } from "@/lib/rolefit/taxonomy";
@@ -29,9 +30,10 @@ export interface JobCardProps {
   // Live population: TRUE for ~2.6s after this row streamed in mid-review — plays the
   // pop-in + arrival-glow entrance (app/globals.css .rf-job-card--new).
   isNew?: boolean;
+  nowIso?: string;
 }
 
-export const JobCard = React.memo(function JobCard({ job, selected, onSelect, onReject, isNew }: JobCardProps) {
+export const JobCard = React.memo(function JobCard({ job, selected, onSelect, onReject, isNew, nowIso }: JobCardProps) {
   // A null fit_score means "not yet reviewed" — same gate JobDetail uses (`hasReview`).
   // fitColor(0) bottoms out at the red end of its red→green scale, so an unscored card
   // would read as a misleading RED. Instead give it the SAME neutral-grey treatment as
@@ -102,6 +104,7 @@ export const JobCard = React.memo(function JobCard({ job, selected, onSelect, on
             {companyLine}
           </div>
           <div className="rf-job-card__chips">
+            {lifecycleLabels(job.lifecycle,nowIso ?? new Date().toISOString()).map(label => <Chip key={label}>{label}</Chip>)}
             {payLabel && <Chip>{payLabel}</Chip>}
             {remoteLabel && <Chip>{remoteLabel}</Chip>}
             {job.role_category && <Chip>{job.role_category}</Chip>}

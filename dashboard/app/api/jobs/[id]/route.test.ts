@@ -1,3 +1,9 @@
+vi.mock("@/lib/db", () => ({withUserMutation: async (_u: string, fn: (tx: unknown) => Promise<unknown>) => fn({})}));
+vi.mock("@/lib/jobLifecycle", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+  consumeJobVersion: vi.fn(async () => {}),
+}));
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // The DB read is the only boundary; the JOB_ID_RE gate runs for real so we actually test
@@ -99,4 +105,25 @@ describe("GET /api/jobs/[id] — anti-error contract survives multi-tenancy", ()
     // another. The header MUST stay private + uncached.
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
   });
+});
+
+test("saved review JD remains authoritative while current public detail is separate", async () => {
+  const { requestJobPayload } = await import("@/lib/jobLifecycle");
+  vi.mocked(requestJobPayload).mockResolvedValueOnce({status:"ready", id:"d", kind:"description", versionId:"v", description:"Current JD", questions:null});
+  mocks.getJobReviewDetail.mockResolvedValue({description:"Saved private JD", reasoning:"Saved reasoning"});
+  const body = await (await call("greenhouse:acme:123")).json();
+  expect(body.description).toBe("Saved private JD");
+  expect(body.currentDescription).toBe("Current JD");
+  expect(body.reasoning).toBe("Saved reasoning");
+});
+
+test('closed source exposes retained history without enqueueing current hydration',async()=>{
+  const {requestJobPayload}=await import('@/lib/jobLifecycle');
+  const lifecycle={feedEnabled:true,sourceEnabled:true,sourceAvailability:'closed',discoveryAnchorAt:'2026-09-01T00:00:00Z',discoveryExpiresAt:'2026-10-01T00:00:00Z',payloadAvailability:'retired'};
+  mocks.getJobReviewDetail.mockResolvedValue({description:'Saved JD',descriptionIsSaved:true,lifecycle});
+  const body=await (await call('greenhouse:acme:123')).json();
+  expect(body.description).toBe('Saved JD');
+  expect(body.lifecycle.sourceAvailability).toBe('closed');
+  expect(body.payload.status).toBe('deferred');
+  expect(requestJobPayload).not.toHaveBeenCalled();
 });

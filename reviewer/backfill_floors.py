@@ -13,6 +13,7 @@ fresh write-time review would.
 import logging
 
 from reviewer import floors
+from job_discovery.lifecycle.locks import enter_gate, lock_jobs
 
 log = logging.getLogger("backfill_floors")
 
@@ -46,9 +47,11 @@ def main() -> None:
     from job_discovery import db as job_discovery_db  # shared connection factory
     conn = job_discovery_db.connect()
     try:
+        enter_gate(conn)
         with conn.cursor() as cur:
             cur.execute(_SELECT)
             rows = cur.fetchall()
+        lock_jobs(conn, [r["job_id"] for r in rows])
         updated = 0
         for r in rows:
             new = compute_floor_update(r)

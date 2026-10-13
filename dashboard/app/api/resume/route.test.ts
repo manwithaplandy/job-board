@@ -1,3 +1,7 @@
+vi.mock("@/lib/jobLifecycle", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ProfileRow } from "@/lib/types";
 
@@ -178,7 +182,7 @@ describe("POST /api/resume — 202 accept + background completion", () => {
     });
     // Charged exactly once, for THIS user+email, BEFORE the row was tracked.
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["resume"]);
-    expect(mocks.createGenerationJob).toHaveBeenCalledWith(USER, "job-1", "resume");
+    expect(mocks.createGenerationJob).toHaveBeenCalledWith(USER, "job-1", "resume", {status:"legacy",id:null});
     // Nothing generated yet — the LLM work lives in the captured after() callback.
     expect(mocks.generateResume).not.toHaveBeenCalled();
     expect(mocks.afterCallbacks).toHaveLength(1);

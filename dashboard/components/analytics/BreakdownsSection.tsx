@@ -48,15 +48,15 @@ export function BreakdownsSection({ distributions: d }: { distributions: Distrib
   const redFlagBars = d.topRedFlags.map((b) => ({ ...b, label: redFlagCategoryLabel(b.label) }));
   return (
     <div>
-      <Group label="JOBS" intro="What kinds of roles are open right now.">
-        <HBarCard title="Open jobs by location" data={hz(d.jobsByLocation)} />
-        <HBarCard title="Open jobs by department" data={hz(d.jobsByDepartment)} />
+      <Group label="JOBS" intro="Roles in the default discovery pool; source availability may be open or unknown.">
+        <HBarCard title="Discovery jobs by location" data={hz(d.jobsByLocation)} />
+        <HBarCard title="Discovery jobs by department" data={hz(d.jobsByDepartment)} />
         <HBarCard title="Remote vs on-site / hybrid" data={hz(d.jobsRemote)} />
-        <HBarCard title="Top companies by open roles" data={prettyCompanies(d.jobsByCompany)} />
-        <HBarCard title="Open jobs by ATS" subtitle="ATS = the job-posting software each company uses." data={hz(d.jobsByAts)} />
-        <SimpleBarCard title="Job lifespan (closed roles)" data={d.jobLifespan} allTicks />
+        <HBarCard title="Top companies in discovery" data={prettyCompanies(d.jobsByCompany)} />
+        <HBarCard title="Discovery jobs by ATS" subtitle="ATS = the job-posting software each company uses." data={hz(d.jobsByAts)} />
+        <SimpleBarCard title="Observed closure duration (legacy dates)" data={d.jobLifespan} allTicks />
       </Group>
-      <Group label="REVIEWS" intro="How the reviewer scored open jobs against your profile.">
+      <Group label="REVIEWS" intro="Your retained review history, independent of discovery expiry.">
         <SimpleBarCard title="Fit-score distribution" data={d.fitScore} color="var(--chart-good)" allTicks />
         <HBarCard title="Approvals by industry" data={hz(d.approvalsByIndustry)} color="var(--chart-good)" />
         <HBarCard title="Approvals by role category" data={hz(d.approvalsByRole)} color="var(--chart-good)" />

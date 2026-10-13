@@ -36,6 +36,8 @@ function copyToClipboard(text: string) {
 export interface ApplicationPanelProps {
   job: JobRow;
   isAuthed: boolean;
+  /** Retained content stays readable when review prerequisites do not permit generation. */
+  allowGeneration?: boolean;
   // Résumé (state owned by the board, keyed by job id)
   resumeState: string | undefined;
   resumeData: TailoredResume | undefined;
@@ -87,6 +89,7 @@ export interface ApplicationPanelProps {
 export function ApplicationPanel({
   job,
   isAuthed,
+  allowGeneration = true,
   resumeState,
   resumeData,
   resumeError,
@@ -230,7 +233,7 @@ export function ApplicationPanel({
   // Per-leg failures from the last prepare. Résumé + cover retry their own endpoints;
   // there's no answers-only route, so "answers" retries the whole prepare.
   const failedLegs: { key: string; label: string; onRetry: () => void }[] = [];
-  if (prepareStatus) {
+  if (allowGeneration && prepareStatus) {
     if (prepareStatus.resume === "failed") failedLegs.push({ key: "resume", label: "résumé", onRetry: onGenerateResume });
     if (prepareStatus.coverLetter === "failed") failedLegs.push({ key: "coverLetter", label: "cover letter", onRetry: onGenerateCover });
     if (prepareStatus.answers === "failed") failedLegs.push({ key: "answers", label: "application answers", onRetry: onPrepare });
@@ -262,6 +265,7 @@ export function ApplicationPanel({
               : `Tailored résumé and cover letter — ready for ${job.company_name}.`}
           </div>
         </div>
+        {status === "prepared" && <Chip>Prepared application</Chip>}
         {applied && (
           <Chip
             color="var(--success)"
@@ -279,7 +283,7 @@ export function ApplicationPanel({
             <Icon name="check" size={16} /> Applied{appliedDate ? ` · ${appliedDate}` : ""}
           </Chip>
         )}
-        {isAuthed && job.ats === "greenhouse" && (
+        {allowGeneration && isAuthed && job.ats === "greenhouse" && (
           <Button
             // Secondary whenever the Apply link renders (Apply owns primary emphasis);
             // leads only for jobs with no usable apply url.
@@ -341,6 +345,7 @@ export function ApplicationPanel({
       <ResumePanel
         job={job}
         isAuthed={isAuthed}
+        allowGeneration={allowGeneration}
         state={resumeState}
         data={resumeData}
         error={resumeError}
@@ -363,7 +368,7 @@ export function ApplicationPanel({
       {/* ── Cover letter ── */}
       <Panel className="rf-generation-panel" style={{ marginTop: "18px", padding: 0, overflow: "hidden" }}>
         {/* Idle (authed) */}
-        {isAuthed && coverIdle && (
+        {allowGeneration && isAuthed && coverIdle && (
           <div
             className="rf-generation-panel__row"
             style={{
@@ -383,14 +388,14 @@ export function ApplicationPanel({
               >
                 A focused letter that ties your background to this role.
               </div>
-              <GenerationInstructions
+              {allowGeneration && (<GenerationInstructions
                 value={coverInstructions}
                 onChange={onCoverInstructionsChange}
                 kind="cover letter"
                 onSave={onSaveCoverInstructions}
                 dirty={coverInstructionsDirty}
                 appliedState={coverInstructionsApplied}
-              />
+              />)}
             </div>
             <Button variant="primary" onClick={onGenerateCover} disabled={generating} style={{ flex: "0 0 auto" }}>
               <Icon name="sparkle" size={16} />Generate cover letter
@@ -399,7 +404,7 @@ export function ApplicationPanel({
         )}
 
         {/* Anon: sign-in nudge */}
-        {!isAuthed && coverIdle && (
+        {allowGeneration && !isAuthed && coverIdle && (
           <div
             className="rf-generation-panel__row"
             style={{
@@ -590,23 +595,23 @@ export function ApplicationPanel({
                 <Icon name="copy" size={16} />
                 <span aria-live="polite">{copiedKey === "cover" ? "Copied!" : "Copy text"}</span>
               </Button>
-              <Button
+              {allowGeneration && (<Button
                 variant="secondary"
                 size="sm"
                 onClick={onRegenerateCover}
                 disabled={generating}
               >
                 <Icon name="refresh" size={16} />Regenerate
-              </Button>
+              </Button>)}
             </div>
-            <GenerationInstructions
+            {allowGeneration && (<GenerationInstructions
               value={coverInstructions}
               onChange={onCoverInstructionsChange}
               kind="cover letter"
               onSave={onSaveCoverInstructions}
               dirty={coverInstructionsDirty}
               appliedState={coverInstructionsApplied}
-            />
+            />)}
             <CoverLetterEditor
               job={job}
               letterText={coverEditedText ?? composeCoverLetterText(coverData)}
@@ -619,7 +624,7 @@ export function ApplicationPanel({
         )}
 
         {/* Error */}
-        {coverError_ && (
+        {allowGeneration && coverError_ && (
           <div
             className="rf-generation-panel__row"
             style={{

@@ -1,3 +1,4 @@
+import { acquireLifecycleGate } from "@/lib/jobLifecycle";
 import { serviceSql } from "@/lib/db";
 import type { Sql, TransactionSql } from "postgres";
 import { getViewerPlan } from "@/lib/subscriptions";
@@ -101,6 +102,7 @@ export async function reserveGenerations(
   // DB-overlaid allowances (T1): tunable without a redeploy via tier_settings.
   const { entitlements } = await loadTierConfig();
   return serviceSql.begin(async (tx) => {
+    await acquireLifecycleGate(tx);
     // Lock every requested kind first, then check ALL under the locks before charging any
     // — so a dual-kind reserve is all-or-nothing and never charges a partially-exhausted set.
     for (const kind of kinds) {

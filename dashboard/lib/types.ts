@@ -1,6 +1,8 @@
+import type { JobLifecycle } from "@/lib/jobLifecycleState";
 import type { TailoredResume } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
+import type { GreenhouseQuestions } from "@/lib/rolefit/greenhouseQuestions";
 import type { RedFlag } from "@/lib/redFlags";
 
 // Heavy, detail-only fields. These are NOT included in the board's list query
@@ -9,6 +11,8 @@ import type { RedFlag } from "@/lib/redFlags";
 // and merged into the selected JobRow client-side. description (full JD plaintext)
 // and url (apply link) come from the jobs table and ride along on the same fetch.
 export interface JobReviewDetail {
+  lifecycle?: JobLifecycle | null;
+  descriptionIsSaved?: boolean;
   reasoning: string | null;
   about: string | null;
   red_flags: string[] | null;
@@ -37,6 +41,7 @@ export interface JobRowBase {
   // null = not yet resolved (filters fall back to the raw location string).
   location_canonicals: string[] | null;
   remote: boolean | null;
+  lifecycle?: JobLifecycle | null;
   first_seen_at: string | Date;
   closed_at: string | Date | null;
   company_name: string;
@@ -218,6 +223,8 @@ export interface ApplicationAnswers {
  * everything else falls back to the generic package.
  */
 export interface ApplicationPackage {
+  descriptionSnapshot?: string | null;
+  questionsSnapshot?: GreenhouseQuestions | null;
   jobId: string;
   status: "prepared" | "applied";
   resume: TailoredResume | null;

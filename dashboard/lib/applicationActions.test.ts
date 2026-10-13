@@ -1,3 +1,8 @@
+vi.mock("@/lib/jobLifecycle", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/jobLifecycle")>(),
+  readPrivateSnapshot: vi.fn(async () => null),
+  requestJobPayload: vi.fn(async () => ({status:"legacy",id:null})),
+}));
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // These actions changed shape during the board-perf + apply-assist work:
@@ -28,6 +33,7 @@ vi.mock("@/lib/db", () => ({
   // withUserSql drops into a transaction; the mock invokes the callback with the
   // recording `sql` fn so the actions' tx queries are captured.
   withUserSql: (_userId: string, fn: (t: unknown) => unknown) => fn(mocks.sql),
+  withUserPayloadMutation: (_u:string,_j:string,_s:string,fn:(t:unknown)=>unknown)=>fn(mocks.sql),
 }));
 
 vi.mock("@/lib/queries", () => ({

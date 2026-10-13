@@ -52,6 +52,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
 function makeTx(userId: string) {
   const rows = DB[userId] ?? {};
   const pick = (sql: string): unknown[] => {
+    if (/FROM job_payload_demands/.test(sql)) throw new Error("permission denied for table job_payload_demands");
     if (/FROM feedback/.test(sql)) return rows.feedback ?? [];
     if (/FROM matching_activity/.test(sql)) return rows.matching_activity ?? [];
     if (/FROM profiles/.test(sql)) return rows.profiles ?? [];
@@ -150,4 +151,11 @@ test("exports feedback and activity owned by the account", async () => {
   const result = await buildAccountExport("user-a", "a@x.com", noFiles);
   expect(result).toHaveProperty("feedback", DB["user-a"].feedback);
   expect(result).toHaveProperty("matching_activity", DB["user-a"].matching_activity);
+});
+
+test("reports inaccessible lifecycle demands without claiming a complete empty export", async () => {
+  const result = await buildAccountExport("user-a", "a@x.com", noFiles);
+  expect(result).toHaveProperty("job_payload_demands", null);
+  expect(result).toHaveProperty("job_payload_demands_error", "lifecycle demand export unavailable");
+  expect(JSON.stringify(result)).not.toContain("permission denied");
 });

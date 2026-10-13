@@ -400,6 +400,12 @@ def test_rollback_failure_does_not_escape_company_handler(conn, monkeypatch):
     monkeypatch.setitem(ADAPTERS, "greenhouse",
                         lambda token: [Posting(external_id="1", title="Eng", url="u")])
 
+    maintenance_calls = []
+    original_maintenance = run_module.pre_admission_maintenance
+    def maintain(dsn):
+        maintenance_calls.append('maintenance')
+        return original_maintenance(dsn)
+    monkeypatch.setattr(run_module, 'pre_admission_maintenance', maintain)
     rollback_calls = {"n": 0}
     original_connect = run_module.db.connect
 
@@ -422,6 +428,8 @@ def test_rollback_failure_does_not_escape_company_handler(conn, monkeypatch):
     monkeypatch.setattr(run_module.db, "connect", patched_connect)
 
     run_module.run()  # must not raise
+
+    assert maintenance_calls == ["maintenance", "maintenance"]
 
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM jobs")
@@ -546,15 +554,9 @@ def test_over_ceiling_run_writes_poll_run_row(conn, monkeypatch):
 # ── A8⇄A10: chunked upserts keep peak memory bounded ─────────────────────────
 
 @requires_db
-def test_upserts_are_chunked_and_do_not_drain_the_generator(conn, monkeypatch):
-    """run() must consume a lazy adapter in fixed-size chunks and flush each chunk
-    to upsert_jobs before pulling the rest — otherwise A10's lazy workday generator
-    is defeated by buffering the whole tenant (and every detail payload) at once.
-
-    We prove it by recording, at each upsert_jobs call, how many postings the
-    generator has produced so far. With a chunk size of 2, the FIRST flush must
-    fire after exactly 2 postings (one chunk), NOT after the generator is drained.
-    """
+def test_upserts_use_bounded_chunks_after_network_spooling(conn, monkeypatch):
+    """Task3 disk spool finishes HTTP before any gated write; memory/write chunks
+    remain bounded, and a failed feed never authorizes closure or writes."""
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     monkeypatch.setattr(run_module, "UPSERT_CHUNK_SIZE", 2)
     monkeypatch.setattr(run_module, "load_targets",
@@ -580,9 +582,8 @@ def test_upserts_are_chunked_and_do_not_drain_the_generator(conn, monkeypatch):
 
     run_module.run()
 
-    # First flush: one full chunk (2), and only those 2 have been produced so far
-    # — the generator was NOT drained to 5 before the first upsert.
-    assert flushes[0] == (2, 2), f"expected bounded first flush, got {flushes}"
+    # Network completes into a bounded disk spool before the first DB chunk.
+    assert flushes[0] == (2, 5), f"expected bounded first flush, got {flushes}"
     # Chunks tile the whole feed: 2 + 2 + 1 == 5, none dropped.
     assert [n for n, _ in flushes] == [2, 2, 1]
     with conn.cursor() as cur:
@@ -631,3 +632,122 @@ def test_partial_stream_rolls_back_ingestion_and_counts(conn, monkeypatch):
     result = run_module.run()
     assert conn.execute("SELECT count(*) AS n FROM jobs").fetchone()["n"] == 0
     assert result["new_jobs"] == 0
+
+
+@requires_db
+@pytest.mark.parametrize('mode', ['normal','blocked','guard_failed','above','poll_failed','inactive','empty'])
+def test_pre_admission_control_order_on_actual_database(conn, monkeypatch, mode):
+    from job_discovery.lifecycle.types import SweepResult
+    from tests.test_prune import _company, _job
+    monkeypatch.setenv('DATABASE_URL', os.environ['TEST_DATABASE_URL'])
+    order = []
+    if mode != 'empty':
+        cid = _company(conn, 'order', active=mode != 'inactive')
+        _job(conn,cid,'existing')
+    maintenance = run_module.pre_admission_maintenance
+    def maintain(dsn):
+        order.append('maintenance')
+        result = maintenance(dsn)
+        return SweepResult(0,0,True,None) if mode == 'blocked' else result
+    monkeypatch.setattr(run_module,'pre_admission_maintenance',maintain)
+    monkeypatch.setattr(run_module,'load_targets',lambda: order.append('targets') or [])
+    def guard(c):
+        order.append('capacity')
+        if mode == 'guard_failed':
+            raise RuntimeError('measurement failed')
+        return mode == 'above',6500 if mode == 'above' else 20,6000
+    monkeypatch.setattr(run_module.db,'over_size_ceiling',guard)
+    upsert = run_module.db.upsert_jobs
+    def write(*args):
+        order.append('upsert')
+        return upsert(*args)
+    monkeypatch.setattr(run_module.db,'upsert_jobs',write)
+    def source(token):
+        order.append('verify')
+        if mode == 'poll_failed':
+            raise RuntimeError('source unavailable')
+        return [Posting(external_id='new',title='New',url='u')]
+    monkeypatch.setitem(ADAPTERS,'lever',source)
+    monkeypatch.setattr('reviewer.run.review_all',lambda c: None)
+    monkeypatch.setattr('job_discovery.locations.resolve_new_locations',lambda c: None)
+    run_module.run()
+    assert order[:3] == ['maintenance','targets','capacity']
+    if mode == 'normal':
+        assert order.index('capacity') < order.index('upsert')
+    else:
+        assert 'upsert' not in order
+    if mode not in {'inactive','empty'}:
+        assert 'verify' in order
+
+
+@requires_db
+def test_chunk_guard_preserves_committed_admissions_and_completes_verification(conn, monkeypatch):
+    from tests.test_prune import _company, _job
+    monkeypatch.setenv('DATABASE_URL', os.environ['TEST_DATABASE_URL'])
+    cid = _company(conn,'chunks')
+    old = _job(conn,cid,'missing')
+    monkeypatch.setattr(run_module,'load_targets',lambda: [])
+    calls = []
+    def guard(c):
+        calls.append('capacity')
+        return len(calls) >= 3,20,6000
+    monkeypatch.setattr(run_module.db,'over_size_ceiling',guard)
+    monkeypatch.setitem(ADAPTERS,'lever',lambda token: [Posting(external_id=str(i),title='Engineer',url='u') for i in range(1001)])
+    def forbidden(*args,**kw):
+        raise AssertionError('guarded cycle invoked model work')
+    monkeypatch.setattr('reviewer.run.review_all',forbidden)
+    monkeypatch.setattr('job_discovery.locations.resolve_new_locations',forbidden)
+    result = run_module.run()
+    assert result['new_jobs'] == 500 and result['closed_jobs'] == 1
+    assert conn.execute('SELECT count(*) AS n FROM jobs').fetchone()['n'] == 501
+    assert conn.execute('SELECT closed_at FROM jobs WHERE id=%s',(old,)).fetchone()['closed_at'] is not None
+    assert len(calls) == 3
+
+
+@requires_db
+def test_real_reconnect_lock_denial_records_abort_and_skips_optional_work(conn, monkeypatch):
+    from tests.test_prune import _company, _job
+    from tests.conftest import TEST_DSN
+    monkeypatch.setenv('DATABASE_URL',TEST_DSN)
+    cid = _company(conn,'reconnect-denied')
+    _job(conn,cid,'existing')
+    monkeypatch.setattr(run_module,'load_targets',lambda: [])
+    original_connect = run_module.db.connect
+    connections = [0]
+    contender = []
+    class BrokenPoll:
+        def __init__(self,real):
+            self.real = real
+        def rollback(self):
+            raise OSError('broken poll rollback')
+        def close(self):
+            self.real.close()
+            other = original_connect(TEST_DSN)
+            contender.append(other)
+            assert other.execute("SELECT pg_try_advisory_lock(hashtext('job_discovery_poll')) AS locked").fetchone()['locked']
+            other.commit()
+        def __getattr__(self,name):
+            return getattr(self.real,name)
+    def connect(dsn=None):
+        connections[0] += 1
+        real = original_connect(dsn)
+        return BrokenPoll(real) if connections[0] == 2 else real
+    monkeypatch.setattr(run_module.db,'connect',connect)
+    def source(token):
+        raise RuntimeError('source unavailable')
+    monkeypatch.setitem(ADAPTERS,'lever',source)
+    def forbidden(*args,**kw):
+        pytest.fail('aborted run performed optional work without poll lock')
+    monkeypatch.setattr(run_module,'_run_prune',forbidden)
+    monkeypatch.setattr('job_discovery.locations.resolve_new_locations',forbidden)
+    monkeypatch.setattr('reviewer.run.review_all',forbidden)
+    try:
+        result = run_module.run()
+    finally:
+        for other in contender:
+            other.close()
+    assert result == {'ok':0,'failed':1,'new_jobs':0,'closed_jobs':0}
+    row = conn.execute('SELECT companies_failed,finished_at,notes FROM poll_runs').fetchone()
+    assert row['companies_failed'] == 1 and row['finished_at'] is not None
+    assert 'aborted' in row['notes']
+    assert connections[0] == 4  # Initial maintenance/poll plus maintenance/reconnect.

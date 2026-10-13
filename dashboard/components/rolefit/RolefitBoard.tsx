@@ -1,5 +1,7 @@
 "use client";
+import { discoveryVisible } from "@/lib/jobLifecycleState";
 
+import { jobPayloadNotice, currentJobDetail, parseJobDetailResponse } from "@/lib/jobPayloadNotice";
 import { useState, useEffect, useMemo, useRef, useCallback, useTransition, useDeferredValue, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import type { ApplicationPackage, JobRow, JobReviewDetail, OperatorSignals } from "@/lib/types";
@@ -31,13 +33,13 @@ import { ProfileModal } from "./ProfileModal";
 import { composeResumeText, legacyCopy } from "./ResumePanel";
 import { DetailErrorBoundary } from "./DetailErrorBoundary";
 import { saveGenerationInstructions } from "@/app/actions/generationInstructions";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 
 // The lazy /api/jobs/[id] payload: the heavy review detail PLUS the opened job's Greenhouse
 // question schema (authed-only; null for anon or a non-Greenhouse job). Questions moved off
 // the eager board load onto this fetch — the client only ever reads the ONE open job's schema.
-type JobDetailResponse = JobReviewDetail & { questions: GreenhouseQuestions | null };
+type JobDetailResponse = JobReviewDetail & { questions: GreenhouseQuestions | null } & ReturnType<typeof currentJobDetail>;
 
 type DetailState =
   | { status: "loading" }
@@ -58,6 +60,11 @@ const NO_PENDING: GenerationJobView[] = [];
 
 export interface RolefitBoardProps {
   jobs: JobRow[];
+  initialHistory?: JobRow[];
+  discoveryTotal?: number;
+  historyTotal?: number;
+  discoveryPage?: number;
+  historyPage?: number;
   nowIso: string;
   isAuthed: boolean;
   initialFilters: BoardFilterState;
@@ -84,10 +91,8 @@ export interface RolefitBoardProps {
   // board loads only approves, so these seed the Rejected view for cross-session recovery
   // of a mis-clicked reject. Empty on the anon path.
   initialRejected: JobRow[];
-  // ISR anon board (/board): the page is edge-cached identically for every anonymous
-  // visitor, so the per-visitor board_filters cookie (httpOnly — unreadable from JS)
-  // cannot influence the server render. When set, the saved filters are fetched from
-  // GET /api/board-filters after mount instead.
+  // Public board can hydrate the anonymous viewer's existing saved client filters
+  // from the cookie API; discovery navigation remains query-string controlled.
   hydrateFiltersFromApi?: boolean;
 }
 
@@ -141,6 +146,8 @@ function emptyPreparedPackage(jobId: string, preparedAt: string): ApplicationPac
 
 export function RolefitBoard({
   jobs,
+  initialHistory = [],
+  discoveryTotal, historyTotal, discoveryPage = 0, historyPage = 0,
   nowIso,
   isAuthed,
   initialFilters,
@@ -162,6 +169,7 @@ export function RolefitBoard({
   const isNarrow = useIsNarrow();
   const router = useRouter();
   // Filter state — seeded from persisted filters (cookie/DB) resolved on the server.
+  const [includeOlderLive, setIncludeOlderLive] = useState(initialFilters.includeOlderLive === true);
   const [search, setSearch] = useState(initialFilters.search);
   const deferredSearch = useDeferredValue(search);
   const [cats, setCats] = useState<string[]>(initialFilters.cats);
@@ -183,7 +191,7 @@ export function RolefitBoard({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [view, setView] = useState<"all" | "applied" | "rejected">("all");
+  const [view, setView] = useState<"all" | "applied" | "rejected" | "history">("all");
   // True while the inline ReviewPanel correction editor is open with in-progress edits.
   // Lifted here (mirroring profileOpen) and fed to the keydown guard so the global j/k/
   // Arrow/Esc nav can't remount/unmount the detail pane — and silently discard the
@@ -397,6 +405,7 @@ export function RolefitBoard({
     const value = (resumeInstructions[jobId] ?? "").trim();
     try {
       await saveGenerationInstructions(jobId, { resumeInstructions: value });
+      router.refresh();
       setSavedResumeInstructions((m) => ({ ...m, [jobId]: value }));
       // Mirror the saved draft into the packages row the server just wrote/created, so
       // un-apply's hasContent check sees it exactly as the SQL bareMarkerPredicate does.
@@ -408,11 +417,12 @@ export function RolefitBoard({
       showActionError(`Couldn't save instructions: ${(e as Error).message}`);
       throw e; // let GenerationInstructions skip its "✓ Saved" confirmation
     }
-  }, [resumeInstructions, showActionError]);
+  }, [resumeInstructions, showActionError, router]);
   const handleSaveCoverInstructions = useCallback(async (jobId: string) => {
     const value = (coverInstructions[jobId] ?? "").trim();
     try {
       await saveGenerationInstructions(jobId, { coverLetterInstructions: value });
+      router.refresh();
       setSavedCoverInstructions((m) => ({ ...m, [jobId]: value }));
       setPackages((p) => {
         const prior = p[jobId] ?? emptyPreparedPackage(jobId, new Date().toISOString());
@@ -422,7 +432,7 @@ export function RolefitBoard({
       showActionError(`Couldn't save instructions: ${(e as Error).message}`);
       throw e;
     }
-  }, [coverInstructions, showActionError]);
+  }, [coverInstructions, showActionError, router]);
 
   // Longer-lived than actionError's 5s: the upsell carries a sentence or two plus a CTA
   // the user may want to click, so give it reading time before it self-dismisses.
@@ -458,8 +468,8 @@ export function RolefitBoard({
   }, []);
 
   const filterState: BoardFilterState = useMemo(
-    () => ({ search: deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, payMin: deferredPayMin, payMax: deferredPayMax, payIncludeUndisclosed, sort }),
-    [deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, deferredPayMin, deferredPayMax, payIncludeUndisclosed, sort],
+    () => ({ includeOlderLive, search: deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, payMin: deferredPayMin, payMax: deferredPayMax, payIncludeUndisclosed, sort }),
+    [includeOlderLive, deferredSearch, cats, locs, sources, industries, sizes, countries, remote, minFit, deferredPayMin, deferredPayMax, payIncludeUndisclosed, sort],
   );
 
   // Persist filter changes (debounced) so they survive navigation/visits.
@@ -497,10 +507,8 @@ export function RolefitBoard({
     return () => window.removeEventListener("pagehide", handlePageHide);
   }, [filterState]);
 
-  // ISR anon board: pull the visitor's saved filters (httpOnly cookie, server-read)
-  // after mount, since the edge-cached render couldn't. lastSavedRef is pre-seeded
-  // with the fetched state — SAME literal shape/key order as the filterState memo —
-  // so applying it doesn't echo a no-op save back through the persistence effect.
+  // Pull the anonymous visitor's saved client filters without allowing a cookie
+  // to activate older-live discovery. The server resolves that explicit URL choice.
   useEffect(() => {
     if (!hydrateFiltersFromApi) return;
     let cancelled = false;
@@ -530,10 +538,10 @@ export function RolefitBoard({
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const v = params.get("view");
-    if (v === "applied" || v === "rejected") setView(v);
+    if (v === "applied" || v === "rejected" || (v === "history" && isAuthed)) setView(v);
     const job = params.get("job");
     if (job) setSelectedId(job);
-  }, []);
+  }, [isAuthed]);
   // The completion toast's "View" action (GenerationToastProvider): claim the event
   // (preventDefault) and select the job in place — unclaimed events make the provider
   // fall back to a /?job= router push, which the mount-time seed above resolves.
@@ -576,14 +584,22 @@ export function RolefitBoard({
     return extras.length ? [...jobs, ...extras] : jobs;
   }, [jobs, liveMatches]);
 
+  const discoveryJobs = useMemo(() => boardJobs.filter(j =>
+    (j.lifecycle && (j.lifecycle.feedEnabled || j.lifecycle.sourceEnabled)
+      ? discoveryVisible(j.lifecycle,includeOlderLive,nowIso)
+      : !j.closed_at && discoveryVisible(j.lifecycle,includeOlderLive,nowIso))), [boardJobs,includeOlderLive,nowIso]);
+  // Display only the independently selected server page. Saved discovery rows
+  // belong to their own history page; mutations explicitly refresh that page.
+  const historyJobs = useMemo(() => initialHistory.map(j => ({...j,...corrections[j.id]})), [initialHistory,corrections]);
   const appliedSet = useMemo(
-    () => new Set(boardJobs.filter((j) => packages[j.id]?.status === "applied").map((j) => j.id)),
-    [boardJobs, packages],
+    () => new Set(Object.values(packages).filter(p => p.status === "applied").map(p => p.jobId)),
+    [packages],
   );
 
   // Facet counts scan every job; memoize on `boardJobs` so they aren't recomputed on every
   // keystroke/render (FilterBar used to recompute them internally each render).
-  const facets = useMemo(() => facetCounts(boardJobs), [boardJobs]);
+  const activePool = view === "history" || view === "applied" ? historyJobs : discoveryJobs;
+  const facets = useMemo(() => facetCounts(activePool), [activePool]);
 
   // The Rejected view draws from the approve list plus the server rejects (the latter
   // aren't in `boardJobs`); every other view draws from `boardJobs` alone so server rejects
@@ -595,12 +611,12 @@ export function RolefitBoard({
 
   const visible = useMemo(
     () => filterByView(
-      sortJobs(applyFilters(view === "rejected" ? rejectedPool : boardJobs, filterState), filterState.sort),
+      sortJobs(applyFilters(view === "rejected" ? rejectedPool : activePool, filterState), filterState.sort),
       view,
       rejectedIds,
       appliedSet,
     ),
-    [boardJobs, rejectedPool, filterState, rejectedIds, appliedSet, view],
+    [activePool, rejectedPool, filterState, rejectedIds, appliedSet, view],
   );
 
   // Visible ids in render order — the input to selectionAfterRemoval so reject/apply can
@@ -658,8 +674,8 @@ export function RolefitBoard({
   // `visible`, minus `applyFilters`. This is the "N of M" counter's denominator so the
   // Rejected/Applied views read against their own totals, not the all-jobs total (#13).
   const totalInView = useMemo(
-    () => filterByView(view === "rejected" ? rejectedPool : boardJobs, view, rejectedIds, appliedSet).length,
-    [boardJobs, rejectedPool, view, rejectedIds, appliedSet],
+    () => filterByView(view === "rejected" ? rejectedPool : activePool, view, rejectedIds, appliedSet).length,
+    [activePool, rejectedPool, view, rejectedIds, appliedSet],
   );
 
   // Display-only overlay of `corrections` on top of the filtered/sorted/bucketed
@@ -674,8 +690,8 @@ export function RolefitBoard({
   // server-sourced rejected job — which isn't in the approve list — still renders its
   // detail pane, and with it the un-reject action.
   const selectedJob = useMemo(
-    () => rejectedPool.find((j) => j.id === selectedId) ?? null,
-    [rejectedPool, selectedId],
+    () => rejectedPool.find((j) => j.id === selectedId) ?? historyJobs.find((j) => j.id === selectedId) ?? null,
+    [rejectedPool, historyJobs, selectedId],
   );
 
   // Heavy, detail-only review fields (reasoning/about/requirements/benefits/
@@ -695,8 +711,9 @@ export function RolefitBoard({
     setDetails((prev) => ({ ...prev, [id]: { status: "loading" } }));
     fetch(`/api/jobs/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d: JobDetailResponse) => {
-        setDetails((prev) => ({ ...prev, [id]: { status: "done", detail: d } }));
+      .then((raw: unknown) => {
+        const detail=parseJobDetailResponse(raw);
+        setDetails((prev) => ({ ...prev, [id]: { status: "done", detail } }));
       })
       .catch((e) => {
         console.error("job detail fetch failed", e);
@@ -728,8 +745,13 @@ export function RolefitBoard({
     // the reviewer's judgment.
     const d = ds?.status === "done" ? ds.detail : { industry: null };
     const c = corrections[selectedJob.id];
-    return { ...selectedJob, ...(d ?? {}), ...(c ?? {}) };
+    return { ...selectedJob, ...(d ?? {}),
+      ...(ds?.status === "done" && !ds.detail.descriptionIsSaved && ds.detail.currentDescription
+        ? {description:ds.detail.currentDescription} : {}), ...(c ?? {}) };
   }, [selectedJob, details, corrections]);
+
+  const selectedDetailState = selectedJob ? details[selectedJob.id] : undefined;
+  const selectedDetail = selectedDetailState?.status === "done" ? selectedDetailState.detail : null;
 
   // The open job's Greenhouse question schema, sourced from the lazy detail fetch (was an
   // eager board-load prop). Null until detail resolves, so the questions panel appears once
@@ -737,8 +759,12 @@ export function RolefitBoard({
   const selectedQuestions = useMemo<GreenhouseQuestions | null>(() => {
     if (!selectedJob) return null;
     const ds = details[selectedJob.id];
-    return ds?.status === "done" ? ds.detail.questions : null;
-  }, [selectedJob, details]);
+    const pkg = packages[selectedJob.id];
+    // Answers always stay beside the schema captured for that package. Unknown
+    // legacy schema stays unknown; current questions have a separate display.
+    if (pkg?.prefilledAnswers != null) return pkg.questionsSnapshot ?? null;
+    return ds?.status === "done" ? ds.detail.currentQuestions ?? ds.detail.questions : null;
+  }, [selectedJob, details, packages]);
 
   // Handlers
   const toggleCat = (cat: string) =>
@@ -898,14 +924,14 @@ export function RolefitBoard({
         return next;
       });
       startApply(() => {
-        void unmarkApplied(jobId).catch(() => {
+        void unmarkApplied(jobId).then(() => router.refresh()).catch(() => {
           showActionError("Couldn’t undo. Please try again.");
         });
       });
     }
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(null);
-  }, [toast, unrejectJob, unmarkApplied, showActionError]);
+  }, [toast, unrejectJob, unmarkApplied, showActionError, router]);
 
   // Un-reject from the card/detail (the Rejected view) after the Undo toast has expired.
   // Optimistically un-hides the job, then persists via unrejectJob; rolls back on failure.
@@ -936,7 +962,8 @@ export function RolefitBoard({
       ...prev,
       [jobId]: { ...row, note: form.note, corrected: true },
     }));
-  }, []);
+    router.refresh();
+  }, [router]);
 
   // Retry a failed detail fetch: clear the cache entry + in-flight guard, then refetch
   // directly (the effect no longer depends on `details`, so clearing it won't re-run it).
@@ -1031,6 +1058,12 @@ export function RolefitBoard({
       if (res.status === 202) {
         // Accepted: hand tracking to the provider (immediate pending + prompt poll).
         const body: unknown = await res.json().catch(() => null);
+        const notice=jobPayloadNotice(body);
+        if(notice) {
+          setGen(g=>({...g,[job.id]:hadResume ? "done" : "idle"}));
+          showActionError(notice);
+          return;
+        }
         const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
         if (generation && tracker) tracker.notifyStarted(generation);
         else tracker?.refresh();
@@ -1053,7 +1086,7 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, genData, resumeInstructions, showUpsell, tracker]);
+  }, [beginRequest, endRequest, genData, resumeInstructions, showActionError, showUpsell, tracker]);
 
   // Cover-letter generation — mirrors handleGenerate against /api/cover-letter (D7).
   const handleGenerateCover = useCallback(async (job: JobRow) => {
@@ -1068,6 +1101,12 @@ export function RolefitBoard({
       });
       if (res.status === 202) {
         const body: unknown = await res.json().catch(() => null);
+        const notice=jobPayloadNotice(body);
+        if(notice) {
+          setCoverGen(g=>({...g,[job.id]:hadCover ? "done" : "idle"}));
+          showActionError(notice);
+          return;
+        }
         const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
         if (generation && tracker) tracker.notifyStarted(generation);
         else tracker?.refresh();
@@ -1088,7 +1127,7 @@ export function RolefitBoard({
     } finally {
       endRequest(job.id);
     }
-  }, [beginRequest, endRequest, coverData, coverInstructions, showUpsell, tracker]);
+  }, [beginRequest, endRequest, coverData, coverInstructions, showActionError, showUpsell, tracker]);
 
   // "Prefill application" — build + PERSIST the package server-side. Async accept
   // contract like handleGenerate: the route reserves BOTH kinds synchronously, 202s
@@ -1114,6 +1153,13 @@ export function RolefitBoard({
       });
       if (res.status === 202) {
         const body: unknown = await res.json().catch(() => null);
+        const notice=jobPayloadNotice(body);
+        if(notice) {
+          setGen(g=>({...g,[job.id]:hadResume ? "done" : "idle"}));
+          setCoverGen(g=>({...g,[job.id]:hadCover ? "done" : "idle"}));
+          showActionError(notice);
+          return;
+        }
         const generation = parseGenerationJob((body as { generation?: unknown } | null)?.generation);
         if (generation && tracker) tracker.notifyStarted(generation);
         else tracker?.refresh();
@@ -1151,6 +1197,7 @@ export function RolefitBoard({
   // "done" with the old artifact, matching the old hadResume/hadCover salvage.
   const applySettledReady = useCallback((g: GenerationJobView, pkg: ApplicationPackage) => {
     setPackages((p) => ({ ...p, [g.jobId]: pkg }));
+    router.refresh();
     // A fresh artifact cleared the draft server-side (upsert lockstep): re-baseline the
     // saved value to the new generated-with so Save reads "not dirty" and the box reads
     // "applied". "" stays "".
@@ -1203,7 +1250,7 @@ export function RolefitBoard({
         },
       }));
     }
-  }, [genData, coverData]);
+  }, [genData, coverData, router]);
 
   // 'failed' (nothing persisted): mirror the old blocking-model catch per kind,
   // with the row's user-safe message standing in for the thrown error.
@@ -1264,7 +1311,7 @@ export function RolefitBoard({
     setPackages((p) => ({ ...p, [job.id]: optimistic }));
     setSelectedId((prev) => (prev === job.id ? selectionAfterRemoval(visibleIds, job.id) : prev));
     startApply(() => {
-      void markApplied(job.id).catch(() => {
+      void markApplied(job.id).then(() => router.refresh()).catch(() => {
         setPackages((p) => {
           const next = { ...p };
           if (prior) next[job.id] = prior;
@@ -1281,7 +1328,7 @@ export function RolefitBoard({
     setToast({ kind: "apply", jobId: job.id, prior });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 5000);
-  }, [packages, markApplied, showActionError, visibleIds]);
+  }, [packages, markApplied, showActionError, visibleIds, router]);
 
   // Un-mark applied from the Applied view (no toast — immediate). Deletes a bare
   // marker; reverts a real prepared package to status='prepared'. Rolls back on error.
@@ -1303,12 +1350,12 @@ export function RolefitBoard({
       return next;
     });
     startApply(() => {
-      void unmarkApplied(job.id).catch(() => {
+      void unmarkApplied(job.id).then(() => router.refresh()).catch(() => {
         if (prior) setPackages((p) => ({ ...p, [job.id]: prior }));
         showActionError("Couldn’t undo. Please try again.");
       });
     });
-  }, [packages, unmarkApplied, showActionError]);
+  }, [packages, unmarkApplied, showActionError, router]);
 
   // Copy résumé text to clipboard
   const handleCopy = useCallback((job: JobRow, data: TailoredResume) => {
@@ -1361,6 +1408,23 @@ export function RolefitBoard({
         // already modal-only.)
         onOpenProfile={() => setProfileOpen(true)}
       />
+      <div className="rf-lifecycle-controls">
+        <label className="rf-lifecycle-older" data-ui-contract-composite="Native labelled checkbox controls explicit older-live navigation"><input type="checkbox" checked={includeOlderLive} onChange={event => {
+          const enabled=event.target.checked; setIncludeOlderLive(enabled);
+          const url=new URL(window.location.href);
+          if (enabled) url.searchParams.set("older","1"); else url.searchParams.delete("older");
+          url.searchParams.delete("page"); router.push(url.pathname+url.search);
+        }} /> Include older live jobs</label>
+        {isAuthed && <Button variant="ghost" aria-pressed={view === "history"} onClick={() => setView(view === "history" ? "all" : "history")}>History</Button>}
+        {(() => {
+          const historical=view === "history" || view === "applied";
+          const total=historical ? historyTotal : discoveryTotal;
+          const page=historical ? historyPage : discoveryPage;
+          const param=historical ? "historyPage" : "page";
+          const href=(next:number) => { const params=new URLSearchParams(); if(includeOlderLive) params.set("older","1"); if(historical) params.set("view",view); params.set(param,String(next)); return `?${params}`; };
+          return total !== undefined ? <span>{total} {historical ? "saved jobs" : "discovery jobs"} · Page {page+1} {page>0 && <ButtonLink variant="text-link" href={href(page-1)}>Previous page</ButtonLink>} {(page+1)*500<total && <ButtonLink variant="text-link" href={href(page+1)}>Next page</ButtonLink>}</span> : null;
+        })()}
+      </div>
       <FilterBar
         totalInView={totalInView}
         facets={facets}
@@ -1378,8 +1442,8 @@ export function RolefitBoard({
         sort={sort}
         openMenu={openMenu}
         visibleCount={visible.length}
-        view={view}
-        appliedCount={appliedSet.size}
+        view={view === "history" ? "all" : view}
+        appliedCount={historyJobs.filter(j => appliedSet.has(j.id)).length}
         rejectedCount={rejectedIds.size}
         onToggleView={setView}
         onToggleMenu={toggleMenu}
@@ -1418,6 +1482,7 @@ export function RolefitBoard({
             className="rf-board-list-pane rf-scroll"
           >
             <JobList
+              nowIso={nowIso}
               jobs={visibleWithCorrections}
               selectedId={selectedId}
               onSelect={handleSelect}
@@ -1493,6 +1558,9 @@ export function RolefitBoard({
                     generating={requestingId === selectedJobWithDetail.id || jobBusy(selectedJobWithDetail.id)}
                     prepareStatus={prepareStatus[selectedJobWithDetail.id] ?? null}
                     greenhouseQuestions={selectedQuestions}
+                    currentDescription={selectedDetail?.currentDescription ?? null}
+                    currentQuestions={selectedDetail?.currentQuestions ?? null}
+                    descriptionIsSaved={selectedDetail?.descriptionIsSaved ?? false}
                     pkg={packages[selectedJobWithDetail.id]}
                     resumeStale={resumeStaleFor(selectedJobWithDetail.id)}
                     onMarkApplied={handleMarkApplied}

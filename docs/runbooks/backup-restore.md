@@ -54,15 +54,25 @@ Checked 2026-07-04 via the Supabase management API:
 
 ### 2b. Post-restore checklist (run every time)
 
-1. **Schema-migration audit.** Compare `schema_migrations` against `migrations/`:
+1. **Schema-migration audit.** Compare both ledgers against `migrations/`, then verify
+   the restored schema effects:
    ```sql
    SELECT filename FROM schema_migrations ORDER BY filename;
+   SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version;
    ```
    ```bash
    ls migrations/
    ```
-   If the restore predates a migration, re-apply the missing files **in filename order**
-   (they are all idempotent + recorded in `schema_migrations` on apply). `schema.sql`
+   A missing filename alone is not proof that the SQL was never applied. In particular,
+   `2026-08-23-classification-all-mode.sql` has no filename-ledger insert: production
+   records its Supabase history entry and matching constraint while the filename is
+   absent at the October 10 checkpoint. The [ledger checkpoints](migration-ledger-state.md)
+   retain that historical gap and record the filename's presence on October 13;
+   the release executor did not repair it.
+   Only after establishing that the restore lacks the migration's effects should an
+   authorized operator plan reapplication **in filename order**, reviewing each file's
+   current compatibility and replay safety. Ledger reconciliation is a separate reviewed
+   change; neither ledger should be silently repaired during the audit. `schema.sql`
    mirrors the full current schema and can rebuild a scratch DB from zero if needed.
 2. **Re-sync subscriptions from Stripe (source of truth).** The `subscriptions` table is
    only a *mirror*; a restore can leave it stale. Reconcile by either:

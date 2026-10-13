@@ -96,7 +96,7 @@ def test_fetch_pages_by_offset_and_fetches_details(monkeypatch):
         return FIXTURE["list_pages"][page_index]
 
     monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
-    postings = fetch_smartrecruiters("BoschGroup")
+    postings = list(fetch_smartrecruiters("BoschGroup"))
 
     assert [p.external_id for p in postings] == [BOSCH, NIELSEN, ARCHITECT]
     assert requested[0] == (
@@ -120,7 +120,7 @@ def test_fetch_stops_on_short_last_page_with_positive_total(monkeypatch):
         return FIXTURE["list_pages"][0 if offset == 0 else 1]
 
     monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
-    postings = fetch_smartrecruiters("BoschGroup")
+    postings = list(fetch_smartrecruiters("BoschGroup"))
     assert [p.external_id for p in postings] == [BOSCH, NIELSEN, ARCHITECT]
     assert offsets == [0, 2]  # stopped after the short page; no wrap/extra fetch
 
@@ -147,7 +147,7 @@ def test_fetch_keeps_minimal_posting_when_detail_fails(monkeypatch):
         return page
 
     monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
-    postings = fetch_smartrecruiters("BoschGroup")
+    postings = list(fetch_smartrecruiters("BoschGroup"))
     assert [p.external_id for p in postings] == ["744000135080134", "BAD"]
     bad = postings[1]
     assert bad.title == "Broken Posting"  # carried over from the listing item
@@ -167,7 +167,7 @@ def test_fetch_keeps_minimal_posting_when_detail_malformed(monkeypatch):
         return page
 
     monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
-    postings = fetch_smartrecruiters("BoschGroup")
+    postings = list(fetch_smartrecruiters("BoschGroup"))
     assert [p.external_id for p in postings] == ["744000135080134"]
     assert postings[0].url == (
         "https://jobs.smartrecruiters.com/BoschGroup/744000135080134"
@@ -194,7 +194,7 @@ def test_fetch_pages_until_short_page_when_total_missing(monkeypatch):
         return pages[offset]
 
     monkeypatch.setattr(smartrecruiters, "get_json", fake_get_json)
-    postings = fetch_smartrecruiters("acme")
+    postings = list(fetch_smartrecruiters("acme"))
     assert [p.external_id for p in postings] == ["1", "2", "3", "4", "5"]
 
 
@@ -203,13 +203,13 @@ def test_fetch_pages_until_short_page_when_total_missing(monkeypatch):
 def test_missing_content_key_raises(monkeypatch):
     monkeypatch.setattr(smartrecruiters, "get_json", lambda url: {"error": "gone"})
     with pytest.raises(ValueError, match="missing 'content'"):
-        fetch_smartrecruiters("BoschGroup")
+        list(fetch_smartrecruiters("BoschGroup"))
 
 
 def test_short_page_below_reported_total_is_not_authoritative(monkeypatch):
     monkeypatch.setattr(smartrecruiters, "get_json", lambda *a: {"totalFound": 50, "content": []})
     with pytest.raises(ValueError, match="incomplete"):
-        fetch_smartrecruiters("acme")
+        list(fetch_smartrecruiters("acme"))
 
 
 def test_smartrecruiters_listing_only_never_fetches_details(monkeypatch):

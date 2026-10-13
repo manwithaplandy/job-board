@@ -1,6 +1,6 @@
 import logging
 
-from job_discovery.http import get_json
+from job_discovery.adapters.completeness import SourceResult, SourceStatus, get_json
 from job_discovery.models import Posting
 from job_discovery.normalize import detect_remote
 
@@ -85,27 +85,41 @@ def _minimal_posting(token: str, item: dict) -> Posting | None:
     )
 
 
-def fetch_smartrecruiters(token: str, *, fetch_details: bool = True) -> list[Posting]:
+def fetch_smartrecruiters(token: str, *, fetch_details: bool = True) -> SourceResult:
+    status = SourceStatus(fetch_details=fetch_details)
+    return SourceResult(_fetch_smartrecruiters(token, status),status)
+
+
+def _fetch_smartrecruiters(token, status):
+    fetch_details = status.fetch_details
     base = f"https://api.smartrecruiters.com/v1/companies/{token}/postings"
-    postings: list[Posting] = []
     offset = 0
     seen = set()
     expected_total = 0
+    previous_total = None
     while True:
         page = get_json(f"{base}?limit={_PAGE_LIMIT}&offset={offset}")
         if not isinstance(page, dict) or not isinstance(page.get("content"), list):
             raise ValueError("smartrecruiters response missing 'content' key")
         content = page.get("content") or []
+        if any(not isinstance(item,dict) for item in content):
+            status.complete = False
         total = page.get("totalFound")
+        if previous_total is not None and isinstance(total,int) and total != previous_total:
+            status.complete = False
+        if isinstance(total,int):
+            previous_total = total
         if isinstance(total, int) and total > 0:
             expected_total = max(expected_total, total)
         for item in content:
+            if not isinstance(item, dict):
+                continue
             pid = item.get("id")
             if not pid or pid in seen:
                 raise ValueError("smartrecruiters incomplete listing: missing or repeated id")
             seen.add(pid)
             if not fetch_details:
-                postings.append(_minimal_posting(token, item))
+                yield _minimal_posting(token, item)
                 continue
             try:
                 # Both the fetch and the parse live inside the try: a malformed
@@ -119,7 +133,7 @@ def fetch_smartrecruiters(token: str, *, fetch_details: bool = True) -> list[Pos
                 )
                 posting = _minimal_posting(token, item)
             if posting is not None:
-                postings.append(posting)
+                yield posting
         # Page while a FULL page comes back and stop on a short/empty one. The
         # `totalFound` count is only an *additional* stop signal when it is a
         # positive number — a missing/null/zero total must NOT end paging, which
@@ -132,4 +146,3 @@ def fetch_smartrecruiters(token: str, *, fetch_details: bool = True) -> list[Pos
             if len(seen) < expected_total:
                 raise ValueError("smartrecruiters incomplete listing below reported total")
             break
-    return postings

@@ -117,7 +117,7 @@ def test_client_is_reused(monkeypatch):
 
 def test_redirects_followed(monkeypatch):
     """The shared client must follow redirects (follow_redirects=True is configured)."""
-    assert http_mod._client.follow_redirects is True
+    assert http_mod._client.follow_redirects is False  # bounded transport owns each hop
     # Functional test: a 301 followed by a 200 resolves to the final payload.
     calls = {"n": 0}
 
@@ -130,7 +130,7 @@ def test_redirects_followed(monkeypatch):
     monkeypatch.setattr(http_mod._client, "request", fake_request)
     assert get_json("https://x") == {"redirected": True}
     # The client's follow_redirects flag is set (not just the test being trivial).
-    assert http_mod._client.follow_redirects is True
+    assert http_mod._client.follow_redirects is False  # bounded transport owns each hop
 
 
 def test_get_text_returns_body(monkeypatch):

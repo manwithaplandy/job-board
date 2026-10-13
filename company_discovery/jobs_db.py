@@ -1,3 +1,4 @@
+
 # company_discovery/jobs_db.py
 """classification_jobs queue + target selection + classification persistence.
 
@@ -12,6 +13,7 @@ impact first: companies with the most open jobs, then newest first_seen_at.
 """
 
 from psycopg.types.json import Json
+from job_discovery.archive.writers import public_write
 
 # Predicate (on alias `c`, the companies table) selecting classification targets per mode.
 _TARGET_MODES = {
@@ -164,7 +166,7 @@ def select_targets(conn, mode: str, limit: int, *, before=None) -> list[dict]:
 def apply_classification(conn, company_id: int, res, *, model: str, source: str) -> None:
     """Stamp the global classification facts onto a company row. `res` is a
     CompanyClassificationResult (Task 3). classified_at is set to now()."""
-    with conn.cursor() as cur:
+    with public_write(conn, 'companies'), conn.cursor() as cur:
         cur.execute(
             """
             UPDATE companies SET

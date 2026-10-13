@@ -11,19 +11,26 @@ outage). Safe to rerun; commits per batch, so an interrupt loses nothing.
 ROLLOUT ARTIFACT — run once at rollout, BEFORE deploying the dashboard/reviewer
 predicate cutover and BEFORE prefs_backfill (which needs the mapping rows).
 """
+
 import logging
 
 from job_discovery import db
 from job_discovery.locations import resolve_new_locations
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+def main() -> dict:
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
     conn = db.connect()
     try:
         counts = resolve_new_locations(conn)
-        logging.getLogger("location_backfill").info("backfill complete: %s", counts)
+        logging.getLogger("location_backfill").info(
+            "backfill %s: %s",
+            "complete" if counts["complete"] else "incomplete",
+            counts,
+        )
+        return counts
     finally:
         conn.close()
 

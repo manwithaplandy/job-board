@@ -116,7 +116,9 @@ def start(conn, source_id, claim):
         (source_id,),
     ).fetchone()
     conn.execute(
-        "UPDATE source_accounts SET last_attempt_at=clock_timestamp(),last_outcome='attempting' WHERE id=%s",
+        """UPDATE source_accounts SET last_attempt_at=clock_timestamp(),last_outcome='attempting',
+        next_due_at=(date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC')+interval '24 hours') AT TIME ZONE 'UTC'
+        WHERE id=%s""",
         (source_id,),
     )
     return row["sequence"], False
@@ -316,7 +318,7 @@ def _reconcile(conn, source_id, sequence, claim, *, limit=100) -> tuple[bool, in
     return done, closed
 
 
-def run_due(conn, *, max_boards, deadline, source_id=None):
+def run_due(conn, *, max_boards, deadline, source_id=None, fallback_claim=None):
     """Stream complete existing-ID membership; every commit is independently fenced."""
     from job_discovery.adapters import ADAPTERS
     from job_discovery.adapters.completeness import source_budget, SourceBudgetExceeded
@@ -324,10 +326,13 @@ def run_due(conn, *, max_boards, deadline, source_id=None):
     sources = conn.execute(
         """SELECT s.* FROM source_accounts s JOIN lifecycle_operational_sources p ON p.source_id=s.id
       WHERE s.exclusion_state IN ('enabled','failure_disabled') AND (s.next_due_at IS NULL OR s.next_due_at<=clock_timestamp()
-       OR p.status='complete' AND NOT p.reconciled OR s.id=%s)
+       OR p.status='complete' AND NOT p.reconciled OR s.id=%s AND EXISTS(SELECT FROM lifecycle_claims c WHERE c.kind='source'
+          AND c.work_id=s.id::text AND c.owner_token=%s AND c.generation=%s AND c.state='cancelled'))
       ORDER BY GREATEST(s.last_attempt_at,p.last_turn_at) NULLS FIRST,s.id LIMIT %s""",
         (
             source_id,
+            fallback_claim.owner_token if fallback_claim else None,
+            fallback_claim.generation+1 if fallback_claim else None,
             max_boards,
         ),
     ).fetchall()
@@ -344,6 +349,21 @@ def run_due(conn, *, max_boards, deadline, source_id=None):
         try:
             # This lane can only reuse a claim row provisioned by ordinary admission.
             enter_gate(conn)
+            # The candidate list predates this gate. Another worker may have
+            # completed the source in between; never repeat that daily scan.
+            # Only the caller's same-attempt storage fallback may bypass due time.
+            if not conn.execute(
+                """SELECT 1 FROM source_accounts s JOIN lifecycle_operational_sources p ON p.source_id=s.id
+                WHERE s.id=%s AND s.exclusion_state IN ('enabled','failure_disabled')
+                AND (s.next_due_at IS NULL OR s.next_due_at<=clock_timestamp()
+                  OR p.status='complete' AND NOT p.reconciled
+                  OR s.id=%s AND EXISTS(SELECT FROM lifecycle_claims c WHERE c.kind='source'
+          AND c.work_id=s.id::text AND c.owner_token=%s AND c.generation=%s AND c.state='cancelled'))""",
+                (source['id'], source_id, fallback_claim.owner_token if fallback_claim else None,
+                 fallback_claim.generation+1 if fallback_claim else None),
+            ).fetchone():
+                conn.rollback()
+                continue
             if not conn.execute(
                 "SELECT 1 FROM lifecycle_claims WHERE kind='source' AND work_id=%s",
                 (str(source["id"]),),

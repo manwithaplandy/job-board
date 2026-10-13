@@ -264,6 +264,7 @@ def test_six_family_identity_demand_retirement_and_exact_archive_composition(
 
 @requires_db
 def test_source_worker_flag_off_and_maintenance_before_verification(conn, monkeypatch):
+    monkeypatch.setattr(source_worker, 'monotonic', lambda: 100.0)
     called = []
     monkeypatch.setattr(
         source_worker,

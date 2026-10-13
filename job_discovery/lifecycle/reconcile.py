@@ -72,8 +72,10 @@ def claim_due_source(conn) -> tuple[dict, ClaimRef] | None:
     with _write(conn, claim, 'source_accounts'):
         conn.execute("""UPDATE source_accounts SET last_attempt_at=CASE WHEN %s THEN last_attempt_at ELSE clock_timestamp() END,
             last_outcome=CASE WHEN %s THEN last_outcome ELSE 'attempting' END,
+            next_due_at=CASE WHEN %s THEN next_due_at ELSE
+              (date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC')+interval '24 hours') AT TIME ZONE 'UTC' END,
             claim_owner_token=%s,claim_generation=%s,lease_until=%s WHERE id=%s""",
-            (pending,pending,claim.owner_token,claim.generation,claim.lease_until,source['id']))
+            (pending,pending,pending,claim.owner_token,claim.generation,claim.lease_until,source['id']))
     return source, claim
 
 
@@ -330,7 +332,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300, admission_allowed=T
             conn.rollback()
             cancel_claim(conn,claim)
             conn.commit()
-            result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])["closed_jobs"]
+            result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"],fallback_claim=claim)["closed_jobs"]
             break
         chunk = []
         verdict = SourceStatus(complete=resuming)
@@ -367,7 +369,7 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300, admission_allowed=T
                 log.warning("source evidence storage blocked; reconciliation deferred")
                 cancel_claim(conn,claim)
                 conn.commit()
-                result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])["closed_jobs"]
+                result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"],fallback_claim=claim)["closed_jobs"]
                 break
             except SourceBudgetExceeded:
                 verdict = SourceStatus(complete=False)
@@ -409,14 +411,14 @@ def verify_due_sources(conn, *, max_boards=100, seconds=300, admission_allowed=T
             cancel_claim(conn,claim)
             conn.commit()
         if storage_deferred:
-            result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"])["closed_jobs"]
+            result["closed_jobs"] += verify_storage_blocked(conn,max_boards=max_boards,deadline=deadline,source_id=source["id"],fallback_claim=claim)["closed_jobs"]
             break
     return result
 
 
-def verify_storage_blocked(conn, *, max_boards, deadline, source_id=None):
+def verify_storage_blocked(conn, *, max_boards, deadline, source_id=None, fallback_claim=None):
     """Persist bounded existing-source evidence through the preallocated lane."""
     from .operational import run_due
-    progress = run_due(conn,max_boards=max_boards,deadline=deadline,source_id=source_id)
+    progress = run_due(conn,max_boards=max_boards,deadline=deadline,source_id=source_id,fallback_claim=fallback_claim)
     log.warning('source operational verification: %s; missing slots/readiness remain storage-deferred',progress)
     return progress

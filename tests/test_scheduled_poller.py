@@ -9,6 +9,107 @@ from tests.conftest import requires_db
 
 
 @requires_db
+@pytest.mark.parametrize("lane", ["normal", "operational"])
+def test_interrupted_attempt_keeps_daily_retry_slot(conn, lane):
+    from job_discovery.lifecycle import reconcile, operational
+    from job_discovery.lifecycle.claims import cancel_claim
+    from tests.test_lifecycle_reconcile import setup_source
+
+    source = setup_source(conn, count=0)
+    source, claim = reconcile.claim_due_source(conn)
+    if lane == "operational":
+        conn.execute("UPDATE source_accounts SET next_due_at=NULL")
+        operational.start(conn, source["id"], claim)
+    conn.commit()
+    # An abrupt exit leaves committed attempt bookkeeping without completion.
+    # Releasing the lease here models its eventual expiry, without waiting.
+    cancel_claim(conn, claim)
+    conn.commit()
+    row = conn.execute(
+        "SELECT next_due_at, (date_trunc('day',last_attempt_at AT TIME ZONE 'UTC') "
+        "+ interval '24 hours') AT TIME ZONE 'UTC' expected FROM source_accounts WHERE id=%s",
+        (source["id"],),
+    ).fetchone()
+    assert row["next_due_at"] == row["expected"]
+    assert reconcile.claim_due_source(conn) is None
+
+
+@requires_db
+def test_source_worker_includes_maintenance_in_turn_budget(conn, monkeypatch):
+    from job_discovery.lifecycle import source_worker
+    from tests.test_lifecycle_reconcile import setup_source
+
+    setup_source(conn, count=0)
+    conn.commit()
+    clock = [100.0]
+    monkeypatch.setattr(source_worker, "monotonic", lambda: clock[0])
+    original = source_worker.pre_admission_maintenance
+
+    def maintenance(dsn):
+        result = original(dsn)
+        clock[0] += 90
+        return result
+
+    monkeypatch.setattr(source_worker, "pre_admission_maintenance", maintenance)
+    seen = []
+    monkeypatch.setattr(
+        source_worker, "verify_due_sources", lambda connection, **kw: seen.append(kw)
+    )
+    source_worker.run_source_once(os.environ["TEST_DATABASE_URL"])
+    assert seen[0]["seconds"] == 210
+
+
+@requires_db
+@pytest.mark.parametrize("explicit_fallback", [False, True])
+@pytest.mark.parametrize("changes_attempt", [False, True])
+def test_operational_candidates_recheck_after_other_worker_finishes(
+    conn, monkeypatch, explicit_fallback, changes_attempt
+):
+    from time import monotonic
+    from job_discovery.lifecycle import reconcile, operational
+    from job_discovery.lifecycle.claims import cancel_claim, claim_work
+    from job_discovery.adapters import ADAPTERS
+    from tests.test_lifecycle_reconcile import setup_source
+
+    source = setup_source(conn, count=0)
+    source, claim = reconcile.claim_due_source(conn)
+    with reconcile._write(conn, claim, "source_accounts"):
+        conn.execute("UPDATE source_accounts SET next_due_at=NULL")
+    conn.commit()
+    cancel_claim(conn, claim)
+    conn.commit()
+    original = operational.enter_gate
+
+    def concurrent_completion(connection):
+        original(connection)
+        other = claim_work(connection, "source", str(source["id"]), 180)
+        with reconcile._write(connection, other, "source_accounts"):
+            connection.execute(
+                "UPDATE source_accounts SET last_attempt_at=CASE WHEN %s THEN clock_timestamp() ELSE last_attempt_at END,next_due_at=clock_timestamp()+interval '1 day'",
+                (changes_attempt,),
+            )
+        connection.commit()
+        cancel_claim(connection, other)
+        connection.commit()
+        original(connection)
+
+    monkeypatch.setattr(operational, "enter_gate", concurrent_completion)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("stale operational candidate must not fetch again")
+
+    monkeypatch.setitem(ADAPTERS, "lever", forbidden)
+    result = operational.run_due(
+        conn,
+        max_boards=1,
+        deadline=monotonic() + 10,
+        source_id=source["id"] if explicit_fallback else None,
+        fallback_claim=claim if explicit_fallback else None,
+    )
+    assert result["complete"] == 0
+
+
+@requires_db
 def test_scheduled_poller_pauses_before_any_legacy_work(conn, monkeypatch):
     from job_discovery import run as runner
 

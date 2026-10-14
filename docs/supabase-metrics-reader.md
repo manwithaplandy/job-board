@@ -133,3 +133,29 @@ for this task remains the blocker; a saved Vault entry alone does not prove that
 an already-running task received it. Any necessary environment reconfiguration
 requires separate approval. This is historical evidence, not a substitute for
 checking the next session's runtime metadata.
+
+## Republished environment verification (2026-10-14)
+
+The earlier missing-secret blocker above was resolved for a **new** job-board
+cloud task. The owner created the project-scoped PAT, saved it themselves as the
+Personal Vault **network secret** `SUPABASE_METRICS_PAT`, and republished the
+job-board cloud environment to request that key and allow `api.supabase.com`.
+The owner then authorized a read-only test. In the new task, presence-only checks
+confirmed the key, runtime HTTPS proxy and certificate configuration. The exact
+reader head `ca5e227a87d3c48a107e27297c76a61449cb9be3` was fetched into an isolated
+worktree without merging. `python -m supabase_metrics` successfully read both
+approved endpoints using the existing injected environment interface and managed
+proxy, with TLS verification enabled. No credential value was displayed or
+persisted, no manual secret export was used, and no network policy was changed.
+This verifies this task's connection; it does not establish token expiry or prove
+that the token has no additional permissions. Future tasks must check their own
+presence/status and authorization rather than assuming a saved Vault entry is
+available. Agents must not create/rotate credentials or republish environments
+under read-only authorization.
+
+The CLI returned `incomplete`, `source_contract_unverified`, exit 1, with
+`operationally_eligible=false`. Subsequent explicitly authorized diagnostics used
+only the same two fixed GET paths, the existing bounded fetch helper, proxy and
+TLS settings. Only allowlisted numeric observations and label-match booleans were
+retained; raw responses and unrestricted labels were not persisted or printed.
+See [source verification evidence and minimum next step](supabase-metrics-source-evidence.md).

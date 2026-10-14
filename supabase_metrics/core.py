@@ -28,6 +28,12 @@ class MetricsResult(TypedDict):
     fetch_started_at: str
     fetch_finished_at: str
     source_paths: list[str]
+    disk_fetched_at: str | None
+    wal_fetched_at: str | None
+    disk_reported_age_seconds: float | None
+    wal_reported_age_seconds: float | None
+    disk_measurement_age_status: Literal['unknown', 'verified']
+    wal_measurement_age_status: Literal['unknown', 'verified']
     disk_observed_at: str | None
     wal_observed_at: str | None
     observed_at: str | None
@@ -63,10 +69,14 @@ def _utc():
 
 
 def _empty(start: datetime) -> MetricsResult:
-    return dict(schema_version=1, reader_version='1.0.0', project_ref=PROJECT,
+    start = start.astimezone(timezone.utc)
+    return dict(schema_version=1, reader_version='1.1.0', project_ref=PROJECT,
                 status='incomplete', operationally_eligible=False,
                 fetch_started_at=start.isoformat(), fetch_finished_at=start.isoformat(),
-                source_paths=list(PATHS), disk_observed_at=None, wal_observed_at=None,
+                source_paths=list(PATHS), disk_fetched_at=None, wal_fetched_at=None,
+                disk_reported_age_seconds=None, wal_reported_age_seconds=None,
+                disk_measurement_age_status='unknown', wal_measurement_age_status='unknown',
+                disk_observed_at=None, wal_observed_at=None,
                 observed_at=None, instance=None, volume=None, capacity_bytes=None,
                 available_bytes=None, used_bytes=None, resident_wal_bytes=None, errors=[])
 
@@ -195,6 +205,7 @@ async def _read_inner(client, clock=_utc, *, contract=None, monotonic=time.monot
     deadline = monotonic()+20
     try:
         disk_body = await _fetch(client, PATHS[0], 65536, deadline, monotonic, sleep, clock)
+        result['disk_fetched_at'] = clock().astimezone(timezone.utc).isoformat()
         try:
             disk = json.loads(disk_body)
             if not isinstance(disk, dict):
@@ -206,11 +217,14 @@ async def _read_inner(client, clock=_utc, *, contract=None, monotonic=time.monot
         if capacity <= 0 or available > capacity or used > capacity:
             raise _Failure('disk_invalid')
         result.update(capacity_bytes=capacity, available_bytes=available, used_bytes=used, disk_observed_at=disk_time.isoformat())
+        if contract is not None:
+            result['disk_measurement_age_status'] = 'verified'
         body = await _fetch(client, PATHS[1], 8*1024*1024, deadline, monotonic, sleep, clock)
+        result['wal_fetched_at'] = clock().astimezone(timezone.utc).isoformat()
         wal, wal_time = _wal(body, contract)
         if wal > capacity-available:
             raise _Failure('wal_exceeds_used')
-        result.update(resident_wal_bytes=wal, wal_observed_at=wal_time.isoformat(), observed_at=min(disk_time, wal_time).isoformat(), instance=contract.instance, volume=contract.volume)
+        result.update(wal_measurement_age_status='verified', resident_wal_bytes=wal, wal_observed_at=wal_time.isoformat(), observed_at=min(disk_time, wal_time).isoformat(), instance=contract.instance, volume=contract.volume)
         end = clock()
         ages = [(end-stamp).total_seconds() for stamp in (disk_time, wal_time)]
         if min(ages) < -5:
@@ -225,7 +239,13 @@ async def _read_inner(client, clock=_utc, *, contract=None, monotonic=time.monot
     except Exception:
         # Adapter boundary: never expose exception text, URLs, bodies or secrets.
         result.update(status='unavailable', errors=['reader_internal_error'])
-    result['fetch_finished_at'] = clock().isoformat()
+    end = clock().astimezone(timezone.utc)
+    result['fetch_finished_at'] = end.isoformat()
+    # Reported timestamp age is not a guarantee of measurement provenance.
+    for source in ('disk', 'wal'):
+        stamp = result[source + '_observed_at']
+        if stamp is not None:
+            result[source + '_reported_age_seconds'] = (end - _timestamp(stamp)).total_seconds()
     return result
 
 
@@ -252,7 +272,7 @@ async def _read(client, clock=_utc, **kwargs):
             return await _read_inner(client, clock, **kwargs)
     except TimeoutError:
         result = _empty(start)
-        result.update(status='unavailable', errors=['deadline_exceeded'], fetch_finished_at=clock().isoformat())
+        result.update(status='unavailable', errors=['deadline_exceeded'], fetch_finished_at=clock().astimezone(timezone.utc).isoformat())
         return result
 
 

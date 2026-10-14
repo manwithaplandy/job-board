@@ -219,3 +219,71 @@ def test_hard_deadline_cancels_pending_operation(monkeypatch):
     result = asyncio.run(core._read(None, lambda: NOW))
     assert result['errors'] == ['deadline_exceeded']
     assert cancelled == [True]
+
+
+def test_per_reading_receipt_times_and_unknown_measurement_age():
+    from supabase_metrics.core import _read
+    current = NOW + timedelta(seconds=120)
+    disk = dict(timestamp=NOW.isoformat(), metrics=dict(fs_size_bytes=100, fs_avail_bytes=80, fs_used_bytes=20))
+    def handler(request):
+        nonlocal current
+        current += timedelta(seconds=2)
+        if request.url.path.endswith('/util'):
+            return httpx.Response(200, json=disk)
+        return httpx.Response(200, text='# TYPE pg_wal_size_mb gauge\npg_wal_size_mb 10\n')
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await _read(client, lambda: current)
+    result = asyncio.run(run())
+    assert result['disk_fetched_at'] == (NOW + timedelta(seconds=122)).isoformat()
+    assert result['wal_fetched_at'] == (NOW + timedelta(seconds=124)).isoformat()
+    assert result['disk_observed_at'] == NOW.isoformat()
+    assert result['disk_reported_age_seconds'] == 124
+    assert result['wal_observed_at'] is None
+    assert result['wal_reported_age_seconds'] is None
+    assert result['disk_measurement_age_status'] == 'unknown'
+    assert result['wal_measurement_age_status'] == 'unknown'
+    assert result['operationally_eligible'] is False
+    assert result['errors'] == ['source_contract_unverified']
+
+
+def test_failed_fetch_has_no_receipt_timestamp():
+    result, _ = read(handler=lambda _: httpx.Response(403))
+    assert result['disk_fetched_at'] is None
+    assert result['wal_fetched_at'] is None
+    assert result['disk_reported_age_seconds'] is None
+    assert result['wal_reported_age_seconds'] is None
+    assert result['disk_measurement_age_status'] == 'unknown'
+
+
+def test_verified_fixture_age_does_not_hide_staleness():
+    result, _ = read(now=NOW + timedelta(seconds=91))
+    assert result['disk_reported_age_seconds'] == 91
+    assert result['wal_reported_age_seconds'] == 91
+    assert result['disk_measurement_age_status'] == 'verified'
+    assert result['wal_measurement_age_status'] == 'verified'
+    assert result['status'] == 'stale'
+    assert result['operationally_eligible'] is False
+
+
+def test_receipt_times_are_utc_with_offset_clock():
+    clock = NOW.astimezone(timezone(timedelta(hours=2)))
+    result, _ = read(now=clock)
+    assert result['disk_fetched_at'] == NOW.isoformat()
+    assert result['wal_fetched_at'] == NOW.isoformat()
+
+
+def test_disk_receipt_and_age_survive_wal_fetch_failure():
+    def handler(request):
+        if request.url.path.endswith('/util'):
+            return httpx.Response(200, json=dict(timestamp=NOW.isoformat(), metrics=dict(fs_size_bytes=100, fs_avail_bytes=80, fs_used_bytes=20)))
+        return httpx.Response(403)
+    result, _ = read(handler=handler, contract=False, now=NOW + timedelta(seconds=120))
+    assert result['disk_fetched_at'] == (NOW + timedelta(seconds=120)).isoformat()
+    assert result['disk_observed_at'] == NOW.isoformat()
+    assert result['disk_reported_age_seconds'] == 120
+    assert result['disk_measurement_age_status'] == 'unknown'
+    assert result['wal_fetched_at'] is None
+    assert result['wal_reported_age_seconds'] is None
+    assert result['errors'] == ['http_rejected']
+    assert result['operationally_eligible'] is False

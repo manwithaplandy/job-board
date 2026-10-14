@@ -7,7 +7,7 @@ This tool reads storage observations for job-board's Supabase project `fdhspmava
 1. Read this guide before invoking the reader. Development and CI use synthetic fixtures only.
 2. Check whether secure metrics access has been explicitly approved for this session. Installation alone does not authorize a live scrape or credential use.
 3. Use the CLI in an available execution environment, or the stdio MCP adapter in a client that has explicitly registered it. These are supported invocation paths, not an automatically installed ChatGPT connector.
-4. Stop on any result other than `ok`. Never replace missing WAL with zero, attach a new timestamp to stale data, or write authorization based on an incomplete result.
+4. Stop operational decisions on any result other than `ok`. Explicitly authorized exploratory reporting may display incomplete observations with their uncertainty; unknown freshness does not by itself mean the values are inaccurate. Never replace missing WAL with zero, attach a new timestamp to stale data, or write authorization based on an incomplete result.
 
 The initial release intentionally has no verified upstream semantics contract. Even with an approved valid token, data remains ineligible for operational gating until a separately reviewed change records verified WAL conversion, primary identity, volume mapping and source-freshness semantics. There is no CLI/environment switch to bypass this gate.
 
@@ -75,6 +75,33 @@ Stop-decision excerpts from the typed result (timestamps and other fields omitte
 These excerpts illustrate stop decisions, not observed production readings. The tests contain complete synthetic payloads and expected adapter results. The full result includes `schema_version`, `reader_version`, `project_ref`, `status`, `operationally_eligible`, `fetch_started_at`, `fetch_finished_at`, `source_paths`, `disk_observed_at`, `wal_observed_at`, `observed_at`, `instance`, `volume`, `capacity_bytes`, `available_bytes`, `used_bytes`, `resident_wal_bytes`, and `errors`. Only `status=ok` together with `operationally_eligible=true` is eligible evidence.
 
 Disk utilization returns a timestamp and `fs_size_bytes`, `fs_avail_bytes`, `fs_used_bytes`. Available space can differ from capacity minus used because of reserved blocks; do not force equality. The required WAL series is `pg_wal_size_mb`, a gauge of disk space used by WAL files. WAL generation counters or rates are not resident WAL. The name `_mb` alone does not prove decimal MB versus binary MiB. Before setting any conversion, inspect the upstream exporter/query definition and verify a real approved sample. Duplicate, unknown or replica-only series do not establish primary storage usage.
+
+Reader 1.1.0 adds per-endpoint retrieval reporting. The overall
+`fetch_started_at` and `fetch_finished_at` already existed; they describe the
+whole operation. `disk_fetched_at` and `wal_fetched_at` record local UTC time
+immediately after each complete, bounded successful HTTP body retrieval. They
+remain null if that retrieval did not complete, and can be present even if later
+payload validation fails. They are receipt times, not measurement times.
+
+`disk_observed_at` and `wal_observed_at` retain the upstream timestamps accepted
+by the existing parsers, normalized to UTC. No fetch time is substituted for a
+missing source timestamp. `disk_reported_age_seconds` and
+`wal_reported_age_seconds` are the elapsed seconds from those timestamps to the
+overall fetch finish; null means no accepted source timestamp. Negative reported
+age preserves evidence of source clock skew rather than silently clamping it.
+
+`disk_measurement_age_status` and `wal_measurement_age_status` explicitly say
+`unknown` until the reviewed source contract validates the timestamp semantics
+and the corresponding measurement is accepted. A numeric **reported** timestamp
+age can therefore coexist with `unknown` measurement age. `verified` describes
+provenance, not freshness: a verified fixture can still be stale or future-dated.
+The live source contract remains unverified. These additive reporting fields do
+not change CLI exit codes, the source-age limits, or operational eligibility.
+
+For a first read-only test, report the values, each receipt time, upstream times
+and reported ages separately, retaining unknown measurement-age labels. Evaluate
+actual discrepancies if observed; do not infer inaccurate values solely from
+unknown age. This reporting permission does not authorize backfill or polling.
 
 Fetch start/end describe the HTTP operation. Source observation timestamps describe the metrics. A current fetch timestamp cannot repair old or unknown source time. Observations may be at most 5 seconds in the future to tolerate small clock skew, and must be no older than 90 seconds at return, with separate source timestamps preserved and the older one controlling combined age. No stale cached result can be treated as healthy.
 

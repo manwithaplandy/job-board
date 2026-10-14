@@ -22,6 +22,10 @@ def test_stdio_protocol():
                 body = json.loads(result.content[0].text)
                 assert body['status'] == 'unavailable'
                 assert body['errors'] == ['credential_missing']
+                assert body['disk_fetched_at'] is None
+                assert body['wal_fetched_at'] is None
+                assert body['disk_measurement_age_status'] == 'unknown'
+                assert body['wal_measurement_age_status'] == 'unknown'
                 rejected = await session.call_tool('get_supabase_storage_metrics', {'url': 'secret-sentinel'})
                 assert rejected.isError
                 assert 'secret-sentinel' not in str(rejected)

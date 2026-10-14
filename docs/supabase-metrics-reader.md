@@ -76,7 +76,7 @@ These excerpts illustrate stop decisions, not observed production readings. The 
 
 Disk utilization returns a timestamp and `fs_size_bytes`, `fs_avail_bytes`, `fs_used_bytes`. Available space can differ from capacity minus used because of reserved blocks; do not force equality. The required WAL series is `pg_wal_size_mb`, a gauge of disk space used by WAL files. WAL generation counters or rates are not resident WAL. The name `_mb` alone does not prove decimal MB versus binary MiB. Before setting any conversion, inspect the upstream exporter/query definition and verify a real approved sample. Duplicate, unknown or replica-only series do not establish primary storage usage.
 
-Fetch start/end describe the HTTP operation. Source observation timestamps describe the metrics. A current fetch timestamp cannot repair old or unknown source time. Observations must be no older than 90 seconds at return, with separate source timestamps preserved and the older one controlling combined age. No stale cached result can be treated as healthy.
+Fetch start/end describe the HTTP operation. Source observation timestamps describe the metrics. A current fetch timestamp cannot repair old or unknown source time. Observations may be at most 5 seconds in the future to tolerate small clock skew, and must be no older than 90 seconds at return, with separate source timestamps preserved and the older one controlling combined age. No stale cached result can be treated as healthy.
 
 The result does not grant permission to migrate or run a campaign. A separately authorized writer must enforce its own provenance, thresholds and commit-time expiry. Never send this reader a database credential or add a renewal side effect to make a campaign proceed.
 

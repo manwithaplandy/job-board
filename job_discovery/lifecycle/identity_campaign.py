@@ -36,6 +36,13 @@ TRANSACTION_SECONDS = 1.25
 STORAGE_LIMIT = 5800 * 1024**2
 GROWTH_MARGIN = 32 * 1024**2
 MEMORY_LIMIT = 384 * 1024**2
+COMPLETION_SECONDS = 10
+AUTHORIZATION_SECONDS = 45
+OBSERVATION_SECONDS = 90
+CAPACITY_PROJECT = "fdhspmavadgucktetzoi"
+MIN_FREE_BYTES = 1024**3
+MAX_RESIDENT_WAL_BYTES = 4 * 1024**3
+MAX_CAMPAIGN_GROWTH = 1280 * 1024**2
 
 
 class _CampaignConnection(_TimedConnection):
@@ -86,6 +93,41 @@ def _usage(conn):
         COALESCE(sum(bytes) FILTER(WHERE state='held'),0) held FROM capacity_reservations""").fetchone()
 
 
+def _authorization(conn, row, allocated):
+    # Evaluate freshness on the database clock, including the check immediately
+    # before commit. The worker never renews its own operator authorization.
+    health = conn.execute(
+        """SELECT *, authorized_at<=clock_timestamp()
+          AND valid_until>clock_timestamp()
+          AND valid_until<=authorized_at+make_interval(secs=>%s)
+          AND observed_at<=clock_timestamp()
+          AND observed_at>clock_timestamp()-make_interval(secs=>%s) fresh
+        FROM lifecycle_identity_authorizations WHERE campaign_id=%s""",
+        (AUTHORIZATION_SECONDS, OBSERVATION_SECONDS, row["id"]),
+    ).fetchone()
+    if not health or not health["fresh"]:
+        raise RuntimeError(
+            "campaign authorization or capacity observation missing/stale"
+        )
+    if (
+        health["project_ref"] != CAPACITY_PROJECT
+        or health["source"] != "supabase_metrics"
+        or health["source_revision"] != row["source_revision"]
+        or health["activation_generation"] != row["activation_generation"]
+    ):
+        raise RuntimeError("campaign capacity observation scope mismatch")
+    if (
+        health["free_bytes"] <= max(MIN_FREE_BYTES, health["capacity_bytes"] // 5)
+        or health["resident_wal_bytes"] >= MAX_RESIDENT_WAL_BYTES
+    ):
+        raise RuntimeError("campaign physical capacity headroom exhausted")
+    if (
+        row["before_bytes"] is not None
+        and allocated - row["before_bytes"] >= MAX_CAMPAIGN_GROWTH
+    ):
+        raise RuntimeError("campaign allocation growth exhausted")
+
+
 def _guard(conn, row, revision):
     control = read_control(conn)
     if row["expired"]:
@@ -103,6 +145,7 @@ def _guard(conn, row, revision):
     usage = _usage(conn)
     if usage["allocated"] + usage["held"] + GROWTH_MARGIN >= STORAGE_LIMIT:
         raise RuntimeError("campaign storage headroom exhausted")
+    _authorization(conn, row, usage["allocated"])
     return usage["allocated"]
 
 
@@ -166,27 +209,8 @@ def _batch(conn, row):
             ).fetchall()
         ]
         if not ids:
-            # Concurrent inserts behind the cursor cannot falsely certify completion.
-            gap = conn.execute(
-                """SELECT EXISTS(SELECT FROM jobs j WHERE j.id<=%s AND j.company_id<=%s
-                AND NOT EXISTS(SELECT FROM source_listings l WHERE l.job_id=j.id))
-                OR EXISTS(SELECT FROM companies c WHERE c.id<=%s AND NOT EXISTS(SELECT FROM source_accounts s
-                  WHERE s.ats=c.ats AND s.public_board_ref=c.token)) gap""",
-                (
-                    row["job_high_water"],
-                    row["company_high_water"],
-                    row["company_high_water"],
-                ),
-            ).fetchone()["gap"]
-            if gap:
-                _stop(conn, cid, "unmapped work behind cursor; review a new campaign")
-            else:
-                conn.execute(
-                    """UPDATE lifecycle_identity_campaigns SET phase='finished',state='completed',
-                    finished_at=clock_timestamp() WHERE id=%s""",
-                    (cid,),
-                )
-            return
+            # Expensive verification runs only after committing this short batch.
+            return True
         if remaining == 0:
             _stop(conn, cid, "approved account budget reached", "budget_exhausted")
             return
@@ -196,6 +220,73 @@ def _batch(conn, row):
             company_rows=company_rows+%s,mapped_accounts=mapped_accounts+%s WHERE id=%s""",
             (ids[-1], len(ids), mapped, cid),
         )
+
+
+def _completion_snapshot(raw, row, deadline):
+    """One statement = one MVCC snapshot for both generation and exact gaps.
+
+    No shared gate or campaign row lock is held during this bounded read. Every
+    relevant DML statement transactionally advances the generation under the gate.
+    """
+    remaining = min(COMPLETION_SECONDS, deadline - monotonic())
+    if remaining <= 0:
+        raise _PhaseEnded()
+    raw.execute("SET TRANSACTION READ ONLY")
+    raw.execute(
+        "SELECT set_config('statement_timeout',%s,true)",
+        (str(max(1, int(remaining * 1000))),),
+    )
+    result = raw.execute(
+        """SELECT generation,
+        (SELECT EXISTS(SELECT FROM jobs j WHERE j.id<=%s AND j.company_id<=%s
+          AND NOT EXISTS(SELECT FROM source_listings l WHERE l.job_id=j.id))
+        OR EXISTS(SELECT FROM companies c WHERE c.id<=%s AND NOT EXISTS(SELECT FROM source_accounts s
+          WHERE s.ats=c.ats AND s.public_board_ref=c.token))) gap
+        FROM lifecycle_identity_generation WHERE singleton""",
+        (row["job_high_water"], row["company_high_water"], row["company_high_water"]),
+    ).fetchone()
+    raw.commit()
+    if result is None:
+        raise RuntimeError("campaign mutation generation missing")
+    return result
+
+
+def _certify_completion(conn, row, snapshot, revision, claim):
+    enter_gate(conn)
+    current = _load(conn, row["id"])
+    if current["state"] != "running":
+        conn.commit()
+        return
+    if any(
+        current[key] != row[key]
+        for key in (
+            "phase",
+            "source_revision",
+            "activation_generation",
+            "job_high_water",
+            "company_high_water",
+        )
+    ):
+        raise RuntimeError("campaign snapshot boundaries changed")
+    _guard(conn, current, revision)
+    validate_claim(conn, claim)
+    generation = conn.execute(
+        "SELECT generation FROM lifecycle_identity_generation WHERE singleton"
+    ).fetchone()
+    if generation is None or generation["generation"] != snapshot["generation"]:
+        # Any mutation (even outside the boundaries) invalidates the scan. A
+        # subsequent finite turn takes a new complete snapshot, never a partial one.
+        conn.commit()
+        return
+    if snapshot["gap"]:
+        _stop(conn, row["id"], "unmapped work behind cursor; review a new campaign")
+    else:
+        conn.execute(
+            "UPDATE lifecycle_identity_campaigns SET phase='finished',state='completed',finished_at=clock_timestamp() WHERE id=%s",
+            (row["id"],),
+        )
+    _authorization(conn, current, _usage(conn)["allocated"])
+    conn.commit()
 
 
 def run_turn(dsn, campaign_id, revision):
@@ -254,7 +345,7 @@ def run_turn(dsn, campaign_id, revision):
                 if monotonic() >= deadline:
                     conn.rollback()
                     break
-                _batch(batch, row)
+                completion = _batch(batch, row)
                 usage = _usage(batch)
                 if usage["allocated"] + usage["held"] >= STORAGE_LIMIT:
                     raise RuntimeError("campaign post-batch storage guard reached")
@@ -264,7 +355,14 @@ def run_turn(dsn, campaign_id, revision):
                     WHERE id=%s""",
                     (usage["allocated"], campaign_id),
                 )
+                _authorization(batch, row, usage["allocated"])
                 batch.commit()
+                if completion:
+                    # _batch may have transitioned jobs -> companies recursively.
+                    row = {**row, "phase": "companies"}
+                    snapshot = _completion_snapshot(raw, row, deadline)
+                    _certify_completion(conn, row, snapshot, revision, claim)
+                    break
                 sleep(0.25)
             enter_gate(conn)
             validate_claim(conn, claim)

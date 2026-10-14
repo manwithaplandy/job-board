@@ -32,8 +32,21 @@ def seed_campaign(conn, jobs=205, max_jobs=2000, max_companies=100, max_turns=5)
         SELECT %s,'running',%s,1,clock_timestamp()+interval '1 hour',%s,%s,%s,max(id),1 FROM jobs""",
         (cid, REVISION, max_jobs, max_companies, max_turns),
     )
+    authorize_campaign(conn, cid)
     conn.commit()
     return cid
+
+
+def authorize_campaign(conn, cid):
+    """Synthetic operator input for the owned test DB only."""
+    conn.execute("""INSERT INTO lifecycle_identity_authorizations
+        (campaign_id,source_revision,activation_generation,authorized_at,valid_until,observed_at,
+         project_ref,source,volume,capacity_bytes,free_bytes,resident_wal_bytes)
+        SELECT id,source_revision,activation_generation,clock_timestamp(),clock_timestamp()+interval '40 seconds',
+          clock_timestamp(),'fdhspmavadgucktetzoi','supabase_metrics','synthetic-primary',
+          10737418240,6442450944,1073741824 FROM lifecycle_identity_campaigns WHERE id=%s
+        ON CONFLICT(campaign_id) DO UPDATE SET authorized_at=excluded.authorized_at,
+          valid_until=excluded.valid_until,observed_at=excluded.observed_at""", (cid,))
 
 
 @requires_db

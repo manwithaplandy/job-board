@@ -498,3 +498,142 @@ def test_opt_in_entrypoint_installs_resource_limits_before_connecting(monkeypatc
 
     monkeypatch.setattr(worker, "run_turn", run)
     assert worker.main() == 0
+
+
+@requires_db
+@pytest.mark.parametrize('company_only', [False, True])
+def test_campaign_allows_concurrent_reviewer_and_archive(conn, monkeypatch, company_only):
+    """Real consumers retain their two-second lock timeout across network RTT."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from time import sleep
+    from job_discovery import db
+    from job_discovery.archive.export import export_once
+    from job_discovery.lifecycle import identity_campaign as worker
+    from reviewer.worker import process_one
+
+    cid = seed_campaign(conn, jobs=0 if company_only else 100)
+    if company_only:
+        conn.execute("INSERT INTO companies(id,name,ats,token) SELECT n,'Empty','lever','empty-'||n FROM generate_series(2,100)n")
+        conn.execute("UPDATE lifecycle_identity_campaigns SET company_high_water=100 WHERE id=%s", (cid,))
+        conn.commit()
+    mapping = Event()
+    original_mapper = worker.migrate_identity_batch
+
+    def map_batch(*args, **kwargs):
+        mapping.set()
+        return original_mapper(*args, **kwargs)
+
+    # Simulate each actual network round trip, including timeout SETs and COMMIT.
+    class Latency:
+        def __init__(self, real):
+            self.real = real
+
+        def __enter__(self):
+            self.real.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.real.__exit__(*args)
+
+        def execute(self, *args, **kwargs):
+            sleep(0.012 if company_only else 0.004)
+            return self.real.execute(*args, **kwargs)
+
+        def commit(self):
+            sleep(0.012 if company_only else 0.004)
+            return self.real.commit()
+
+        def cursor(self, **kwargs):
+            return Latency(self.real.cursor(**kwargs))
+
+        def __getattr__(self, name):
+            return getattr(self.real, name)
+
+    monkeypatch.setattr(worker, 'connect', lambda dsn: Latency(db.connect(dsn)))
+    monkeypatch.setattr(worker, 'migrate_identity_batch', map_batch)
+    monkeypatch.setattr(worker, 'MAX_BATCHES', 1)
+    dsn = os.environ['TEST_DATABASE_URL']
+
+    def review():
+        with db.connect(dsn) as reviewer_conn:
+            return process_one(reviewer_conn)
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        campaign = pool.submit(worker.run_turn, dsn, cid, REVISION)
+        assert mapping.wait(10), 'campaign never reached mapping'
+        consumers = [pool.submit(review) for _ in range(3)]
+        consumers.append(pool.submit(export_once, dsn))
+        errors = [future.exception(timeout=20) for future in consumers]
+        result = campaign.result(timeout=20)
+    assert errors == [None] * 4
+    assert [future.result() for future in consumers] == [False, False, False, None]
+    assert result['mapped_accounts' if company_only else 'mapped_jobs'] == 100
+
+
+@requires_db
+@pytest.mark.parametrize('phase', ['setup', 'mapping', 'cleanup'])
+def test_campaign_short_window_releases_gate_and_keeps_checkpoint(conn, monkeypatch, phase):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from job_discovery import db
+    from job_discovery.archive.export import export_once
+    from job_discovery.lifecycle import identity_campaign as worker
+
+    cid = seed_campaign(conn)
+    blocked = Event()
+    calls = 0
+    name = {'setup': '_guard', 'mapping': 'migrate_identity_batch', 'cleanup': 'cancel_claim'}[phase]
+    original = getattr(worker, name)
+
+    def slow(connection, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        result = original(connection, *args, **kwargs)
+        if calls == (2 if phase == 'mapping' else 1):
+            blocked.set()
+            # Actual server work must be interrupted, including setup/cleanup.
+            connection.execute('SELECT pg_sleep(3)')
+        return result
+
+    monkeypatch.setattr(worker, name, slow)
+    monkeypatch.setattr(worker, 'MAX_BATCHES', 2)
+    dsn = os.environ['TEST_DATABASE_URL']
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        campaign = pool.submit(worker.run_turn, dsn, cid, REVISION)
+        assert blocked.wait(10)
+        consumer = pool.submit(export_once, dsn)
+        assert consumer.result(timeout=5) is None
+        result = campaign.result(timeout=5)
+    expected = {'setup': 0, 'mapping': 100, 'cleanup': 200}[phase]
+    assert result['mapped_jobs'] == result['job_rows'] == expected
+    assert result['job_cursor'] == (f'{expected:06d}' if expected else None)
+    with db.connect(dsn) as check:
+        assert check.execute('SELECT count(*) n FROM source_listings').fetchone()['n'] == expected
+    # An interrupted transaction never claims completion or expands turn limits.
+    assert result['state'] == 'running'
+
+
+@requires_db
+def test_batched_mapping_preserves_existing_evidence_and_elapsed_expiry(conn):
+    from datetime import UTC, timedelta
+    from job_discovery.lifecycle.identity import migrate_identity_batch
+
+    seed_campaign(conn, jobs=3)
+    conn.execute("SET LOCAL TIME ZONE 'America/New_York'")
+    conn.execute("UPDATE jobs SET first_seen_at='2026-03-01 12:00:00+00',description='Existing body'")
+    assert migrate_identity_batch(conn, job_ids=['000001']) == 1
+    conn.execute("UPDATE source_accounts SET exclusion_state='deliberate'")
+    conn.execute("UPDATE company_sources SET public_evidence_ref='https://example.test/existing'")
+    conn.execute("UPDATE jobs SET description_captured_at='2026-02-01Z',description_capture_provenance='migration_activation' WHERE id='000002'")
+    before_source = conn.execute('SELECT * FROM source_accounts').fetchall()
+    before_link = conn.execute('SELECT * FROM company_sources').fetchall()
+    before_capture = conn.execute("SELECT description_captured_at,description_capture_provenance FROM jobs WHERE id='000002'").fetchone()
+    assert migrate_identity_batch(conn, job_ids=['000002']) == 1
+    assert conn.execute('SELECT * FROM source_accounts').fetchall() == before_source
+    assert conn.execute('SELECT * FROM company_sources').fetchall() == before_link
+    assert conn.execute("SELECT description_captured_at,description_capture_provenance FROM jobs WHERE id='000002'").fetchone() == before_capture
+    rows = conn.execute('SELECT job_id,discovery_anchor_at,discovery_expires_at FROM source_listings ORDER BY job_id').fetchall()
+    assert [row['job_id'] for row in rows] == ['000001', '000002']
+    for row in rows:
+        assert row['discovery_expires_at'].astimezone(UTC) - row['discovery_anchor_at'].astimezone(UTC) == timedelta(hours=720)

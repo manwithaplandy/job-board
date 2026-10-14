@@ -71,7 +71,7 @@ def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None 
         ):
             raise RuntimeError("legacy mapping requires pre-cutover control state")
         cur.execute(
-            """SELECT j.*, c.ats, c.token, c.active, c.poll_failures
+            """SELECT j.id
             FROM jobs j JOIN companies c ON c.id=j.company_id
             WHERE NOT EXISTS (SELECT 1 FROM source_listings l WHERE l.job_id=j.id)
               AND (%s::text[] IS NULL OR j.id=ANY(%s::text[]))
@@ -82,10 +82,14 @@ def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None 
         rows = cur.fetchall()
         # Reserve sorted namespaced Job keys before taking any Job/FK locks.
         # Global BEFORE STATEMENT triggers cover direct callers as well.
-        for job in rows:
+        ids = [job["id"] for job in rows]
+        if ids:
+            # PostgreSQL evaluates volatile output expressions after ORDER BY.
+            # The selected IDs are bounded before acquiring locks, before FK writes.
             cur.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
-                ("lifecycle:job:" + job["id"],),
+                """SELECT pg_advisory_xact_lock(hashtextextended('lifecycle:job:'||id,0))
+                FROM unnest(%s::text[]) AS selected(id) ORDER BY id""",
+                (ids,),
             )
         cur.execute("""UPDATE lifecycle_control
             SET identity_migration_activated_at = clock_timestamp()
@@ -97,56 +101,52 @@ def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None 
                 "SELECT id FROM jobs WHERE id=ANY(%s) ORDER BY id FOR UPDATE",
                 ([job["id"] for job in rows],),
             )
-        for job in rows:
+        if ids:
             cur.execute(
                 """INSERT INTO source_accounts
                 (legacy_company_id,ats,public_board_ref,legacy_active,exclusion_state,failure_streak)
-                VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (ats,public_board_ref) DO NOTHING""",
-                (
-                    job["company_id"],
-                    job["ats"],
-                    job["token"],
-                    job["active"],
-                    "enabled" if job["active"] else "unknown",
-                    job["poll_failures"],
-                ),
+                SELECT DISTINCT c.id,c.ats,c.token,c.active,
+                    CASE WHEN c.active THEN 'enabled' ELSE 'unknown' END,c.poll_failures
+                FROM jobs j JOIN companies c ON c.id=j.company_id WHERE j.id=ANY(%s)
+                ON CONFLICT (ats,public_board_ref) DO NOTHING""",
+                (ids,),
             )
+            # A separate statement sees newly inserted accounts as well as old
+            # ones, without overwriting their exclusions or existing link evidence.
             cur.execute(
-                "SELECT id FROM source_accounts WHERE ats=%s AND public_board_ref=%s",
-                (job["ats"], job["token"]),
-            )
-            source_id = cur.fetchone()["id"]
-            _map_company_source(
-                cur, job["company_id"], source_id, job["ats"], job["token"]
+                """INSERT INTO company_sources
+                (company_id,source_account_id,evidence_kind,public_evidence_ref,status)
+                SELECT DISTINCT c.id,s.id,'legacy_mapping',c.ats||':'||c.token,'accepted'
+                FROM jobs j JOIN companies c ON c.id=j.company_id
+                JOIN source_accounts s ON s.ats=c.ats AND s.public_board_ref=c.token
+                WHERE j.id=ANY(%s)
+                ON CONFLICT (company_id,source_account_id) DO NOTHING""",
+                (ids,),
             )
             cur.execute(
                 """INSERT INTO source_listings(source_account_id,external_id,job_id,
                 original_discovered_at,discovery_anchor_at,discovery_anchor_provenance,
                 discovery_expires_at,legacy_closed_at)
-                VALUES (%s,%s,%s,%s,%s,'legacy_local_observation',%s,%s)""",
-                (
-                    source_id,
-                    job["external_id"],
-                    job["id"],
-                    job["first_seen_at"],
-                    job["first_seen_at"],
-                    job["first_seen_at"].astimezone(UTC) + timedelta(days=30),
-                    job["closed_at"],
-                ),
+                SELECT s.id,j.external_id,j.id,j.first_seen_at,j.first_seen_at,
+                    'legacy_local_observation',j.first_seen_at+interval '720 hours',j.closed_at
+                FROM jobs j JOIN companies c ON c.id=j.company_id
+                JOIN source_accounts s ON s.ats=c.ats AND s.public_board_ref=c.token
+                WHERE j.id=ANY(%s) ORDER BY j.id""",
+                (ids,),
             )
             # No actual use or source publication/observation is inferred.
             cur.execute(
                 """UPDATE jobs SET description_captured_at=%s,
                 description_capture_provenance='migration_activation'
-                WHERE id=%s AND description IS NOT NULL AND description_captured_at IS NULL
+                WHERE id=ANY(%s) AND description IS NOT NULL AND description_captured_at IS NULL
                   AND description_last_used_at IS NULL""",
-                (activation, job["id"]),
+                (activation, ids),
             )
             cur.execute(
                 """UPDATE job_questions SET captured_at=%s,
                 capture_provenance='migration_activation'
-                WHERE job_id=%s AND captured_at IS NULL AND last_used_at IS NULL""",
-                (activation, job["id"]),
+                WHERE job_id=ANY(%s) AND captured_at IS NULL AND last_used_at IS NULL""",
+                (activation, ids),
             )
         if rows or job_ids is not None:
             return len(rows)
@@ -164,27 +164,16 @@ def migrate_identity_batch(conn, limit: int = 500, *, job_ids: list[str] | None 
             (company_ids,company_ids,limit),
         )
         accounts = cur.fetchall()
-        for account in accounts:
-            _map_company_source(
-                cur,
-                account["legacy_company_id"],
-                account["id"],
-                account["ats"],
-                account["public_board_ref"],
+        if accounts:
+            cur.execute(
+                """INSERT INTO company_sources
+                (company_id,source_account_id,evidence_kind,public_evidence_ref,status)
+                SELECT legacy_company_id,id,'legacy_mapping',ats||':'||public_board_ref,'accepted'
+                FROM source_accounts WHERE id=ANY(%s)
+                ON CONFLICT (company_id,source_account_id) DO NOTHING""",
+                ([account["id"] for account in accounts],),
             )
         return len(accounts)
-
-
-def _map_company_source(cur, company_id, source_id, ats, board_ref):
-    # This records the existing typed legacy board association, not inferred
-    # employer identity or a manufactured source-observation timestamp.
-    cur.execute(
-        """INSERT INTO company_sources
-        (company_id,source_account_id,evidence_kind,public_evidence_ref,status)
-        VALUES (%s,%s,'legacy_mapping',%s,'accepted')
-        ON CONFLICT (company_id,source_account_id) DO NOTHING""",
-        (company_id, source_id, f"{ats}:{board_ref}"),
-    )
 
 
 def _text(value):

@@ -32,9 +32,36 @@ MAX_BATCHES = 20
 TURN_SECONDS = 240
 HARD_SECONDS = 300
 COOLDOWN_SECONDS = 60
+TRANSACTION_SECONDS = 1.25
 STORAGE_LIMIT = 5800 * 1024**2
 GROWTH_MARGIN = 32 * 1024**2
 MEMORY_LIMIT = 384 * 1024**2
+
+
+class _CampaignConnection(_TimedConnection):
+    """One short window per transaction, including guards and deferred commit.
+
+    Begin on the first statement so cooldown sleep doesn't spend the next
+    transaction's budget. Client deadlines also account for network round trips;
+    statement_timeout clips server work to the remaining window. This is not a
+    hard wall-clock guarantee against a stalled client or network connection.
+    """
+
+    def __init__(self, conn):
+        super().__init__(conn, None)
+
+    def _timeout(self):
+        if self.end is None:
+            self.end = monotonic() + TRANSACTION_SECONDS
+        super()._timeout()
+
+    def commit(self):
+        super().commit()
+        self.end = None
+
+    def rollback(self):
+        self.conn.rollback()
+        self.end = None
 
 
 def _load(conn, campaign_id):
@@ -175,16 +202,20 @@ def run_turn(dsn, campaign_id, revision):
     campaign_id = UUID(str(campaign_id))
     deadline = monotonic() + TURN_SECONDS
     claim = None
-    with connect(dsn) as conn:
+    with connect(dsn) as raw:
+        conn = _CampaignConnection(raw)
         try:
             enter_gate(conn)
             row = _load(conn, campaign_id)
             if row is None:
+                conn.commit()
                 return {"state": "missing"}
             if row["state"] != "running":
+                conn.commit()
                 return dict(row)
             allocated = _guard(conn, row, revision)
             if row["cooling"]:
+                conn.commit()
                 return dict(row)
             if row["turns"] >= row["max_turns"]:
                 _stop(
@@ -194,9 +225,12 @@ def run_turn(dsn, campaign_id, revision):
                     "budget_exhausted",
                 )
                 conn.commit()
-                return dict(_load(conn, campaign_id))
+                result = dict(_load(conn, campaign_id))
+                conn.commit()
+                return result
             claim = claim_work(conn, "identity_backfill", "singleton", 180)
             if claim is None:
+                conn.commit()
                 return dict(row)
             conn.execute(
                 """UPDATE lifecycle_identity_campaigns SET turns=turns+1,heartbeat_at=clock_timestamp(),
@@ -208,7 +242,7 @@ def run_turn(dsn, campaign_id, revision):
             for _ in range(MAX_BATCHES):
                 if monotonic() >= deadline:
                     break
-                batch = _TimedConnection(conn, min(deadline, monotonic() + 150))
+                batch = conn
                 enter_gate(batch)
                 row = _load(batch, campaign_id)
                 if row["state"] != "running":
@@ -281,7 +315,9 @@ def run_turn(dsn, campaign_id, revision):
                 except Exception:
                     conn.rollback()
                     log.warning("identity campaign claim will expire")
-        return dict(_load(conn, campaign_id))
+        result = dict(_load(conn, campaign_id))
+        conn.commit()
+        return result
 
 
 def main():

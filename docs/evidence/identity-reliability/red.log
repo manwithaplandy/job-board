@@ -1,0 +1,67 @@
+Owned lifecycle database: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) (required 17)
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+__________ test_missing_operator_authorization_prevents_any_progress ___________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32794 user=postgres database=poller_lifecycle_test) at 0x7f5dfed3d130>
+
+    @requires_db
+    def test_missing_operator_authorization_prevents_any_progress(conn):
+        from job_discovery.lifecycle import identity_campaign as worker
+        cid = seed_campaign(conn, jobs=1)
+        # Remove the optional fixture authorization once the new ledger exists.
+        if conn.execute("SELECT to_regclass('lifecycle_identity_authorizations') n").fetchone()['n']:
+            conn.execute('DELETE FROM lifecycle_identity_authorizations WHERE campaign_id=%s', (cid,))
+        conn.commit()
+        result = worker.run_turn(os.environ['TEST_DATABASE_URL'], cid, REVISION)
+>       assert result['state'] == 'stopped'
+E       AssertionError: assert 'completed' == 'stopped'
+E
+E         - stopped
+E         + completed
+
+tests/test_identity_reliability.py:17: AssertionError
+_________________ test_full_gap_scan_does_not_hold_shared_gate _________________
+
+conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32794 user=postgres database=poller_lifecycle_test) at 0x7f5dfed62810>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f5dfed592e0>
+
+    @requires_db
+    def test_full_gap_scan_does_not_hold_shared_gate(conn, monkeypatch):
+        from job_discovery import db
+        from job_discovery.lifecycle import identity_campaign as worker
+        from job_discovery.lifecycle.config import LIFECYCLE_GATE_KEY
+        cid = seed_campaign(conn, jobs=1)
+        real_connect = db.connect
+        scans = []
+
+        class Observed:
+            def __init__(self, real):
+                self.real = real
+            def __enter__(self):
+                self.real.__enter__()
+                return self
+            def __exit__(self, *args):
+                return self.real.__exit__(*args)
+            def __getattr__(self, name):
+                return getattr(self.real, name)
+            def execute(self, query, *args, **kwargs):
+                if 'SELECT EXISTS(SELECT FROM jobs j' in str(query):
+                    with real_connect(os.environ['TEST_DATABASE_URL']) as other:
+                        acquired = other.execute('SELECT pg_try_advisory_xact_lock(%s) ok', (LIFECYCLE_GATE_KEY,)).fetchone()['ok']
+                        scans.append(acquired)
+                return self.real.execute(query, *args, **kwargs)
+
+        monkeypatch.setattr(worker, 'connect', lambda dsn: Observed(real_connect(dsn)))
+        result = worker.run_turn(os.environ['TEST_DATABASE_URL'], cid, REVISION)
+        assert result['state'] == 'completed'
+>       assert scans and all(scans), 'full-corpus scan blocked the shared gate'
+E       AssertionError: full-corpus scan blocked the shared gate
+E       assert ([False] and False)
+E        +  where False = all([False])
+
+tests/test_identity_reliability.py:50: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_identity_reliability.py::test_missing_operator_authorization_prevents_any_progress
+FAILED tests/test_identity_reliability.py::test_full_gap_scan_does_not_hold_shared_gate
+2 failed in 2.02s

@@ -16,7 +16,7 @@ conn = <psycopg.Connection [IDLE] (host=127.0.0.1 port=32794 user=postgres datab
         result = worker.run_turn(os.environ['TEST_DATABASE_URL'], cid, REVISION)
 >       assert result['state'] == 'stopped'
 E       AssertionError: assert 'completed' == 'stopped'
-E         
+E
 E         - stopped
 E         + completed
 
@@ -34,7 +34,7 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f5dfed592e0>
         cid = seed_campaign(conn, jobs=1)
         real_connect = db.connect
         scans = []
-    
+
         class Observed:
             def __init__(self, real):
                 self.real = real
@@ -51,7 +51,7 @@ monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f5dfed592e0>
                         acquired = other.execute('SELECT pg_try_advisory_xact_lock(%s) ok', (LIFECYCLE_GATE_KEY,)).fetchone()['ok']
                         scans.append(acquired)
                 return self.real.execute(query, *args, **kwargs)
-    
+
         monkeypatch.setattr(worker, 'connect', lambda dsn: Observed(real_connect(dsn)))
         result = worker.run_turn(os.environ['TEST_DATABASE_URL'], cid, REVISION)
         assert result['state'] == 'completed'

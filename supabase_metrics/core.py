@@ -237,7 +237,7 @@ async def _get_supabase_storage_metrics() -> MetricsResult:
         result.update(status='unavailable', errors=['credential_missing' if not token else 'credential_invalid'])
         return result
     try:
-        async with httpx.AsyncClient(headers={'Authorization': 'Bearer '+token}, trust_env=False, verify=True, follow_redirects=False) as client:
+        async with httpx.AsyncClient(headers={'Authorization': 'Bearer '+token}, trust_env=True, verify=True, follow_redirects=False) as client:
             return await _read(client, contract=_VERIFIED_CONTRACT)
     except Exception:
         result = _empty(_utc())

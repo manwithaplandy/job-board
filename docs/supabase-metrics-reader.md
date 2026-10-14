@@ -106,3 +106,30 @@ Verify the PAT scope and expiry through a secure administrative control; then pe
 - [Fine-grained PAT permissions](https://supabase.com/docs/guides/platform/personal-access-tokens)
 - [Official metrics list](https://github.com/supabase/supabase-grafana/blob/main/metrics.md)
 - [Approved design](superpowers/specs/2026-10-14-supabase-metrics-reader.md)
+
+
+## Managed network-secret environments
+
+The HTTP client honors the execution runtime's proxy and certificate environment
+(`trust_env=True`), keeps TLS verification enabled and redirects disabled, and
+still requests only the fixed HTTPS host and two paths. Do not clear proxy
+variables, alter NO_PROXY, use a direct transport, or disable TLS to get a read
+through. A certificate failure is a setup blocker, not a reason to weaken TLS.
+
+For a Personal Vault network secret, use only the runtime's documented injected
+placeholder and proxy substitution mechanism. The reader does not implement
+Vault discovery or retrieve secret values. Before any authenticated invocation,
+confirm through safe presence/status metadata that the requested key and fixed
+host are supported. The existing environment-variable interface alone does not
+establish that Vault injection is available. Never export a raw secret manually
+as an alternative to an unavailable network-secret mechanism.
+
+On 2026-10-14, a presence-only check found proxy settings present but no
+`SUPABASE_METRICS_PAT` entry. No callable Vault metadata/placeholder interface was
+exposed in that execution environment, so requested-key and target-host support
+could not be established. No authenticated request was attempted, and no metrics,
+WAL-unit, identity or freshness claims were made. Secure network-secret exposure
+for this task remains the blocker; a saved Vault entry alone does not prove that
+an already-running task received it. Any necessary environment reconfiguration
+requires separate approval. This is historical evidence, not a substitute for
+checking the next session's runtime metadata.

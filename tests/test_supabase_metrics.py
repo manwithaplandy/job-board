@@ -186,7 +186,9 @@ def test_public_transport_config_and_no_contract_override(monkeypatch):
         return httpx.Response(401, text=TOKEN)
     def client(**kwargs):
         assert kwargs['verify'] is True
-        assert kwargs['trust_env'] is False
+        assert kwargs['trust_env'] is True
+        # Fixture transport must never follow the execution host's real proxy.
+        kwargs['trust_env'] = False
         assert kwargs['follow_redirects'] is False
         return original(**kwargs, transport=httpx.MockTransport(handler))
     monkeypatch.setenv('SUPABASE_METRICS_PAT', TOKEN)

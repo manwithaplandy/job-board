@@ -815,3 +815,127 @@ def test_exploratory_terminal_progress_cannot_be_reset(conn, change):
     with pytest.raises(psycopg.errors.CheckViolation):
         conn.execute('UPDATE lifecycle_identity_campaigns SET '+change)
     conn.rollback()
+
+
+def assume_mib(conn, value):
+    conn.execute("""UPDATE lifecycle_identity_authorizations SET
+        wal_basis='assumed_mib',resident_wal_bytes=NULL,wal_native_mb=%s::numeric""", (value,))
+
+
+@requires_db
+@pytest.mark.parametrize('native,expected', [('0', 0), ('0.0000001', 1),
+    ('1024.0003499984741', 1073742191), ('4095.9999999', 4294967296)])
+def test_pilot_wal_assumption_rounds_up_separately(conn, native, expected):
+    seed_campaign(conn, jobs=2, max_turns=1, exploratory=True)
+    assume_mib(conn, native)
+    row = conn.execute('SELECT * FROM lifecycle_identity_authorizations').fetchone()
+    assert row['resident_wal_bytes'] is None
+    assert row['wal_basis'] == 'assumed_mib'
+    assert row['wal_assumed_mib_upper_bytes'] == expected
+    assert row['wal_native_mb'] is not None
+
+
+@requires_db
+@pytest.mark.parametrize('native', ['-1', 'NaN', 'Infinity', '-Infinity', '1e100', None, '5000'])
+def test_pilot_wal_assumption_rejects_invalid_or_inconsistent_values(conn, native):
+    import psycopg
+    seed_campaign(conn, jobs=2, max_turns=1, exploratory=True)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        assume_mib(conn, native)
+    conn.rollback()
+
+
+@requires_db
+@pytest.mark.parametrize('pilot,native,allowed', [(True, '1024.0003499984741', True),
+    (False, '1024', False), (True, '4095.9999999', False), (True, '4096', False)])
+def test_pilot_wal_assumption_admission_and_single_turn(conn, pilot, native, allowed):
+    from job_discovery.lifecycle import identity_campaign as worker
+    cid = seed_campaign(conn, jobs=2, max_turns=1, exploratory=pilot)
+    assume_mib(conn, native)
+    conn.commit()
+    result = worker.run_turn(os.environ['TEST_DATABASE_URL'], cid, REVISION)
+    assert result['mapped_jobs'] == (2 if allowed else 0)
+    if allowed:
+        assert result['turns'] == 1
+        assert worker.run_turn(os.environ['TEST_DATABASE_URL'], cid, REVISION)['turns'] == 1
+
+
+@requires_db
+@pytest.mark.parametrize('pilot', [True, False])
+def test_pilot_wal_assumption_deferred_gate(conn, pilot):
+    import psycopg
+    cid = seed_campaign(conn, jobs=2, max_turns=1, exploratory=pilot)
+    assume_mib(conn, '1024')
+    conn.execute('UPDATE lifecycle_identity_campaigns SET turns=1 WHERE id=%s', (cid,))
+    if pilot:
+        assume_mib(conn, '4096')
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.commit()
+    conn.rollback()
+    assert conn.execute('SELECT turns FROM lifecycle_identity_campaigns WHERE id=%s', (cid,)).fetchone()['turns'] == 0
+
+
+@requires_db
+@pytest.mark.parametrize('change', ["wal_basis='invented'", 'resident_wal_bytes=1', 'wal_native_mb=NULL'])
+def test_pilot_wal_assumption_cannot_be_mislabeled(conn, change):
+    import psycopg
+    seed_campaign(conn, jobs=2, max_turns=1, exploratory=True)
+    assume_mib(conn, '1024')
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute('UPDATE lifecycle_identity_authorizations SET '+change)
+    conn.rollback()
+
+
+@requires_db
+def test_pilot_wal_generated_bound_cannot_be_supplied(conn):
+    import psycopg
+    seed_campaign(conn, jobs=2, max_turns=1, exploratory=True)
+    assume_mib(conn, '1024')
+    with pytest.raises(psycopg.errors.GeneratedAlways):
+        conn.execute('UPDATE lifecycle_identity_authorizations SET wal_assumed_mib_upper_bytes=0')
+    conn.rollback()
+
+
+@requires_db
+@pytest.mark.parametrize('change', [
+    "wal_fetched_at=clock_timestamp()-interval '91 seconds'",
+    "disk_fetched_at=clock_timestamp()+interval '1 second'",
+    "authorized_at=clock_timestamp()-interval '50 seconds',valid_until=clock_timestamp()-interval '10 seconds'",
+    'free_bytes=1073741824', "source_revision=repeat('b',40)",
+])
+def test_pilot_wal_assumption_keeps_other_authorization_guards(conn, change):
+    from job_discovery.lifecycle import identity_campaign as worker
+    cid = seed_campaign(conn, jobs=2, max_turns=1, exploratory=True)
+    assume_mib(conn, '1024')
+    conn.execute('UPDATE lifecycle_identity_authorizations SET '+change)
+    conn.commit()
+    assert worker.run_turn(os.environ['TEST_DATABASE_URL'], cid, REVISION)['mapped_jobs'] == 0
+
+
+@requires_db
+@pytest.mark.parametrize('native,valid', [
+    ('8796093022207.99999904632568359375', True),
+    ('8796093022207.99999904632568359376', False),
+])
+def test_pilot_wal_assumption_bigint_boundary(conn, native, valid):
+    import psycopg
+    seed_campaign(conn, jobs=2, max_turns=1, exploratory=True)
+    conn.execute('UPDATE lifecycle_identity_authorizations SET capacity_bytes=9223372036854775807,free_bytes=0')
+    if valid:
+        assume_mib(conn, native)
+        assert conn.execute('SELECT wal_assumed_mib_upper_bytes n FROM lifecycle_identity_authorizations').fetchone()['n'] == 9223372036854775807
+    else:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            assume_mib(conn, native)
+        conn.rollback()
+
+
+@requires_db
+def test_pilot_wal_assumption_with_measured_timing(conn):
+    from job_discovery.lifecycle import identity_campaign as worker
+    cid = seed_campaign(conn, jobs=2, max_turns=1, exploratory=True)
+    assume_mib(conn, '1024')
+    conn.execute("""UPDATE lifecycle_identity_authorizations SET observation_basis='measurement',
+      observed_at=clock_timestamp(),disk_fetched_at=NULL,wal_fetched_at=NULL""")
+    conn.commit()
+    assert worker.run_turn(os.environ['TEST_DATABASE_URL'], cid, REVISION)['mapped_jobs'] == 2

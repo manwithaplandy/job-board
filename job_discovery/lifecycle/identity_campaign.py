@@ -97,7 +97,7 @@ def _authorization(conn, row, allocated):
     # database clock, also at commit. Retrieval recency is not measurement age.
     # The worker never renews its own operator authorization.
     health = conn.execute(
-        """SELECT a.*, authorized_at<=clock_timestamp()
+        """SELECT a.*, lifecycle_identity_wal_bound(a,c) gating_wal_bytes, authorized_at<=clock_timestamp()
           AND valid_until>clock_timestamp()
           AND valid_until<=authorized_at+make_interval(secs=>%s)
           AND lifecycle_identity_observation_current(a,c) fresh
@@ -118,7 +118,8 @@ def _authorization(conn, row, allocated):
         raise RuntimeError("campaign capacity observation scope mismatch")
     if (
         health["free_bytes"] <= max(MIN_FREE_BYTES, health["capacity_bytes"] // 5)
-        or health["resident_wal_bytes"] >= MAX_RESIDENT_WAL_BYTES
+        or health["gating_wal_bytes"] is None
+        or health["gating_wal_bytes"] >= MAX_RESIDENT_WAL_BYTES
     ):
         raise RuntimeError("campaign physical capacity headroom exhausted")
     if (

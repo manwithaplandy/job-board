@@ -49,7 +49,8 @@ production control. Before a production test:
 1. Review and merge this worker/schema change through the normal process, then
    verify the exact successful reviewer deployment. Do not mistake a skipped
    documentation-only deployment or an unmerged PR for deployed worker code.
-2. Apply only `migrations/2026-10-15-15-identity-exploratory-pilot.sql` through the
+2. Apply `migrations/2026-10-15-15-identity-exploratory-pilot.sql`, then
+   `migrations/2026-10-16-16-identity-pilot-wal-assumption.sql`, through the
    separately authorized migration path and verify the columns, constraint,
    uniqueness index and triggers. The existing worker fails closed against the
    new nullable `observed_at` until the updated worker is deployed. The updated
@@ -58,12 +59,11 @@ production control. Before a production test:
    bounded operator authorization renewal/monitoring path. Do not create new
    credentials or persistent access. The worker never renews itself. A 30-minute
    campaign expiry does not lengthen the 45-second authorization window.
-4. Obtain the existing required capacity inputs. The timestamp exception does
-   **not** convert unknown resident-WAL bytes to zero, invent units or certify
-   primary/volume identity. The current standalone metrics reader may still
-   return `resident_wal_bytes=null`; resolve the byte conversion and scope with
-   evidence before creating an authorization. Generation counters are not
-   resident WAL. Do not bypass the retained threshold to make the test run.
+4. Obtain fresh retrievals of the required capacity inputs and check the primary
+   identifier and `/data` volume evidence. For this pilot, the owner explicitly
+   approved assuming MiB for the metric labeled MB on 2026-10-16. Use the separate
+   assumption fields below; never fill unknown verified bytes with zero or label
+   the estimate as verified. Generated WAL counters are not resident WAL.
 5. Recheck that no pilot already exists, no other campaign is running, all
    unrelated lifecycle stages remain paused, and the approved limits, revision,
    generation and high-water boundaries are recorded for exactly this campaign.
@@ -95,3 +95,36 @@ measured path and the pilot path, including stale/future receipt times, expiry,
 capacity failures, forbidden scope expansion, one-use retention and deferred
 commit rejection. Rehearse this migration on the previous schema as well as the
 fresh consolidated schema before applying it to production.
+
+## Approved MiB assumption for this pilot
+
+The owner approved treating the `pg_wal_size_mb` resident-WAL gauge as MiB for the
+single exploratory pilot. This is an explicit unit assumption, not verification
+of the deployed exporter query. The bound describes the reported number under
+that assumption; it does not prove actual usage or measurement freshness.
+
+For verified observations, `wal_basis='verified_bytes'` remains the default,
+`resident_wal_bytes` is required, and `wal_native_mb` must be NULL. Existing rows
+retain that basis and their original numeric values when migrating.
+
+For an assumed observation, set `wal_basis='assumed_mib'`, set
+`resident_wal_bytes=NULL`, and supply `wal_native_mb` using the original decimal
+metric text as a numeric parameter. Do not first convert through a binary float.
+The database generates `wal_assumed_mib_upper_bytes=ceil(wal_native_mb*1048576)`;
+callers cannot supply or reduce that generated value. For example, the illustrative
+native value `1.0000001` yields 1,048,577 bytes, rounding upward rather than down.
+
+Negative, nonfinite, missing, overflowing and physically inconsistent inputs are
+rejected. The generated bound must fit within capacity minus available space.
+Worker admission and the deferred commit gate use the same selection function:
+only a campaign with the retained `exploratory_pilot` marker can use assumed MiB.
+Ordinary campaigns still require verified bytes. The selected value must remain
+strictly below 4 GiB; even a raw value just below 4096 MiB is rejected if upward
+rounding reaches the threshold. Neither timing mode bypasses these checks.
+
+This change leaves the general metrics reader's `operationally_eligible` gate
+false. It does not invent sample timestamps, create authorization, renew a
+campaign, change primary/volume checks, or permit a second pilot. Preserve the
+native gauge, its receipt time and its explicit assumption basis in the ledger.
+The existing 45-second authorization, 90-second receipt, 30-minute campaign,
+2,000-job/account, one-turn, resource, concurrency and commit-time limits remain.

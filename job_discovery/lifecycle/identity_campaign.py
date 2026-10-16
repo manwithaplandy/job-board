@@ -38,7 +38,6 @@ GROWTH_MARGIN = 32 * 1024**2
 MEMORY_LIMIT = 384 * 1024**2
 COMPLETION_SECONDS = 10
 AUTHORIZATION_SECONDS = 45
-OBSERVATION_SECONDS = 90
 CAPACITY_PROJECT = "fdhspmavadgucktetzoi"
 MIN_FREE_BYTES = 1024**3
 MAX_RESIDENT_WAL_BYTES = 4 * 1024**3
@@ -94,16 +93,17 @@ def _usage(conn):
 
 
 def _authorization(conn, row, allocated):
-    # Evaluate freshness on the database clock, including the check immediately
-    # before commit. The worker never renews its own operator authorization.
+    # Evaluate authorization and the explicitly selected timestamp basis on the
+    # database clock, also at commit. Retrieval recency is not measurement age.
+    # The worker never renews its own operator authorization.
     health = conn.execute(
-        """SELECT *, authorized_at<=clock_timestamp()
+        """SELECT a.*, lifecycle_identity_wal_bound(a,c) gating_wal_bytes, authorized_at<=clock_timestamp()
           AND valid_until>clock_timestamp()
           AND valid_until<=authorized_at+make_interval(secs=>%s)
-          AND observed_at<=clock_timestamp()
-          AND observed_at>clock_timestamp()-make_interval(secs=>%s) fresh
-        FROM lifecycle_identity_authorizations WHERE campaign_id=%s""",
-        (AUTHORIZATION_SECONDS, OBSERVATION_SECONDS, row["id"]),
+          AND lifecycle_identity_observation_current(a,c) fresh
+        FROM lifecycle_identity_authorizations a
+        JOIN lifecycle_identity_campaigns c ON c.id=a.campaign_id WHERE a.campaign_id=%s""",
+        (AUTHORIZATION_SECONDS, row["id"]),
     ).fetchone()
     if not health or not health["fresh"]:
         raise RuntimeError(
@@ -118,7 +118,8 @@ def _authorization(conn, row, allocated):
         raise RuntimeError("campaign capacity observation scope mismatch")
     if (
         health["free_bytes"] <= max(MIN_FREE_BYTES, health["capacity_bytes"] // 5)
-        or health["resident_wal_bytes"] >= MAX_RESIDENT_WAL_BYTES
+        or health["gating_wal_bytes"] is None
+        or health["gating_wal_bytes"] >= MAX_RESIDENT_WAL_BYTES
     ):
         raise RuntimeError("campaign physical capacity headroom exhausted")
     if (

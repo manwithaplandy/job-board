@@ -92,9 +92,11 @@ Two Railway follow-ups on the `discovery` service:
        confirmation below fails.
   After the deploy, confirm the service shows a running (not
   "completed"/exited) deployment and its log tails the queue-poll loop.
-- **Set `SERPER_API_KEY`** on the `discovery` service (env var). Optional until a
-  SERP-grounded run is wanted — without it, `serp_available()` is false and jobs
-  with `use_serp = TRUE` classify from ATS/about data only.
+- **Set `SERPER_API_KEY` and `SERP_ENABLED=true`** on the `discovery` service (env
+  vars). Optional until a SERP-grounded run is wanted — SERP is off unless both are
+  set (`SERP_ENABLED` is a global kill switch, default off), and while off,
+  `serp_available()` is false and jobs with `use_serp = TRUE` classify from
+  ATS/about data only (the worker logs a warning for each such job).
 - **Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and
   `LANGFUSE_HOST=https://us.cloud.langfuse.com`** on the `discovery` service.
   Required for the Section 5 `company-classify` LangFuse spot-check to work:

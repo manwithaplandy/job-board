@@ -140,6 +140,10 @@ def process_job(conn, job, classify_client=None, should_stop=None) -> None:
     own_client = classify_client is None
     client = classify_client or CompanyClassifyClient(model=job["model"])
     source = "job_serp" if job["use_serp"] else "job"
+    if job["use_serp"] and not serp.serp_available():
+        log.warning("classification job %s requested SERP but it is unavailable "
+                    "(SERP_ENABLED off or SERPER_API_KEY unset); classifying without it",
+                    job["id"])
     # unknown_repass (a company that stays 'unknown' after this run) and 'all' (whose
     # predicate is simply TRUE) would both re-select the same top-of-order chunk forever;
     # bound select_targets to rows classified BEFORE this run started so a company already

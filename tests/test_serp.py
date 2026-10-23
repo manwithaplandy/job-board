@@ -5,10 +5,12 @@ from tests.conftest import requires_db
 
 
 @pytest.fixture(autouse=True)
-def _reset_serp_throttle():
+def _reset_serp_throttle(monkeypatch):
     """Reset the module-level throttle clock so each single-fetch test starts
     fresh — otherwise the leftover timestamp from a prior test could make the
-    next fetch block on a real time.sleep."""
+    next fetch block on a real time.sleep. Also turns the SERP_ENABLED switch on
+    so the fetch tests exercise the enabled path; the switch tests unset it."""
+    monkeypatch.setenv("SERP_ENABLED", "true")
     serp._last_call = 0.0
     yield
     serp._last_call = 0.0
@@ -44,6 +46,43 @@ def test_serp_available_reflects_env(monkeypatch):
     assert serp.serp_available() is False
     monkeypatch.setenv("SERPER_API_KEY", "k")
     assert serp.serp_available() is True
+
+
+def test_serp_disabled_by_default_even_with_key(monkeypatch):
+    monkeypatch.delenv("SERP_ENABLED", raising=False)
+    monkeypatch.setenv("SERPER_API_KEY", "k")
+    assert serp.serp_available() is False
+
+
+@pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", "on"])
+def test_serp_enabled_truthy_values(monkeypatch, value):
+    monkeypatch.setenv("SERP_ENABLED", value)
+    monkeypatch.setenv("SERPER_API_KEY", "k")
+    assert serp.serp_available() is True
+
+
+@pytest.mark.parametrize("value", ["false", "0", "no", "off", ""])
+def test_serp_enabled_falsy_values(monkeypatch, value):
+    monkeypatch.setenv("SERP_ENABLED", value)
+    monkeypatch.setenv("SERPER_API_KEY", "k")
+    assert serp.serp_available() is False
+
+
+def test_serp_enabled_without_key_is_unavailable(monkeypatch):
+    monkeypatch.setenv("SERP_ENABLED", "true")
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    assert serp.serp_available() is False
+
+
+def test_fetch_company_snippets_none_when_disabled(monkeypatch):
+    monkeypatch.setenv("SERP_ENABLED", "false")
+    monkeypatch.setenv("SERPER_API_KEY", "k")
+    # Record rather than raise: fetch_company_snippets swallows exceptions, so a
+    # raising stub would let this test pass even if the request were sent.
+    calls = []
+    monkeypatch.setattr(serp.requests, "post", lambda *a, **k: calls.append(a))
+    assert serp.fetch_company_snippets("Foo", "lever") is None
+    assert calls == []
 
 
 def test_fetch_company_snippets_query_shape(monkeypatch):

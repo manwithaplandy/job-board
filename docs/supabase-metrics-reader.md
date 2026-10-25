@@ -1,0 +1,188 @@
+# Supabase metrics reader for agents
+
+This tool reads storage observations for job-board's Supabase project `fdhspmavadgucktetzoi`. It cannot run SQL, change settings, apply migrations, start a campaign, or renew campaign authorization. It is separate from the production workers.
+
+## Start here
+
+1. Read this guide before invoking the reader. Development and CI use synthetic fixtures only.
+2. Check whether secure metrics access has been explicitly approved for this session. Installation alone does not authorize a live scrape or credential use.
+3. Use the CLI in an available execution environment, or the stdio MCP adapter in a client that has explicitly registered it. These are supported invocation paths, not an automatically installed ChatGPT connector.
+4. Stop operational decisions on any result other than `ok`. Explicitly authorized exploratory reporting may display incomplete observations with their uncertainty; unknown freshness does not by itself mean the values are inaccurate. Never replace missing WAL with zero, attach a new timestamp to stale data, or write authorization based on an incomplete result.
+
+The initial release intentionally has no verified upstream semantics contract. Even with an approved valid token, data remains ineligible for operational gating until a separately reviewed change records verified WAL conversion, primary identity, volume mapping and source-freshness semantics. There is no CLI/environment switch to bypass this gate.
+
+## Installation and offline verification
+
+Use Python 3.12 or later. From the repository root, create an isolated environment:
+
+```sh
+python3.12 -m venv .venv-metrics
+.venv-metrics/bin/python -m pip install -e '.[metrics-mcp,dev]'
+.venv-metrics/bin/python -m pytest tests/test_supabase_metrics*.py -q
+```
+
+The optional `metrics-mcp` extra is needed only for MCP. Core/CLI use the existing HTTPX dependency. The adapter uses official `mcp==1.26.0`. Follow the committed dependency pin; do not silently upgrade the MCP SDK. Tests inject synthetic transports and clocks and never require a PAT or a production database. The CI metrics job is the authoritative list of adapter tests. Do not run broad lifecycle test discovery: use the repository's permitted acceptance runner for that separate suite.
+
+## Permission and credential handling
+
+The proposed access is a dedicated short-lived fine-grained Supabase PAT scoped only to `fdhspmavadgucktetzoi`, with:
+
+| Permission | Allowed tool operation |
+| --- | --- |
+| Disk Config Read (`infra_disk_config_read`) | GET `/v1/projects/fdhspmavadgucktetzoi/config/disk/util` |
+| Logs Read (`analytics_logs_read`) | GET `/v1/projects/fdhspmavadgucktetzoi/analytics/endpoints/metrics` |
+
+Logs Read is broader at Supabase than this tool: it also grants upstream log access. The reader's allowlist prevents it from calling those log routes. It does not turn the PAT itself into a metrics-only credential. No database, migration, write, API-key-read, service-role or secret-key access is needed.
+
+After separate access approval, an owner creates the token in Supabase and installs it using the execution platform's secure secret control under `SUPABASE_METRICS_PAT`. Never request or paste secrets in chat, put them in a shell command, commit an environment file, print the environment, or include credentials in issue/PR evidence. Do not reuse existing dashboard or worker secrets. Set an appropriate expiry, track the owner and revoke when no longer needed. Token rotation and persistent secret storage require their own setup approval.
+
+## CLI
+
+After approved secure environment injection:
+
+```sh
+.venv-metrics/bin/python -m supabase_metrics
+```
+
+The command takes no project, URL, SQL, metric, token, timeout or freshness arguments. Output is one sanitized JSON object. Exit 0 means `ok`; exit 1 means observations are not eligible; exit 2 indicates an adapter/setup problem. Do not treat successful HTTP requests as a successful observation.
+
+Without a configured credential, the same command provides a safe setup check and performs no upstream request. Use fixture tests for a complete successful example; do not fabricate an example as production evidence.
+
+## MCP stdio adapter
+
+```sh
+.venv-metrics/bin/python -m supabase_metrics.mcp_server
+```
+
+This starts a local stdio MCP server. It exposes exactly `get_supabase_storage_metrics` with no input arguments. The client uses stdin/stdout for the protocol; do not manually type secrets into either stream. Register the command and absolute working directory/interpreter path in the specific MCP client's supported configuration, with the secret supplied through that client's approved secret mechanism. No example embeds a PAT in JSON configuration.
+
+The tool is read-only and returns the same structured result as the CLI. A client must initialize the server and discover its tools before invocation. Starting this process does not register it with ChatGPT, a saved cloud task, or the parent assistant. Those environments may lack local process support or this filesystem. Remote MCP hosting, client authentication, registration and costs are separate work and are not implemented or approved here. The adapter has no public HTTP listener.
+
+## Reading the result
+
+The result carries a schema version, fixed project, reader version, fetch interval, allowlisted source paths, source timestamps, storage byte values and a fixed status/error code. Missing measurements remain null. Raw Prometheus text, unknown labels, response bodies, headers and exception text are never returned.
+
+Stop-decision excerpts from the typed result (timestamps and other fields omitted here):
+
+```json
+{"status":"incomplete","operationally_eligible":false,"errors":["source_contract_unverified"]}
+```
+
+```json
+{"status":"unavailable","operationally_eligible":false,"errors":["credential_missing"]}
+```
+
+These excerpts illustrate stop decisions, not observed production readings. The tests contain complete synthetic payloads and expected adapter results. The full result includes `schema_version`, `reader_version`, `project_ref`, `status`, `operationally_eligible`, `fetch_started_at`, `fetch_finished_at`, `source_paths`, `disk_observed_at`, `wal_observed_at`, `observed_at`, `instance`, `volume`, `capacity_bytes`, `available_bytes`, `used_bytes`, `resident_wal_bytes`, and `errors`. Only `status=ok` together with `operationally_eligible=true` is eligible evidence.
+
+Disk utilization returns a timestamp and `fs_size_bytes`, `fs_avail_bytes`, `fs_used_bytes`. Available space can differ from capacity minus used because of reserved blocks; do not force equality. The required WAL series is `pg_wal_size_mb`, a gauge of disk space used by WAL files. WAL generation counters or rates are not resident WAL. The name `_mb` alone does not prove decimal MB versus binary MiB. Before setting any conversion, inspect the upstream exporter/query definition and verify a real approved sample. Duplicate, unknown or replica-only series do not establish primary storage usage.
+
+Reader 1.1.0 adds per-endpoint retrieval reporting. The overall
+`fetch_started_at` and `fetch_finished_at` already existed; they describe the
+whole operation. `disk_fetched_at` and `wal_fetched_at` record local UTC time
+immediately after each complete, bounded successful HTTP body retrieval. They
+remain null if that retrieval did not complete, and can be present even if later
+payload validation fails. They are receipt times, not measurement times.
+
+`disk_observed_at` and `wal_observed_at` retain the upstream timestamps accepted
+by the existing parsers, normalized to UTC. No fetch time is substituted for a
+missing source timestamp. `disk_reported_age_seconds` and
+`wal_reported_age_seconds` are the elapsed seconds from those timestamps to the
+overall fetch finish; null means no accepted source timestamp. Negative reported
+age preserves evidence of source clock skew rather than silently clamping it.
+
+`disk_measurement_age_status` and `wal_measurement_age_status` explicitly say
+`unknown` until the reviewed source contract validates the timestamp semantics
+and the corresponding measurement is accepted. A numeric **reported** timestamp
+age can therefore coexist with `unknown` measurement age. `verified` describes
+provenance, not freshness: a verified fixture can still be stale or future-dated.
+The live source contract remains unverified. These additive reporting fields do
+not change CLI exit codes, the source-age limits, or operational eligibility.
+
+For a first read-only test, report the values, each receipt time, upstream times
+and reported ages separately, retaining unknown measurement-age labels. Evaluate
+actual discrepancies if observed; do not infer inaccurate values solely from
+unknown age. This reporting permission does not authorize backfill or polling.
+
+Fetch start/end describe the HTTP operation. Source observation timestamps describe the metrics. A current fetch timestamp cannot repair old or unknown source time. Observations may be at most 5 seconds in the future to tolerate small clock skew, and must be no older than 90 seconds at return, with separate source timestamps preserved and the older one controlling combined age. No stale cached result can be treated as healthy.
+
+The result does not grant permission to migrate or run a campaign. A separately authorized writer must enforce its own provenance, thresholds and commit-time expiry. Never send this reader a database credential or add a renewal side effect to make a campaign proceed.
+
+## Failure and troubleshooting
+
+| Condition | Agent action |
+| --- | --- |
+| Missing credential | Stop; request secure access setup only if the user wants a live read. Never ask for the token in chat. |
+| HTTP 401/403 | Stop; check expiry/project scope/approved permissions via owner. No broader token or secret fallback. |
+| HTTP 429, transient 5xx, network timeout | Reader retries within bounded limits; if still unavailable, stop and try a later explicitly needed read. |
+| Redirect, oversized body, malformed data | Stop; report the fixed error code. Do not dump raw payloads. |
+| Missing WAL, unknown units/labels/timestamps | Incomplete; obtain approved source evidence and a reviewed contract change. Never guess or lower freshness requirements. |
+| Stale/future/invalid numeric readings | Stop; investigate upstream observation semantics and clock health. |
+| MCP import/setup failure | Install the committed optional extra in the selected environment; confirm client interpreter/working directory. |
+| MCP tool unavailable in assistant | Register through the actual supported client workflow after approval; do not claim it is already callable. |
+
+Transport is restricted to HTTPS GET on `api.supabase.com`, redirects disabled, two attempts per endpoint maximum, a 20-second operation budget, and bounded response sizes. Only sanitized fixed errors escape the reader. No background polling or persistent metric storage is included.
+
+## First approved integration session
+
+Verify the PAT scope and expiry through a secure administrative control; then perform the bounded read. Confirm primary identity, actual metric presence, exact units, disk-volume mapping and trustworthy upstream sample age. Record only sanitized results and nonsecret source evidence. Have the contract update reviewed and run fixtures/CI before accepting `ok` as evidence. Do not register a new server, configure persistent access, deploy infrastructure or renew a campaign as part of this read.
+
+## References
+
+- [Disk utilization endpoint](https://supabase.com/docs/reference/api/v1-get-disk-utilization)
+- [Metrics scrape endpoint](https://supabase.com/docs/reference/api/v1-scrape-project-metrics)
+- [Fine-grained PAT permissions](https://supabase.com/docs/guides/platform/personal-access-tokens)
+- [Official metrics list](https://github.com/supabase/supabase-grafana/blob/main/metrics.md)
+- [Approved design](superpowers/specs/2026-10-14-supabase-metrics-reader.md)
+
+
+## Managed network-secret environments
+
+The HTTP client honors the execution runtime's proxy and certificate environment
+(`trust_env=True`), keeps TLS verification enabled and redirects disabled, and
+still requests only the fixed HTTPS host and two paths. Do not clear proxy
+variables, alter NO_PROXY, use a direct transport, or disable TLS to get a read
+through. A certificate failure is a setup blocker, not a reason to weaken TLS.
+
+For a Personal Vault network secret, use only the runtime's documented injected
+placeholder and proxy substitution mechanism. The reader does not implement
+Vault discovery or retrieve secret values. Before any authenticated invocation,
+confirm through safe presence/status metadata that the requested key and fixed
+host are supported. The existing environment-variable interface alone does not
+establish that Vault injection is available. Never export a raw secret manually
+as an alternative to an unavailable network-secret mechanism.
+
+On 2026-10-14, a presence-only check found proxy settings present but no
+`SUPABASE_METRICS_PAT` entry. No callable Vault metadata/placeholder interface was
+exposed in that execution environment, so requested-key and target-host support
+could not be established. No authenticated request was attempted, and no metrics,
+WAL-unit, identity or freshness claims were made. Secure network-secret exposure
+for this task remains the blocker; a saved Vault entry alone does not prove that
+an already-running task received it. Any necessary environment reconfiguration
+requires separate approval. This is historical evidence, not a substitute for
+checking the next session's runtime metadata.
+
+## Republished environment verification (2026-10-14)
+
+The earlier missing-secret blocker above was resolved for a **new** job-board
+cloud task. The owner created the project-scoped PAT, saved it themselves as the
+Personal Vault **network secret** `SUPABASE_METRICS_PAT`, and republished the
+job-board cloud environment to request that key and allow `api.supabase.com`.
+The owner then authorized a read-only test. In the new task, presence-only checks
+confirmed the key, runtime HTTPS proxy and certificate configuration. The exact
+reader head `ca5e227a87d3c48a107e27297c76a61449cb9be3` was fetched into an isolated
+worktree without merging. `python -m supabase_metrics` successfully read both
+approved endpoints using the existing injected environment interface and managed
+proxy, with TLS verification enabled. No credential value was displayed or
+persisted, no manual secret export was used, and no network policy was changed.
+This verifies this task's connection; it does not establish token expiry or prove
+that the token has no additional permissions. Future tasks must check their own
+presence/status and authorization rather than assuming a saved Vault entry is
+available. Agents must not create/rotate credentials or republish environments
+under read-only authorization.
+
+The CLI returned `incomplete`, `source_contract_unverified`, exit 1, with
+`operationally_eligible=false`. Subsequent explicitly authorized diagnostics used
+only the same two fixed GET paths, the existing bounded fetch helper, proxy and
+TLS settings. Only allowlisted numeric observations and label-match booleans were
+retained; raw responses and unrestricted labels were not persisted or printed.
+See [source verification evidence and minimum next step](supabase-metrics-source-evidence.md).

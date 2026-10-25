@@ -14,6 +14,19 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  metrics-reader:
+    name: Offline metrics reader and MCP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install reader and optional MCP adapter
+        run: python -m pip install -e '.[metrics-mcp,dev]'
+      - name: Run fixture-only core and adapter tests
+        run: python -m pytest tests/test_supabase_metrics*.py -q
+
   python:
     name: Permitted acceptance PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest

@@ -10,6 +10,7 @@ import { parsePreferredLocations } from "@/lib/preferredLocations";
 import { validateOnboarding, hasErrors, type OnboardingErrors } from "@/lib/onboarding";
 import { safeErrorMessage } from "@/lib/safeError";
 import { resumeObjectPath } from "@/lib/resumeStorage";
+import { instructionsError, resumePdfError, resumeTextError } from "@/lib/profileInputLimits";
 
 export type OnboardingState = { errors: OnboardingErrors } | null;
 
@@ -40,18 +41,24 @@ export async function completeOnboarding(
       invited, hasProfile: false, resumeText, preferredLocations,
     });
     if (hasErrors(errors)) return { errors };
+    const tooLong = resumeTextError(resumeText);
+    if (tooLong) return { errors: { resume: tooLong } };
+    const instructionsTooLong = instructionsError(instructions);
+    if (instructionsTooLong) return { errors: { form: instructionsTooLong } };
 
     // Archive an uploaded résumé file exactly like saveProfileResume — the reviewed
     // resume_text is what generation reads; the file is archival only.
     let resumeFilePath: string | null = null;
     const file = formData.get("resume_pdf");
     if (file instanceof File && file.size > 0) {
+      const pdfError = resumePdfError(file);
+      if (pdfError) return { errors: { resume: pdfError } };
       const bytes = new Uint8Array(await file.arrayBuffer());
       const path = resumeObjectPath(claims.id, file.name);
       const supabase = await createClient();
       const { error } = await supabase.storage
         .from("resumes")
-        .upload(path, bytes, { contentType: file.type || "application/pdf", upsert: true });
+        .upload(path, bytes, { contentType: "application/pdf", upsert: true });
       if (error) {
         return { errors: { form: safeErrorMessage("onboarding.resume-upload", error, "Résumé upload failed. Please try again.") } };
       }

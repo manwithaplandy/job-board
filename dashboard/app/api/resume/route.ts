@@ -5,6 +5,7 @@ import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForResume, upsertApplicationPackage } from "@/lib/queries";
 import { gateRejectionBody } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations } from "@/lib/usage";
+import { isBilledGenerationError } from "@/lib/rolefit/openrouterClient";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
@@ -61,8 +62,8 @@ export async function POST(req: Request) {
 
   // Tier gate: no plan → 402, monthly allowance exhausted → 429. reserveGenerations
   // ATOMICALLY charges the slot up front (avoids the check-then-charge TOCTOU); the
-  // background catch below REFUNDS on a failed generation so a failure never burns
-  // allowance. Placed AFTER the 404/422/500 validation so we never charge a request
+  // background catch below REFUNDS a generation that failed before inference, but
+  // keeps the charge for a response OpenRouter billed (see the catch). Placed AFTER the 404/422/500 validation so we never charge a request
   // that can't generate. The catalog is fetched CONCURRENTLY with the gate;
   // getStructuredModels is 1h-cached and returns [] (fail-open) on failure, so it adds
   // no new rejection path even on the reject path.
@@ -144,10 +145,13 @@ export async function POST(req: Request) {
       console.error("resume generation failed", {
         userId, jobId, model, error: msg,
       });
-      // Reserved-but-failed: refund so a failed generation never burns allowance.
-      // Refund BEFORE the status write — if we crash between the two, the row is
-      // still 'pending' and the staleness sweep fails it, but the money is back.
-      await refundGenerations(userId, ["resume"]);
+      // Reserved-but-failed: a failure BEFORE inference (fetch threw / non-2xx) is
+      // refunded; a response OpenRouter already billed (truncated / non-JSON / failed
+      // parse after a 200) is NOT, because otherwise a prompt engineered to fail lets
+      // one slot buy unlimited inference. Refund BEFORE the status write — if we crash
+      // between the two, the row is still 'pending' and the staleness sweep fails it,
+      // but the money is back.
+      if (!isBilledGenerationError(e)) await refundGenerations(userId, ["resume"]);
       await settle({ status: "failed", error: generationFailureMessage("Résumé", msg) });
     }
   };

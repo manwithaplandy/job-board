@@ -13,7 +13,9 @@ vi.mock("@langfuse/tracing", () => ({
   }),
 }));
 
-import { callOpenRouterStructured, OPENROUTER_CHAT_URL } from "@/lib/rolefit/openrouterClient";
+import {
+  callOpenRouterStructured, OPENROUTER_CHAT_URL, BilledGenerationError, isBilledGenerationError,
+} from "@/lib/rolefit/openrouterClient";
 
 function fakeFetch(payload: unknown, ok = true): typeof fetch {
   return vi.fn(async () => ({ ok, status: ok ? 200 : 502, json: async () => payload })) as unknown as typeof fetch;
@@ -220,5 +222,64 @@ describe("transport hardening", () => {
     await callOpenRouterStructured({ ...baseArgs, reasoningEffort: level, fetchImpl: f, parse: (r) => r });
     const body = JSON.parse(((f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1]).body as string);
     expect(body.reasoning).toEqual({ effort: level });
+  });
+});
+
+// Billing classification: a failure AFTER a 2xx means OpenRouter already billed the
+// tokens, so the routes must NOT refund the allowance slot (a prompt engineered to
+// fail would otherwise buy unlimited inference on one slot). Pre-inference failures
+// (fetch threw / non-2xx after retries) stay plain Errors and are refunded.
+describe("billed vs pre-inference failure classification", () => {
+  async function failure(args: Partial<Parameters<typeof callOpenRouterStructured>[0]>): Promise<unknown> {
+    try {
+      await callOpenRouterStructured({ ...baseArgs, parse: (r) => r, ...args });
+    } catch (e) { return e; }
+    throw new Error("expected callOpenRouterStructured to reject");
+  }
+  const ok200 = (payload: unknown) => fakeFetch(payload);
+
+  const billedCases: [string, () => Promise<unknown>, string][] = [
+    ["finish_reason length", () => failure({ fetchImpl: ok200({ choices: [{ message: { content: "{}" }, finish_reason: "length" }] }) }),
+      "OpenRouter thing output truncated (max_tokens reached)"],
+    ["no content", () => failure({ fetchImpl: ok200({ choices: [{ message: {} }] }) }), "OpenRouter returned no content"],
+    ["non-JSON content", () => failure({ fetchImpl: ok200({ choices: [{ message: { content: "nope" } }] }) }),
+      "OpenRouter returned non-JSON thing content"],
+    ["parse rejection", () => failure({
+      fetchImpl: ok200({ choices: [{ message: { content: "{}" } }] }),
+      parse: () => { throw new Error("missing required fields"); },
+    }), "missing required fields"],
+  ];
+  for (const [name, run, message] of billedCases) {
+    test(`${name} after a 200 → BilledGenerationError with the original message`, async () => {
+      const e = await run();
+      expect(e).toBeInstanceOf(BilledGenerationError);
+      expect(isBilledGenerationError(e)).toBe(true);
+      expect((e as Error).message).toBe(message);
+      expect((e as Error).cause).toBeInstanceOf(Error);
+    });
+  }
+
+  test("non-2xx after retries is NOT billed", async () => {
+    const e = await failure({ fetchImpl: fakeFetch({}, false) });
+    expect(e).toBeInstanceOf(Error);
+    expect(isBilledGenerationError(e)).toBe(false);
+  });
+
+  test("a fetch that keeps throwing (network/timeout) is NOT billed", async () => {
+    const f = vi.fn(async () => { throw new Error("fetch failed"); }) as unknown as typeof fetch;
+    const e = await failure({ fetchImpl: f });
+    expect((e as Error).message).toBe("fetch failed");
+    expect(isBilledGenerationError(e)).toBe(false);
+  });
+
+  test("isBilledGenerationError walks the cause chain and tolerates non-errors", () => {
+    const billed = new BilledGenerationError("boom");
+    expect(isBilledGenerationError(new Error("wrapped", { cause: new Error("mid", { cause: billed }) }))).toBe(true);
+    expect(isBilledGenerationError(new Error("plain"))).toBe(false);
+    expect(isBilledGenerationError("string")).toBe(false);
+    expect(isBilledGenerationError(null)).toBe(false);
+    const cyclic: { cause?: unknown } = {};
+    cyclic.cause = cyclic;
+    expect(isBilledGenerationError(cyclic)).toBe(false);
   });
 });

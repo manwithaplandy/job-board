@@ -21,6 +21,9 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
+  // next dev 16.4+ otherwise writes a managed AGENTS.md into the project; the
+  // repo keeps its own agent guidance in CLAUDE.md.
+  agentRules: false,
   poweredByHeader: false,
   // Prevent webpack from trying to bundle Node.js-only OTel/gRPC packages.
   // ensureTracingStarted() in lib/observability.ts dynamically imports these

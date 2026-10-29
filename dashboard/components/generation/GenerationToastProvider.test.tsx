@@ -202,4 +202,20 @@ describe("GenerationToastProvider", () => {
     expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
+
+  test("polls without following the auth redirect, so anonymous pages never fetch /login", async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 0,
+      type: "opaqueredirect",
+      redirected: false,
+      json: async () => null,
+    })) as unknown as typeof fetch;
+    renderProvider();
+    await flush(0);
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith("/api/generations", expect.objectContaining({ redirect: "manual" }));
+    await flush(20_000);
+    expect(fetchMock.mock.calls.length).toBe(1);
+  });
 });

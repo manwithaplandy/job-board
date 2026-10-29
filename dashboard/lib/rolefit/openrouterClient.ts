@@ -34,6 +34,34 @@ const MAX_ATTEMPTS = 2;
 // is the interim guard against truncation.
 export const REASONING_SAFE_MAX_TOKENS = 12_000;
 
+/**
+ * A generation failure AFTER OpenRouter answered 2xx — truncated output
+ * (finish_reason "length"), no content, non-JSON content, an unreadable body, or a
+ * `parse` rejection. The inference ran and OpenRouter BILLED it, so callers must not
+ * refund the user's allowance slot: otherwise a prompt engineered to fail (e.g. a
+ * résumé that tells the model to emit garbage) lets one slot buy unlimited inference.
+ * Pre-inference failures (fetch threw / non-2xx after retries) stay plain Errors and
+ * are refunded. The message is the original failure's, unchanged (log text and the
+ * user-safe copy mapping key off it); the original error is kept as `cause`.
+ */
+export class BilledGenerationError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "BilledGenerationError";
+  }
+}
+
+/** True when `e` (or anything on its `cause` chain) is a BilledGenerationError. */
+export function isBilledGenerationError(e: unknown): boolean {
+  const seen = new Set<unknown>();
+  for (let cur = e; cur != null && !seen.has(cur); cur = (cur as { cause?: unknown }).cause) {
+    if (cur instanceof BilledGenerationError) return true;
+    seen.add(cur);
+    if (typeof cur !== "object") return false;
+  }
+  return false;
+}
+
 /** Extract error body text safely — handles fakes without a text() method. */
 async function errText(res: Response): Promise<string> {
   try {
@@ -144,22 +172,32 @@ export async function callOpenRouterStructured<T>(args: {
   try {
     const res = await fetchOk();
 
-    const json = (await (res as unknown as { json: () => Promise<unknown> }).json()) as {
+    // Everything past a 2xx is post-inference: OpenRouter has already billed the
+    // tokens, so any failure here is re-thrown as a BilledGenerationError (same
+    // message) and callers keep the allowance charge instead of refunding it.
+    let json: {
       choices?: { message?: { content?: string }; finish_reason?: string }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
     };
+    let parsed: T;
+    try {
+      json = (await (res as unknown as { json: () => Promise<unknown> }).json()) as typeof json;
 
-    const choice = json.choices?.[0];
-    if (choice?.finish_reason === "length") {
-      throw new Error(`OpenRouter ${args.label} output truncated (max_tokens reached)`);
+      const choice = json.choices?.[0];
+      if (choice?.finish_reason === "length") {
+        throw new Error(`OpenRouter ${args.label} output truncated (max_tokens reached)`);
+      }
+
+      const content = choice?.message?.content;
+      if (!content) throw new Error("OpenRouter returned no content");
+      let raw: unknown;
+      try { raw = JSON.parse(content); }
+      catch { throw new Error(`OpenRouter returned non-JSON ${args.label} content`); }
+      parsed = args.parse(raw);
+    } catch (e) {
+      if (e instanceof BilledGenerationError) throw e;
+      throw new BilledGenerationError(e instanceof Error ? e.message : String(e), { cause: e });
     }
-
-    const content = choice?.message?.content;
-    if (!content) throw new Error("OpenRouter returned no content");
-    let raw: unknown;
-    try { raw = JSON.parse(content); }
-    catch { throw new Error(`OpenRouter returned non-JSON ${args.label} content`); }
-    const parsed = args.parse(raw);
     gen?.update({
       output: parsed,
       usageDetails: json.usage

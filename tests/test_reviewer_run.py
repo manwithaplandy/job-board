@@ -176,6 +176,55 @@ def test_missing_stage1_decision_is_error():
     assert client.stage2_calls == []  # never reached stage 2
 
 
+class BatchBoomClient(StubClient):
+    """stage1_batch raises a transport-shaped (non-402) error for the whole batch."""
+
+    async def stage1_batch(self, *, profile_block, jobs):
+        self.stage1_batch_calls += 1
+        raise RuntimeError("connection reset")
+
+
+def test_missing_stage1_decision_is_billed_and_charged():
+    """A SUCCESSFUL stage1_batch call that omits a job's decision was still billed: the
+    error row is flagged billed and counts toward the daily budget, so a prompt telling
+    the model to return no decisions can't re-run the cap for free. Decided rows charge
+    as before."""
+    from reviewer.run import _budget_spend
+    client = StubClient()
+    cands = [_cand("MISSING-a"), _cand("MISSING-b"), _cand("Forklift Operator"), _cand("SRE")]
+    results, halted = asyncio.run(review_batch(cands, "P", client, concurrency=2))
+    assert not halted
+    by_title = {r.job_id.split(":")[-1]: r for r in results}
+    for t in ("MISSING-a", "MISSING-b"):
+        assert by_title[t].error == "stage1_batch returned no decision"
+        assert by_title[t].stage1_decision is None
+        assert by_title[t].billed is True
+    assert by_title["Forklift Operator"].billed is False
+    assert _budget_spend(results) == 4, "2 billed no-decision rows + reject + pass"
+
+
+def test_whole_batch_transport_failure_is_not_charged():
+    """A stage1_batch exception (outage) leaves error rows uncharged, as before."""
+    from reviewer.run import _budget_spend
+    client = BatchBoomClient()
+    results, halted = asyncio.run(
+        review_batch([_cand("SRE"), _cand("DataEng")], "P", client, concurrency=1))
+    assert not halted and len(results) == 2
+    assert all(r.error and r.error.startswith("stage1_batch RuntimeError") for r in results)
+    assert all(r.billed is False for r in results)
+    assert _budget_spend(results) == 0
+
+
+def test_billed_flag_is_not_serialized_into_the_row():
+    """`billed` is in-memory only — the job_reviews row columns are unchanged."""
+    from reviewer.db import _REVIEW_COLUMNS
+    from reviewer.run import ReviewResult
+    row = ReviewResult(job_id="j", error="stage1_batch returned no decision",
+                       billed=True).as_row(user_id="u", profile_version="v1")
+    assert "billed" not in row
+    assert set(row) == set(_REVIEW_COLUMNS)
+
+
 def test_as_row_maps_all_columns():
     client = StubClient()
     res = asyncio.run(review_one(_cand("SRE"), "P", client))
@@ -1224,3 +1273,31 @@ def test_persist_chunk_tombstone_guard_discards_chunk_two_at_write_boundary(conn
     assert rr["reviewed"] == 2, "chunk 1's counts only"
     assert rr["notes"] == "account deleted mid-run; skipped writes"
     assert rdb.get_daily_spend(conn, USER) == 2, "only chunk 1 charged; chunk 2's spend discarded"
+
+
+@requires_db
+def test_no_decision_rows_charge_daily_spend_and_outage_rows_do_not(conn, monkeypatch):
+    """End to end through _review_user's per-chunk charge: a no-decision error row from a
+    successful (billed) stage1_batch call is charged; a whole-batch transport failure
+    is not."""
+    cid = _seed_company(conn)
+    poller_db.upsert_job(conn, cid, "lever", "acme",
+                         Posting(external_id="nodec", title="MISSING-nodec", url="u",
+                                 remote=True, raw={"descriptionPlain": "jd"}))
+    _seed_reviewable_job(conn, cid, "good")
+    _insert_profile(conn, USER, cap=10)
+
+    _run_review_all(conn, monkeypatch)
+    with conn.cursor() as cur:
+        cur.execute("SELECT job_id, error FROM job_reviews WHERE user_id = %s", (USER,))
+        rows = {r["job_id"]: r for r in cur.fetchall()}
+    assert rows["lever:acme:nodec"]["error"] == "stage1_batch returned no decision"
+    assert rdb.get_daily_spend(conn, USER) == 2, "billed no-decision row + approved row"
+
+    # An outage on the re-run (the no-decision row is re-selected) charges nothing more.
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    import reviewer.run as run_module
+    monkeypatch.setattr(run_module, "ReviewClient", lambda **kw: BatchBoomClient(**kw))
+    run_module.review_all(conn)
+    assert rdb.get_daily_spend(conn, USER) == 2

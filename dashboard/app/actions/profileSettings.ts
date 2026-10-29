@@ -20,6 +20,7 @@ import type { SectionSaveState, UpgradeCta } from "@/lib/profileSettingsState";
 import { getProfile, updateCompanyExclusions } from "@/lib/queries";
 import { MAX_EXCLUSION_ITEMS, parseCompanyExclusions } from "@/lib/rolefit/companyExclusions";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
+import { instructionsError, resumePdfError, resumeTextError } from "@/lib/profileInputLimits";
 import { resumeObjectPath } from "@/lib/resumeStorage";
 import { safeErrorMessage } from "@/lib/safeError";
 import { getViewerPlan } from "@/lib/subscriptions";
@@ -27,7 +28,6 @@ import { createClient } from "@/lib/supabase/server";
 import { assertNotDeleted } from "@/lib/tombstone";
 import type { ApplicationAnswers } from "@/lib/types";
 
-const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 const text = (fd: FormData, key: string): string | null =>
   String(fd.get(key) ?? "").trim() || null;
 const triState = (fd: FormData, key: string): boolean | null => {
@@ -116,11 +116,15 @@ export async function saveJobPreferences(
     const userId = await requireUserId();
     const preferredLocations = parsePreferredLocations(String(fd.get("preferred_locations") ?? ""));
     if (!preferredLocations.length) return invalid({ preferred_locations: "Pick at least one location." });
-    await updateJobPreferences(userId, {
-      preferredLocations,
-      instructions: text(fd, "instructions"),
-      companyInstructions: text(fd, "company_instructions"),
-    });
+    const instructions = text(fd, "instructions");
+    const companyInstructions = text(fd, "company_instructions");
+    const lengthErrors: Record<string, string> = {};
+    const instructionsTooLong = instructionsError(instructions);
+    const companyTooLong = instructionsError(companyInstructions);
+    if (instructionsTooLong) lengthErrors.instructions = instructionsTooLong;
+    if (companyTooLong) lengthErrors.company_instructions = companyTooLong;
+    if (Object.keys(lengthErrors).length) return invalid(lengthErrors);
+    await updateJobPreferences(userId, { preferredLocations, instructions, companyInstructions });
     revalidate("/profile", "/profile/job-preferences");
     return success();
   } catch (error) {
@@ -270,13 +274,14 @@ export async function saveResumeSettings(
     await assertNotDeleted(userId);
     const existing = await getProfile(userId);
     const submittedText = text(fd, "resume_text");
+    const textTooLong = resumeTextError(submittedText);
+    if (textTooLong) return invalid({ resume_text: textTooLong });
     const resumeText = submittedText || existing?.resume_text || null;
     let resumeFilePath = existing?.resume_file_path ?? null;
     const file = fd.get("resume_pdf");
     if (file instanceof File && file.size > 0) {
-      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-      if (!isPdf) return invalid({ resume_pdf: "Upload a PDF file." });
-      if (file.size > MAX_RESUME_BYTES) return invalid({ resume_pdf: "PDF must be 5 MiB or smaller." });
+      const pdfError = resumePdfError(file);
+      if (pdfError) return invalid({ resume_pdf: pdfError });
       uploadedPath = resumeObjectPath(userId, file.name);
       const client = await createClient();
       storage = client.storage;

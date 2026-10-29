@@ -81,6 +81,13 @@ class ReviewResult:
     skill_gaps: list = field(default_factory=list)
     benefits: list = field(default_factory=list)
     requirements: list = field(default_factory=list)
+    # In-memory only (NOT a job_reviews column — as_row serializes _REVIEW_COLUMNS
+    # only): True when the LLM call SUCCEEDED and was billed but yielded no usable
+    # decision for this job (stage1_batch omitted it). Such rows are error rows (and
+    # re-selectable), yet they must still be charged to the daily budget — otherwise a
+    # résumé prompt telling the model to return no decisions re-runs the full cap for
+    # free via the on-demand review queue.
+    billed: bool = False
 
     def as_row(self, *, user_id: str, profile_version: str) -> dict:
         # user_id/profile_version come from the caller; the rest are own fields.
@@ -90,6 +97,11 @@ class ReviewResult:
         if self.demand_id is not None:
             row["demand_id"] = self.demand_id
         return row
+
+
+def _budget_spend(chunk: list[ReviewResult]) -> int:
+    """Daily-budget units a persisted chunk consumed (see the charge in _review_user)."""
+    return sum(1 for r in chunk if r.stage1_decision is not None or r.billed)
 
 
 async def _stage2_inner(candidate: dict, profile_block: str, client,
@@ -351,9 +363,10 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
         for c in batch:
             d = by_decision.get(c["id"])
             if d is None:  # missing per-id decision → retryable error (spec B6/B1)
+                # The batch call succeeded, so this job's screen was billed: charge it.
                 chunk_results.append(ReviewResult(
                     job_id=c["id"], model_stage1=client.model_stage1,
-                    error="stage1_batch returned no decision"))
+                    error="stage1_batch returned no decision", billed=True))
                 continue
             res = ReviewResult(
                 job_id=c["id"], model_stage1=client.model_stage1,
@@ -562,9 +575,13 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
 
             # Charge the daily budget for jobs that actually consumed LLM budget: any
             # result carrying a stage-1 decision (gate-reject, stage-2-complete, or
-            # JD-deferred). Error-only rows (stage1_batch transport failures leave
-            # stage1_decision NULL) are excluded so an outage can't burn a day's budget.
-            spent = sum(1 for r in chunk if r.stage1_decision is not None)
+            # JD-deferred), PLUS billed error rows — a stage1_batch call that succeeded
+            # but omitted a job's decision (r.billed). Those rows stay re-selectable, so
+            # leaving them uncharged would let a prompt engineered to return no decisions
+            # re-run the full cap repeatedly at zero budget cost. Whole-batch exceptions
+            # (transport failures: stage1_decision NULL, billed False) stay uncharged so
+            # an outage can't burn a day's budget.
+            spent = _budget_spend(chunk)
             db.add_daily_spend(conn, user_id, spent)
             # _persist_rows already committed this chunk's job_reviews (per-PERSIST_CHUNK_SIZE
             # commits + a tail commit inside it); this commit lands the spend immediately

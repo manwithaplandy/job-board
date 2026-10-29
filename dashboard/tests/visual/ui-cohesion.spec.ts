@@ -27,6 +27,39 @@ test.beforeAll(() => {
   }
 });
 
+// Failure evidence for the networkidle wait: on a failed test, print the requests
+// still in flight, the navigations and the console errors so CI logs show what kept
+// the page busy (uploaded artifacts omit traces).
+const networkLogs = new WeakMap<Page, { inflight: Map<string, number>; events: string[] }>();
+test.beforeEach(({ page }) => {
+  const started = Date.now();
+  const log = { inflight: new Map<string, number>(), events: [] as string[] };
+  const note = (event: string) => {
+    log.events.push(`${((Date.now() - started) / 1000).toFixed(1)}s ${event}`);
+    if (log.events.length > 60) log.events.splice(0, log.events.length - 60);
+  };
+  page.on("request", (request) => log.inflight.set(`${request.method()} ${request.url()}`, Date.now() - started));
+  const settle = (request: { method(): string; url(): string }) => log.inflight.delete(`${request.method()} ${request.url()}`);
+  page.on("requestfinished", settle);
+  page.on("requestfailed", (request) => {
+    settle(request);
+    note(`failed ${request.url()} ${request.failure()?.errorText ?? ""}`);
+  });
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) note(`navigated ${frame.url()}`);
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.text().includes("[HMR]") || message.text().includes("Fast Refresh")) note(`console.${message.type()} ${message.text().slice(0, 200)}`);
+  });
+  networkLogs.set(page, log);
+});
+test.afterEach(({ page }, testInfo) => {
+  const log = networkLogs.get(page);
+  if (!log || testInfo.status === testInfo.expectedStatus) return;
+  const inflight = [...log.inflight].map(([request, at]) => `${(at / 1000).toFixed(1)}s ${request}`);
+  console.log(`[network evidence] ${testInfo.title}\n  in flight:\n    ${inflight.join("\n    ") || "(none)"}\n  events:\n    ${log.events.join("\n    ") || "(none)"}`);
+});
+
 async function assertRuntimeContracts(page: Page) {
   const runtime = await page.evaluate(() => {
     const viewport = document.documentElement.clientWidth;

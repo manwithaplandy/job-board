@@ -52,6 +52,7 @@ vi.mock("@/lib/rolefit/coverLetterClient", () => ({
 vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 
 import { POST } from "@/app/api/cover-letter/route";
+import { BilledGenerationError } from "@/lib/rolefit/openrouterClient";
 
 const USER = "33333333-3333-3333-3333-333333333333";
 const EMAIL = "u@x.com";
@@ -279,4 +280,25 @@ describe("POST /api/cover-letter — background failure → refund + user-safe s
       expect(outcome.error).toContain(copy);
     });
   }
+
+  // Billing rule: a failure BEFORE inference is refunded; a response OpenRouter already
+  // billed is NOT (else a prompt engineered to fail buys unlimited inference on one slot).
+  test("network / 5xx failure before inference → refunded", async () => {
+    mocks.generateCoverLetter.mockRejectedValue(new Error("OpenRouter cover letter request failed: 503"));
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["cover"]);
+  });
+
+  test("truncated / parse failure after a 200 (billed) → NOT refunded, same user-safe copy", async () => {
+    mocks.generateCoverLetter.mockRejectedValue(
+      new BilledGenerationError("OpenRouter cover letter output truncated (max_tokens reached)"),
+    );
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    expect(mocks.refundGenerations).not.toHaveBeenCalled();
+    const outcome = mocks.settleGenerationJob.mock.calls[0][2];
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toContain("cut off");
+  });
 });

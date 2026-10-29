@@ -24,7 +24,7 @@ import {
 //   - exposes a settled feed the board consumes to reload the persisted package.
 //
 // Anonymous visitors: /api/generations is not in PUBLIC_PREFIXES, so the auth
-// proxy 307s the poll to /login — detected via res.redirected/401 and polling
+// proxy 307s the poll to /login — not followed (opaque redirect) or 401, and polling
 // disables until a notifyStarted() (which only ever follows an authed 202).
 
 const POLL_INTERVAL_MS = 4_000;
@@ -147,9 +147,11 @@ export function GenerationToastProvider({ children }: { children: React.ReactNod
     if (!enabledRef.current || pollInFlightRef.current) return;
     pollInFlightRef.current = true;
     try {
-      const res = await fetch("/api/generations", { cache: "no-store" });
-      // Anonymous: the auth proxy 307s to /login (fetch follows → res.redirected).
-      if (res.redirected || res.status === 401) {
+      // Anonymous: the auth proxy 307s to /login. Not following it keeps every
+      // anonymous page load from also rendering /login and leaving that unread
+      // response open.
+      const res = await fetch("/api/generations", { cache: "no-store", redirect: "manual" });
+      if (res.type === "opaqueredirect" || res.redirected || res.status === 401) {
         enabledRef.current = false;
         return;
       }

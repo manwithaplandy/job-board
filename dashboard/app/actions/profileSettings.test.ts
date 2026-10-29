@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   updateApplicationDetails: vi.fn(),
   updateJobPreferences: vi.fn(),
   updateGenerationDefaults: vi.fn(),
-  updateModelPreferences: vi.fn(),
+  updateReasoningPreferences: vi.fn(),
   updateResumeSource: vi.fn(),
   revalidatePath: vi.fn(),
   upload: vi.fn(),
@@ -38,7 +38,7 @@ vi.mock("@/lib/profileSettings", () => ({
   updateApplicationDetails: mocks.updateApplicationDetails,
   updateJobPreferences: mocks.updateJobPreferences,
   updateGenerationDefaults: mocks.updateGenerationDefaults,
-  updateModelPreferences: mocks.updateModelPreferences,
+  updateReasoningPreferences: mocks.updateReasoningPreferences,
   updateResumeSource: mocks.updateResumeSource,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
@@ -77,7 +77,7 @@ beforeEach(() => {
   mocks.updateApplicationDetails.mockResolvedValue(undefined);
   mocks.updateJobPreferences.mockResolvedValue(undefined);
   mocks.updateGenerationDefaults.mockResolvedValue(undefined);
-  mocks.updateModelPreferences.mockResolvedValue(undefined);
+  mocks.updateReasoningPreferences.mockResolvedValue(undefined);
   mocks.updateResumeSource.mockResolvedValue(undefined);
   mocks.updateCompanyExclusions.mockResolvedValue(undefined);
   mocks.upload.mockResolvedValue({ error: null });
@@ -210,43 +210,25 @@ describe("profile settings actions", () => {
     ["application details", mocks.updateApplicationDetails, () => saveApplicationDetails(INITIAL_SECTION_SAVE_STATE, form({ full_name: "Jane", email: "jane@example.com" }))],
     ["job preferences", mocks.updateJobPreferences, () => saveJobPreferences(INITIAL_SECTION_SAVE_STATE, form({ preferred_locations: '["Remote"]' }))],
     ["personalization", mocks.updateGenerationDefaults, () => saveApplicationPersonalization(INITIAL_SECTION_SAVE_STATE, form({}))],
-    ["advanced settings", mocks.updateModelPreferences, () => saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, form({}))],
+    ["advanced settings", mocks.updateReasoningPreferences, () => saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, form({}))],
     ["résumé", mocks.updateResumeSource, () => saveResumeSettings(INITIAL_SECTION_SAVE_STATE, form({}))],
   ])("returns failure, never success, when tombstoned during %s save", async (_name, write, invoke) => {
     write.mockRejectedValueOnce(new Error("account has been deleted"));
     expect(await invoke()).toEqual({ status: "error", message: "Changes were not saved. Please try again.", fieldErrors: {} });
   });
 
-  test("rejects invalid model ids with field-addressable errors", async () => {
-    const result = await saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, form({ model_resume: "fake/model" }));
-    expect(result).toMatchObject({ status: "error", fieldErrors: { model_resume: "unknown model: fake/model" } });
-    expect(mocks.updateModelPreferences).not.toHaveBeenCalled();
-  });
-
-  test("rejects Standard-plan premium Stage 2", async () => {
-    mocks.getViewerPlan.mockResolvedValue("standard");
+  test("saves only reasoning effort and ignores any posted model fields", async () => {
+    // Models are decided by plan; a hand-crafted post carrying model_* must neither
+    // error nor reach the write.
     const result = await saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, form({
-      model_stage2: "anthropic/claude-haiku-4.5",
+      model_stage2: GEMINI, model_resume: "fake/model", model_company: GEMINI, model_cover: GEMINI,
+      reasoning_effort_resume: "high", reasoning_effort_cover: "low",
     }));
-    expect(result).toMatchObject({ status: "error", fieldErrors: { model_stage2: expect.stringContaining("requires the Pro plan") } });
-  });
-
-  test("Pro user can save Gemini Flash 3.5 as the stage-2 model", async () => {
-    mocks.getViewerPlan.mockResolvedValue("pro");
-    const fd = form({ model_stage2: GEMINI });
-    const result = await saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, fd);
     expect(result.status).toBe("success");
-  });
-
-  test("Standard user selecting Gemini gets an accurate Pro message + upgrade CTA", async () => {
-    mocks.getViewerPlan.mockResolvedValue("standard");
-    const fd = form({ model_stage2: GEMINI });
-    const result = await saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, fd);
-    expect(result.status).toBe("error");
-    if (result.status !== "error") throw new Error("expected error");
-    expect(result.fieldErrors.model_stage2).toMatch(/requires the Pro plan\.$/);
-    expect(result.fieldErrors.model_stage2).not.toContain("google/gemini"); // friendly name, not raw id
-    expect(result.upgrade).toEqual({ href: "/billing", label: "Upgrade to Pro" });
+    expect(mocks.updateReasoningPreferences).toHaveBeenCalledWith("u1", {
+      reasoningEffortResume: "high", reasoningEffortCover: "low",
+    });
+    expect(mocks.getStructuredModels).not.toHaveBeenCalled();
   });
 
   test("rejects invalid and unentitled reasoning effort by field", async () => {
@@ -255,6 +237,8 @@ describe("profile settings actions", () => {
     mocks.getViewerPlan.mockResolvedValue("standard");
     result = await saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, form({ reasoning_effort_cover: "high" }));
     expect(result).toMatchObject({ status: "error", fieldErrors: { reasoning_effort_cover: expect.stringContaining("require the Pro plan") } });
+    if (result.status !== "error") throw new Error("expected error");
+    expect(result.upgrade).toEqual({ href: "/billing", label: "Upgrade to Pro" });
   });
 
   test("rejects invalid resume MIME and size", async () => {

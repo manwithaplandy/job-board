@@ -97,6 +97,7 @@ vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 // toPrefillQuestions, normalizeInstructions, gateRejectionBody are PURE — NOT mocked.
 
 import { POST } from "@/app/api/application/prepare/route";
+import { generationModel } from "@/lib/entitlements";
 import { BilledGenerationError } from "@/lib/rolefit/openrouterClient";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 
@@ -508,6 +509,23 @@ describe("POST /api/application/prepare — persistence contract", () => {
     );
     expect(mocks.generateCoverLetter).toHaveBeenCalledWith(
       expect.objectContaining({ reasoningEffort: "low" }),
+    );
+  });
+
+  test("the plan decides each leg's model; stale stored picks are ignored", async () => {
+    mocks.getJobQuestion.mockResolvedValue(COVER_Q); // both legs run
+    mocks.getProfile.mockResolvedValue({
+      resume_text: "PROFILE résumé body", full_name: "Ada Lovelace",
+      model_resume: "stale/resume", model_cover: "stale/cover", profile_version: "pv-9",
+    });
+    await POST(req({ jobId: "job-1" }));
+    await flushBackground();
+    const plan = (await mocks.reserveGenerations.mock.results[0].value).plan;
+    expect(mocks.generateResume).toHaveBeenCalledWith(
+      expect.objectContaining({ model: generationModel(plan, "resume") }),
+    );
+    expect(mocks.generateCoverLetter).toHaveBeenCalledWith(
+      expect.objectContaining({ model: generationModel(plan, "cover") }),
     );
   });
 });

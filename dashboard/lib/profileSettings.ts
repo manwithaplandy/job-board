@@ -21,11 +21,7 @@ export interface GenerationDefaultsInput {
   resumeGenerationInstructions: string | null;
   coverLetterGenerationInstructions: string | null;
 }
-export interface ModelPreferencesInput {
-  modelStage2: string | null;
-  modelResume: string | null;
-  modelCompany: string | null;
-  modelCover: string | null;
+export interface ReasoningPreferencesInput {
   reasoningEffortResume: string | null;
   reasoningEffortCover: string | null;
 }
@@ -94,13 +90,12 @@ export async function updateGenerationDefaultsWith(
     WHERE user_id = ${userId}::uuid`;
 }
 
-export async function updateModelPreferencesWith(
-  tx: TransactionSql, userId: string, input: ModelPreferencesInput,
+// Models are decided by plan, not stored per user: the profiles.model_* columns are no
+// longer written here (and are ignored wherever models are resolved).
+export async function updateReasoningPreferencesWith(
+  tx: TransactionSql, userId: string, input: ReasoningPreferencesInput,
 ): Promise<void> {
   await tx`UPDATE profiles SET
-    model_stage1 = NULL, model_stage2 = ${input.modelStage2},
-    model_resume = ${input.modelResume}, model_company = ${input.modelCompany},
-    model_cover = ${input.modelCover},
     reasoning_effort_resume = ${input.reasoningEffortResume},
     reasoning_effort_cover = ${input.reasoningEffortCover},
     updated_at = now()
@@ -130,5 +125,5 @@ export const updateApplicationDetails = (u: string, d: ApplicationAnswers) =>
   guarded(u, (tx) => updateApplicationDetailsWith(tx, u, d));
 export const updateGenerationDefaults = (u: string, d: GenerationDefaultsInput) =>
   guarded(u, (tx) => updateGenerationDefaultsWith(tx, u, d));
-export const updateModelPreferences = (u: string, d: ModelPreferencesInput) =>
-  guarded(u, (tx) => updateModelPreferencesWith(tx, u, d));
+export const updateReasoningPreferences = (u: string, d: ReasoningPreferencesInput) =>
+  guarded(u, (tx) => updateReasoningPreferencesWith(tx, u, d));

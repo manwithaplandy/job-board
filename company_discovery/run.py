@@ -99,7 +99,9 @@ def _review_user(conn, profile: dict) -> None:
         if enriched:
             log.info("enriched %s selected companies before review", enriched)
         company_block = build_company_block(profile.get("company_instructions"))
-        client = CompanyReviewClient(model=profile.get("model_company"))
+        # One model for every plan (DISCOVERY_MODEL env, else the compiled default);
+        # users don't pick models, so a stale profiles.model_company is ignored.
+        client = CompanyReviewClient()
         results, halted = asyncio.run(
             review_batch(candidates, company_block, client, config.CONCURRENCY,
                          user_id=user_id, run_id=run_id))

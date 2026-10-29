@@ -3,7 +3,9 @@
 import { readPrivateSnapshot } from "@/lib/jobLifecycle";
 
 import { revalidatePath } from "next/cache";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, getUserClaims } from "@/lib/auth";
+import { generationModel } from "@/lib/entitlements";
+import { getViewerPlan } from "@/lib/subscriptions";
 import { withUserSql, withUserPayloadMutation } from "@/lib/db";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { parseTailoredCoverLetter } from "@/lib/rolefit/packageCodec";
@@ -38,6 +40,10 @@ export async function saveCoverLetterEdit(
   }
 
   const editedAt = new Date().toISOString();
+  // The plan decides the generation model (users don't pick one); recorded as eval metadata.
+  const model = generationModel(
+    await getViewerPlan(userId, (await getUserClaims())?.email ?? null), "cover",
+  );
   // Read the full replay context + persist the edit under the viewer's RLS context in
   // one transaction. Returns the source row for the (post-commit) LangFuse push.
   const src = await withUserPayloadMutation(userId, jobId, "cover_letter_edits", async (tx) => {
@@ -49,7 +55,7 @@ export async function saveCoverLetterEdit(
              COALESCE(r.requirements, '[]'::jsonb) AS requirements,
              COALESCE(r.skill_gaps,   '[]'::jsonb) AS skill_gaps,
              COALESCE(r.red_flags,    '[]'::jsonb) AS red_flags,
-             p.resume_text, p.full_name, p.model_cover
+             p.resume_text, p.full_name
       FROM application_packages ap
       JOIN jobs j       ON j.id = ap.job_id
       JOIN companies c  ON c.id = j.company_id
@@ -64,7 +70,7 @@ export async function saveCoverLetterEdit(
           title: string; company_name: string; description: string | null;
           about: string | null; requirements: { text: string; met: boolean }[];
           skill_gaps: string[]; red_flags: string[];
-          resume_text: string | null; full_name: string | null; model_cover: string | null;
+          resume_text: string | null; full_name: string | null;
         }
       | undefined;
     if (!s) throw new Error(`no cover letter generated for job ${jobId}`);
@@ -82,7 +88,7 @@ export async function saveCoverLetterEdit(
          model, comment, superseded_at, edited_at)
       VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
         ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${text}, ${originalText}, ${s.cover_letter_trace_id},
-              ${s.model_cover}, ${comment}, NULL, now())
+              ${model}, ${comment}, NULL, now())
       ON CONFLICT (user_id, job_id) DO UPDATE SET
         edited_text = EXCLUDED.edited_text, original_text = EXCLUDED.original_text,
         cover_letter_trace_id = EXCLUDED.cover_letter_trace_id, model = EXCLUDED.model,
@@ -105,12 +111,12 @@ export async function saveCoverLetterEdit(
         about: src.about, requirements: src.requirements,
         skillGaps: src.skill_gaps, redFlags: src.red_flags,
       },
-      model: src.model_cover,
+      model,
     };
     await upsertCoverLetterGoldenItem(
       buildCoverLetterGoldenItem({
         userId, jobId, input, editedText: text, comment,
-        traceId: src.cover_letter_trace_id, model: src.model_cover,
+        traceId: src.cover_letter_trace_id, model,
         originalText: src.originalText, editedAt,
       }),
     );

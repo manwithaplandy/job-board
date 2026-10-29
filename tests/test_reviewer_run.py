@@ -857,26 +857,11 @@ def test_empty_locations_skipped(conn, monkeypatch):
 
 
 @requires_db
-def test_pro_premium_stage2_and_cheap_gate_always(conn, monkeypatch):
-    """A Pro user who requests the premium stage-2 model gets it; stage 1 is always the
-    cheap gate regardless of any stored model_stage1."""
-    cid = _seed_company(conn)
-    _seed_reviewable_job(conn, cid, "j0")
-    _insert_profile(conn, USER, plan="pro", model_stage2=entitlements.PREMIUM_MODEL)
-
-    _run_review_all(conn, monkeypatch)
-    with conn.cursor() as cur:
-        cur.execute("SELECT model_stage1, model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
-        row = cur.fetchone()
-        assert row["model_stage1"] == entitlements.CHEAP_MODEL
-        assert row["model_stage2"] == entitlements.PREMIUM_MODEL
-
-
-@requires_db
-def test_pro_arbitrary_model_stage2_honored(conn, monkeypatch):
-    """A Pro user who requests an ARBITRARY catalog model (not the whitelisted premium id)
-    gets it for stage 2 — the tier gate grants any model at/below the Pro rank, fixing the
-    old two-model whitelist that clamped e.g. Gemini to cheap while blaming the user's plan."""
+def test_stored_model_stage2_ignored_pro_gets_tier_model(conn, monkeypatch):
+    """Users no longer pick models: a Pro user with a stale stored model_stage2 gets the
+    Pro tier model (config.default_stage2_model), and stage 1 is always the cheap gate
+    regardless of any stored model_stage1."""
+    monkeypatch.delenv("REVIEW_DEFAULT_MODEL_PRO", raising=False)
     cid = _seed_company(conn)
     _seed_reviewable_job(conn, cid, "j0")
     _insert_profile(conn, USER, plan="pro", model_stage2="google/gemini-3.5-flash")
@@ -885,9 +870,8 @@ def test_pro_arbitrary_model_stage2_honored(conn, monkeypatch):
     with conn.cursor() as cur:
         cur.execute("SELECT model_stage1, model_stage2 FROM job_reviews WHERE user_id = %s", (USER,))
         row = cur.fetchone()
-        # Stage 1 is always the cheap gate; stage 2 honors the requested arbitrary model.
         assert row["model_stage1"] == entitlements.CHEAP_MODEL
-        assert row["model_stage2"] == "google/gemini-3.5-flash"
+        assert row["model_stage2"] == "openai/gpt-6-luna"
 
 
 @requires_db
@@ -923,8 +907,9 @@ def test_standard_default_model_when_unset_stays_cheap(conn, monkeypatch):
 
 
 @requires_db
-def test_standard_non_entitled_premium_falls_back_to_cheap(conn, monkeypatch):
-    """A Standard user who requests the premium model has stage 2 fall back to cheap."""
+def test_standard_stored_premium_pick_ignored(conn, monkeypatch):
+    """A Standard user with a stale stored premium pick still runs the cheap tier model."""
+    monkeypatch.delenv("REVIEW_DEFAULT_MODEL_STANDARD", raising=False)
     cid = _seed_company(conn)
     _seed_reviewable_job(conn, cid, "j0")
     _insert_profile(conn, USER, plan="standard", model_stage2=entitlements.PREMIUM_MODEL)

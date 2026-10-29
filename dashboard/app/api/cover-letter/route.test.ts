@@ -52,6 +52,7 @@ vi.mock("@/lib/rolefit/coverLetterClient", () => ({
 vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 
 import { POST } from "@/app/api/cover-letter/route";
+import { generationModel } from "@/lib/entitlements";
 import { BilledGenerationError } from "@/lib/rolefit/openrouterClient";
 
 const USER = "33333333-3333-3333-3333-333333333333";
@@ -215,6 +216,18 @@ describe("POST /api/cover-letter — cover-specific contract", () => {
     await flushBackground();
     expect(mocks.generateCoverLetter).toHaveBeenCalledWith(
       expect.objectContaining({ reasoningEffort: "medium" }),
+    );
+  });
+
+  test("the plan decides the model; a stale stored pick is ignored", async () => {
+    mocks.getProfile.mockResolvedValue({
+      resume_text: "resume", full_name: "Ada", model_cover: "stale/pick",
+      reasoning_effort_resume: null, reasoning_effort_cover: null,
+    });
+    expect((await POST(req({ jobId: "job-1" }))).status).toBe(202);
+    await flushBackground();
+    expect(mocks.generateCoverLetter).toHaveBeenCalledWith(
+      expect.objectContaining({ model: generationModel("pro", "cover") }),
     );
   });
 });

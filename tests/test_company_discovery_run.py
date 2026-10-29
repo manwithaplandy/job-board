@@ -113,12 +113,15 @@ def test_run_writes_reviews_and_reconciles(conn, monkeypatch):
             "('Defense','greenhouse','defense', FALSE, 'dataset')")
         cur.execute(
             "INSERT INTO profiles (user_id, instructions, company_instructions, "
-            "company_profile_version, profile_version) "
-            "VALUES (%s, 'i', 'prefer devtools, no defense', 'cv1', 'pv1')", (USER,))
+            "company_profile_version, profile_version, model_company) "
+            "VALUES (%s, 'i', 'prefer devtools, no defense', 'cv1', 'pv1', 'stale/pick')",
+            (USER,))
     conn.commit()
 
     import company_discovery.run as run_module
-    monkeypatch.setattr(run_module, "CompanyReviewClient", lambda **kw: StubClient())
+    client_kwargs = []
+    monkeypatch.setattr(run_module, "CompanyReviewClient",
+                        lambda **kw: (client_kwargs.append(kw) or StubClient()))
     monkeypatch.setattr(run_module.dataset, "load_candidates", lambda _d: [])  # skip ingest
     enrich_calls = []
     monkeypatch.setattr(
@@ -134,3 +137,5 @@ def test_run_writes_reviews_and_reconciles(conn, monkeypatch):
     assert active["linear"] is True and active["defense"] is False
     assert run["status"] == "completed" and run["included"] == 1 and run["excluded"] == 1
     assert enrich_calls == [{"linear", "defense"}]  # enrich_selected ran on the batch
+    # Users don't pick models: a stale profiles.model_company never reaches the client.
+    assert client_kwargs and all(kw.get("model") is None for kw in client_kwargs)

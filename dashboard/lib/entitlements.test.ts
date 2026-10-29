@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  GENERATION_MODELS, generationModel,
   CHEAP_MODEL,
   PREMIUM_MODEL,
   ENTITLEMENTS,
@@ -338,5 +339,21 @@ describe("resolvePlan comp plan (invite comp config)", () => {
   });
   test("not invited → compPlan irrelevant, null", () => {
     expect(resolvePlan(null, false, now, "pro")).toBeNull();
+  });
+});
+
+describe("generationModel (plan decides the résumé / cover-letter model)", () => {
+  test("each plan maps both kinds to a model", () => {
+    for (const plan of ["standard", "pro"] as const) {
+      expect(generationModel(plan, "resume")).toBe(GENERATION_MODELS[plan].resume);
+      expect(generationModel(plan, "cover")).toBe(GENERATION_MODELS[plan].cover);
+    }
+  });
+  test("ships Claude Haiku 4.5 for both tiers (today's default)", () => {
+    expect(GENERATION_MODELS.standard).toEqual({ resume: PREMIUM_MODEL, cover: PREMIUM_MODEL });
+    expect(GENERATION_MODELS.pro).toEqual({ resume: PREMIUM_MODEL, cover: PREMIUM_MODEL });
+  });
+  test("null plan falls back to the Standard model", () => {
+    expect(generationModel(null, "resume")).toBe(GENERATION_MODELS.standard.resume);
   });
 });

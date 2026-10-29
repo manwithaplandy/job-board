@@ -61,6 +61,7 @@ vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 // intentionally NOT mocked — both are pure functions.
 
 import { POST } from "@/app/api/resume/route";
+import { generationModel } from "@/lib/entitlements";
 import { BilledGenerationError } from "@/lib/rolefit/openrouterClient";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 
@@ -220,6 +221,16 @@ describe("POST /api/resume — 202 accept + background completion", () => {
     await flushBackground();
     expect(mocks.generateResume).toHaveBeenCalledWith(
       expect.objectContaining({ reasoningEffort: "high" }),
+    );
+  });
+
+  test("the plan decides the model; a stale stored pick is ignored", async () => {
+    mocks.reserveGenerations.mockResolvedValue({ ok: true, plan: "standard" });
+    mocks.getProfile.mockResolvedValue({ ...profileFixture(), model_resume: "stale/pick" });
+    expect((await POST(req({ jobId: "job-1" }))).status).toBe(202);
+    await flushBackground();
+    expect(mocks.generateResume).toHaveBeenCalledWith(
+      expect.objectContaining({ model: generationModel("standard", "resume") }),
     );
   });
 

@@ -10,6 +10,8 @@ import { assertNotDeleted } from "@/lib/tombstone";
 import { formToScoreRow, buildResumeGoldenItem, type ResumeScoreForm } from "@/lib/rolefit/resumeScore";
 import { upsertResumeGoldenItem } from "@/lib/resumeGoldenDataset";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
+import { generationModel } from "@/lib/entitlements";
+import { getViewerPlan } from "@/lib/subscriptions";
 
 // Persist a human résumé score (grounding + JD-relevance, 1–5) and — for ADMINS only —
 // push it to the SHARED LangFuse `resume-golden` dataset. DB commits first, so a LangFuse
@@ -28,6 +30,9 @@ export async function saveResumeScore(
   const row = formToScoreRow(form);
 
   const scoredAt = new Date().toISOString();
+  const claims = await getUserClaims();
+  // The plan decides the generation model (users don't pick one); recorded as eval metadata.
+  const model = generationModel(await getViewerPlan(userId, claims?.email ?? null), "resume");
   // Snapshot the exact résumé scored + persist, under the viewer's RLS context in
   // one transaction. Returns the source row for the (post-commit) LangFuse sync.
   const src = await withUserPayloadMutation(userId, jobId, "resume_scores", async (tx) => {
@@ -35,7 +40,7 @@ export async function saveResumeScore(
     const rows = await tx`
       SELECT ap.resume_json, ap.resume_trace_id,
              j.title, COALESCE(c.display_name, c.name) AS company_name, j.description,
-             p.resume_text, p.model_resume
+             p.resume_text
       FROM application_packages ap
       JOIN jobs j       ON j.id = ap.job_id
       JOIN companies c  ON c.id = j.company_id
@@ -46,7 +51,7 @@ export async function saveResumeScore(
       | {
           resume_json: unknown; resume_trace_id: string | null;
           title: string; company_name: string; description: string | null;
-          resume_text: string | null; model_resume: string | null;
+          resume_text: string | null;
         }
       | undefined;
     if (!s) throw new Error(`no résumé generated for job ${jobId}`);
@@ -58,7 +63,7 @@ export async function saveResumeScore(
       ) VALUES (
         ${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
         ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${row.grounding}, ${row.jd_relevance}, ${row.comment},
-        ${s.resume_trace_id}, ${JSON.stringify(parseTailoredResume(s.resume_json) ?? {})}::jsonb, ${s.model_resume}, now()
+        ${s.resume_trace_id}, ${JSON.stringify(parseTailoredResume(s.resume_json) ?? {})}::jsonb, ${model}, now()
       )
       ON CONFLICT (user_id, job_id) DO UPDATE SET
         grounding = EXCLUDED.grounding, jd_relevance = EXCLUDED.jd_relevance,
@@ -72,16 +77,16 @@ export async function saveResumeScore(
   // Admin-only push to the shared golden dataset (minor 8). Non-admins: DB row persisted
   // above, nothing to reconcile → langfuseSynced stays true.
   let langfuseSynced = true;
-  if (isAdmin(await getUserClaims())) {
+  if (isAdmin(claims)) {
     try {
       await upsertResumeGoldenItem(
         buildResumeGoldenItem({
           userId, jobId,
           input: {
             title: src.title, company: src.company_name, description: src.description,
-            background: src.resume_text, model: src.model_resume,
+            background: src.resume_text, model,
           },
-          form, traceId: src.resume_trace_id, model: src.model_resume, scoredAt,
+          form, traceId: src.resume_trace_id, model, scoredAt,
         }),
       );
     } catch (e) {

@@ -32,10 +32,9 @@ def has_api_key() -> bool:
     return bool(os.environ.get("OPENROUTER_API_KEY"))
 
 
-# ── Per-tier default stage-2 model ───────────────────────────────────────────────
-# When a user has NOT explicitly chosen a stage-2 model (profiles.model_stage2 IS
-# NULL), the reviewer falls back to their PLAN'S default model rather than a single
-# global default — so Pro can default to a stronger model than Standard. Each tier's
+# ── Per-tier stage-2 model ───────────────────────────────────────────────────────
+# The stage-2 model is decided by the user's PLAN (users don't choose models;
+# profiles.model_stage2 is ignored) — so Pro runs a stronger model than Standard. Each tier's
 # default is env-overridable (REVIEW_DEFAULT_MODEL_<TIER>) so an operator can retune it
 # without a redeploy; the compiled fallbacks below are what ships.
 #
@@ -58,7 +57,7 @@ _COMPILED_DEFAULT_STAGE2_MODEL = {
 
 
 def default_stage2_model(plan: str | None) -> str:
-    """The default stage-2 model for `plan` when the user hasn't picked one.
+    """The stage-2 model for `plan` (users don't pick one).
 
     Read at call time (an env change is picked up without reimport). An unset or blank
     env var — and any plan with no configured default — falls back to the compiled

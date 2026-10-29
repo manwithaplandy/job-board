@@ -71,26 +71,27 @@ describe("remainingDailyBudget", () => {
 
   test("cap minus today's review spend, floored at 0", async () => {
     // profile row (no override, cheap stage-2) then today's spend = 380.
-    state.rowQueue.push([{ model_stage2: null, daily_review_cap: null }]);
+    state.rowQueue.push([{ daily_review_cap: null }]);
     tx.unsafe = () => Promise.resolve([{ n: 380 }]);
     // standard cheap cap = 400 → 400 - 380 = 20
     expect(await remainingDailyBudget("u", "standard")).toBe(20);
   });
 
   test("honors a per-profile daily_review_cap override (below tier → lowers)", async () => {
-    state.rowQueue.push([{ model_stage2: null, daily_review_cap: 50 }]);
+    state.rowQueue.push([{ daily_review_cap: 50 }]);
     tx.unsafe = () => Promise.resolve([{ n: 10 }]);
-    // A Pro user with no picked model defaults to gpt-6-luna (premium slot, cap 100);
+    // A Pro user runs the Pro tier model gpt-6-luna (premium slot, cap 100);
     // the override 50 < 100 lowers the effective cap to 50 → 50 - 10 = 40.
     expect(await remainingDailyBudget("u", "pro")).toBe(40);
   });
 
-  test("Pro with no picked model defaults to the premium-slot cap (mirrors reviewer)", async () => {
-    // model_stage2 null → tier default (openai/gpt-6-luna), which is unassigned →
+  test("Pro runs the tier model's premium-slot cap, ignoring a stale stored pick (mirrors reviewer)", async () => {
+    // Users don't pick models: even a stale cheap model_stage2 on the row is ignored.
+    // Pro's tier model (openai/gpt-6-luna) is unassigned →
     // premium slot → Pro premium cap 100. This mirrors reviewer/config.py so the shown
     // budget matches what the reviewer enforces. No override, spend 0 → 100.
     delete process.env.REVIEW_DEFAULT_MODEL_PRO;
-    state.rowQueue.push([{ model_stage2: null, daily_review_cap: null }]);
+    state.rowQueue.push([{ model_stage2: "deepseek/deepseek-v4-flash", daily_review_cap: null }]);
     tx.unsafe = () => Promise.resolve([{ n: 0 }]);
     expect(await remainingDailyBudget("u", "pro")).toBe(100);
   });
@@ -98,13 +99,13 @@ describe("remainingDailyBudget", () => {
   test("clamps an override ABOVE the tier cap down to the tier cap (B-COST)", async () => {
     // A user who forced daily_review_cap up to 100000 (e.g. via a direct write) must
     // NOT get a budget beyond their tier: standard cheap cap = 400, spend 0 → 400.
-    state.rowQueue.push([{ model_stage2: null, daily_review_cap: 100000 }]);
+    state.rowQueue.push([{ daily_review_cap: 100000 }]);
     tx.unsafe = () => Promise.resolve([{ n: 0 }]);
     expect(await remainingDailyBudget("u", "standard")).toBe(400);
   });
 
   test("spent beyond cap floors at 0", async () => {
-    state.rowQueue.push([{ model_stage2: null, daily_review_cap: null }]);
+    state.rowQueue.push([{ daily_review_cap: null }]);
     tx.unsafe = () => Promise.resolve([{ n: 999 }]);
     expect(await remainingDailyBudget("u", "standard")).toBe(0);
   });

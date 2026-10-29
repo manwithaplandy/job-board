@@ -178,7 +178,7 @@ describe("profile route composition", () => {
     expect(screen.queryByRole("button", { name: /^Save(?: |$)/ })).toBeNull();
   });
 
-  test.each([profileRoute, ...detailRoutes.filter(({ name }) => !name.startsWith("Advanced"))])(
+  test.each([profileRoute, ...detailRoutes])(
     "$name does not expose stored model identifiers",
     async (route) => {
       const container = await renderRoute(route);
@@ -189,22 +189,6 @@ describe("profile route composition", () => {
       }
     },
   );
-
-  test("Advanced exposes each editable saved model selection but not the internal Stage 1 id", async () => {
-    await renderRoute(detailRoutes[4]);
-    const expectedSelections = [
-      ["Stage 2 — full-description review model", profile.model_stage2],
-      ["Company review model", profile.model_company],
-      ["Résumé model", profile.model_resume],
-      ["Cover letter model", profile.model_cover],
-    ] as const;
-    for (const [label, sentinel] of expectedSelections) {
-      expect(screen.getByRole<HTMLInputElement>("combobox", { name: label }).value).toBe(sentinel);
-      expect(document.querySelector<HTMLInputElement>(`input[type="hidden"][value="${sentinel}"]`)?.value).toBe(sentinel);
-    }
-    expect(document.body.textContent).not.toContain(profile.model_stage1);
-    expect(document.querySelector(`[value="${profile.model_stage1}"]`)).toBeNull();
-  });
 
   test.each(detailRoutes)("account deletion is scoped away from $name unless it is Account", async (route) => {
     await renderRoute(route);

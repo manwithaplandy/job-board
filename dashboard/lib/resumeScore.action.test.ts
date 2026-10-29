@@ -18,12 +18,14 @@ vi.mock("@/lib/auth", () => ({
   getUserClaims: vi.fn(async () => ({ id: "u1", email: "a@x.com" })),
 }));
 vi.mock("@/lib/admin", () => ({ isAdmin: () => admin.isAdmin }));
+vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: vi.fn(async () => "pro") }));
 vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: async () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const upsertMock = vi.fn(async () => undefined);
 vi.mock("@/lib/resumeGoldenDataset", () => ({ upsertResumeGoldenItem: (...a: unknown[]) => (upsertMock as unknown as (...args: unknown[]) => unknown)(...a) }));
 
 import { saveResumeScore } from "@/app/actions/resumeScores";
+import { generationModel } from "@/lib/entitlements";
 
 beforeEach(() => {
   sqlMock.mockReset();
@@ -42,7 +44,7 @@ describe("saveResumeScore", () => {
   it("writes the row, pushes the golden item, returns langfuseSynced=true", async () => {
     sqlMock
       .mockResolvedValueOnce([{ resume_json: { name: "A" }, resume_trace_id: "tr1", title: "Eng",
-                                company_name: "Acme", description: "d", resume_text: "bg", model_resume: "m" }]) // SELECT
+                                company_name: "Acme", description: "d", resume_text: "bg" }]) // SELECT
       .mockResolvedValueOnce(undefined); // INSERT ... ON CONFLICT
     const res = await saveResumeScore("j1", { grounding: 5, jdRelevance: 4, comment: "great" });
     expect(res).toEqual({ ok: true, langfuseSynced: true });
@@ -50,12 +52,16 @@ describe("saveResumeScore", () => {
     const item = (upsertMock.mock.calls[0] as unknown[])[0] as { id: string; expectedOutput: Record<string, unknown> };
     expect(item.id).toBe("u1:j1");
     expect(item.expectedOutput.overall).toBe(4.7); // 0.7*5 + 0.3*4
+    // The plan decides the model (no per-user pick): recorded on the row and the golden item.
+    expect((item as unknown as { metadata: Record<string, unknown> }).metadata.model)
+      .toBe(generationModel("pro", "resume"));
+    expect((sqlMock.mock.calls[1] as unknown[]).slice(1)).toContain(generationModel("pro", "resume"));
   });
 
   it("returns langfuseSynced=false when the push throws (DB already committed)", async () => {
     sqlMock
       .mockResolvedValueOnce([{ resume_json: { name: "A" }, resume_trace_id: null, title: "Eng",
-                                company_name: "Acme", description: "d", resume_text: "bg", model_resume: "m" }])
+                                company_name: "Acme", description: "d", resume_text: "bg" }])
       .mockResolvedValueOnce(undefined);
     upsertMock.mockRejectedValueOnce(new Error("langfuse down"));
     const res = await saveResumeScore("j1", { grounding: 3, jdRelevance: 3, comment: null });
@@ -66,7 +72,7 @@ describe("saveResumeScore", () => {
     admin.isAdmin = false;
     sqlMock
       .mockResolvedValueOnce([{ resume_json: { name: "A" }, resume_trace_id: "tr1", title: "Eng",
-                                company_name: "Acme", description: "d", resume_text: "bg", model_resume: "m" }])
+                                company_name: "Acme", description: "d", resume_text: "bg" }])
       .mockResolvedValueOnce(undefined);
     const res = await saveResumeScore("j1", { grounding: 5, jdRelevance: 4, comment: null });
     // DB row still persisted (SELECT + INSERT ran), but no golden push and nothing to reconcile.
@@ -81,7 +87,7 @@ it("legacy résumé scoring preserves unknown provenance after unrelated hydrati
   const actual = await vi.importActual<typeof lifecycle>("@/lib/jobLifecycle");
   vi.mocked(lifecycle.readPrivateSnapshot).mockImplementationOnce(actual.readPrivateSnapshot);
   sqlMock.mockResolvedValueOnce([{job_version_id:null,description_snapshot:null,questions_snapshot:null,snapshot_captured_at:null}])
-    .mockResolvedValueOnce([{resume_json:{name:"A"},resume_trace_id:null,title:"Role",company_name:"Acme",description:"Later shared JD",resume_text:"bg",model_resume:null}])
+    .mockResolvedValueOnce([{resume_json:{name:"A"},resume_trace_id:null,title:"Role",company_name:"Acme",description:"Later shared JD",resume_text:"bg"}])
     .mockResolvedValueOnce(undefined);
   await saveResumeScore("j1", {grounding:4,jdRelevance:3,comment:null});
   expect(sqlMock).toHaveBeenCalledTimes(3);

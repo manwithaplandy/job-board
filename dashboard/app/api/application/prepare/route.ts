@@ -9,8 +9,9 @@ import { isBilledGenerationError } from "@/lib/rolefit/openrouterClient";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
-import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
-import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
+import { generateResume } from "@/lib/rolefit/resumeClient";
+import { generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
+import { generationModel } from "@/lib/entitlements";
 import { DEFAULT_PREFILL_MODEL, generatePrefilledAnswers } from "@/lib/rolefit/prefillClient";
 import { hasCoverLetterQuestion, stripCoverLetterQuestions } from "@/lib/rolefit/coverLetterQuestion";
 import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
@@ -94,9 +95,6 @@ export async function POST(req: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "application prefill not configured" }, { status: 500 });
 
-  const resumeModel = profile.model_resume ?? DEFAULT_RESUME_MODEL;
-  const coverModel = profile.model_cover ?? DEFAULT_COVER_MODEL;
-
   const questions = payload.status === "ready" ? payload.questions : (payload.questions ?? await getJobQuestion(userId, jobId));
   if (questions === null) return Response.json({payload:{status:"pending"}, message:"Application questions are being prepared."}, {status:202});
   const wantsCover = hasCoverLetterQuestion(questions);
@@ -114,6 +112,10 @@ export async function POST(req: Request) {
     getStructuredModels(),
   ]);
   if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
+
+  // The plan decides each leg's model (users don't pick one), from the gate's plan snapshot.
+  const resumeModel = generationModel(gate.plan, "resume");
+  const coverModel = generationModel(gate.plan, "cover");
 
   // Resolve each leg's reasoning setting from the gate's OWN plan snapshot (the same
   // authoritative plan the charge used — no second getViewerPlan lookup): clamp to the
@@ -263,8 +265,8 @@ export async function POST(req: Request) {
     // its charge — otherwise a prompt engineered to fail lets one slot buy unlimited inference.
     // Cover is only charged (and only "failed") when wanted; an unwanted cover leg is the sentinel
     // rejection above and is never refunded. Both-fulfilled refunds nothing. A whole-prepare
-    // failure throws before here and refunds `kinds` in the outer catch. Model choice (model_resume/model_cover) is intentionally NOT tier-gated —
-    // generation is 1–3% of cost (spec); the monthly counter is the abuse cap.
+    // failure throws before here and refunds `kinds` in the outer catch. The generation models come from
+    // the plan (GENERATION_MODELS); the monthly counter is the abuse cap.
     const refundKinds: GenerationKind[] = [
       ...(resumeResult.status === "rejected" && !isBilledGenerationError(resumeResult.reason)
         ? (["resume"] as const) : []),

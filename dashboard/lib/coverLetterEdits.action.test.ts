@@ -13,7 +13,9 @@ vi.mock("@/lib/db", () => {
 });
 vi.mock("@/lib/auth", () => ({
   requireUserId: vi.fn(async () => "u1"),
+  getUserClaims: vi.fn(async () => ({ id: "u1", email: "a@x.com" })),
 }));
+vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: vi.fn(async () => "standard") }));
 vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: async () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const upsertMock = vi.fn(async () => undefined);
@@ -22,6 +24,7 @@ vi.mock("@/lib/coverLetterGoldenDataset", () => ({
 }));
 
 import { saveCoverLetterEdit, deleteCoverLetterEdit } from "@/app/actions/coverLetterEdits";
+import { generationModel } from "@/lib/entitlements";
 
 const LETTER_JSON = {
   greeting: "Dear Hiring Manager,", paragraphs: ["Original body."],
@@ -32,7 +35,6 @@ const SRC_ROW = {
   cover_letter_instructions: "C focus", title: "Eng", company_name: "Acme",
   description: "jd", about: "about", requirements: [{ text: "5y", met: true }],
   skill_gaps: ["rust"], red_flags: [], resume_text: "bg", full_name: "Ada",
-  model_cover: "m-cover",
 };
 
 beforeEach(() => {
@@ -71,6 +73,8 @@ describe("saveCoverLetterEdit", () => {
     expect(item.input.instructions).toBe("C focus");
     expect(item.input.job.company).toBe("Acme");
     expect(item.metadata.cover_letter_trace_id).toBe("tr-1");
+    // The plan decides the model (no per-user pick): recorded on the golden item.
+    expect(item.metadata.model).toBe(generationModel("standard", "cover"));
     // original_text is the COMPOSED text of the stored structured letter.
     expect(item.metadata.original_text).toContain("Original body.");
   });

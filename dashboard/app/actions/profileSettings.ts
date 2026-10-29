@@ -2,18 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUserId, getUserClaims } from "@/lib/auth";
-import {
-  validateReasoningEffort, resolveStage2Model, stage2ModelTier, planForTier,
-  upgradeCtaLabel, PLAN_LABEL,
-} from "@/lib/entitlements";
+import { validateReasoningEffort, upgradeCtaLabel } from "@/lib/entitlements";
 import { isCountryCode } from "@/lib/companyMeta";
-import { getStructuredModels, validateModelId } from "@/lib/openrouter";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import {
   updateApplicationDetails,
   updateGenerationDefaults,
   updateJobPreferences,
-  updateModelPreferences,
+  updateReasoningPreferences,
   updateResumeSource,
 } from "@/lib/profileSettings";
 import type { SectionSaveState, UpgradeCta } from "@/lib/profileSettingsState";
@@ -216,27 +212,12 @@ export async function saveAdvancedAiSettings(
 ): Promise<SectionSaveState> {
   try {
     const userId = await requireUserId();
-    const structured = await getStructuredModels();
-    const catalogIds = structured.map((model) => model.id);
-    const fields = ["model_stage2", "model_resume", "model_company", "model_cover"] as const;
-    const models = Object.fromEntries(fields.map((field) => [
-      field, validateModelId(String(fd.get(field) ?? ""), catalogIds),
-    ])) as Record<(typeof fields)[number], ReturnType<typeof validateModelId>>;
-    const fieldErrors: Record<string, string> = {};
-    for (const field of fields) if (!models[field].ok) fieldErrors[field] = models[field].reason;
-    if (Object.keys(fieldErrors).length) return invalid(fieldErrors);
-
+    // Models are decided by plan (lib/entitlements.ts GENERATION_MODELS and the per-tier
+    // stage-2 model); only reasoning effort is user-settable here. Any model_* fields in
+    // a hand-crafted post are ignored.
     const claims = await getUserClaims();
     const plan = await getViewerPlan(userId, claims?.email ?? null);
-    const stage2 = models.model_stage2;
-    if (stage2.ok && stage2.value && resolveStage2Model(plan, stage2.value) !== stage2.value) {
-      const requiredPlan = planForTier(stage2ModelTier(stage2.value));
-      const label = structured.find((m) => m.id === stage2.value)?.name ?? stage2.value;
-      return invalid(
-        { model_stage2: `${label} requires the ${PLAN_LABEL[requiredPlan]} plan.` },
-        upsell(plan),
-      );
-    }
+    const fieldErrors: Record<string, string> = {};
     const resumeEffort = validateReasoningEffort(String(fd.get("reasoning_effort_resume") ?? ""), plan);
     const coverEffort = validateReasoningEffort(String(fd.get("reasoning_effort_cover") ?? ""), plan);
     if (!resumeEffort.ok) fieldErrors.reasoning_effort_resume = resumeEffort.reason;
@@ -247,11 +228,7 @@ export async function saveAdvancedAiSettings(
       return invalid(fieldErrors, tierGated ? upsell(plan) : undefined);
     }
 
-    await updateModelPreferences(userId, {
-      modelStage2: models.model_stage2.ok ? models.model_stage2.value : null,
-      modelResume: models.model_resume.ok ? models.model_resume.value : null,
-      modelCompany: models.model_company.ok ? models.model_company.value : null,
-      modelCover: models.model_cover.ok ? models.model_cover.value : null,
+    await updateReasoningPreferences(userId, {
       reasoningEffortResume: resumeEffort.value,
       reasoningEffortCover: coverEffort.value,
     });

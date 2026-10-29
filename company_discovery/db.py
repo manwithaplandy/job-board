@@ -30,7 +30,7 @@ def _uuid(v) -> uuid.UUID:
 def load_company_profiles(conn) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT user_id, company_instructions, company_profile_version, model_company "
+            "SELECT user_id, company_instructions, company_profile_version "
             "FROM profiles WHERE company_instructions IS NOT NULL AND company_instructions <> ''"
         )
         return cur.fetchall()

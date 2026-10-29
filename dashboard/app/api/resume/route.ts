@@ -8,7 +8,8 @@ import { reserveGenerations, refundGenerations } from "@/lib/usage";
 import { isBilledGenerationError } from "@/lib/rolefit/openrouterClient";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
-import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
+import { generateResume } from "@/lib/rolefit/resumeClient";
+import { generationModel } from "@/lib/entitlements";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { getStructuredModels } from "@/lib/openrouter";
@@ -58,8 +59,6 @@ export async function POST(req: Request) {
 
   const { resumeText } = getResumeSource(profile);
 
-  const model = profile.model_resume ?? DEFAULT_RESUME_MODEL;
-
   // Tier gate: no plan → 402, monthly allowance exhausted → 429. reserveGenerations
   // ATOMICALLY charges the slot up front (avoids the check-then-charge TOCTOU); the
   // background catch below REFUNDS a generation that failed before inference, but
@@ -72,6 +71,9 @@ export async function POST(req: Request) {
     getStructuredModels(),
   ]);
   if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
+
+  // The plan decides the model (users don't pick one), from the gate's plan snapshot.
+  const model = generationModel(gate.plan, "resume");
 
   // Resolve the reasoning setting from the gate's OWN plan snapshot (the same
   // authoritative plan the charge used — no second getViewerPlan lookup): clamp to the

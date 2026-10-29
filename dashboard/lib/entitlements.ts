@@ -93,6 +93,24 @@ export function planForTier(tier: number): Plan {
 export type InviteCompPlan = Plan | "none";
 export const DEFAULT_INVITE_COMP_PLAN = "standard";
 
+// ── Generation models by plan (résumé / cover letter) ───────────────────────
+// Users don't pick models: the plan decides. TS-ONLY like REASONING_EFFORTS below
+// (generation is dashboard-only; the reviewer never reads these), and outside the
+// ENTITLEMENTS literal so the parity test's regexes never see it. The stage-2 review
+// model is decided per plan by defaultStage2Model (lib/reviewRequests.ts, mirrored in
+// reviewer/config.py) and company review by DISCOVERY_MODEL (company_discovery/llm.py).
+export type GenerationKind = "resume" | "cover";
+export const GENERATION_MODELS: Record<Plan, Record<GenerationKind, string>> = {
+  standard: { resume: PREMIUM_MODEL, cover: PREMIUM_MODEL },
+  pro: { resume: PREMIUM_MODEL, cover: PREMIUM_MODEL },
+};
+
+/** The model that generates `kind` for `plan`. null plan → the Standard model (the
+ *  routes' 402 gate fires before a null-plan generation could ever run). */
+export function generationModel(plan: Plan | null, kind: GenerationKind): string {
+  return GENERATION_MODELS[plan ?? "standard"][kind];
+}
+
 // ── Reasoning effort (résumé / cover-letter generation) ─────────────────────
 // TS-ONLY, intentionally NOT mirrored in reviewer/entitlements.py: generation is
 // dashboard-only, the reviewer never reads these (same precedent as

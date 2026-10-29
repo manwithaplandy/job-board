@@ -8,7 +8,8 @@ import { reserveGenerations, refundGenerations } from "@/lib/usage";
 import { isBilledGenerationError } from "@/lib/rolefit/openrouterClient";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
-import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
+import { generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
+import { generationModel } from "@/lib/entitlements";
 import { normalizeInstructions } from "@/lib/rolefit/generationInstructions";
 import { getStructuredModels } from "@/lib/openrouter";
 import { resolveReasoningSetting } from "@/lib/rolefit/generationSettings";
@@ -55,8 +56,6 @@ export async function POST(req: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return Response.json({ error: "cover letter generation not configured" }, { status: 500 });
 
-  const model = profile.model_cover ?? DEFAULT_COVER_MODEL;
-
   // Tier gate: no plan → 402, exhausted → 429. reserveGenerations ATOMICALLY charges the
   // slot up front (avoids check-then-charge TOCTOU); the background catch refunds a
   // generation that failed before inference, but keeps the charge for a response
@@ -69,6 +68,9 @@ export async function POST(req: Request) {
     getStructuredModels(),
   ]);
   if (!gate.ok) return Response.json(gateRejectionBody(gate), { status: gate.status });
+
+  // The plan decides the model (users don't pick one), from the gate's plan snapshot.
+  const model = generationModel(gate.plan, "cover");
 
   // Resolve the reasoning setting from the gate's OWN plan snapshot (the same
   // authoritative plan the charge used — no second getViewerPlan lookup): clamp to the

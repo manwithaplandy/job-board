@@ -29,8 +29,7 @@ describe("profile settings write boundary", () => {
       eeo_race: null, eeo_veteran: null, eeo_disability: null, screening_answers: {},
     }],
     ["updateGenerationDefaults", { resumeGenerationInstructions: null, coverLetterGenerationInstructions: null }],
-    ["updateModelPreferences", {
-      modelStage2: null, modelResume: null, modelCompany: null, modelCover: null,
+    ["updateReasoningPreferences", {
       reasoningEffortResume: null, reasoningEffortCover: null,
     }],
   ] as const)("%s rejects a tombstoned account without a transaction", async (name, input) => {
@@ -54,8 +53,7 @@ describe("profile settings write boundary", () => {
     ["updateGenerationDefaults", {
       resumeGenerationInstructions: null, coverLetterGenerationInstructions: null,
     }],
-    ["updateModelPreferences", {
-      modelStage2: null, modelResume: null, modelCompany: null, modelCover: null,
+    ["updateReasoningPreferences", {
       reasoningEffortResume: null, reasoningEffortCover: null,
     }],
   ] as const)("%s uses one RLS transaction", async (name, input) => {

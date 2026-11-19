@@ -210,6 +210,11 @@ apply; unverified).
 
 ## 10. Known gaps and inconsistencies
 
+**Job discovery has been stalled since 2026-10-12** (verified in prod 2026-11-19): the
+source path is switched off, so no new postings have been added and closed postings
+aren't being detected. See architecture.md §2 and §5.
+
+
 1. Supabase public signups bypass invite codes at the auth layer (no entitlement results).
 2. A Standard subscriber sees an enabled "Subscribe to Pro" button that returns 409;
    upgrades must go through the Stripe portal (portal config unverified).

@@ -63,8 +63,13 @@ smartrecruiters, workday). Workday tokens are `tenant:datacenter:site`.
 Company corpus: `targets.json` is only a seed. The real corpus is the `companies` table,
 filled by company discovery's dataset ingest.
 
-**Unverified:** whether `source_enabled` is true in production. If it's false, scheduled
-polls do nothing. The cron schedule lives in Railway service settings, not the repo.
+**Production state (read-only check of `lifecycle_control` and `jobs`, 2026-11-19):**
+`source_enabled` is **false**, so every scheduled poll exits as "paused". The `jobs`
+table holds 835,466 rows; the newest `first_seen_at` and `last_seen_at` are both
+2026-10-12 17:20 UTC, with no new jobs in the last 7 days. **Discovery has added or
+re-confirmed nothing since 2026-10-12**, just before the identity migration was
+activated (2026-10-13 03:08 UTC). The cron schedule itself lives in Railway service
+settings and is still unverified.
 
 ## 3. Reviewer
 
@@ -162,7 +167,12 @@ export.
 Code defaults: every flag off (`source_enabled`, `maintenance_enabled`,
 `hydration_enabled`, `feed_enabled`, `retirement_enabled`, `export_enabled`,
 `identity_enabled`), `retirement_dry_run = true`, `archive_stage = 'never_activated'`.
-Production values are **unverified**. Operate it with the runbooks:
+Production values (read 2026-11-19): `safety_stage = 'collect'`, `identity_enabled = true`
+(identity migration activated 2026-10-13 03:08 UTC), `source_enabled`,
+`maintenance_enabled`, `hydration_enabled`, `feed_enabled`, `retirement_enabled` and
+`export_enabled` all false, `retirement_dry_run = true`, `archive_stage =
+'never_activated'`. The rollout is stalled partway: identity is on, the source path that
+replaced the legacy poll is off. Operate it with the runbooks:
 [job-lifecycle-outbox](runbooks/job-lifecycle-outbox.md),
 [lifecycle-consumers](runbooks/2026-10-07-lifecycle-consumers.md),
 [initial identity turn](runbooks/2026-10-13-initial-identity-turn.md),
@@ -350,7 +360,8 @@ The full value sets live in Railway and Vercel; this lists what the code reads.
 ## 13. Known drift and open issues
 
 1. Schedules disagree across Railway, README and `lib/schedules.ts` (§7).
-2. Scheduled discovery is a no-op unless `source_enabled` is on (prod value unverified);
+2. `source_enabled` is false in prod, so scheduled discovery is a no-op and no jobs have
+   been added or re-confirmed since 2026-10-12;
    no periodic reviewer exists in the repo or in Railway (§2, §3, §9).
 3. Railway's `reviewer-worker` runs `reviewer.worker`, not the supervisor its config file
    names, and the spend-alert service isn't deployed (§9).

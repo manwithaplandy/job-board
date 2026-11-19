@@ -1,3 +1,5 @@
+> **Superseded (2026-11-19).** Historical June 2026 PRD for the single-operator prototype. The current spec is [`docs/product.md`](../product.md) and [`docs/architecture.md`](../architecture.md).
+
 # PRD — Remote Job Tracker
 
 **Owner:** Andrew

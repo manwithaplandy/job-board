@@ -1,6 +1,6 @@
 # Agent-first redesign: design
 
-Date: 2026-11-19. Status: draft for Andrew's review. Phase: spec (brainstorm is done; no plan, no code yet).
+Date: 2026-11-19. Status: draft for Andrew's review, after one builder-check pass. Phase: spec (brainstorm is done; no plan, no code yet).
 
 Grounding: code on `main` at `a478659`; `docs/product.md` and `docs/architecture.md` on branch `claude/project-thread-thhbs3` (not merged); the UX review in `/mnt/project-files/ux-review/` (01 design review, 02 market scan, 03 differentiation, 04 generative-UI research); and today's library check (`research-2026-11-19.md` in the session scratchpad, cited below as "library check"). I did not re-research anything those files cover.
 
@@ -114,7 +114,7 @@ The product direction is decided. What was open is how the agent's UI is produce
 - **AI SDK RSC `streamUI`:** still experimental per 04-genui-research. Avoid.
 - **`@ai-sdk/workflow` durable runs:** stability not stated and it likely needs Vercel Workflow [Unverified]. Not a dependency; section 9 uses a plain queue.
 
-**zod at the tool boundary.** AI SDK tool inputs are normally declared with zod. Proposal: declare tool inputs with JSON Schema plus our total parsers if AI SDK 7 supports that cleanly [Unverified, check at plan time]; otherwise allow zod for tool input schemas only, never for persisted data. This is open question 5.
+**zod at the tool boundary.** AI SDK tool inputs are normally declared with zod. Proposal: declare tool inputs with JSON Schema plus our total parsers if AI SDK 7 supports that cleanly [Unverified, check at plan time]; otherwise allow zod for tool input schemas only, never for persisted data. This is open question 7.
 
 **OpenRouter through the AI SDK.** All LLM traffic goes through OpenRouter today using hand-written fetch (`lib/rolefit/openrouterClient.ts`). The agent loop needs an AI SDK provider pointed at OpenRouter. Whether the community OpenRouter provider tracks AI SDK 7 is [Unverified]; the fallback is an OpenAI-compatible provider with OpenRouter's base URL. Decide in the plan with a spike.
 
@@ -252,7 +252,7 @@ Stages (Builder's call): preparing, ready, applied, interviewing, offer, closed 
 
 - Plain-language sections: role and seniority, locations and arrangement, compensation, must-haves, deal-breakers, companies and industries, anything else.
 - User edits directly. The agent never edits silently: it creates a **proposal** (a diff) that the user approves, edits or declines. Approved proposals create a new version. Versions list who changed what, with restore.
-- The memo supersedes `profiles.instructions` and the free-text preference fields. Proposal: on each approved version, compile the memo to text and write it to `profiles.instructions` so the reviewer needs no prompt change. That changes `profile_version` (sha256 of résumé and instructions), which today re-reviews everything. Section 8 and open question 4 cover scoping.
+- The memo supersedes `profiles.instructions` and the free-text preference fields. Proposal: on each approved version, compile the memo to text and write it to `profiles.instructions` so the reviewer needs no prompt change. That changes `profile_version` (sha256 of résumé and instructions), which today re-reviews everything. Builder's call 16 covers scoping.
 - Structured fields stay structured: preferred locations and company exclusions remain columns, edited from this page.
 
 ### 6.5 Documents (`/documents`)
@@ -313,7 +313,7 @@ Proposal:
 - `agent_settings.default_variant` per user. Each thread records the variant it was created with. Each surface row records the variant, model, validation outcome, latency and token counts that produced it.
 - The switcher sits in the agent page chrome. Changing it applies to later turns in that thread; earlier surfaces keep rendering in the variant that produced them.
 - "Re-render as..." on any surface re-runs only the present step with the same gathered data in another variant and shows the two results as tabs. This is the main comparison tool.
-- Variants 1 and 2 are visible to every signed-in user with a plan. **Variant 3 is limited to admin accounts (`ADMIN_EMAILS`)** until the sandbox passes the tests in section 10 (open question 1).
+- Variants 1 and 2 are visible to every signed-in user with a plan. **Variant 3 is limited to admin accounts (`ADMIN_EMAILS`)** until the sandbox passes the tests in section 10 (open question 5).
 
 ### 7.3 How the comparison works
 
@@ -326,7 +326,7 @@ Proposal:
 
 "Confusing" is operationalized as any of: failing to find the primary action quickly; mispredicting what a control does; not recognizing the same task when it is laid out differently the second time; needing to ask the agent how to use what it just built. Structural variance is the automatic proxy for the third.
 
-Model fairness. A weak model writing code can look like "freedom breaks" when it is really "model too weak" [Inference]. Proposal: run the matrix once with one cheap default model for all variants, and once with a stronger model, and report both (open question 8).
+Model fairness. A weak model writing code can look like "freedom breaks" when it is really "model too weak" [Inference]. Proposal: run the matrix once with one cheap default model for all variants, and once with a stronger model, and report both (builder's call 20).
 
 **Decision rule (proposal):** adopt the freest variant that (1) has zero security test failures, (2) meets the fallback-rate and task-assert thresholds agreed in the plan, and (3) is not rated more confusing than variant 1 by the human sessions. A mixed outcome is legitimate and likely [Inference]: for example variant 2 by default with variant 1 blocks for anything carrying actions. The thresholds are deliberately not numbers here; setting them before a single run exists would be invented precision. Set them from a pilot run in phase 2.
 
@@ -539,7 +539,7 @@ Not a plan. Order is by uncertainty: the rendering question first, because it sh
 | Phase | Ships | Exit |
 |---|---|---|
 | 0. Foundations | Additive migrations; agent loop with read tools over existing data; thread persistence; `agent_runs` and the spend ceiling; OpenRouter provider spike; Langfuse tracing | A signed-in admin can ask about their reviewed jobs and get text back within budget |
-| 1. Variant 1 and thin workspaces | `present` with domain blocks; write tools with confirm cards and undo; shortlist, tracker, memo, documents as plain pages; uploads; the four scenarios end to end; golden scenarios and asserts | All four scenarios pass asserts in variant 1; cost per scenario measured |
+| 1. Variant 1 and thin workspaces | `present` with domain blocks; deterministic "suggested" fill (builder's call 17); write tools with confirm cards and undo; shortlist, tracker, memo, documents as plain pages; uploads; the four scenarios end to end; golden scenarios and asserts | All four scenarios pass asserts in variant 1; cost per scenario measured |
 | 2. The experiment | Variants 2 and 3 (3 admin-only), the switcher, "re-render as", the harness, injection set, human sessions | A written decision on the rendering level |
 | 3. Cutover | Agent page as `/`; old board, onboarding, companies, advanced AI and profile sections removed; analytics tiles page; dictation; visual manifest updated; export, deletion and privacy copy updated | Old dashboard code deleted |
 | 4. Between visits | Cron tick, scheduled reviews, digests, nudges, inbox, kill switches; spend alert deployed | A user who stays away for three days returns to a correct, capped inbox |
@@ -574,7 +574,7 @@ These are choices I made that Andrew did not hear in the brainstorm. Ones large 
 5. Unattended runs are propose-only and cannot generate documents.
 6. Vercel Cron for the schedule; one review and digest per active user per day.
 7. Inbox items are fixed cards, not variant-rendered.
-8. Memo is compiled into `profiles.instructions`; re-review after a memo change is scoped.
+8. Memo is compiled into `profiles.instructions`; re-review after a memo change is scoped (see 16).
 9. Tracker stages as listed, with manual entries for outside jobs.
 10. Model pickers and `/profile/advanced` are removed now, ahead of the cost model rework.
 11. `/companies` leaves user navigation; the logged-out `/board` stays.
@@ -582,25 +582,29 @@ These are choices I made that Andrew did not hear in the brainstorm. Ones large 
 13. The "catalog clock" helper for frozen data.
 14. Multiple threads, with background findings kept out of threads.
 15. No columns dropped; retired columns are left in place.
+16. **Scoped re-review is required, not optional.** A full re-review is not a real fallback: changing `profile_version` makes every reviewed job eligible again under the same per-user daily cap (400 on Standard, `lib/entitlements.ts`), so "what moved" would trickle in over days while competing with new jobs. Scope: the user's shortlist (all states except skipped) plus the newest reviewed jobs up to a cap set in the plan. This replaces the earlier open question on re-scoring.
+17. **Until phase 4, "suggested" is filled deterministically.** After a review finishes, the top approved jobs by fit (not already triaged) become `suggested`, with the two-line brief taken from the review's existing reasoning and red flags, no extra LLM call. The handoff is a check on page load and on the review-progress poll, not a queue. Agent-written briefs and the inbox arrive in phase 4. "Scenario (a) passes in phase 1" means picks land in the shortlist; the "result lands in the inbox" step is phase 4.
+18. **Testers use seeded persona accounts.** Two or three personas with pre-reviewed jobs, comped plans and synthetic résumés. This avoids invites, slow per-tester reviews and real personal data in Langfuse traces (which account deletion does not remove today). The cost: testers judge a résumé that is not theirs. If Andrew wants testers on their own data, phase 2 needs per-tester invites, plan overrides and Langfuse redaction first.
+19. **Variants are temporary.** It is an experiment. Variants 2 and 3 are built to prototype quality (validators and the security controls in full, but no UI-contract polish beyond what the evals need). After the decision, the losers, the switcher and "re-render as" are deleted in phase 3, and the winner is hardened. Keeping user-selectable freedom levels as a feature would be a new decision.
+20. **One model for the human sessions; the scripted matrix runs twice** (cheap default, then a stronger model), because scripted runs are cheap and this separates "freedom breaks" from "model too weak". Candidate default: Claude Haiku 5.5 through OpenRouter ($0.10/$0.50 per MTok up to 100K prompt tokens, $0.50/$2.50 above, per Anthropic's pricing page in the library check).
+21. **Daily cadence on Vercel Cron.** One tick per day covers one review and digest per active user, which should fit any Vercel plan [Unverified: plan not readable from the Vercel connector]. If it does not, the fallback is a small enqueue-only loop in the Railway worker, with agent runs still executed by a Vercel route.
 
 ---
 
 ## 15. Open questions for Andrew
 
-Most important first. Each has my recommendation.
+Only questions where the answer changes what gets built. Most important first, each with a recommendation. The earlier questions on re-scoring scope, the Vercel plan and model fairness are now builder's calls 16, 20 and 21.
 
-1. **Who can use variant 3 in production?** Recommend admin accounts only until it runs on a separate origin and passes the injection set. The self-navigation leak is real and its mitigation is browser-dependent. If you want all testers on it from day one, the separate-origin work moves from phase 5 into phase 2.
+1. **What can the agent search: only jobs already reviewed for this user, or the whole catalog?** `search_jobs` as written covers reviewed jobs only. The reviewer picks those by location under a daily cap, so "find me Rust platform roles in Denver" works only if the reviewer happened to score them. Searching all ~835k jobs needs a text index on `jobs` (only a GIN index on `location_canonicals` exists), an on-demand "review these few jobs" path with its own latency and spend handling, and an "unscored" state in the UI. Recommend: reviewed jobs only in phases 0 to 2; add catalog search with on-demand scoring of a capped handful after the experiment. Yes-now moves that work into phase 1.
 
-2. **Who judges "confusing"?** Recommend you plus three to five people who have never seen the product, each running the four scenarios in rotated order. You know where everything is, so your own sessions will under-report confusion. If it is only you, the decision rests mostly on the automatic measures, and structural variance becomes the main signal.
+2. **Can the user bring in a job found elsewhere and have it evaluated?** "The whole process in chat" plus photo upload suggests yes, and with discovery frozen it may be the only fresh source. The spec as written only allows manual tracker entries, with no scoring. Recommend yes, by pasted text or screenshot only (no URL fetching, since the agent has no egress tool), stored in a per-user table and scored by the existing reviewer through a new request type. This adds a new untrusted-input channel to the injection set. No keeps phase 1 smaller.
 
-3. **How free is the permanent analytics page?** Recommend declarative tiles over a closed metric catalog, whatever the experiment decides for the agent page. The page has to load without a model call and stay correct for months. The alternative, saving a variant 2 or 3 surface as the page, matches "the agent can build" more literally but ties a persistent page to an experimental renderer.
+3. **How free is the permanent analytics page?** Recommend declarative tiles over a closed metric catalog, whatever the experiment decides for the agent page, because the page has to load without a model call and stay correct for months. This holds freedom below "the agent can build" read literally. The alternative, saving a variant 2 or 3 surface as the page, ties a persistent page to an experimental renderer.
 
-4. **After a memo change, what gets re-scored?** Recommend the shortlist plus the newest unreviewed jobs, not everything. Today any change to `profile_version` re-reviews the full set. Cost is deferred, but this also decides how fast the user sees "what moved" and it requires a reviewer change either way. Full re-review needs no reviewer change and is the fallback.
+4. **Who judges "confusing"?** Recommend you plus three to five people who have never seen the product, on seeded persona accounts (builder's call 18), running the four scenarios in rotated order. You know where everything is, so your sessions will under-report confusion. If it is only you, the decision rests mostly on the automatic measures, with structural variance as the main signal.
 
-5. **Is zod acceptable at the AI SDK tool boundary?** Recommend yes, for tool input schemas only, if the JSON Schema route turns out awkward in AI SDK 7. All persisted data (messages, surfaces, memo, tiles) still goes through hand-rolled total parsers. If the answer is no, the plan must budget for the JSON Schema path and its spike.
+5. **Who can use variant 3 in production?** Recommend admin accounts only until it runs on a separate origin and passes the injection set, because the self-navigation leak is real and its mitigation is browser-dependent. Outside testers would then try variant 3 on an admin-flagged persona account. Wanting it open to everyone from day one moves the separate-origin work from phase 5 into phase 2.
 
 6. **May the unattended agent pre-draft application documents for its top picks?** Recommend no for now: it spends allowance and money with nobody watching, and a wrong pick wastes both. Yes would make "works between visits" noticeably more impressive, and would need a per-day cap and a clear "drafted for you" state.
 
-7. **What Vercel plan is the dashboard on, and is a daily cadence enough?** Recommend daily per active user. Cron frequency limits depend on the plan, which I could not verify. If the plan cannot run it, the fallback is a small scheduler loop in the Railway worker that only enqueues, with agent runs still executed by a Vercel route.
-
-8. **One model for all three variants, or the best model for each?** Recommend running the matrix twice: once with a single cheap default (Claude Haiku 5.5 through OpenRouter is the candidate; the library check lists it at $0.10/$0.50 per MTok) and once with a stronger model, so "freedom breaks" can be separated from "model too weak". A single run is cheaper but leaves that ambiguity in the result.
+7. **Is zod acceptable at the AI SDK tool boundary?** Recommend yes, for tool input schemas only, if the JSON Schema route turns out awkward in AI SDK 7. All persisted data (messages, surfaces, memo, tiles) still goes through hand-rolled total parsers. No means the plan budgets for the JSON Schema path and its spike.

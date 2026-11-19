@@ -122,9 +122,9 @@ Signed-in users see jobs the reviewer **approved** for them, plus their own over
 ### When reviews happen
 - In the repo, review requests are created only by onboarding and by the user (Review now
   / Resume matching). The always-on reviewer worker drains that queue.
-- `lib/schedules.ts` tells users reviews run every 2 hours, mirroring a Railway cron set
-  outside the repo. **Unverified:** no repo file schedules a periodic review. See
-  architecture.md §7.
+- `lib/schedules.ts` tells users reviews run every 2 hours, but no periodic review exists
+  in the repo or in Railway (checked 2026-11-19). New jobs are scored for a user only
+  after they (or onboarding) queue a request. See architecture.md §3 and §9.
 
 ### Matching inactivity pause
 Free, comped and admin-overridden accounts stop being reviewed after 7 days without a
@@ -221,8 +221,8 @@ apply; unverified).
 6. Privacy page omits AWS SES (invite email) and says export/delete are "on your profile
    page" (they're at `/profile/account`).
 7. `/ui-gallery` (visual-test fixtures) is publicly reachable.
-8. User-facing schedules (`lib/schedules.ts`) are hand-mirrored from Railway and disagree
-   with the README and railway configs (architecture.md §7).
+8. User-facing schedules (`lib/schedules.ts`) promise reviews every 2 hours; no periodic
+   review runs in production (architecture.md §7, §9).
 9. Legacy application packages with unknown inputs can't be re-prepared.
 10. Webhook ignores invoice events (`invoice.payment_failed` etc.); entitlement follows
     subscription status only.

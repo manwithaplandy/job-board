@@ -1,7 +1,7 @@
 # job-board: architecture
 
 Status: living description of the system **as built on `main`** (checked against code at
-`a478659`, 2026-11-19). Product behavior is in [`product.md`](product.md). Where the
+`a478659`, 2026-11-19; Railway service list read 2026-11-19, see §9). Product behavior is in [`product.md`](product.md). Where the
 running system depends on configuration outside the repo (Railway service settings,
 the `lifecycle_control` row, Supabase auth settings), this doc says **unverified**.
 
@@ -12,7 +12,7 @@ the `lifecycle_control` row, Supabase auth settings), this doc says **unverified
 | Job discovery (poller) | `job_discovery/` | `python -m job_discovery`, cron | Railway (`railway.json`) |
 | Company discovery / classification | `company_discovery/` | `python -m company_discovery`, always-on worker | Railway (`railway.discovery.json`) |
 | Reviewer supervisor | `reviewer/`, `job_discovery/lifecycle/`, `job_discovery/archive/` | `python -m reviewer.supervisor`, always-on | Railway (`railway.reviewer-worker.json`) |
-| Spend alert | `observability/spend_alert.py` | `python -m observability.spend_alert`, hourly cron | Railway (`railway.spend-alert.json`) |
+| Spend alert | `observability/spend_alert.py` | `python -m observability.spend_alert`, hourly cron | Railway (`railway.spend-alert.json`), **but no such service exists in Railway** (§9) |
 | Dashboard | `dashboard/` (Next.js 16) | Server components, server actions, API routes | Vercel (region `sfo1`) |
 | Database | `schema.sql`, `migrations/` | Supabase Postgres (prod project `fdhspmavadgucktetzoi`) | Manual migrations |
 
@@ -90,8 +90,9 @@ active request per user), run `run._review_user`.
 `review_requests` rows are inserted only by `resume_matching()` / `enqueueReviewRequest`
 from the dashboard (onboarding, Review now, Resume matching). There is no periodic
 enqueue in the repo. `python -m reviewer` (`review_all` over every profile, then exit)
-exists but no repo config schedules it. **Unverified:** whether a Railway cron runs it;
-`dashboard/lib/schedules.ts` claims every 2 h.
+exists but nothing runs it: Railway has no service for it (verified 2026-11-19, §9),
+although `dashboard/lib/schedules.ts` tells users reviews run every 2 h. **So in
+production, reviews happen only when a user's request is queued.**
 
 ### Per-user review (`run._review_user`)
 1. Per-user advisory lock; skip if held.
@@ -211,9 +212,9 @@ Production values are **unverified**. Operate it with the runbooks:
 | Service | `railway*.json` | README | `dashboard/lib/schedules.ts` |
 |---|---|---|---|
 | Job discovery | no `cronSchedule` | `0 0 * * *` | `0 */2 * * *` |
-| Periodic reviewer | not configured | "end of each poll run" | `0 */2 * * *` |
+| Periodic reviewer | not configured | "end of each poll run" | `0 */2 * * *` (no such service exists in Railway) |
 | Company discovery | always-on (restart on failure) | "slow, e.g. weekly" cron | `0 6 * * 1` |
-| Spend alert | `0 * * * *` | hourly | n/a |
+| Spend alert | `0 * * * *` | hourly | n/a (service not deployed) |
 
 Only the spend alert's schedule is in the repo. The rest live in Railway service settings
 and should be read from Railway, then committed (open question for the owner).
@@ -265,6 +266,19 @@ current state.
 - (planned) Applying migrations in CI/CD is under discussion; not built.
 
 ## 9. Deploy topology
+
+**Railway as read 2026-11-19** (project `job-board-poller`, production): exactly three
+services, `poller`, `discovery` and `reviewer-worker`.
+- `reviewer-worker` runs `python -m reviewer.worker` from `main` with no cron, even though
+  its config file (`railway.reviewer-worker.json`) says `python -m reviewer.supervisor`.
+  The service's start command appears to override the file, so the supervisor's
+  lifecycle children (maintenance, archive, source verification, identity) are **not
+  running** in production (inferred from that start command).
+- There is **no spend-alert service**, so `railway.spend-alert.json` is not deployed and
+  the hourly OpenRouter burn alert is not running.
+- There is no scheduled `python -m reviewer` service.
+- The poller and discovery service configs (schedule, start command) could not be read
+  and remain **unverified**.
 
 - **Push to `main` auto-deploys.** Railway services rebuild when files matching their
   watch patterns change (all include `schema.sql`; `railway.json` has none set in the
@@ -336,11 +350,13 @@ The full value sets live in Railway and Vercel; this lists what the code reads.
 ## 13. Known drift and open issues
 
 1. Schedules disagree across Railway, README and `lib/schedules.ts` (§7).
-2. Scheduled discovery is a no-op unless `source_enabled` is on; no periodic reviewer is
-   defined in the repo (§2, §3).
-3. Two DB ceilings: env-driven 6000 MB and a hard-coded 6000 MiB in `capacity.py`.
-4. Per-plan default stage-2 model mirrored by comment only between Python and TS.
-5. `schema.sql` carries repeated function definitions from appended migrations.
-6. `.superpowers/sdd/` task reports are tracked in git.
-7. The README's review-phase and model sections predate the move to OpenRouter and the
+2. Scheduled discovery is a no-op unless `source_enabled` is on (prod value unverified);
+   no periodic reviewer exists in the repo or in Railway (§2, §3, §9).
+3. Railway's `reviewer-worker` runs `reviewer.worker`, not the supervisor its config file
+   names, and the spend-alert service isn't deployed (§9).
+4. Two DB ceilings: env-driven 6000 MB and a hard-coded 6000 MiB in `capacity.py`.
+5. Per-plan default stage-2 model mirrored by comment only between Python and TS.
+6. `schema.sql` carries repeated function definitions from appended migrations.
+7. `.superpowers/sdd/` task reports are tracked in git.
+8. The README's review-phase and model sections predate the move to OpenRouter and the
    reviewer supervisor.

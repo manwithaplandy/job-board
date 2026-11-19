@@ -1,6 +1,6 @@
 # Agent-first redesign: design
 
-Date: 2026-11-19. Status: draft for Andrew's review, after one builder-check pass. Phase: spec (brainstorm is done; no plan, no code yet).
+Date: 2026-11-19. Status: draft for Andrew's review, after one builder-check pass and his first answers (2026-11-19). Phase: spec (brainstorm is done; no plan, no code yet).
 
 Grounding: code on `main` at `a478659`; `docs/product.md` and `docs/architecture.md` on branch `claude/project-thread-thhbs3` (not merged); the UX review in `/mnt/project-files/ux-review/` (01 design review, 02 market scan, 03 differentiation, 04 generative-UI research); and today's library check (`research-2026-11-19.md` in the session scratchpad, cited below as "library check"). I did not re-research anything those files cover.
 
@@ -114,7 +114,7 @@ The product direction is decided. What was open is how the agent's UI is produce
 - **AI SDK RSC `streamUI`:** still experimental per 04-genui-research. Avoid.
 - **`@ai-sdk/workflow` durable runs:** stability not stated and it likely needs Vercel Workflow [Unverified]. Not a dependency; section 9 uses a plain queue.
 
-**zod at the tool boundary.** AI SDK tool inputs are normally declared with zod. Proposal: declare tool inputs with JSON Schema plus our total parsers if AI SDK 7 supports that cleanly [Unverified, check at plan time]; otherwise allow zod for tool input schemas only, never for persisted data. This is open question 7.
+**zod at the tool boundary.** AI SDK tool inputs are normally declared with zod. Proposal: declare tool inputs with JSON Schema plus our total parsers if AI SDK 7 supports that cleanly [Unverified, check at plan time]; otherwise allow zod for tool input schemas only, never for persisted data. This is open question 5.
 
 **OpenRouter through the AI SDK.** All LLM traffic goes through OpenRouter today using hand-written fetch (`lib/rolefit/openrouterClient.ts`). The agent loop needs an AI SDK provider pointed at OpenRouter. Whether the community OpenRouter provider tracks AI SDK 7 is [Unverified]; the fallback is an OpenAI-compatible provider with OpenRouter's base URL. Decide in the plan with a spike.
 
@@ -246,7 +246,7 @@ Replaces the 500-row board (design review P1-4). States:
 
 ### 6.3 Application tracker (`/applications`)
 
-Stages (Builder's call): preparing, ready, applied, interviewing, offer, closed (rejected, withdrawn, no response). Each row: stage history, notes, linked documents, posting link, next-step date. Manual entries for jobs outside the catalog are allowed (title, company, URL), because a tracker that only tracks our postings is not useful alone.
+Stages (Builder's call): preparing, ready, applied, interviewing, offer, closed (rejected, withdrawn, no response). Each row: stage history, notes, linked documents, posting link, next-step date. Decided (Andrew, 2026-11-19): "focus only on jobs found within the platform's own discovery". So every tracker row links to a catalog job; no manual entries for outside jobs (listed under future work).
 
 ### 6.4 "What I'm looking for" memo (`/looking-for`)
 
@@ -263,7 +263,7 @@ Uploads (résumés, photos, other files), the résumé source of truth (`profile
 
 Decided: a permanent page the agent builds for metrics the user wants "without having to prompt for it".
 
-Builder's call: the page is a saved list of **tiles**. A tile is `{metric, group_by, filter, window, viz, title}` where `metric` comes from a closed catalog (applications by stage, applications over time, response rate, time in stage, shortlist funnel, skip reasons, fit of shortlisted vs applied, weekly activity) and `viz` is stat, bar, line or table (Recharts is already a dependency). The agent composes tiles; it does not write SQL or code for this page. Reasons: the page must render without a model call, must survive a renderer change after the experiment, and must stay correct. This is the one place I am holding freedom below what Andrew asked for; see open question 3.
+Builder's call: the page is a saved list of **tiles**. A tile is `{metric, group_by, filter, window, viz, title}` where `metric` comes from a closed catalog (applications by stage, applications over time, response rate, time in stage, shortlist funnel, skip reasons, fit of shortlisted vs applied, weekly activity) and `viz` is stat, bar, line or table (Recharts is already a dependency). The agent composes tiles; it does not write SQL or code for this page. Reasons: the page must render without a model call, must survive a renderer change after the experiment, and must stay correct. This is the one place I am holding freedom below what Andrew asked for; see open question 2.
 
 The current `/analytics` (operator pipeline stats, about 29 aggregate queries) moves to `/admin/pipeline`.
 
@@ -313,7 +313,7 @@ Proposal:
 - `agent_settings.default_variant` per user. Each thread records the variant it was created with. Each surface row records the variant, model, validation outcome, latency and token counts that produced it.
 - The switcher sits in the agent page chrome. Changing it applies to later turns in that thread; earlier surfaces keep rendering in the variant that produced them.
 - "Re-render as..." on any surface re-runs only the present step with the same gathered data in another variant and shows the two results as tabs. This is the main comparison tool.
-- Variants 1 and 2 are visible to every signed-in user with a plan. **Variant 3 is limited to admin accounts (`ADMIN_EMAILS`)** until the sandbox passes the tests in section 10 (open question 5).
+- Decided (Andrew, 2026-11-19): "just roll all 3 out together. Like I said there are no users so this is all dev essentially." All three variants are available to every signed-in user with a plan, with no admin gate. The variant 3 sandbox and its injection protections (section 10) stay in full, because the injection risk comes from job postings, not from who the user is.
 
 ### 7.3 How the comparison works
 
@@ -344,7 +344,8 @@ Every tool runs server-side as the session user through `withUserSql` or `withUs
 |---|---|---|---|
 | `get_profile_summary` | Parsed résumé facts, locations, application details minus EEO fields | R | |
 | `get_memo` | Current memo and pending proposals | R | |
-| `search_jobs` | Reviewed jobs for this user by filters, sorted, capped | R | |
+| `search_jobs` | Jobs for this user by structured filters plus a semantic query, sorted, capped. Scope depends on open question 1: reviewed jobs only, or the catalog through retrieval (section 8.4), with unscored jobs marked as such | R | |
+| `review_jobs` | On-demand review of a few specific jobs (capped per call and per day), for catalog results that are not scored yet. Only if open question 1 is yes | W | no |
 | `get_job` | Posting fields and description (wrapped as untrusted) | R | |
 | `get_review` | Verdict, sub-scores, gaps, requirements, red flags | R | |
 | `list_shortlist` / `list_applications` | Rows by state or stage | R | |
@@ -383,7 +384,7 @@ All new tables carry `user_id`, have RLS enabled, and follow the existing owner 
 | `agent_inbox_items` | Background findings, read and dismissed timestamps | owner read, update read state |
 | `search_memos`, `search_memo_versions`, `search_memo_proposals` | Memo, history, pending diffs | owner CRUD on memo; proposals owner read plus resolve |
 | `shortlist_items` | `(user_id, job_id)`, state, reason code and text, set by | owner CRUD |
-| `applications`, `application_events` | Tracker stage and history; nullable `job_id` for manual entries | owner CRUD |
+| `applications`, `application_events` | Tracker stage and history; `job_id` required (catalog jobs only) | owner CRUD |
 | `documents` | Uploads and extracted text, storage path | owner CRUD |
 | `analytics_tiles` | Saved tile specs and order | owner CRUD |
 
@@ -401,6 +402,40 @@ Tables users must not be able to forge (`agent_runs`, `agent_actions`, `agent_su
 | `matching_activity` | Unchanged; agent conversation should count as meaningful activity (Builder's call) |
 
 Also required and easy to forget: account export (`lib/accountExport.ts`) and deletion (`lib/accountDeletion.ts`) must cover every new table and the uploads; the privacy page must mention conversation content in Langfuse traces (not deleted today) and the dictation provider.
+
+### 8.4 Finding jobs: retrieval and ranking (proposal, open question 1)
+
+Andrew asked (2026-11-19) whether Venn could help "find and suggest jobs for each user from our jobs database for a low cost with a decisions model like Jev". Research on the same day (library check addendum, sources in the task notes):
+
+- **Venn** (`markrussinovich/venn-vdm`, MIT code, model weights on Hugging Face under their own terms) is a single-author "research preview": 8 stars, 2 commits, no releases, no PyPI package found. It answers typed questions (Choice, Score, yes/no, nearest reference, outliers) over embeddings with a small head, and can train custom heads (linear or residual Choice, numeric) from labeled vectors. Its generic head expects vectors from its frozen 768-d `embeddinggemma-2` reader (~1.5 GB). The author's own caveats: probabilities not calibrated, benchmarks self-run. **Verdict: do not depend on it now.** What it does is a thin layer over a logistic or ridge head on stored vectors. Revisit if it gains releases and independent users.
+- **Jev** is real: TypeSafe's hosted structured-decision model on OpenRouter (`typesafe/jev-1.14`, Decisions API, alpha endpoint), about $0.042 per 1M input tokens, output free, ~70 to 500 ms per call. Venn accepts Jev's request format. One third-party benchmark (Amplitude, 2026-09-28) found full recall but 55.8% precision on its task. Jev returns probabilities, not rankings from user feedback, so at most it could replace the stage-1 title/company gate after testing on our own labels. Still a per-user, per-job call, so it does not make scoring the whole catalog per user cheap.
+- **The idea behind both is sound and does not need either.** Build the plain version:
+
+```
+structured SQL filters (location, arrangement, pay floor, seniority, exclusions)
+  -> pgvector top-K by similarity to the user's résumé + memo embedding
+  -> small trained head re-ranks (global model + per-user adjustment from feedback)
+  -> LLM full review only for the top N (the existing stage-2 reviewer)
+```
+
+Cost comparison (arithmetic, prices from the library check; [Inference] on token counts):
+
+| | Today: LLM-score per job | Proposed |
+|---|---|---|
+| Per job, per user | ~3k input tokens on DeepSeek V4 Flash ≈ $0.0005 | Similarity plus head: CPU only, effectively $0 |
+| Whole catalog for one user | ~835k × $0.0005 ≈ $400, so today it is capped at 400 jobs/day after a location prefilter | Retrieval over the whole catalog every time; LLM review only for top N (e.g. 50/day ≈ $0.025) |
+| Shared one-time cost | none | Embed the catalog once: ~$10 at ~600 tokens/job, ~$33 at ~2k tokens, on OpenAI `text-embedding-3-small` ($0.02/M) or `voyage-4-lite` ($0.02/M, 200M free tokens). New postings embedded at ingest |
+| Storage | none | ~835k vectors: ~1.7 GB at 1024-d `halfvec` (3.4 GB as `vector`), plus HNSW index overhead [Inference: roughly 50 to 100% more]. Embedding only live jobs inside the discovery window would shrink this |
+
+What it needs:
+
+- pgvector on Supabase (HNSW is the documented default; filtered queries need pgvector 0.8+ iterative scans, otherwise a selective WHERE can return fewer rows than the LIMIT). Disk and RAM headroom on the current Supabase plan for the index build [Unverified, check before phase 0].
+- An embedding step at ingest in the Python discovery pipeline, a backfill job for existing postings, and a profile embedding refreshed on résumé or memo change.
+- A head trained in Python (scikit-learn logistic for shortlist vs skip, ridge for a score) on the reviewer side, using shortlist, skip-with-reason, applied and later outcomes as labels. Skip reasons become structured features. A global head with a shrunk per-user offset, because per-user labels are tiny.
+- Cold start: a new user has no labels, so rank by similarity alone (inside the filters) and blend the head in as feedback accumulates.
+- Hard constraints stay in SQL. Similarity is weak at pay, location, seniority and visa, which is why the filters come first.
+
+This changes the reviewer's candidate selection (today: location prefilter, then score what fits under the cap) and is the natural home for the scoped re-review in builder's call 16: a memo change re-embeds the profile and re-ranks instantly, and only the new top N need an LLM review. It also makes the teach-by-talking loop (G3) visible immediately instead of after a re-review trickle.
 
 ### 8.3 Routes
 
@@ -500,13 +535,13 @@ Facts from the library check, then the design.
 
 Design (proposal):
 
-1. **Phase one, admin only:** `srcdoc` iframe, `sandbox="allow-scripts"`, meta CSP `default-src 'none'` plus nonce'd inline script and style, `img-src data:`. The host injects the kit and the generated document.
+1. **Phase 2 (ships to everyone):** `srcdoc` iframe, `sandbox="allow-scripts"`, meta CSP `default-src 'none'` plus nonce'd inline script and style, `img-src data:`. The host injects the kit and the generated document.
 2. **Bridge:** `postMessage` JSON. Host to frame: `init {data, theme}`. Frame to host: `ready`, `resize {height}`, `action {name, args}`, `error {message}`. Because the origin is opaque, the host validates `event.source === iframe.contentWindow` and the message schema on every message. Actions go through the same enum and confirm cards as every other variant. The frame gets a data snapshot; it has no read tools.
 3. **Self-navigation is the open hole.** A frame can leak the data it was given by navigating itself to an attacker URL with the data in the query string. Mitigations, layered: (a) static rejection of external URL strings, `location`, `meta http-equiv`, `form`, anchors with `href`; this is bypassable by obfuscation and is defense in depth only; (b) the host tears down the frame on any second `load` event, which limits but does not prevent one request; (c) a parent `frame-src` policy that only permits the sandbox origin, which should cover navigations of the child frame [Unverified, must be tested per browser]; (d) the data snapshot excludes contact details and anything the surface does not need.
-4. **Before variant 3 is offered beyond admins:** move the frame to a separate origin with a header CSP (the current `frame-ancestors 'none'` and `X-Frame-Options: DENY` would need a scoped exception for that origin), and pass an injection test set where seeded postings and documents try to exfiltrate and to wire unconfirmed writes.
+4. **Before real users arrive** (i.e. before discovery is re-enabled or the product opens up; Builder's call): move the frame to a separate origin with a header CSP (the current `frame-ancestors 'none'` and `X-Frame-Options: DENY` would need a scoped exception for that origin), and pass an injection test set where seeded postings and documents try to exfiltrate and to wire unconfirmed writes.
 5. Height cap, handshake timeout, and a visible "generated view" frame so the user can tell agent-written UI from product chrome.
 
-Honest summary: variants 1 and 2 are safe by construction for data integrity and nearly so for exfiltration. Variant 3 is containable for writes (everything still goes through tools and confirms) but its exfiltration story depends on browser behavior that needs testing. That is why it starts admin-only.
+Honest summary: variants 1 and 2 are safe by construction for data integrity and nearly so for exfiltration. Variant 3 is containable for writes (everything still goes through tools and confirms) but its exfiltration story depends on browser behavior that needs testing. With no users today the exposure is test accounts, which is why it can ship to everyone now; the separate-origin work and the injection set are what make it fit for real users.
 
 ---
 
@@ -538,12 +573,12 @@ Not a plan. Order is by uncertainty: the rendering question first, because it sh
 
 | Phase | Ships | Exit |
 |---|---|---|
-| 0. Foundations | Additive migrations; agent loop with read tools over existing data; thread persistence; `agent_runs` and the spend ceiling; OpenRouter provider spike; Langfuse tracing | A signed-in admin can ask about their reviewed jobs and get text back within budget |
+| 0. Foundations | Additive migrations; agent loop with read tools over existing data; thread persistence; `agent_runs` and the spend ceiling; OpenRouter provider spike; Langfuse tracing | A signed-in user can ask about their reviewed jobs and get text back within budget |
 | 1. Variant 1 and thin workspaces | `present` with domain blocks; deterministic "suggested" fill (builder's call 17); write tools with confirm cards and undo; shortlist, tracker, memo, documents as plain pages; uploads; the four scenarios end to end; golden scenarios and asserts | All four scenarios pass asserts in variant 1; cost per scenario measured |
-| 2. The experiment | Variants 2 and 3 (3 admin-only), the switcher, "re-render as", the harness, injection set, human sessions | A written decision on the rendering level |
+| 2. The experiment | Variants 2 and 3 for everyone, the switcher, "re-render as", the harness, injection set, human sessions | A written decision on the rendering level |
 | 3. Cutover | Agent page as `/`; old board, onboarding, companies, advanced AI and profile sections removed; analytics tiles page; dictation; visual manifest updated; export, deletion and privacy copy updated | Old dashboard code deleted |
 | 4. Between visits | Cron tick, scheduled reviews, digests, nudges, inbox, kill switches; spend alert deployed | A user who stays away for three days returns to a correct, capped inbox |
-| 5. Harden | Sandbox on a separate origin if variant 3 survives; thresholds tuned from production signals | |
+| 5. Harden | Sandbox on a separate origin if variant 3 survives (required before real users); thresholds tuned from production signals | |
 
 There are no users, so cutover needs no migration period or feature flag for the old UI. Migrations stay manual and are applied before the code that needs them merges; if the CI/CD migrations effort lands first, use it.
 
@@ -559,7 +594,7 @@ There are no users, so cutover needs no migration period or feature flag for the
 - **MCP server** exposing the scored shortlist, memo and tracker to the user's own assistant (03-differentiation idea 4).
 - **Outcome loop:** suggesting memo changes from response patterns, only as prompts, given small samples.
 - **Logged-out landing page** in place of the public list.
-- **Tracker import** from email or other tools.
+- **Jobs from outside the catalog** (pasted text, screenshots, manual tracker entries, tracker import from email). Out of scope by Andrew's decision on 2026-11-19.
 
 ---
 
@@ -570,12 +605,12 @@ These are choices I made that Andrew did not hear in the brainstorm. Ones large 
 1. Agent loop and tools in TypeScript on Vercel; reviewer stays Python and is driven by `review_requests`.
 2. A turn splits into gather and present, with "re-render as" for comparison.
 3. Analytics page is a declarative tile list over a closed metric catalog in every variant.
-4. Variant 3 is admin-only at first.
+4. Variant 3 ships to everyone on a `srcdoc` sandbox; the separate origin is required before real users (phase 5).
 5. Unattended runs are propose-only and cannot generate documents.
 6. Vercel Cron for the schedule; one review and digest per active user per day.
 7. Inbox items are fixed cards, not variant-rendered.
 8. Memo is compiled into `profiles.instructions`; re-review after a memo change is scoped (see 16).
-9. Tracker stages as listed, with manual entries for outside jobs.
+9. Tracker stages as listed.
 10. Model pickers and `/profile/advanced` are removed now, ahead of the cost model rework.
 11. `/companies` leaves user navigation; the logged-out `/board` stays.
 12. Dictation through a server route and a non-OpenRouter speech provider; no Web Speech API path.
@@ -593,18 +628,14 @@ These are choices I made that Andrew did not hear in the brainstorm. Ones large 
 
 ## 15. Open questions for Andrew
 
-Only questions where the answer changes what gets built. Most important first, each with a recommendation. The earlier questions on re-scoring scope, the Vercel plan and model fairness are now builder's calls 16, 20 and 21.
+Only questions where the answer changes what gets built. Most important first, each with a recommendation. Answered on 2026-11-19: outside jobs (removed, catalog only) and variant 3 access (all three ship to everyone). Re-scoring scope, the Vercel plan and model fairness are builder's calls 16, 20 and 21.
 
-1. **What can the agent search: only jobs already reviewed for this user, or the whole catalog?** `search_jobs` as written covers reviewed jobs only. The reviewer picks those by location under a daily cap, so "find me Rust platform roles in Denver" works only if the reviewer happened to score them. Searching all ~835k jobs needs a text index on `jobs` (only a GIN index on `location_canonicals` exists), an on-demand "review these few jobs" path with its own latency and spend handling, and an "unscored" state in the UI. Recommend: reviewed jobs only in phases 0 to 2; add catalog search with on-demand scoring of a capped handful after the experiment. Yes-now moves that work into phase 1.
+1. **Adopt embedding retrieval plus a trained ranking head (section 8.4), and when?** Recommend yes, without Venn or Jev as dependencies. Phase 0 adds pgvector and embeds the catalog (one-time ~$10 to $33). From phase 1, `search_jobs` searches the whole catalog through filters plus similarity, unscored results show as such, and the agent can review a capped handful on demand. The trained head arrives with background work in phase 4, once there is feedback to learn from. The alternative is reviewed-jobs-only search until after the experiment, which keeps phase 0 and 1 smaller but leaves "find me Rust platform roles in Denver" working only for jobs the reviewer happened to score. Check before committing: Supabase plan disk and RAM for the index.
 
-2. **Can the user bring in a job found elsewhere and have it evaluated?** "The whole process in chat" plus photo upload suggests yes, and with discovery frozen it may be the only fresh source. The spec as written only allows manual tracker entries, with no scoring. Recommend yes, by pasted text or screenshot only (no URL fetching, since the agent has no egress tool), stored in a per-user table and scored by the existing reviewer through a new request type. This adds a new untrusted-input channel to the injection set. No keeps phase 1 smaller.
+2. **How free is the permanent analytics page?** Recommend declarative tiles over a closed metric catalog, whatever the experiment decides for the agent page, because the page has to load without a model call and stay correct for months. This holds freedom below "the agent can build" read literally. The alternative, saving a variant 2 or 3 surface as the page, ties a persistent page to an experimental renderer.
 
-3. **How free is the permanent analytics page?** Recommend declarative tiles over a closed metric catalog, whatever the experiment decides for the agent page, because the page has to load without a model call and stay correct for months. This holds freedom below "the agent can build" read literally. The alternative, saving a variant 2 or 3 surface as the page, ties a persistent page to an experimental renderer.
+3. **Who judges "confusing"?** Recommend you plus three to five people who have never seen the product, on seeded persona accounts (builder's call 18), running the four scenarios in rotated order. You know where everything is, so your sessions will under-report confusion. If it is only you, the decision rests mostly on the automatic measures, with structural variance as the main signal.
 
-4. **Who judges "confusing"?** Recommend you plus three to five people who have never seen the product, on seeded persona accounts (builder's call 18), running the four scenarios in rotated order. You know where everything is, so your sessions will under-report confusion. If it is only you, the decision rests mostly on the automatic measures, with structural variance as the main signal.
+4. **May the unattended agent pre-draft application documents for its top picks?** Recommend no for now: it spends allowance and money with nobody watching, and a wrong pick wastes both. Yes would make "works between visits" noticeably more impressive, and would need a per-day cap and a clear "drafted for you" state.
 
-5. **Who can use variant 3 in production?** Recommend admin accounts only until it runs on a separate origin and passes the injection set, because the self-navigation leak is real and its mitigation is browser-dependent. Outside testers would then try variant 3 on an admin-flagged persona account. Wanting it open to everyone from day one moves the separate-origin work from phase 5 into phase 2.
-
-6. **May the unattended agent pre-draft application documents for its top picks?** Recommend no for now: it spends allowance and money with nobody watching, and a wrong pick wastes both. Yes would make "works between visits" noticeably more impressive, and would need a per-day cap and a clear "drafted for you" state.
-
-7. **Is zod acceptable at the AI SDK tool boundary?** Recommend yes, for tool input schemas only, if the JSON Schema route turns out awkward in AI SDK 7. All persisted data (messages, surfaces, memo, tiles) still goes through hand-rolled total parsers. No means the plan budgets for the JSON Schema path and its spike.
+5. **Is zod acceptable at the AI SDK tool boundary?** Recommend yes, for tool input schemas only, if the JSON Schema route turns out awkward in AI SDK 7. All persisted data (messages, surfaces, memo, tiles) still goes through hand-rolled total parsers. No means the plan budgets for the JSON Schema path and its spike.

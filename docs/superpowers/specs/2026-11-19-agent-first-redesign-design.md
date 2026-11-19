@@ -1,6 +1,6 @@
 # Agent-first redesign: design
 
-Date: 2026-11-19. Status: draft for Andrew's review, after one builder-check pass and his first answers (2026-11-19). Phase: spec (brainstorm is done; no plan, no code yet).
+Date: 2026-11-19. Status: draft for Andrew's review, after one builder-check pass and his answers so far (2026-11-19). Phase: spec (brainstorm is done; no plan, no code yet).
 
 Grounding: code on `main` at `a478659`; `docs/product.md` and `docs/architecture.md` on branch `claude/project-thread-thhbs3` (not merged); the UX review in `/mnt/project-files/ux-review/` (01 design review, 02 market scan, 03 differentiation, 04 generative-UI research); and today's library check (`research-2026-11-19.md` in the session scratchpad, cited below as "library check"). I did not re-research anything those files cover.
 
@@ -114,7 +114,7 @@ The product direction is decided. What was open is how the agent's UI is produce
 - **AI SDK RSC `streamUI`:** still experimental per 04-genui-research. Avoid.
 - **`@ai-sdk/workflow` durable runs:** stability not stated and it likely needs Vercel Workflow [Unverified]. Not a dependency; section 9 uses a plain queue.
 
-**zod at the tool boundary.** AI SDK tool inputs are normally declared with zod. Proposal: declare tool inputs with JSON Schema plus our total parsers if AI SDK 7 supports that cleanly [Unverified, check at plan time]; otherwise allow zod for tool input schemas only, never for persisted data. This is open question 5.
+**zod at the tool boundary.** AI SDK tool inputs are normally declared with zod. Proposal: declare tool inputs with JSON Schema plus our total parsers if AI SDK 7 supports that cleanly [Unverified, check at plan time]; otherwise allow zod for tool input schemas only, never for persisted data. This is open question 4.
 
 **OpenRouter through the AI SDK.** All LLM traffic goes through OpenRouter today using hand-written fetch (`lib/rolefit/openrouterClient.ts`). The agent loop needs an AI SDK provider pointed at OpenRouter. Whether the community OpenRouter provider tracks AI SDK 7 is [Unverified]; the fallback is an OpenAI-compatible provider with OpenRouter's base URL. Decide in the plan with a spike.
 
@@ -263,7 +263,7 @@ Uploads (résumés, photos, other files), the résumé source of truth (`profile
 
 Decided: a permanent page the agent builds for metrics the user wants "without having to prompt for it".
 
-Builder's call: the page is a saved list of **tiles**. A tile is `{metric, group_by, filter, window, viz, title}` where `metric` comes from a closed catalog (applications by stage, applications over time, response rate, time in stage, shortlist funnel, skip reasons, fit of shortlisted vs applied, weekly activity) and `viz` is stat, bar, line or table (Recharts is already a dependency). The agent composes tiles; it does not write SQL or code for this page. Reasons: the page must render without a model call, must survive a renderer change after the experiment, and must stay correct. This is the one place I am holding freedom below what Andrew asked for; see open question 2.
+Builder's call: the page is a saved list of **tiles**. A tile is `{metric, group_by, filter, window, viz, title}` where `metric` comes from a closed catalog (applications by stage, applications over time, response rate, time in stage, shortlist funnel, skip reasons, fit of shortlisted vs applied, weekly activity) and `viz` is stat, bar, line or table (Recharts is already a dependency). The agent composes tiles; it does not write SQL or code for this page. Reasons: the page must render without a model call, must survive a renderer change after the experiment, and must stay correct. This is the one place I am holding freedom below what Andrew asked for; see open question 1.
 
 The current `/analytics` (operator pipeline stats, about 29 aggregate queries) moves to `/admin/pipeline`.
 
@@ -344,8 +344,7 @@ Every tool runs server-side as the session user through `withUserSql` or `withUs
 |---|---|---|---|
 | `get_profile_summary` | Parsed résumé facts, locations, application details minus EEO fields | R | |
 | `get_memo` | Current memo and pending proposals | R | |
-| `search_jobs` | Jobs for this user by structured filters plus a semantic query, sorted, capped. Scope depends on open question 1: reviewed jobs only, or the catalog through retrieval (section 8.4), with unscored jobs marked as such | R | |
-| `review_jobs` | On-demand review of a few specific jobs (capped per call and per day), for catalog results that are not scored yet. Only if open question 1 is yes | W | no |
+| `search_jobs` | Jobs already reviewed for this user, by structured filters, sorted, capped. Catalog-wide search is future work (section 13, search upgrade idea) | R | |
 | `get_job` | Posting fields and description (wrapped as untrusted) | R | |
 | `get_review` | Verdict, sub-scores, gaps, requirements, red flags | R | |
 | `list_shortlist` / `list_applications` | Rows by state or stage | R | |
@@ -402,40 +401,6 @@ Tables users must not be able to forge (`agent_runs`, `agent_actions`, `agent_su
 | `matching_activity` | Unchanged; agent conversation should count as meaningful activity (Builder's call) |
 
 Also required and easy to forget: account export (`lib/accountExport.ts`) and deletion (`lib/accountDeletion.ts`) must cover every new table and the uploads; the privacy page must mention conversation content in Langfuse traces (not deleted today) and the dictation provider.
-
-### 8.4 Finding jobs: retrieval and ranking (proposal, open question 1)
-
-Andrew asked (2026-11-19) whether Venn could help "find and suggest jobs for each user from our jobs database for a low cost with a decisions model like Jev". Research on the same day (library check addendum, sources in the task notes):
-
-- **Venn** (`markrussinovich/venn-vdm`, MIT code, model weights on Hugging Face under their own terms) is a single-author "research preview": 8 stars, 2 commits, no releases, no PyPI package found. It answers typed questions (Choice, Score, yes/no, nearest reference, outliers) over embeddings with a small head, and can train custom heads (linear or residual Choice, numeric) from labeled vectors. Its generic head expects vectors from its frozen 768-d `embeddinggemma-2` reader (~1.5 GB). The author's own caveats: probabilities not calibrated, benchmarks self-run. **Verdict: do not depend on it now.** What it does is a thin layer over a logistic or ridge head on stored vectors. Revisit if it gains releases and independent users.
-- **Jev** is real: TypeSafe's hosted structured-decision model on OpenRouter (`typesafe/jev-1.14`, Decisions API, alpha endpoint), about $0.042 per 1M input tokens, output free, ~70 to 500 ms per call. Venn accepts Jev's request format. One third-party benchmark (Amplitude, 2026-09-28) found full recall but 55.8% precision on its task. Jev returns probabilities, not rankings from user feedback, so at most it could replace the stage-1 title/company gate after testing on our own labels. Still a per-user, per-job call, so it does not make scoring the whole catalog per user cheap.
-- **The idea behind both is sound and does not need either.** Build the plain version:
-
-```
-structured SQL filters (location, arrangement, pay floor, seniority, exclusions)
-  -> pgvector top-K by similarity to the user's résumé + memo embedding
-  -> small trained head re-ranks (global model + per-user adjustment from feedback)
-  -> LLM full review only for the top N (the existing stage-2 reviewer)
-```
-
-Cost comparison (arithmetic, prices from the library check; [Inference] on token counts):
-
-| | Today: LLM-score per job | Proposed |
-|---|---|---|
-| Per job, per user | ~3k input tokens on DeepSeek V4 Flash ≈ $0.0005 | Similarity plus head: CPU only, effectively $0 |
-| Whole catalog for one user | ~835k × $0.0005 ≈ $400, so today it is capped at 400 jobs/day after a location prefilter | Retrieval over the whole catalog every time; LLM review only for top N (e.g. 50/day ≈ $0.025) |
-| Shared one-time cost | none | Embed the catalog once: ~$10 at ~600 tokens/job, ~$33 at ~2k tokens, on OpenAI `text-embedding-3-small` ($0.02/M) or `voyage-4-lite` ($0.02/M, 200M free tokens). New postings embedded at ingest |
-| Storage | none | ~835k vectors: ~1.7 GB at 1024-d `halfvec` (3.4 GB as `vector`), plus HNSW index overhead [Inference: roughly 50 to 100% more]. Embedding only live jobs inside the discovery window would shrink this |
-
-What it needs:
-
-- pgvector on Supabase (HNSW is the documented default; filtered queries need pgvector 0.8+ iterative scans, otherwise a selective WHERE can return fewer rows than the LIMIT). Disk and RAM headroom on the current Supabase plan for the index build [Unverified, check before phase 0].
-- An embedding step at ingest in the Python discovery pipeline, a backfill job for existing postings, and a profile embedding refreshed on résumé or memo change.
-- A head trained in Python (scikit-learn logistic for shortlist vs skip, ridge for a score) on the reviewer side, using shortlist, skip-with-reason, applied and later outcomes as labels. Skip reasons become structured features. A global head with a shrunk per-user offset, because per-user labels are tiny.
-- Cold start: a new user has no labels, so rank by similarity alone (inside the filters) and blend the head in as feedback accumulates.
-- Hard constraints stay in SQL. Similarity is weak at pay, location, seniority and visa, which is why the filters come first.
-
-This changes the reviewer's candidate selection (today: location prefilter, then score what fits under the cap) and is the natural home for the scoped re-review in builder's call 16: a memo change re-embeds the profile and re-ranks instantly, and only the new top N need an LLM review. It also makes the teach-by-talking loop (G3) visible immediately instead of after a re-review trickle.
 
 ### 8.3 Routes
 
@@ -593,8 +558,47 @@ There are no users, so cutover needs no migration period or feature flag for the
 - **A2UI** behind the variant 2 grammar once its React renderer is stable.
 - **MCP server** exposing the scored shortlist, memo and tracker to the user's own assistant (03-differentiation idea 4).
 - **Outcome loop:** suggesting memo changes from response patterns, only as prompts, given small samples.
+- **Search upgrade:** see the parked idea below.
 - **Logged-out landing page** in place of the public list.
 - **Jobs from outside the catalog** (pasted text, screenshots, manual tracker entries, tracker import from email). Out of scope by Andrew's decision on 2026-11-19.
+
+---
+
+### Idea parked for later: embed the catalog once, per-user relevance (search upgrade)
+
+Decided (Andrew, 2026-11-19): "Let's push the search upgrades for now until we finish the UX/UI design overhaul, but I want to note this as an idea so if we start exploring it again, we can come back to this conceptually." Why he likes it: "I just like the idea of embedding the whole catalog once, and each user having their own relevance classification from that. I was really worried about how the current architecture would scale." Until then, the agent works only with jobs the reviewer has already scored for the user.
+
+Andrew asked (2026-11-19) whether Venn could help "find and suggest jobs for each user from our jobs database for a low cost with a decisions model like Jev". Research on the same day (library check addendum, sources in the task notes):
+
+- **Venn** (`markrussinovich/venn-vdm`, MIT code, model weights on Hugging Face under their own terms) is a "research preview" by Mark Russinovich (author per Andrew, which lends it credibility): 8 stars, 2 commits, no releases, no PyPI package found. It answers typed questions (Choice, Score, yes/no, nearest reference, outliers) over embeddings with a small head, and can train custom heads (linear or residual Choice, numeric) from labeled vectors. Its generic head expects vectors from its frozen 768-d `embeddinggemma-2` reader (~1.5 GB). The author's own caveats: probabilities not calibrated, benchmarks self-run. **Verdict as of 2026-11-19:** the author is credible, but the project has no releases yet. When this idea is picked up, either evaluate Venn then or build the same thin layer (a logistic or ridge head over stored vectors) ourselves.
+- **Jev** is real: TypeSafe's hosted structured-decision model on OpenRouter (`typesafe/jev-1.14`, Decisions API, alpha endpoint), about $0.042 per 1M input tokens, output free, ~70 to 500 ms per call. Venn accepts Jev's request format. One third-party benchmark (Amplitude, 2026-09-28) found full recall but 55.8% precision on its task. Jev returns probabilities, not rankings from user feedback, so at most it could replace the stage-1 title/company gate after testing on our own labels. Still a per-user, per-job call, so it does not make scoring the whole catalog per user cheap. Andrew: "We can still use Jev through OpenRouter the way Venn does." Venn accepts Jev's request format, so a Jev call through OpenRouter and a local Venn head can sit behind one interface and be swapped.
+- **The shape of the idea:**
+
+```
+structured SQL filters (location, arrangement, pay floor, seniority, exclusions)
+  -> pgvector top-K by similarity to the user's résumé + memo embedding
+  -> small trained head re-ranks (global model + per-user adjustment from feedback)
+  -> LLM full review only for the top N (the existing stage-2 reviewer)
+```
+
+Cost comparison (arithmetic, prices from the library check; [Inference] on token counts):
+
+| | Today: LLM-score per job | Proposed |
+|---|---|---|
+| Per job, per user | ~3k input tokens on DeepSeek V4 Flash ≈ $0.0005 | Similarity plus head: CPU only, effectively $0 |
+| Whole catalog for one user | ~835k × $0.0005 ≈ $400, so today it is capped at 400 jobs/day after a location prefilter | Retrieval over the whole catalog every time; LLM review only for top N (e.g. 50/day ≈ $0.025) |
+| Shared one-time cost | none | Embed the catalog once: ~$10 at ~600 tokens/job, ~$33 at ~2k tokens, on OpenAI `text-embedding-3-small` ($0.02/M) or `voyage-4-lite` ($0.02/M, 200M free tokens). New postings embedded at ingest |
+| Storage | none | ~835k vectors: ~1.7 GB at 1024-d `halfvec` (3.4 GB as `vector`), plus HNSW index overhead [Inference: roughly 50 to 100% more]. Embedding only live jobs inside the discovery window would shrink this |
+
+What it needs:
+
+- pgvector on Supabase: available but not installed on prod; prod DB is 3.6 GB today (coordinator check, 2026-11-19), so the vector index would roughly double it. HNSW is the documented default; filtered queries need pgvector 0.8+ iterative scans, otherwise a selective WHERE can return fewer rows than the LIMIT). Check disk and RAM headroom on the Supabase plan for the index build before starting.
+- An embedding step at ingest in the Python discovery pipeline, a backfill job for existing postings, and a profile embedding refreshed on résumé or memo change.
+- A head trained in Python (scikit-learn logistic for shortlist vs skip, ridge for a score) on the reviewer side, using shortlist, skip-with-reason, applied and later outcomes as labels. Skip reasons become structured features. A global head with a shrunk per-user offset, because per-user labels are tiny.
+- Cold start: a new user has no labels, so rank by similarity alone (inside the filters) and blend the head in as feedback accumulates.
+- Hard constraints stay in SQL. Similarity is weak at pay, location, seniority and visa, which is why the filters come first.
+
+This changes the reviewer's candidate selection (today: location prefilter, then score what fits under the cap) and would replace the scoped re-review in builder's call 16: a memo change re-embeds the profile and re-ranks instantly, and only the new top N need an LLM review. It also makes the teach-by-talking loop (G3) visible immediately instead of after a re-review trickle.
 
 ---
 
@@ -628,14 +632,12 @@ These are choices I made that Andrew did not hear in the brainstorm. Ones large 
 
 ## 15. Open questions for Andrew
 
-Only questions where the answer changes what gets built. Most important first, each with a recommendation. Answered on 2026-11-19: outside jobs (removed, catalog only) and variant 3 access (all three ship to everyone). Re-scoring scope, the Vercel plan and model fairness are builder's calls 16, 20 and 21.
+Only questions where the answer changes what gets built. Most important first, each with a recommendation. Answered on 2026-11-19: outside jobs (removed, catalog only), variant 3 access (all three ship to everyone), and search scope (reviewed jobs only; the search upgrade is parked in section 13). Re-scoring scope, the Vercel plan and model fairness are builder's calls 16, 20 and 21.
 
-1. **Adopt embedding retrieval plus a trained ranking head (section 8.4), and when?** Recommend yes, without Venn or Jev as dependencies. Phase 0 adds pgvector and embeds the catalog (one-time ~$10 to $33). From phase 1, `search_jobs` searches the whole catalog through filters plus similarity, unscored results show as such, and the agent can review a capped handful on demand. The trained head arrives with background work in phase 4, once there is feedback to learn from. The alternative is reviewed-jobs-only search until after the experiment, which keeps phase 0 and 1 smaller but leaves "find me Rust platform roles in Denver" working only for jobs the reviewer happened to score. Check before committing: Supabase plan disk and RAM for the index.
+1. **How free is the permanent analytics page?** Recommend declarative tiles over a closed metric catalog, whatever the experiment decides for the agent page, because the page has to load without a model call and stay correct for months. This holds freedom below "the agent can build" read literally. The alternative, saving a variant 2 or 3 surface as the page, ties a persistent page to an experimental renderer.
 
-2. **How free is the permanent analytics page?** Recommend declarative tiles over a closed metric catalog, whatever the experiment decides for the agent page, because the page has to load without a model call and stay correct for months. This holds freedom below "the agent can build" read literally. The alternative, saving a variant 2 or 3 surface as the page, ties a persistent page to an experimental renderer.
+2. **Who judges "confusing"?** Recommend you plus three to five people who have never seen the product, on seeded persona accounts (builder's call 18), running the four scenarios in rotated order. You know where everything is, so your sessions will under-report confusion. If it is only you, the decision rests mostly on the automatic measures, with structural variance as the main signal.
 
-3. **Who judges "confusing"?** Recommend you plus three to five people who have never seen the product, on seeded persona accounts (builder's call 18), running the four scenarios in rotated order. You know where everything is, so your sessions will under-report confusion. If it is only you, the decision rests mostly on the automatic measures, with structural variance as the main signal.
+3. **May the unattended agent pre-draft application documents for its top picks?** Recommend no for now: it spends allowance and money with nobody watching, and a wrong pick wastes both. Yes would make "works between visits" noticeably more impressive, and would need a per-day cap and a clear "drafted for you" state.
 
-4. **May the unattended agent pre-draft application documents for its top picks?** Recommend no for now: it spends allowance and money with nobody watching, and a wrong pick wastes both. Yes would make "works between visits" noticeably more impressive, and would need a per-day cap and a clear "drafted for you" state.
-
-5. **Is zod acceptable at the AI SDK tool boundary?** Recommend yes, for tool input schemas only, if the JSON Schema route turns out awkward in AI SDK 7. All persisted data (messages, surfaces, memo, tiles) still goes through hand-rolled total parsers. No means the plan budgets for the JSON Schema path and its spike.
+4. **Is zod acceptable at the AI SDK tool boundary?** Recommend yes, for tool input schemas only, if the JSON Schema route turns out awkward in AI SDK 7. All persisted data (messages, surfaces, memo, tiles) still goes through hand-rolled total parsers. No means the plan budgets for the JSON Schema path and its spike.

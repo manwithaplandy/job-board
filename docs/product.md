@@ -24,7 +24,7 @@ Why:
 - Aggregator boards are low-signal and late; company ATS feeds are first-party and
   structured.
 - The goal is a few high-signal, actionable postings, not volume.
-- Stated intent (from the owner, not in code): the product is "designed to be deleted".
+- Owner's stated philosophy (like Hinge): the product is "designed to be deleted".
   Success is the user getting hired and leaving. It is also a portfolio piece.
 
 Deployed at `jobs.andrewmalvani.com`. In-app copy still uses the name "Rolefit" in places
@@ -208,7 +208,17 @@ export, delete).
 No rate limiting on login, signup or password reset in app code (Supabase's own limits
 apply; unverified).
 
-## 10. Known gaps and inconsistencies
+## 10. Owner decisions not yet in code (planned)
+
+- **Models assigned by plan:** remove user-facing model choice; models are set internally
+  per tier (planned; §3 describes what the code does today).
+- **Open signup:** open signup with comped invites is the intended behavior; the code is
+  still invite-only (§2).
+- **Agent-first interface:** a chat-like interface with generative UI is planned to replace
+  the dashboard. Catalog embedding and a per-user relevance classifier are deferred until
+  after that overhaul.
+
+## 11. Known gaps and inconsistencies
 
 **Job discovery has been stalled since 2026-10-12** (verified in prod 2026-11-19): the
 source path is switched off, so no new postings have been added and closed postings

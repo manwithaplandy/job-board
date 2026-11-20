@@ -1,6 +1,6 @@
 # CI/CD overhaul: migrations CD and Linux visual tests
 
-Status: draft for review (2026-11-20). Scope agreed with Andrew: one spec, done before
+Status: agreed 2026-11-20 (decisions in section 10). Scope agreed with Andrew: one spec, done before
 redesign phase 0 development starts.
 
 ## 1. Goal
@@ -290,6 +290,14 @@ let a PR's preview include its own migrations. Costs: it needs seeded test accou
 data, the visual baselines would be rebuilt against seed data, and it changes how previews
 get env vars. Worth revisiting once the redesign has real data needs.
 
-## 10. Open questions
+## 10. Decisions (Andrew, 2026-11-20: "Yes, all four")
 
-See the thread report. Defaults above apply if Andrew agrees.
+1. The two unapplied identity-pilot migrations (2026-10-15-15, 2026-10-16-16) ship as the
+   pipeline's first real migration PR, classified destructive, so they wait for Andrew's
+   approval in the `production-db-destructive` environment. Agreement on direction is not
+   approval to apply; the GitHub gate is.
+2. Vercel's git deploy of `main` is turned off; production deploys from `deploy.yml` after
+   `migrate` succeeds or is skipped.
+3. Migration PRs stand alone (rule 3.2.4); Supabase Branching stays deferred.
+4. The Supabase connector used by agent sessions is switched to read-only (Andrew's setting);
+   the pipeline is the only writer to prod.

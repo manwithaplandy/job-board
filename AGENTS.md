@@ -19,3 +19,13 @@
   same rule: "reconcile by amending" is not allowed; reconcile with a follow-up
   commit. When a base commit is superseded, say so explicitly and re-pin any
   dependent work (rehearsals, reviews) to the new SHA.
+
+## Supabase storage observations
+
+Before using or changing the fixed-project metrics reader, read
+[the agent usage and setup guide](docs/supabase-metrics-reader.md). It covers CLI
+and stdio MCP invocation, fixture tests, approved permission boundaries, secure
+credential handling, and mandatory stop behavior for unverified/stale data.
+The reader never renews campaign authorization. Local MCP code is not an
+installed ChatGPT connector; production access and registration require separate
+approval.

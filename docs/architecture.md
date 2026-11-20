@@ -13,6 +13,7 @@ the `lifecycle_control` row, Supabase auth settings), this doc says **unverified
 | Company discovery / classification | `company_discovery/` | `python -m company_discovery`, always-on worker | Railway (`railway.discovery.json`) |
 | Reviewer supervisor | `reviewer/`, `job_discovery/lifecycle/`, `job_discovery/archive/` | `python -m reviewer.supervisor`, always-on | Railway (`railway.reviewer-worker.json`) |
 | Spend alert | `observability/spend_alert.py` | `python -m observability.spend_alert`, hourly cron | Railway (`railway.spend-alert.json`), **but no such service exists in Railway** (§9) |
+| Supabase storage metrics reader | `supabase_metrics/` | `python -m supabase_metrics` (CLI) or `python -m supabase_metrics.mcp_server` (local stdio MCP), on demand only | Not deployed; no prod wiring ([guide](supabase-metrics-reader.md)) |
 | Dashboard | `dashboard/` (Next.js 16) | Server components, server actions, API routes | Vercel (region `sfo1`) |
 | Database | `schema.sql`, `migrations/` | Supabase Postgres (prod project `fdhspmavadgucktetzoi`) | Manual migrations |
 
@@ -189,6 +190,11 @@ replaced the legacy poll is off. Operate it with the runbooks:
 - DB size ceiling: `DB_SIZE_CEILING_MB` (6000) in `job_discovery/db.py`, but
   `job_discovery/lifecycle/capacity.py` hard-codes its own 6000 MiB `CEILING_BYTES` that
   ignores the env var. The identity campaign stops at 5800 MiB.
+- Disk and WAL observation: `supabase_metrics` reads two fixed Supabase Management API
+  GET routes (disk util, Prometheus metrics) for the prod project. It never touches the
+  database. Its source contract is unverified (`_VERIFIED_CONTRACT = None`), so every
+  live result is `incomplete` and `operationally_eligible=false`; nothing gates on it yet
+  ([source evidence](supabase-metrics-source-evidence.md)).
 
 ## 6. Dashboard
 
@@ -306,6 +312,10 @@ The full value sets live in Railway and Vercel; this lists what the code reads.
 `OPENROUTER_API_KEY` (required for LLM work), `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`
 (optional, both needed), `LANGFUSE_SAMPLE_RATE` (1.0).
 
+**Metrics reader (local/agent use only):** `SUPABASE_METRICS_PAT` (fine-grained PAT scoped
+to the prod project with Disk Config Read and Logs Read; not set on any Railway or Vercel
+service).
+
 | Service | Optional vars (default) |
 |---|---|
 | job_discovery | `DB_SIZE_CEILING_MB` (6000), `CLOSED_JOB_RETENTION_DAYS` (30), `PRUNE_BATCH_SIZE` (2000), `PRUNE_MAX_ROWS_PER_RUN` (20000), `LOCATION_MODEL` (legacy path only) |
@@ -336,7 +346,8 @@ The full value sets live in Railway and Vercel; this lists what the code reads.
 - **Dashboard:** ~230 vitest files (`npm test`), a DB-backed "owned" set
   (`vitest.owned.config.ts`), UI contract tests, and Playwright visual tests
   (`test:visual:public`, `test:visual:authenticated`).
-- **`.github/workflows/ci.yml`** (push/PR to `main`, no secrets): `python` job (Postgres 16
+- **`.github/workflows/ci.yml`** (push/PR to `main`, no secrets): `metrics-reader` job
+  (fixture-only `supabase_metrics` core, CLI and MCP tests); `python` job (Postgres 16
   and 17 matrix: ruff, allowlisted pytest, owned dashboard tests); `dashboard` job
   (typecheck, lint, vitest, build); `public-visual` job (macOS, Playwright).
 - **`.github/workflows/authenticated-visual.yml`**: on a successful Vercel Preview

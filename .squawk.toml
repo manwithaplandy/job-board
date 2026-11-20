@@ -1,3 +1,7 @@
 # squawk lints supabase/migrations/*.sql in CI (see docs/runbooks/migrations-cd.md).
 pg_version = "17.6"
 assume_in_transaction = true
+# Each pipeline migration runs in one transaction, where CONCURRENTLY cannot
+# run, and tools/migrations/check_rules.py rejects it. Index builds on small
+# tables are fine without it; large ones need a separate, reviewed plan.
+excluded_rules = ["require-concurrent-index-creation", "require-concurrent-index-deletion"]

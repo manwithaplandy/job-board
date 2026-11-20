@@ -25,8 +25,13 @@ Vercel CLI, Railway Wait for CI.
   `supabase db push`/`repair` from a session, no Vercel/Railway setting changes. Prod-writing
   steps exist only as Actions jobs Andrew approves. Read-only prod queries are not needed by
   this plan either; the pipeline produces every prod fact as an artifact.
-- **Every PR in this plan is a `pipeline-change`.** Agents open the PR, get it green, then
-  STOP. Andrew reviews and merges all five.
+- **Every PR in this plan is a `pipeline-change`.** Updated 2026-11-20 by Andrew ("For the
+  pipeline changes, you can merge them once they're green; just make sure to validate merges
+  are successful"): the executing agent opens each PR, gets every check green without
+  bypassing any, merges it, and confirms the merge commit is on `main` before starting the
+  next phase. Where a STOP below says "Andrew merges", read it as that. Andrew's remaining
+  STOPs are settings, secrets, PNG spot checks he wants, and the two GitHub approvals that
+  write to prod (history re-baseline, pilot migrations).
 - Agent sandboxes have no Docker daemon. Anything needing Postgres, the Supabase stack or
   Playwright browsers is verified in CI, not locally. Pure unit tests run locally.
 - Commit after each task. One branch and one PR per phase.

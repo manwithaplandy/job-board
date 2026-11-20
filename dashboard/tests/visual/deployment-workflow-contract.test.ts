@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
@@ -13,6 +13,16 @@ const authenticatedWorkflowPath = path.join(
   ".github/workflows/authenticated-visual.yml",
 );
 const uiContractsPath = path.join(repositoryRoot, "docs/ui-contracts.md");
+const baselinesWorkflowPath = path.join(
+  repositoryRoot,
+  ".github/workflows/visual-baselines.yml",
+);
+const workflowsDir = path.join(repositoryRoot, ".github/workflows");
+const dashboardPackage = JSON.parse(
+  readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
+) as { devDependencies: Record<string, string> };
+const playwrightVersion = dashboardPackage.devDependencies["@playwright/test"];
+const playwrightImage = `image: mcr.microsoft.com/playwright:v${playwrightVersion}-noble`;
 const authenticatedVisualDesignPath = path.join(
   repositoryRoot,
   "docs/superpowers/specs/2026-07-14-credential-authenticated-visual-ci-design.md",
@@ -23,6 +33,14 @@ function workflowStep(workflow: string, name: string): string {
   expect(start, `workflow step ${name}`).toBeGreaterThanOrEqual(0);
   const next = workflow.indexOf("\n      - name:", start + 1);
   return workflow.slice(start, next === -1 ? undefined : next);
+}
+
+function expectPinnedLinuxContainer(job: string) {
+  expect(job).toContain("runs-on: ubuntu-24.04");
+  expect(job).not.toContain("macos");
+  expect(job).toContain(playwrightImage);
+  expect(job).toContain("options: --user 1001 --ipc=host");
+  expect(job).not.toContain("playwright install");
 }
 
 function workflowJob(workflow: string, id: string): string {
@@ -79,15 +97,16 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(dashboardJob).not.toContain("test:visual");
   });
 
-  test("runs public visual baselines in a dedicated pinned macOS job and uploads diffs", () => {
+  test("pins Playwright exactly so the container image matches the package", () => {
+    expect(playwrightVersion).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  test("runs public visual baselines in the pinned Playwright Linux container and uploads diffs", () => {
     const publicVisualJob = workflowJob(ordinaryCi, "public-visual");
     const upload = workflowStep(ordinaryCi, "Upload public visual failure evidence");
 
     expect(publicVisualJob).toContain("name: Public visual");
-    expect(publicVisualJob).toContain("runs-on: macos-14");
-    expect(publicVisualJob).not.toContain("runs-on: macos-latest");
-    expect(publicVisualJob).toContain("run: npx playwright install chromium");
-    expect(publicVisualJob).not.toContain("playwright install --with-deps");
+    expectPinnedLinuxContainer(publicVisualJob);
     expect(publicVisualJob).toContain("run: npm run test:visual:public");
     expect(publicVisualJob).not.toContain("test:visual:authenticated");
     expect(upload).toContain("if: failure()");
@@ -96,28 +115,23 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(upload).toContain("dashboard/test-results/visual/**");
     expect(upload).toContain("!dashboard/test-results/visual/**/trace.zip");
   });
-
-  test("runs deployment visuals on the canonical macOS baseline platform", () => {
+  test("runs deployment visuals in the same pinned Playwright Linux container", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
-    const job = workflowJob(workflow, "authenticated-visual");
-
-    expect(job).toContain("runs-on: macos-14");
-    expect(job).not.toContain("runs-on: macos-latest");
-    expect(job).toContain("run: npx playwright install chromium");
-    expect(job).not.toContain("playwright install --with-deps");
+    expectPinnedLinuxContainer(workflowJob(workflow, "authenticated-visual"));
   });
-
   test("documents the canonical platform and reviewed baseline update procedure", () => {
     const docs = readFileSync(uiContractsPath, "utf8");
 
     expect(docs).toContain(
-      "The canonical screenshot baseline platform is GitHub Actions `macos-14`.",
+      "The canonical screenshot baseline platform is the pinned Playwright Linux container",
     );
-    expect(docs).toContain("Generate baseline updates on `macos-14`");
+    expect(docs).toContain(
+      "Generate baseline updates with the `Visual baselines` workflow",
+    );
     expect(docs).toContain("inspect every changed PNG");
     expect(docs).toContain("Never loosen screenshot tolerances");
+    expect(docs).not.toContain("macos-14");
   });
-
   test("documents protected-preview bypass setup without URL credentials", () => {
     for (const path of [uiContractsPath, authenticatedVisualDesignPath]) {
       const docs = readFileSync(path, "utf8");
@@ -134,27 +148,63 @@ describe("deployment-triggered authenticated visual workflow", () => {
     }
   });
 
-  test("accepts only successful Vercel Preview deployment status events", () => {
+  test("accepts Vercel preview dispatches and keeps the legacy deployment status trigger", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
-    expect(workflow).toMatch(/on:\s*\n\s+deployment_status:/);
-    expect(workflow).toContain("github.event.deployment_status.state == 'success'");
-    expect(workflow).toContain("github.event.deployment.creator.login == 'vercel[bot]'");
-    expect(workflow).toContain("github.event.deployment.environment == 'Preview'");
-    expect(workflow).toContain(
+    const resolve = workflowJob(workflow, "resolve");
+    expect(workflow).toMatch(
+      /on:\s*\n\s+repository_dispatch:\s*\n\s+types: \[vercel\.deployment\.success\]\s*\n\s+deployment_status:/,
+    );
+    expect(resolve).toContain(
+      "github.event_name == 'repository_dispatch' && github.event.client_payload.environment == 'preview'",
+    );
+    expect(resolve).toContain("github.event.deployment_status.state == 'success'");
+    expect(resolve).toContain("github.event.deployment.creator.login == 'vercel[bot]'");
+    expect(resolve).toContain("github.event.deployment.environment == 'Preview'");
+    expect(resolve).toContain(
       "startsWith(github.event.deployment_status.environment_url, 'https://')",
     );
-    expect(workflow).toContain(
+    expect(resolve).toContain(
       "contains(github.event.deployment_status.environment_url, '.vercel.app')",
     );
   });
 
+  test("runs only for open same-repository pull requests by people", () => {
+    const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
+    const resolve = workflowJob(workflow, "resolve");
+    const step = workflowStep(workflow, "Resolve target");
+    expect(resolve).not.toContain("secrets.");
+    expect(resolve).not.toContain("environment:");
+    expect(step).toContain(
+      "TARGET_SHA: ${{ github.event.client_payload.git.sha || github.event.deployment.sha }}",
+    );
+    expect(step).toContain("^[0-9a-f]{40}$");
+    expect(step).toContain('repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA/pulls');
+    expect(step).toContain('.head.repo.full_name == $repo');
+    expect(step).toContain('.user.type != "Bot"');
+    expect(workflowJob(workflow, "authenticated-visual")).toContain(
+      "if: needs.resolve.outputs.run == 'true'",
+    );
+  });
+
+  test("reports an Authenticated visual commit status for dispatched runs only", () => {
+    const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
+    const pending = workflowStep(workflow, "Post pending status");
+    const report = workflowJob(workflow, "report");
+    expect(workflow).toMatch(/^permissions:\s*\n\s+contents: read\s*\n\s*\n/m);
+    for (const block of [pending, report]) {
+      expect(block).toContain("github.event_name == 'repository_dispatch'");
+      expect(block).toContain("context='Authenticated visual'");
+    }
+    expect(report).toContain("if: always() &&");
+    expect(report).toContain("needs.authenticated-visual.result");
+    expect(report).not.toContain("secrets.");
+  });
   test("checks out the exact deployment SHA in the protected environment", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     expect(workflow).toContain("authenticated-visual:");
     expect(workflow).toContain("name: visual-test");
-    expect(workflow).toContain("ref: ${{ github.event.deployment.sha }}");
+    expect(workflow).toContain("ref: ${{ needs.resolve.outputs.sha }}");
   });
-
   test("uses visual-test secrets without creating a deployment record", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     const job = workflowJob(workflow, "authenticated-visual");
@@ -181,7 +231,7 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(validationIndex).toBeLessThan(browserIndex);
     expect(workflow.indexOf(validation)).toBeLessThan(workflow.indexOf(setup));
     expect(validation).toContain(
-      "VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}",
+      "VISUAL_BASE_URL: ${{ needs.resolve.outputs.url }}",
     );
     expect(validation).not.toContain("secrets.");
   });
@@ -199,9 +249,12 @@ describe("deployment-triggered authenticated visual workflow", () => {
       });
 
     expect(validate("https://preview.vercel.app").status).toBe(0);
+    expect(validate("preview.vercel.app").status).toBe(0);
     for (const url of [
       "https://user:password@preview.vercel.app",
       "https://preview.vercel.app:8443",
+      "http://preview.vercel.app",
+      "https://preview.example.com",
     ]) {
       const result = validate(url);
       expect(result.status, url).not.toBe(0);
@@ -288,8 +341,11 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(workflow.split("${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}"))
       .toHaveLength(3);
     expect(setup).toContain("run: npm run test:visual:auth-setup");
+    expect(setup).toContain(
+      "VISUAL_BASE_URL: ${{ steps.url.outputs.base_url }}",
+    );
     expect(comparison).toContain(
-      "VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}",
+      "VISUAL_BASE_URL: ${{ steps.url.outputs.base_url }}",
     );
     expect(comparison).toContain(
       "VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}",
@@ -336,5 +392,54 @@ describe("deployment-triggered authenticated visual workflow", () => {
   test("never updates visual snapshots automatically", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     expect(workflow).not.toContain("--update-snapshots");
+  });
+});
+
+describe("visual baselines workflow", () => {
+  test("is the only workflow that updates snapshots", () => {
+    const offenders = readdirSync(workflowsDir)
+      .filter((name) => /\.ya?ml$/.test(name))
+      .filter((name) =>
+        readFileSync(path.join(workflowsDir, name), "utf8").includes(
+          "--update-snapshots",
+        ),
+      );
+    expect(offenders).toEqual(["visual-baselines.yml"]);
+    expect(existsSync(baselinesWorkflowPath)).toBe(true);
+  });
+
+  test("is dispatched by hand, generates in the pinned container and never touches main", () => {
+    const workflow = readFileSync(baselinesWorkflowPath, "utf8");
+    expect(workflow).toContain("name: Visual baselines");
+    expect(workflow).toMatch(/on:\s*\n\s+workflow_dispatch:/);
+    expect(workflow).toMatch(/^permissions:\s*\n\s+contents: read/m);
+    for (const id of ["generate-public", "generate-authenticated"]) {
+      const job = workflowJob(workflow, id);
+      expectPinnedLinuxContainer(job);
+      expect(job).not.toContain("contents: write");
+    }
+    expect(workflowJob(workflow, "generate-public")).not.toContain("secrets.");
+    expect(workflowJob(workflow, "generate-authenticated")).toMatch(
+      /environment:\s*\n\s+name: visual-test\s*\n\s+deployment: false/,
+    );
+    const resolve = workflowStep(workflow, "Resolve request");
+    expect(resolve).toContain('"$branch" = "main"');
+    const commit = workflowJob(workflow, "commit");
+    expect(commit).toContain("contents: write");
+    expect(commit).not.toContain("container:");
+    expect(commit).not.toContain("--force");
+    expect(commit).not.toContain("secrets.");
+    expect(commit).toContain("git push origin \"HEAD:refs/heads/$BRANCH\"");
+  });
+
+  test("ships a local script that uses the same pinned image", () => {
+    const script = readFileSync(
+      path.join(process.cwd(), "scripts/visual-baselines-docker.sh"),
+      "utf8",
+    );
+    expect(script).toContain(
+      `mcr.microsoft.com/playwright:v${playwrightVersion}-noble`,
+    );
+    expect(script).toContain("npm run test:visual:update");
   });
 });

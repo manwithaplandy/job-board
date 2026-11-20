@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 import { readVercelProtectionBypassHeaders } from "./tests/visual/auth";
+import { assertSnapshotUpdatePlatform } from "./tests/visual/snapshot-platform-guard";
+
+assertSnapshotUpdatePlatform(process.argv, process.platform);
 
 const baseURL = process.env.VISUAL_BASE_URL ?? "http://127.0.0.1:3100";
 const publicOnly = process.env.VISUAL_SCOPE === "public";

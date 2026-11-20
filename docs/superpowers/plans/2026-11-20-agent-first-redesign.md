@@ -18,7 +18,7 @@ Every task's requirements include all of these.
 - Never rewrite existing commits: no `git commit --amend`, no `git rebase`, no `git reset` of shared branches, no force-push. Fix forward with a new commit, even for one line. This binds subagents too: tell every dispatched agent "reconcile with a follow-up commit, never by amending".
 - Push to `main` auto-deploys production (Vercel dashboard, Railway Python services). Work each phase on a branch named `agent/phase-N`. Execution is autonomous through the merge: the executor merges to `main` itself at the phase gate task, but only after that phase's `🛑 ANDREW:` gates are cleared. A phase merge that changed anything under `reviewer/`, `observability/` or `schema.sql` also redeploys the Railway reviewer.
 - Phase branches are pushed, and Vercel preview deployments read the production database. So no GET handler and no server-component render may write: every write happens in a server action, a POST route or the cron route. Pages on a branch whose migration is not applied yet may error in previews; that is expected and harmless.
-- Agents never touch the production database, Vercel env, Railway, or DNS by hand. Migrations are files only. **Prerequisite (Andrew, 2026-11-20):** the migrations CD pipeline is built before phase 0, in its own spec and plan (separate thread). Once it lands, migrations reach prod through that pipeline (dry run in CI, real run in CD on merge) and gates A3, A5 and A11 are cleared by the pipeline instead of by Andrew. Until it lands, Andrew applies them by hand, in filename order, before the dependent code merges. Each migration task must still produce a file the pipeline can run unchanged: idempotent, transactional, ledgered.
+- Agents never touch the production database, Vercel env, Railway, or DNS by hand. Migrations are files only. **Prerequisite (Andrew, 2026-11-20):** a CI/CD overhaul is built before phase 0, in its own spec and plan (separate thread). It covers the migrations CD pipeline, moving visual tests from macos-14 to Linux with baselines regenerated on Ubuntu in CI, and running the visual test on every PR. Every task below that adds or changes a page includes regenerating its Linux baselines in CI and committing the reviewed candidates. Once it lands, migrations reach prod through that pipeline (dry run in CI, real run in CD on merge) and gates A3, A5 and A11 are cleared by the pipeline instead of by Andrew. Until it lands, Andrew applies them by hand, in filename order, before the dependent code merges. Each migration task must still produce a file the pipeline can run unchanged: idempotent, transactional, ledgered.
 - Migrations are additive. Any drop, or any change to an existing index, constraint, or function body, needs Andrew's explicit yes. As planned, this project contains none (see Decisions D3).
 - Every migration: `BEGIN; ... COMMIT;`, idempotent (`IF NOT EXISTS`, `DROP POLICY IF EXISTS`, `CREATE OR REPLACE`), ledger insert inside the transaction, and a matching `-- BEGIN mirrored <file>` / `-- END mirrored <file>` block appended to `schema.sql`. Every migration task's verification includes `MIG` (below).
 
@@ -81,7 +81,7 @@ Each gate appears inside its task as a one-line marker; the detail is here. Phas
 | A1 | 🛑 ANDREW: answer "Questions to settle before execution starts" or say "go with your defaults" | Before Task 0.1 | Eight answers change tasks |
 | A2 | 🛑 ANDREW: put an OpenRouter key for the agent into the execution environment, and set `OPENROUTER_API_KEY` (or separate `AGENT_OPENROUTER_API_KEY`) and `AGENT_TOOL_APPROVAL_SECRET` in Vercel | Task 0.2 (spike), Task 0.15 (merge) | Spike A, scenario runs and the experiment need live calls; agents cannot set env |
 | A3 | 🛑 ANDREW (until the migrations pipeline lands; then automatic): apply `migrations/2026-11-20-17-agent-core.sql` to prod (the executor hands over the file name and verifies nothing in prod) | Task 0.15, before phase 0 merges | Code reads the new tables on first request |
-| A4 | 🛑 ANDREW: regenerate visual baselines on macOS for new routes | Tasks 0.15, 1.24, 2.15, 3.11, 4.10 | Baselines are canonical on macos-14; the executor runs Linux. Under consideration (Andrew, 2026-11-20, not decided): move visual CI to Linux with baselines regenerated on Ubuntu, which would let the executor produce candidates itself and retire this gate. Unchanged until he decides |
+| A4 | Retired (Andrew, 2026-11-20). Replaced by the CI/CD overhaul prerequisite: visual tests move to Linux, baselines are regenerated on Ubuntu in CI, and the visual test runs on every PR. The executor commits reviewed Linux baseline candidates for new routes itself | n/a | See Global Constraints, prerequisite |
 | A5 | 🛑 ANDREW (until the migrations pipeline lands; then automatic): apply migrations 18, 19 and 20 to prod, in that order | Task 1.24, before phase 1 merges | Workspaces and the reviewer's scoped queue need them; the reviewer redeploys on merge |
 | A6 | 🛑 ANDREW: set real spend ceilings from the measured cost table, in `/admin/invites` once phase 1 is deployed | After Task 1.22 | Spec refuses numbers without measurements; ceilings are placeholders until then |
 | A7 | 🛑 ANDREW: create three persona accounts in prod, upload the résumés from `docs/demo/personas/` through the agent page, set locations, comp each plan in `/admin/tenants`, let reviews finish | Task 2.14 | Demos use seeded personas (spec 14.18); agents cannot write prod |
@@ -96,7 +96,7 @@ Each gate appears inside its task as a one-line marker; the detail is here. Phas
 | A16 | 🛑 ANDREW: explicit yes for any destructive migration | Only if D3 is overruled or a later task finds one unavoidable | House rule |
 | A17 | 🛑 ANDREW: approve the opt-in env change to `tools/lifecycle_test_db.py` (Q8) | Task 1.22, before the first live eval | That harness is security-reviewed code; it strips provider keys on purpose |
 | A18 | 🛑 ANDREW: decide what to do if a sandbox navigation reaches the canary in any browser | Task 2.7, only if it happens | He decided all three variants ship and the spec accepts a residual one-request leak; the executor reports and does not switch variant 3 off by itself |
-| A19 | 🛑 ANDREW (optional, manual GitHub setting): remove the required-reviewer rule on the `visual-test` environment (Settings > Environments) so `.github/workflows/authenticated-visual.yml` runs on every Vercel preview without his approval | Any time before phase 0 merges; otherwise each authenticated visual run waits for his click | Trade-off: unattended runs mean faster feedback for the executor, but every pushed branch's code then runs with the `VISUAL_AUTH_*`, `VISUAL_ONBOARDING_*` and `VERCEL_AUTOMATION_BYPASS_SECRET` secrets on a macOS runner (billed at the macOS minute rate), against previews that read the prod database. Agents cannot change repo settings |
+| A19 | Retired (Andrew, 2026-11-20). Folded into the CI/CD overhaul, which runs the visual test on every PR | n/a | n/a |
 
 One standing rule that is not Andrew's to clear: if any variant fails the injection set (Task 2.12), stop demoing that variant and fix it first.
 
@@ -655,7 +655,7 @@ test("user B posting to user A's thread gets 404", ...);
 ```
 
 - [ ] **Step 2:** `DBT lib/agent/phase0.db.test.ts` (PASS, 4), `GATE`, `DBT lib` and `npm run test:ui-contract` all green on `agent/phase-0`. The live-model path was proven by Spike A.
-- [ ] **Step 3:** 🛑 ANDREW: gates A2, A3, A4.
+- [ ] **Step 3:** 🛑 ANDREW: gates A2, A3.
 - [ ] **Step 4:** Merge `agent/phase-0` to `main` with a merge commit. Confirm the Vercel deploy is green. The executor cannot sign in to production; tell Andrew in the hand-off that `/agent` is live for him to try.
 
 ---
@@ -1221,7 +1221,7 @@ test("an approval posted by user B for user A's pending tool is rejected", ...);
 ```
 
 - [ ] `DBT lib/agent/phase1.db.test.ts` (PASS, 6), `GATE`, `DBT lib`, `npm run test:ui-contract`, `ruff check .`, `MIG` and the Python acceptance lane are green on `agent/phase-1`.
-- [ ] 🛑 ANDREW: gates A5 and A4.
+- [ ] 🛑 ANDREW: gate A5.
 - [ ] Merge `agent/phase-1` to `main`. Confirm the Vercel and Railway deploys are green (this merge redeploys the reviewer, Task 1.9).
 
 ---
@@ -1485,7 +1485,7 @@ test("the summary contains one section per variant and both models", ...);
 
 ### Task 2.15: Phase 2 gate and the decision
 
-- [ ] `GATE`, `npm run test:sandbox`, `npm run test:render-smoke`, the injection table all green or recorded; gates A4 and (if raised) A18 cleared; then merge `agent/phase-2` to `main`.
+- [ ] `GATE`, `npm run test:sandbox`, `npm run test:render-smoke`, the injection table all green or recorded; gate A18 (if raised) cleared; then merge `agent/phase-2` to `main`.
 - [ ] Hand Andrew the summary file, the hand-check CSV and the demo script.
 - [ ] 🛑 ANDREW: gate A8, the variant decision. A mixed outcome is legitimate, for example variant 2 by default with variant 1 blocks for anything carrying actions. Record his words in "Spike log". Tasks 3.12, 3.13 and all of phase 5 are re-planned from that record before any of them starts.
 
@@ -1627,7 +1627,7 @@ test("the privacy page names Langfuse trace retention and the dictation provider
 ### Task 3.11: Phase 3 gate (decision-independent part)
 
 - [ ] `GATE`, `DBT lib`, `npm run test:ui-contract` green. Search confirms no import of a deleted file.
-- [ ] 🛑 ANDREW: gates A10 and A4.
+- [ ] 🛑 ANDREW: gate A10.
 - [ ] Merge `agent/phase-3` to `main`.
 
 ### Task 3.12 (stub, gated on A8): Remove the losing variants, the switcher and "re-render as"
@@ -1802,7 +1802,7 @@ test("a user at the ceiling gets no model jobs but still gets no-model nudges", 
 ### Task 4.10: Phase 4 gate
 
 - [ ] `GATE`, `DBT lib`, `npm run test:ui-contract` green on `agent/phase-4`.
-- [ ] 🛑 ANDREW: gates A11, A12, A4.
+- [ ] 🛑 ANDREW: gates A11, A12.
 - [ ] Merge to `main`. Confirm in Vercel that the cron entries are registered and that a manual `GET` without the header returns 401. Background stays off (`agent_background_enabled` defaults to false).
 - [ ] 🛑 ANDREW: gates A13, then A14.
 
@@ -1836,7 +1836,7 @@ Tune repair and fallback limits, the handshake timeout, per-run caps and the cei
 - **S8. Tracker rows and job deletion.** `applications.job_id` follows `application_packages`' delete rule, so a job removed by lifecycle maintenance takes its tracker row with it. The spec does not address this.
 - **S9. "Checked before every model call."** Planned as a check before each turn and after each step, with an abort; the SDK starts the next step itself, so a true pre-step check is not available without a hook this plan has not verified.
 - **S11. Seeded personas need prod writes** that agents may not make (gate A7).
-- **S12. Visual baselines** are canonical on macOS and there is no workflow that regenerates them, so each phase that adds a public page stops at gate A4.
+- **S12. Visual baselines:** resolved by the CI/CD overhaul prerequisite (Linux baselines regenerated in CI, visual test on every PR).
 
 ## Spike log
 

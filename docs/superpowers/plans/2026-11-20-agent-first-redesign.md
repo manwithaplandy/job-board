@@ -96,24 +96,24 @@ Each gate appears inside its task as a one-line marker; the detail is here. Phas
 | A16 | 🛑 ANDREW: explicit yes for any destructive migration | Only if D3 is overruled or a later task finds one unavoidable | House rule |
 | A17 | 🛑 ANDREW: approve the opt-in env change to `tools/lifecycle_test_db.py` (Q8) | Task 1.22, before the first live eval | That harness is security-reviewed code; it strips provider keys on purpose |
 | A18 | 🛑 ANDREW: decide what to do if a sandbox navigation reaches the canary in any browser | Task 2.7, only if it happens | He decided all three variants ship and the spec accepts a residual one-request leak; the executor reports and does not switch variant 3 off by itself |
-| A19 | Retired (Andrew, 2026-11-20). Folded into the CI/CD overhaul, which runs the visual test on every PR | n/a | n/a |
+| A19 | Done (Andrew, 2026-11-20): he removed the required-reviewer rule on the `visual-test` environment. The CI/CD overhaul also runs the visual test on every PR | n/a | n/a |
 
 One standing rule that is not Andrew's to clear: if any variant fails the injection set (Task 2.12), stop demoing that variant and fix it first.
 
 ## Questions to settle before execution starts
 
-Each has a default. "Go with your defaults" is a complete answer.
+All eight are answered (2026-11-20). Gate A1 is cleared.
 
 | # | Question | Default | What changes |
 |---|---|---|---|
 | Q1 | Vercel plan: Hobby or Pro? | **Answered (Andrew, 2026-11-20): Hobby until rollout.** Personal/learning project for now. Every cron stays once a day and every function stays within 300 s | Hobby allows a cron at most once a day, fired within a 59 minute window, and 300 s functions. Task 4.3 is written to work on Hobby (two daily entries). On Pro the tick could run hourly |
-| Q2 | Dictation provider: Groq `whisper-large-v3-turbo` ($0.04/hr) or Deepgram Nova-3 ($0.0048/min)? | Groq | Package and key name in Task 3.5, one line on the privacy page |
+| Q2 | Dictation provider: Groq `whisper-large-v3-turbo` ($0.04/hr) or Deepgram Nova-3 ($0.0048/min)? | **Settled (Andrew, 2026-11-20: "I'm fine with all 5 of those calls"):** Groq | Package and key name in Task 3.5, one line on the privacy page |
 | Q3 | Migrations applied per phase, or all batches at once up front? | **Answered (Andrew, 2026-11-20): build the migrations CD pipeline first** so deployments include migrations. Phase 0 starts after it lands | Gates A3, A5, A11 become automatic; see Global Constraints |
 | Q4 | Default agent model | **Answered (Andrew, 2026-11-20): start with Claude Sonnet 5.5** "so we're not building around model capability failures"; later, evals across several models to find the cost/benefit balance | `AGENT_MODEL_DEFAULT` is Sonnet 5.5; `AGENT_EVAL_MODELS` lists the models the matrix sweeps (Task 2.10). Haiku 5.5 is the first cheaper candidate. The exact OpenRouter slug is [Unverified] and confirmed in Spike A |
-| Q5 | If the AI SDK 7 telemetry path needs it, upgrade `@langfuse/*` from ^5.9.1 to 6.x? | Yes, but only if the smaller path fails (Task 0.12) | One dependency bump touching the existing tracing setup |
-| Q6 | Scoped re-review storage: a new additive table, or a `scope` column on `review_requests` as the spec words it? | New table `review_scope_requests` (D3) | The column route must drop and recreate `one_active_review_request` and rewrite `resume_matching()`, which infers that index; that is destructive and needs gate A16 |
-| Q7 | Is the Vercel project on Node 22 or later? | Assume yes | If not, set it before Task 0.15; AI SDK 7 and the OpenRouter provider require it |
-| Q8 | How does the OpenRouter key reach live eval runs? `tools/lifecycle_test_db.py` passes only `_SAFE_ENV` to its child (`:28`, `:101-118`) | Add an opt-in flag `--allow-env NAME` that forwards a named variable only when `NAME` is in a new constant `_OPT_IN_ENV = {"OPENROUTER_API_KEY"}`; without the flag nothing changes (gate A17) | Task 1.22 writes it. If refused, live evals need a separately started local Postgres and Andrew's instructions for it |
+| Q5 | If the AI SDK 7 telemetry path needs it, upgrade `@langfuse/*` from ^5.9.1 to 6.x? | **Settled (Andrew, 2026-11-20: "I'm fine with all 5 of those calls"):** Yes, but only if the smaller path fails (Task 0.12) | One dependency bump touching the existing tracing setup |
+| Q6 | Scoped re-review storage: a new additive table, or a `scope` column on `review_requests` as the spec words it? | **Settled (Andrew, 2026-11-20: "I'm fine with all 5 of those calls"):** New table `review_scope_requests` (D3) | The column route must drop and recreate `one_active_review_request` and rewrite `resume_matching()`, which infers that index; that is destructive and needs gate A16 |
+| Q7 | Is the Vercel project on Node 22 or later? | **Settled (Andrew, 2026-11-20: "I'm fine with all 5 of those calls"):** Assume yes | If not, set it before Task 0.15; AI SDK 7 and the OpenRouter provider require it |
+| Q8 | How does the OpenRouter key reach live eval runs? `tools/lifecycle_test_db.py` passes only `_SAFE_ENV` to its child (`:28`, `:101-118`) | **Settled (Andrew, 2026-11-20: "I'm fine with all 5 of those calls"):** Add an opt-in flag `--allow-env NAME` that forwards a named variable only when `NAME` is in a new constant `_OPT_IN_ENV = {"OPENROUTER_API_KEY"}`; without the flag nothing changes (gate A17) | Task 1.22 writes it. If refused, live evals need a separately started local Postgres and Andrew's instructions for it |
 
 ## Decisions made in this plan
 

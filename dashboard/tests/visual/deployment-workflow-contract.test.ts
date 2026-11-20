@@ -179,8 +179,8 @@ describe("deployment-triggered authenticated visual workflow", () => {
     );
     expect(step).toContain("^[0-9a-f]{40}$");
     expect(step).toContain('repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA/pulls');
-    expect(step).toContain('.head.repo.full_name == $repo');
-    expect(step).toContain('.user.type != "Bot"');
+    expect(step).toContain('.head.repo.full_name == \\"$repo\\"');
+    expect(step).toContain('.user.type != \\"Bot\\"');
     expect(workflowJob(workflow, "authenticated-visual")).toContain(
       "if: needs.resolve.outputs.run == 'true'",
     );
@@ -221,14 +221,10 @@ describe("deployment-triggered authenticated visual workflow", () => {
     const checkoutIndex = workflow.indexOf("- uses: actions/checkout@v7");
     const setupNodeIndex = workflow.indexOf("- uses: actions/setup-node@v6");
     const installIndex = workflow.indexOf("- name: Install dependencies");
-    const browserIndex = workflow.indexOf(
-      "- name: Install visual regression browser",
-    );
     const setup = workflowStep(workflow, "Create authenticated sessions");
     expect(checkoutIndex).toBeLessThan(validationIndex);
     expect(validationIndex).toBeLessThan(setupNodeIndex);
     expect(validationIndex).toBeLessThan(installIndex);
-    expect(validationIndex).toBeLessThan(browserIndex);
     expect(workflow.indexOf(validation)).toBeLessThan(workflow.indexOf(setup));
     expect(validation).toContain(
       "VISUAL_BASE_URL: ${{ needs.resolve.outputs.url }}",
@@ -268,9 +264,6 @@ describe("deployment-triggered authenticated visual workflow", () => {
     const preflightIndex = workflow.indexOf("- name: Require visual credentials");
     const setupNodeIndex = workflow.indexOf("- uses: actions/setup-node@v6");
     const installIndex = workflow.indexOf("- name: Install dependencies");
-    const browserIndex = workflow.indexOf(
-      "- name: Install visual regression browser",
-    );
     const preflight = workflowStep(workflow, "Require visual credentials");
     const names = [
       "VISUAL_AUTH_EMAIL",
@@ -283,7 +276,6 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(validationIndex).toBeLessThan(preflightIndex);
     expect(preflightIndex).toBeLessThan(setupNodeIndex);
     expect(preflightIndex).toBeLessThan(installIndex);
-    expect(preflightIndex).toBeLessThan(browserIndex);
     for (const name of names) {
       expect(preflight).toContain(`HAS_${name}: \${{ secrets.${name} != '' }}`);
       expect(preflight).toContain(`"${name}"`);

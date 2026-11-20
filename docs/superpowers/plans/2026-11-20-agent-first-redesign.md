@@ -96,6 +96,7 @@ Each gate appears inside its task as a one-line marker; the detail is here. Phas
 | A16 | 🛑 ANDREW: explicit yes for any destructive migration | Only if D3 is overruled or a later task finds one unavoidable | House rule |
 | A17 | 🛑 ANDREW: approve the opt-in env change to `tools/lifecycle_test_db.py` (Q8) | Task 1.22, before the first live eval | That harness is security-reviewed code; it strips provider keys on purpose |
 | A18 | 🛑 ANDREW: decide what to do if a sandbox navigation reaches the canary in any browser | Task 2.7, only if it happens | He decided all three variants ship and the spec accepts a residual one-request leak; the executor reports and does not switch variant 3 off by itself |
+| A19 | 🛑 ANDREW (optional, manual GitHub setting): remove the required-reviewer rule on the `visual-test` environment (Settings > Environments) so `.github/workflows/authenticated-visual.yml` runs on every Vercel preview without his approval | Any time before phase 0 merges; otherwise each authenticated visual run waits for his click | Trade-off: unattended runs mean faster feedback for the executor, but every pushed branch's code then runs with the `VISUAL_AUTH_*`, `VISUAL_ONBOARDING_*` and `VERCEL_AUTOMATION_BYPASS_SECRET` secrets on a macOS runner (billed at the macOS minute rate), against previews that read the prod database. Agents cannot change repo settings |
 
 One standing rule that is not Andrew's to clear: if any variant fails the injection set (Task 2.12), stop demoing that variant and fix it first.
 

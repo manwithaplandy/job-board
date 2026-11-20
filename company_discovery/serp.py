@@ -17,8 +17,14 @@ _MIN_INTERVAL = float(os.environ.get("SERP_MIN_INTERVAL_SECONDS", "0.5"))
 _last_call = 0.0
 
 
+def serp_enabled() -> bool:
+    """Global kill switch, off unless SERP_ENABLED is truthy. Lets SERPER_API_KEY
+    stay configured without any job spending Serper credits, whatever its use_serp."""
+    return os.environ.get("SERP_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def serp_available() -> bool:
-    return bool(os.environ.get("SERPER_API_KEY"))
+    return serp_enabled() and bool(os.environ.get("SERPER_API_KEY"))
 
 
 def _throttle() -> None:
@@ -34,7 +40,7 @@ def fetch_company_snippets(name: str, ats: str) -> str | None:
     """Top organic results for the company as 'title — snippet' lines, or None.
     Never raises: SERP grounding is best-effort; classification proceeds without it."""
     key = os.environ.get("SERPER_API_KEY")
-    if not key:
+    if not key or not serp_enabled():
         return None
     try:
         _throttle()

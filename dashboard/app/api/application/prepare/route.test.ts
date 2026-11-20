@@ -97,6 +97,7 @@ vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 // toPrefillQuestions, normalizeInstructions, gateRejectionBody are PURE — NOT mocked.
 
 import { POST } from "@/app/api/application/prepare/route";
+import { BilledGenerationError } from "@/lib/rolefit/openrouterClient";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 
 const USER = "22222222-2222-2222-2222-222222222222";
@@ -384,6 +385,47 @@ describe("POST /api/application/prepare — conditional refund + settle", () => 
       errSpy.mockRestore();
     }
     expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume", "cover"]);
+    expect(mocks.settleGenerationJob.mock.calls[0][2].status).toBe("failed");
+  });
+
+  // Billing rule: a leg that failed BEFORE inference is refunded; a leg OpenRouter already
+  // billed (truncated / parse failure after a 200) keeps its charge.
+  test("billed résumé failure + pre-inference cover failure → refunds only cover", async () => {
+    mocks.getJobQuestion.mockResolvedValue(COVER_Q);
+    mocks.generateResume.mockRejectedValue(
+      new BilledGenerationError("OpenRouter returned non-JSON résumé content"),
+    );
+    mocks.generateCoverLetter.mockRejectedValue(new Error("OpenRouter cover letter request failed: 502"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await POST(req());
+      await flushBackground();
+    } finally {
+      errSpy.mockRestore();
+    }
+    expect(mocks.refundGenerations).toHaveBeenCalledTimes(1);
+    expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["cover"]);
+    expect(mocks.settleGenerationJob.mock.calls[0][2]).toEqual({
+      status: "failed", error: "Generation failed — try again.",
+    });
+  });
+
+  test("both legs billed failures → refunds nothing", async () => {
+    mocks.getJobQuestion.mockResolvedValue(COVER_Q);
+    mocks.generateResume.mockRejectedValue(
+      new BilledGenerationError("OpenRouter résumé output truncated (max_tokens reached)"),
+    );
+    mocks.generateCoverLetter.mockRejectedValue(
+      new BilledGenerationError("OpenRouter cover letter missing required fields"),
+    );
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await POST(req());
+      await flushBackground();
+    } finally {
+      errSpy.mockRestore();
+    }
+    expect(mocks.refundGenerations).not.toHaveBeenCalled();
     expect(mocks.settleGenerationJob.mock.calls[0][2].status).toBe("failed");
   });
 

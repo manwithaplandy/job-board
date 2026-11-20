@@ -78,7 +78,8 @@ const reserveLockKey = (userId: string, kind: GenerationKind) => `usage:${userId
  *   2. re-reads month-to-date spend UNDER the lock and, only if still < limit, charges +1.
  * All-or-nothing across kinds: if ANY requested kind is exhausted, nothing is charged
  * (the transaction commits having only held locks). The caller REFUNDS on a failed
- * generation (refundGenerations), preserving "a failed generation never burns allowance".
+ * generation (refundGenerations) — but only one that failed BEFORE inference; a response
+ * OpenRouter already billed keeps its charge (see BilledGenerationError).
  *
  * WRITES run as the service role (serviceSql) — users are SELECT-only on usage_counters
  * (B-COST), so the reserve can't be self-zeroed via the Data API. Reads happen in the
@@ -128,8 +129,10 @@ export async function reserveGenerations(
 
 /**
  * Refund reserved slots (each −1 on today's UTC row) when a generation the caller
- * reserved for fails to produce+persist — so a failed generation never burns allowance
- * (T9), while the reserve above stays atomic. GREATEST(n-1,0) guards against underflow.
+ * reserved for fails to produce+persist BEFORE inference (T9) — a response OpenRouter
+ * already billed is not refunded, or a prompt engineered to fail would let one slot buy
+ * unlimited inference (callers check isBilledGenerationError). The reserve above stays
+ * atomic. GREATEST(n-1,0) guards against underflow.
  * Service role (users are SELECT-only on usage_counters, B-COST).
  */
 export async function refundGenerations(userId: string, kinds: GenerationKind[]): Promise<void> {

@@ -98,12 +98,16 @@ const CERT_RE =
  * size = scale of the text transform; x/y = transform translation (y from
  * the page bottom). Empty / marked-content runs are dropped.
  */
+export const MAX_PDF_PAGES = 20;
+
 export async function extractPdfItems(bytes: Uint8Array): Promise<PdfItem[]> {
   if (bytes.length === 0) return [];
   // pdf.js transfers (detaches) the buffer it's given — copy so the caller keeps ownership.
   const pdf = await getDocumentProxy(bytes.slice());
   const items: PdfItem[] = [];
-  const numPages: number = pdf.numPages;
+  // A résumé is a few pages; reading only the first MAX_PDF_PAGES bounds the CPU a
+  // crafted many-page upload can burn in the extract route.
+  const numPages: number = Math.min(pdf.numPages, MAX_PDF_PAGES);
   for (let p = 1; p <= numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();

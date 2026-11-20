@@ -61,6 +61,8 @@ vi.mock("@/lib/openrouter", () => ({ getStructuredModels: async () => [] }));
 // intentionally NOT mocked — both are pure functions.
 
 import { POST } from "@/app/api/resume/route";
+import { BilledGenerationError } from "@/lib/rolefit/openrouterClient";
+import { generationFailureMessage } from "@/lib/rolefit/generationFailureMessage";
 
 const USER = "22222222-2222-2222-2222-222222222222";
 const EMAIL = "u@x.com";
@@ -278,6 +280,38 @@ describe("POST /api/resume — background failure → refund + user-safe settled
     expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume"]);
     expect(mocks.settleGenerationJob.mock.calls[0][2].error).toContain("Generation failed");
   });
+
+  // Billing rule: a failure BEFORE inference is refunded; a response OpenRouter already
+  // billed is NOT (else a prompt engineered to fail buys unlimited inference on one slot).
+  for (const message of ["fetch failed", "OpenRouter résumé request failed: 502"]) {
+    test(`pre-inference failure ("${message}") → refunded`, async () => {
+      mocks.generateResume.mockRejectedValue(new Error(message));
+      await POST(req({ jobId: "job-1" }));
+      await flushBackground();
+      expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume"]);
+      expect(mocks.settleGenerationJob.mock.calls[0][2].status).toBe("failed");
+    });
+  }
+
+  for (const message of [
+    "OpenRouter résumé output truncated (max_tokens reached)",
+    "OpenRouter returned non-JSON résumé content",
+    "OpenRouter résumé missing required fields",
+  ]) {
+    test(`billed failure after a 200 ("${message}") → NOT refunded, same user-safe copy`, async () => {
+      mocks.generateResume.mockRejectedValue(
+        new BilledGenerationError(message, { cause: new Error(message) }),
+      );
+      await POST(req({ jobId: "job-1" }));
+      await flushBackground();
+      expect(mocks.refundGenerations).not.toHaveBeenCalled();
+      expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
+      const outcome = mocks.settleGenerationJob.mock.calls[0][2];
+      expect(outcome.status).toBe("failed");
+      // User-facing copy is unchanged by the billing classification.
+      expect(outcome.error).toBe(generationFailureMessage("Résumé", message));
+    });
+  }
 
   test("status-write failure after a SUCCESSFUL generation never refunds the kept slot", async () => {
     mocks.settleGenerationJob.mockRejectedValue(new Error("db blip"));

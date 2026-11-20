@@ -12,8 +12,9 @@ import {
 //   1. a generate route RESERVES allowance, then createGenerationJob() → 'pending'
 //      and returns 202;
 //   2. the route's `after()` callback runs the LLM work and settleGenerationJob()s
-//      the row to 'ready'/'failed' (refunding allowance on failure BEFORE settling,
-//      so the money invariant survives a crash between the two writes);
+//      the row to 'ready'/'failed' (refunding allowance on a pre-inference failure
+//      BEFORE settling, so the money invariant survives a crash between the two
+//      writes; a response OpenRouter already billed keeps its charge);
 //   3. the client polls listGenerationActivity() via GET /api/generations and
 //      toasts settled rows.
 //

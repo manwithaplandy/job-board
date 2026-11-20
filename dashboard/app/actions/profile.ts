@@ -8,6 +8,7 @@ import { updateResumeSource } from "@/lib/profileSettings";
 import { assertNotDeleted } from "@/lib/tombstone";
 import { safeErrorMessage } from "@/lib/safeError";
 import { resumeObjectPath } from "@/lib/resumeStorage";
+import { resumePdfError, resumeTextError } from "@/lib/profileInputLimits";
 
 // Résumé-only save from the board's profile modal. Preserves model choices and
 // instructions the user set on /profile (the modal doesn't expose them).
@@ -20,6 +21,8 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
   const existing = await getProfile(userId);
 
   const submittedText = String(formData.get("resume_text") ?? "").trim();
+  const textTooLong = resumeTextError(submittedText);
+  if (textTooLong) throw new Error(textTooLong);
   const resumeText = submittedText || existing?.resume_text || null;
 
   // The uploaded file is archived only — the client already extracted it into the
@@ -28,12 +31,14 @@ export async function saveProfileResume(formData: FormData): Promise<void> {
   let resumeFilePath = existing?.resume_file_path ?? null;
   const file = formData.get("resume_pdf");
   if (file instanceof File && file.size > 0) {
+    const pdfError = resumePdfError(file);
+    if (pdfError) throw new Error(pdfError);
     const bytes = new Uint8Array(await file.arrayBuffer());
     const path = resumeObjectPath(userId, file.name);
     const supabase = await createClient();
     const { error } = await supabase.storage
       .from("resumes")
-      .upload(path, bytes, { contentType: file.type || "application/pdf", upsert: true });
+      .upload(path, bytes, { contentType: "application/pdf", upsert: true });
     // Log the storage internals server-side; throw only a generic message so the
     // client overlay never shows storage/host details (T5).
     if (error) throw new Error(safeErrorMessage("profile.resume-upload", error, "Résumé upload failed. Please try again."));

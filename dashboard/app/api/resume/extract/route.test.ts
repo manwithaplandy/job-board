@@ -47,6 +47,18 @@ describe("POST /api/resume/extract — auth + budget gate", () => {
     expect(mocks.fileToResumeMarkdown).not.toHaveBeenCalled();
   });
 
+  test("non-PDF upload → 400 before parsing", async () => {
+    const res = await POST(fileReq(new File(["<html>"], "x.html", { type: "text/html" })));
+    expect(res.status).toBe(400);
+    expect(mocks.fileToResumeMarkdown).not.toHaveBeenCalled();
+  });
+
+  test("oversized PDF → 400 before parsing", async () => {
+    const res = await POST(fileReq(pdf(Array.from({ length: 5 * 1024 * 1024 + 1 }, () => 0))));
+    expect(res.status).toBe(400);
+    expect(mocks.fileToResumeMarkdown).not.toHaveBeenCalled();
+  });
+
   test("invited caller with no profile → allowed", async () => {
     mocks.isInvitedUser.mockResolvedValue(true);
     mocks.getProfile.mockResolvedValue(null);

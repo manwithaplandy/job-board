@@ -5,6 +5,7 @@ import { getUserClaims } from "@/lib/auth";
 import { getProfile, getJobForPackage, getJobQuestion, upsertApplicationPackage } from "@/lib/queries";
 import { gateRejectionBody } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations, type GenerationKind } from "@/lib/usage";
+import { isBilledGenerationError } from "@/lib/rolefit/openrouterClient";
 import { createGenerationJob, settleGenerationJob } from "@/lib/generationJobs";
 import { applicationAnswersFromProfile } from "@/lib/applicationAnswers";
 import { applyUrl } from "@/lib/rolefit/applyUrl";
@@ -102,7 +103,7 @@ export async function POST(req: Request) {
 
   // Always charge résumé; charge cover ONLY when the posting asks for one. reserveGenerations
   // is ATOMIC (avoids check-then-charge TOCTOU) and all-or-nothing across the kinds; a
-  // rejected leg is REFUNDED below so it never burns allowance. After the 404/400/422/500
+  // leg that failed before inference is REFUNDED below, a leg OpenRouter billed is not. After the 404/400/422/500
   // validation so we never charge a request that can't generate. No plan → 402, exhausted → 429.
   const kinds: GenerationKind[] = wantsCover ? ["resume", "cover"] : ["resume"];
   // The catalog is fetched CONCURRENTLY with the gate; getStructuredModels is 1h-cached
@@ -257,14 +258,18 @@ export async function POST(req: Request) {
       profileVersion: profile.profile_version,
     });
 
-    // Refund charged legs that failed. Cover is only charged (and only "failed") when wanted;
-    // an unwanted cover leg is the sentinel rejection above and is never refunded. Both-fulfilled
-    // refunds nothing. A whole-prepare failure throws before here and refunds `kinds` in the
-    // outer catch. Model choice (model_resume/model_cover) is intentionally NOT tier-gated —
+    // Refund charged legs that failed BEFORE inference (fetch threw / non-2xx). A leg whose
+    // response OpenRouter already billed (truncated / non-JSON / failed parse after a 200) keeps
+    // its charge — otherwise a prompt engineered to fail lets one slot buy unlimited inference.
+    // Cover is only charged (and only "failed") when wanted; an unwanted cover leg is the sentinel
+    // rejection above and is never refunded. Both-fulfilled refunds nothing. A whole-prepare
+    // failure throws before here and refunds `kinds` in the outer catch. Model choice (model_resume/model_cover) is intentionally NOT tier-gated —
     // generation is 1–3% of cost (spec); the monthly counter is the abuse cap.
     const refundKinds: GenerationKind[] = [
-      ...(resumeResult.status === "rejected" ? (["resume"] as const) : []),
-      ...(wantsCover && coverResult.status === "rejected" ? (["cover"] as const) : []),
+      ...(resumeResult.status === "rejected" && !isBilledGenerationError(resumeResult.reason)
+        ? (["resume"] as const) : []),
+      ...(wantsCover && coverResult.status === "rejected" && !isBilledGenerationError(coverResult.reason)
+        ? (["cover"] as const) : []),
     ];
     if (refundKinds.length) await refundGenerations(userId, refundKinds);
 
@@ -305,8 +310,8 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       // Generation failures are salvaged per-leg above; this catches the upsert /
-      // infrastructure path where NOTHING persisted — refund the reserved kinds so a
-      // failed prepare never burns allowance. Never leak internal error detail to
+      // infrastructure path where NOTHING persisted — refund the reserved kinds (an
+      // infrastructure failure, not a billed generation the user's prompt can provoke). Never leak internal error detail to
       // the stored user-safe message.
       await refundGenerations(userId, kinds);
       console.error("application prepare failed", e);

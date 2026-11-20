@@ -20,6 +20,18 @@
   commit. When a base commit is superseded, say so explicitly and re-pin any
   dependent work (rehearsals, reviews) to the new SHA.
 
+## Migrations
+
+- Agents never apply SQL to production; the pipeline does. Use the Supabase connector for
+  reads only.
+- New schema changes go in `supabase/migrations/`, created with `supabase migration new`.
+  Follow [the migrations runbook](docs/runbooks/migrations-cd.md): the two `SET` timeouts
+  first, no transaction control, mirror the change into `schema.sql`, and a PR that holds
+  only the migration, `schema.sql`, tests and docs.
+- Never edit, rename or delete a merged migration, and never touch `migrations/archive/`.
+  Fix forward with a new file.
+- Until the cutover PR merges, do not add migrations at all.
+
 ## Supabase storage observations
 
 Before using or changing the fixed-project metrics reader, read

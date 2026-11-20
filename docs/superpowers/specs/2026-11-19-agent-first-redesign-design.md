@@ -1,6 +1,6 @@
 # Agent-first redesign: design
 
-Date: 2026-11-19. Status: draft for Andrew's review, after one builder-check pass and his answers so far (2026-11-19). Phase: spec (brainstorm is done; no plan, no code yet).
+Date: 2026-11-19. Status: draft for Andrew's review, after one builder-check pass; all open questions answered by Andrew (2026-11-19 and 2026-11-20). Phase: spec (brainstorm is done; no plan, no code yet).
 
 Grounding: code on `main` at `a478659`; `docs/product.md` and `docs/architecture.md` on branch `claude/project-thread-thhbs3` (not merged); the UX review in `/mnt/project-files/ux-review/` (01 design review, 02 market scan, 03 differentiation, 04 generative-UI research); and today's library check (`research-2026-11-19.md` in the session scratchpad, cited below as "library check"). I did not re-research anything those files cover.
 
@@ -74,7 +74,7 @@ The aim is to use AI in ways competitors do not, so the hunt is easy and collabo
 |---|---|---|
 | Stack | Next.js 16.4 / React 19 on Vercel, Supabase Postgres with RLS, Python reviewer on Railway, OpenRouter for all LLM calls, Langfuse, Stripe | architecture.md |
 | DB access | postgres.js with `withUserSql` / `withUserMutation` setting `request.jwt.claims`; privileged pool only from an allowlist (`serviceRoleAllowlist.test.ts`) | `dashboard/lib/db.ts` |
-| jsonb | Every jsonb read goes through a hand-rolled total parser. No zod. The same parser validates LLM output and storage reads | `dashboard/CLAUDE.md` |
+| jsonb | Every jsonb read goes through a total parser (never an `as` cast). The same parser validates LLM output and storage reads. zod is allowed (Andrew, 2026-11-20: "I'm happy to use it anywhere it makes sense"); `dashboard/CLAUDE.md`'s "No zod" line is to be updated in the plan. Pin `zod` to `^4.6.7` or later, the version the repo's Oct 28 audit override already requires (the old email-regex ReDoS, CVE-2023-4316, affected only versions before 3.22.3) | `dashboard/CLAUDE.md` |
 | UI | Token-only colors, 44px targets, shared primitives, enforced by `ui-contract.test.ts`; every real page must be in `tests/visual/routes.ts` | `docs/ui-contracts.md` |
 | Git | Never rewrite commits; commit forward | `CLAUDE.md` |
 | Migrations | Applied by hand before the dependent code merges; push to `main` auto-deploys prod; destructive migrations need Andrew's explicit yes. A CI/CD migrations effort is planned separately | architecture.md §8 |
@@ -98,23 +98,23 @@ The product direction is decided. What was open is how the agent's UI is produce
 | What the model emits | Typed tool calls; the client renders `tool-${name}` parts in our components | Declarative JSON over a client catalog | JSON constrained by a zod catalog | HTML/JS |
 | Maturity (library check) | `ai` 7.0.177, mainstream | Protocol 1.0 stable since Nov 11; React renderer 0.15.0, pre-1.0 | core 0.23.2, pre-1.0 | n/a |
 | Fits three variants | Yes: the variant is just the payload of one render tool | Only variant 2 | Only variants 1-2 | Only variant 3 |
-| House-style fit | Our own total parsers define "valid" | Renderer owns validation | zod catalog defines "valid", which conflicts with `dashboard/CLAUDE.md` | n/a |
-| Risk | We write and own three small renderers | Pre-1.0 renderer; ~202 kB gz measured on 0.9 (04-genui-research) | Pre-1.0; needs a zod exception | Cannot compare levels of freedom; highest injection exposure |
+| House-style fit | Our own schemas (zod or hand-rolled) define "valid" | Renderer owns validation | Its zod catalog defines "valid"; fine now that zod is allowed | n/a |
+| Risk | We write and own three small renderers | Pre-1.0 renderer; ~202 kB gz measured on 0.9 (04-genui-research) | Pre-1.0 | Cannot compare levels of freedom; highest injection exposure |
 
 **Picked: A, with our own payload grammar per variant.** Reasons:
 
 - The experiment needs all three levels behind one switch with everything else held constant. A is the only option that carries all three.
 - It is the lowest-risk stack per the research ("AI SDK tool parts + own components").
-- Validation stays in hand-rolled total parsers, so persisted UI payloads follow the existing jsonb rule.
+- Validation stays in our own schemas, used as total parsers (for zod, `safeParse` returning a value or null), so persisted UI payloads follow the existing jsonb rule.
 
 **Not picked, and why:**
 
 - **A2UI:** the React renderer is pre-1.0 and its 1.0 target is unverified. Proposal: shape the variant 2 grammar close to A2UI's concepts (declarative components over a client catalog, data bound by path) so a later move is a renderer swap, not a redesign [Inference].
-- **json-render:** it brings zod as the definition of a valid catalog. zod is already in the tree transitively (`overrides.zod@4` in `package.json`) but is not a direct dependency, and using it as the source of truth would create a second definition of "valid shape". Revisit only if writing our own variant 2 validator proves too costly.
+- **json-render:** pre-1.0, and it only covers variants 1 and 2. Its zod catalog is no longer a blocker now that zod is allowed, so the plan may still use it for the variant 2 renderer if that is cheaper than writing our own (Builder's call at plan time).
 - **AI SDK RSC `streamUI`:** still experimental per 04-genui-research. Avoid.
 - **`@ai-sdk/workflow` durable runs:** stability not stated and it likely needs Vercel Workflow [Unverified]. Not a dependency; section 9 uses a plain queue.
 
-**zod at the tool boundary.** AI SDK tool inputs are normally declared with zod. Proposal: declare tool inputs with JSON Schema plus our total parsers if AI SDK 7 supports that cleanly [Unverified, check at plan time]; otherwise allow zod for tool input schemas only, never for persisted data. This is open question 4.
+**zod.** Decided (Andrew, 2026-11-20): "I don't think we should outright ban zod. I'm happy to use it anywhere it makes sense, whether for tool inputs or for even more." So AI SDK tool inputs, variant payload grammars, the analytics tile spec and persisted jsonb can all be zod schemas. The house rule that survives is the one behind "No zod": no `as` casts across a boundary, every read is a total parse, one schema per shape shared by the LLM-output check and the storage read.
 
 **OpenRouter through the AI SDK.** All LLM traffic goes through OpenRouter today using hand-written fetch (`lib/rolefit/openrouterClient.ts`). The agent loop needs an AI SDK provider pointed at OpenRouter. Whether the community OpenRouter provider tracks AI SDK 7 is [Unverified]; the fallback is an OpenAI-compatible provider with OpenRouter's base URL. Decide in the plan with a spike.
 
@@ -261,9 +261,16 @@ Uploads (résumés, photos, other files), the résumé source of truth (`profile
 
 ### 6.6 Analytics (`/analytics`)
 
-Decided: a permanent page the agent builds for metrics the user wants "without having to prompt for it".
+Decided: a permanent page the agent builds for metrics the user wants "without having to prompt for it". On how free (Andrew, 2026-11-20): "I want to lean toward agent-built. I want the users to be able to tailor their metrics page to what they need. But I think it should be a lot more structured than the generative UI in the main agent interaction; a few options for tile sizes, graph/table types, etc, premade components assembled to create cohesive metrics observability [...] sort of a middle ground between the two."
 
-Builder's call: the page is a saved list of **tiles**. A tile is `{metric, group_by, filter, window, viz, title}` where `metric` comes from a closed catalog (applications by stage, applications over time, response rate, time in stage, shortlist funnel, skip reasons, fit of shortlisted vs applied, weekly activity) and `viz` is stat, bar, line or table (Recharts is already a dependency). The agent composes tiles; it does not write SQL or code for this page. Reasons: the page must render without a model call, must survive a renderer change after the experiment, and must stay correct. This is the one place I am holding freedom below what Andrew asked for; see open question 1.
+So the page is agent-built from a **fixed kit of premade components**, separate from the experiment's renderers and much more constrained than the agent page:
+
+- **Tile:** `{metric, group_by, filter, window, viz, size, title, note}`, validated by one schema.
+- **Metric catalog** (closed, each a tested query): applications by stage, applications over time, response rate, time in stage, shortlist funnel, skip reasons, fit of shortlisted vs applied, weekly activity, stale applications. New metrics are added in code, not by the agent.
+- **Viz kit** (Builder's call on the exact list): stat with delta, sparkline, line, bar, stacked bar, funnel, table, list. Built on Recharts (already a dependency) and the existing UI primitives.
+- **Sizes:** small (1 column), medium (2), large (full width), on a fixed 4-column grid that collapses to one column on mobile.
+- **Layout:** ordered tiles plus optional section headings. The agent assembles and rearranges by talking ("track how long I sit in phone screens"); the user can also reorder, resize and remove tiles directly. Changes are versioned with undo.
+- The page renders from the saved spec without a model call, so it stays fast and correct whatever the experiment decides.
 
 The current `/analytics` (operator pipeline stats, about 29 aggregate queries) moves to `/admin/pipeline`.
 
@@ -321,14 +328,14 @@ Proposal:
 |---|---|---|
 | Scripted runs | 4 scenarios x 3 variants x 2-3 seeded personas x 5 repeats, same model and same gathered data | Offline harness against a seeded test user; results to a Langfuse dataset |
 | Automatic measures | Validation failure rate; repair rate; fallback rate; time to first render and to complete; output tokens; deterministic task asserts (section 11); structural variance across repeats (how different are five layouts for the same input) | Harness |
-| Human sessions | Andrew plus a few outside testers run the four scenarios in each variant, order rotated, thinking aloud | Per scenario: completed without help (yes/no); seconds to find the primary action; "what will this button do" prediction right or wrong; a 1-5 "I knew where I was" rating; notes |
+| Demos | Andrew demos the prototypes to people and gathers their feedback | His notes; no scoring scheme imposed |
 | Production signals | Fallback rate; "re-render as" use; undo within a minute of an agent action; the user re-asking the same thing; abandoning a surface for a workspace | `agent_runs` and surface rows |
 
-"Confusing" is operationalized as any of: failing to find the primary action quickly; mispredicting what a control does; not recognizing the same task when it is laid out differently the second time; needing to ask the agent how to use what it just built. Structural variance is the automatic proxy for the third.
+Things worth watching for in demos (a checklist, not a score): not finding the primary action; mispredicting what a control does; not recognizing the same task when it is laid out differently the second time; needing to ask the agent how to use what it just built.
 
 Model fairness. A weak model writing code can look like "freedom breaks" when it is really "model too weak" [Inference]. Proposal: run the matrix once with one cheap default model for all variants, and once with a stronger model, and report both (builder's call 20).
 
-**Decision rule (proposal):** adopt the freest variant that (1) has zero security test failures, (2) meets the fallback-rate and task-assert thresholds agreed in the plan, and (3) is not rated more confusing than variant 1 by the human sessions. A mixed outcome is legitimate and likely [Inference]: for example variant 2 by default with variant 1 blocks for anything carrying actions. The thresholds are deliberately not numbers here; setting them before a single run exists would be invented precision. Set them from a pilot run in phase 2.
+**Decision:** Andrew decides (2026-11-20): "I'll demo it to people and give you a decision one way or another. That isn't going to be something with objective metrics; it'll come from my opinions after seeking feedback from some initial user testing across the different prototypes." The automatic measures and production signals above are supporting information for that call, presented as a short per-variant summary, not a pass/fail gate. The one hard line is security: a variant that fails the injection set is fixed before it is demoed further. A mixed outcome is legitimate [Inference]: for example variant 2 by default with variant 1 blocks for anything carrying actions.
 
 Expectation to test, not a result: the research found generated UI beat chat text on 69-84% of curated queries but only 50.8% on real ones, and was strongest on dense structured content (04-genui-research §3). So scenarios (b) and (d) are where freedom should help most and (a) and (c), which are step-by-step, where it should help least.
 
@@ -526,7 +533,7 @@ Sized for one developer. Reuses what exists: vitest, Playwright, `axe-core` (alr
 
 Not planned: browser agents as testers. The cited benchmark shows low agent task success (24.5% to 31.5%), which is too noisy to act on.
 
-Variant 3 cannot satisfy the static UI contract scanner, by nature. Its only a11y and target-size checks are layers 4 and the human sessions. That is a real cost of freedom and should weigh in the decision.
+Variant 3 cannot satisfy the static UI contract scanner, by nature. Its only a11y and target-size checks are layer 4 and the demos. That is a real cost of freedom and should weigh in the decision.
 
 For the variant comparison, see section 7.3. The harness for layer 2 and the scripted runs are the same code.
 
@@ -540,7 +547,7 @@ Not a plan. Order is by uncertainty: the rendering question first, because it sh
 |---|---|---|
 | 0. Foundations | Additive migrations; agent loop with read tools over existing data; thread persistence; `agent_runs` and the spend ceiling; OpenRouter provider spike; Langfuse tracing | A signed-in user can ask about their reviewed jobs and get text back within budget |
 | 1. Variant 1 and thin workspaces | `present` with domain blocks; deterministic "suggested" fill (builder's call 17); write tools with confirm cards and undo; shortlist, tracker, memo, documents as plain pages; uploads; the four scenarios end to end; golden scenarios and asserts | All four scenarios pass asserts in variant 1; cost per scenario measured |
-| 2. The experiment | Variants 2 and 3 for everyone, the switcher, "re-render as", the harness, injection set, human sessions | A written decision on the rendering level |
+| 2. The experiment | Variants 2 and 3 for everyone, the switcher, "re-render as", the harness, injection set, Andrew's demos | A written decision on the rendering level |
 | 3. Cutover | Agent page as `/`; old board, onboarding, companies, advanced AI and profile sections removed; analytics tiles page; dictation; visual manifest updated; export, deletion and privacy copy updated | Old dashboard code deleted |
 | 4. Between visits | Cron tick, scheduled reviews, digests, nudges, inbox, kill switches; spend alert deployed | A user who stays away for three days returns to a correct, capped inbox |
 | 5. Harden | Sandbox on a separate origin if variant 3 survives (required before real users); thresholds tuned from production signals | |
@@ -558,6 +565,7 @@ There are no users, so cutover needs no migration period or feature flag for the
 - **A2UI** behind the variant 2 grammar once its React renderer is stable.
 - **MCP server** exposing the scored shortlist, memo and tracker to the user's own assistant (03-differentiation idea 4).
 - **Outcome loop:** suggesting memo changes from response patterns, only as prompts, given small samples.
+- **Background pre-drafting of application documents** for the agent's top picks. Andrew (2026-11-20): "could be a future enhancement once we understand usage and how it'll effect the cost model, but that would be well down the road." Would need a per-day cap and a "drafted for you" state.
 - **Search upgrade:** see the parked idea below.
 - **Logged-out landing page** in place of the public list.
 - **Jobs from outside the catalog** (pasted text, screenshots, manual tracker entries, tracker import from email). Out of scope by Andrew's decision on 2026-11-19.
@@ -604,11 +612,11 @@ This changes the reviewer's candidate selection (today: location prefilter, then
 
 ## 14. Builder's calls to check
 
-These are choices I made that Andrew did not hear in the brainstorm. Ones large enough to block a plan are repeated as open questions.
+These are choices I made that Andrew did not hear in the brainstorm. They stand unless he objects.
 
 1. Agent loop and tools in TypeScript on Vercel; reviewer stays Python and is driven by `review_requests`.
 2. A turn splits into gather and present, with "re-render as" for comparison.
-3. Analytics page is a declarative tile list over a closed metric catalog in every variant.
+3. The analytics viz kit, sizes and metric list in section 6.6.
 4. Variant 3 ships to everyone on a `srcdoc` sandbox; the separate origin is required before real users (phase 5).
 5. Unattended runs are propose-only and cannot generate documents.
 6. Vercel Cron for the schedule; one review and digest per active user per day.
@@ -625,19 +633,13 @@ These are choices I made that Andrew did not hear in the brainstorm. Ones large 
 17. **Until phase 4, "suggested" is filled deterministically.** After a review finishes, the top approved jobs by fit (not already triaged) become `suggested`, with the two-line brief taken from the review's existing reasoning and red flags, no extra LLM call. The handoff is a check on page load and on the review-progress poll, not a queue. Agent-written briefs and the inbox arrive in phase 4. "Scenario (a) passes in phase 1" means picks land in the shortlist; the "result lands in the inbox" step is phase 4.
 18. **Testers use seeded persona accounts.** Two or three personas with pre-reviewed jobs, comped plans and synthetic résumés. This avoids invites, slow per-tester reviews and real personal data in Langfuse traces (which account deletion does not remove today). The cost: testers judge a résumé that is not theirs. If Andrew wants testers on their own data, phase 2 needs per-tester invites, plan overrides and Langfuse redaction first.
 19. **Variants are temporary.** It is an experiment. Variants 2 and 3 are built to prototype quality (validators and the security controls in full, but no UI-contract polish beyond what the evals need). After the decision, the losers, the switcher and "re-render as" are deleted in phase 3, and the winner is hardened. Keeping user-selectable freedom levels as a feature would be a new decision.
-20. **One model for the human sessions; the scripted matrix runs twice** (cheap default, then a stronger model), because scripted runs are cheap and this separates "freedom breaks" from "model too weak". Candidate default: Claude Haiku 5.5 through OpenRouter ($0.10/$0.50 per MTok up to 100K prompt tokens, $0.50/$2.50 above, per Anthropic's pricing page in the library check).
+20. **One model for the demos; the scripted matrix runs twice** (cheap default, then a stronger model), because scripted runs are cheap and this separates "freedom breaks" from "model too weak". Candidate default: Claude Haiku 5.5 through OpenRouter ($0.10/$0.50 per MTok up to 100K prompt tokens, $0.50/$2.50 above, per Anthropic's pricing page in the library check).
 21. **Daily cadence on Vercel Cron.** One tick per day covers one review and digest per active user, which should fit any Vercel plan [Unverified: plan not readable from the Vercel connector]. If it does not, the fallback is a small enqueue-only loop in the Railway worker, with agent runs still executed by a Vercel route.
 
 ---
 
 ## 15. Open questions for Andrew
 
-Only questions where the answer changes what gets built. Most important first, each with a recommendation. Answered on 2026-11-19: outside jobs (removed, catalog only), variant 3 access (all three ship to everyone), and search scope (reviewed jobs only; the search upgrade is parked in section 13). Re-scoring scope, the Vercel plan and model fairness are builder's calls 16, 20 and 21.
+None open as of 2026-11-20. Answered on 2026-11-19 and 2026-11-20: outside jobs (removed, catalog only); variant 3 access (all three ship to everyone); search scope (reviewed jobs only, search upgrade parked); analytics freedom (agent-built from a fixed kit, section 6.6); judging the experiment (Andrew decides after demos, section 7.3); background pre-drafting (future work); zod (allowed, section 3).
 
-1. **How free is the permanent analytics page?** Recommend declarative tiles over a closed metric catalog, whatever the experiment decides for the agent page, because the page has to load without a model call and stay correct for months. This holds freedom below "the agent can build" read literally. The alternative, saving a variant 2 or 3 surface as the page, ties a persistent page to an experimental renderer.
-
-2. **Who judges "confusing"?** Recommend you plus three to five people who have never seen the product, on seeded persona accounts (builder's call 18), running the four scenarios in rotated order. You know where everything is, so your sessions will under-report confusion. If it is only you, the decision rests mostly on the automatic measures, with structural variance as the main signal.
-
-3. **May the unattended agent pre-draft application documents for its top picks?** Recommend no for now: it spends allowance and money with nobody watching, and a wrong pick wastes both. Yes would make "works between visits" noticeably more impressive, and would need a per-day cap and a clear "drafted for you" state.
-
-4. **Is zod acceptable at the AI SDK tool boundary?** Recommend yes, for tool input schemas only, if the JSON Schema route turns out awkward in AI SDK 7. All persisted data (messages, surfaces, memo, tiles) still goes through hand-rolled total parsers. No means the plan budgets for the JSON Schema path and its spike.
+Before the plan, Andrew may want to skim the builder's calls in section 14, which he has not explicitly approved.

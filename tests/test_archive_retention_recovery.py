@@ -474,7 +474,7 @@ def test_task11_additive_migration_reapplies_without_catalog_drift(conn):
 
     before = schema_catalog(conn)
     conn.commit()
-    migration = Path("migrations/2026-10-03-07-archive-export.sql").read_text()
+    migration = Path("migrations/archive/2026-10-03-07-archive-export.sql").read_text()
     conn.execute(migration)
     conn.commit()
     assert schema_catalog(conn) == before

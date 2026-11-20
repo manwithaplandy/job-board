@@ -98,8 +98,8 @@ start `python -m reviewer.worker`.
 
 > **Pre-launch (manual, do NOT push migration-coupled code first):** creating the
 > Railway worker service AND applying both Phase-1 migrations
-> (`migrations/2026-07-03-rls-tenant-isolation.sql` then
-> `migrations/2026-07-03-billing-review-requests.sql`, in that order) are manual steps.
+> (`migrations/archive/2026-07-03-rls-tenant-isolation.sql` then
+> `migrations/archive/2026-07-03-billing-review-requests.sql`, in that order) are manual steps.
 > Apply the migrations before the code that depends on `review_requests` / RLS ships.
 
 ## Configuration

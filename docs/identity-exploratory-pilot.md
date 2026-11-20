@@ -49,8 +49,8 @@ production control. Before a production test:
 1. Review and merge this worker/schema change through the normal process, then
    verify the exact successful reviewer deployment. Do not mistake a skipped
    documentation-only deployment or an unmerged PR for deployed worker code.
-2. Apply `migrations/2026-10-15-15-identity-exploratory-pilot.sql`, then
-   `migrations/2026-10-16-16-identity-pilot-wal-assumption.sql`, through the
+2. Apply `migrations/archive/2026-10-15-15-identity-exploratory-pilot.sql`, then
+   `migrations/archive/2026-10-16-16-identity-pilot-wal-assumption.sql`, through the
    separately authorized migration path and verify the columns, constraint,
    uniqueness index and triggers. The existing worker fails closed against the
    new nullable `observed_at` until the updated worker is deployed. The updated

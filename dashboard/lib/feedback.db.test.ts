@@ -18,7 +18,7 @@ describe.skipIf(!dsn)("feedback database authorization and limits", () => {
     sql = postgres(dsn!, {max: 12, prepare:false, onnotice: () => {}});
     await sql.unsafe("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
     await sql.unsafe(readFileSync("../schema.sql", "utf8"));
-    const migration = "../migrations/2026-10-02-feedback.sql";
+    const migration = "../migrations/archive/2026-10-02-feedback.sql";
     if (existsSync(migration)) {
       const connection = await sql.reserve();
       try { await connection.unsafe(readFileSync(migration, "utf8")); } finally { connection.release(); }

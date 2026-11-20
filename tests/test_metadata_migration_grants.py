@@ -61,7 +61,7 @@ def migrated(request):
         for _ in range(2):
             if request.param == "migrations":
                 for name in MIGRATIONS:
-                    conn.execute((Path("migrations") / name).read_text())
+                    conn.execute((Path("migrations/archive") / name).read_text())
             else:
                 conn.execute(SCHEMA_SQL.split(MARKER, 1)[1])
                 conn.commit()
@@ -239,7 +239,7 @@ def test_reapplication_removes_stray_public_table_access(migrated):
     migrated.execute("GRANT SELECT ON matching_activity, feedback TO PUBLIC")
     migrated.commit()
     for name in MIGRATIONS:
-        migrated.execute((Path("migrations") / name).read_text())
+        migrated.execute((Path("migrations/archive") / name).read_text())
     for table in ("matching_activity", "feedback"):
         assert not migrated.execute(
             "SELECT has_table_privilege('anon',%s,'SELECT') AS allowed", (table,)

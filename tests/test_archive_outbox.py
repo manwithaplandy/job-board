@@ -191,9 +191,9 @@ def test_migration_reapplication_preserves_flags_and_existing_events(conn):
     from tests.archive_helpers import seeded_events
 
     claim, refs = seeded_events(conn, 1)
-    conn.execute(Path("migrations/2026-10-03-04-public-outbox.sql").read_text())
-    conn.execute(Path("migrations/2026-10-03-05-public-outbox-fix1.sql").read_text())
-    conn.execute(Path("migrations/2026-10-03-06-public-outbox-fix2.sql").read_text())
+    conn.execute(Path("migrations/archive/2026-10-03-04-public-outbox.sql").read_text())
+    conn.execute(Path("migrations/archive/2026-10-03-05-public-outbox-fix1.sql").read_text())
+    conn.execute(Path("migrations/archive/2026-10-03-06-public-outbox-fix2.sql").read_text())
     conn.commit()
     assert {
         r["event_id"]

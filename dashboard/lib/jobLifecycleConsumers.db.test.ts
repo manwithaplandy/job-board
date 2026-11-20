@@ -16,7 +16,7 @@ const owner="11111111-1111-1111-1111-111111111111";
 let db: typeof import("./db");
 beforeAll(async()=>{
   await sql.unsafe("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
-  const migration=readFileSync(resolve(process.cwd(),"../migrations/2026-10-07-04-lifecycle-feed.sql"),"utf8");
+  const migration=readFileSync(resolve(process.cwd(),"../migrations/archive/2026-10-07-04-lifecycle-feed.sql"),"utf8");
   const schema=readFileSync(resolve(process.cwd(),"../schema.sql"),"utf8");
   expect(schema).toContain(migration);
   await sql.unsafe(schema);

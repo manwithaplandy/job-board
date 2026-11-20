@@ -148,24 +148,15 @@ describe("deployment-triggered authenticated visual workflow", () => {
     }
   });
 
-  test("accepts Vercel preview dispatches and keeps the legacy deployment status trigger", () => {
+  test("is started only by Vercel preview dispatches", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     const resolve = workflowJob(workflow, "resolve");
     expect(workflow).toMatch(
-      /on:\s*\n\s+repository_dispatch:\s*\n\s+types: \[vercel\.deployment\.success\]\s*\n\s+deployment_status:/,
+      /\non:\n {2}repository_dispatch:\n {4}types: \[vercel\.deployment\.success\]\n\npermissions:/,
     );
-    expect(resolve).toContain(
-      "github.event_name == 'repository_dispatch' && github.event.client_payload.environment == 'preview'",
-    );
-    expect(resolve).toContain("github.event.deployment_status.state == 'success'");
-    expect(resolve).toContain("github.event.deployment.creator.login == 'vercel[bot]'");
-    expect(resolve).toContain("github.event.deployment.environment == 'Preview'");
-    expect(resolve).toContain(
-      "startsWith(github.event.deployment_status.environment_url, 'https://')",
-    );
-    expect(resolve).toContain(
-      "contains(github.event.deployment_status.environment_url, '.vercel.app')",
-    );
+    expect(workflow).not.toContain("deployment_status");
+    expect(workflow).not.toContain("github.event.deployment.");
+    expect(resolve).toContain("if: github.event.client_payload.environment == 'preview'");
   });
 
   test("runs only for open same-repository pull requests by people", () => {
@@ -175,7 +166,7 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(resolve).not.toContain("secrets.");
     expect(resolve).not.toContain("environment:");
     expect(step).toContain(
-      "TARGET_SHA: ${{ github.event.client_payload.git.sha || github.event.deployment.sha }}",
+      "TARGET_SHA: ${{ github.event.client_payload.git.sha }}",
     );
     expect(step).toContain("^[0-9a-f]{40}$");
     expect(step).toContain('repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA/pulls');
@@ -186,13 +177,13 @@ describe("deployment-triggered authenticated visual workflow", () => {
     );
   });
 
-  test("reports an Authenticated visual commit status for dispatched runs only", () => {
+  test("reports an Authenticated visual commit status", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     const pending = workflowStep(workflow, "Post pending status");
     const report = workflowJob(workflow, "report");
     expect(workflow).toMatch(/^permissions:\s*\n\s+contents: read\s*\n\s*\n/m);
+    expect(pending).toContain("if: steps.target.outputs.run == 'true'");
     for (const block of [pending, report]) {
-      expect(block).toContain("github.event_name == 'repository_dispatch'");
       expect(block).toContain("context='Authenticated visual'");
     }
     expect(report).toContain("if: always() &&");

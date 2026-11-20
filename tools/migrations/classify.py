@@ -53,13 +53,14 @@ _UPDATE = re.compile(r"^UPDATE\b.*\bSET\b", re.IGNORECASE)
 _WHERE = re.compile(r"\bWHERE\b", re.IGNORECASE)
 
 
-def _squawk_flag(rule: str) -> bool:
+def squawk_rule_is_destructive(rule: str) -> bool:
+    """True for squawk rules that mark a statement destructive."""
     return rule.startswith("ban-drop-") or rule in SQUAWK_DESTRUCTIVE
 
 
 def classify(sql: str, squawk_rules: set[str] | frozenset[str] = frozenset()) -> list[str]:
     """Return the reasons ``sql`` is destructive; an empty list means it is not."""
-    reasons = [f"squawk: {rule}" for rule in sorted(squawk_rules) if _squawk_flag(rule)]
+    reasons = [f"squawk: {rule}" for rule in sorted(squawk_rules) if squawk_rule_is_destructive(rule)]
     for statement in split_statements(sql):
         code = statement.code
         for reason, pattern in _PATTERNS:

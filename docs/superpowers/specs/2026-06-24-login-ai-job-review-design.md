@@ -3,7 +3,7 @@
 **Owner:** Andrew
 **Status:** Approved for planning
 **Date:** 2026-06-24
-**Supersedes nothing; extends:** [`job-tracker-prd.md`](../../../job-tracker-prd.md)
+**Supersedes nothing; extends:** [`job-tracker-prd.md`](../../archive/job-tracker-prd.md) (archived)
 
 ---
 

@@ -4,7 +4,10 @@ Polls the public APIs of applicant-tracking systems (Greenhouse, Lever, Ashby)
 for a curated list of companies, detects newly opened and closed roles, and
 stores them in Postgres for a read-only dashboard.
 
-See [`job-tracker-prd.md`](job-tracker-prd.md) for the full product spec.
+See [`docs/product.md`](docs/product.md) for the product spec and
+[`docs/architecture.md`](docs/architecture.md) for components, data flow, env vars and deploy.
+Where this README disagrees with those docs (notably the review phase, models and
+schedules below), the docs reflect the code; this README is pending a cleanup.
 
 ## Components
 
@@ -12,7 +15,7 @@ See [`job-tracker-prd.md`](job-tracker-prd.md) for the full product spec.
 |------|----------|-----------|--------|
 | Job Discovery (backend) | repo root (`job_discovery/`) | Railway cron service | ✅ live |
 | Database | `schema.sql` | Supabase (Postgres) | ✅ live |
-| Dashboard (frontend) | `dashboard/` | Vercel | planned (M3) |
+| Dashboard (frontend) | `dashboard/` | Vercel | ✅ live |
 
 ## Job Discovery
 

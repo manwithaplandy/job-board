@@ -1,6 +1,6 @@
 # Repository conventions
 
-(Dashboard-specific guidance lives in `dashboard/AGENTS.md`.)
+(Dashboard-specific guidance lives in `dashboard/CLAUDE.md`.)
 
 ## Git
 

@@ -18,7 +18,7 @@ Every task's requirements include all of these.
 - Never rewrite existing commits: no `git commit --amend`, no `git rebase`, no `git reset` of shared branches, no force-push. Fix forward with a new commit, even for one line. This binds subagents too: tell every dispatched agent "reconcile with a follow-up commit, never by amending".
 - Push to `main` auto-deploys production (Vercel dashboard, Railway Python services). Work each phase on a branch named `agent/phase-N`. Execution is autonomous through the merge: the executor merges to `main` itself at the phase gate task, but only after that phase's `🛑 ANDREW:` gates are cleared. A phase merge that changed anything under `reviewer/`, `observability/` or `schema.sql` also redeploys the Railway reviewer.
 - Phase branches are pushed, and Vercel preview deployments read the production database. So no GET handler and no server-component render may write: every write happens in a server action, a POST route or the cron route. Pages on a branch whose migration is not applied yet may error in previews; that is expected and harmless.
-- Agents never touch the production database, Vercel env, Railway, or DNS. Migrations are files only. Andrew applies them by hand, in filename order, before the dependent code merges.
+- Agents never touch the production database, Vercel env, Railway, or DNS by hand. Migrations are files only. **Prerequisite (Andrew, 2026-11-20):** the migrations CD pipeline is built before phase 0, in its own spec and plan (separate thread). Once it lands, migrations reach prod through that pipeline (dry run in CI, real run in CD on merge) and gates A3, A5 and A11 are cleared by the pipeline instead of by Andrew. Until it lands, Andrew applies them by hand, in filename order, before the dependent code merges. Each migration task must still produce a file the pipeline can run unchanged: idempotent, transactional, ledgered.
 - Migrations are additive. Any drop, or any change to an existing index, constraint, or function body, needs Andrew's explicit yes. As planned, this project contains none (see Decisions D3).
 - Every migration: `BEGIN; ... COMMIT;`, idempotent (`IF NOT EXISTS`, `DROP POLICY IF EXISTS`, `CREATE OR REPLACE`), ledger insert inside the transaction, and a matching `-- BEGIN mirrored <file>` / `-- END mirrored <file>` block appended to `schema.sql`. Every migration task's verification includes `MIG` (below).
 
@@ -80,15 +80,15 @@ Each gate appears inside its task as a one-line marker; the detail is here. Phas
 |---|---|---|---|
 | A1 | 🛑 ANDREW: answer "Questions to settle before execution starts" or say "go with your defaults" | Before Task 0.1 | Eight answers change tasks |
 | A2 | 🛑 ANDREW: put an OpenRouter key for the agent into the execution environment, and set `OPENROUTER_API_KEY` (or separate `AGENT_OPENROUTER_API_KEY`) and `AGENT_TOOL_APPROVAL_SECRET` in Vercel | Task 0.2 (spike), Task 0.15 (merge) | Spike A, scenario runs and the experiment need live calls; agents cannot set env |
-| A3 | 🛑 ANDREW: apply `migrations/2026-11-20-17-agent-core.sql` to prod (the executor hands over the file name and verifies nothing in prod) | Task 0.15, before phase 0 merges | Code reads the new tables on first request |
-| A4 | 🛑 ANDREW: regenerate visual baselines on macOS for new routes | Tasks 0.15, 1.24, 2.15, 3.11, 4.10 | Baselines are canonical on macos-14; the executor runs Linux |
-| A5 | 🛑 ANDREW: apply migrations 18, 19 and 20 to prod, in that order | Task 1.24, before phase 1 merges | Workspaces and the reviewer's scoped queue need them; the reviewer redeploys on merge |
+| A3 | 🛑 ANDREW (until the migrations pipeline lands; then automatic): apply `migrations/2026-11-20-17-agent-core.sql` to prod (the executor hands over the file name and verifies nothing in prod) | Task 0.15, before phase 0 merges | Code reads the new tables on first request |
+| A4 | 🛑 ANDREW: regenerate visual baselines on macOS for new routes | Tasks 0.15, 1.24, 2.15, 3.11, 4.10 | Baselines are canonical on macos-14; the executor runs Linux. Under consideration (Andrew, 2026-11-20, not decided): move visual CI to Linux with baselines regenerated on Ubuntu, which would let the executor produce candidates itself and retire this gate. Unchanged until he decides |
+| A5 | 🛑 ANDREW (until the migrations pipeline lands; then automatic): apply migrations 18, 19 and 20 to prod, in that order | Task 1.24, before phase 1 merges | Workspaces and the reviewer's scoped queue need them; the reviewer redeploys on merge |
 | A6 | 🛑 ANDREW: set real spend ceilings from the measured cost table, in `/admin/invites` once phase 1 is deployed | After Task 1.22 | Spec refuses numbers without measurements; ceilings are placeholders until then |
 | A7 | 🛑 ANDREW: create three persona accounts in prod, upload the résumés from `docs/demo/personas/` through the agent page, set locations, comp each plan in `/admin/tenants`, let reviews finish | Task 2.14 | Demos use seeded personas (spec 14.18); agents cannot write prod |
 | A8 | 🛑 ANDREW: the variant decision | End of phase 2 | His call after demos; phase 3 stubs are re-planned from it |
 | A9 | 🛑 ANDREW: set `GROQ_API_KEY` (or the Deepgram key) in Vercel | Task 3.5 | New vendor outside OpenRouter |
 | A10 | 🛑 ANDREW: confirm deletion of the old dashboard pages | Task 3.7 | Revertible in git, but it removes every old user-facing surface in one merge |
-| A11 | 🛑 ANDREW: apply migration 21 to prod | Task 4.10, before phase 4 merges | Inbox and background claims need it |
+| A11 | 🛑 ANDREW (until the migrations pipeline lands; then automatic): apply migration 21 to prod | Task 4.10, before phase 4 merges | Inbox and background claims need it |
 | A12 | 🛑 ANDREW: set `CRON_SECRET` in Vercel (at least 16 characters) and redeploy | Task 4.10 | The secret is captured at build time; without it the tick returns 401 |
 | A13 | 🛑 ANDREW: deploy the spend-alert Railway service from `railway.spend-alert.json` with `SPEND_ALERT_DAILY_USD`, `SPEND_ALERT_CREDITS_FLOOR_USD`, `ALERT_WEBHOOK_URL` and the OpenRouter key (code and table already exist) | Task 4.10, before background is switched on | Backstop required by spec section 9 |
 | A14 | 🛑 ANDREW: switch `agent_background_enabled` on from `/admin/invites`, then watch the first two ticks' `agent_runs` rows and the OpenRouter balance | After A11 to A13 | It starts unattended spending |
@@ -106,10 +106,10 @@ Each has a default. "Go with your defaults" is a complete answer.
 
 | # | Question | Default | What changes |
 |---|---|---|---|
-| Q1 | Vercel plan: Hobby or Pro? | Assume Hobby | Hobby allows a cron at most once a day, fired within a 59 minute window, and 300 s functions. Task 4.3 is written to work on Hobby (two daily entries). On Pro the tick could run hourly |
+| Q1 | Vercel plan: Hobby or Pro? | **Answered (Andrew, 2026-11-20): Hobby until rollout.** Personal/learning project for now. Every cron stays once a day and every function stays within 300 s | Hobby allows a cron at most once a day, fired within a 59 minute window, and 300 s functions. Task 4.3 is written to work on Hobby (two daily entries). On Pro the tick could run hourly |
 | Q2 | Dictation provider: Groq `whisper-large-v3-turbo` ($0.04/hr) or Deepgram Nova-3 ($0.0048/min)? | Groq | Package and key name in Task 3.5, one line on the privacy page |
-| Q3 | Migrations applied per phase, or all batches at once up front? | Per phase (three hand-overs: 17; 18 to 20; 21) | If batched, write Tasks 0.5, 1.1, 1.2, 1.9 and 4.1 first and hand over once |
-| Q4 | Default agent model | Claude Haiku 5.5 through OpenRouter; stronger pass on Claude Sonnet 5.5 | `AGENT_MODEL_DEFAULT`, `AGENT_MODEL_STRONG` in Task 0.6. The exact OpenRouter slug is [Unverified] and confirmed in Spike A |
+| Q3 | Migrations applied per phase, or all batches at once up front? | **Answered (Andrew, 2026-11-20): build the migrations CD pipeline first** so deployments include migrations. Phase 0 starts after it lands | Gates A3, A5, A11 become automatic; see Global Constraints |
+| Q4 | Default agent model | **Answered (Andrew, 2026-11-20): start with Claude Sonnet 5.5** "so we're not building around model capability failures"; later, evals across several models to find the cost/benefit balance | `AGENT_MODEL_DEFAULT` is Sonnet 5.5; `AGENT_EVAL_MODELS` lists the models the matrix sweeps (Task 2.10). Haiku 5.5 is the first cheaper candidate. The exact OpenRouter slug is [Unverified] and confirmed in Spike A |
 | Q5 | If the AI SDK 7 telemetry path needs it, upgrade `@langfuse/*` from ^5.9.1 to 6.x? | Yes, but only if the smaller path fails (Task 0.12) | One dependency bump touching the existing tracing setup |
 | Q6 | Scoped re-review storage: a new additive table, or a `scope` column on `review_requests` as the spec words it? | New table `review_scope_requests` (D3) | The column route must drop and recreate `one_active_review_request` and rewrite `resume_matching()`, which infers that index; that is destructive and needs gate A16 |
 | Q7 | Is the Vercel project on Node 22 or later? | Assume yes | If not, set it before Task 0.15; AI SDK 7 and the OpenRouter provider require it |
@@ -139,8 +139,9 @@ Each has a default. "Go with your defaults" is a complete answer.
 export type Variant = 1 | 2 | 3;
 export type RunKind = "interactive" | "background" | "rerender" | "eval" | "vision" | "transcription";  // every kind but interactive may have no thread
 export type RunStatus = "pending" | "running" | "done" | "failed" | "aborted" | "over_budget";
-export const AGENT_MODEL_DEFAULT = "anthropic/claude-haiku-5.5";  // slug [Unverified], Spike A confirms
-export const AGENT_MODEL_STRONG = "anthropic/claude-sonnet-5.5";
+export const AGENT_MODEL_DEFAULT = "anthropic/claude-sonnet-5.5";  // Andrew 2026-11-20: start on Sonnet; slug [Unverified], Spike A confirms
+// Models the eval matrix sweeps for cost/benefit (Task 2.10). Add entries freely; each needs a PRICE_PER_MTOK_MICROS row.
+export const AGENT_EVAL_MODELS = ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5"] as const;
 export const AGENT_LIMITS = { maxSteps: 8, maxOutputTokens: 4000, wallClockMs: 240_000,
   backgroundMaxSteps: 6, staleTurnMs: 300_000 } as const;
 export const USAGE_KIND_AGENT = "agent_micros";  // usage_counters.kind, n in micro-dollars
@@ -401,7 +402,7 @@ test("prefers AGENT_OPENROUTER_API_KEY", ...);
   - `getAgentSpend(userId: string): Promise<{ dayMicros: number; monthMicros: number }>` (UTC day; UTC month sum, same windows as `lib/usage.ts`)
   - `headroom(spend, settings): BudgetState` (pure; `remainingMicros` is the smaller of the two headrooms) and `checkBudget(userId): Promise<BudgetState>`, the cheap pre-check the route uses to refuse early. It is advisory: the check that counts is `chargeStep` (Task 0.8), which re-reads spend under a lock.
   - `stepCostMicros(step: { providerMetadata?: unknown; usage: { inputTokens?: number; outputTokens?: number } }, modelId: string): number`
-  - `PRICE_PER_MTOK_MICROS: Record<string, { input: number; output: number }>` with entries for both agent models and a `default` entry priced at the stronger model.
+  - `PRICE_PER_MTOK_MICROS: Record<string, { input: number; output: number }>` with entries for every model in `AGENT_EVAL_MODELS` and a `default` entry priced at the most expensive of them.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1409,7 +1410,7 @@ test("a surface of another user is 404", ...);
 **Files:** Create `lib/agent/evals/measures.ts` (+ test). Modify `harness.ts`, `scripts/eval-agent.mjs`.
 
 **Interfaces:**
-- `npm run eval:agent -- --matrix --model <id>` runs 4 scenarios by 3 variants by 3 personas by 5 repeats (180 runs). To hold gathered data constant it runs variant 1 once per scenario, persona and repeat, then produces variants 2 and 3 with `rerenderSurface` from that run's data. Run it twice: `AGENT_MODEL_DEFAULT`, then `AGENT_MODEL_STRONG` (spec 14.20).
+- `npm run eval:agent -- --matrix --model <id>` runs 4 scenarios by 3 variants by 3 personas by 5 repeats (180 runs). To hold gathered data constant it runs variant 1 once per scenario, persona and repeat, then produces variants 2 and 3 with `rerenderSurface` from that run's data. Run it once per model in `AGENT_EVAL_MODELS`, Sonnet 5.5 first (Andrew, 2026-11-20: start on Sonnet, then evaluate several models for cost/benefit; this generalizes spec 14.20's two runs). `--models a,b` overrides the list.
 - `measure(recordings: Recording[]): VariantMeasures` per variant and model: validation failure rate, repair rate, fallback rate, median and p90 `firstRenderMs` and `completeMs`, mean output tokens, assert failures, `misstatements` (filled by Task 2.11 for variant 3, by `assertRecording` for 1 and 2), and `structuralVariance`.
 - `structuralSignature(payload: SurfacePayload): string` (variant 1: block type sequence; variant 2: the tree's node types in pre-order; variant 3: the tag sequence of the HTML body) and `structuralVariance(signatures: string[]): number` (mean pairwise normalized edit distance across the five repeats, 0 to 1).
 - Results are written to a Langfuse dataset `agent-freedom-matrix` through `lib/langfuseDataset.ts`, with trace tags for variant, scenario, persona and model.
@@ -1419,8 +1420,9 @@ test("a surface of another user is 404", ...);
 test("five identical signatures give variance 0; five disjoint give 1", ...);
 test("fallback rate counts outcome fallback only; repair rate counts repaired only", ...);
 test("the matrix plan has 180 cells and variants 2 and 3 reuse variant 1's gathered data", ...);
+test("the matrix runs once per model in AGENT_EVAL_MODELS and reports measures and cost per model", ...);
 ```
-- [ ] Tests (FAIL), implement, PASS. Run the matrix twice against the local database; commit recordings under `recordings/matrix/`. `GATE`. Commit: `test(agent): variant matrix with automatic measures and structural variance`.
+- [ ] Tests (FAIL), implement, PASS. Run the matrix for each model in `AGENT_EVAL_MODELS` against the local database; commit recordings under `recordings/matrix/`. `GATE`. Commit: `test(agent): variant matrix with automatic measures and structural variance`.
 
 ### Task 2.11: Render smoke
 

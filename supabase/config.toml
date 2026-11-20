@@ -1,0 +1,6 @@
+# Supabase CLI config for the migrations pipeline. CI uses it to start a local
+# Postgres and replay supabase/migrations/. Only the database settings matter here.
+project_id = "job-board"
+
+[db]
+major_version = 17

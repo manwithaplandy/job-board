@@ -1,0 +1,3 @@
+# squawk lints supabase/migrations/*.sql in CI (see docs/runbooks/migrations-cd.md).
+pg_version = "17.6"
+assume_in_transaction = true

@@ -1,0 +1,4 @@
+# Tools for the Migrations CI job. Exact pins so CI behaves the same on every run.
+squawk-cli==2.71.0
+psycopg[binary]==3.3.9
+pytest==9.2.0

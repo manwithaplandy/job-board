@@ -26,3 +26,13 @@ def test_cli(tmp_path, capsys):
     path.write_text("")
     assert main([str(path)]) == 0
     assert "ban-drop-column" in capsys.readouterr().out
+
+
+def test_concurrent_index_rule_is_allowed_only_in_non_transactional_files(tmp_path):
+    nt = tmp_path / "20261121000000_nt.sql"
+    nt.write_text("-- migration: non-transactional\nSET lock_timeout = '5s';\n")
+    plain = tmp_path / "20261121000001_plain.sql"
+    plain.write_text("SET lock_timeout = '5s';\n")
+    rule = "ban-concurrent-index-creation-in-transaction"
+    findings = [_finding(rule, str(nt)), _finding(rule, str(plain))]
+    assert [f["file"] for f in blocking_findings(findings)] == [str(plain)]

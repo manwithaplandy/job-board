@@ -11,7 +11,10 @@ The rules (docs/runbooks/migrations-cd.md):
 3. no top-level BEGIN / START TRANSACTION / COMMIT / ROLLBACK / ABORT,
    because the CLI already runs each file in its own transaction;
 4. no reference to ``schema_migrations`` (the CLI keeps the history);
-5. no ``CONCURRENTLY`` (it cannot run inside the file's transaction);
+5. ``CONCURRENTLY`` only in a file whose first line is
+   ``-- migration: non-transactional`` and that holds exactly one statement
+   besides the two ``SET``s (Supabase CLI v2.122.0 runs such a statement, but
+   it is not atomic, so it must stand alone);
 6. ``*_baseline.sql`` and ``*_baseline_storage.sql`` are exempt from 2-5.
 """
 
@@ -36,6 +39,7 @@ TRANSACTION_CONTROL = re.compile(
     r"^(BEGIN|START\s+TRANSACTION|COMMIT|ROLLBACK|ABORT)\b", re.IGNORECASE
 )
 CONCURRENTLY = re.compile(r"\bCONCURRENTLY\b", re.IGNORECASE)
+NON_TRANSACTIONAL = re.compile(r"\A--\s*migration:\s*non-transactional\s*$", re.IGNORECASE | re.MULTILINE)
 
 MAX_LOCK_TIMEOUT_MS = 5000
 
@@ -53,6 +57,11 @@ def _statement_timeout_ok(raw: str) -> bool:
     if not match:
         return False
     return int(match.group(1) or match.group(3)) > 0
+
+
+def is_non_transactional(text: str) -> bool:
+    """True when the file's first line is the non-transactional header."""
+    return bool(NON_TRANSACTIONAL.match(text.lstrip("\ufeff")))
 
 
 def check_text(name: str, text: str) -> list[str]:
@@ -83,10 +92,17 @@ def check_text(name: str, text: str) -> list[str]:
         problems.append(
             "do not touch schema_migrations; the Supabase CLI records migration history"
         )
-    if any(CONCURRENTLY.search(s.code) for s in statements):
+    concurrent = [s for s in statements if CONCURRENTLY.search(s.code)]
+    if is_non_transactional(text):
+        if len(statements) != 3 or len(concurrent) != 1 or concurrent[0] is not statements[2]:
+            problems.append(
+                "a non-transactional migration holds the two SETs and exactly one "
+                "CONCURRENTLY statement, nothing else"
+            )
+    elif concurrent:
         problems.append(
-            "CONCURRENTLY cannot run inside the file's transaction; use a plain "
-            "CREATE INDEX or ask for a non-transactional migration"
+            "CONCURRENTLY needs its own file whose first line is "
+            "`-- migration: non-transactional`, holding only the two SETs and that statement"
         )
     return problems
 

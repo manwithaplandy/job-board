@@ -14,11 +14,31 @@ import json
 import sys
 from pathlib import Path
 
+from tools.migrations.check_rules import is_non_transactional
 from tools.migrations.classify import squawk_rule_is_destructive
+
+# squawk assumes every file runs in a transaction (.squawk.toml); a file with the
+# non-transactional header is the one place CONCURRENTLY is allowed.
+NON_TRANSACTIONAL_OK = {"ban-concurrent-index-creation-in-transaction"}
+
+
+def _non_transactional(path: str) -> bool:
+    try:
+        return is_non_transactional(Path(path).read_text())
+    except OSError:
+        return False
 
 
 def blocking_findings(findings: list[dict]) -> list[dict]:
-    return [f for f in findings if not squawk_rule_is_destructive(f.get("rule_name", ""))]
+    blocking = []
+    for f in findings:
+        rule = f.get("rule_name", "")
+        if squawk_rule_is_destructive(rule):
+            continue
+        if rule in NON_TRANSACTIONAL_OK and _non_transactional(f.get("file", "")):
+            continue
+        blocking.append(f)
+    return blocking
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,10 +48,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     text = Path(args[0]).read_text().strip()
     findings = json.loads(text) if text else []
-    for f in findings:
-        kind = "destructive (gated at deploy)" if squawk_rule_is_destructive(f["rule_name"]) else "blocking"
-        print(f"{f['file']}:{f.get('line', 0)}: {f['rule_name']}: {f['message']} [{kind}]")
     blocking = blocking_findings(findings)
+    for f in findings:
+        kind = "blocking" if f in blocking else "allowed"
+        print(f"{f['file']}:{f.get('line', 0)}: {f['rule_name']}: {f['message']} [{kind}]")
     for f in blocking:
         print(f"::error file={f['file']}::{f['rule_name']}: {f['message']}", file=sys.stderr)
     return 1 if blocking else 0

@@ -65,8 +65,32 @@ def test_rule4_ignores_comments():
     assert ok(HEADER + "-- unlike the old schema_migrations ledger\nSELECT 1;") == []
 
 
-def test_rule5_concurrently():
+NT = "-- migration: non-transactional\n"
+
+
+def test_rule5_concurrently_needs_the_header():
     sql = HEADER + "CREATE INDEX CONCURRENTLY widget_idx ON widget (id);"
+    assert any("CONCURRENTLY" in p for p in ok(sql))
+
+
+def test_rule5_concurrently_alone_with_the_header_is_allowed():
+    assert ok(NT + HEADER + "CREATE INDEX CONCURRENTLY IF NOT EXISTS widget_idx ON widget (id);") == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "CREATE INDEX CONCURRENTLY a ON widget (id);\nCREATE INDEX b ON widget (id);",
+        "CREATE INDEX a ON widget (id);",
+        "CREATE INDEX CONCURRENTLY a ON widget (id);\nCREATE INDEX CONCURRENTLY b ON widget (x);",
+    ],
+)
+def test_rule5_non_transactional_file_holds_one_concurrent_statement(body):
+    assert any("non-transactional" in p for p in ok(NT + HEADER + body))
+
+
+def test_rule5_header_must_be_the_first_line():
+    sql = HEADER + NT + "CREATE INDEX CONCURRENTLY a ON widget (id);"
     assert any("CONCURRENTLY" in p for p in ok(sql))
 
 

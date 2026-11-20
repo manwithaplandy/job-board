@@ -139,7 +139,7 @@ export type Variant = 1 | 2 | 3;
 export type RunKind = "interactive" | "background" | "rerender" | "eval" | "vision" | "transcription";  // every kind but interactive may have no thread
 export type RunStatus = "pending" | "running" | "done" | "failed" | "aborted" | "over_budget";
 export const AGENT_MODEL_DEFAULT = "anthropic/claude-haiku-5.5";  // slug [Unverified], Spike A confirms
-export const AGENT_MODEL_STRONG = "anthropic/claude-sonnet-5";
+export const AGENT_MODEL_STRONG = "anthropic/claude-sonnet-5.5";
 export const AGENT_LIMITS = { maxSteps: 8, maxOutputTokens: 4000, wallClockMs: 240_000,
   backgroundMaxSteps: 6, staleTurnMs: 300_000 } as const;
 export const USAGE_KIND_AGENT = "agent_micros";  // usage_counters.kind, n in micro-dollars

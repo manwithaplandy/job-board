@@ -8,7 +8,7 @@ import {
 } from "@/lib/generationJobCodec";
 
 // Data layer for generation_jobs (async background generation tracking — see
-// migrations/2026-07-05-generation-jobs.sql). Lifecycle:
+// migrations/archive/2026-07-05-generation-jobs.sql). Lifecycle:
 //   1. a generate route RESERVES allowance, then createGenerationJob() → 'pending'
 //      and returns 202;
 //   2. the route's `after()` callback runs the LLM work and settleGenerationJob()s

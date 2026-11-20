@@ -12,3 +12,7 @@ __pycache__/
 .claude/worktrees/
 .vercel
 .superpowers/
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/

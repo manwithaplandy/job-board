@@ -3,7 +3,6 @@ name: Authenticated visual
 on:
   repository_dispatch:
     types: [vercel.deployment.success]
-  deployment_status: # legacy parity; removed once the dispatch path is proven
 
 permissions:
   contents: read
@@ -11,14 +10,7 @@ permissions:
 jobs:
   resolve:
     name: Resolve target
-    if: >-
-      (github.event_name == 'repository_dispatch' && github.event.client_payload.environment == 'preview') ||
-      (github.event_name == 'deployment_status' &&
-      github.event.deployment_status.state == 'success' &&
-      github.event.deployment.creator.login == 'vercel[bot]' &&
-      github.event.deployment.environment == 'Preview' &&
-      startsWith(github.event.deployment_status.environment_url, 'https://') &&
-      contains(github.event.deployment_status.environment_url, '.vercel.app'))
+    if: github.event.client_payload.environment == 'preview'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -33,8 +25,8 @@ jobs:
         id: target
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: ${{ github.event.client_payload.git.sha || github.event.deployment.sha }}
-          TARGET_URL: ${{ github.event.client_payload.url || github.event.deployment_status.environment_url }}
+          TARGET_SHA: ${{ github.event.client_payload.git.sha }}
+          TARGET_URL: ${{ github.event.client_payload.url }}
         run: |
           set -euo pipefail
           echo "Event: $GITHUB_EVENT_NAME; payload keys: $(jq -r '(.client_payload // {}) | keys | join(",")' "$GITHUB_EVENT_PATH")"
@@ -55,7 +47,7 @@ jobs:
           url="${TARGET_URL//$'\n'/}"
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Post pending status
-        if: github.event_name == 'repository_dispatch' && steps.target.outputs.run == 'true'
+        if: steps.target.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.target.outputs.sha }}
@@ -135,7 +127,7 @@ jobs:
   report:
     name: Report status
     needs: [resolve, authenticated-visual]
-    if: always() && github.event_name == 'repository_dispatch' && needs.resolve.outputs.run == 'true'
+    if: always() && needs.resolve.outputs.run == 'true'
     runs-on: ubuntu-24.04
     permissions:
       statuses: write

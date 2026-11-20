@@ -213,8 +213,8 @@ seed sync `job_discovery/db.py:55-69` and the board's display fallback). Also ne
 re-screen trigger, because `select_for_review` (`company_discovery/db.py:52-69`) only
 re-picks on profile-version change or error.
 
-**Migration** — new file `migrations/2026-07-05-company-enrichment.sql` (house format:
-header comment, idempotent DDL; see `migrations/2026-06-30-additional-ats-providers.sql`):
+**Migration** — new file `migrations/archive/2026-07-05-company-enrichment.sql` (house format:
+header comment, idempotent DDL; see `migrations/archive/2026-06-30-additional-ats-providers.sql`):
 
 ```sql
 -- Incremental migration for the live Supabase DB (schema.sql holds the full schema).

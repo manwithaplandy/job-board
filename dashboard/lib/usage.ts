@@ -14,7 +14,7 @@ import { loadTierConfig } from "@/lib/tierConfig";
 //
 // COST INTEGRITY (finding B-COST): usage_counters WRITES run as the service role
 // (serviceSql), never as `authenticated`. Users have SELECT-only on the table (see the
-// grant block in schema.sql + migrations/2026-07-04-cost-cap-hardening.sql), so they
+// grant block in schema.sql + migrations/archive/2026-07-04-cost-cap-hardening.sql), so they
 // cannot PATCH/DELETE their own counter to reset the monthly allowance or the daily
 // review budget via the Supabase Data API. serviceSql bypasses RLS but always sets the
 // row's user_id explicitly, so the charge lands on the right tenant. The atomic reserve

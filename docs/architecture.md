@@ -265,7 +265,7 @@ current state.
   `daily_review_cap` from user writes; `usage_counters` is read-only to users.
 - Python services connect with a privileged `DATABASE_URL` (psycopg) and bypass RLS.
 - Résumé storage bucket policies live only in
-  `migrations/2026-07-04-resume-bucket-storage-policies.sql`, not in `schema.sql`.
+  `migrations/archive/2026-07-04-resume-bucket-storage-policies.sql`, not in `schema.sql`.
 
 ### Migration process today
 - Files in `migrations/` named `YYYY-MM-DD[-NN]-slug.sql`; each must be idempotent,

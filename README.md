@@ -98,8 +98,8 @@ start `python -m reviewer.worker`.
 
 > **Pre-launch (manual, do NOT push migration-coupled code first):** creating the
 > Railway worker service AND applying both Phase-1 migrations
-> (`migrations/2026-07-03-rls-tenant-isolation.sql` then
-> `migrations/2026-07-03-billing-review-requests.sql`, in that order) are manual steps.
+> (`migrations/archive/2026-07-03-rls-tenant-isolation.sql` then
+> `migrations/archive/2026-07-03-billing-review-requests.sql`, in that order) are manual steps.
 > Apply the migrations before the code that depends on `review_requests` / RLS ships.
 
 ## Configuration
@@ -145,16 +145,13 @@ start `python -m reviewer.worker`.
   five submissions per hour per user, enforced transactionally in PostgreSQL.
 - **Maintenance rollout** → see the [migration and verification runbook](docs/runbooks/2026-10-02-maintenance-inactivity-rollout.md)
   and [read-only cleanup estimate](docs/runbooks/sql/maintenance-cleanup-estimate.sql).
-- **Database** → Supabase (Postgres). Apply `schema.sql` as a migration. Incremental
-  changes are in `migrations/` — apply each file manually in filename order against Supabase,
-  then record it with `INSERT INTO schema_migrations (filename) VALUES ('<file>');`.
-  Every migration must be idempotent (`IF [NOT] EXISTS`), transactional where possible
-  (`BEGIN/COMMIT`), and mirrored into `schema.sql`. `CREATE INDEX CONCURRENTLY` statements
-  cannot run inside a transaction — keep them outside `BEGIN/COMMIT` and run them individually.
-  Supabase's version/name history and the repository's `public.schema_migrations`
-  filename ledger are separate. Compare both and the actual schema before deciding
-  a migration is missing; absence from the filename ledger alone does not justify
-  rerunning SQL. See the [classification and lifecycle ledger checkpoints](docs/runbooks/migration-ledger-state.md).
+- **Database** → Supabase (Postgres). `schema.sql` is the full schema the tests load.
+  New schema changes go in `supabase/migrations/` and follow the
+  [migrations pipeline runbook](docs/runbooks/migrations-cd.md); every PR replays them on a
+  throwaway database. **Until the cutover PR merges, do not add migrations at all.** The
+  hand-applied history is frozen in `migrations/archive/`. Supabase's version/name history
+  and the repository's `public.schema_migrations` filename ledger are separate; see the
+  [classification and lifecycle ledger checkpoints](docs/runbooks/migration-ledger-state.md).
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
 - **OpenRouter spend alert** → Railway **cron** service (`railway.spend-alert.json`, hourly
   `0 * * * *`), root `/`, start `python -m observability.spend_alert`. It snapshots

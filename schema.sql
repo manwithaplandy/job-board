@@ -8,7 +8,7 @@ CREATE TABLE companies (
   discovery_source TEXT NOT NULL DEFAULT 'manual'
                      CHECK (discovery_source IN ('manual','seed','dataset','expansion')),
   first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  -- Company-enrichment substrate (see migrations/2026-07-05-company-enrichment.sql).
+  -- Company-enrichment substrate (see migrations/archive/2026-07-05-company-enrichment.sql).
   -- Raw `name` (slug) stays the stable join/display fallback; these are populated by
   -- later enrichment tasks. enriched_at > company_reviews.reviewed_at re-triggers a screen.
   display_name     TEXT,
@@ -17,7 +17,7 @@ CREATE TABLE companies (
   web_description  TEXT,
   web_searched_at  TIMESTAMPTZ,
   enriched_at      TIMESTAMPTZ,
-  -- Global company classification (migrations/2026-07-21-company-classification.sql).
+  -- Global company classification (migrations/archive/2026-07-21-company-classification.sql).
   -- Written once, globally, by the admin-launched classification_jobs worker; per-user
   -- judgment now lives in profiles.company_exclusions + company_overrides.
   industry                  TEXT,
@@ -115,7 +115,7 @@ CREATE TABLE profiles (
   board_filters    JSONB,                     -- remembered board filter state; NULL = defaults
   -- Structured company facet exclusions: {industries[], countries[], sizes[],
   -- redFlagCategories[]}. Deterministic per-user gate (no LLM); enforced in the
-  -- reviewer + board. See migrations/2026-07-21-company-classification.sql.
+  -- reviewer + board. See migrations/archive/2026-07-21-company-classification.sql.
   company_exclusions JSONB,
   -- Reusable application answers (do not affect review verdicts).
   full_name         TEXT,
@@ -285,7 +285,7 @@ CREATE TABLE company_reviews (
 CREATE INDEX idx_company_reviews_user_verdict ON company_reviews (user_id, verdict);
 CREATE INDEX idx_company_reviews_user_version ON company_reviews (user_id, company_profile_version);
 
--- Admin-triggered LLM classification runs (migrations/2026-07-21-company-classification.sql).
+-- Admin-triggered LLM classification runs (migrations/archive/2026-07-21-company-classification.sql).
 -- Service/admin only: RLS deny-all, NO grants — the dashboard admin UI reads/writes via
 -- serviceSql (postgres role bypasses RLS). RLS enable/policy sit in the RLS section below.
 CREATE TABLE classification_jobs (
@@ -310,7 +310,7 @@ CREATE TABLE classification_jobs (
   finished_at    TIMESTAMPTZ
 );
 
--- Per-user manual include/exclude (migrations/2026-07-21-company-classification.sql).
+-- Per-user manual include/exclude (migrations/archive/2026-07-21-company-classification.sql).
 -- Replaces company_reviews.human_override/override_verdict. Owner-scoped RLS + grant sit
 -- in the RLS/grants sections below (owner_access references public.app_user_id(), which is
 -- defined further down, so the policy cannot live inline here).
@@ -377,7 +377,7 @@ CREATE TABLE application_packages (
 -- FK-cascade lookup index (job_id-leading) for cascade deletes from jobs.
 CREATE INDEX idx_application_packages_job ON application_packages (job_id);
 
--- Résumé-generation eval golden dataset (see migrations/2026-07-02-resume-scores.sql).
+-- Résumé-generation eval golden dataset (see migrations/archive/2026-07-02-resume-scores.sql).
 CREATE TABLE resume_scores (
   user_id          UUID NOT NULL,
   job_id           TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
@@ -392,7 +392,7 @@ CREATE TABLE resume_scores (
 );
 CREATE INDEX idx_resume_scores_user ON resume_scores (user_id);
 
--- Cover-letter edit overlay (see migrations/2026-07-07-cover-letter-edits.sql).
+-- Cover-letter edit overlay (see migrations/archive/2026-07-07-cover-letter-edits.sql).
 CREATE TABLE cover_letter_edits (
   user_id               UUID NOT NULL,
   job_id                TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
@@ -408,7 +408,7 @@ CREATE TABLE cover_letter_edits (
 CREATE INDEX idx_cover_letter_edits_user ON cover_letter_edits (user_id);
 CREATE INDEX idx_cover_letter_edits_job ON cover_letter_edits (job_id);
 
--- Multi-tenant foundation (see migrations/2026-07-03-multitenant-foundation.sql).
+-- Multi-tenant foundation (see migrations/archive/2026-07-03-multitenant-foundation.sql).
 -- Invite-gated signup: invite_codes + invite_redemptions are the server-side source
 -- of truth for "this account was invited" (user_metadata is client-settable and must
 -- NOT be trusted).
@@ -449,7 +449,7 @@ CREATE TABLE usage_counters (
   PRIMARY KEY (user_id, day, kind)
 );
 
--- Billing (see migrations/2026-07-03-billing-review-requests.sql). Local mirror of
+-- Billing (see migrations/archive/2026-07-03-billing-review-requests.sql). Local mirror of
 -- Stripe truth, keyed by user_id; the Stripe webhook (service role) is the sole
 -- writer. No FK to auth.users (house convention, see profiles).
 CREATE TABLE subscriptions (
@@ -482,7 +482,7 @@ CREATE UNIQUE INDEX one_active_review_request
 CREATE INDEX idx_review_requests_pending
   ON review_requests (requested_at) WHERE status = 'pending';
 
--- DB-overridable tier settings (see migrations/2026-07-04-tier-settings.sql). ONE
+-- DB-overridable tier settings (see migrations/archive/2026-07-04-tier-settings.sql). ONE
 -- jsonb config row per plan that OVERLAYS the compiled entitlement/price defaults
 -- field-by-field (dashboard/lib/tierConfig.ts, reviewer.db.load_tier_settings) so
 -- caps/allowances/prices are tunable WITHOUT a redeploy. Shared operator policy (not
@@ -493,7 +493,7 @@ CREATE TABLE tier_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- User-sent invites (see migrations/2026-07-13-user-invites.sql). The invite_codes
+-- User-sent invites (see migrations/archive/2026-07-13-user-invites.sql). The invite_codes
 -- attribution columns (created_by, recipient_email) live in that table above; the RLS
 -- enable/policies/GRANTs for the two tables below sit in the RLS section further down
 -- (they reference public.app_user_id()/the anon+authenticated roles, which are only
@@ -515,7 +515,7 @@ CREATE TABLE invite_allowances (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Operator-pinned effective tier (see migrations/2026-07-16-plan-overrides.sql).
+-- Operator-pinned effective tier (see migrations/archive/2026-07-16-plan-overrides.sql).
 -- An ACTIVE row (expires_at NULL or future) wins over subscription + invite comp in
 -- resolvePlan/resolve_plan. Service-write-only; owner may SELECT their own pin.
 CREATE TABLE plan_overrides (
@@ -536,7 +536,7 @@ CREATE TABLE app_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Account-deletion erasure ledger (see migrations/2026-07-04-account-deletions.sql).
+-- Account-deletion erasure ledger (see migrations/archive/2026-07-04-account-deletions.sql).
 -- One row per deleted account, keyed by user_id, with a HASH of the email (never
 -- plaintext) as tamper-evident proof of erasure. Written by the deletion cascade
 -- (dashboard/lib/accountDeletion.ts) via the service role; users never read it.
@@ -546,7 +546,7 @@ CREATE TABLE account_deletions (
   deleted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- OpenRouter spend-alert snapshots (see migrations/2026-07-04-openrouter-usage-snapshots.sql).
+-- OpenRouter spend-alert snapshots (see migrations/archive/2026-07-04-openrouter-usage-snapshots.sql).
 -- observability.spend_alert (Railway cron) records total_usage/total_credits here and
 -- differences the trailing-24h window to compute burn. Service-role only.
 CREATE TABLE openrouter_usage_snapshots (
@@ -555,7 +555,7 @@ CREATE TABLE openrouter_usage_snapshots (
   total_credits NUMERIC
 );
 
--- Async generation tracking (see migrations/2026-07-05-generation-jobs.sql). The
+-- Async generation tracking (see migrations/archive/2026-07-05-generation-jobs.sql). The
 -- generate routes 202 immediately and settle the row from a background `after()`
 -- callback; the dashboard polls GET /api/generations for completion toasts.
 -- `error` holds the USER-SAFE failure/partial-failure message. kind='prepare' is
@@ -597,7 +597,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 -- "no API access; served server-side" intent is declarative and Supabase's
 -- rls_enabled_no_policy advisor (lint 0008) stays clear. Portable to plain Postgres:
 -- no Supabase-specific roles or auth.* functions, and test queries run as a superuser
--- that bypasses RLS. Mirrors migrations/2026-06-26-rls-deny-all-policies.sql.
+-- that bypasses RLS. Mirrors migrations/archive/2026-06-26-rls-deny-all-policies.sql.
 ALTER TABLE companies    ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON companies   FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE jobs         ENABLE ROW LEVEL SECURITY;
@@ -612,7 +612,7 @@ ALTER TABLE review_runs      ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON review_runs      FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE company_reviews  ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON company_reviews  FOR ALL USING (false) WITH CHECK (false);
--- See migrations/2026-07-21-company-classification.sql. classification_jobs is service-only
+-- See migrations/archive/2026-07-21-company-classification.sql. classification_jobs is service-only
 -- (deny-all is its whole contract); company_overrides also gets owner_access further down.
 ALTER TABLE classification_jobs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON classification_jobs FOR ALL USING (false) WITH CHECK (false);
@@ -650,16 +650,16 @@ ALTER TABLE openrouter_usage_snapshots ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON openrouter_usage_snapshots FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE generation_jobs      ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON generation_jobs      FOR ALL USING (false) WITH CHECK (false);
--- See migrations/2026-07-13-user-invites.sql.
+-- See migrations/archive/2026-07-13-user-invites.sql.
 ALTER TABLE invite_allowances    ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON invite_allowances    FOR ALL USING (false) WITH CHECK (false);
--- See migrations/2026-07-16-plan-overrides.sql.
+-- See migrations/archive/2026-07-16-plan-overrides.sql.
 ALTER TABLE plan_overrides       ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON plan_overrides       FOR ALL USING (false) WITH CHECK (false);
 ALTER TABLE app_settings         ENABLE ROW LEVEL SECURITY;
 CREATE POLICY no_anon_access ON app_settings         FOR ALL USING (false) WITH CHECK (false);
 
--- ── Phase-1 tenant isolation (mirrors migrations/2026-07-03-rls-tenant-isolation.sql
+-- ── Phase-1 tenant isolation (mirrors migrations/archive/2026-07-03-rls-tenant-isolation.sql
 -- + the per-user policies of 2026-07-03-billing-review-requests.sql) ────────────
 -- Real per-user RLS with teeth. The dashboard drops into the `authenticated` role
 -- per-transaction (SET LOCAL ROLE + request.jwt.claims); public.app_user_id() reads
@@ -680,7 +680,7 @@ END
 $$;
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 
--- search_path pinned (mirrors migrations/2026-07-05-app-user-id-search-path.sql): this
+-- search_path pinned (mirrors migrations/archive/2026-07-05-app-user-id-search-path.sql): this
 -- SECURITY-critical RLS resolver touches only pg_catalog built-ins, so pinning it to
 -- pg_catalog fixes the function_search_path_mutable advisor while leaving behaviour
 -- identical.
@@ -727,11 +727,11 @@ CREATE POLICY owner_access ON generation_jobs FOR ALL TO authenticated
 CREATE POLICY owner_access ON company_overrides FOR ALL TO authenticated
   USING (user_id = (SELECT public.app_user_id())) WITH CHECK (user_id = (SELECT public.app_user_id()));
 -- Per-user invite budget: owner may READ their own count; writes are service-role
--- (dashboard/lib/invites.ts). See migrations/2026-07-13-user-invites.sql.
+-- (dashboard/lib/invites.ts). See migrations/archive/2026-07-13-user-invites.sql.
 CREATE POLICY owner_read ON invite_allowances FOR SELECT TO authenticated
   USING (user_id = (SELECT public.app_user_id()));
 -- Operator-pinned effective tier: owner may READ their own pin; writes are service-role
--- (dashboard/lib/planOverrides.ts). See migrations/2026-07-16-plan-overrides.sql.
+-- (dashboard/lib/planOverrides.ts). See migrations/archive/2026-07-16-plan-overrides.sql.
 CREATE POLICY owner_read ON plan_overrides FOR SELECT TO authenticated
   USING (user_id = (SELECT public.app_user_id()));
 
@@ -759,7 +759,7 @@ CREATE POLICY owner_insert ON review_requests FOR INSERT TO authenticated
 -- Tier settings: shared operator policy (not per-user). Writes are service-role only.
 CREATE POLICY shared_read ON tier_settings FOR SELECT TO anon, authenticated USING (true);
 -- app_settings: shared operator config, same shape as tier_settings (values non-secret).
--- Writes are service-role only. See migrations/2026-07-13-user-invites.sql.
+-- Writes are service-role only. See migrations/archive/2026-07-13-user-invites.sql.
 CREATE POLICY shared_read ON app_settings FOR SELECT TO anon, authenticated USING (true);
 
 -- Grants (table privilege is the outer gate; RLS filters within — a granted table
@@ -767,7 +767,7 @@ CREATE POLICY shared_read ON app_settings FOR SELECT TO anon, authenticated USIN
 -- positive ALLOWLIST: it first strips every default anon/authenticated privilege
 -- (Supabase grants full arwdDxt by default) so a slipped RLS policy is not the only
 -- gate, then re-grants exactly what each role needs. Mirrors
--- migrations/2026-07-04-cost-cap-hardening.sql (finding B-COST).
+-- migrations/archive/2026-07-04-cost-cap-hardening.sql (finding B-COST).
 REVOKE ALL ON ALL TABLES    IN SCHEMA public FROM anon, authenticated;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
 
@@ -823,14 +823,14 @@ GRANT SELECT ON tier_settings TO anon, authenticated;
 -- job_questions: shared read for the board/Prefill route; writes are poller/service-role only.
 GRANT SELECT ON job_questions TO anon, authenticated;
 -- invite_allowances: owner reads own count (writes service-role). app_settings: shared
--- operator config read (writes service-role). See migrations/2026-07-13-user-invites.sql.
+-- operator config read (writes service-role). See migrations/archive/2026-07-13-user-invites.sql.
 GRANT SELECT ON invite_allowances TO authenticated;
 -- plan_overrides: owner reads own pin (writes service-role). See
--- migrations/2026-07-16-plan-overrides.sql.
+-- migrations/archive/2026-07-16-plan-overrides.sql.
 GRANT SELECT ON plan_overrides TO authenticated;
 GRANT SELECT ON app_settings TO anon, authenticated;
 
--- Default-privilege deny (mirrors migrations/2026-07-05-default-privileges-revoke.sql,
+-- Default-privilege deny (mirrors migrations/archive/2026-07-05-default-privileges-revoke.sql,
 -- finding minor 6): the REVOKE above only touches tables that exist NOW. Strip the
 -- default anon/authenticated grant for FUTURE tables + sequences too, so a new table
 -- starts deny-by-default and its creating migration must explicitly grant the intended
@@ -841,7 +841,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, aut
 -- Storage RLS (résumé bucket) is NOT represented here: the `storage` schema is
 -- Supabase-managed and does not exist in the plain-Postgres test DB this file
 -- builds. Per-prefix tenant isolation for `storage.objects` (bucket `resumes`,
--- finding B-STORAGE) lives in migrations/2026-07-04-resume-bucket-storage-policies.sql
+-- finding B-STORAGE) lives in migrations/archive/2026-07-04-resume-bucket-storage-policies.sql
 -- and MUST be applied to the live Supabase project + live cross-account verified
 -- (see that file's header). tests/test_resume_storage_policies.py proves the policy
 -- predicate against a faithful in-DB mock of the storage/auth schema.

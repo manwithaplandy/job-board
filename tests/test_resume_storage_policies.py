@@ -1,6 +1,6 @@
 """DB-level proof of per-prefix résumé-bucket isolation (review finding B-STORAGE).
 
-migrations/2026-07-04-resume-bucket-storage-policies.sql adds RLS policies to
+migrations/archive/2026-07-04-resume-bucket-storage-policies.sql adds RLS policies to
 storage.objects so `authenticated` can only touch objects under its own
 `resumes/<uid>/…` prefix, and `anon` gets nothing. That migration runs ONLY on
 the live Supabase project (the `storage` schema is Supabase-managed and absent
@@ -27,6 +27,7 @@ B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 _MIGRATION = (
     Path(__file__).resolve().parent.parent
     / "migrations"
+    / "archive"
     / "2026-07-04-resume-bucket-storage-policies.sql"
 ).read_text()
 

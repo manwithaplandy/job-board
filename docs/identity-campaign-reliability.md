@@ -69,7 +69,7 @@ References (checked 2026-10-14):
 
 ## Migration and release prerequisites
 
-`migrations/2026-10-14-14-identity-reliability.sql` is additive and mirrored in `schema.sql`. It adds two private RLS-enabled tables, generation triggers, operator gate triggers and deferred authorization enforcement. It creates no campaign, changes no lifecycle flag, and performs no identity backfill. The singleton generation is metadata, not a corpus rewrite. Existing transaction gates remain mandatory; disabling triggers or privileged direct edits to the private generation are outside the supported operating contract.
+`migrations/archive/2026-10-14-14-identity-reliability.sql` is additive and mirrored in `schema.sql`. It adds two private RLS-enabled tables, generation triggers, operator gate triggers and deferred authorization enforcement. It creates no campaign, changes no lifecycle flag, and performs no identity backfill. The singleton generation is metadata, not a corpus rewrite. Existing transaction gates remain mandatory; disabling triggers or privileged direct edits to the private generation are outside the supported operating contract.
 
 Apply/rehearse the migration before enabling this code for a campaign, after separate approval. Verify both database ledgers and catalog parity, then deploy the reviewed exact revision only after separate approval. Keep campaign opt-in disabled throughout. Older worker code must not be used to run a campaign after this migration: its progress commits will lack required authorization. Rolling back code alone does not remove the default-deny commit guard. Do not drop the guard to resume old behavior.
 

@@ -1,0 +1,194 @@
+name: Cutover history re-baseline
+
+# One-time step of the migrations cutover. It replaces the 65 hand-applied
+# entries in production's Supabase migration history with the two baseline
+# files from the cutover PR. It changes the history table only, never the
+# schema: the apply job proves that by comparing fingerprints before and after.
+# The plan job is read-only. The apply job runs only with dry_run off and
+# waits for approval on the production-db-destructive environment.
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_sha:
+        description: Head commit of the cutover PR (40 hex characters)
+        type: string
+        required: true
+      dry_run:
+        description: Only print the plan; change nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-history
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: fdhspmavadgucktetzoi
+  EXPECTED_REMOTE_COUNT: "65"
+
+jobs:
+  plan:
+    name: Plan re-baseline (read-only)
+    runs-on: ubuntu-24.04
+    environment: production-db
+    steps:
+      - name: Validate baseline commit
+        env:
+          BASELINE_SHA: ${{ inputs.baseline_sha }}
+        run: |
+          if ! [[ "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::baseline_sha must be a full 40-character commit SHA"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check out baseline migrations
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.baseline_sha }}
+          path: baseline
+          sparse-checkout: supabase
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.122.0
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --workdir baseline --project-ref "$PROJECT_REF"
+      - name: Read remote history
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase migration list --workdir baseline --linked > history-before.txt
+      - name: Check preconditions and print the repair commands
+        run: |
+          mapfile -t remote < <(python -m tools.migrations.history remote history-before.txt | grep -E '^[0-9]{14}$')
+          shopt -s nullglob
+          local_files=(baseline/supabase/migrations/*.sql)
+          names=$(printf '%s\n' "${local_files[@]##*/}" | sort)
+          echo "Remote versions: ${#remote[@]} (expected $EXPECTED_REMOTE_COUNT)"
+          echo "Local files:"; echo "$names"
+          if [ "${#remote[@]}" -ne "$EXPECTED_REMOTE_COUNT" ]; then
+            echo "::error::remote history has ${#remote[@]} entries, expected $EXPECTED_REMOTE_COUNT"
+            exit 1
+          fi
+          if [ "${#local_files[@]}" -ne 2 ] || ! grep -Eq '^[0-9]{14}_baseline\.sql$' <<<"$names" \
+            || ! grep -Eq '^[0-9]{14}_baseline_storage\.sql$' <<<"$names"; then
+            echo "::error::the baseline commit must hold exactly the two baseline migration files"
+            exit 1
+          fi
+          baseline_versions=$(cut -d_ -f1 <<<"$names" | tr '\n' ' ')
+          {
+            echo "## Re-baseline plan"
+            echo
+            echo '```'
+            echo "supabase migration repair --linked --status reverted ${remote[*]}"
+            echo "supabase migration repair --linked --status applied $baseline_versions"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload history
+        uses: actions/upload-artifact@v4
+        with:
+          name: history-before
+          path: history-before.txt
+          retention-days: 30
+
+  apply:
+    name: Apply re-baseline
+    needs: plan
+    if: inputs.dry_run == false
+    runs-on: ubuntu-24.04
+    environment: production-db-destructive
+    steps:
+      - name: Validate baseline commit
+        env:
+          BASELINE_SHA: ${{ inputs.baseline_sha }}
+        run: |
+          if ! [[ "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::baseline_sha must be a full 40-character commit SHA"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check out baseline migrations
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.baseline_sha }}
+          path: baseline
+          sparse-checkout: supabase
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.122.0
+      - name: Install migration tools
+        run: python -m pip install -r requirements-ci.txt
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --workdir baseline --project-ref "$PROJECT_REF"
+      - name: Capture fingerprint before
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: >-
+          python -m tools.migrations.prod_dsn --pooler-file baseline/supabase/.temp/pooler-url --
+          python -m tools.migrations.fingerprint capture --dsn-env PROD_DSN --out fingerprint-before.json
+      - name: Back up the history table
+        # Fails if the backup already exists, so this job cannot run twice.
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          python -m tools.migrations.prod_dsn --pooler-file baseline/supabase/.temp/pooler-url -- \
+            bash -c 'psql "$PROD_DSN" -v ON_ERROR_STOP=1 --single-transaction -c "CREATE TABLE supabase_migrations.schema_migrations_pre_cd AS TABLE supabase_migrations.schema_migrations;"'
+      - name: Re-baseline history
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          supabase migration list --workdir baseline --linked > history-before.txt
+          mapfile -t remote < <(python -m tools.migrations.history remote history-before.txt | grep -E '^[0-9]{14}$')
+          if [ "${#remote[@]}" -ne "$EXPECTED_REMOTE_COUNT" ]; then
+            echo "::error::remote history has ${#remote[@]} entries, expected $EXPECTED_REMOTE_COUNT"
+            exit 1
+          fi
+          mapfile -t baseline_versions < <(ls baseline/supabase/migrations | grep -E '^[0-9]{14}_baseline(_storage)?\.sql$' | cut -d_ -f1)
+          if [ "${#baseline_versions[@]}" -ne 2 ]; then
+            echo "::error::expected two baseline files"
+            exit 1
+          fi
+          supabase migration repair --workdir baseline --linked --status reverted "${remote[@]}"
+          supabase migration repair --workdir baseline --linked --status applied "${baseline_versions[@]}"
+          supabase migration list --workdir baseline --linked > history-after.txt
+          python -m tools.migrations.history check-synced history-after.txt
+      - name: Confirm the schema did not change
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          python -m tools.migrations.prod_dsn --pooler-file baseline/supabase/.temp/pooler-url -- \
+            python -m tools.migrations.fingerprint capture --dsn-env PROD_DSN --out fingerprint-after.json
+          python -m tools.migrations.fingerprint compare fingerprint-before.json fingerprint-after.json
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebaseline-evidence
+          path: |
+            history-before.txt
+            history-after.txt
+            fingerprint-*.json
+          if-no-files-found: ignore
+          retention-days: 90

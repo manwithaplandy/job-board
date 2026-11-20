@@ -81,8 +81,8 @@ whose author is a person, not a bot, and posts the commit status `Authenticated 
 (pending, then success or failure) on that commit. The comparison job checks out the exact
 deployed SHA, validates the HTTPS `*.vercel.app` URL as the first executable step after
 checkout, rejecting userinfo and non-default ports before any installation, and uses the
-GitHub Environment `visual-test`, which exists to scope the secrets below to this job. The
-older `deployment_status` trigger is kept only until the dispatch path is proven. That environment must define `VISUAL_AUTH_EMAIL`, `VISUAL_AUTH_PASSWORD`,
+GitHub Environment `visual-test`, which exists to scope the secrets below to this job.
+That environment must define `VISUAL_AUTH_EMAIL`, `VISUAL_AUTH_PASSWORD`,
 `VISUAL_ONBOARDING_EMAIL`, `VISUAL_ONBOARDING_PASSWORD`, and
 `VERCEL_AUTOMATION_BYPASS_SECRET`; a boolean-only presence
 preflight runs before installation, while raw credentials are exposed only to the

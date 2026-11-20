@@ -36,7 +36,7 @@ def test_clean_schema_matches_frozen_baseline_plus_all_new_migrations(conn):
     clean = module.schema_catalog(conn)
     manifest = json.loads(MANIFEST.read_text())
     paths = sorted(
-        p for p in (ROOT / "migrations").glob("*.sql")
+        p for p in (ROOT / "migrations" / "archive").glob("*.sql")
         if p.name not in manifest["existing_migrations"]
     )
     module.bootstrap_schema(conn, FROZEN.read_text())
@@ -54,7 +54,7 @@ def test_existing_recorded_migrations_reapply_without_catalog_or_ledger_drift(co
     module = helpers()
     before = module.schema_catalog(conn)
     ledger = conn.execute("SELECT filename,applied_at FROM schema_migrations ORDER BY filename").fetchall()
-    paths = [ROOT / "migrations" / row["filename"] for row in ledger]
+    paths = [ROOT / "migrations" / "archive" / row["filename"] for row in ledger]
     assert paths, "schema.sql must record mirrored migrations"
     module.apply_migrations(conn, paths)
     module.apply_migrations(conn, paths)
@@ -172,7 +172,7 @@ def test_lifecycle_ddl_does_not_backfill_or_reset_legacy_rows(conn):
         (cid,),
     )
     conn.commit()
-    migration = ROOT / "migrations/2026-10-03-01-lifecycle-core.sql"
+    migration = ROOT / "migrations/archive/2026-10-03-01-lifecycle-core.sql"
     assert migration.exists(), "additive lifecycle migration absent"
     module.apply_migrations(conn, [migration])
     assert conn.execute("SELECT count(*) n FROM source_listings").fetchone()["n"] == 0

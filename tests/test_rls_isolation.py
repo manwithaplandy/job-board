@@ -618,7 +618,7 @@ def test_future_tables_are_deny_by_default(conn):
 def test_app_user_id_has_pinned_search_path(conn):
     """The RLS resolver public.app_user_id() must not have a MUTABLE search_path (Supabase
     advisor function_search_path_mutable). schema.sql pins it to pg_catalog (mirrored by
-    migrations/2026-07-05-app-user-id-search-path.sql) — assert the live function carries a
+    migrations/archive/2026-07-05-app-user-id-search-path.sql) — assert the live function carries a
     search_path setting so the mirror can't silently regress."""
     with conn.cursor() as cur:
         cur.execute(

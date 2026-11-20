@@ -12,7 +12,7 @@ pytestmark = requires_db
 
 @pytest.fixture
 def user(conn):
-    migration = Path("migrations/2026-10-02-matching-activity.sql")
+    migration = Path("migrations/archive/2026-10-02-matching-activity.sql")
     if migration.exists():
         conn.execute(migration.read_text())
     uid = uuid4()

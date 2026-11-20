@@ -1,0 +1,79 @@
+name: Database operations (read-only)
+
+# Manual, read-only access to the production database: a schema dump plus the
+# migration history, or a catalog fingerprint. Nothing here changes production.
+
+on:
+  workflow_dispatch:
+    inputs:
+      op:
+        description: What to read from production
+        type: choice
+        options: [dump, fingerprint]
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-ops
+  cancel-in-progress: false
+
+jobs:
+  read:
+    name: Read production (${{ inputs.op }})
+    runs-on: ubuntu-24.04
+    environment: production-db
+    env:
+      PROJECT_REF: fdhspmavadgucktetzoi
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.122.0
+      - name: Install migration tools
+        run: python -m pip install -r requirements-ci.txt
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref "$PROJECT_REF"
+      - name: Dump schema and history
+        if: inputs.op == 'dump'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          supabase db dump --linked -f baseline.sql
+          supabase migration list --linked > history.txt
+          wc -l baseline.sql history.txt
+      - name: Upload dump
+        if: inputs.op == 'dump'
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-dump
+          path: |
+            baseline.sql
+            history.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Capture fingerprint
+        if: inputs.op == 'fingerprint'
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: >-
+          python -m tools.migrations.prod_dsn --pooler-file supabase/.temp/pooler-url --
+          python -m tools.migrations.fingerprint capture --dsn-env PROD_DSN --out prod-fingerprint.json
+      - name: Upload fingerprint
+        if: inputs.op == 'fingerprint'
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-fingerprint
+          path: prod-fingerprint.json
+          if-no-files-found: error
+          retention-days: 30

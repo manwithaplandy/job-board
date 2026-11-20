@@ -131,3 +131,78 @@ describe("existing CI jobs", () => {
     expect(python).toContain("tools/run_lifecycle_acceptance.py");
   });
 });
+
+const dbOps = readFileSync(path.join(repositoryRoot, ".github/workflows/db-ops.yml"), "utf8");
+const rebaseline = readFileSync(
+  path.join(repositoryRoot, ".github/workflows/cutover-rebaseline.yml"),
+  "utf8",
+);
+
+function jobs(workflow: string): Record<string, string> {
+  const body = workflow.slice(workflow.indexOf("\njobs:\n"));
+  const ids = [...body.matchAll(/\n {2}([a-zA-Z0-9_-]+):\n/g)].map((m) => m[1]);
+  return Object.fromEntries(ids.map((id) => [id, job(body, id)]));
+}
+
+function onBlock(workflow: string): string {
+  const start = workflow.indexOf("\non:\n");
+  const end = workflow.indexOf("\n\n", start + 1);
+  return workflow.slice(start, end);
+}
+
+describe("production database workflows", () => {
+  test("are manual only", () => {
+    for (const workflow of [dbOps, rebaseline]) {
+      const triggers = [...onBlock(workflow).matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]);
+      expect(triggers).toEqual(["workflow_dispatch"]);
+    }
+  });
+
+  test("scope Supabase secrets to jobs with an environment", () => {
+    for (const workflow of [dbOps, rebaseline]) {
+      for (const [id, text] of Object.entries(jobs(workflow))) {
+        if (text.includes("secrets.SUPABASE_")) {
+          expect(text, id).toMatch(/\n {4}environment: production-db(-destructive)?\n/);
+        }
+      }
+      expect(workflow.slice(0, workflow.indexOf("\njobs:\n"))).not.toContain("secrets.");
+    }
+  });
+
+  test("db-ops never writes", () => {
+    for (const banned of [
+      "db push",
+      "migration repair",
+      "migration up",
+      "--update",
+      "INSERT",
+      "UPDATE",
+      "DELETE",
+      "CREATE",
+      "DROP",
+    ]) {
+      expect(dbOps).not.toContain(banned);
+    }
+    expect(dbOps).toContain("environment: production-db\n");
+    expect(dbOps).toContain("python -m tools.migrations.prod_dsn");
+  });
+
+  test("re-baseline writes only from the approval-gated job and defaults to a dry run", () => {
+    const all = jobs(rebaseline);
+    expect(Object.keys(all)).toEqual(["plan", "apply"]);
+    expect(all.plan).toContain("environment: production-db\n");
+    expect(all.plan).not.toMatch(/^\s*supabase migration repair|CREATE TABLE|psql/m);
+    expect(all.apply).toContain("environment: production-db-destructive\n");
+    expect(all.apply).toContain("if: inputs.dry_run == false");
+    expect(all.apply).toContain("needs: plan");
+    expect(rebaseline).toMatch(/dry_run:\n(?: {8}.+\n)*? {8}default: true\n/);
+    expect(rebaseline).toContain("^[0-9a-f]{40}$");
+    expect(all.apply).toContain(
+      "CREATE TABLE supabase_migrations.schema_migrations_pre_cd AS TABLE supabase_migrations.schema_migrations;",
+    );
+    expect(all.apply).toContain("python -m tools.migrations.history check-synced history-after.txt");
+    expect(all.apply).toContain(
+      "python -m tools.migrations.fingerprint compare fingerprint-before.json fingerprint-after.json",
+    );
+  });
+});

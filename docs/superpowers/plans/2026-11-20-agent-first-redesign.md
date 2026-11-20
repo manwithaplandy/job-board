@@ -78,7 +78,7 @@ Each gate appears inside its task as a one-line marker; the detail is here. Phas
 
 | # | Gate | When | Why |
 |---|---|---|---|
-| A1 | 🛑 ANDREW: answer "Questions to settle before execution starts" or say "go with your defaults" | Before Task 0.1 | Eight answers change tasks |
+| A1 | Cleared (Andrew, 2026-11-20): all eight questions answered | n/a | n/a |
 | A2 | 🛑 ANDREW: put an OpenRouter key for the agent into the execution environment, and set `OPENROUTER_API_KEY` (or separate `AGENT_OPENROUTER_API_KEY`) and `AGENT_TOOL_APPROVAL_SECRET` in Vercel | Task 0.2 (spike), Task 0.15 (merge) | Spike A, scenario runs and the experiment need live calls; agents cannot set env |
 | A3 | 🛑 ANDREW (until the migrations pipeline lands; then automatic): apply `migrations/2026-11-20-17-agent-core.sql` to prod (the executor hands over the file name and verifies nothing in prod) | Task 0.15, before phase 0 merges | Code reads the new tables on first request |
 | A4 | Retired (Andrew, 2026-11-20). Replaced by the CI/CD overhaul prerequisite: visual tests move to Linux, baselines are regenerated on Ubuntu in CI, and the visual test runs on every PR. The executor commits reviewed Linux baseline candidates for new routes itself | n/a | See Global Constraints, prerequisite |

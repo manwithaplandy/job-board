@@ -1,20 +1,77 @@
 name: Authenticated visual
 
 on:
-  deployment_status:
+  repository_dispatch:
+    types: [vercel.deployment.success]
+  deployment_status: # legacy parity; removed once the dispatch path is proven
 
 permissions:
   contents: read
 
 jobs:
-  authenticated-visual:
+  resolve:
+    name: Resolve target
     if: >-
+      (github.event_name == 'repository_dispatch' && github.event.client_payload.environment == 'preview') ||
+      (github.event_name == 'deployment_status' &&
       github.event.deployment_status.state == 'success' &&
       github.event.deployment.creator.login == 'vercel[bot]' &&
       github.event.deployment.environment == 'Preview' &&
       startsWith(github.event.deployment_status.environment_url, 'https://') &&
-      contains(github.event.deployment_status.environment_url, '.vercel.app')
-    runs-on: macos-14
+      contains(github.event.deployment_status.environment_url, '.vercel.app'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    outputs:
+      run: ${{ steps.target.outputs.run }}
+      sha: ${{ steps.target.outputs.sha }}
+      url: ${{ steps.target.outputs.url }}
+    steps:
+      - name: Resolve target
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.client_payload.git.sha || github.event.deployment.sha }}
+          TARGET_URL: ${{ github.event.client_payload.url || github.event.deployment_status.environment_url }}
+        run: |
+          set -euo pipefail
+          echo "Event: $GITHUB_EVENT_NAME; payload keys: $(jq -r '(.client_payload // {}) | keys | join(",")' "$GITHUB_EVENT_PATH")"
+          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The deployment did not name a full commit SHA."
+            exit 1
+          fi
+          repo="$GITHUB_REPOSITORY"
+          count=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_SHA/pulls" \
+            --jq "[.[] | select(.state == \"open\" and .head.repo.full_name == \"$repo\" and .user.type != \"Bot\")] | length")
+          if [ "$count" -gt 0 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No open same-repository pull request by a person contains this commit; skipping."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          url="${TARGET_URL//$'\n'/}"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Post pending status
+        if: github.event_name == 'repository_dispatch' && steps.target.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA"
+          -f context='Authenticated visual' -f state=pending -f target_url="$RUN_URL"
+          -f description='Comparing authenticated screens' > /dev/null
+
+  authenticated-visual:
+    needs: resolve
+    if: needs.resolve.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --user 1001 --ipc=host
     environment:
       name: visual-test
       deployment: false
@@ -24,12 +81,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.deployment.sha }}
+          ref: ${{ needs.resolve.outputs.sha }}
       - name: Validate deployment URL
+        id: url
         env:
-          VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          VISUAL_BASE_URL: ${{ needs.resolve.outputs.url }}
         run: >-
-          node -e 'const raw=process.env.VISUAL_BASE_URL;let url;try{url=new URL(raw)}catch{throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")};if(url.protocol!=="https:"||!url.hostname.endsWith(".vercel.app")||url.username!==""||url.password!==""||url.port!=="")throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")'
+          node -e 'const fs=require("node:fs");let raw=process.env.VISUAL_BASE_URL||"";if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(raw))raw="https://"+raw;let url;try{url=new URL(raw)}catch{throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")};if(url.protocol!=="https:"||!url.hostname.endsWith(".vercel.app")||url.username!==""||url.password!==""||url.port!=="")throw new Error("Deployment URL must be an HTTPS Vercel Preview URL");if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,"base_url="+url.origin+"\n")'
       - name: Require visual credentials
         env:
           HAS_VISUAL_AUTH_EMAIL: ${{ secrets.VISUAL_AUTH_EMAIL != '' }}
@@ -46,11 +104,9 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Install visual regression browser
-        run: npx playwright install chromium
       - name: Create authenticated sessions
         env:
-          VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          VISUAL_BASE_URL: ${{ steps.url.outputs.base_url }}
           VISUAL_AUTH_EMAIL: ${{ secrets.VISUAL_AUTH_EMAIL }}
           VISUAL_AUTH_PASSWORD: ${{ secrets.VISUAL_AUTH_PASSWORD }}
           VISUAL_ONBOARDING_EMAIL: ${{ secrets.VISUAL_ONBOARDING_EMAIL }}
@@ -59,7 +115,7 @@ jobs:
         run: npm run test:visual:auth-setup
       - name: Compare authenticated visuals
         env:
-          VISUAL_BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          VISUAL_BASE_URL: ${{ steps.url.outputs.base_url }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: npm run test:visual:authenticated
       - name: Upload visual failure evidence
@@ -75,3 +131,24 @@ jobs:
       - name: Remove authenticated state
         if: always()
         run: node -e 'const fs=require("node:fs");for(const p of ["test-results/visual-auth/established.json","test-results/visual-auth/onboarding.json"])fs.rmSync(p,{force:true})'
+
+  report:
+    name: Report status
+    needs: [resolve, authenticated-visual]
+    if: always() && github.event_name == 'repository_dispatch' && needs.resolve.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Post final status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ needs.resolve.outputs.sha }}
+          RESULT: ${{ needs.authenticated-visual.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          state=failure
+          if [ "$RESULT" = "success" ]; then state=success; fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA" \
+            -f context='Authenticated visual' -f state="$state" -f target_url="$RUN_URL" \
+            -f description="Authenticated visual comparison: $RESULT" > /dev/null

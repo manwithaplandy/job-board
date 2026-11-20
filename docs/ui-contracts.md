@@ -42,9 +42,13 @@ provenance. Committed comparisons use a 0.5% maximum differing-pixel ratio and a
 per-pixel threshold; dynamic regions must use an explicit, reviewed mask instead of a
 broader global tolerance. Baselines in `tests/visual/__screenshots__` are committed.
 Traces, diff output, and HTML reports are disposable and ignored through `.gitignore`.
-The canonical screenshot baseline platform is GitHub Actions `macos-14`. Both public and
-authenticated CI comparisons run there so committed screenshots are never evaluated with
-an operating system's different font rasterizer.
+The canonical screenshot baseline platform is the pinned Playwright Linux container
+(`mcr.microsoft.com/playwright:v<version>-noble` on `ubuntu-24.04`, where `<version>` is the
+exact `@playwright/test` pin in `dashboard/package.json`). Both public and authenticated CI
+comparisons run in it so committed screenshots are never evaluated with a different font
+rasterizer. Upgrading Playwright means bumping the pin and the image tag together and
+regenerating every baseline. `playwright.config.ts` refuses `--update-snapshots` on any
+platform other than Linux.
 
 Commands:
 
@@ -57,7 +61,7 @@ VISUAL_ONBOARDING_PASSWORD="..." \
 VERCEL_AUTOMATION_BYPASS_SECRET="..." \
 npm run test:visual
 npm run test:visual:public       # committed, always-on public CI subset
-npm run test:visual:update       # intentionally refresh public baselines after review
+npm run test:visual:update       # Linux only; use scripts/visual-baselines-docker.sh elsewhere
 ```
 
 The four identity credential variables belong to dedicated synthetic test identities and
@@ -69,11 +73,16 @@ wrong, runs the comparisons, and leaves the ignored state files available only f
 cleanup. Delete them after use.
 
 Ordinary pull-request CI continues to run the public/deterministic gate without secrets.
-Authenticated coverage is a separate `deployment_status` workflow for successful Vercel
-Preview deployments. It checks out the exact deployed SHA, validates the HTTPS
-`*.vercel.app` URL as the first executable step after checkout, rejecting userinfo and
-non-default ports before any installation, and uses the protected GitHub Environment
-`visual-test`. That environment must define `VISUAL_AUTH_EMAIL`, `VISUAL_AUTH_PASSWORD`,
+Authenticated coverage is a separate workflow, `Authenticated visual`, started by Vercel's
+`repository_dispatch` event (`vercel.deployment.success`) for successful Preview
+deployments, so it always runs the workflow file from `main`. A secret-free first job
+runs only when the deployed commit belongs to an open pull request from this repository
+whose author is a person, not a bot, and posts the commit status `Authenticated visual`
+(pending, then success or failure) on that commit. The comparison job checks out the exact
+deployed SHA, validates the HTTPS `*.vercel.app` URL as the first executable step after
+checkout, rejecting userinfo and non-default ports before any installation, and uses the
+GitHub Environment `visual-test`, which exists to scope the secrets below to this job. The
+older `deployment_status` trigger is kept only until the dispatch path is proven. That environment must define `VISUAL_AUTH_EMAIL`, `VISUAL_AUTH_PASSWORD`,
 `VISUAL_ONBOARDING_EMAIL`, `VISUAL_ONBOARDING_PASSWORD`, and
 `VERCEL_AUTOMATION_BYPASS_SECRET`; a boolean-only presence
 preflight runs before installation, while raw credentials are exposed only to the
@@ -90,16 +99,18 @@ does not generate an HTML report. Public-only comparisons still retain failure t
 authenticated failure artifact uploads PNG comparison evidence only, excluding error context,
 headers, traces, and authentication state. Do not restore the obsolete storage-state JSON secrets.
 
-The first authenticated run is expected to fail when reviewed baselines do not yet exist.
-Download the `authenticated-visual-results` failure artifact, confirm it contains only PNGs
-from `dashboard/test-results/visual/` with no auth JSON, error context, or `trace.zip`, inspect every actual
-PNG at both viewports and themes, and copy only approved images into
-`tests/visual/__screenshots__`. Commit those reviewed baselines normally and rerun the
-deployment workflow. CI never updates snapshots automatically.
-
 Baseline changes are review artifacts: update only after intentional UI changes, inspect
 every changed PNG, and commit the PNGs with the implementation. Never use
 `--update-snapshots` merely to make a failing comparison green.
-Generate baseline updates on `macos-14` and download the candidates. Before committing,
-inspect every changed PNG and approve it through normal review. Never loosen screenshot tolerances
-to absorb a platform mismatch; investigate the runner or create separately reviewed baselines.
+Generate baseline updates with the `Visual baselines` workflow: dispatch it from `main`,
+name the pull request's branch, and pick the `public` or `authenticated` scope (the
+authenticated scope also needs the branch's Vercel Preview URL and uses the `visual-test`
+secrets). It renders in the pinned container and commits only PNGs under
+`dashboard/tests/visual/__screenshots__` to that branch; it never writes to `main` and never
+force-pushes. Its commit does not start CI by itself, so CI results appear with your next
+push to the branch. For public screens you can also run
+`dashboard/scripts/visual-baselines-docker.sh` locally with Docker. Before merging,
+inspect every changed PNG at both viewports and themes in the pull request diff and approve
+it through normal review. Comparison CI never updates snapshots automatically.
+Never loosen screenshot tolerances to absorb a platform mismatch; investigate the runner or
+create separately reviewed baselines.

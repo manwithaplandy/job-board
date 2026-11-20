@@ -1,0 +1,215 @@
+name: Visual baselines
+
+# Regenerates screenshot baselines in the pinned Playwright Linux container and
+# commits them to a feature branch for review. It never writes to main.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to commit the regenerated baselines to (never main)
+        required: true
+        type: string
+      scope:
+        description: Which screenshots to regenerate
+        required: true
+        type: choice
+        options: [public, authenticated]
+        default: public
+      preview_url:
+        description: The branch's Vercel Preview URL (authenticated scope only)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-baselines-${{ inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve request
+    runs-on: ubuntu-24.04
+    outputs:
+      branch: ${{ steps.request.outputs.branch }}
+      sha: ${{ steps.request.outputs.sha }}
+      scope: ${{ steps.request.outputs.scope }}
+      preview_url: ${{ steps.request.outputs.preview_url }}
+    steps:
+      - name: Resolve request
+        id: request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          INPUT_SCOPE: ${{ inputs.scope }}
+          INPUT_PREVIEW_URL: ${{ inputs.preview_url }}
+        run: |
+          set -euo pipefail
+          branch="$INPUT_BRANCH"
+          scope="$INPUT_SCOPE"
+          preview_url="$INPUT_PREVIEW_URL"
+          if [ "$branch" = "main" ] || [[ ! "$branch" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::Baselines are only committed to a feature branch, never main."
+            exit 1
+          fi
+          case "$scope" in
+            public|authenticated) ;;
+            *) echo "::error::scope must be public or authenticated."; exit 1 ;;
+          esac
+          if [ "$scope" = "authenticated" ] && [ -z "$preview_url" ]; then
+            echo "::error::preview_url is required for the authenticated scope."
+            exit 1
+          fi
+          if ! sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha); then
+            echo "::error::Branch $branch does not exist."
+            exit 1
+          fi
+          {
+            echo "branch=$branch"
+            echo "sha=$sha"
+            echo "scope=$scope"
+            echo "preview_url=${preview_url//$'\n'/}"
+          } >> "$GITHUB_OUTPUT"
+
+  generate-public:
+    name: Generate public baselines
+    needs: resolve
+    if: needs.resolve.outputs.scope == 'public'
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --user 1001 --ipc=host
+    env:
+      DATABASE_URL: postgresql://test:test@127.0.0.1:1/test
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Regenerate public baselines
+        run: npm run test:visual:update
+      - name: Upload regenerated baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines
+          path: dashboard/tests/visual/__screenshots__/*.png
+          if-no-files-found: error
+          retention-days: 7
+
+  generate-authenticated:
+    name: Generate authenticated baselines
+    needs: resolve
+    if: needs.resolve.outputs.scope == 'authenticated'
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --user 1001 --ipc=host
+    environment:
+      name: visual-test
+      deployment: false
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - name: Validate deployment URL
+        id: url
+        env:
+          VISUAL_BASE_URL: ${{ needs.resolve.outputs.preview_url }}
+        run: >-
+          node -e 'const fs=require("node:fs");let raw=process.env.VISUAL_BASE_URL||"";if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(raw))raw="https://"+raw;let url;try{url=new URL(raw)}catch{throw new Error("Deployment URL must be an HTTPS Vercel Preview URL")};if(url.protocol!=="https:"||!url.hostname.endsWith(".vercel.app")||url.username!==""||url.password!==""||url.port!=="")throw new Error("Deployment URL must be an HTTPS Vercel Preview URL");if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,"base_url="+url.origin+"\n")'
+      - name: Require visual credentials
+        env:
+          HAS_VISUAL_AUTH_EMAIL: ${{ secrets.VISUAL_AUTH_EMAIL != '' }}
+          HAS_VISUAL_AUTH_PASSWORD: ${{ secrets.VISUAL_AUTH_PASSWORD != '' }}
+          HAS_VISUAL_ONBOARDING_EMAIL: ${{ secrets.VISUAL_ONBOARDING_EMAIL != '' }}
+          HAS_VISUAL_ONBOARDING_PASSWORD: ${{ secrets.VISUAL_ONBOARDING_PASSWORD != '' }}
+          HAS_VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET != '' }}
+        run: >-
+          node -e 'for(const [flag,name] of [["HAS_VISUAL_AUTH_EMAIL","VISUAL_AUTH_EMAIL"],["HAS_VISUAL_AUTH_PASSWORD","VISUAL_AUTH_PASSWORD"],["HAS_VISUAL_ONBOARDING_EMAIL","VISUAL_ONBOARDING_EMAIL"],["HAS_VISUAL_ONBOARDING_PASSWORD","VISUAL_ONBOARDING_PASSWORD"],["HAS_VERCEL_AUTOMATION_BYPASS_SECRET","VERCEL_AUTOMATION_BYPASS_SECRET"]])if(process.env[flag]!=="true")throw new Error(`${name} is required`)'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Create authenticated sessions
+        env:
+          VISUAL_BASE_URL: ${{ steps.url.outputs.base_url }}
+          VISUAL_AUTH_EMAIL: ${{ secrets.VISUAL_AUTH_EMAIL }}
+          VISUAL_AUTH_PASSWORD: ${{ secrets.VISUAL_AUTH_PASSWORD }}
+          VISUAL_ONBOARDING_EMAIL: ${{ secrets.VISUAL_ONBOARDING_EMAIL }}
+          VISUAL_ONBOARDING_PASSWORD: ${{ secrets.VISUAL_ONBOARDING_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npm run test:visual:auth-setup
+      - name: Regenerate authenticated baselines
+        env:
+          VISUAL_BASE_URL: ${{ steps.url.outputs.base_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npm run test:visual:authenticated -- --update-snapshots
+      - name: Remove authenticated state
+        if: always()
+        run: node -e 'const fs=require("node:fs");for(const p of ["test-results/visual-auth/established.json","test-results/visual-auth/onboarding.json"])fs.rmSync(p,{force:true})'
+      - name: Upload regenerated baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines
+          path: dashboard/tests/visual/__screenshots__/*.png
+          if-no-files-found: error
+          retention-days: 7
+
+  commit:
+    name: Commit baselines to the branch
+    needs: [resolve, generate-public, generate-authenticated]
+    if: >-
+      always() && needs.resolve.result == 'success' &&
+      (needs.generate-public.result == 'success' || needs.generate-authenticated.result == 'success')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      BRANCH: ${{ needs.resolve.outputs.branch }}
+      SCOPE: ${{ needs.resolve.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: visual-baselines
+          path: dashboard/tests/visual/__screenshots__
+      - name: Commit regenerated baselines
+        run: |
+          set -euo pipefail
+          git add -A dashboard/tests/visual/__screenshots__
+          unexpected=$(git status --porcelain | grep -Ev '^.. dashboard/tests/visual/__screenshots__/[^/]+\.png$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::Only PNGs in the screenshot folder may change."
+            echo "$unexpected"
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "The baselines already match; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Regenerate $SCOPE visual baselines (Linux)"
+          git push origin "HEAD:refs/heads/$BRANCH"

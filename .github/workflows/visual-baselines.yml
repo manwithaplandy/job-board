@@ -19,15 +19,12 @@ on:
         description: The branch's Vercel Preview URL (authenticated scope only)
         required: false
         type: string
-  push: # bootstrap for the first Linux baselines; removed before this workflow merges
-    branches-ignore: [main]
-    paths: [.github/visual-baseline-request.json]
 
 permissions:
   contents: read
 
 concurrency:
-  group: visual-baselines-${{ inputs.branch || github.ref_name }}
+  group: visual-baselines-${{ inputs.branch }}
   cancel-in-progress: false
 
 jobs:
@@ -40,13 +37,6 @@ jobs:
       scope: ${{ steps.request.outputs.scope }}
       preview_url: ${{ steps.request.outputs.preview_url }}
     steps:
-      - name: Read bootstrap request
-        if: github.event_name == 'push'
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-          sparse-checkout: .github/visual-baseline-request.json
-          sparse-checkout-cone-mode: false
       - name: Resolve request
         id: request
         env:
@@ -56,16 +46,9 @@ jobs:
           INPUT_PREVIEW_URL: ${{ inputs.preview_url }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            request=.github/visual-baseline-request.json
-            branch="$GITHUB_REF_NAME"
-            scope=$(jq -r '.scope // ""' "$request")
-            preview_url=$(jq -r '.preview_url // ""' "$request")
-          else
-            branch="$INPUT_BRANCH"
-            scope="$INPUT_SCOPE"
-            preview_url="$INPUT_PREVIEW_URL"
-          fi
+          branch="$INPUT_BRANCH"
+          scope="$INPUT_SCOPE"
+          preview_url="$INPUT_PREVIEW_URL"
           if [ "$branch" = "main" ] || [[ ! "$branch" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "::error::Baselines are only committed to a feature branch, never main."
             exit 1
@@ -78,9 +61,7 @@ jobs:
             echo "::error::preview_url is required for the authenticated scope."
             exit 1
           fi
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            sha="$GITHUB_SHA"
-          elif ! sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha); then
+          if ! sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha); then
             echo "::error::Branch $branch does not exist."
             exit 1
           fi

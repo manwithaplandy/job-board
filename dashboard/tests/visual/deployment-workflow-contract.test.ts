@@ -404,6 +404,9 @@ describe("visual baselines workflow", () => {
     const workflow = readFileSync(baselinesWorkflowPath, "utf8");
     expect(workflow).toContain("name: Visual baselines");
     expect(workflow).toMatch(/on:\s*\n\s+workflow_dispatch:/);
+    const triggers = workflow.slice(workflow.indexOf("\non:"), workflow.indexOf("\npermissions:"));
+    expect(triggers.match(/^  [a-z_]+:/gm)).toEqual(["  workflow_dispatch:"]);
+    expect(existsSync(path.join(repositoryRoot, ".github/visual-baseline-request.json"))).toBe(false);
     expect(workflow).toMatch(/^permissions:\s*\n\s+contents: read/m);
     for (const id of ["generate-public", "generate-authenticated"]) {
       const job = workflowJob(workflow, id);

@@ -154,5 +154,23 @@
     "key": "lifecycle_identity_campaigns.lifecycle_identity_pilot_scope",
     "side": "only-in-B",
     "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_observation_current(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns):service_role:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_pilot_scope():service_role:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_wal_bound(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns):service_role:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
   }
 ]

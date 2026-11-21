@@ -183,12 +183,14 @@ describe("production database workflows", () => {
   });
 
   test("hand the database URL to commands only through prod_dsn", () => {
-    for (const workflow of [dbOps, rebaseline]) {
+    const deploy = readFileSync(path.join(repositoryRoot, ".github/workflows/deploy.yml"), "utf8");
+    for (const workflow of [dbOps, rebaseline, deploy]) {
       for (const text of Object.values(jobs(workflow))) {
         for (const name of stepNames(text)) {
           const body = step(text, name);
           if (body.includes("secrets.SUPABASE_DB_URL")) {
-            expect(body, name).toMatch(/run: [|>]-?\n\s+python -m tools\.migrations\.prod_dsn --/);
+            expect(body, name).toContain("python -m tools.migrations.prod_dsn --");
+            expect(body.split("secrets.SUPABASE_DB_URL")[1], name).not.toContain("SUPABASE_DB_URL");
           }
           for (const flag of body.matchAll(/--db-url (\S+)/g)) {
             expect(flag[1], name).toMatch(/^("\$PROD_DSN"|\\\$PROD_DSN)$/);
@@ -275,7 +277,7 @@ describe("Deploy workflow", () => {
       if (id !== "migrate") expect(text, id).not.toContain("secrets.SUPABASE_");
     }
     expect(migrate).toContain("python -m tools.migrations.pending gate");
-    expect(migrate).toContain("supabase db push --linked --dry-run");
+    expect(migrate).toContain('supabase db push --db-url "$PROD_DSN" --dry-run');
   });
 
   test("deploys the dashboard only after migrations succeed or are skipped", () => {
@@ -288,8 +290,8 @@ describe("Deploy workflow", () => {
     expect(deployJob).toMatch(/npx --yes vercel@\d+\.\d+\.\d+ /);
   });
 
-  test("never pushes, repairs history or resets the linked database", () => {
-    for (const banned of ["git push", "migration repair", "db reset --linked"]) {
+  test("never pushes, repairs history or resets the production database", () => {
+    for (const banned of ["git push", "migration repair", "db reset --db-url"]) {
       expect(deploy).not.toContain(banned);
     }
   });

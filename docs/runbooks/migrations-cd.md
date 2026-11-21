@@ -111,8 +111,8 @@ queue in one `production-deploy` group and never cancel each other.
    and classifies them. Any destructive candidate, or `treat_as_destructive` on a manual run,
    picks the approval-gated environment for the next job.
 2. **Migrate**, in `production-db`, or in `production-db-destructive` when step 1 found
-   something destructive. Skipped when nothing was added, except on a manual run. It links
-   the project, reads `supabase migration list`, and fails closed when production's history
+   something destructive. Skipped when nothing was added, except on a manual run. With the
+   environment's `SUPABASE_DB_URL` (through `prod_dsn`), it reads `supabase migration list`, and fails closed when production's history
    has a version the repository does not know, or when a destructive file is pending outside
    the approval-gated environment. Then it runs `supabase db push`, checks the history is in
    sync, and compares a production fingerprint with `schema.sql`.
@@ -129,8 +129,8 @@ waits behind it in the same group, so decide promptly.
 the history table holds only files that succeeded. Fix forward with a new migration. Never
 repair the history by hand. The dashboard stays on its previous deployment.
 
-**Re-running:** dispatch `Deploy` from `main`. `dry_run` (the default for manual runs) links,
-lists, gates and runs `db push --dry-run`, and builds the dashboard without deploying.
+**Re-running:** dispatch `Deploy` from `main`. `dry_run` (the default for manual runs) lists,
+gates and runs `db push --dry-run`, and builds the dashboard without deploying.
 
 **Railway** services (`poller`, `discovery`, `reviewer-worker`, `spend-alert`) use Wait for
 CI, so a merge's Railway deploys wait until `CI` and `Deploy` finish. A run waiting for

@@ -12,6 +12,15 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+-- Cutover edit, not from pg_dump: a fresh Supabase stack's default privileges grant
+-- every new table, sequence and function in public to anon and authenticated, and
+-- pg_dump writes grants only relative to Postgres's built-in defaults. Clearing these
+-- first makes the GRANTs below rebuild production's object privileges exactly. The
+-- ALTER DEFAULT PRIVILEGES at the end of this file then restore production's defaults.
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "anon", "authenticated";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON SEQUENCES FROM "anon", "authenticated";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON FUNCTIONS FROM "anon", "authenticated";
+
 
 CREATE SCHEMA IF NOT EXISTS "lifecycle_private";
 

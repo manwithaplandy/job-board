@@ -150,3 +150,22 @@ ledger as part of a read-only audit. For any later release execution, freshly
 verify both ledgers and actual effects against the reviewed migration packet,
 retain existing production safeguards, and verify each successful application
 before proceeding.
+
+## Final checkpoint — 2026-11-21 cutover
+
+The read-only dump and fingerprint taken on 2026-11-21 (`db-ops` runs `op=dump` and
+`op=fingerprint` from `main`) found 65 rows in Supabase's history,
+20260624004157 through 20261014040233. The cutover keeps them and moves on:
+
+- The 65 Supabase history rows are copied to
+  `supabase_migrations.schema_migrations_pre_cd`, then replaced by the two baseline
+  versions in `supabase/migrations/` (`cutover-rebaseline.yml`, approved in the
+  `production-db-destructive` environment). Only the history table changes.
+- `public.schema_migrations` stays frozen at its current rows. Nothing writes to it again.
+- The October 15/16 identity pilot pair stays unapplied. It ships as the first migration
+  through the pipeline, so it is listed in `supabase/schema-sync-expected-diff.json` until then.
+
+TODO (filled after the re-baseline run): run URL, backup row count and the time it ran.
+
+**This runbook is frozen.** New schema work follows [the migrations pipeline](migrations-cd.md).
+

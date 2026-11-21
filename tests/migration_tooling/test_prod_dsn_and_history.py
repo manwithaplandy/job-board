@@ -82,6 +82,26 @@ def test_parse_listing():
     assert history.unsynced(history.parse(LISTING)) == [("", "20251015120000"), ("20261202000000", "")]
 
 
+# What CLI 2.122.0 writes when its output is a file (copied from the prod dump run).
+FILE_LISTING = """
+
+  
+   Local            | Remote           | Time (UTC)            
+  ------------------|------------------|-----------------------
+   ` `              | `20260624004157` | `2026-06-24 00:41:57` 
+   `20261201000000` | `20261201000000` | `2026-12-01 00:00:00` 
+   `20261202000000` | ` `              | `2026-12-02 00:00:00` 
+"""
+
+
+def test_parse_file_listing_with_backticks():
+    assert history.parse(FILE_LISTING) == [
+        ("", "20260624004157"),
+        ("20261201000000", "20261201000000"),
+        ("20261202000000", ""),
+    ]
+
+
 def test_history_cli(tmp_path, capsys):
     path = tmp_path / "history.txt"
     path.write_text(LISTING)

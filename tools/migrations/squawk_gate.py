@@ -5,7 +5,9 @@ Usage: python -m tools.migrations.squawk_gate squawk.json
 squawk exits non-zero for any finding. Destructive findings (drops, renames,
 type changes, TRUNCATE ... CASCADE) are allowed here because the classifier
 routes them to the approval-gated deploy path instead. Every other finding,
-including syntax errors, fails the step.
+including syntax errors, fails the step. The cutover baseline files
+(``*_baseline.sql``, ``*_baseline_storage.sql``) are a dump of production and
+are exempt, as they are from ``check_rules`` rules 2 to 5.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import json
 import sys
 from pathlib import Path
 
-from tools.migrations.check_rules import is_non_transactional
+from tools.migrations.check_rules import BASELINE, is_non_transactional
 from tools.migrations.classify import squawk_rule_is_destructive
 
 # squawk assumes every file runs in a transaction (.squawk.toml); a file with the
@@ -33,6 +35,8 @@ def blocking_findings(findings: list[dict]) -> list[dict]:
     blocking = []
     for f in findings:
         rule = f.get("rule_name", "")
+        if BASELINE.search(Path(f.get("file", "")).name):
+            continue
         if squawk_rule_is_destructive(rule):
             continue
         if rule in NON_TRANSACTIONAL_OK and _non_transactional(f.get("file", "")):

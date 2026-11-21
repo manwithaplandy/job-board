@@ -40,7 +40,8 @@ fails if any file there changes, and no new file may be added.
 5. `CONCURRENTLY` only in a file whose first line is `-- migration: non-transactional` and
    that holds the two `SET`s and exactly one statement. Use `IF NOT EXISTS` there (squawk
    asks for it), because such a file is not atomic and may need a rerun.
-6. `*_baseline.sql` and `*_baseline_storage.sql` (the cutover baseline) are exempt from 2 to 5.
+6. `<version>_baseline.sql` and `<version>_baseline_storage.sql` (exactly these names: the cutover
+   baseline) are exempt from 2 to 5 and from squawk. They are a dump of production.
 
 A merged migration is never edited, renamed or deleted. Fix it forward with a new file.
 

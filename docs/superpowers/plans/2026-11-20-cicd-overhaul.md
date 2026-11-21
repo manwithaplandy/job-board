@@ -42,7 +42,7 @@ The plan stays consistent with the spec. These are the places where the spec is 
 contradicts itself, or needs a choice; each lists how the plan resolves it.
 
 1. **`plan-migrations` has "no secrets" (3.4.1) but the pending set "comes from
-   `supabase migration list --linked`" (3.4 last paragraph).** Listing needs prod credentials,
+   `supabase migration list`" (3.4 last paragraph).** Listing needs prod credentials,
    and the environment must be chosen before the job that holds them starts. Resolution:
    `plan-migrations` computes a secret-free *candidate* set (migration files added since the
    last successful `deploy.yml` run on `main`) and classifies it; `migrate` then gets the
@@ -565,19 +565,24 @@ contract test additions
   uses `secrets.SUPABASE_` declares an `environment:`; `db-ops.yml` contains none of
   `db push`, `migration repair`, `migration up`, `--update`, `INSERT`, `UPDATE`, `DELETE`,
   `CREATE`, `DROP`; `cutover-rebaseline.yml` uses `environment: production-db-destructive`
-  for its only writing job and defaults `dry_run` to `true`.
+  for its only writing job and defaults `dry_run` to `true`; no workflow mentions
+  `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `supabase link` or `--linked`, the only
+  Supabase secret is `SUPABASE_DB_URL`, and every step that reads it runs through
+  `prod_dsn.py` and passes only `"$PROD_DSN"` to `--db-url`.
 - [ ] `db-ops.yml`, input `op` = `dump` | `fingerprint`, `environment: production-db`:
-  - both: `supabase link --project-ref fdhspmavadgucktetzoi` (env `SUPABASE_ACCESS_TOKEN`,
-    `SUPABASE_DB_PASSWORD`);
-  - `dump`: `supabase db dump --linked -f baseline.sql` (schema only, default schemas) and
-    `supabase migration list --linked > history.txt`; upload both as artifact `prod-dump`;
-  - `fingerprint`: build a DSN from the session pooler URL the CLI writes to
-    `supabase/.temp/pooler-url` (IPv4, port 5432, user `postgres.fdhspmavadgucktetzoi`),
-    with the password percent-encoded and passed via env only; run
-    `fingerprint.py capture`; upload `prod-fingerprint.json`. Add `::add-mask::` for the DSN.
+  - both: the only credential is the `SUPABASE_DB_URL` secret (Session pooler string, IPv4,
+    port 5432, user `postgres.fdhspmavadgucktetzoi`). `prod_dsn.py` validates it,
+    percent-encodes the password, adds `sslmode=require`, masks it with `::add-mask::` and
+    runs the wrapped command with `$PROD_DSN`; no `supabase link`, no access token
+    (revised 2026-11-21: "Drop the PAT");
+  - `dump`: `supabase db dump --db-url "$PROD_DSN" -f baseline.sql` (schema only, default
+    schemas) and `supabase migration list --db-url "$PROD_DSN" > history.txt`; upload both
+    as artifact `prod-dump`;
+  - `fingerprint`: run `fingerprint.py capture --dsn-env PROD_DSN` under `prod_dsn.py`;
+    upload `prod-fingerprint.json`.
 - [ ] `cutover-rebaseline.yml`, inputs `baseline_sha` (40 hex, the cutover PR head),
   `dry_run` (default `true`):
-  - job `plan` (`production-db`, read-only): link; sparse-checkout `supabase/migrations`
+  - job `plan` (`production-db`, read-only): sparse-checkout `supabase/migrations`
     at `baseline_sha` into the workspace; read remote versions; assert remote count is 65
     and local files are exactly the two baseline files; print the exact `repair` commands;
   - job `apply` (`if: inputs.dry_run == false`, `needs: plan`,
@@ -586,7 +591,8 @@ contract test additions
     supabase_migrations.schema_migrations;` (fails if it already exists, which makes the job
     non-repeatable by design); `supabase migration repair --status reverted <65 versions>`;
     `supabase migration repair --status applied <both baseline versions>`;
-    `supabase migration list --linked` must show local == remote; then capture the prod
+    `supabase migration list --workdir baseline --db-url "$PROD_DSN"` must show
+    local == remote (every CLI call in this workflow uses `--db-url "$PROD_DSN"`); then capture the prod
     fingerprint and compare with the artifact from before (schema must be unchanged).
 - [ ] Contract tests PASS. Commit.
 
@@ -610,11 +616,13 @@ contract test additions
 
 1. **Visual environment:** add a deployment branch policy "Selected branches: `main`" to
    environment `visual-test` (safe now that the legacy trigger is gone).
-2. **Create environment `production-db`:** branch policy `main` only, no reviewers. Secrets
-   `SUPABASE_ACCESS_TOKEN` (PAT, narrowest scope available) and `SUPABASE_DB_PASSWORD`.
+2. **Create environment `production-db`:** branch policy `main` only, no reviewers. One
+   secret, `SUPABASE_DB_URL`: the Session pooler string from the Supabase dashboard's
+   Connect button (port 5432, user `postgres.fdhspmavadgucktetzoi`) with the database
+   password in place of `[YOUR-PASSWORD]`. No access token (revised 2026-11-21).
 3. **Create environment `production-db-destructive`:** branch policy `main` only, Required
    reviewer = Andrew, **"Prevent self-review" unchecked** (his own merges trigger the runs).
-   Same two secrets.
+   Same `SUPABASE_DB_URL` secret.
 4. **Required checks on `main`:** add `Public visual`, `Authenticated visual`, `Migrations`.
 5. **Switch the Supabase connector for agent sessions to read-only** (decision 10.4). Do it
    now: a stray MCP-applied migration between here and the cutover would invalidate the dump.
@@ -783,7 +791,7 @@ Create environment **`production-deploy`**: branch policy `main` only, no review
     in no other job;
   - job `deploy-dashboard` needs both jobs, uses `environment: production-deploy`, and its
     `if:` contains `needs.migrate.result == 'success' || needs.migrate.result == 'skipped'`;
-  - the file never contains `git push`, `migration repair` or `db reset --linked`;
+  - the file never contains `git push`, `migration repair` or `db reset`;
   - `dashboard/vercel.json` has `git.deploymentEnabled.main === false`;
   - `ci.yml` keeps `on: push` for `main` (Railway Wait for CI needs a push-triggered
     workflow) and never sets `cancel-in-progress: true` for `main`.
@@ -836,15 +844,15 @@ jobs:
   `destructive` is true if any candidate is flagged or `inputs.treat_as_destructive`; write
   the table to the job summary.
 - [ ] `migrate` steps: checkout; `supabase/setup-cli@v3` `version: 2.122.0`;
-  `supabase link --project-ref fdhspmavadgucktetzoi`; `supabase migration list --linked` →
+  every prod call runs under `prod_dsn.py` with `SUPABASE_DB_URL`:
+  `supabase migration list --db-url "$PROD_DSN"` →
   `pending.py gate` (fail closed as in Task 4.1); if `inputs.dry_run`, run
-  `supabase db push --linked --dry-run` and stop; else `supabase db push --linked --yes`;
+  `supabase db push --db-url "$PROD_DSN" --dry-run` and stop; else
+  `supabase db push --db-url "$PROD_DSN" --yes`;
   then start the local stack, load `schema.sql` exactly as the PR gate does, capture the
   prod fingerprint read-only over the session pooler, and `compare` prod vs `schema.sql`
   with the ignore and expected-diff lists; write applied versions to the summary.
-  If the direct host is unreachable from the runner, the documented fallback is
-  `--db-url` with the session-pooler URL built from `supabase/.temp/pooler-url`; note in
-  the runbook that v3 renames `--linked`/`--db-url` to `--remote`.
+  Note in the runbook that v3 renames `--db-url` to `--remote`.
 - [ ] `deploy-dashboard` steps: checkout; setup-node 22; run from the repo root (the Vercel
   project's Root Directory is `dashboard/`), with `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
   `VERCEL_PROJECT_ID` in env: `npx vercel@<exact pinned version> pull --yes

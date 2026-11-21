@@ -2,12 +2,14 @@
 
 Usage::
 
-    supabase migration list --linked > history.txt
+    supabase migration list --db-url "$PROD_DSN" > history.txt
     python -m tools.migrations.history remote history.txt     # remote versions, one per line
     python -m tools.migrations.history check-synced history.txt
 
 ``check-synced`` exits 1 unless every row has the same version locally and
-remotely.
+remotely. On a terminal the CLI draws a plain table; written to a file
+(CLI 2.122.0) it wraps every cell in backticks, with "` `" for an empty side.
+Both forms parse the same.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ def parse(text: str) -> list[tuple[str, str]]:
     for line in _ANSI.sub("", text).splitlines():
         if "|" not in line:
             continue
-        cells = [c.strip() for c in line.split("|")]
+        cells = [c.strip().strip("`").strip() for c in line.split("|")]
         local, remote = cells[0], cells[1]
         if not (_VERSION.match(local) or _VERSION.match(remote)):
             continue

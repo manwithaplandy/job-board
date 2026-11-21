@@ -96,11 +96,9 @@ SIGINT exit cleanly after the in-flight request.
 Deploys as its own **always-on** Railway service (no cron): `railway.reviewer-worker.json`,
 start `python -m reviewer.worker`.
 
-> **Pre-launch (manual, do NOT push migration-coupled code first):** creating the
-> Railway worker service AND applying both Phase-1 migrations
-> (`migrations/archive/2026-07-03-rls-tenant-isolation.sql` then
-> `migrations/archive/2026-07-03-billing-review-requests.sql`, in that order) are manual steps.
-> Apply the migrations before the code that depends on `review_requests` / RLS ships.
+> Schema changes no longer go in by hand. They ship as files in `supabase/migrations/`
+> through the [migrations pipeline](docs/runbooks/migrations-cd.md), which replays them on
+> every PR. Production's history was re-baselined at the November 2026 cutover.
 
 ## Configuration
 
@@ -149,7 +147,7 @@ start `python -m reviewer.worker`.
   New schema changes go in `supabase/migrations/` and follow the
   [migrations pipeline runbook](docs/runbooks/migrations-cd.md); every PR replays them on a
   throwaway database. **Until the cutover PR merges, do not add migrations at all.** The
-  hand-applied history is frozen in `migrations/archive/`. Supabase's version/name history
+  schema as of the cutover is `supabase/migrations/*_baseline*.sql`. The hand-applied history is frozen in `migrations/archive/`. Supabase's version/name history
   and the repository's `public.schema_migrations` filename ledger are separate; see the
   [classification and lifecycle ledger checkpoints](docs/runbooks/migration-ledger-state.md).
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.

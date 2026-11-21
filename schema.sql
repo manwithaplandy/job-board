@@ -133,8 +133,10 @@ CREATE TABLE profiles (
   model_cover       TEXT,                     -- OpenRouter model id; NULL = default
   -- Reasoning effort for generation ('low'|'medium'|'high'); NULL = off (default).
   -- medium/high are Pro-gated (dashboard/lib/entitlements.ts, TS-only).
-  reasoning_effort_resume TEXT CHECK (reasoning_effort_resume IN ('low', 'medium', 'high')),
-  reasoning_effort_cover  TEXT CHECK (reasoning_effort_cover  IN ('low', 'medium', 'high')),
+  reasoning_effort_resume TEXT CONSTRAINT reasoning_effort_resume_valid
+    CHECK (reasoning_effort_resume IN ('low', 'medium', 'high')),
+  reasoning_effort_cover  TEXT CONSTRAINT reasoning_effort_cover_valid
+    CHECK (reasoning_effort_cover  IN ('low', 'medium', 'high')),
   -- Standing generation guidance, layered UNDER the per-job instruction boxes at
   -- generate time. Reviewer-independent: NOT part of profile_version.
   resume_generation_instructions       TEXT,

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -166,6 +166,35 @@ describe("production database workflows", () => {
         }
       }
       expect(workflow.slice(0, workflow.indexOf("\njobs:\n"))).not.toContain("secrets.");
+    }
+  });
+
+  test("reach production with only the database URL secret", () => {
+    const dir = path.join(repositoryRoot, ".github/workflows");
+    for (const file of readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))) {
+      const text = readFileSync(path.join(dir, file), "utf8");
+      for (const banned of ["SUPABASE_ACCESS_TOKEN", "SUPABASE_DB_PASSWORD", "supabase link", "--linked"]) {
+        expect(text, `${file} mentions ${banned}`).not.toContain(banned);
+      }
+      for (const name of text.matchAll(/secrets\.(SUPABASE_[A-Z_]+)/g)) {
+        expect(name[1], file).toBe("SUPABASE_DB_URL");
+      }
+    }
+  });
+
+  test("hand the database URL to commands only through prod_dsn", () => {
+    for (const workflow of [dbOps, rebaseline]) {
+      for (const text of Object.values(jobs(workflow))) {
+        for (const name of stepNames(text)) {
+          const body = step(text, name);
+          if (body.includes("secrets.SUPABASE_DB_URL")) {
+            expect(body, name).toMatch(/run: [|>]-?\n\s+python -m tools\.migrations\.prod_dsn --/);
+          }
+          for (const flag of body.matchAll(/--db-url (\S+)/g)) {
+            expect(flag[1], name).toMatch(/^("\$PROD_DSN"|\\\$PROD_DSN)$/);
+          }
+        }
+      }
     }
   });
 

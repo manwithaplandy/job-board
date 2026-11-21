@@ -76,12 +76,25 @@ The `Pipeline guard` job only adds labels, never removes them:
 ## Production workflows
 
 Both are manual (`workflow_dispatch`) and use GitHub environments that hold the Supabase
-secrets. Agents never apply SQL to production; the pipeline does.
+secret. Agents never apply SQL to production; the pipeline does.
+
+**Credential.** The only production credential is `SUPABASE_DB_URL`, a secret on the
+`production-db` and `production-db-destructive` environments. It is the **Session pooler**
+string from the Supabase dashboard's **Connect** button (IPv4, port 5432, user
+`postgres.fdhspmavadgucktetzoi`) with the database password filled in. There is no Supabase
+access token: every CLI call takes `--db-url "$PROD_DSN"` instead of `supabase link`, and
+`psql` and the fingerprint tool use the same DSN. `tools/migrations/prod_dsn.py` builds
+`$PROD_DSN` from the secret: it refuses any other host, port, user or database, percent-encodes
+the password (pasted raw or already encoded), adds `sslmode=require`, masks the DSN and the
+password in the log, and passes the DSN only to the command it wraps. A contract test fails
+if any workflow mentions `SUPABASE_ACCESS_TOKEN`, `supabase link` or `--linked`, or hands
+the secret to a command without `prod_dsn`. To rotate it, reset the database password in
+Supabase and paste the new string into both environments.
 
 - `Database operations (read-only)` (`db-ops.yml`), environment `production-db`:
   `dump` uploads a schema-only dump and the migration history; `fingerprint` uploads a
-  catalog fingerprint. It connects through the session pooler (port 5432) with a read-only
-  session.
+  catalog fingerprint. It connects through the session pooler (port 5432) with
+  `SUPABASE_DB_URL`.
 - `Cutover history re-baseline` (`cutover-rebaseline.yml`): run once during the cutover.
   The `plan` job is read-only and prints the repair commands. The `apply` job runs only with
   `dry_run` off, waits for approval on `production-db-destructive`, backs up the history

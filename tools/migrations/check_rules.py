@@ -15,7 +15,8 @@ The rules (docs/runbooks/migrations-cd.md):
    ``-- migration: non-transactional`` and that holds exactly one statement
    besides the two ``SET``s (Supabase CLI v2.122.0 runs such a statement, but
    it is not atomic, so it must stand alone);
-6. ``*_baseline.sql`` and ``*_baseline_storage.sql`` are exempt from 2-5.
+6. ``<version>_baseline.sql`` and ``<version>_baseline_storage.sql`` (exactly these
+   names) are exempt from 2-5, and from squawk (squawk_gate).
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from pathlib import Path
 from tools.migrations.sqltext import split_statements, strip_comments
 
 FILENAME = re.compile(r"^\d{14}_[a-z0-9_]+\.sql$")
-BASELINE = re.compile(r"_baseline(_storage)?\.sql$")
+BASELINE = re.compile(r"^\d{14}_baseline(_storage)?\.sql$")
 LOCK_TIMEOUT = re.compile(
     r"^SET\s+(?:LOCAL\s+)?lock_timeout\s*(?:=|TO)\s*'(\d+)\s*(ms|s)'$", re.IGNORECASE
 )

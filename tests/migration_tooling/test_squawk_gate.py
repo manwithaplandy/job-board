@@ -36,3 +36,16 @@ def test_concurrent_index_rule_is_allowed_only_in_non_transactional_files(tmp_pa
     rule = "ban-concurrent-index-creation-in-transaction"
     findings = [_finding(rule, str(nt)), _finding(rule, str(plain))]
     assert [f["file"] for f in blocking_findings(findings)] == [str(plain)]
+
+
+def test_baseline_files_never_block():
+    # The cutover baseline is a dump of prod; squawk's style rules don't apply to it.
+    findings = [
+        _finding("prefer-bigint-over-int", "supabase/migrations/20261121225347_baseline.sql"),
+        _finding("ban-alter-identity", "supabase/migrations/20261121225347_baseline.sql"),
+        _finding("syntax-error", "supabase/migrations/20261121225348_baseline_storage.sql"),
+        _finding("prefer-bigint-over-int", "supabase/migrations/20261122000000_baseline_fix.sql"),
+    ]
+    assert [f["file"] for f in blocking_findings(findings)] == [
+        "supabase/migrations/20261122000000_baseline_fix.sql"
+    ]

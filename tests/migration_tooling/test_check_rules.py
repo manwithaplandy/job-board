@@ -106,6 +106,14 @@ def test_rule6_baselines_exempt(name):
     assert ok(sql, name) == []
 
 
+
+@pytest.mark.parametrize(
+    "name", ["20261121000000_add_baseline.sql", "20261121000001_reset_baseline_storage.sql"]
+)
+def test_rule6_only_exact_baseline_names_are_exempt(name):
+    errors = ok("BEGIN;\nSELECT 1;\nCOMMIT;", name)
+    assert errors
+
 def test_cli_exit_codes(tmp_path, capsys):
     good = tmp_path / GOOD_NAME
     good.write_text(HEADER + "SELECT 1;")

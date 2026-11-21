@@ -145,9 +145,9 @@ New workflow `deploy.yml`, `on: push: branches: [main]`, with
      to `main`, so no PR-branch run can read their secrets. `production-db-destructive` has
      Andrew as Required reviewer (available because the repo is public). Whether GitHub lets
      him approve a run triggered by his own account's merge is checked when it's built.
-   - `supabase link --project-ref fdhspmavadgucktetzoi`, then
-     `supabase db push --yes --linked` (or `--remote` on CLI v3), over the IPv4 session pooler
-     if the direct IPv6 host is unreachable from runners.
+   - `supabase db push --yes --db-url "$PROD_DSN"` (or `--remote` on CLI v3) over the IPv4
+     session pooler, with `$PROD_DSN` built from the `SUPABASE_DB_URL` secret. No
+     `supabase link` and no Supabase access token (decided 2026-11-21).
    - After a successful push, re-runs the read-only schema fingerprint against prod and
      fails loudly if prod differs from `schema.sql`.
    - Writes the applied versions to the job summary.
@@ -165,14 +165,13 @@ New workflow `deploy.yml`, `on: push: branches: [main]`, with
    hand repair.
 
 The CD job never pushes to `main`. Its pending set comes from `supabase migration list
---linked`, so no state file needs committing.
+--db-url "$PROD_DSN"`, so no state file needs committing.
 
 ### 3.5 Secrets and who holds them
 
 | Secret | Where | Who adds it |
 | --- | --- | --- |
-| `SUPABASE_ACCESS_TOKEN` (project-scoped PAT) | env `production-db` and `production-db-destructive` | Andrew |
-| `SUPABASE_DB_PASSWORD` | same two environments | Andrew |
+| `SUPABASE_DB_URL` (Session pooler string from Connect, password filled in) | env `production-db` and `production-db-destructive` | Andrew |
 | `VERCEL_TOKEN` (scoped to job-board-dashboard), `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` | env `production-deploy` (main only) | Andrew |
 | visual-test's 5 secrets | env `visual-test`, unchanged, plus a `main`-only branch policy | already there |
 

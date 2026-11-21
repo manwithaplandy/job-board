@@ -6,6 +6,8 @@ name: Cutover history re-baseline
 # schema: the apply job proves that by comparing fingerprints before and after.
 # The plan job is read-only. The apply job runs only with dry_run off and
 # waits for approval on the production-db-destructive environment.
+# Both jobs use the SUPABASE_DB_URL secret of their environment, checked and
+# masked by tools.migrations.prod_dsn and passed to the CLI as --db-url.
 
 on:
   workflow_dispatch:
@@ -60,16 +62,12 @@ jobs:
       - uses: supabase/setup-cli@v3
         with:
           version: 2.122.0
-      - name: Link project
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: supabase link --workdir baseline --project-ref "$PROJECT_REF"
       - name: Read remote history
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: supabase migration list --workdir baseline --linked > history-before.txt
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: >-
+          python -m tools.migrations.prod_dsn -- bash -euo pipefail -c
+          'supabase migration list --workdir baseline --db-url "$PROD_DSN" > history-before.txt'
       - name: Check preconditions and print the repair commands
         run: |
           mapfile -t remote < <(python -m tools.migrations.history remote history-before.txt | grep -E '^[0-9]{14}$')
@@ -92,8 +90,8 @@ jobs:
             echo "## Re-baseline plan"
             echo
             echo '```'
-            echo "supabase migration repair --linked --status reverted ${remote[*]}"
-            echo "supabase migration repair --linked --status applied $baseline_versions"
+            echo "supabase migration repair --db-url \$PROD_DSN --status reverted ${remote[*]}"
+            echo "supabase migration repair --db-url \$PROD_DSN --status applied $baseline_versions"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload history
@@ -136,49 +134,45 @@ jobs:
           version: 2.122.0
       - name: Install migration tools
         run: python -m pip install -r requirements-ci.txt
-      - name: Link project
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: supabase link --workdir baseline --project-ref "$PROJECT_REF"
       - name: Capture fingerprint before
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: >-
-          python -m tools.migrations.prod_dsn --pooler-file baseline/supabase/.temp/pooler-url --
+          python -m tools.migrations.prod_dsn --
           python -m tools.migrations.fingerprint capture --dsn-env PROD_DSN --out fingerprint-before.json
       - name: Back up the history table
         # Fails if the backup already exists, so this job cannot run twice.
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          python -m tools.migrations.prod_dsn --pooler-file baseline/supabase/.temp/pooler-url -- \
+          python -m tools.migrations.prod_dsn -- \
             bash -c 'psql "$PROD_DSN" -v ON_ERROR_STOP=1 --single-transaction -c "CREATE TABLE supabase_migrations.schema_migrations_pre_cd AS TABLE supabase_migrations.schema_migrations;"'
       - name: Re-baseline history
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          supabase migration list --workdir baseline --linked > history-before.txt
-          mapfile -t remote < <(python -m tools.migrations.history remote history-before.txt | grep -E '^[0-9]{14}$')
-          if [ "${#remote[@]}" -ne "$EXPECTED_REMOTE_COUNT" ]; then
-            echo "::error::remote history has ${#remote[@]} entries, expected $EXPECTED_REMOTE_COUNT"
-            exit 1
-          fi
-          mapfile -t baseline_versions < <(ls baseline/supabase/migrations | grep -E '^[0-9]{14}_baseline(_storage)?\.sql$' | cut -d_ -f1)
-          if [ "${#baseline_versions[@]}" -ne 2 ]; then
-            echo "::error::expected two baseline files"
-            exit 1
-          fi
-          supabase migration repair --workdir baseline --linked --status reverted "${remote[@]}"
-          supabase migration repair --workdir baseline --linked --status applied "${baseline_versions[@]}"
-          supabase migration list --workdir baseline --linked > history-after.txt
+          python -m tools.migrations.prod_dsn -- bash -euo pipefail -c '
+            supabase migration list --workdir baseline --db-url "$PROD_DSN" > history-before.txt
+            mapfile -t remote < <(python -m tools.migrations.history remote history-before.txt | grep -E "^[0-9]{14}$")
+            if [ "${#remote[@]}" -ne "$EXPECTED_REMOTE_COUNT" ]; then
+              echo "::error::remote history has ${#remote[@]} entries, expected $EXPECTED_REMOTE_COUNT"
+              exit 1
+            fi
+            mapfile -t baseline_versions < <(ls baseline/supabase/migrations | grep -E "^[0-9]{14}_baseline(_storage)?\.sql$" | cut -d_ -f1)
+            if [ "${#baseline_versions[@]}" -ne 2 ]; then
+              echo "::error::expected two baseline files"
+              exit 1
+            fi
+            supabase migration repair --workdir baseline --db-url "$PROD_DSN" --status reverted "${remote[@]}"
+            supabase migration repair --workdir baseline --db-url "$PROD_DSN" --status applied "${baseline_versions[@]}"
+            supabase migration list --workdir baseline --db-url "$PROD_DSN" > history-after.txt
+          '
           python -m tools.migrations.history check-synced history-after.txt
       - name: Confirm the schema did not change
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          python -m tools.migrations.prod_dsn --pooler-file baseline/supabase/.temp/pooler-url -- \
+          python -m tools.migrations.prod_dsn -- \
             python -m tools.migrations.fingerprint capture --dsn-env PROD_DSN --out fingerprint-after.json
           python -m tools.migrations.fingerprint compare fingerprint-before.json fingerprint-after.json
       - name: Upload evidence

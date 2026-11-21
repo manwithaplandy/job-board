@@ -2891,7 +2891,7 @@ ALTER TABLE public_critical_event_slots ADD COLUMN IF NOT EXISTS observed_at tim
 ALTER TABLE public_critical_event_slots ADD COLUMN IF NOT EXISTS provenance text NOT NULL DEFAULT 'database_change';
 CREATE TABLE IF NOT EXISTS public_archive_destination (
  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
- object_prefix text NOT NULL CHECK(length(object_prefix) BETWEEN 1 AND 256 AND object_prefix ~ '^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*$'),
+ object_prefix text NOT NULL CHECK(length(object_prefix) >= 1 AND length(object_prefix) <= 256 AND object_prefix ~ '^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*$'),
  validated_at timestamptz NOT NULL
 );
 -- No destination row is created. Provisioning/validation belongs to the later rollout.

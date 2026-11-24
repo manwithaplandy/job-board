@@ -133,8 +133,10 @@ CREATE TABLE profiles (
   model_cover       TEXT,                     -- OpenRouter model id; NULL = default
   -- Reasoning effort for generation ('low'|'medium'|'high'); NULL = off (default).
   -- medium/high are Pro-gated (dashboard/lib/entitlements.ts, TS-only).
-  reasoning_effort_resume TEXT CHECK (reasoning_effort_resume IN ('low', 'medium', 'high')),
-  reasoning_effort_cover  TEXT CHECK (reasoning_effort_cover  IN ('low', 'medium', 'high')),
+  reasoning_effort_resume TEXT CONSTRAINT reasoning_effort_resume_valid
+    CHECK (reasoning_effort_resume IN ('low', 'medium', 'high')),
+  reasoning_effort_cover  TEXT CONSTRAINT reasoning_effort_cover_valid
+    CHECK (reasoning_effort_cover  IN ('low', 'medium', 'high')),
   -- Standing generation guidance, layered UNDER the per-job instruction boxes at
   -- generate time. Reviewer-independent: NOT part of profile_version.
   resume_generation_instructions       TEXT,
@@ -2889,7 +2891,7 @@ ALTER TABLE public_critical_event_slots ADD COLUMN IF NOT EXISTS observed_at tim
 ALTER TABLE public_critical_event_slots ADD COLUMN IF NOT EXISTS provenance text NOT NULL DEFAULT 'database_change';
 CREATE TABLE IF NOT EXISTS public_archive_destination (
  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
- object_prefix text NOT NULL CHECK(length(object_prefix) BETWEEN 1 AND 256 AND object_prefix ~ '^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*$'),
+ object_prefix text NOT NULL CHECK(length(object_prefix) >= 1 AND length(object_prefix) <= 256 AND object_prefix ~ '^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*$'),
  validated_at timestamptz NOT NULL
 );
 -- No destination row is created. Provisioning/validation belongs to the later rollout.

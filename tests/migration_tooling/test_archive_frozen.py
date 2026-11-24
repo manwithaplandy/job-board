@@ -12,6 +12,8 @@ import hashlib
 import re
 from pathlib import Path
 
+from tools.migrations.check_rules import BASELINE
+
 ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE = ROOT / "migrations" / "archive"
 SUPABASE_MIGRATIONS = ROOT / "supabase" / "migrations"
@@ -51,9 +53,11 @@ def test_schema_sql_ledger_inserts_are_frozen():
 
 
 def test_pipeline_migrations_never_touch_the_old_ledger():
+    # The cutover baseline is a dump of prod, which still defines the frozen
+    # public.schema_migrations table; it is exempt like in check_rules.
     offenders = [
         path.name
         for path in SUPABASE_MIGRATIONS.glob("*.sql")
-        if "schema_migrations" in path.read_text()
+        if not BASELINE.search(path.name) and "schema_migrations" in path.read_text()
     ]
     assert offenders == []

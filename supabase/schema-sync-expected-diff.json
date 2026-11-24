@@ -1,0 +1,176 @@
+[
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.disk_fetched_at",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.disk_source_observed_at",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.observation_basis",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.observed_at",
+    "side": "differs",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.resident_wal_bytes",
+    "side": "differs",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.wal_assumed_mib_upper_bytes",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.wal_basis",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.wal_fetched_at",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.wal_native_mb",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_authorizations.wal_source_observed_at",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "columns",
+    "key": "lifecycle_identity_campaigns.exploratory_pilot",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "constraints",
+    "key": "lifecycle_identity_authorizations.identity_observation_basis",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "constraints",
+    "key": "lifecycle_identity_authorizations.identity_wal_basis",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "functions",
+    "key": "lifecycle_identity_check_authorization()",
+    "side": "differs",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "functions",
+    "key": "lifecycle_identity_observation_current(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns)",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "functions",
+    "key": "lifecycle_identity_pilot_scope()",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "functions",
+    "key": "lifecycle_identity_wal_bound(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns)",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_observation_current(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns):postgres:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_pilot_scope():postgres:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_wal_bound(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns):postgres:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "indexes",
+    "key": "lifecycle_identity_campaigns.one_exploratory_identity_pilot",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "owners",
+    "key": "function:lifecycle_identity_observation_current(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns)",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "owners",
+    "key": "function:lifecycle_identity_pilot_scope()",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "owners",
+    "key": "function:lifecycle_identity_wal_bound(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns)",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "triggers",
+    "key": "lifecycle_identity_campaigns.lifecycle_identity_pilot_retain",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "triggers",
+    "key": "lifecycle_identity_campaigns.lifecycle_identity_pilot_scope",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_observation_current(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns):service_role:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_pilot_scope():service_role:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  },
+  {
+    "section": "grants",
+    "key": "function:lifecycle_identity_wal_bound(a public.lifecycle_identity_authorizations, c public.lifecycle_identity_campaigns):service_role:EXECUTE",
+    "side": "only-in-B",
+    "until": "phase-5 pilot migration"
+  }
+]

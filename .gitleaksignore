@@ -1,0 +1,40 @@
+# Secret-scan findings reviewed and accepted as not secrets (2026-11-24). One
+# fingerprint per line (commit:file:rule:line); a new finding is never covered.
+#
+# - .superpowers/sdd/...: owner_token lease values printed by lifecycle tests run
+#   against throwaway databases, plus prose that matched the generic rule.
+# - discovery/data/*_companies.json: public company slugs ("sumo-digital",
+#   "headoutlinkedin") that look like vendor key prefixes.
+03a7f8921e23726c29cb0a7e14fb36906d50b2b3:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-review-package.md:generic-api-key:67475
+03a7f8921e23726c29cb0a7e14fb36906d50b2b3:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-review-package.md:generic-api-key:69558
+03a7f8921e23726c29cb0a7e14fb36906d50b2b3:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-review-package.md:generic-api-key:69571
+095fec89132bec361c6b1733d1fd97ff5018a6ed:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-10-evidence/fix1/red17.txt:generic-api-key:155
+095fec89132bec361c6b1733d1fd97ff5018a6ed:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-10-fix1-report.md:generic-api-key:96
+3880e2eef93cae3ffc0fa33424ae7c2ce4ab6061:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-3-evidence/fix1-green-attempt17.txt:generic-api-key:37
+48c1adab2fdb3eb32be410e32b61965ec93b207a:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-2-requirements-review.md:generic-api-key:72
+4953b6396a23dbef9550a0f3cff2ec4342d25297:discovery/data/greenhouse_companies.json:linkedin-client-secret:3342
+4953b6396a23dbef9550a0f3cff2ec4342d25297:discovery/data/lever_companies.json:sumologic-access-id:3658
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:10176
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:130769
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:132852
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:132865
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:14171
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:14624
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:208787
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:210870
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:210883
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:221896
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:230506
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:25918
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:26371
+55553aad234804f940443b4f745883970603b0ac:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-review-package.md:generic-api-key:37302
+962a9ed96b977378591cf8630be76e7fc7d40509:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-3-fix-1-review-package.md:generic-api-key:544
+a4581b9132a74a51c3887a5bd7e3998b1ee60e7b:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-10-fix-2-review-package.md:generic-api-key:2700
+a4581b9132a74a51c3887a5bd7e3998b1ee60e7b:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-10-fix-2-review-package.md:generic-api-key:3153
+a8c41165da7386d2ae6d3dc962c3caf5bbf7c502:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-fix1-evidence/pre-final-python17.log:generic-api-key:472
+ae0b73fa69db4d4eab85d099f7169448f724f81e:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-10-fix-1-review-package.md:generic-api-key:1572
+ae0b73fa69db4d4eab85d099f7169448f724f81e:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-10-fix-1-review-package.md:generic-api-key:2025
+c85fd8a1d982465b72755b3de2d9c7b28e58ce54:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/final-fix1-review-package.md:generic-api-key:66409
+eca7f6c438a29cc3ae93b615b7cad236453a2ad9:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-evidence/development17-fix.txt:generic-api-key:142
+eca7f6c438a29cc3ae93b615b7cad236453a2ad9:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-evidence/python-diagnostic17.txt:generic-api-key:1611
+eca7f6c438a29cc3ae93b615b7cad236453a2ad9:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-evidence/python-diagnostic17.txt:generic-api-key:1624

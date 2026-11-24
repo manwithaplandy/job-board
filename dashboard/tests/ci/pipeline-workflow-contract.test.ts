@@ -161,6 +161,15 @@ describe("Secret scan job", () => {
     expect(scan).toContain('"$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose --exit-code 1 .');
     expect(scan).not.toContain("secrets.");
   });
+
+  test("accepts findings only one fingerprint at a time", () => {
+    const ignore = readFileSync(path.join(repositoryRoot, ".gitleaksignore"), "utf8");
+    for (const line of ignore.split("\n")) {
+      if (line === "" || line.startsWith("#")) continue;
+      expect(line).toMatch(/^[0-9a-f]{40}:[^:]+:[a-z0-9-]+:\d+$/);
+    }
+    expect(scan).not.toContain("--config");
+  });
 });
 
 describe("artifacts taken from production", () => {

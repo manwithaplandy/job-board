@@ -163,6 +163,8 @@ artifacts. Two rules follow:
 - **Every CI run scans the full git history for secrets** (`Secret scan`, gitleaks, findings
   redacted in the log). GitHub's own secret scanning and push protection also cover the
   repository. A secret that reaches a commit is leaked: rotate it first, then remove it.
+  A finding that is not a secret goes in `.gitleaksignore` by its fingerprint (printed in
+  the log), with a line saying why; never allowlist a whole path.
 
 Nothing here makes logs private. Keep secret values out of `echo`, step summaries and
 artifacts; the schema itself is already public in `schema.sql`.

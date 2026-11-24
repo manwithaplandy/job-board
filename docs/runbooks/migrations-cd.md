@@ -1,10 +1,9 @@
 # Migrations pipeline
 
 Schema changes ship as SQL files in `supabase/migrations/`. Every pull request replays
-them on a throwaway local database. **Applying them to production on merge is not live yet**
-(it arrives with the deploy workflow in phase 4 of the
-[CI/CD overhaul plan](../superpowers/plans/2026-11-20-cicd-overhaul.md)). Until the cutover
-PR merges, do not add migrations at all.
+them on a throwaway local database, and every merge to `main` applies the pending ones to
+production through the `Deploy` workflow before the dashboard ships (see
+[Deploy on merge](#deploy-on-merge)).
 
 The hand-applied history lives in `migrations/archive/`. It is frozen: a checksum test
 fails if any file there changes, and no new file may be added.
@@ -71,8 +70,8 @@ The `Pipeline guard` job only adds labels, never removes them:
 
 - `pipeline-change`: the PR edits `.github/workflows/`, `supabase/config.toml`,
   `tools/migrations/`, `.squawk.toml` or `requirements-ci.txt`.
-- `destructive-migration`: the PR adds a migration the classifier flags. On merge it will
-  wait for approval on the `production-db-destructive` environment.
+- `destructive-migration`: the PR adds a migration the classifier flags. On merge, the
+  `Migrate` job waits for approval on the `production-db-destructive` environment.
 
 ## Production workflows
 
@@ -101,6 +100,45 @@ Supabase and paste the new string into both environments.
   `dry_run` off, waits for approval on `production-db-destructive`, backs up the history
   table (so it cannot run twice), repairs the history to the two baseline versions, checks
   local and remote history match, and proves the schema fingerprint did not change.
+
+## Deploy on merge
+
+`Deploy` (`.github/workflows/deploy.yml`) runs on every push to `main` and by hand. Runs
+queue in one `production-deploy` group and never cancel each other.
+
+1. **Plan migrations** (no secrets). Lists migration files added since the last successful
+   `Deploy` run on `main` (all non-baseline files if there is none), lints them with squawk
+   and classifies them. Any destructive candidate, or `treat_as_destructive` on a manual run,
+   picks the approval-gated environment for the next job.
+2. **Migrate**, in `production-db`, or in `production-db-destructive` when step 1 found
+   something destructive. Skipped when nothing was added, except on a manual run. With the
+   environment's `SUPABASE_DB_URL` (through `prod_dsn`), it reads `supabase migration list`, and fails closed when production's history
+   has a version the repository does not know, or when a destructive file is pending outside
+   the approval-gated environment. Then it runs `supabase db push`, checks the history is in
+   sync, and compares a production fingerprint with `schema.sql`.
+3. **Deploy dashboard**, in `production-deploy`, only after Migrate succeeded or was skipped.
+   It builds with the Vercel CLI from the repository root and deploys to production. Vercel's
+   git integration no longer deploys `main` (`dashboard/vercel.json`); previews still come
+   from it.
+
+**A waiting `Migrate` job** means a destructive migration is pending. Andrew reviews the
+plan summary and the PR, then approves or rejects the job on the run page. Every later merge
+waits behind it in the same group, so decide promptly.
+
+**When Migrate fails**, nothing after the failing file was applied: each file is atomic, and
+the history table holds only files that succeeded. Fix forward with a new migration. Never
+repair the history by hand. The dashboard stays on its previous deployment.
+
+**Re-running:** dispatch `Deploy` from `main`. `dry_run` (the default for manual runs) lists,
+gates and runs `db push --dry-run`, and builds the dashboard without deploying.
+
+**Railway** services (`poller`, `discovery`, `reviewer-worker`, `spend-alert`) use Wait for
+CI, so a merge's Railway deploys wait until `CI` and `Deploy` finish. A run waiting for
+approval holds them too.
+
+**Honest limit:** migrations and the dashboard deploy in sequence, but the Railway services
+and the dashboard do not switch over at the same instant. Keep migrations backward
+compatible with the code that is running (add first, remove in a later PR).
 
 ## Supabase CLI behaviour (v2.122.0)
 

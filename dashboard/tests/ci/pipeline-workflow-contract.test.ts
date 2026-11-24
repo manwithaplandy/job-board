@@ -183,12 +183,14 @@ describe("production database workflows", () => {
   });
 
   test("hand the database URL to commands only through prod_dsn", () => {
-    for (const workflow of [dbOps, rebaseline]) {
+    const deploy = readFileSync(path.join(repositoryRoot, ".github/workflows/deploy.yml"), "utf8");
+    for (const workflow of [dbOps, rebaseline, deploy]) {
       for (const text of Object.values(jobs(workflow))) {
         for (const name of stepNames(text)) {
           const body = step(text, name);
           if (body.includes("secrets.SUPABASE_DB_URL")) {
-            expect(body, name).toMatch(/run: [|>]-?\n\s+python -m tools\.migrations\.prod_dsn --/);
+            expect(body, name).toContain("python -m tools.migrations.prod_dsn --");
+            expect(body.split("secrets.SUPABASE_DB_URL")[1], name).not.toContain("SUPABASE_DB_URL");
           }
           for (const flag of body.matchAll(/--db-url (\S+)/g)) {
             expect(flag[1], name).toMatch(/^("\$PROD_DSN"|\\\$PROD_DSN)$/);
@@ -233,5 +235,75 @@ describe("production database workflows", () => {
     expect(all.apply).toContain(
       "python -m tools.migrations.fingerprint compare fingerprint-before.json fingerprint-after.json",
     );
+  });
+});
+
+const deployPath = path.join(repositoryRoot, ".github/workflows/deploy.yml");
+
+describe("Deploy workflow", () => {
+  const deploy = readFileSync(deployPath, "utf8");
+  const all = jobs(deploy);
+
+  test("runs on pushes to main and by hand, never on pull requests", () => {
+    const triggers = [...onBlock(deploy).matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]);
+    expect(triggers).toEqual(["push", "workflow_dispatch"]);
+    expect(onBlock(deploy)).toMatch(/push:\n {4}branches: \[main\]\n/);
+    expect(onBlock(deploy)).toMatch(/\n {6}dry_run:\n/);
+    expect(onBlock(deploy)).toMatch(/\n {6}treat_as_destructive:\n/);
+    expect(deploy).not.toContain("pull_request");
+  });
+
+  test("never cancels a deploy in flight", () => {
+    expect(deploy).toMatch(/concurrency:\n {2}group: production-deploy\n {2}cancel-in-progress: false\n/);
+  });
+
+  test("has the three jobs in order", () => {
+    expect(Object.keys(all)).toEqual(["plan-migrations", "migrate", "deploy-dashboard"]);
+  });
+
+  test("plans without secrets or an environment", () => {
+    expect(all["plan-migrations"]).not.toContain("environment:");
+    expect(all["plan-migrations"]).not.toContain("secrets.");
+  });
+
+  test("migrates only in one of the two database environments", () => {
+    const migrate = all.migrate;
+    expect(migrate).toContain("needs: plan-migrations");
+    const env = migrate.match(/\n {4}environment: (.+)\n/)?.[1] ?? "";
+    expect(env).toBe(
+      "${{ needs.plan-migrations.outputs.destructive == 'true' && 'production-db-destructive' || 'production-db' }}",
+    );
+    for (const [id, text] of Object.entries(all)) {
+      if (id !== "migrate") expect(text, id).not.toContain("secrets.SUPABASE_");
+    }
+    expect(migrate).toContain("python -m tools.migrations.pending gate");
+    expect(migrate).toContain('supabase db push --db-url "$PROD_DSN" --dry-run');
+  });
+
+  test("deploys the dashboard only after migrations succeed or are skipped", () => {
+    const deployJob = all["deploy-dashboard"];
+    expect(deployJob).toMatch(/needs: \[plan-migrations, migrate\]/);
+    expect(deployJob).toContain("environment: production-deploy\n");
+    expect(deployJob).toContain(
+      "needs.migrate.result == 'success' || needs.migrate.result == 'skipped'",
+    );
+    expect(deployJob).toMatch(/npx --yes vercel@\d+\.\d+\.\d+ /);
+  });
+
+  test("never pushes, repairs history or resets the production database", () => {
+    for (const banned of ["git push", "migration repair", "db reset --db-url"]) {
+      expect(deploy).not.toContain(banned);
+    }
+  });
+
+  test("Vercel's git integration no longer deploys main", () => {
+    const vercel = JSON.parse(readFileSync(path.join(process.cwd(), "vercel.json"), "utf8"));
+    expect(vercel.git?.deploymentEnabled?.main).toBe(false);
+  });
+
+  test("CI still runs on pushes to main and never cancels them", () => {
+    expect(onBlock(ci)).toMatch(/push:\n {4}branches: \[main\]\n/);
+    expect(ci).not.toContain("cancel-in-progress: true");
+    expect(ci).toContain("cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}");
   });
 });

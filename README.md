@@ -146,11 +146,13 @@ start `python -m reviewer.worker`.
 - **Database** → Supabase (Postgres). `schema.sql` is the full schema the tests load.
   New schema changes go in `supabase/migrations/` and follow the
   [migrations pipeline runbook](docs/runbooks/migrations-cd.md); every PR replays them on a
-  throwaway database. **Until the cutover PR merges, do not add migrations at all.** The
+  throwaway database and every merge applies them to production. The
   schema as of the cutover is `supabase/migrations/*_baseline*.sql`. The hand-applied history is frozen in `migrations/archive/`. Supabase's version/name history
   and the repository's `public.schema_migrations` filename ledger are separate; see the
   [classification and lifecycle ledger checkpoints](docs/runbooks/migration-ledger-state.md).
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
+  Production deploys come from the `Deploy` workflow after migrations; Vercel's git
+  integration builds previews only.
 - **OpenRouter spend alert** → Railway **cron** service (`railway.spend-alert.json`, hourly
   `0 * * * *`), root `/`, start `python -m observability.spend_alert`. It snapshots
   OpenRouter usage/credits into `openrouter_usage_snapshots`, computes the trailing-24h
@@ -160,7 +162,9 @@ start `python -m reviewer.worker`.
   so the cron surfaces the failure (never a silent pass). This is the backstop *behind*
   the per-user daily caps and the `OutOfCreditsError` hard halt — not a replacement.
 
-Pushes to `main` auto-deploy the affected component.
+Pushes to `main` deploy through the `Deploy` workflow (migrations, then the dashboard).
+Railway services redeploy on their watch patterns and wait for `CI` and `Deploy` to finish
+(Railway's Wait for CI). See the [migrations runbook](docs/runbooks/migrations-cd.md#deploy-on-merge).
 
 ## Ops runbooks
 

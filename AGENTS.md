@@ -30,7 +30,8 @@
   only the migration, `schema.sql`, tests and docs.
 - Never edit, rename or delete a merged migration, and never touch `migrations/archive/`.
   Fix forward with a new file.
-- Until the cutover PR merges, do not add migrations at all.
+- A PR labelled `pipeline-change` merges only once Andrew has approved it or told the agent
+  to merge it. Production migrations come from the `Deploy` workflow, never by hand.
 
 ## Supabase storage observations
 

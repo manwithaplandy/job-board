@@ -1,0 +1,242 @@
+name: Deploy
+
+# Production deploy for every merge to main: apply pending database
+# migrations. The Migrate job runs on every push to main and is the gate the
+# other deploys wait for: Vercel's Deployment Checks hold the dashboard's
+# production alias, and Railway's "Wait for CI" holds the services, until it
+# passes. See docs/runbooks/migrations-cd.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Check migrations without changing production
+        type: boolean
+        default: true
+      treat_as_destructive:
+        description: Run Migrate in the approval-gated environment even if nothing is flagged
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  plan-migrations:
+    name: Plan migrations
+    runs-on: ubuntu-24.04
+    outputs:
+      has_candidates: ${{ steps.plan.outputs.has_candidates }}
+      destructive: ${{ steps.plan.outputs.destructive }}
+      candidates: ${{ steps.plan.outputs.candidates }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - name: Install migration tools
+        run: python -m pip install -r requirements-ci.txt
+      - name: Find the last successful deploy
+        id: last
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy.yml --branch main \
+            --status success --limit 1 --json headSha --jq '.[0].headSha // ""')"
+          echo "Last successful deploy: ${sha:-none}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Plan
+        id: plan
+        env:
+          LAST_SHA: ${{ steps.last.outputs.sha }}
+          EVENT: ${{ github.event_name }}
+          FORCE_DESTRUCTIVE: ${{ inputs.treat_as_destructive == true }}
+        run: |
+          added=()
+          if [ -n "$LAST_SHA" ] && git cat-file -e "${LAST_SHA}^{commit}" 2>/dev/null; then
+            git diff --name-only --diff-filter=A "$LAST_SHA" HEAD -- supabase/migrations > added.txt
+            added=(--added-file added.txt)
+          fi
+          mapfile -t files < <(python -m tools.migrations.pending candidates --dir supabase/migrations "${added[@]}")
+          destructive="$FORCE_DESTRUCTIVE"
+          if [ "${#files[@]}" -gt 0 ]; then
+            status=0
+            squawk --config .squawk.toml --reporter json "${files[@]}" > squawk.json || status=$?
+            if [ "$status" -ne 0 ] && [ ! -s squawk.json ]; then
+              exit "$status"
+            fi
+            python -m tools.migrations.classify --squawk-json squawk.json "${files[@]}" > classification.json
+            if [ "$(jq -r .destructive classification.json)" = "true" ]; then
+              destructive=true
+            fi
+          fi
+          has_candidates=false
+          if [ "${#files[@]}" -gt 0 ] || [ "$EVENT" = "workflow_dispatch" ]; then
+            has_candidates=true
+          fi
+          {
+            echo "has_candidates=$has_candidates"
+            echo "destructive=$destructive"
+            echo "candidates=$(printf '%s\n' "${files[@]}" | jq -R . | jq -cs 'map(select(. != ""))')"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Migration plan"
+            echo
+            echo "| Candidate | Destructive reasons |"
+            echo "|---|---|"
+            for f in "${files[@]}"; do
+              reasons="$(jq -r --arg n "$(basename "$f")" '.files[$n] | join("; ")' classification.json)"
+              echo "| \`$(basename "$f")\` | ${reasons:-none} |"
+            done
+            echo
+            echo "Applies migrations: $has_candidates. Needs approval: $destructive."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Never skipped: Vercel's Deployment Checks wait on this job by name, and a
+  # skipped check is not documented as passing. With nothing to apply, every
+  # step below is skipped and the job passes at once.
+  migrate:
+    name: Migrate
+    needs: plan-migrations
+    runs-on: ubuntu-24.04
+    environment: ${{ needs.plan-migrations.outputs.destructive == 'true' && 'production-db-destructive' || 'production-db' }}
+    env:
+      HAS_CANDIDATES: ${{ needs.plan-migrations.outputs.has_candidates }}
+      PROJECT_REF: fdhspmavadgucktetzoi
+      # Local throwaway Supabase database for the schema check; not a secret.
+      LOCAL_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      REVIEWED_ENV: ${{ needs.plan-migrations.outputs.destructive }}
+      DRY_RUN: ${{ inputs.dry_run == true }}
+    steps:
+      - name: Nothing to migrate
+        if: env.HAS_CANDIDATES != 'true'
+        run: echo "No migration files were added since the last successful deploy." | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v7
+        if: env.HAS_CANDIDATES == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        if: env.HAS_CANDIDATES == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - uses: supabase/setup-cli@v3
+        if: env.HAS_CANDIDATES == 'true'
+        with:
+          version: 2.122.0
+      - name: Install migration tools
+        if: env.HAS_CANDIDATES == 'true'
+        run: python -m pip install -r requirements-ci.txt
+      - name: List production history
+        if: env.HAS_CANDIDATES == 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          python -m tools.migrations.prod_dsn -- bash -euo pipefail -c \
+            'supabase migration list --db-url "$PROD_DSN" > history.txt'
+          cat history.txt
+      - name: Find pending migrations
+        if: env.HAS_CANDIDATES == 'true'
+        id: pending
+        run: |
+          python -m tools.migrations.pending pending --dir supabase/migrations --listing history.txt > pending.txt
+          count="$(grep -c . pending.txt || true)"
+          echo "Pending: $count"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+      - name: Classify pending migrations
+        if: env.HAS_CANDIDATES == 'true' && steps.pending.outputs.count != '0'
+        run: |
+          mapfile -t files < pending.txt
+          status=0
+          squawk --config .squawk.toml --reporter json "${files[@]}" > squawk.json || status=$?
+          if [ "$status" -ne 0 ] && [ ! -s squawk.json ]; then
+            exit "$status"
+          fi
+          python -m tools.migrations.classify --squawk-json squawk.json "${files[@]}" > classification.json
+          cat classification.json
+      - name: Gate
+        if: env.HAS_CANDIDATES == 'true'
+        run: |
+          classification=()
+          if [ -f classification.json ]; then
+            classification=(--classification classification.json)
+          fi
+          python -m tools.migrations.pending gate --listing history.txt \
+            "${classification[@]}" --reviewed-env "$REVIEWED_ENV"
+      - name: Dry run
+        if: env.HAS_CANDIDATES == 'true' && env.DRY_RUN == 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: >-
+          python -m tools.migrations.prod_dsn -- bash -euo pipefail -c
+          'supabase db push --db-url "$PROD_DSN" --dry-run'
+      - name: Apply
+        if: env.HAS_CANDIDATES == 'true' && env.DRY_RUN != 'true' && steps.pending.outputs.count != '0'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: >-
+          python -m tools.migrations.prod_dsn -- bash -euo pipefail -c
+          'supabase db push --db-url "$PROD_DSN" --yes'
+      - name: Check history is in sync
+        if: env.HAS_CANDIDATES == 'true' && env.DRY_RUN != 'true' && steps.pending.outputs.count != '0'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          python -m tools.migrations.prod_dsn -- bash -euo pipefail -c \
+            'supabase migration list --db-url "$PROD_DSN" > history-after.txt'
+          python -m tools.migrations.history check-synced history-after.txt
+          {
+            echo "## Applied migrations"
+            echo
+            sed 's/^/    /' pending.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Production matches schema.sql
+        if: env.HAS_CANDIDATES == 'true' && env.DRY_RUN != 'true' && steps.pending.outputs.count != '0'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          supabase db start
+          workdir="$(mktemp -d)"
+          mkdir -p "$workdir/supabase/migrations"
+          cp supabase/config.toml "$workdir/supabase/config.toml"
+          supabase db reset --workdir "$workdir" --local --no-seed
+          psql "$LOCAL_DB_URL" -v ON_ERROR_STOP=1 -q -f schema.sql
+          python -m tools.migrations.fingerprint capture --dsn-env LOCAL_DB_URL --out fingerprint-schema-sql.json
+          python -m tools.migrations.prod_dsn -- \
+            python -m tools.migrations.fingerprint capture --dsn-env PROD_DSN --out fingerprint-prod.json
+          expected=()
+          if [ -f supabase/schema-sync-expected-diff.json ]; then
+            expected=(--expected supabase/schema-sync-expected-diff.json)
+          fi
+          python -m tools.migrations.fingerprint compare \
+            fingerprint-prod.json fingerprint-schema-sql.json \
+            --ignore supabase/fingerprint-ignore.json "${expected[@]}" \
+            --skip-sections storage_policies,storage_buckets
+      - name: Upload migration reports
+        if: always() && env.HAS_CANDIDATES == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-migration-reports
+          path: |
+            history.txt
+            history-after.txt
+            pending.txt
+            squawk.json
+            classification.json
+            fingerprint-*.json
+          if-no-files-found: ignore
+          retention-days: 1
+

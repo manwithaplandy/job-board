@@ -150,6 +150,38 @@ function onBlock(workflow: string): string {
   return workflow.slice(start, end);
 }
 
+describe("Secret scan job", () => {
+  const scan = job(ci, "secret-scan");
+
+  test("scans the full history with redacted output and fails on findings", () => {
+    expect(scan).toContain("name: Secret scan\n");
+    expect(scan).toContain("fetch-depth: 0");
+    expect(scan).toMatch(/GITLEAKS_VERSION: \d+\.\d+\.\d+\n/);
+    expect(scan).toContain("sha256sum -c -");
+    expect(scan).toContain('"$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose --exit-code 1 .');
+    expect(scan).not.toContain("secrets.");
+  });
+
+  test("accepts findings only one fingerprint at a time", () => {
+    const ignore = readFileSync(path.join(repositoryRoot, ".gitleaksignore"), "utf8");
+    for (const line of ignore.split("\n")) {
+      if (line === "" || line.startsWith("#")) continue;
+      expect(line).toMatch(/^[0-9a-f]{40}:[^:]+:[a-z0-9-]+:\d+$/);
+    }
+    expect(scan).not.toContain("--config");
+  });
+});
+
+describe("artifacts taken from production", () => {
+  test("are kept for one day, because the repository is public", () => {
+    for (const workflow of [dbOps, rebaseline]) {
+      const retentions = [...workflow.matchAll(/retention-days: (\d+)/g)].map((m) => m[1]);
+      expect(retentions.length).toBeGreaterThan(0);
+      expect(new Set(retentions)).toEqual(new Set(["1"]));
+    }
+  });
+});
+
 describe("production database workflows", () => {
   test("are manual only", () => {
     for (const workflow of [dbOps, rebaseline]) {

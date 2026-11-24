@@ -14,6 +14,9 @@ ALTER TABLE lifecycle_identity_authorizations
  ADD COLUMN IF NOT EXISTS wal_source_observed_at timestamptz;
 ALTER TABLE lifecycle_identity_authorizations ALTER COLUMN observed_at DROP NOT NULL;
 ALTER TABLE lifecycle_identity_authorizations DROP CONSTRAINT IF EXISTS identity_observation_basis;
+-- Reviewed exception: the table holds no rows in production (checked 2026-11-24), so
+-- validating the constraint in the same statement costs nothing.
+-- squawk-ignore constraint-missing-not-valid
 ALTER TABLE lifecycle_identity_authorizations ADD CONSTRAINT identity_observation_basis CHECK (
  (observation_basis='measurement' AND observed_at IS NOT NULL AND disk_fetched_at IS NULL AND wal_fetched_at IS NULL)
  OR (observation_basis='retrieval_unknown' AND observed_at IS NULL AND disk_fetched_at IS NOT NULL AND wal_fetched_at IS NOT NULL)

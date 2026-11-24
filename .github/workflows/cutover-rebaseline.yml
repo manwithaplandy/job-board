@@ -99,7 +99,7 @@ jobs:
         with:
           name: history-before
           path: history-before.txt
-          retention-days: 30
+          retention-days: 1
 
   apply:
     name: Apply re-baseline
@@ -185,4 +185,4 @@ jobs:
             history-after.txt
             fingerprint-*.json
           if-no-files-found: ignore
-          retention-days: 90
+          retention-days: 1

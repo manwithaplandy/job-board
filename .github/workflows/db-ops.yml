@@ -60,7 +60,7 @@ jobs:
             baseline.sql
             history.txt
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
       - name: Capture fingerprint
         if: inputs.op == 'fingerprint'
         env:
@@ -75,4 +75,4 @@ jobs:
           name: prod-fingerprint
           path: prod-fingerprint.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1

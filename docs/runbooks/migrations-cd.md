@@ -152,6 +152,21 @@ serving while the migration applies, and the Railway services and the dashboard 
 switch over at the same instant. Keep migrations backward compatible with the code that is
 running (add first, remove in a later PR).
 
+## Public repository
+
+The repository is public, so anyone signed in to GitHub can read workflow logs and download
+artifacts. Two rules follow:
+
+- **Artifacts taken from production are kept for one day:** the `Deploy` migration reports,
+  the `Database operations (read-only)` dump and fingerprint, and the cutover evidence. Download
+  what you need on the day. A contract test pins this.
+- **Every CI run scans the full git history for secrets** (`Secret scan`, gitleaks, findings
+  redacted in the log). GitHub's own secret scanning and push protection also cover the
+  repository. A secret that reaches a commit is leaked: rotate it first, then remove it.
+
+Nothing here makes logs private. Keep secret values out of `echo`, step summaries and
+artifacts; the schema itself is already public in `schema.sql`.
+
 ## Supabase CLI behaviour (v2.122.0)
 
 Checked on 2026-11-20 with `supabase migration up --db-url` against a local Postgres 16,

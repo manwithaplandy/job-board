@@ -104,22 +104,37 @@ Supabase and paste the new string into both environments.
 ## Deploy on merge
 
 `Deploy` (`.github/workflows/deploy.yml`) runs on every push to `main` and by hand. Runs
-queue in one `production-deploy` group and never cancel each other.
+queue in one `production-deploy` concurrency group and never cancel each other. It applies
+migrations only; the dashboard and the Railway services deploy through their own git
+integrations and wait for it.
 
 1. **Plan migrations** (no secrets). Lists migration files added since the last successful
    `Deploy` run on `main` (all non-baseline files if there is none), lints them with squawk
    and classifies them. Any destructive candidate, or `treat_as_destructive` on a manual run,
    picks the approval-gated environment for the next job.
 2. **Migrate**, in `production-db`, or in `production-db-destructive` when step 1 found
-   something destructive. Skipped when nothing was added, except on a manual run. With the
-   environment's `SUPABASE_DB_URL` (through `prod_dsn`), it reads `supabase migration list`, and fails closed when production's history
-   has a version the repository does not know, or when a destructive file is pending outside
-   the approval-gated environment. Then it runs `supabase db push`, checks the history is in
-   sync, and compares a production fingerprint with `schema.sql`.
-3. **Deploy dashboard**, in `production-deploy`, only after Migrate succeeded or was skipped.
-   It builds with the Vercel CLI from the repository root and deploys to production. Vercel's
-   git integration no longer deploys `main` (`dashboard/vercel.json`); previews still come
-   from it.
+   something destructive. It runs on every push and is never skipped, because other deploys
+   wait on its check; with nothing added (and not a manual run) every step is skipped and it
+   passes at once. Otherwise, with the environment's `SUPABASE_DB_URL` (through `prod_dsn`),
+   it reads `supabase migration list`, and fails closed when production's history has a
+   version the repository does not know, or when a destructive file is pending outside the
+   approval-gated environment. Then it runs `supabase db push`, checks the history is in
+   sync, and compares a production fingerprint with `schema.sql`. Its reports are kept for
+   one day.
+
+**Who waits for Migrate:**
+
+- **Dashboard (Vercel).** Vercel's git integration still builds every push to `main`, but a
+  Deployment Check on the `Migrate` job (Project Settings → Build and Deployment →
+  Deployment Checks) holds the production alias until Migrate passes. If Migrate fails, the
+  build stays unpromoted and the dashboard stays on its previous deployment. Force Promote
+  on the deployment page overrides the check; don't, unless the migration is known to be
+  irrelevant to the dashboard.
+- **Railway** services (`poller`, `discovery`, `reviewer-worker`, `spend-alert`) use Wait for
+  CI, so a merge's Railway deploys wait until `CI` and `Deploy` finish.
+
+The job is named `Migrate` and Vercel matches checks by job name: renaming it means updating
+the Deployment Check. A run waiting for approval holds the dashboard and Railway too.
 
 **A waiting `Migrate` job** means a destructive migration is pending. Andrew reviews the
 plan summary and the PR, then approves or rejects the job on the run page. Every later merge
@@ -127,18 +142,15 @@ waits behind it in the same group, so decide promptly.
 
 **When Migrate fails**, nothing after the failing file was applied: each file is atomic, and
 the history table holds only files that succeeded. Fix forward with a new migration. Never
-repair the history by hand. The dashboard stays on its previous deployment.
+repair the history by hand.
 
 **Re-running:** dispatch `Deploy` from `main`. `dry_run` (the default for manual runs) lists,
-gates and runs `db push --dry-run`, and builds the dashboard without deploying.
+gates and runs `db push --dry-run` without changing production.
 
-**Railway** services (`poller`, `discovery`, `reviewer-worker`, `spend-alert`) use Wait for
-CI, so a merge's Railway deploys wait until `CI` and `Deploy` finish. A run waiting for
-approval holds them too.
-
-**Honest limit:** migrations and the dashboard deploy in sequence, but the Railway services
-and the dashboard do not switch over at the same instant. Keep migrations backward
-compatible with the code that is running (add first, remove in a later PR).
+**Honest limit:** new code goes live only after its migration, but the previous code keeps
+serving while the migration applies, and the Railway services and the dashboard do not
+switch over at the same instant. Keep migrations backward compatible with the code that is
+running (add first, remove in a later PR).
 
 ## Supabase CLI behaviour (v2.122.0)
 

@@ -257,8 +257,8 @@ describe("Deploy workflow", () => {
     expect(deploy).toMatch(/concurrency:\n {2}group: production-deploy\n {2}cancel-in-progress: false\n/);
   });
 
-  test("has the three jobs in order", () => {
-    expect(Object.keys(all)).toEqual(["plan-migrations", "migrate", "deploy-dashboard"]);
+  test("has the two jobs in order", () => {
+    expect(Object.keys(all)).toEqual(["plan-migrations", "migrate"]);
   });
 
   test("plans without secrets or an environment", () => {
@@ -280,25 +280,33 @@ describe("Deploy workflow", () => {
     expect(migrate).toContain('supabase db push --db-url "$PROD_DSN" --dry-run');
   });
 
-  test("deploys the dashboard only after migrations succeed or are skipped", () => {
-    const deployJob = all["deploy-dashboard"];
-    expect(deployJob).toMatch(/needs: \[plan-migrations, migrate\]/);
-    expect(deployJob).toContain("environment: production-deploy\n");
-    expect(deployJob).toContain(
-      "needs.migrate.result == 'success' || needs.migrate.result == 'skipped'",
-    );
-    expect(deployJob).toMatch(/npx --yes vercel@\d+\.\d+\.\d+ /);
+  test("Migrate runs on every push, because Vercel's Deployment Checks wait on it", () => {
+    const migrate = all.migrate;
+    expect(migrate).toMatch(/\n {4}name: Migrate\n/);
+    expect(migrate).not.toMatch(/\n {4}if: /);
+    expect(migrate).toContain("HAS_CANDIDATES: ${{ needs.plan-migrations.outputs.has_candidates }}");
+    const unguarded = [...migrate.matchAll(/\n {6}- (?:name|uses): ([^\n]+)\n {8}(?!if: )/g)].map((m) => m[1]);
+    expect(unguarded).toEqual([]);
+    for (const m of migrate.matchAll(/\n {8}if: ([^\n]+)/g)) {
+      expect(m[1]).toMatch(/HAS_CANDIDATES/);
+    }
+  });
+
+  test("keeps production-derived reports for one day", () => {
+    expect(all.migrate).toContain("retention-days: 1\n");
+  });
+
+  test("leaves the dashboard deploy to Vercel's git integration", () => {
+    expect(deploy).not.toContain("vercel@");
+    expect(deploy).not.toContain("VERCEL_TOKEN");
+    const vercel = JSON.parse(readFileSync(path.join(process.cwd(), "vercel.json"), "utf8"));
+    expect(vercel.git?.deploymentEnabled?.main).not.toBe(false);
   });
 
   test("never pushes, repairs history or resets the production database", () => {
     for (const banned of ["git push", "migration repair", "db reset --db-url"]) {
       expect(deploy).not.toContain(banned);
     }
-  });
-
-  test("Vercel's git integration no longer deploys main", () => {
-    const vercel = JSON.parse(readFileSync(path.join(process.cwd(), "vercel.json"), "utf8"));
-    expect(vercel.git?.deploymentEnabled?.main).toBe(false);
   });
 
   test("CI still runs on pushes to main and never cancels them", () => {

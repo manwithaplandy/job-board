@@ -151,8 +151,8 @@ start `python -m reviewer.worker`.
   and the repository's `public.schema_migrations` filename ledger are separate; see the
   [classification and lifecycle ledger checkpoints](docs/runbooks/migration-ledger-state.md).
 - **Dashboard** → Vercel (root `dashboard/`), connecting via the Supabase transaction pooler.
-  Production deploys come from the `Deploy` workflow after migrations; Vercel's git
-  integration builds previews only.
+  Vercel's git integration deploys `main`, and a Deployment Check holds the production
+  alias until the `Deploy` workflow's `Migrate` job passes.
 - **OpenRouter spend alert** → Railway **cron** service (`railway.spend-alert.json`, hourly
   `0 * * * *`), root `/`, start `python -m observability.spend_alert`. It snapshots
   OpenRouter usage/credits into `openrouter_usage_snapshots`, computes the trailing-24h
@@ -162,9 +162,9 @@ start `python -m reviewer.worker`.
   so the cron surfaces the failure (never a silent pass). This is the backstop *behind*
   the per-user daily caps and the `OutOfCreditsError` hard halt — not a replacement.
 
-Pushes to `main` deploy through the `Deploy` workflow (migrations, then the dashboard).
-Railway services redeploy on their watch patterns and wait for `CI` and `Deploy` to finish
-(Railway's Wait for CI). See the [migrations runbook](docs/runbooks/migrations-cd.md#deploy-on-merge).
+Pushes to `main` apply migrations through the `Deploy` workflow. The dashboard (Vercel's
+Deployment Checks) and the Railway services (Railway's Wait for CI) deploy from their own
+git integrations and wait for it. See the [migrations runbook](docs/runbooks/migrations-cd.md#deploy-on-merge).
 
 ## Ops runbooks
 

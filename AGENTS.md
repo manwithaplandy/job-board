@@ -31,7 +31,7 @@
 - Never edit, rename or delete a merged migration, and never touch `migrations/archive/`.
   Fix forward with a new file.
 - A PR labelled `pipeline-change` merges only once Andrew has approved it or told the agent
-  to merge it. Production deploys come from the `Deploy` workflow, never by hand.
+  to merge it. Production migrations come from the `Deploy` workflow, never by hand.
 
 ## Supabase storage observations
 

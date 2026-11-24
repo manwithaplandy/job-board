@@ -3,8 +3,7 @@
 Schema changes ship as SQL files in `supabase/migrations/`. Every pull request replays
 them on a throwaway local database, and every merge to `main` applies the pending ones to
 production through the `Deploy` workflow before the dashboard ships (see
-[Deploy on merge](#deploy-on-merge)). Until the cutover PR merges, do not add migrations at
-all.
+[Deploy on merge](#deploy-on-merge)).
 
 The hand-applied history lives in `migrations/archive/`. It is frozen: a checksum test
 fails if any file there changes, and no new file may be added.

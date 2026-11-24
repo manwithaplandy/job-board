@@ -146,7 +146,7 @@ start `python -m reviewer.worker`.
 - **Database** → Supabase (Postgres). `schema.sql` is the full schema the tests load.
   New schema changes go in `supabase/migrations/` and follow the
   [migrations pipeline runbook](docs/runbooks/migrations-cd.md); every PR replays them on a
-  throwaway database. **Until the cutover PR merges, do not add migrations at all.** The
+  throwaway database and every merge applies them to production. The
   schema as of the cutover is `supabase/migrations/*_baseline*.sql`. The hand-applied history is frozen in `migrations/archive/`. Supabase's version/name history
   and the repository's `public.schema_migrations` filename ledger are separate; see the
   [classification and lifecycle ledger checkpoints](docs/runbooks/migration-ledger-state.md).

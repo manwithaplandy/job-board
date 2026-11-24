@@ -14,6 +14,19 @@ ROOT = Path(__file__).resolve().parents[1]
 FROZEN = ROOT / "tests/fixtures/lifecycle/schema-before-lifecycle.sql"
 MANIFEST = FROZEN.with_suffix(".json")
 
+# The frozen fixture is a copy of schema.sql at its base commit, and it inherited
+# schema.sql's drift from what had actually been applied: the 2026-07-08
+# reasoning-effort migration (already applied, so not replayed here) names its
+# checks *_valid, and production has those names, but the fixture left them unnamed.
+# The fixture is pinned by hash, so the correction is applied here instead. The
+# 2026-11-21 cutover fixed schema.sql to production's names.
+FROZEN_FIXTURE_DRIFT = """
+ALTER TABLE profiles RENAME CONSTRAINT profiles_reasoning_effort_resume_check
+  TO reasoning_effort_resume_valid;
+ALTER TABLE profiles RENAME CONSTRAINT profiles_reasoning_effort_cover_check
+  TO reasoning_effort_cover_valid;
+"""
+
 
 def helpers():
     assert (ROOT / "tests/lifecycle_helpers.py").exists(), "migration helpers are absent"
@@ -40,6 +53,7 @@ def test_clean_schema_matches_frozen_baseline_plus_all_new_migrations(conn):
         if p.name not in manifest["existing_migrations"]
     )
     module.bootstrap_schema(conn, FROZEN.read_text())
+    conn.execute(FROZEN_FIXTURE_DRIFT)
     module.apply_migrations(conn, paths)
     migrated = module.schema_catalog(conn)
     assert migrated == clean

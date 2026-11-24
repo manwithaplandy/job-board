@@ -158,7 +158,7 @@ describe("Secret scan job", () => {
     expect(scan).toContain("fetch-depth: 0");
     expect(scan).toMatch(/GITLEAKS_VERSION: \d+\.\d+\.\d+\n/);
     expect(scan).toContain("sha256sum -c -");
-    expect(scan).toContain('"$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 .');
+    expect(scan).toContain('"$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose --exit-code 1 .');
     expect(scan).not.toContain("secrets.");
   });
 });

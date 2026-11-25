@@ -37,6 +37,43 @@
 .rf-block-facts dt { color: var(--text-muted); font-size: var(--font-size-small); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .rf-block-facts dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
 
+.rf-block-prep__list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.rf-block-prep__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; border-bottom: 1px solid var(--border); padding-bottom: var(--space-2); }
+.rf-block-prep__label { flex: 1 1 auto; min-width: 0; color: var(--text-primary); font-weight: 600; }
+.rf-block-prep__detail { color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-block-prep__note { margin: 0; color: var(--warning); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
+
+.rf-block-evidence__summary { margin: 0; color: var(--text-secondary); font-size: var(--font-size-help); }
+.rf-block-evidence__list { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.rf-block-evidence__row { display: grid; gap: var(--space-1); min-width: 0; border-left: 3px solid var(--success); padding-left: var(--space-3); }
+.rf-block-evidence__row--gap { border-left-color: var(--warning); }
+.rf-block-evidence__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.rf-block-evidence__requirement { color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; }
+.rf-block-evidence__note { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
+.rf-block-evidence__checks { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-4); color: var(--text-secondary); font-size: var(--font-size-caption); }
+
+.rf-block-doc__page { display: grid; gap: var(--space-2); max-height: 28rem; overflow: auto; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-4); background: var(--bg-muted); }
+.rf-block-doc__name { margin: 0; color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; overflow-wrap: anywhere; }
+.rf-block-doc__headline { margin: 0; color: var(--text-secondary); font-weight: 600; overflow-wrap: anywhere; }
+.rf-block-doc__muted { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
+.rf-block-doc__text { margin: 0; color: var(--text-primary); font-size: var(--font-size-help); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rf-block-doc__role { display: grid; gap: var(--space-1); min-width: 0; }
+.rf-block-doc__role-title { margin: 0; color: var(--text-primary); font-size: var(--font-size-help); font-weight: 650; overflow-wrap: anywhere; }
+.rf-block-doc__bullets { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-4); color: var(--text-primary); font-size: var(--font-size-help); }
+
+.rf-block-stats__row { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); margin: 0; }
+.rf-block-stats__item { display: grid; gap: var(--space-1); align-content: start; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-3); }
+.rf-block-stats__item dt { color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 600; overflow-wrap: anywhere; }
+.rf-block-stats__value { margin: 0; color: var(--text-primary); font-size: var(--font-size-heading); font-weight: 700; line-height: 1.1; }
+.rf-block-stats__meta { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
+
+.rf-block-chart__visual { min-width: 0; }
+.rf-block-chart__stat { display: grid; gap: var(--space-1); min-width: 0; }
+.rf-block-chart__stat-title { margin: 0; color: var(--text-primary); font-weight: 650; overflow-wrap: anywhere; }
+
+.rf-block-stale__list { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.rf-block-stale__item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; border-bottom: 1px solid var(--border); padding-bottom: var(--space-3); }
+
 @media (max-width: 760px) {
   .rf-block-facts { grid-template-columns: minmax(0, 1fr); }
 }

@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { VisualBoardState, type VisualBoardStateName } from "@/components/rolefit/VisualBoardState";
 import { HBarCard } from "@/components/analytics/Chart";
 import { AgentChat } from "@/components/agent/AgentChat";
-import { AgentBlocksJobsFixture } from "@/components/agent/blocks/AgentBlocksFixture";
+import { AgentBlocksJobsFixture, AgentBlocksPrepFixture } from "@/components/agent/blocks/AgentBlocksFixture";
 import { MemoDiffFixture } from "@/components/workspaces/MemoDiffFixture";
 import { ShortlistBoard } from "@/components/workspaces/ShortlistBoard";
 import type { ShortlistRow } from "@/lib/workspaces/types";
@@ -58,6 +58,7 @@ const COPY: Record<string, { eyebrow: string; title: string; description: string
   "agent-budget": { eyebrow: "Agent · budget", title: "Daily budget reached", description: "The composer stays disabled until the budget resets." },
   "agent-disabled": { eyebrow: "Agent · disabled", title: "Agent switched off", description: "The workspaces keep working while the agent is paused." },
   "agent-blocks-jobs": { eyebrow: "Agent · blocks", title: "Job blocks", description: "Variant 1 job, comparison, queue, memo, profile and intake blocks." },
+  "agent-blocks-prep": { eyebrow: "Agent · blocks", title: "Prep and metric blocks", description: "Variant 1 prep checklist, evidence map, document preview, stat row, chart and stale list blocks." },
   "workspaces-empty": { eyebrow: "Workspaces · empty", title: "Shortlist", description: "Nothing triaged yet; the agent and suggestions fill it." },
   "workspaces-agent-marker": { eyebrow: "Workspaces · agent", title: "Shortlist", description: "A row the agent skipped, with its reason and Undo." },
   "workspaces-memo-diff": { eyebrow: "Workspaces · memo", title: "What I'm looking for", description: "The agent's proposed memo change, waiting for Approve, Edit or Decline." },
@@ -78,6 +79,7 @@ export function VisualStateFixture({ state }: { state: string }) {
     if (state === "agent-disabled") return <AgentChat threadId={AGENT_FIXTURE_THREAD} initialMessages={[]} notice="agent_disabled" />;
     // The production variant 1 blocks with fixed gathered data.
     if (state === "agent-blocks-jobs") return <AgentBlocksJobsFixture />;
+    if (state === "agent-blocks-prep") return <AgentBlocksPrepFixture />;
     // The production shortlist board with fixed rows.
     if (state === "workspaces-empty") return <ShortlistBoard rows={[]} markers={{}} browse={[]} filters={WS_NO_FILTERS} browseError={false} />;
     if (state === "workspaces-agent-marker") return <ShortlistBoard rows={[WS_AGENT_SKIPPED]} markers={{ [WS_AGENT_SKIPPED.jobId]: 1 }} browse={[]} filters={WS_NO_FILTERS} browseError={false} skippedOpen />;

@@ -13,6 +13,27 @@ export type OnIntent = (intent: ActionIntent) => void;
 export const UNAVAILABLE_TEXT = "This posting is no longer available";
 
 /**
+ * One job's application package as the host read it from the database. The jsonb
+ * columns arrive as stored (`unknown`): the blocks parse them with the package codec's
+ * total parsers, so a malformed row renders as "not ready" instead of crashing.
+ */
+export interface PackageView {
+  status: "prepared" | "applied";
+  /** application_packages.resume_json, unparsed. */
+  resume: unknown;
+  /** application_packages.cover_letter_json, unparsed. */
+  coverLetter: unknown;
+  /** The user's current edit of the cover letter (cover_letter_edits), when there is one. */
+  coverLetterEditedText: string | null;
+  /** application_packages.prefilled_answers, unparsed. */
+  prefilledAnswers: unknown;
+  /** application_packages.apply_url. */
+  applyUrl: string | null;
+  /** jobs.ats, for the "Apply on {ATS}" label. */
+  ats: string | null;
+}
+
+/**
  * Database rows a block binds to that are not part of the turn's gathered data. The
  * host reads them for the user under RLS. Every field is optional: a block whose row is
  * missing renders a fixed line instead.
@@ -20,4 +41,8 @@ export const UNAVAILABLE_TEXT = "This posting is no longer available";
 export interface BlockRows {
   /** The current memo and the user's pending proposals, by proposal id (MemoDiff). */
   memo?: { current: MemoDoc; proposals: Record<string, MemoProposal> };
+  /** Application packages, by job id (PrepChecklist, EvidenceMap, DocumentPreview). */
+  packages?: Record<string, PackageView>;
+  /** The catalog clock's now (catalogNow), ISO 8601, for StaleList's ages. */
+  now?: string;
 }

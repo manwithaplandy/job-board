@@ -14,9 +14,6 @@ export interface DiscoveryPreferencesInput {
   preferredLocations: string[];
   companyInstructions: string | null;
 }
-export interface JobPreferencesInput extends DiscoveryPreferencesInput {
-  instructions: string | null;
-}
 export interface GenerationDefaultsInput {
   resumeGenerationInstructions: string | null;
   coverLetterGenerationInstructions: string | null;
@@ -117,15 +114,8 @@ async function guarded(
 
 export const updateResumeSource = (u: string, d: ResumeSourceInput) =>
   guarded(u, (tx) => updateResumeSourceWith(tx, u, d));
-export const updateReviewPreferences = (u: string, d: { instructions: string | null }) =>
-  guarded(u, (tx) => updateReviewPreferencesWith(tx, u, d.instructions));
 export const updateDiscoveryPreferences = (u: string, d: DiscoveryPreferencesInput) =>
   guarded(u, (tx) => updateDiscoveryPreferencesWith(tx, u, d));
-export const updateJobPreferences = (u: string, d: JobPreferencesInput) =>
-  guarded(u, async (tx) => {
-    await updateReviewPreferencesWith(tx, u, d.instructions);
-    await updateDiscoveryPreferencesWith(tx, u, d);
-  });
 export const updateApplicationDetails = (u: string, d: ApplicationAnswers) =>
   guarded(u, (tx) => updateApplicationDetailsWith(tx, u, d));
 export const updateGenerationDefaults = (u: string, d: GenerationDefaultsInput) =>

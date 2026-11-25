@@ -150,6 +150,27 @@ test("undo of an agent move to applied that created the row removes it and unmar
   expect(await pkg()).toBeUndefined();
 });
 
+test("undo of an agent move that created the row leaves a package the user had already marked applied", async () => {
+  // The user marked the package applied before the job was on the tracker.
+  await db.sql`INSERT INTO application_packages (user_id, job_id, resume_json, status, applied_at)
+               VALUES (${USER_A}, ${JOB}, '{"kept":true}', 'applied', now())`;
+  const out = await setApplicationStage(USER_A, { jobId: JOB, stage: "interviewing", actor: "agent", audit: ctx() });
+  if (out.actionId === null) throw new Error("expected an action id");
+  const [logged] = await db.sql`SELECT before FROM agent_actions WHERE id = ${out.actionId}`;
+  expect(logged.before).toEqual({ absent: true, packageStatus: "applied" });
+  expect(await undoAction(USER_A, out.actionId)).toEqual({ ok: true });
+  expect(await app()).toBeUndefined();
+  expect(await pkg()).toEqual({ status: "applied", stamped: true, resume_json: { kept: true } });
+
+  // A prepared package the agent's move marked applied goes back to prepared.
+  await db.sql`INSERT INTO application_packages (user_id, job_id, resume_json) VALUES (${USER_A}, ${JOB_2}, '{"kept":2}')`;
+  const second = await setApplicationStage(USER_A, { jobId: JOB_2, stage: "applied", actor: "agent", audit: ctx() });
+  if (second.actionId === null) throw new Error("expected an action id");
+  expect(await pkg(JOB_2)).toMatchObject({ status: "applied" });
+  expect(await undoAction(USER_A, second.actionId)).toEqual({ ok: true });
+  expect(await pkg(JOB_2)).toEqual({ status: "prepared", stamped: false, resume_json: { kept: 2 } });
+});
+
 test("undo of an agent note hides it from the history; the user's own notes stay", async () => {
   await addApplicationNote(USER_A, { jobId: JOB, note: "My own note", actor: "user" });
   const out = await addApplicationNote(USER_A, { jobId: JOB, note: "Agent note", actor: "agent", audit: ctx() });

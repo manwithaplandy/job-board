@@ -181,6 +181,13 @@ describe("POST /api/agent", () => {
     expect(await res.json()).toEqual({ error: "bad_request" });
   });
 
+  test("an approval the loop cannot match to a pending part is a 400 (Task 1.16)", async () => {
+    m.streamAgentTurn.mockRejectedValue(new m.TurnInputError("approval_not_found"));
+    const res = await POST(post({ threadId: THREAD, kind: "approval", approvalId: "stale", approved: true }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "bad_request" });
+  });
+
   test("a deleted account is refused before the body is read", async () => {
     m.assertNotDeleted.mockRejectedValue(new m.AccountDeletedError());
     const res = await POST(post(valid));

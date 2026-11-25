@@ -15,6 +15,7 @@ import { parseProfileLinks } from "@/lib/profileLinks";
 import { parseScreeningAnswers } from "@/lib/screeningAnswers";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import { isAccountDeleted } from "@/lib/tombstone";
+import { z } from "zod";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import {
   parseCompanyExclusions,
@@ -744,28 +745,46 @@ export async function upsertInstructionDraft(
   leg: "resume" | "cover",
   value: string,
 ): Promise<void> {
+  await upsertInstructionDrafts(userId, jobId, leg === "resume" ? { resume: value } : { cover: value });
+}
+
+/**
+ * Saves one or both instructions boxes in ONE transaction, so a failure leaves both as
+ * they were (refine_documents writes both targets at once).
+ */
+export async function upsertInstructionDrafts(
+  userId: string,
+  jobId: string,
+  drafts: { resume?: string; cover?: string },
+): Promise<void> {
+  const legs: ["resume" | "cover", string][] = [];
+  if (drafts.resume !== undefined) legs.push(["resume", drafts.resume]);
+  if (drafts.cover !== undefined) legs.push(["cover", drafts.cover]);
+  if (legs.length === 0) return;
   const payload=await requestJobPayload(userId,jobId,"generation");
   if(payload.status === "pending" || payload.status === "deferred") throw new Error("Job details are being prepared. Try again shortly.");
   await withUserPayloadMutation(userId,jobId,"application_packages",async tx => {
     const snapshot=await readPrivateSnapshot(tx,jobId,"application_packages");
-    if (leg === "resume") {
-      await tx`
-        INSERT INTO application_packages
-          (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, resume_instructions_draft, status, prepared_at)
-        VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
-          ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
-        ON CONFLICT (user_id, job_id) DO UPDATE SET
-          resume_instructions_draft = EXCLUDED.resume_instructions_draft
-      `;
-    } else {
-      await tx`
-        INSERT INTO application_packages
-          (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, cover_letter_instructions_draft, status, prepared_at)
-        VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
-          ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
-        ON CONFLICT (user_id, job_id) DO UPDATE SET
-          cover_letter_instructions_draft = EXCLUDED.cover_letter_instructions_draft
-      `;
+    for (const [leg, value] of legs) {
+      if (leg === "resume") {
+        await tx`
+          INSERT INTO application_packages
+            (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, resume_instructions_draft, status, prepared_at)
+          VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+            ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
+          ON CONFLICT (user_id, job_id) DO UPDATE SET
+            resume_instructions_draft = EXCLUDED.resume_instructions_draft
+        `;
+      } else {
+        await tx`
+          INSERT INTO application_packages
+            (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, cover_letter_instructions_draft, status, prepared_at)
+          VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+            ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
+          ON CONFLICT (user_id, job_id) DO UPDATE SET
+            cover_letter_instructions_draft = EXCLUDED.cover_letter_instructions_draft
+        `;
+      }
     }
   });
 }
@@ -812,7 +831,12 @@ export async function upsertProfile(
   // AND the application answers — none must invalidate existing verdicts (spec §4).
   const version = profileVersion(data.resumeText, data.instructions);
   const companyVersion = companyProfileVersion(data.companyInstructions);
-  await withUserSql(userId, (tx) => tx`
+  // The insert sets `instructions`; on conflict the stored value is kept (a repeat
+  // onboarding submit must not wipe review preferences the user or the agent set since).
+  // profile_version must then hash the KEPT instructions, so it is recomputed from what
+  // the row actually holds after the upsert.
+  await withUserSql(userId, async (tx) => {
+    const rows = await tx`
     INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
                           model_stage1, model_stage2, preferred_locations, model_resume,
                           company_instructions, company_profile_version, model_company,
@@ -837,7 +861,7 @@ export async function upsertProfile(
             ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       resume_text             = EXCLUDED.resume_text,
-      instructions            = EXCLUDED.instructions,
+      instructions            = profiles.instructions,
       resume_file_path        = EXCLUDED.resume_file_path,
       model_stage1            = EXCLUDED.model_stage1,
       model_stage2            = EXCLUDED.model_stage2,
@@ -865,7 +889,15 @@ export async function upsertProfile(
       cover_letter_generation_instructions = EXCLUDED.cover_letter_generation_instructions,
       profile_version         = EXCLUDED.profile_version,
       updated_at              = now()
-  `);
+    RETURNING instructions
+  `;
+    const kept = z.object({ instructions: z.string().nullable() }).parse(rows[0]).instructions;
+    const keptVersion = profileVersion(data.resumeText, kept);
+    if (keptVersion !== version) {
+      await tx`UPDATE profiles SET profile_version = ${keptVersion}
+        WHERE user_id = ${userId}::uuid`;
+    }
+  });
 }
 
 /**

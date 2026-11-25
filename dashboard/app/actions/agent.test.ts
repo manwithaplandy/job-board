@@ -8,7 +8,7 @@ const m = vi.hoisted(() => ({
   assertNotDeleted: vi.fn(),
   revalidatePath: vi.fn(),
 }));
-vi.mock("@/lib/auth", () => ({ requireUserId: m.requireUserId }));
+vi.mock("@/lib/auth", () => ({ requireUserId: m.requireUserId, getUserClaims: vi.fn(async () => ({ id: "u", email: "a@example.com" })) }));
 vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: m.assertNotDeleted }));
 vi.mock("next/cache", () => ({ revalidatePath: m.revalidatePath }));
 vi.mock("@/lib/db", () => ({
@@ -16,8 +16,10 @@ vi.mock("@/lib/db", () => ({
 }));
 const undo = vi.hoisted(() => ({ undoAction: vi.fn() }));
 vi.mock("@/lib/agent/actions/audit", () => ({ undoAction: undo.undoAction }));
+const intents = vi.hoisted(() => ({ executeIntent: vi.fn(), confirmIntent: vi.fn() }));
+vi.mock("@/lib/agent/actions/handlers", () => intents);
 
-import { renameThreadAction, undoAgentAction } from "@/app/actions/agent";
+import { confirmIntentAction, executeIntentAction, renameThreadAction, undoAgentAction } from "@/app/actions/agent";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const THREAD = "11111111-1111-4111-8111-111111111111";
@@ -84,4 +86,25 @@ test("an erased account cannot undo", async () => {
   m.assertNotDeleted.mockRejectedValue(new Error("deleted"));
   await expect(undoAgentAction(42)).rejects.toThrow();
   expect(undo.undoAction).not.toHaveBeenCalled();
+});
+
+test("executeIntentAction runs a host intent as the session user and refreshes the workspaces after a write", async () => {
+  const SURFACE = "33333333-3333-4333-8333-333333333333";
+  intents.executeIntent.mockResolvedValue({ kind: "done", toast: "Shortlist updated.", actionId: 9 });
+  const raw = { name: "shortlist.set", jobId: "lever:a:1", state: "later" };
+  expect(await executeIntentAction(THREAD, SURFACE, raw)).toEqual({ kind: "done", toast: "Shortlist updated.", actionId: 9 });
+  expect(intents.executeIntent).toHaveBeenCalledWith(USER, { threadId: THREAD, surfaceId: SURFACE, raw, source: "host", email: "a@example.com" });
+  expect(m.revalidatePath).toHaveBeenCalledWith("/shortlist");
+
+  vi.clearAllMocks();
+  intents.executeIntent.mockResolvedValue({ kind: "navigate", href: "/analytics" });
+  await executeIntentAction(THREAD, SURFACE, { name: "open", target: "analytics" });
+  expect(m.revalidatePath).not.toHaveBeenCalled();
+  expect(await executeIntentAction(7 as unknown as string, SURFACE, {})).toEqual({ kind: "dropped" });
+});
+
+test("confirmIntentAction passes the token with the session user", async () => {
+  intents.confirmIntent.mockResolvedValue({ kind: "dropped" });
+  expect(await confirmIntentAction("tok")).toEqual({ kind: "dropped" });
+  expect(intents.confirmIntent).toHaveBeenCalledWith(USER, "a@example.com", "tok");
 });

@@ -80,4 +80,10 @@ describe("TileLayoutSchema", () => {
     await expect(saveTileLayout(USER, { items: [] }, "system" as "user")).rejects.toThrow(TileLayoutError);
     expect(db.calls).toHaveLength(0);
   });
+
+  test("an unattended run may not change the analytics page", async () => {
+    const audit = { userId: USER, threadId: null, runId: "22222222-2222-4222-8222-222222222222", unattended: true };
+    await expect(saveTileLayout(USER, { items: [] }, "agent", audit)).rejects.toThrow(TileLayoutError);
+    expect(db.calls).toHaveLength(0);
+  });
 });

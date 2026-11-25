@@ -29,8 +29,7 @@ import { catalogNow } from "@/lib/catalogClock";
 import { JOB_ID_RE } from "@/lib/jobIdValidator";
 import { isResumeStale } from "@/lib/resumeStale";
 import { parseOrNull } from "@/lib/zodParse";
-import { actorFor, logAction, registerUndoer, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
-import type { ToolCtx } from "@/lib/agent/tools";
+import { actorFor, logAction, registerUndoer, type AuditCtx, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
 import { markAppliedCore, remarkAppliedTx, unmarkAppliedCore, unmarkAppliedTx } from "@/lib/workspaces/appliedCore";
 import { jobFactsRowSchema, toJobFacts } from "@/lib/workspaces/jobFacts";
 import { hasReviewTx, NotReviewedError } from "@/lib/workspaces/shortlist";
@@ -68,6 +67,17 @@ export const stageWriteSchema = z
   .refine((w) => (w.stage === "closed") === (w.closedReason !== null), { message: "closed needs a reason, other stages none" });
 export type StageWrite = z.infer<typeof stageWriteSchema>;
 
+/**
+ * An audited stage write's `before` when the write created the tracker row (review G2
+ * N1): what the job's application package was just before, so the undo that removes
+ * the row never reverts a package the user had already marked applied on the board.
+ * Older audit rows recorded plain null for a created row; the undoer still reads those.
+ */
+export const createdBeforeSchema = z
+  .object({ absent: z.literal(true), packageStatus: z.enum(["none", "prepared", "applied"]) })
+  .strict();
+export type CreatedBefore = z.infer<typeof createdBeforeSchema>;
+
 const stageTargetSchema = z.object({ jobId: z.string().regex(JOB_ID_RE) }).strict();
 const noteTargetSchema = z.object({ jobId: z.string().regex(JOB_ID_RE), eventId: z.number().int().positive() }).strict();
 const noteAfterSchema = z.object({ eventId: z.number().int().positive(), note: z.string().min(1).max(NOTE_MAX * 2) }).strict();
@@ -85,11 +95,20 @@ function parseStageInput(stage: unknown, closedReason: unknown): StageWrite {
   return parsed.data;
 }
 
-function checkCommon(userId: string, a: { jobId: string; actor: string; audit?: ToolCtx }): void {
+function checkCommon(userId: string, a: { jobId: string; actor: string; audit?: AuditCtx }): void {
   if (typeof a.jobId !== "string" || !JOB_ID_RE.test(a.jobId)) throw new ApplicationInputError("Unknown job.");
   if (a.actor !== "user" && a.actor !== "agent") throw new ApplicationInputError("Unknown writer.");
   if (a.audit && a.audit.userId !== userId) throw new ApplicationInputError("Audit context is another user's.");
   if (a.audit?.unattended) throw new ApplicationInputError("An unattended run may not change the tracker.");
+}
+
+/** The status of the caller's application package for the job, "none" when there is no package row. */
+async function packageStatusTx(tx: TransactionSql, userId: string, jobId: string): Promise<CreatedBefore["packageStatus"]> {
+  const rows = await tx`SELECT status FROM application_packages WHERE user_id = ${userId}::uuid AND job_id = ${jobId}`;
+  if (rows.length === 0) return "none";
+  const r = parseOrNull(z.object({ status: z.enum(["prepared", "applied"]) }), rows[0]);
+  if (!r) throw new Error("applications: stored package status failed the parse");
+  return r.status;
 }
 
 /** The caller's application for the job, locked for the rest of the transaction when `lock`. */
@@ -211,7 +230,7 @@ export async function untrackAppliedTx(tx: TransactionSql, userId: string, jobId
  */
 export async function setApplicationStage(
   userId: string,
-  a: { jobId: string; stage: Stage; closedReason?: ClosedReason; actor: "user" | "agent"; audit?: ToolCtx },
+  a: { jobId: string; stage: Stage; closedReason?: ClosedReason; actor: "user" | "agent"; audit?: AuditCtx },
 ): Promise<{ actionId: number | null }> {
   checkCommon(userId, a);
   const w = parseStageInput(a.stage, a.closedReason);
@@ -219,9 +238,12 @@ export async function setApplicationStage(
 
   // Read-only pre-check: the current stage picks the transaction, and an untracked,
   // unreviewed job is refused before anything (including a payload request) happens.
+  // The package's status is read here, before markAppliedCore can change it, so a
+  // created row's audit `before` records what the user's package was (review G2 N1).
   const pre = await withUserSql(userId, async (tx) => ({
     app: await readAppTx(tx, userId, a.jobId, false),
     reviewed: await hasReviewTx(tx, userId, a.jobId),
+    packageStatus: await packageStatusTx(tx, userId, a.jobId),
   }));
   if (!pre.app && !pre.reviewed) throw new NotReviewedError();
 
@@ -229,12 +251,13 @@ export async function setApplicationStage(
   const also = async (tx: TransactionSql): Promise<void> => {
     const { before, changed } = await writeStageTx(tx, userId, a.jobId, w, a.actor);
     if (!audit || !changed) return;
+    const created: CreatedBefore = { absent: true, packageStatus: pre.packageStatus };
     actionId = await logAction(tx, {
       ctx: audit,
       actor: a.actor === "user" ? "user_via_surface" : actorFor(audit),
       kind: "application.set_stage",
       targetKey: { jobId: a.jobId },
-      before,
+      before: before ?? created,
       after: w,
     });
   };
@@ -257,7 +280,7 @@ function charLength(text: string): number {
  */
 export async function addApplicationNote(
   userId: string,
-  a: { jobId: string; note: string; actor: "user" | "agent"; audit?: ToolCtx },
+  a: { jobId: string; note: string; actor: "user" | "agent"; audit?: AuditCtx },
 ): Promise<{ eventId: number; actionId: number | null }> {
   checkCommon(userId, a);
   const note = typeof a.note === "string" ? a.note.trim() : "";
@@ -442,19 +465,22 @@ export async function listApplications(userId: string, stages?: Stage[]): Promis
 export async function undoApplicationSetStage(tx: TransactionSql, action: StoredAction, userId: string): Promise<UndoOutcome> {
   const target = stageTargetSchema.safeParse(action.targetKey);
   const after = stageWriteSchema.safeParse(action.after);
-  const before = stageWriteSchema.nullable().safeParse(action.before);
+  const before = z.union([stageWriteSchema, createdBeforeSchema, z.null()]).safeParse(action.before);
   if (!target.success || !after.success || !before.success) return "invalid";
   const jobId = target.data.jobId;
   const live = await readAppTx(tx, userId, jobId, true);
   if (!live || !sameWrite(live.write, after.data)) return "changed_since";
-  if (before.data === null) {
+  if (before.data === null || "absent" in before.data) {
     // The action created the row. Remove it only while its first stage event is all it
     // holds; a note or another move since means the user has built on it.
     const counted = await tx`SELECT count(*) AS n FROM application_events WHERE application_id = ${live.id}::uuid AND user_id = ${userId}::uuid`;
     const n = parseOrNull(z.object({ n: z.coerce.number().int() }), counted[0]);
     if (!n || n.n > 1) return "changed_since";
     await tx`DELETE FROM applications WHERE id = ${live.id}::uuid AND user_id = ${userId}::uuid`;
-    if (APPLIED_OR_LATER.has(after.data.stage)) await unmarkAppliedTx(tx, userId, jobId);
+    // A package the user had already marked applied on the board stays applied: the
+    // agent's move did not make it so. Older rows (plain null) keep the earlier rule.
+    const packageWasApplied = before.data !== null && before.data.packageStatus === "applied";
+    if (APPLIED_OR_LATER.has(after.data.stage) && !packageWasApplied) await unmarkAppliedTx(tx, userId, jobId);
     return "restored";
   }
   await writeStageTx(tx, userId, jobId, before.data, "user");

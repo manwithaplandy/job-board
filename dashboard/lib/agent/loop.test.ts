@@ -3,7 +3,7 @@
 // budget.stepCostMicros is real, so a step's billed cost in providerMetadata is what
 // chargeStep receives. next/server's after() is captured so each test can wait for the
 // persistence it schedules.
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
@@ -58,6 +58,7 @@ vi.mock("@/lib/agent/runs", () => {
   return { TurnInProgressError, startRun: vi.fn(), chargeStep: vi.fn(), finishRun: vi.fn(), saveMessages: vi.fn() };
 });
 vi.mock("@/lib/catalogClock", () => ({ catalogNow: vi.fn() }));
+vi.mock("@/lib/applicationPrep", () => ({ startApplicationPrep: vi.fn() }));
 vi.mock("@/lib/agent/tools/read", async () => {
   const { tool } = await import("ai");
   const { z } = await import("zod");
@@ -73,9 +74,12 @@ import { catalogNow } from "@/lib/catalogClock";
 import { loadMessages } from "@/lib/agent/threads";
 import { TurnInProgressError, chargeStep, finishRun, saveMessages, startRun } from "@/lib/agent/runs";
 import type { AgentThread } from "@/lib/agent/threads";
-import { streamAgentTurn, TurnInputError, type TurnInput } from "@/lib/agent/loop";
+import { APPROVAL_DENIED_REASON, streamAgentTurn, TurnInputError, type TurnInput } from "@/lib/agent/loop";
 import { getProfileSummary } from "@/lib/agent/tools/read";
 import { AGENT_LIMITS } from "@/lib/agent/config";
+import { startApplicationPrep } from "@/lib/applicationPrep";
+import { resetApprovalSecretWarning } from "@/lib/agent/approvalSecret";
+import { isToolUIPart } from "ai";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const RUN = "11111111-1111-4111-8111-111111111111";
@@ -357,7 +361,7 @@ describe("streamAgentTurn: failure handling and input rules", () => {
     ["a text over 8000 characters", message("x".repeat(8001)), "text_too_long"],
     ["an empty message", message("   "), "empty_text"],
     ["document ids (no documents in phase 0)", { kind: "message", id: "m-9", text: "hi", documentIds: ["d"] }, "documents_unsupported"],
-    ["an approval (Task 1.16)", { kind: "approval", approvalId: "a-1", approved: true }, "approval_unsupported"],
+    ["an approval without the approval secret", { kind: "approval", approvalId: "a-1", approved: true }, "approval_unavailable"],
   ] as const)("rejects %s before starting a run", async (_name, input, code) => {
     vi.mocked(loadMessages).mockResolvedValue([{ id: "m-1", role: "user", parts: [{ type: "text", text: "x" }] }]);
     const model = scripted([textStep(["ok"], 0.0008)]);
@@ -539,5 +543,111 @@ describe("streamAgentTurn: PR C batch 4 review M7 (finishRun retried once)", () 
     await expect(call).rejects.toMatchObject({ code: "duplicate_message_id" });
     expect(finishRun).toHaveBeenCalledTimes(2);
     expect(finishRun).toHaveBeenLastCalledWith(USER, RUN, { status: "failed", error: "bad_input" });
+  });
+});
+
+describe("streamAgentTurn: approvals (Task 1.16)", () => {
+  // A test-only key: long enough to count, never a real secret.
+  const TEST_KEY = "t".repeat(40); // low-entropy fixture, at least 32 characters
+  const JOB = "greenhouse:acme:101";
+
+  beforeEach(() => {
+    vi.stubEnv("AGENT_TOOL_APPROVAL_SECRET", TEST_KEY);
+    resetApprovalSecretWarning();
+    vi.mocked(startApplicationPrep)
+      .mockReset()
+      .mockResolvedValue({ status: "started", generationId: "g-1", generation: {} as never });
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const prepCall = (): LanguageModelV4StreamPart[] => [
+    { type: "stream-start", warnings: [] },
+    { type: "tool-call", toolCallId: "c-prep", toolName: "start_application_prep", input: JSON.stringify({ jobId: JOB }) },
+    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage, providerMetadata: billed(0.001) },
+  ];
+
+  const prepPart = (msg: UIMessage) => {
+    const part = msg.parts.find((p) => p.type === "tool-start_application_prep");
+    if (!part || !isToolUIPart(part)) throw new Error("no start_application_prep part");
+    return part;
+  };
+
+  /** Turn 1: the model asks to prepare; returns the stored thread and the pending approval id. */
+  async function pendingApproval(): Promise<{ history: UIMessage[]; approvalId: string }> {
+    vi.mocked(loadMessages).mockResolvedValue([]);
+    await turn(scripted([prepCall()]), message("prepare it", "m-u1"));
+    const [, , [assistant], status] = lastAssistantSave();
+    expect(status).toBe("complete");
+    const part = prepPart(assistant);
+    expect(part.state).toBe("approval-requested");
+    if (part.state !== "approval-requested") throw new Error("not pending");
+    const user: UIMessage = { id: "m-u1", role: "user", parts: [{ type: "text", text: "prepare it" }], metadata: { status: "complete" } };
+    return { history: [user, { ...assistant, metadata: { status: "complete" } }], approvalId: part.approval.id };
+  }
+
+  const approval = (approvalId: string, approved: boolean): TurnInput => ({ kind: "approval", approvalId, approved });
+
+  test("after approval the tool runs once; after denial it never runs and the model is told not to retry", async () => {
+    const pending = await pendingApproval();
+    expect(startApplicationPrep).not.toHaveBeenCalled();
+
+    // Approved: the stored part is patched and the same assistant message continues.
+    vi.mocked(loadMessages).mockResolvedValue(pending.history);
+    vi.mocked(saveMessages).mockClear();
+    await turn(scripted([textStep(["Preparing it now."], 0.0005)]), approval(pending.approvalId, true));
+    expect(startApplicationPrep).toHaveBeenCalledTimes(1);
+    expect(startApplicationPrep).toHaveBeenCalledWith(USER, "pat@example.com", JOB);
+    // No new user message is saved; the placeholder is the waiting message itself.
+    expect(saves().map(([, , msgs, status]) => [msgs[0].id, status])).toEqual([
+      [pending.history[1].id, "pending"],
+      [pending.history[1].id, "complete"],
+    ]);
+    const [, , [done]] = lastAssistantSave();
+    expect(prepPart(done)).toMatchObject({ state: "output-available", output: { status: "started", generationId: "g-1" } });
+    expect(textOf(done)).toBe("Preparing it now.");
+
+    // The same approval cannot run twice: the part is no longer pending.
+    vi.mocked(loadMessages).mockResolvedValue([pending.history[0], { ...done, metadata: { status: "complete" } }]);
+    await expect(
+      streamAgentTurn({ userId: USER, email: null, thread, input: approval(pending.approvalId, true), model: scripted([textStep(["x"], 0)]) }),
+    ).rejects.toMatchObject({ code: "approval_not_found" });
+    expect(startApplicationPrep).toHaveBeenCalledTimes(1);
+
+    // Denied: execute never runs, and the model reads the reason not to try again.
+    const second = await pendingApproval();
+    vi.mocked(loadMessages).mockResolvedValue(second.history);
+    const model = scripted([textStep(["Understood."], 0.0005)]);
+    await turn(model, approval(second.approvalId, false));
+    expect(startApplicationPrep).toHaveBeenCalledTimes(1);
+    const [, , [denied]] = lastAssistantSave();
+    expect(prepPart(denied).state).toBe("output-denied");
+    expect(JSON.stringify(model.doStreamCalls[0].prompt)).toContain(APPROVAL_DENIED_REASON);
+  });
+
+  test("an approval id that does not match the stored pending part is rejected with 400", async () => {
+    // The route answers 400 for any TurnInputError (app/api/agent/route.test.ts).
+    const pending = await pendingApproval();
+    vi.mocked(loadMessages).mockResolvedValue(pending.history);
+    vi.mocked(saveMessages).mockClear();
+    vi.mocked(finishRun).mockClear();
+    const model = scripted([textStep(["x"], 0)]);
+    const call = streamAgentTurn({ userId: USER, email: null, thread, input: approval("not-the-pending-id", true), model });
+    await expect(call).rejects.toBeInstanceOf(TurnInputError);
+    await expect(call).rejects.toMatchObject({ code: "approval_not_found" });
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "failed", error: "bad_input" });
+
+    // A newer message makes the pending part stale, even with the right id.
+    vi.mocked(loadMessages).mockResolvedValue([
+      ...pending.history,
+      { id: "m-u2", role: "user", parts: [{ type: "text", text: "never mind" }], metadata: { status: "complete" } },
+    ]);
+    await expect(
+      streamAgentTurn({ userId: USER, email: null, thread, input: approval(pending.approvalId, true), model }),
+    ).rejects.toMatchObject({ code: "approval_not_found" });
+    expect(saveMessages).not.toHaveBeenCalled();
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(startApplicationPrep).not.toHaveBeenCalled();
   });
 });

@@ -22,9 +22,21 @@ export function sanitizeUploadFilename(name: string): string {
   return cleaned || "resume.pdf";
 }
 
-/** Build the flat, sweep-enumerable Storage key for an archived résumé upload. */
+const RESUME_NAME_MAX = 120;
+
+/**
+ * Build the flat, sweep-enumerable Storage key for an archived résumé upload. The name
+ * part is limited to [A-Za-z0-9._-] like documentObjectPath's (each run of anything else
+ * becomes one `_`, so an accent, a space, `#` or `%` cannot make Storage refuse the key),
+ * keeps its extension and is never empty.
+ */
 export function resumeObjectPath(userId: string, filename: string): string {
-  return `${userId}/${Date.now()}-${sanitizeUploadFilename(filename)}`;
+  const safe = sanitizeUploadFilename(filename).replace(/[^A-Za-z0-9._-]+/g, "_");
+  const dot = safe.lastIndexOf(".");
+  const stem = dot > 0 ? safe.slice(0, dot) : safe;
+  const ext = dot > 0 ? safe.slice(dot) : "";
+  const name = /[A-Za-z0-9]/.test(stem) ? `${stem}${ext}`.slice(-RESUME_NAME_MAX) : `resume${/[A-Za-z0-9]/.test(ext) ? ext : ".pdf"}`;
+  return `${userId}/${Date.now()}-${name}`;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

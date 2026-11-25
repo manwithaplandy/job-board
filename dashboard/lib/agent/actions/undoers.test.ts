@@ -13,6 +13,7 @@ const LANDED: readonly string[] = [
   "application.set_stage",
   "application.add_note",
   "profile.set_resume",
+  "document.update_draft",
 ];
 
 test("every kind whose library has landed has an undoer once undoers.ts is loaded", async () => {

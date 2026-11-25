@@ -18,8 +18,7 @@ import { withUserMutation, withUserSql } from "@/lib/db";
 import { catalogNow } from "@/lib/catalogClock";
 import { JOB_ID_RE } from "@/lib/jobIdValidator";
 import { parseOrNull } from "@/lib/zodParse";
-import { actorFor, logAction, registerUndoer, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
-import type { ToolCtx } from "@/lib/agent/tools";
+import { actorFor, logAction, registerUndoer, type AuditCtx, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
 import { denyJobTx, undenyJobTx } from "@/lib/workspaces/stickyDeny";
 import { jobFactsRowSchema, toJobFacts } from "@/lib/workspaces/jobFacts";
 import type { ShortlistRow, ShortlistState } from "@/lib/workspaces/types";
@@ -234,7 +233,7 @@ export async function setShortlistState(
     reasonCode?: string;
     reasonText?: string;
     setBy: "user" | "agent";
-    audit?: ToolCtx;
+    audit?: AuditCtx;
   },
 ): Promise<SetShortlistResult> {
   if (!JOB_ID_RE.test(a.jobId)) throw new ShortlistInputError("Unknown job.");

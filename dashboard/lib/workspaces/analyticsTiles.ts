@@ -16,8 +16,7 @@ import { z } from "zod";
 import type { TransactionSql } from "postgres";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
-import { actorFor, logAction, registerUndoer, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
-import type { ToolCtx } from "@/lib/agent/tools";
+import { actorFor, logAction, registerUndoer, type AuditCtx, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
 import { METRIC_CATALOG, MetricSpecSchema, type MetricKind } from "@/lib/workspaces/metrics/catalog";
 
 export const VIZ = ["stat", "sparkline", "line", "bar", "stacked_bar", "funnel", "table", "list"] as const;
@@ -146,16 +145,16 @@ export async function getTileLayout(userId: string): Promise<{ version: number; 
  * layout the schema refuses. With `audit`, logs analytics.set_tiles in the same
  * transaction, with the layout it replaced as `before`.
  */
-// TODO(Task 1.18): the set_tiles agent tool must refuse unattended runs; this function does not check `audit.unattended`.
 export async function saveTileLayout(
   userId: string,
   layout: TileLayout,
   changedBy: "user" | "agent",
-  audit?: ToolCtx,
+  audit?: AuditCtx,
 ): Promise<{ version: number; actionId: number | null }> {
   if (changedBy !== "user" && changedBy !== "agent") throw new TileLayoutError("Unknown writer.");
   if (audit && audit.userId !== userId) throw new TileLayoutError("Audit context is another user's.");
-  if (audit?.unattended && changedBy !== "agent") throw new TileLayoutError("An unattended write is the agent's.");
+  // set_analytics_tiles is not offered to unattended runs (writeTools); this refuses one anyway.
+  if (audit?.unattended) throw new TileLayoutError("An unattended run may not change the analytics page.");
   const parsed = TileLayoutSchema.safeParse(layout);
   if (!parsed.success) throw new TileLayoutError("That layout is not allowed.");
   const next = parsed.data;

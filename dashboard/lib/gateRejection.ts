@@ -12,7 +12,9 @@ import type { Plan } from "@/lib/entitlements";
 // @/lib/usage still run the real body builder.
 export type AllowanceGateRejection =
   | { ok: false; status: 402; code: "subscription_required"; error: string }
-  | { ok: false; status: 429; code: "allowance_exhausted"; plan: Plan; error: string };
+  // `kind` (the generation allowance that ran out) is for the server only; the wire body
+  // below never carries it.
+  | { ok: false; status: 429; code: "allowance_exhausted"; plan: Plan; error: string; kind?: "resume" | "cover" };
 
 /** JSON body a route returns for a rejected gate (plan present only on the 429 variant). */
 export function gateRejectionBody(

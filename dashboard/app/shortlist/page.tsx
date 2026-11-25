@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import { requireUserId, getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
-import { listRecentActions } from "@/lib/agent/actions/audit";
 import { emptyGathered } from "@/lib/agent/gathered";
 import { searchJobs } from "@/lib/agent/tools/read";
 import type { ToolCtx } from "@/lib/agent/tools";
-import { agentMarkersByJob } from "@/lib/workspaces/agentMarkers";
+import { listAgentMarkers } from "@/lib/workspaces/agentMarkers";
 import { listTrackedStages } from "@/lib/workspaces/applications";
 import { listShortlist } from "@/lib/workspaces/shortlist";
 import { fmtPay } from "@/lib/rolefit/fit";
@@ -86,9 +85,9 @@ export default async function ShortlistPage({
   const filters = parseFilters(await searchParams);
   const email = claims?.email ?? null;
 
-  const [rows, actions, browse, stages] = await Promise.all([
+  const [rows, markers, browse, stages] = await Promise.all([
     listShortlist(userId),
-    listRecentActions(userId, 100),
+    listAgentMarkers(userId, "shortlist.set"),
     readBrowse(userId, email, filters),
     listTrackedStages(userId),
   ]);
@@ -104,7 +103,7 @@ export default async function ShortlistPage({
           <div className="rf-workspace-live">
             <ShortlistBoard
               rows={rows}
-              markers={agentMarkersByJob(actions, "shortlist.set")}
+              markers={markers}
               stages={stages}
               browse={browse ?? []}
               filters={filters}

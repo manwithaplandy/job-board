@@ -244,6 +244,48 @@ function filesUnder(dir: string): string[] {
   });
 }
 
+/** The project modules `file` imports (`@/…` and relative specifiers), resolved to paths. */
+function localImports(file: string): string[] {
+  const source = readFileSync(file, "utf8");
+  const specs = [...source.matchAll(/(?:import|export)\s[^;]*?from\s+["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1] ?? m[2]);
+  const out: string[] = [];
+  for (const spec of specs) {
+    let base: string | null = null;
+    if (spec.startsWith("@/")) base = spec.slice(2);
+    else if (spec.startsWith(".")) base = join(file, "..", spec);
+    if (base === null) continue;
+    const found = [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts"), join(base, "index.tsx")].find((p) => {
+      try {
+        return statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    });
+    if (found) out.push(found);
+  }
+  return out;
+}
+
+test("no agent tool module reaches deleteDocument, directly or through any import chain", () => {
+  const roots = filesUnder("lib/agent/tools").filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
+  const seen = new Set<string>();
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    // The library defines deleteDocument; only a module that names it beyond that can call it.
+    if (file !== join("lib", "workspaces", "documents.ts")) {
+      expect(readFileSync(file, "utf8"), `${file} (reached from lib/agent/tools)`).not.toMatch(/\bdeleteDocument\b/);
+    }
+    queue.push(...localImports(file));
+  }
+  // The walk really follows imports (tools/index.ts pulls in read.ts and more).
+  expect(seen.size).toBeGreaterThan(roots.length);
+  // A "use server" actions module would hand a tool the delete; none is reachable.
+  expect([...seen].filter((f) => f.startsWith(join("app", "actions")))).toEqual([]);
+});
+
 test("deleteDocument is not exported to any agent tool module", () => {
   for (const file of filesUnder("lib/agent/tools").filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))) {
     // No tool module names it, imports it, or pulls in the whole library with `* as`.

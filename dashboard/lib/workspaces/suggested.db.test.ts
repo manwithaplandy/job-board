@@ -6,6 +6,9 @@ import { serviceSql } from "@/lib/db";
 import { fillSuggested } from "@/lib/workspaces/suggested";
 
 const jobId = (n: number) => `lever:fixture-co:suggested-${String(n).padStart(2, "0")}`;
+const GATED_CO = 9101;
+const CASINO_CO = 9102;
+const KEPT_CO = 9103;
 
 let db: TestDb;
 beforeAll(async () => {
@@ -18,6 +21,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await db.sql`DELETE FROM shortlist_items`;
+  await db.sql`DELETE FROM company_overrides`;
   await db.sql`DELETE FROM review_corrections`;
   await db.sql`DELETE FROM job_reviews`;
   await db.sql`DELETE FROM profiles WHERE user_id IN (${USER_A}, ${USER_B})`;
@@ -103,6 +107,38 @@ test("a denied or unscored review is never suggested", async () => {
   // A correction to deny wins over the review's approve.
   await db.sql`INSERT INTO review_corrections (user_id, job_id, verdict) VALUES (${USER_A}, ${jobId(6)}, 'deny')`;
   expect(await fillSuggested(USER_A)).toBe(0);
+});
+
+test("a closed job is never suggested", async () => {
+  await seedApproved(3);
+  // No source listing: the legacy closed_at decides, as on the board.
+  await db.sql`UPDATE jobs SET closed_at = now() WHERE id = ${jobId(3)}`;
+  expect(await fillSuggested(USER_A)).toBe(2);
+  expect(await suggested()).toEqual([jobId(1), jobId(2)]);
+});
+
+test("a company the user excluded is never suggested, unless they included it by hand", async () => {
+  await db.sql`INSERT INTO companies (id, name, ats, token, industry) VALUES
+    (${GATED_CO}, 'Gated Co', 'lever', 'suggested-gated', NULL),
+    (${CASINO_CO}, 'Casino Co', 'lever', 'suggested-casino', 'Gambling'),
+    (${KEPT_CO}, 'Kept Casino Co', 'lever', 'suggested-kept', 'Gambling')
+    ON CONFLICT (id) DO NOTHING`;
+  await seedJob(db.sql, jobId(1));
+  await seedJob(db.sql, jobId(2), { company_id: GATED_CO });
+  await seedJob(db.sql, jobId(3), { company_id: CASINO_CO });
+  await seedJob(db.sql, jobId(4), { company_id: KEPT_CO });
+  for (let i = 1; i <= 4; i++) {
+    await seedReview(db.sql, USER_A, jobId(i), { fit_score: 60 + i });
+    await seedReview(db.sql, USER_B, jobId(i), { fit_score: 60 + i });
+  }
+  await db.sql`INSERT INTO company_overrides (user_id, company_id, verdict) VALUES
+    (${USER_A}, ${GATED_CO}, 'exclude'), (${USER_A}, ${KEPT_CO}, 'include')`;
+  await db.sql`UPDATE profiles SET company_exclusions = ${db.sql.json({ industries: ["Gambling"] })}
+               WHERE user_id = ${USER_A}`;
+  expect(await fillSuggested(USER_A)).toBe(2);
+  expect(await suggested()).toEqual([jobId(1), jobId(4)]);
+  // USER_A's gate is theirs alone.
+  expect(await fillSuggested(USER_B)).toBe(4);
 });
 
 test("concurrent calls insert no duplicates", async () => {

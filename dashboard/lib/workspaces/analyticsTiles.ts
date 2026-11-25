@@ -146,6 +146,7 @@ export async function getTileLayout(userId: string): Promise<{ version: number; 
  * layout the schema refuses. With `audit`, logs analytics.set_tiles in the same
  * transaction, with the layout it replaced as `before`.
  */
+// TODO(Task 1.18): the set_tiles agent tool must refuse unattended runs; this function does not check `audit.unattended`.
 export async function saveTileLayout(
   userId: string,
   layout: TileLayout,

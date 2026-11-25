@@ -371,11 +371,16 @@ export function newSandboxNonce(): string {
   return btoa(bin);
 }
 
-/** The plan's policy (Task 2.4), word for word. */
+/**
+ * The plan's policy (Task 2.4), word for word, plus `webrtc 'block'` (Task 2.7, CI run 1:
+ * connect-src does not govern WebRTC, and STUN/TURN traffic left the sandbox in Chromium and
+ * WebKit). The directive is defence in depth: browsers that do not know it ignore it, and
+ * the kit replaces the WebRTC constructors before any model byte runs.
+ */
 export function sandboxCsp(nonce: string): string {
   return (
     `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src data:; ` +
-    `font-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'`
+    `font-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; webrtc 'block'`
   );
 }
 

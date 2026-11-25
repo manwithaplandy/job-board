@@ -142,7 +142,7 @@ describe("buildSandboxDocument", () => {
     expect(doc.startsWith(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${sandboxCsp(NONCE)}">`)).toBe(true);
     expect(sandboxCsp(NONCE)).toBe(
       `default-src 'none'; script-src 'nonce-${NONCE}'; style-src 'nonce-${NONCE}'; img-src data:; font-src 'none'; ` +
-        "connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'",
+        "connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; webrtc 'block'",
     );
     // Both policies and the prefetch switch come before the kit, and the kit before any model byte.
     const kitAt = doc.indexOf("<style nonce=");

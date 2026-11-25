@@ -40,6 +40,11 @@
 // writeln throw, and makes createElement and createElementNS refuse frame elements. These
 // locks are non-configurable, so model code cannot put the originals back.
 //
+// Task 2.7, CI run 1 (real browsers): STUN and TURN traffic left the sandbox in Chromium and
+// WebKit (CSP does not govern WebRTC), and WebKit opened a TCP connection for a link hint.
+// The kit now also replaces the WebRTC constructors and window.open with locked functions
+// that throw, and createElement and createElementNS refuse link, meta and base too.
+//
 // Model code must read data inside host.onInit and wire behaviour with classes and
 // addEventListener: there are no inline style attributes or on... handlers under the CSP.
 //
@@ -147,7 +152,7 @@ export const KIT_JS: string = `(function () {
   /* Trusted Types (the second policy requires them for script sinks): the only allowed policy
      is this default one, created here before the model's code runs. Script URLs always throw,
      script text is refused, and HTML passes unless it would make a nested frame or a script. */
-  var FRAME_MARKUP_RE = /<(?:script|iframe|frame|object|embed|portal|fencedframe)\\b/i;
+  var FRAME_MARKUP_RE = /<(?:script|iframe|frame|object|embed|portal|fencedframe|link|meta|base)\\b/i;
   if (window.trustedTypes && typeof window.trustedTypes.createPolicy === "function") {
     try {
       window.trustedTypes.createPolicy("default", {
@@ -167,7 +172,10 @@ export const KIT_JS: string = `(function () {
   function lock(proto, name, value) {
     try { Object.defineProperty(proto, name, { value: value, writable: false, configurable: false }); } catch (err) { /* already locked */ }
   }
-  var BLOCKED_ELEMENTS = { iframe: 1, frame: 1, object: 1, embed: 1, portal: 1, fencedframe: 1 };
+  /* Frame elements, and (Task 2.7, CI run 1) link, meta and base: a resource hint, a refresh
+     or a base URL made by script would act before any CSP check (WebKit opened a TCP
+     connection for a link hint). */
+  var BLOCKED_ELEMENTS = { iframe: 1, frame: 1, object: 1, embed: 1, portal: 1, fencedframe: 1, link: 1, meta: 1, base: 1 };
   function guardCreate(name, nameArg) {
     var original = Document.prototype[name];
     if (typeof original !== "function") return;
@@ -182,6 +190,31 @@ export const KIT_JS: string = `(function () {
   lock(Document.prototype, "writeln", deny);
   guardCreate("createElement", 0);
   guardCreate("createElementNS", 1);
+
+  /* Task 2.7, CI run 1: no new windows, and no WebRTC. CSP's connect-src does not govern
+     WebRTC, and the sandbox let STUN and TURN traffic out in Chromium and WebKit. Each
+     constructor becomes one that throws, non-configurable, on the window (where model code
+     finds them) and on the window's prototype if a browser keeps one there; the methods that
+     start ICE are locked on the real prototypes first, in case a reference survives. The
+     names are built from parts so the kit itself still passes checkV3Static. */
+  var rtc = "RTC";
+  var RTC_METHODS = ["createOffer", "createAnswer", "setLocalDescription", "setRemoteDescription", "addIceCandidate",
+    "createDataChannel", "addTrack", "addTransceiver", "restartIce", "setConfiguration"];
+  var RTC_NAMES = [rtc + "PeerConnection", "webkit" + rtc + "PeerConnection", rtc + "DataChannel", rtc + "IceCandidate",
+    rtc + "SessionDescription"];
+  var globalProto = Object.getPrototypeOf(window);
+  for (var r = 0; r < RTC_NAMES.length; r++) {
+    var existing = window[RTC_NAMES[r]];
+    if (typeof existing === "function" && existing.prototype) {
+      for (var m = 0; m < RTC_METHODS.length; m++) {
+        if (typeof existing.prototype[RTC_METHODS[m]] === "function") lock(existing.prototype, RTC_METHODS[m], deny);
+      }
+    }
+    lock(window, RTC_NAMES[r], deny);
+    if (globalProto && Object.prototype.hasOwnProperty.call(globalProto, RTC_NAMES[r])) lock(globalProto, RTC_NAMES[r], deny);
+  }
+  lock(window, "open", deny);
+  if (globalProto && Object.prototype.hasOwnProperty.call(globalProto, "open")) lock(globalProto, "open", deny);
 
   var state ={ data: null, theme: "light", inited: false, waiting: [], reported: false, height: -1 };
   var CHART_POINTS_MAX = 50;

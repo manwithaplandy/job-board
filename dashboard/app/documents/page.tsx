@@ -17,6 +17,14 @@ export const metadata: Metadata = { title: "Documents · Rolefit" };
 // RLS, and the render writes nothing: uploads go to /api/agent/upload, and replacing the
 // résumé, restoring a version and deleting go through the documents actions.
 
+// postgres.js returns timestamptz as a JS Date even though ProfileRow types it as a
+// string, so normalise to an ISO string (or null) before it reaches the client component.
+function savedAt(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const d = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 export default async function DocumentsRoute() {
   const userId = await requireUserId();
   const claims = await getUserClaims();
@@ -39,7 +47,7 @@ export default async function DocumentsRoute() {
           />
           <div className="rf-workspace-live">
             <DocumentsPage
-              resume={{ text: profile?.resume_text ?? null, updatedAt: profile?.updated_at ?? null }}
+              resume={{ text: profile?.resume_text ?? null, updatedAt: savedAt(profile?.updated_at) }}
               versions={versions}
               documents={documents}
               generated={generated}

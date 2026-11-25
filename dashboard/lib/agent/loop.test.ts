@@ -59,6 +59,10 @@ vi.mock("@/lib/agent/runs", () => {
 });
 vi.mock("@/lib/catalogClock", () => ({ catalogNow: vi.fn() }));
 vi.mock("@/lib/applicationPrep", () => ({ startApplicationPrep: vi.fn() }));
+vi.mock("@/lib/workspaces/documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspaces/documents")>()),
+  listDocuments: vi.fn(async () => []),
+}));
 vi.mock("@/lib/agent/tools/read", async () => {
   const { tool } = await import("ai");
   const { z } = await import("zod");
@@ -80,8 +84,10 @@ import { AGENT_LIMITS } from "@/lib/agent/config";
 import { startApplicationPrep } from "@/lib/applicationPrep";
 import { resetApprovalSecretWarning } from "@/lib/agent/approvalSecret";
 import { isToolUIPart } from "ai";
+import { listDocuments } from "@/lib/workspaces/documents";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const DOC_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const RUN = "11111111-1111-4111-8111-111111111111";
 const thread: AgentThread = {
   id: "22222222-2222-4222-8222-222222222222",
@@ -170,6 +176,7 @@ beforeEach(() => {
   h.uiStreamThrowsAt = 0;
   h.uiStreamCalls = 0;
   vi.mocked(loadMessages).mockReset().mockResolvedValue([]);
+  vi.mocked(listDocuments).mockReset().mockResolvedValue([]);
   vi.mocked(startRun)
     .mockReset()
     .mockImplementation(async () => {
@@ -345,6 +352,23 @@ describe("streamAgentTurn: failure handling and input rules", () => {
     expect(user).toEqual({ id: "m-77", role: "user", parts: [{ type: "text", text: "find me jobs" }] });
   });
 
+  test("an attached document of the user's own adds a fixed note with its id and filename, never its text", async () => {
+    vi.mocked(listDocuments).mockResolvedValue([
+      { id: DOC_ID, kind: "other", filename: 'notes "q".pdf', mime: "application/pdf", bytes: 10, extraction: "ok", createdAt: "2026-11-25T00:00:00.000Z" },
+    ]);
+    await turn(scripted([textStep(["ok"], 0.0008)]), { kind: "message", id: "m-78", text: "read this", documentIds: [DOC_ID, DOC_ID] });
+    const [, , [user]] = saves()[0];
+    expect(user).toEqual({
+      id: "m-78",
+      role: "user",
+      parts: [
+        { type: "text", text: "read this" },
+        { type: "text", text: `Attached files, readable with read_document: "notes q .pdf" (document id ${DOC_ID}).` },
+      ],
+    });
+    expect(listDocuments).toHaveBeenCalledWith(USER);
+  });
+
   test("history is fed to the model before the new user message", async () => {
     vi.mocked(loadMessages).mockResolvedValue([
       { id: "m-1", role: "user", parts: [{ type: "text", text: "earlier" }] },
@@ -360,7 +384,12 @@ describe("streamAgentTurn: failure handling and input rules", () => {
     ["an id with bad characters", message("hi", "m 1/../x"), "bad_message_id"],
     ["a text over 8000 characters", message("x".repeat(8001)), "text_too_long"],
     ["an empty message", message("   "), "empty_text"],
-    ["document ids (no documents in phase 0)", { kind: "message", id: "m-9", text: "hi", documentIds: ["d"] }, "documents_unsupported"],
+    ["a document id that is not one of the user's documents", { kind: "message", id: "m-9", text: "hi", documentIds: [DOC_ID] }, "unknown_document"],
+    [
+      "more than four documents",
+      { kind: "message", id: "m-9", text: "hi", documentIds: ["1", "2", "3", "4", "5"].map((n) => DOC_ID.slice(0, -1) + n) },
+      "too_many_documents",
+    ],
     ["an approval without the approval secret", { kind: "approval", approvalId: "a-1", approved: true }, "approval_unavailable"],
   ] as const)("rejects %s before starting a run", async (_name, input, code) => {
     vi.mocked(loadMessages).mockResolvedValue([{ id: "m-1", role: "user", parts: [{ type: "text", text: "x" }] }]);

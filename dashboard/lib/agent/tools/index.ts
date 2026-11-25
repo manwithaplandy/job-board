@@ -7,6 +7,8 @@ import { readTools } from "@/lib/agent/tools/read";
 import { workspaceReadTools } from "@/lib/agent/tools/workspaceRead";
 import { writeTools } from "@/lib/agent/tools/write";
 import { approvalTools } from "@/lib/agent/tools/approval";
+import { presentTool } from "@/lib/agent/tools/present";
+import { askUserTool } from "@/lib/agent/tools/askUser";
 
 export interface ToolCtx {
   userId: string;
@@ -29,5 +31,15 @@ export function buildTools(ctx: ToolCtx) {
     ...writeTools(ctx),
     // Empty without the approval secret or in an unattended run (Task 1.16).
     ...approvalTools(ctx),
+    // A surface and a question need a user on the page (Task 1.20): interactive only.
+    ...interactiveTools(ctx),
   };
+}
+
+function interactiveTools(ctx: ToolCtx): Partial<ReturnType<typeof attendedInteractiveTools>> {
+  return ctx.unattended ? {} : attendedInteractiveTools(ctx);
+}
+
+function attendedInteractiveTools(ctx: ToolCtx) {
+  return { present: presentTool(ctx), ask_user: askUserTool(ctx) };
 }

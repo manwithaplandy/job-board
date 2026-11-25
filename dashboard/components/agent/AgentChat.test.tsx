@@ -7,6 +7,9 @@ import { createUIMessageStreamResponse, type UIMessage, type UIMessageChunk } fr
 
 const actions = vi.hoisted(() => ({ renameThreadAction: vi.fn(), newThread: vi.fn() }));
 vi.mock("@/app/actions/agent", () => actions);
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
+// The review indicator polls its own route; these tests count only /api/agent requests.
+vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
 
 import { AgentChat } from "./AgentChat";
 

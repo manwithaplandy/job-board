@@ -12,6 +12,7 @@ import { JOB_ID_RE } from "@/lib/jobIdValidator";
 import { SHORTLIST_STATES, REASON_TEXT_MAX } from "@/lib/workspaces/shortlist";
 import { CLOSED_REASONS, STAGES } from "@/lib/workspaces/applications";
 import { TileSpecSchema } from "@/lib/workspaces/analyticsTiles";
+import type { GenerationJobView } from "@/lib/generationJobCodec";
 
 export const ANSWER_MAX = 2000;
 export const OPEN_TARGETS = ["posting", "shortlist", "applications", "looking-for", "documents", "analytics"] as const;
@@ -90,7 +91,8 @@ export interface ConfirmDescriptor {
 }
 
 export type IntentOutcome =
-  | { kind: "done"; actionId?: number; toast: string }
+  /** `generation`: the prep job a confirmed application.prepare started or found running, for the page's generation tracker. */
+  | { kind: "done"; actionId?: number; toast: string; generation?: GenerationJobView }
   | { kind: "confirm"; confirm: ConfirmDescriptor; token: string }
   | { kind: "send"; text: string }
   | { kind: "navigate"; href: string }

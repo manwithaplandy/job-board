@@ -107,4 +107,21 @@ describe("present", () => {
     expect((await schema.validate!("text")).success).toBe(false);
     await expect(assertNoUserIdInput({ present: t })).resolves.toBeUndefined();
   });
+
+  test("L1: the input schema is draft 7, with no prefixItems and no other $schema", async () => {
+    const t = presentTool(ctx());
+    const schema = await (t.inputSchema as unknown as { jsonSchema: unknown | PromiseLike<unknown> }).jsonSchema;
+    const text = JSON.stringify(schema);
+    expect(text).not.toContain("prefixItems");
+    const dialects = [...text.matchAll(/"\$schema":"([^"]*)"/g)].map((x) => x[1]);
+    for (const d of dialects) expect(d).toBe("http://json-schema.org/draft-07/schema#");
+    // The JobComparison tuple is a draft 7 tuple: items as a list, no extra items.
+    const blocks = (schema as { properties: { payload: { properties: { blocks: { items: { oneOf: unknown[] } } } } } })
+      .properties.payload.properties.blocks.items.oneOf;
+    const comparison = blocks.find((b) => JSON.stringify(b).includes('"const":"JobComparison"')) as {
+      properties: { jobIds: { items: unknown; additionalItems: unknown } };
+    };
+    expect(Array.isArray(comparison.properties.jobIds.items)).toBe(true);
+    expect(comparison.properties.jobIds.additionalItems).toBe(false);
+  });
 });

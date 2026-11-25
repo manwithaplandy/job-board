@@ -7,6 +7,8 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { PageHeader } from "@/components/ui/Navigation";
 import { TrackerBoard } from "@/components/workspaces/TrackerBoard";
+import { ActivityPanel } from "@/components/workspaces/ActivityPanel";
+import { readActivity } from "@/lib/workspaces/activity";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Applications · Rolefit" };
@@ -20,7 +22,11 @@ export default async function ApplicationsPage() {
   const claims = await getUserClaims();
   const email = claims?.email ?? null;
 
-  const [rows, markers] = await Promise.all([listApplications(userId), listAgentMarkers(userId, "application.set_stage")]);
+  const [rows, markers, activity] = await Promise.all([
+    listApplications(userId),
+    listAgentMarkers(userId, "application.set_stage"),
+    readActivity(userId),
+  ]);
 
   return (
     <AppShell header={<AppHeader email={email} isAdmin={isAdmin(claims)} />}>
@@ -33,6 +39,7 @@ export default async function ApplicationsPage() {
           <div className="rf-workspace-live">
             <TrackerBoard rows={rows} markers={markers} />
           </div>
+          <ActivityPanel items={activity} />
         </div>
       </main>
     </AppShell>

@@ -175,7 +175,7 @@ describe("POST /api/agent", () => {
   });
 
   test("a turn input the loop rejects is a 400", async () => {
-    m.streamAgentTurn.mockRejectedValue(new m.TurnInputError("documents_unsupported"));
+    m.streamAgentTurn.mockRejectedValue(new m.TurnInputError("unknown_document"));
     const res = await POST(post({ ...valid, documentIds: [DOC] }));
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "bad_request" });

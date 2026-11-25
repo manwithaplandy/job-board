@@ -9,6 +9,8 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { PageHeader } from "@/components/ui/Navigation";
 import { DocumentsPage } from "@/components/workspaces/DocumentsPage";
+import { ActivityPanel } from "@/components/workspaces/ActivityPanel";
+import { readActivity } from "@/lib/workspaces/activity";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Documents · Rolefit" };
@@ -30,11 +32,12 @@ export default async function DocumentsRoute() {
   const claims = await getUserClaims();
   const email = claims?.email ?? null;
 
-  const [profile, versions, documents, generated] = await Promise.all([
+  const [profile, versions, documents, generated, activity] = await Promise.all([
     getProfile(userId),
     listResumeVersions(userId),
     listDocuments(userId),
     listGeneratedDocuments(userId),
+    readActivity(userId),
   ]);
 
   return (
@@ -53,6 +56,7 @@ export default async function DocumentsRoute() {
               generated={generated}
             />
           </div>
+          <ActivityPanel items={activity} />
         </div>
       </main>
     </AppShell>

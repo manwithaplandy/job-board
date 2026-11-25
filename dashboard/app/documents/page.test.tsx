@@ -16,6 +16,8 @@ vi.mock("@/lib/queries", () => ({ getProfile: async () => knobs.profile }));
 vi.mock("@/lib/workspaces/documents", () => ({ listDocuments: async () => [] }));
 vi.mock("@/lib/workspaces/generatedDocuments", () => ({ listGeneratedDocuments: async () => [] }));
 vi.mock("@/lib/workspaces/resumeVersions", () => ({ listResumeVersions: async () => [] }));
+vi.mock("@/lib/workspaces/activity", () => ({ readActivity: async () => [] }));
+vi.mock("@/app/actions/agent", () => ({ undoAgentAction: vi.fn() }));
 vi.mock("@/app/actions/documents", () => ({
   deleteDocumentAction: vi.fn(),
   useAsResumeAction: vi.fn(),

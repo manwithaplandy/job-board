@@ -7,6 +7,9 @@ import { createThread, renameThread } from "@/lib/agent/threads";
 import { undoAction, type UndoResult } from "@/lib/agent/actions/audit";
 import { confirmIntent, executeIntent } from "@/lib/agent/actions/handlers";
 import type { IntentOutcome } from "@/lib/agent/actions/intents";
+import { describePendingApproval, type PendingApproval } from "@/lib/agent/actions/approvalCard";
+import { loadHostSurface, type HostSurface } from "@/lib/agent/surfaces/host";
+import type { BlockRows } from "@/components/agent/blocks/types";
 
 // The pages that show agent writes, refreshed after a successful undo. undoAction does
 // not say which kind it undid, so this covers every registered undoer:
@@ -95,4 +98,28 @@ export async function confirmIntentAction(token: string): Promise<IntentOutcome>
   const outcome = await confirmIntent(userId, claims?.email ?? null, token);
   if (outcome.kind === "done") for (const path of UNDO_PATHS) revalidatePath(path);
   return outcome;
+}
+
+// Reads for the agent page's surface host (plan Task 1.20). They write nothing; the ids
+// are only ever matched together with the session user (lib/agent/surfaces/host.ts).
+
+/** A surface the turn just presented, parsed for BlockList, or null when it is not the caller's in this thread. */
+export async function loadSurfaceAction(threadId: string, surfaceId: string): Promise<HostSurface | null> {
+  const userId = await requireUserId();
+  if (typeof threadId !== "string" || typeof surfaceId !== "string") return null;
+  return loadHostSurface(userId, threadId, surfaceId);
+}
+
+/** A shown surface's database rows again (after a prep settles), keyed by the stored payload's ids. */
+export async function reloadSurfaceRowsAction(threadId: string, surfaceId: string): Promise<BlockRows | null> {
+  const surface = await loadSurfaceAction(threadId, surfaceId);
+  return surface?.rows ?? null;
+}
+
+/** The fixed confirm card for a pending tool approval, built from the stored part (never the client's copy). */
+export async function describeApprovalAction(threadId: string, approvalId: string): Promise<PendingApproval> {
+  const userId = await requireUserId();
+  if (typeof threadId !== "string" || typeof approvalId !== "string") return { status: "invalid" };
+  const claims = await getUserClaims();
+  return describePendingApproval(userId, threadId, approvalId, claims?.email ?? null);
 }

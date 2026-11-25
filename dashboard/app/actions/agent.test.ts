@@ -18,8 +18,19 @@ const undo = vi.hoisted(() => ({ undoAction: vi.fn() }));
 vi.mock("@/lib/agent/actions/audit", () => ({ undoAction: undo.undoAction }));
 const intents = vi.hoisted(() => ({ executeIntent: vi.fn(), confirmIntent: vi.fn() }));
 vi.mock("@/lib/agent/actions/handlers", () => intents);
+const host = vi.hoisted(() => ({ loadHostSurface: vi.fn(), describePendingApproval: vi.fn() }));
+vi.mock("@/lib/agent/surfaces/host", () => ({ loadHostSurface: host.loadHostSurface }));
+vi.mock("@/lib/agent/actions/approvalCard", () => ({ describePendingApproval: host.describePendingApproval }));
 
-import { confirmIntentAction, executeIntentAction, renameThreadAction, undoAgentAction } from "@/app/actions/agent";
+import {
+  confirmIntentAction,
+  describeApprovalAction,
+  executeIntentAction,
+  loadSurfaceAction,
+  reloadSurfaceRowsAction,
+  renameThreadAction,
+  undoAgentAction,
+} from "@/app/actions/agent";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const THREAD = "11111111-1111-4111-8111-111111111111";
@@ -107,4 +118,18 @@ test("confirmIntentAction passes the token with the session user", async () => {
   intents.confirmIntent.mockResolvedValue({ kind: "dropped" });
   expect(await confirmIntentAction("tok")).toEqual({ kind: "dropped" });
   expect(intents.confirmIntent).toHaveBeenCalledWith(USER, "a@example.com", "tok");
+});
+
+test("the surface and approval readers take the user from the session, never from the client", async () => {
+  const SURFACE = "22222222-2222-4222-8222-222222222222";
+  host.loadHostSurface.mockResolvedValue({ id: SURFACE, rows: { packages: {} } });
+  expect(await loadSurfaceAction(THREAD, SURFACE)).toEqual({ id: SURFACE, rows: { packages: {} } });
+  expect(host.loadHostSurface).toHaveBeenCalledWith(USER, THREAD, SURFACE);
+  expect(await reloadSurfaceRowsAction(THREAD, SURFACE)).toEqual({ packages: {} });
+  host.loadHostSurface.mockResolvedValue(null);
+  expect(await reloadSurfaceRowsAction(THREAD, SURFACE)).toBeNull();
+
+  host.describePendingApproval.mockResolvedValue({ status: "pending" });
+  expect(await describeApprovalAction(THREAD, "ap1")).toEqual({ status: "pending" });
+  expect(host.describePendingApproval).toHaveBeenCalledWith(USER, THREAD, "ap1", "a@example.com");
 });

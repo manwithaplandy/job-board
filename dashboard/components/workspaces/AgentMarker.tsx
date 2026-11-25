@@ -6,7 +6,8 @@ import { undoAgentAction } from "@/app/actions/agent";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Panel";
 
-const REFUSALS = {
+/** The fixed line for each undo refusal (shared by the activity panel and the agent page's undo toast). */
+export const UNDO_REFUSALS = {
   changed_since: "This changed since",
   already_undone: "Already undone",
   not_found: "This can no longer be undone",
@@ -27,7 +28,7 @@ export function AgentMarker({ actionId }: { actionId: number }) {
       try {
         const result = await undoAgentAction(actionId);
         if (result.ok) router.refresh();
-        else setMessage(REFUSALS[result.reason]);
+        else setMessage(UNDO_REFUSALS[result.reason]);
       } catch {
         setMessage("Undo failed. Try again.");
       }

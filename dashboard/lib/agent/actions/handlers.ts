@@ -22,6 +22,7 @@ import { NotReviewedError, ShortlistInputError, setShortlistState } from "@/lib/
 import { ApplicationInputError, setApplicationStage } from "@/lib/workspaces/applications";
 import { TILE_LAYOUT_MAX_ITEMS, TileLayoutError, getTileLayout, saveTileLayout } from "@/lib/workspaces/analyticsTiles";
 import { MemoInputError, MemoNotFoundError, resolveMemoProposal } from "@/lib/workspaces/memo";
+import { compareMessage } from "@/lib/agent/actions/compareText";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -171,7 +172,7 @@ export const INTENT_HANDLERS: { [N in IntentName]: Handler<N> } = {
       return refused(error);
     }
   },
-  compare: async (_ctx, i) => ({ kind: "send", text: `Compare these two jobs: ${i.jobIds[0]} and ${i.jobIds[1]}.` }),
+  compare: async (_ctx, i) => ({ kind: "send", text: compareMessage(i.jobIds[0], i.jobIds[1]) }),
   answer: async (_ctx, i) => ({
     kind: "send",
     text: `Answer to ${i.questionId}: ${Array.isArray(i.value) ? i.value.join(", ") : i.value}`,
@@ -280,7 +281,14 @@ export async function confirmIntent(userId: string, email: string | null, token:
         logDropped("confirm_token_used", confirmed.surfaceId);
         return { kind: "done", toast: CONFIRM_ALREADY_USED };
       }
-      return { kind: "done", toast: PREP_TOASTS[(await startApplicationPrep(userId, email, confirmed.intent.jobId)).status] };
+      {
+        const prep = await startApplicationPrep(userId, email, confirmed.intent.jobId);
+        const toast = PREP_TOASTS[prep.status];
+        // The tracker toasts this job and tells the prep checklist when it settles.
+        return prep.status === "started" || prep.status === "already_running"
+          ? { kind: "done", toast, generation: prep.generation }
+          : { kind: "done", toast };
+      }
     default:
       return { kind: "dropped" };
   }

@@ -1,23 +1,28 @@
 "use client";
 
-import type { FormEvent, KeyboardEvent } from "react";
+import type { FormEvent, KeyboardEvent, ReactNode } from "react";
 import { TextArea } from "@/components/ui/FormControls";
 import { Button } from "@/components/ui/Button";
 import { AGENT_TEXT_MAX } from "@/lib/agent/request";
 
-/** The message box: Enter sends, Shift+Enter adds a line, blank text never sends. */
+/**
+ * The message box: Enter sends, Shift+Enter adds a line, blank text never sends.
+ * `attachments` is the upload target (AttachButton), shown beside Send.
+ */
 export function Composer({
   value,
   onChange,
   onSend,
   disabled,
   busy,
+  attachments,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSend: (text: string) => void;
   disabled: boolean;
   busy: boolean;
+  attachments?: ReactNode;
 }) {
   const blocked = disabled || busy;
   const send = () => {
@@ -46,6 +51,7 @@ export function Composer({
         disabled={disabled}
       />
       <div className="rf-agent-composer__actions">
+        {attachments}
         <Button type="submit" disabled={blocked || value.trim() === ""} loading={busy} loadingLabel="Waiting for the reply">
           Send
         </Button>

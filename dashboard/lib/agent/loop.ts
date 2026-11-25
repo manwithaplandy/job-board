@@ -50,7 +50,7 @@ import {
 import { catalogNow } from "@/lib/catalogClock";
 import { flushLangfuseTraces } from "@/lib/observability";
 import { AGENT_LIMITS, AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
-import { AGENT_TEXT_MAX } from "@/lib/agent/request";
+import { AGENT_DOCUMENTS_MAX, AGENT_TEXT_MAX } from "@/lib/agent/request";
 import { stepCostMicros } from "@/lib/agent/budget";
 import { buildInstructions } from "@/lib/agent/context";
 import { emptyGathered } from "@/lib/agent/gathered";
@@ -64,7 +64,8 @@ import { getProfileSummary } from "@/lib/agent/tools/read";
 import { TOOL_APPROVAL, approvalStreamOptions } from "@/lib/agent/tools/approval";
 import { approvalSecret } from "@/lib/agent/approvalSecret";
 import { withAgentTrace } from "@/lib/agent/telemetry";
-import type { ProfileSummary } from "@/lib/workspaces/types";
+import { listDocuments } from "@/lib/workspaces/documents";
+import type { DocumentMeta, ProfileSummary } from "@/lib/workspaces/types";
 
 export type TurnInput =
   | { kind: "message"; id: string; text: string; documentIds: string[] }
@@ -73,7 +74,8 @@ export type TurnInput =
 export type TurnInputErrorCode =
   | "approval_unavailable"
   | "approval_not_found"
-  | "documents_unsupported"
+  | "unknown_document"
+  | "too_many_documents"
   | "bad_message_id"
   | "duplicate_message_id"
   | "empty_text"
@@ -122,17 +124,42 @@ function errorName(e: unknown): string {
   return e instanceof Error ? e.name : typeof e;
 }
 
+const ATTACHED_NAME_MAX = 120;
+// Quotes, control and bidi-override characters in a filename become spaces, so a name
+// cannot close its own quotes or reorder the note.
+const UNSAFE_NAME_CHARS = /["\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
+
+/** The fixed note that names the message's attached documents for the model (Task 1.20). */
+export function attachmentNote(docs: ReadonlyArray<Pick<DocumentMeta, "id" | "filename">>): string {
+  const names = docs.map((d) => {
+    const flat = d.filename.replace(UNSAFE_NAME_CHARS, " ").replace(/\s+/g, " ").trim();
+    const name = Array.from(flat).slice(0, ATTACHED_NAME_MAX).join("");
+    return `"${name}" (document id ${d.id})`;
+  });
+  return `Attached files, readable with read_document: ${names.join("; ")}.`;
+}
+
 /**
- * Checks the input and builds the user message from its text alone. The text cap is the
- * route's (AGENT_TEXT_MAX, 8,000 characters), enforced here too for any other caller.
+ * Checks the input and builds the user message from its text, plus a fixed note naming
+ * the attached documents. Each document id must be one of the caller's own documents
+ * (read under RLS); the note carries only ids and filenames, never document text. The
+ * text cap is the route's (AGENT_TEXT_MAX, 8,000 characters), enforced here too for any
+ * other caller.
  */
-function userMessageFrom(input: Extract<TurnInput, { kind: "message" }>): AgentUIMessage {
-  // Phase 0 has no documents table; Task 1.x adds document attachments.
-  if (input.documentIds.length > 0) throw new TurnInputError("documents_unsupported");
+async function userMessageFrom(userId: string, input: Extract<TurnInput, { kind: "message" }>): Promise<AgentUIMessage> {
   if (!MESSAGE_ID_RE.test(input.id)) throw new TurnInputError("bad_message_id");
   if (input.text.trim() === "") throw new TurnInputError("empty_text");
   if (input.text.length > AGENT_TEXT_MAX) throw new TurnInputError("text_too_long");
-  return { id: input.id, role: "user", parts: [{ type: "text", text: input.text }] };
+  const ids = [...new Set(input.documentIds)];
+  if (ids.length > AGENT_DOCUMENTS_MAX) throw new TurnInputError("too_many_documents");
+  const parts: AgentUIMessage["parts"] = [{ type: "text", text: input.text }];
+  if (ids.length > 0) {
+    const mine = new Map((await listDocuments(userId)).map((d) => [d.id, d]));
+    const attached = ids.map((id) => mine.get(id));
+    if (attached.some((d) => d === undefined)) throw new TurnInputError("unknown_document");
+    parts.push({ type: "text", text: attachmentNote(attached.filter((d): d is DocumentMeta => d !== undefined)) });
+  }
+  return { id: input.id, role: "user", parts };
 }
 
 /** What the model reads for a denied approval (the SDK passes it as the tool result). */
@@ -252,7 +279,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     if (approvalSecret() === null) throw new TurnInputError("approval_unavailable");
     start = { kind: "approval", approvalId: a.input.approvalId, approved: a.input.approved };
   } else {
-    start = { kind: "message", message: userMessageFrom(a.input) };
+    start = { kind: "message", message: await userMessageFrom(userId, a.input) };
   }
 
   const runId = await startRun(userId, { threadId: thread.id, kind: "interactive", model: modelId, variant: thread.variant });

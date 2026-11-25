@@ -1,22 +1,47 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
-import { createIdGenerator, DefaultChatTransport, type UIMessage } from "ai";
+import { toast } from "sonner";
+import { createIdGenerator, DefaultChatTransport, getToolName, isToolUIPart, type UIMessage } from "ai";
 import { z } from "zod";
-import { renameThreadAction } from "@/app/actions/agent";
+import {
+  confirmIntentAction,
+  describeApprovalAction,
+  executeIntentAction,
+  loadSurfaceAction,
+  newThread,
+  reloadSurfaceRowsAction,
+  renameThreadAction,
+} from "@/app/actions/agent";
+import { useGenerationTracker } from "@/components/generation/GenerationToastProvider";
 import { Alert } from "@/components/ui/SystemStates";
 import { AGENT_LIMITS } from "@/lib/agent/config";
+import { CONFIRMATIONS_UNAVAILABLE } from "@/lib/agent/approvalSecret";
+import { compareMessage } from "@/lib/agent/actions/compareText";
+import type { PendingApproval } from "@/lib/agent/actions/approvalCard";
+import type { ActionIntent, ConfirmDescriptor, IntentOutcome } from "@/lib/agent/actions/intents";
 import type { AgentRequest } from "@/lib/agent/request";
+import type { HostChain } from "@/lib/agent/surfaces/host";
 import { titleFromFirstMessage } from "@/lib/agent/titles";
+import { parseGenerationJob } from "@/lib/generationJobCodec";
 import { AgentNotice, type AgentBlockingNotice } from "./AgentNotice";
+import { AttachButton, type AttachedDocument } from "./AttachButton";
 import { Composer } from "./Composer";
+import { ConfirmCard } from "./ConfirmCard";
+import { EmptyState } from "./EmptyState";
+import { ReviewProgress } from "./ReviewProgress";
+import { SurfaceHost, mergeSurface, useWideLayout } from "./SurfaceHost";
+import { showUndoToast, writeToastText } from "./UndoToast";
 
-// The text-only agent chat (plan Task 0.14). The server owns history (D7): every request
-// carries only the thread id and the new message's id and text, built from the last
-// message alone; the route loads the rest from agent_messages. Assistant text is
-// rendered as React text nodes, never as HTML or markdown, so model output cannot
-// inject markup or links.
+// The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
+// carries only the thread id and either the new message's id, text and attached document
+// ids, or an approval decision; the route loads the rest from agent_messages. Assistant
+// text is rendered as React text nodes, never as HTML or markdown. The one rich output is
+// a surface, and it is rendered only by SurfaceHost from the server-parsed surface row,
+// never from the tool part's own payload. Approvals and high-risk intents show only the
+// fixed ConfirmCard, built on the server from database values.
 
 const generateId = createIdGenerator({ prefix: "u", size: 16 });
 
@@ -34,6 +59,12 @@ function metaOf(m: UIMessage): z.infer<typeof metadataSchema> | null {
 
 function textOf(m: UIMessage): string {
   return m.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
+}
+
+/** The user's own text of a message: its first text part (later parts are the server's attachment note). */
+function ownTextOf(m: UIMessage): string {
+  const first = m.parts.find((p) => p.type === "text");
+  return first && first.type === "text" ? first.text : "";
 }
 
 /**
@@ -58,6 +89,9 @@ function isInterrupted(messages: UIMessage[], now: number): boolean {
 type Rejection = ({ notice: AgentBlockingNotice } | { message: string }) & { rollback: boolean };
 
 const GENERIC_PROBLEM = "The assistant could not answer just now. Try again.";
+const INTENT_DROPPED = "That action isn't available any more.";
+const INTENT_FAILED = "That action could not run. Try again.";
+const APPROVAL_INVALID = "This request can't be confirmed. Ask again.";
 
 // The route's own refusals, each answered before anything is stored (app/api/agent/route.ts).
 // Any other status (a 5xx) may come after the server stored the user message, so the
@@ -79,22 +113,43 @@ function rejectionFrom(status: number, body: unknown): Rejection {
 // it passes AGENT_LIMITS.staleTurnMs without a reload.
 const CLOCK_TICK_MS = 15_000;
 
+// What a send passes to the transport beside the messages (sendMessage's options.body).
+const requestExtraSchema = z.object({
+  documentIds: z.array(z.string()).optional(),
+  approval: z.object({ approvalId: z.string(), approved: z.boolean() }).optional(),
+});
+
 /**
  * The HTTP transport plus a small ledger of the request in flight: its message id and
  * text, and how the route rejected it, so a rejection can take the optimistic message
- * back out and return the text to the composer.
+ * back out and return the text to the composer. An approval has no message of its own
+ * to take back.
  */
 function chatTransport(threadId: string) {
   let sent: { id: string; text: string } | null = null;
   let rejected: Rejection | null = null;
   const transport = new DefaultChatTransport<UIMessage>({
     api: "/api/agent",
-    prepareSendMessagesRequest: ({ messages }) => {
+    prepareSendMessagesRequest: ({ messages, body: extraRaw }) => {
+      const extra = requestExtraSchema.safeParse(extraRaw ?? {});
+      const approval = extra.success ? extra.data.approval : undefined;
+      rejected = null;
+      if (approval) {
+        sent = null;
+        const body: AgentRequest = { threadId, kind: "approval", approvalId: approval.approvalId, approved: approval.approved };
+        return { body };
+      }
       const last = messages.at(-1);
       const text = last ? textOf(last) : "";
-      const body: AgentRequest = { threadId, kind: "message", id: last?.id ?? generateId(), text };
+      const documentIds = extra.success ? (extra.data.documentIds ?? []) : [];
+      const body: AgentRequest = {
+        threadId,
+        kind: "message",
+        id: last?.id ?? generateId(),
+        text,
+        ...(documentIds.length > 0 ? { documentIds } : {}),
+      };
       sent = { id: body.id, text };
-      rejected = null;
       return { body };
     },
     fetch: async (input, init) => {
@@ -121,34 +176,109 @@ function chatTransport(threadId: string) {
   return { transport, book };
 }
 
-function MessageView({ message }: { message: UIMessage }) {
+type ToolPart = Extract<UIMessage["parts"][number], { toolCallId: string }>;
+
+function toolPartsOf(m: UIMessage): ToolPart[] {
+  return m.parts.filter((p): p is ToolPart => isToolUIPart(p));
+}
+
+const presentOutputSchema = z.object({ surfaceId: z.uuid() });
+const writeOutputSchema = z.object({ status: z.literal("done"), actionId: z.number().int().positive() });
+// ask_user's questions, shown as plain text (the answer is the user's next message).
+const askUserInputSchema = z.object({ questions: z.array(z.object({ label: z.string(), options: z.array(z.string()).optional() })) });
+
+/** The surface a present part produced, or null. */
+function presentedSurfaceId(part: ToolPart): string | null {
+  if (getToolName(part) !== "present" || part.state !== "output-available") return null;
+  return presentOutputSchema.safeParse(part.output).data?.surfaceId ?? null;
+}
+
+/** The first approval in the last assistant message that waits for the user (an automatic one never does). */
+function waitingApproval(messages: UIMessage[]): { id: string } | null {
+  const last = messages.at(-1);
+  if (!last || last.role !== "assistant") return null;
+  for (const part of toolPartsOf(last)) {
+    if (part.state === "approval-requested" && part.approval.isAutomatic !== true) return { id: part.approval.id };
+  }
+  return null;
+}
+
+function ToolLine({ part }: { part: ToolPart }) {
+  const name = getToolName(part);
+  if (name === "ask_user") {
+    const input = askUserInputSchema.safeParse(part.input);
+    if (!input.success) return null;
+    return (
+      <ul className="rf-agent-message__questions">
+        {input.data.questions.map((q, i) => (
+          <li key={i}>
+            {q.label}
+            {q.options && q.options.length > 0 ? ` (${q.options.join(", ")})` : ""}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (part.state === "approval-requested" || part.state === "approval-responded") return null;
+  return <p className="rf-agent-message__tool">Looked up {name.replace(/_/g, " ")}</p>;
+}
+
+function MessageView({ message, renderSurface }: { message: UIMessage; renderSurface: (surfaceId: string) => ReactNode }) {
   const who = message.role === "user" ? "You" : "Assistant";
   return (
     <li className={`rf-agent-message rf-agent-message--${message.role}`}>
       <span className="rf-agent-message__role">{who}</span>
       {message.parts.map((part, i) => {
         if (part.type === "text") return <p key={i} className="rf-agent-message__text">{part.text}</p>;
-        if (part.type.startsWith("tool-")) return <p key={i} className="rf-agent-message__tool">Looked up {part.type.slice("tool-".length).replace(/_/g, " ")}</p>;
-        return null;
+        if (!isToolUIPart(part)) return null;
+        if (getToolName(part) === "present") {
+          const surfaceId = presentedSurfaceId(part);
+          return surfaceId ? <div key={i}>{renderSurface(surfaceId)}</div> : null;
+        }
+        return <ToolLine key={i} part={part} />;
       })}
     </li>
   );
 }
+
+type ConfirmState =
+  | { source: "intent"; descriptor: ConfirmDescriptor; token: string }
+  | { source: "approval"; descriptor: ConfirmDescriptor; approvalId: string };
+
+const APPROVAL_RETRY_MS = [500, 1_000, 2_000];
 
 export function AgentChat({
   threadId,
   initialMessages,
   notice,
   autoTitle = false,
+  surfaces = [],
+  approvalsEnabled = false,
+  compare = null,
+  hasProfile = true,
 }: {
   threadId: string;
   initialMessages: UIMessage[];
   notice: AgentBlockingNotice | null;
   autoTitle?: boolean;
+  /** The thread's surface chains, parsed on the server (lib/agent/surfaces/host.ts). */
+  surfaces?: HostChain[];
+  /** False without AGENT_TOOL_APPROVAL_SECRET: no confirm card is ever shown for an approval. */
+  approvalsEnabled?: boolean;
+  /** Two validated job ids from ?compare=a,b: sent once as the structured compare message. */
+  compare?: readonly [string, string] | null;
+  hasProfile?: boolean;
 }) {
+  const router = useRouter();
+  const tracker = useGenerationTracker();
   const [draft, setDraft] = useState("");
   const [blocking, setBlocking] = useState<AgentBlockingNotice | null>(notice);
   const [problem, setProblem] = useState<string | null>(null);
+  const [attached, setAttached] = useState<AttachedDocument[]>([]);
+  const [chains, setChains] = useState<HostChain[]>(surfaces);
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [approvalCards, setApprovalCards] = useState<Record<string, PendingApproval>>({});
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
@@ -157,8 +287,9 @@ export function AgentChat({
   const named = useRef(!autoTitle);
   // One transport per mounted chat (the page keys AgentChat by thread id).
   const [{ transport, book }] = useState(() => chatTransport(threadId));
+  const wide = useWideLayout();
 
-  const { messages, sendMessage, setMessages, status } = useChat<UIMessage>({
+  const { messages, sendMessage, setMessages, status, addToolApprovalResponse } = useChat<UIMessage>({
     id: threadId,
     messages: initialMessages,
     transport,
@@ -190,28 +321,284 @@ export function AgentChat({
       named.current = true;
       void renameThreadAction(threadId, titleFromFirstMessage(text)).catch(() => {});
     }
-    void sendMessage({ text });
+    const documentIds = attached.map((d) => d.id);
+    setAttached([]);
+    void sendMessage({ text }, documentIds.length > 0 ? { body: { documentIds } } : undefined);
   };
 
+  // ?compare=a,b: one structured message on load, then the query is cleared so a reload
+  // does not send it again.
+  const compared = useRef(false);
+  useEffect(() => {
+    if (!compare || compared.current) return;
+    compared.current = true;
+    if (notice === null) {
+      // The composer is empty and nothing is attached on mount, so this is send() without
+      // its state resets.
+      const text = compareMessage(compare[0], compare[1]);
+      named.current = true;
+      void renameThreadAction(threadId, titleFromFirstMessage(text)).catch(() => {});
+      void sendMessage({ text });
+    }
+    router.replace(`/agent?t=${encodeURIComponent(threadId)}`);
+    // Runs once per mounted chat.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A present result: load the stored row, parsed on the server, and fold it into its chain.
+  const loading = useRef(new Set<string>());
+  useEffect(() => {
+    for (const m of messages) {
+      for (const part of toolPartsOf(m)) {
+        const surfaceId = presentedSurfaceId(part);
+        if (!surfaceId || loading.current.has(surfaceId) || chains.some((c) => c.memberIds.includes(surfaceId))) continue;
+        loading.current.add(surfaceId);
+        void loadSurfaceAction(threadId, surfaceId).then(
+          (surface) => {
+            if (surface) setChains((prev) => mergeSurface(prev, surface));
+          },
+          () => {},
+        );
+      }
+    }
+  }, [messages, chains, threadId]);
+
+  // A write tool's result with an actionId raises an Undo toast, once, for results that
+  // arrive while the page is open (not for the stored history).
+  const toasted = useRef<Set<string> | null>(null);
+  if (toasted.current === null) {
+    toasted.current = new Set(initialMessages.flatMap((m) => toolPartsOf(m).map((p) => p.toolCallId)));
+  }
+  useEffect(() => {
+    const seen = toasted.current as Set<string>;
+    for (const m of messages) {
+      for (const part of toolPartsOf(m)) {
+        if (part.state !== "output-available" || seen.has(part.toolCallId)) continue;
+        const out = writeOutputSchema.safeParse(part.output);
+        if (!out.success) continue;
+        seen.add(part.toolCallId);
+        showUndoToast({ text: writeToastText(getToolName(part)), actionId: out.data.actionId, onUndone: () => router.refresh() });
+      }
+    }
+  }, [messages, router]);
+
+  // The waiting approval's fixed card, built on the server from the stored part. The
+  // turn may still be saving when the stream ends, so "pending" is retried briefly.
+  const waiting = busy ? null : waitingApproval(messages);
+  const waitingId = waiting?.id ?? null;
+  useEffect(() => {
+    if (!approvalsEnabled || waitingId === null || approvalCards[waitingId]) return;
+    let cancelled = false;
+    void (async () => {
+      for (let attempt = 0; ; attempt++) {
+        let result: PendingApproval;
+        try {
+          result = await describeApprovalAction(threadId, waitingId);
+        } catch {
+          result = { status: "invalid" };
+        }
+        if (cancelled) return;
+        if (result.status !== "pending" || attempt >= APPROVAL_RETRY_MS.length) {
+          const settled: PendingApproval = result.status === "pending" ? { status: "invalid" } : result;
+          setApprovalCards((prev) => ({ ...prev, [waitingId]: settled }));
+          return;
+        }
+        await new Promise((r) => setTimeout(r, APPROVAL_RETRY_MS[attempt]));
+        if (cancelled) return;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [approvalsEnabled, waitingId, approvalCards, threadId]);
+
+  const respondToApproval = async (approvalId: string, approved: boolean) => {
+    setProblem(null);
+    await addToolApprovalResponse({ id: approvalId, approved });
+    void sendMessage(undefined, { body: { approval: { approvalId, approved } } });
+  };
+
+  const notifyPrep = (outcome: IntentOutcome) => {
+    if (outcome.kind !== "done") return;
+    const generation = parseGenerationJob(outcome.generation);
+    if (generation && tracker) tracker.notifyStarted(generation);
+    else tracker?.refresh();
+  };
+
+  const handleOutcome = (outcome: IntentOutcome) => {
+    switch (outcome.kind) {
+      case "done":
+        if (outcome.actionId !== undefined) showUndoToast({ text: outcome.toast, actionId: outcome.actionId, onUndone: () => router.refresh() });
+        else toast(outcome.toast);
+        return;
+      case "confirm":
+        setConfirm({ source: "intent", descriptor: outcome.confirm, token: outcome.token });
+        return;
+      case "send":
+        send(outcome.text);
+        return;
+      case "navigate":
+        if (outcome.href.startsWith("/") && !outcome.href.startsWith("//")) router.push(outcome.href);
+        else if (/^https?:\/\//i.test(outcome.href)) window.open(outcome.href, "_blank", "noopener,noreferrer");
+        return;
+      case "dropped":
+        toast(INTENT_DROPPED);
+        return;
+    }
+  };
+
+  // Stable callbacks for the blocks (their effects depend on them); the latest handlers
+  // are read through a ref.
+  const handlers = useRef({ handleOutcome });
+  useEffect(() => {
+    handlers.current = { handleOutcome };
+  });
+  const onIntent = useCallback(
+    (surfaceId: string, intent: ActionIntent) => {
+      void executeIntentAction(threadId, surfaceId, intent).then(
+        (outcome) => handlers.current.handleOutcome(outcome),
+        () => toast(INTENT_FAILED),
+      );
+    },
+    [threadId],
+  );
+  const onPrepSettled = useCallback(
+    (surfaceId: string) => {
+      void reloadSurfaceRowsAction(threadId, surfaceId).then(
+        (rows) => {
+          if (!rows) return;
+          setChains((prev) => prev.map((c) => (c.surface.id === surfaceId ? { ...c, surface: { ...c.surface, rows } } : c)));
+        },
+        () => {},
+      );
+    },
+    [threadId],
+  );
+
+  const approve = async (target: ConfirmState) => {
+    setConfirmBusy(true);
+    try {
+      if (target.source === "approval") {
+        await respondToApproval(target.approvalId, true);
+      } else {
+        const outcome = await confirmIntentAction(target.token);
+        handleOutcome(outcome);
+        notifyPrep(outcome);
+      }
+    } catch {
+      toast(INTENT_FAILED);
+    } finally {
+      setConfirmBusy(false);
+      setConfirm(null);
+    }
+  };
+  const deny = (target: ConfirmState) => {
+    if (target.source === "approval") void respondToApproval(target.approvalId, false);
+    setConfirm(null);
+  };
+
+  // The approval card, when the server built one, takes the confirm slot.
+  const approvalCard = approvalsEnabled && waitingId !== null ? approvalCards[waitingId] : undefined;
+  const shownConfirm: ConfirmState | null =
+    confirm ?? (approvalCard?.status === "ready" && waitingId !== null ? { source: "approval", descriptor: approvalCard.descriptor, approvalId: waitingId } : null);
+  const approvalProblem =
+    waitingId === null ? null : !approvalsEnabled || approvalCard?.status === "unavailable" ? CONFIRMATIONS_UNAVAILABLE : approvalCard?.status === "invalid" ? APPROVAL_INVALID : null;
+
+  // Placement: each chain renders once. At 1024px and wider the latest chain takes the
+  // wide column; every other chain renders inline at the present call that produced its
+  // latest row (an earlier row's call renders nothing), or at the end when no call in
+  // the loaded history names it.
+  const latest = chains.at(-1) ?? null;
+  const columnChain = wide ? latest : null;
+  const inlineIds = new Set(chains.filter((c) => c !== columnChain).map((c) => c.surface.id));
+  const presentedIds = new Set(messages.flatMap((m) => toolPartsOf(m).map(presentedSurfaceId).filter((id): id is string => id !== null)));
+  const renderSurface = (surfaceId: string) => {
+    if (!inlineIds.has(surfaceId)) return null;
+    const chain = chains.find((c) => c.surface.id === surfaceId);
+    return chain ? <SurfaceHost surface={chain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} /> : null;
+  };
+  const orphans = chains.filter((c) => c !== columnChain && !presentedIds.has(c.surface.id));
+
+  const reviewWatch = messages.reduce(
+    (n, m) => n + toolPartsOf(m).filter((p) => getToolName(p) === "request_review" && p.state === "output-available").length,
+    0,
+  );
+
+  const composer = (
+    <Composer
+      value={draft}
+      onChange={setDraft}
+      onSend={send}
+      disabled={blocking !== null}
+      busy={busy}
+      attachments={
+        <AttachButton
+          attached={attached}
+          onAttach={(d) => setAttached((prev) => (prev.some((x) => x.id === d.id) ? prev : [...prev, d]))}
+          onRemove={(id) => setAttached((prev) => prev.filter((d) => d.id !== id))}
+          disabled={blocking !== null || busy}
+        />
+      }
+    />
+  );
+
   return (
-    <section className="rf-agent-chat" aria-label="Conversation">
-      {messages.length === 0 ? (
-        <p className="rf-agent-chat__empty">Ask about your reviewed jobs, a company, or your profile.</p>
-      ) : (
-        // aria-busy holds the live region's announcement while a reply streams, so a
-        // screen reader reads the finished reply once, not every token.
-        <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
-          {messages.map((m) => (
-            <MessageView key={m.id} message={m} />
-          ))}
-        </ol>
+    <div className={columnChain ? "rf-agent-workspace rf-agent-workspace--split" : "rf-agent-workspace"}>
+      <section className="rf-agent-chat" aria-label="Conversation">
+        {messages.length > 0 && (
+          // aria-busy holds the live region's announcement while a reply streams, so a
+          // screen reader reads the finished reply once, not every token.
+          <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
+            {messages.map((m) => (
+              <MessageView key={m.id} message={m} renderSurface={renderSurface} />
+            ))}
+          </ol>
+        )}
+        {orphans.map((c) => (
+          <SurfaceHost key={c.chainId} surface={c.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} />
+        ))}
+        <ReviewProgress watch={reviewWatch} />
+        {interrupted && !blocking && (
+          <AgentNotice kind="interrupted" onRetry={lastUserText ? () => send(ownTextOf(lastUserText)) : undefined} />
+        )}
+        {blocking && <AgentNotice kind={blocking} />}
+        {problem && !blocking && <Alert tone="danger">{problem}</Alert>}
+        {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
+        {shownConfirm && <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />}
+        {messages.length === 0 ? <EmptyState hasProfile={hasProfile} composer={composer} /> : composer}
+      </section>
+      {columnChain && (
+        <aside className="rf-agent-surface-column" aria-label="Latest view">
+          <SurfaceHost surface={columnChain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} />
+        </aside>
       )}
-      {interrupted && !blocking && (
-        <AgentNotice kind="interrupted" onRetry={lastUserText ? () => send(textOf(lastUserText)) : undefined} />
-      )}
-      {blocking && <AgentNotice kind={blocking} />}
-      {problem && !blocking && <Alert tone="danger">{problem}</Alert>}
-      <Composer value={draft} onChange={setDraft} onSend={send} disabled={blocking !== null} busy={busy} />
-    </section>
+    </div>
+  );
+}
+
+/**
+ * ?compare=a,b with no conversation open: starts one, then reopens the page on it with
+ * the same compare, which AgentChat sends once. Runs on the user's own navigation from
+ * the shortlist's Compare button, never during a server render.
+ */
+export function CompareStarter({ compare }: { compare: readonly [string, string] }) {
+  const router = useRouter();
+  const started = useRef(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void newThread().then(
+      ({ id }) =>
+        router.replace(`/agent?t=${encodeURIComponent(id)}&compare=${compare.map((j) => encodeURIComponent(j)).join(",")}`),
+      () => setFailed(true),
+    );
+  }, [compare, router]);
+  return failed ? (
+    <Alert tone="danger">A new conversation could not be started. Try again.</Alert>
+  ) : (
+    <p className="rf-agent-chat__empty" role="status">
+      Starting a comparison.
+    </p>
   );
 }

@@ -14,7 +14,12 @@ export default defineConfig({
   ...base,
   test: {
     ...base.test,
-    include: ["lib/testing/**/*.db.test.ts", "lib/agent/**/*.db.test.ts", "lib/workspaces/**/*.db.test.ts"],
+    include: [
+      "lib/testing/**/*.db.test.ts",
+      "lib/agent/**/*.db.test.ts",
+      "lib/workspaces/**/*.db.test.ts",
+      "lib/catalogClock.db.test.ts",
+    ],
     exclude: ["**/node_modules/**"],
     fileParallelism: false,
     env: { ...base.test?.env, DATABASE_URL: dsn },

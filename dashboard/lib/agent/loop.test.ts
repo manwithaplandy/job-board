@@ -52,7 +52,8 @@ vi.mock("@/lib/agent/config", async (importOriginal) => {
   // finish well inside it.
   return { ...real, AGENT_LIMITS: { ...real.AGENT_LIMITS, wallClockMs: 1_000 } };
 });
-vi.mock("@/lib/agent/threads", () => ({ loadMessages: vi.fn() }));
+vi.mock("@/lib/agent/threads", () => ({ loadMessages: vi.fn(), saveThreadSummary: vi.fn() }));
+vi.mock("@/lib/workspaces/memo", () => ({ getMemo: vi.fn() }));
 vi.mock("@/lib/agent/runs", () => {
   class TurnInProgressError extends Error {}
   return { TurnInProgressError, startRun: vi.fn(), chargeStep: vi.fn(), finishRun: vi.fn(), saveMessages: vi.fn() };
@@ -75,7 +76,10 @@ vi.mock("@/lib/agent/tools/read", async () => {
 });
 
 import { catalogNow } from "@/lib/catalogClock";
-import { loadMessages } from "@/lib/agent/threads";
+import { loadMessages, saveThreadSummary } from "@/lib/agent/threads";
+import { getMemo } from "@/lib/workspaces/memo";
+import { compileMemo } from "@/lib/workspaces/memoCompile";
+import { SUMMARY_MESSAGE_ID } from "@/lib/agent/summary";
 import { TurnInProgressError, chargeStep, finishRun, saveMessages, startRun } from "@/lib/agent/runs";
 import type { AgentThread } from "@/lib/agent/threads";
 import { APPROVAL_DENIED_REASON, streamAgentTurn, TurnInputError, type TurnInput } from "@/lib/agent/loop";
@@ -177,6 +181,8 @@ beforeEach(() => {
   h.uiStreamCalls = 0;
   vi.mocked(loadMessages).mockReset().mockResolvedValue([]);
   vi.mocked(listDocuments).mockReset().mockResolvedValue([]);
+  vi.mocked(getMemo).mockReset().mockResolvedValue(null);
+  vi.mocked(saveThreadSummary).mockReset().mockResolvedValue(undefined);
   vi.mocked(startRun)
     .mockReset()
     .mockImplementation(async () => {
@@ -678,5 +684,187 @@ describe("streamAgentTurn: approvals (Task 1.16)", () => {
     expect(saveMessages).not.toHaveBeenCalled();
     expect(model.doStreamCalls).toHaveLength(0);
     expect(startApplicationPrep).not.toHaveBeenCalled();
+  });
+});
+
+describe("streamAgentTurn: stable prefix, memo and thread summaries (Task 1.21)", () => {
+  const MEMO_DOC = {
+    role: "Backend engineer",
+    locations: "Berlin or remote in the EU",
+    compensation: "At least 90k EUR",
+    mustHaves: "",
+    dealBreakers: "No on-call rotations",
+    companies: "",
+    other: "",
+  };
+
+  /** A thread of `n` stored text messages, alternating user and assistant, starting with a user. */
+  function storedTurns(n: number): UIMessage[] {
+    const out: UIMessage[] = [];
+    for (let i = 0; i < n; i += 1) {
+      out.push({ id: `m-${i}`, role: i % 2 === 0 ? "user" : "assistant", parts: [{ type: "text", text: `turn ${i}` }] });
+    }
+    return out;
+  }
+
+  /** A model that answers the summary call (doGenerate) and streams `steps` (doStream). */
+  function withSummary(summary: string, dollars: number, steps: Step[]) {
+    const streaming = scripted(steps);
+    // Built through the constructor so doGenerateCalls records each call.
+    return new MockLanguageModelV4({
+      doStream: (options) => streaming.doStream(options),
+      doGenerate: async () => {
+        h.calls.push("summary");
+        return {
+          content: [{ type: "text", text: summary }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage,
+          providerMetadata: billed(dollars),
+          warnings: [],
+        };
+      },
+    });
+  }
+
+  const systemOf = (model: MockLanguageModelV4, i = 0) => JSON.stringify(model.doStreamCalls[i].prompt[0]);
+
+  test("the prefix is byte-identical across two turns of one user when profile and memo are unchanged", async () => {
+    vi.mocked(getMemo).mockResolvedValue({ version: 3, doc: MEMO_DOC, pending: [] });
+    const first = scripted([textStep(["ok"], 0.0008)]);
+    await turn(first, message("first question", "m-a"));
+    vi.mocked(loadMessages).mockResolvedValue([
+      { id: "m-a", role: "user", parts: [{ type: "text", text: "first question" }] },
+      { id: "msg-a", role: "assistant", parts: [{ type: "text", text: "ok" }] },
+    ]);
+    vi.mocked(catalogNow).mockResolvedValue({ now: new Date("2026-11-25T09:30:00Z"), frozen: false });
+    const second = scripted([textStep(["ok"], 0.0008)]);
+    await turn(second, message("second question", "m-b"));
+
+    const a = first.doStreamCalls[0];
+    const b = second.doStreamCalls[0];
+    expect(a.prompt[0].role).toBe("system");
+    expect(systemOf(second)).toBe(systemOf(first));
+    expect(JSON.stringify(b.tools)).toBe(JSON.stringify(a.tools));
+    // Fixed rules, then the profile, then the memo; no time in the prefix.
+    const system = String(a.prompt[0].content);
+    const rules = system.indexOf("job-search assistant");
+    const profileAt = system.indexOf("<user_profile>");
+    const memoAt = system.indexOf("<search_memo>");
+    expect(rules).toBeGreaterThanOrEqual(0);
+    expect(profileAt).toBeGreaterThan(rules);
+    expect(memoAt).toBeGreaterThan(profileAt);
+    expect(system).not.toContain("2026-11-25");
+  });
+
+  test("the memo text is the compiled memo and contains no eeo field", async () => {
+    // A doc carrying stray fields (as if a row had more keys) still compiles to its sections only.
+    const leaky = { ...MEMO_DOC, eeoGender: "Female", eeo_race: "Asian", veteranStatus: "Yes" } as typeof MEMO_DOC;
+    vi.mocked(getMemo).mockResolvedValue({ version: 1, doc: leaky, pending: [] });
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model);
+    const system = String(model.doStreamCalls[0].prompt[0].content);
+    expect(system).toContain(JSON.stringify(compileMemo(MEMO_DOC)));
+    expect(system.toLowerCase()).not.toContain("eeo");
+    expect(system).not.toContain("Female");
+    expect(system).not.toContain("veteran");
+  });
+
+  test("a failed memo read leaves the memo out and the turn goes on", async () => {
+    vi.mocked(getMemo).mockRejectedValue(new Error("db down"));
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model);
+    expect(String(model.doStreamCalls[0].prompt[0].content)).not.toContain("<search_memo>");
+    expect(lastAssistantSave()[3]).toBe("complete");
+  });
+
+  test("41 messages produce a summary and exactly 12 verbatim messages", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    const model = withSummary("They want backend roles in Berlin.", 0.0005, [textStep(["ok"], 0.0008)]);
+    await turn(model, message("turn 40", "m-40"));
+    expect(model.doGenerateCalls).toHaveLength(1);
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(history).toHaveLength(13);
+    expect(JSON.stringify(history[0])).toContain("<thread_summary>");
+    expect(JSON.stringify(history[0])).toContain("They want backend roles in Berlin.");
+    const verbatim = history.slice(1).map((m) => JSON.stringify(m));
+    expect(verbatim.map((s) => /turn (\d+)/.exec(s)?.[1])).toEqual(
+      Array.from({ length: 12 }, (_, i) => String(29 + i)),
+    );
+    // The summary covers the first 29 and is stored with the id of the last one.
+    const summaryPrompt = JSON.stringify(model.doGenerateCalls[0].prompt);
+    expect(summaryPrompt).toContain("turn 0");
+    expect(summaryPrompt).toContain("turn 28");
+    expect(summaryPrompt).not.toContain("turn 29");
+    expect(saveThreadSummary).toHaveBeenCalledWith(
+      USER,
+      thread.id,
+      JSON.stringify({ v: 1, through: "m-28", text: "They want backend roles in Berlin." }),
+    );
+    // The synthetic message is never stored.
+    expect(saves().some(([, , msgs]) => msgs.some((m) => m.id === SUMMARY_MESSAGE_ID))).toBe(false);
+  });
+
+  test("40 messages are sent verbatim with no summary call", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(39));
+    const model = withSummary("unused", 0.0005, [textStep(["ok"], 0.0008)]);
+    await turn(model, message("turn 39", "m-39"));
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(saveThreadSummary).not.toHaveBeenCalled();
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(history).toHaveLength(40);
+    expect(JSON.stringify(history)).not.toContain("<thread_summary>");
+  });
+
+  test("the summary call's cost is added to the run total", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    const model = withSummary("Summary.", 0.0005, [textStep(["ok"], 0.0008)]);
+    await turn(model, message("turn 40", "m-40"));
+    expect(vi.mocked(chargeStep).mock.calls.map(([u, r, s]) => [u, r, s.costMicros])).toEqual([
+      [USER, RUN, 500],
+      [USER, RUN, 800],
+    ]);
+    expect(h.calls.indexOf("summary")).toBeLessThan(h.calls.indexOf("model"));
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "done" });
+  });
+
+  test("a stored summary that still covers the thread is reused without a new call", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(50));
+    const model = withSummary("unused", 0.0005, [textStep(["ok"], 0.0008)]);
+    const res = await streamAgentTurn({
+      userId: USER,
+      email: null,
+      thread: { ...thread, summary: JSON.stringify({ v: 1, through: "m-28", text: "Stored summary." }) },
+      input: message("turn 50", "m-50"),
+      model,
+    });
+    await drain(res);
+    await Promise.all(h.afterTasks);
+    expect(model.doGenerateCalls).toHaveLength(0);
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(JSON.stringify(history[0])).toContain("Stored summary.");
+    expect(history).toHaveLength(1 + 22);
+  });
+
+  test("a refused charge for the summary stops the turn as over budget before any step", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    vi.mocked(chargeStep).mockResolvedValueOnce({ ok: false, reason: "daily_ceiling" });
+    const model = withSummary("Summary.", 0.0005, [textStep(["ok"], 0.0008)]);
+    await turn(model, message("turn 40", "m-40"));
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "over_budget", error: "over_budget" });
+    expect(lastAssistantSave()[3]).toBe("failed");
+  });
+
+  test("a failed summary call falls back to the plain history window", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    model.doGenerate = async () => {
+      throw new Error("provider down");
+    };
+    await turn(model, message("turn 40", "m-40"));
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(JSON.stringify(history)).not.toContain("<thread_summary>");
+    expect(history.length).toBeLessThanOrEqual(AGENT_LIMITS.historyMaxMessages + 1);
+    expect(vi.mocked(chargeStep)).toHaveBeenCalledTimes(1);
+    expect(lastAssistantSave()[3]).toBe("complete");
   });
 });

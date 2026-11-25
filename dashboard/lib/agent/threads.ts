@@ -110,6 +110,18 @@ export async function renameThread(userId: string, id: string, title: string): P
   if (rows.length === 0) throw new Error("agent: thread not found");
 }
 
+/**
+ * Stores the thread's summary for the model (plan Task 1.21, lib/agent/summary.ts owns
+ * its format). updated_at stays: a summary is not a change the user made or sees.
+ */
+export async function saveThreadSummary(userId: string, id: string, summary: string): Promise<void> {
+  if (!UUID_RE.test(id)) throw new Error("agent: thread not found");
+  await withUserSql(userId, (tx) => tx`
+    UPDATE agent_threads SET summary = ${summary}
+    WHERE id = ${id}::uuid AND user_id = ${userId}::uuid
+  `);
+}
+
 export async function setThreadVariant(userId: string, id: string, variant: Variant): Promise<void> {
   assertVariant(variant);
   if (!UUID_RE.test(id)) throw new Error("agent: thread not found");

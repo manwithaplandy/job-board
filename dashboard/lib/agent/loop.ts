@@ -65,6 +65,9 @@ import { TOOL_APPROVAL, approvalStreamOptions } from "@/lib/agent/tools/approval
 import { approvalSecret } from "@/lib/agent/approvalSecret";
 import { withAgentTrace } from "@/lib/agent/telemetry";
 import { listDocuments } from "@/lib/workspaces/documents";
+import { getMemo } from "@/lib/workspaces/memo";
+import { compileMemo } from "@/lib/workspaces/memoCompile";
+import { summarizeIfLong } from "@/lib/agent/summary";
 import type { DocumentMeta, ProfileSummary } from "@/lib/workspaces/types";
 
 export type TurnInput =
@@ -250,6 +253,21 @@ async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft">): Pro
   }
 }
 
+/**
+ * The compiled memo for the instructions (compileMemo: the memo's sections only, so no
+ * EEO field); null when there is none or the read failed. A memo is context, not a
+ * requirement, so a failed read never stops the turn.
+ */
+async function loadMemoText(userId: string): Promise<string | null> {
+  try {
+    const memo = await getMemo(userId);
+    return memo ? compileMemo(memo.doc) : null;
+  } catch (e) {
+    console.warn("agent: memo read failed; instructions go without it", errorName(e));
+    return null;
+  }
+}
+
 type TurnArgs = {
   userId: string;
   email: string | null;
@@ -299,6 +317,8 @@ async function runTurn(a: TurnArgs): Promise<Response> {
   // parts so far are the placeholder.
   let originalMessages: AgentUIMessage[];
   let placeholder: AgentUIMessage;
+  // The whole thread as of this turn, for the summary (originalMessages is the window).
+  let fullHistory: AgentUIMessage[];
   if (start.kind === "approval") {
     const patched = patchApproval(history, start.approvalId, start.approved);
     if (!patched) {
@@ -308,6 +328,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     const window = historyWindow(patched.history);
     originalMessages = window.at(-1)?.id === patched.assistant.id ? window : [patched.assistant];
     placeholder = patched.assistant;
+    fullHistory = patched.history;
   } else {
     const userMessage = start.message;
     if (history.some((m) => m.id === userMessage.id)) {
@@ -315,6 +336,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       throw new TurnInputError("duplicate_message_id");
     }
     originalMessages = [...historyWindow(history), userMessage];
+    fullHistory = [...history, userMessage];
     placeholder = { id: createIdGenerator({ prefix: "msg", size: 16 })(), role: "assistant", parts: [] };
   }
   const assistantId = placeholder.id;
@@ -347,22 +369,37 @@ async function runTurn(a: TurnArgs): Promise<Response> {
   let instructions: string;
   let tools: ReturnType<typeof buildTools>;
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
+  // Set when the summary's own charge is refused or fails: the turn stops before its first step.
+  let summaryStop: StopReason | null = null;
   try {
-    const [clock, profile] = await Promise.all([catalogNow(), loadProfile(base)]);
+    // The stable prefix (Task 1.21): fixed rules, then the profile summary, then the
+    // compiled memo; the tool definitions follow in the request.
+    const [clock, profile, memoText] = await Promise.all([catalogNow(), loadProfile(base), loadMemoText(userId)]);
     instructions = buildInstructions({
       profile,
-      memoText: null,
+      memoText,
       variant: thread.variant,
       clock: { frozen: clock.frozen },
       unattended: false,
     });
     const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 } };
     tools = (a.tools ?? buildTools)(ctx);
+    // A long thread goes as its summary plus the newest messages. When it is short, or
+    // the summary call failed (the same array comes back), the plain window goes.
+    const summarized = await summarizeIfLong(userId, thread, fullHistory, {
+      runId,
+      model,
+      modelId,
+      onStop: (reason) => {
+        summaryStop = reason;
+      },
+    });
+    const sent = summarized === fullHistory ? originalMessages : summarized;
     // A turn cut short (wall clock, provider drop) can be stored with a tool call that
     // never got its result; replayed as is, the SDK refuses the whole prompt
     // (MissingToolResultsError) and the thread could never answer again. Such calls are
     // dropped; the text around them is kept (PR C batch 3 review I1).
-    modelMessages = await convertToModelMessages(originalMessages, { ignoreIncompleteToolCalls: true });
+    modelMessages = await convertToModelMessages(sent, { ignoreIncompleteToolCalls: true });
   } catch (e) {
     // Nothing reached the model: close the run and the placeholder, then let the route
     // answer 500.
@@ -381,6 +418,8 @@ async function runTurn(a: TurnArgs): Promise<Response> {
   };
   const charges: Promise<void>[] = [];
   const timer = setTimeout(() => stop("wall_clock"), AGENT_LIMITS.wallClockMs);
+  // The summary was billed and its charge refused (or failed): no model step starts.
+  if (summaryStop !== null) stop(summaryStop);
 
   // Everything from here to the return runs with the run open. A synchronous throw
   // (streamText, a UI stream) closes the run and the placeholder instead of leaving

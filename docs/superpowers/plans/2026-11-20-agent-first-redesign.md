@@ -1980,3 +1980,8 @@ R15. Variant 3 (PR J2 review, fix round 1). Task 2.8 depends on these:
 - Deferred to Task 2.8 (review M8): the theme reaches the frame once, in `init`. A theme
   change after that is not forwarded. Either remount the frame on a theme change or add a
   `theme` host-to-frame message that the kit applies to `data-theme`.
+
+R16. Task 2.9 as built (PR J4 review M7): the re-render sends the earlier surface's payload
+(for a variant 3 source, its stored variant 1 fallback, never its HTML) instead of the turn's
+text, because the payload is what the user saw and the turn's text adds untrusted content
+the model does not need, and a failed frame's HTML must never be handed back to the model.

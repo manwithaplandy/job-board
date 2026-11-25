@@ -48,7 +48,9 @@ export function scenarioRules(a: { unattended: boolean }): string[] {
   if (!a.unattended) {
     rules.push(
       "Finish every turn in which you gathered structured data (jobs, reviews, your shortlist, " +
-        "applications, documents, metrics) with exactly one present call that shows it.",
+        "applications, documents, metrics) with exactly one present call that shows it; if you also " +
+        "need to ask the user something, call present before or together with ask_user, because the " +
+        "turn ends at ask_user.",
     );
   }
   return rules;

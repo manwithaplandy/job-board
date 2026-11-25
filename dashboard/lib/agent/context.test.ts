@@ -70,7 +70,11 @@ describe("buildInstructions: stable prefix and scenario guidance (Task 1.21)", (
   });
 
   test("only an interactive run is told to finish with one present call", () => {
-    expect(scenarioRules({ unattended: false }).join("\n")).toContain("exactly one present call");
+    expect(scenarioRules({ unattended: false })).toContain(
+      "Finish every turn in which you gathered structured data (jobs, reviews, your shortlist, applications, " +
+        "documents, metrics) with exactly one present call that shows it; if you also need to ask the user " +
+        "something, call present before or together with ask_user, because the turn ends at ask_user.",
+    );
     const unattended = buildInstructions({ ...base, profile, unattended: true });
     expect(unattended).not.toContain("present call");
     expect(unattended).toContain("This run is unattended");

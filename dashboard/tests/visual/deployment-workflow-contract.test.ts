@@ -125,6 +125,10 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expectPinnedLinuxContainer(sandboxJob);
     expect(sandboxJob).toContain("working-directory: dashboard");
     expect(sandboxJob).toContain("run: npm run test:sandbox");
+    expect(sandboxJob).toContain('SANDBOX_HARNESS: "1"');
+    expect(sandboxJob).toContain("timeout-minutes: 45");
+    // The opt-in is for this job only.
+    expect(ordinaryCi.match(/SANDBOX_HARNESS/g)).toHaveLength(1);
     expect(dashboardPackage.scripts["test:sandbox"]).toContain("playwright test --config playwright.sandbox.config.ts");
     expect(dashboardPackage.scripts["test:sandbox"]).toMatch(/^next build && /);
     expect(cases).toContain("if: always()");

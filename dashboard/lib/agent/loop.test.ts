@@ -687,6 +687,41 @@ describe("streamAgentTurn: approvals (Task 1.16)", () => {
   });
 });
 
+describe("streamAgentTurn: ask_user keeps its questions (PR I3b review I1)", () => {
+  const QUESTIONS = {
+    questions: [
+      { id: "sponsor", label: "Do you need visa sponsorship?", kind: "choice", options: ["Yes", "No"] },
+      { id: "floor", label: "What is your pay floor?", kind: "text" },
+    ],
+  };
+  const askStep: LanguageModelV4StreamPart[] = [
+    { type: "stream-start", warnings: [] },
+    { type: "tool-call", toolCallId: "ask-1", toolName: "ask_user", input: JSON.stringify(QUESTIONS) },
+    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage, providerMetadata: billed(0.0005) },
+  ];
+
+  test("the turn ends at the call, and the next turn's model still sees the questions", async () => {
+    const asking = scripted([askStep, textStep(["should not run"], 0.0008)]);
+    await turn(asking, message("help me get started", "m-a"));
+    expect(asking.doStreamCalls).toHaveLength(1);
+    const [, , [saved], status] = lastAssistantSave();
+    expect(status).toBe("complete");
+    const part = saved.parts.find((p) => isToolUIPart(p));
+    expect(part).toMatchObject({ type: "tool-ask_user", state: "output-available", output: { status: "asked" } });
+
+    vi.mocked(loadMessages).mockResolvedValue([
+      { id: "m-a", role: "user", parts: [{ type: "text", text: "help me get started" }] },
+      saved,
+    ]);
+    const next = scripted([textStep(["Thanks"], 0.0008)]);
+    await turn(next, message("No, 140k", "m-b"));
+    const prompt = JSON.stringify(next.doStreamCalls[0].prompt);
+    expect(prompt).toContain("Do you need visa sponsorship?");
+    expect(prompt).toContain("What is your pay floor?");
+    expect(prompt.indexOf("What is your pay floor?")).toBeLessThan(prompt.indexOf("No, 140k"));
+  });
+});
+
 describe("streamAgentTurn: stable prefix, memo and thread summaries (Task 1.21)", () => {
   const MEMO_DOC = {
     role: "Backend engineer",

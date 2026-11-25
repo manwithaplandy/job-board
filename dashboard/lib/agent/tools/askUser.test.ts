@@ -1,8 +1,9 @@
-// The ask_user tool (plan Task 1.17): no execute (the turn ends at the call) and a
-// strict question schema shared with the IntakeQuestions block.
+// The ask_user tool (plan Task 1.17): a fixed acknowledgement as its result (the loop
+// ends the turn at the call) and a strict question schema shared with the
+// IntakeQuestions block.
 import { describe, expect, test } from "vitest";
 import { emptyGathered } from "@/lib/agent/gathered";
-import { askUserInput, askUserTool } from "@/lib/agent/tools/askUser";
+import { ASK_USER_OUTPUT, askUserInput, askUserTool } from "@/lib/agent/tools/askUser";
 import { assertNoUserIdInput } from "@/lib/agent/tools/assertNoUserIdInput";
 
 const ctx = {
@@ -11,8 +12,10 @@ const ctx = {
 };
 
 describe("ask_user", () => {
-  test("has no execute, so the turn stops at the call", () => {
-    expect(askUserTool(ctx).execute).toBeUndefined();
+  test("its execute returns only the fixed acknowledgement, so the call is stored with a result", async () => {
+    const execute = askUserTool(ctx).execute!;
+    const input = { questions: [{ id: "floor", label: "What is your pay floor?", kind: "text" as const }] };
+    await expect(execute(input, { toolCallId: "c1", messages: [] } as never)).resolves.toEqual(ASK_USER_OUTPUT);
   });
 
   test("takes 1 to 6 strict questions and nothing else", async () => {

@@ -38,6 +38,7 @@ import {
   createIdGenerator,
   createUIMessageStreamResponse,
   getToolName,
+  hasToolCall,
   isStepCount,
   isToolUIPart,
   readUIMessageStream,
@@ -435,7 +436,8 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       ...approvalStreamOptions(base),
       // The second condition: onStepEnd has stopped the turn (over budget, a failed
       // charge, the wall clock), so no further step starts even before the abort lands.
-      stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null],
+      // The third: the turn ends at an ask_user call, whose answers come next turn.
+      stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null, hasToolCall("ask_user")],
       maxOutputTokens: AGENT_LIMITS.maxOutputTokens,
       abortSignal: controller.signal,
       telemetry: { functionId: "agent-turn" },

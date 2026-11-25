@@ -70,6 +70,8 @@ export function summaryMessage(text: string): AgentUIMessage {
   };
 }
 
+const askedQuestions = z.object({ questions: z.array(z.object({ label: z.string() })) });
+
 /** One line per message: its role, its text and the names of the tools it called. */
 function transcript(messages: readonly AgentUIMessage[]): string {
   const lines: string[] = [];
@@ -77,7 +79,12 @@ function transcript(messages: readonly AgentUIMessage[]): string {
     const bits: string[] = [];
     for (const part of m.parts) {
       if (part.type === "text") bits.push(part.text);
-      else if (isToolUIPart(part)) bits.push(`[used ${getToolName(part)}]`);
+      else if (isToolUIPart(part)) {
+        // An ask_user call's questions are part of the conversation: the answers that
+        // follow mean nothing without them (PR I3b review I1).
+        const asked = getToolName(part) === "ask_user" ? askedQuestions.safeParse(part.input) : null;
+        bits.push(asked?.success ? `[asked: ${asked.data.questions.map((q) => q.label).join(" / ")}]` : `[used ${getToolName(part)}]`);
+      }
     }
     if (bits.length > 0) lines.push(`${m.role}: ${bits.join(" ")}`);
   }

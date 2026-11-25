@@ -7,7 +7,13 @@ import { ACTION_KINDS, registeredUndoKinds } from "@/lib/agent/actions/audit";
 
 // The kinds whose library has landed. Every other kind answers undo with not_found
 // until its library registers an undoer and joins undoers.ts.
-const LANDED: readonly string[] = ["shortlist.set", "analytics.set_tiles", "application.set_stage", "application.add_note"];
+const LANDED: readonly string[] = [
+  "shortlist.set",
+  "analytics.set_tiles",
+  "application.set_stage",
+  "application.add_note",
+  "profile.set_resume",
+];
 
 test("every kind whose library has landed has an undoer once undoers.ts is loaded", async () => {
   const { UNDOABLE_KINDS } = await import("@/lib/agent/actions/undoers");

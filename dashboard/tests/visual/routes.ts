@@ -63,6 +63,8 @@ export const VISUAL_ROUTES: VisualRoute[] = [
     live: { hide: [".rf-workspace-live"], mask: [] } },
   { id: "looking-for-default", path: "/looking-for", access: "authenticated", family: "workspaces", state: "looking-for", shell: "app", source: "app/looking-for/page.tsx",
     live: { hide: [".rf-workspace-live"], mask: [] } },
+  { id: "documents-default", path: "/documents", access: "authenticated", family: "workspaces", state: "documents", shell: "app", source: "app/documents/page.tsx",
+    live: { hide: [".rf-workspace-live"], mask: [] } },
   { id: "feedback-default", path: "/feedback", access: "authenticated", family: "feedback", state: "default", shell: "app", source: "app/feedback/page.tsx" },
   { id: "billing-default", path: "/billing", access: "authenticated", family: "billing", state: "default", shell: "app", source: "app/billing/page.tsx" },
   { id: "profile-hub", path: "/profile", access: "authenticated", family: "profile", state: "default", shell: "app", source: "app/profile/layout.tsx" },

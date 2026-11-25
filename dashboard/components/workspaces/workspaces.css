@@ -68,6 +68,14 @@
 
 .rf-ws-structured { display: grid; gap: var(--space-3); min-width: 0; }
 
+.rf-ws-docs__upload { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.rf-ws-docs__upload > .rf-field { flex: 1 1 320px; min-width: 0; }
+.rf-ws-docs__name { margin: 0; color: var(--text-primary); font-weight: 650; overflow-wrap: anywhere; }
+.rf-ws-docs__text { margin: 0; max-height: 24rem; overflow: auto; color: var(--text-primary); font-size: var(--font-size-help); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rf-ws-docs__generated { margin: 0; padding: 0; list-style: none; }
+.rf-ws-confirm { display: grid; gap: var(--space-2); min-width: 0; border-left: 3px solid var(--warning); padding-left: var(--space-3); }
+.rf-ws-confirm__text { margin: 0; color: var(--text-primary); }
+
 .rf-ws-browse { display: grid; gap: var(--space-4); min-width: 0; }
 .rf-ws-browse__filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: var(--space-3); }
 

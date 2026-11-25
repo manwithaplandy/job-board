@@ -7,6 +7,13 @@
 import "@/lib/workspaces/shortlist";
 import "@/lib/workspaces/analyticsTiles";
 import "@/lib/workspaces/applications";
+import "@/lib/workspaces/resumeVersions";
 
 /** The kinds this module's imports register (checked by undoers.test.ts). */
-export const UNDOABLE_KINDS = ["shortlist.set", "analytics.set_tiles", "application.set_stage", "application.add_note"] as const;
+export const UNDOABLE_KINDS = [
+  "shortlist.set",
+  "analytics.set_tiles",
+  "application.set_stage",
+  "application.add_note",
+  "profile.set_resume",
+] as const;

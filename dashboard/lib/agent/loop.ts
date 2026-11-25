@@ -281,8 +281,8 @@ type TurnArgs = {
   tools?: typeof buildTools;
   /**
    * The operator switch agentVariant3Enabled, as the route read it. Left out (an eval
-   * harness, a test), a variant 3 thread reads it from the app settings; a failed read
-   * counts as off.
+   * harness, a test), a variant 3 thread reads it from loadAppSettings, which never throws
+   * and reads a failed read or a malformed value as off (PR J4 review I2).
    */
   variant3Enabled?: boolean;
 };
@@ -294,14 +294,7 @@ type TurnArgs = {
  */
 async function turnVariant(a: TurnArgs): Promise<Variant> {
   if (a.thread.variant !== 3) return a.thread.variant;
-  let enabled = a.variant3Enabled;
-  if (enabled === undefined) {
-    try {
-      enabled = (await loadAppSettings()).agentVariant3Enabled;
-    } catch {
-      enabled = false;
-    }
-  }
+  const enabled = a.variant3Enabled ?? (await loadAppSettings()).agentVariant3Enabled;
   return presentVariant(a.thread.variant, enabled);
 }
 

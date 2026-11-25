@@ -45,7 +45,15 @@ vi.mock("ai", async (importOriginal) => {
     },
   };
 });
-vi.mock("@/lib/db", () => ({ withUserSql: vi.fn(), serviceSql: vi.fn() }));
+// withAnonSql (the app settings read) always fails here: a turn that reads the settings
+// itself sees loadAppSettings' failed-read values.
+vi.mock("@/lib/db", () => ({
+  withUserSql: vi.fn(),
+  serviceSql: vi.fn(),
+  withAnonSql: vi.fn(async () => {
+    throw new Error("db down");
+  }),
+}));
 // The surface store, for the variant 2 repair tests (PR J1 review I1).
 vi.mock("@/lib/agent/surfaces/store", () => ({ saveSurface: vi.fn(), setSurfaceFailure: vi.fn() }));
 vi.mock("@/lib/agent/config", async (importOriginal) => {
@@ -768,7 +776,7 @@ describe("streamAgentTurn: ask_user keeps its questions (PR I3b review I1)", () 
 });
 
 describe("streamAgentTurn: the thread's variant (plan Task 2.8)", () => {
-  async function variantTurn(variant: 1 | 2 | 3, variant3Enabled: boolean) {
+  async function variantTurn(variant: 1 | 2 | 3, variant3Enabled: boolean | undefined) {
     const model = scripted([textStep(["ok"], 0.0001)]);
     const res = await streamAgentTurn({
       userId: USER,
@@ -798,6 +806,14 @@ describe("streamAgentTurn: the thread's variant (plan Task 2.8)", () => {
     expect(on.system).toContain("Layout variant: 3.");
     expect(on.system).toContain("host.onInit");
     expect(on.present).toContain('"html"');
+  });
+
+  test("with the switch left out, a variant 3 thread reads the settings, and a failed read presents it as variant 1 (PR J4 review I2)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await variantTurn(3, undefined);
+    expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 1 });
+    expect(res.system).toContain("Layout variant: 1.");
+    expect(res.present).not.toContain('"html"');
   });
 
   test("the switch changes nothing for a variant 1 or 2 thread", async () => {

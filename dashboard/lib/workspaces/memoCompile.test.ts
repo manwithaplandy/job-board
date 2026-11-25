@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { COMPILED_MEMO_MAX, compileMemo, diffMemo } from "@/lib/workspaces/memoCompile";
+import { COMPILED_MEMO_MAX, compiledMemoOverflow, compileMemo, diffMemo } from "@/lib/workspaces/memoCompile";
 import { emptyMemoDoc, MEMO_SECTIONS, MemoDocSchema } from "@/lib/workspaces/memoSchema";
 
 describe("compileMemo", () => {
@@ -20,6 +20,22 @@ describe("compileMemo", () => {
     const out = compileMemo(emoji);
     expect(out.length).toBeLessThanOrEqual(COMPILED_MEMO_MAX);
     expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  test("compiledMemoOverflow says how far over the cap the uncut text runs, else 0", () => {
+    const full = MemoDocSchema.parse(Object.fromEntries(MEMO_SECTIONS.map(({ key }) => [key, "x".repeat(2000)])));
+    const uncut = MEMO_SECTIONS.reduce((n, { label }) => n + label.length + 2 + 2000, 0) + 2 * (MEMO_SECTIONS.length - 1);
+    expect(compiledMemoOverflow(full)).toBe(uncut - COMPILED_MEMO_MAX);
+    expect(compiledMemoOverflow(emptyMemoDoc())).toBe(0);
+    const small = { ...emptyMemoDoc(), role: "Staff" };
+    expect(compiledMemoOverflow(small)).toBe(0);
+    // Exactly at the cap fits; one more character is one over.
+    const exact = { ...emptyMemoDoc(), role: "a".repeat(2000), mustHaves: "m".repeat(2000), other: "o" };
+    const room = COMPILED_MEMO_MAX - compileMemo(exact).length;
+    const filled = { ...exact, other: "o".repeat(1 + room) };
+    expect(compileMemo(filled)).toHaveLength(COMPILED_MEMO_MAX);
+    expect(compiledMemoOverflow(filled)).toBe(0);
+    expect(compiledMemoOverflow({ ...filled, other: `${filled.other}o` })).toBe(1);
   });
 });
 

@@ -78,7 +78,7 @@ import {
   restoreMemoVersion,
   saveMemo,
 } from "@/lib/workspaces/memo";
-import { compileMemo } from "@/lib/workspaces/memoCompile";
+import { compiledMemoOverflow, compileMemo } from "@/lib/workspaces/memoCompile";
 import { emptyMemoDoc } from "@/lib/workspaces/memoSchema";
 import { profileVersion } from "@/lib/profileVersion";
 
@@ -175,6 +175,87 @@ describe("memo versions", () => {
     await saveMemo(USER, emptyMemoDoc(), "user");
     expect(db.profile?.instructions).toBeNull();
     expect(db.profile?.profile_version).toBe(profileVersion("My résumé", ""));
+  });
+
+  test("a doc over the compiled cap is refused with memo_too_long before any SQL", async () => {
+    // Three full sections fill the cap; deal-breakers, companies and Anything else would be cut.
+    const long = doc({ role: "r".repeat(2000), locations: "l".repeat(2000), mustHaves: "m".repeat(2000),
+      dealBreakers: "No crypto", companies: "Fintech", other: "Four-day week" });
+    const over = compiledMemoOverflow(long);
+    expect(over).toBeGreaterThan(0);
+    const err = await saveMemo(USER, long, "user").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MemoInputError);
+    expect(err).toMatchObject({ code: "memo_too_long", over });
+    expect((err as Error).message).toContain(`${over} characters too long`);
+    await expect(createMemoProposal(USER, { proposedDoc: long, rationale: "", source: "background" }))
+      .rejects.toMatchObject({ code: "memo_too_long" });
+    await expect(resolveMemoProposal(USER, "00000000-0000-4000-8000-000000000001", "approve", long))
+      .rejects.toMatchObject({ code: "memo_too_long" });
+    expect(db.calls).toHaveLength(0);
+    // Other input errors keep the generic code.
+    await expect(saveMemo(USER, { ...doc(), role: "x".repeat(2001) }, "user")).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  test("saving the doc that is already current writes nothing and keeps the version", async () => {
+    expect(await saveMemo(USER, doc({ role: "Backend" }), "user")).toBe(1);
+    const pv = db.profile?.profile_version;
+    db.calls = [];
+    expect(await saveMemo(USER, doc({ role: "Backend" }), "user")).toBe(1);
+    expect(db.versions).toHaveLength(1);
+    expect(db.profile?.profile_version).toBe(pv);
+    expect(db.calls.filter((c) => /INSERT INTO|UPDATE \w+ SET/.test(c.text))).toEqual([]);
+    // Once the instructions were changed elsewhere, the same doc is written again.
+    if (db.profile) db.profile.instructions = "Edited in settings";
+    expect(await saveMemo(USER, doc({ role: "Backend" }), "user")).toBe(2);
+    expect(db.profile?.instructions).toBe("Role and seniority: Backend");
+  });
+
+  test("old instructions longer than Anything else are flagged and kept whole as version 0 at the first save", async () => {
+    const legacy = `  ${"L".repeat(2400)}😀${"T".repeat(98)}  `;
+    db.profile = { resume_text: "My résumé", instructions: legacy, profile_version: "v" };
+    const read = await getMemo(USER);
+    expect(read).toMatchObject({ version: 0, legacyTruncated: true, legacyLength: legacy.trim().length });
+    expect(read?.doc.other).toBe("L".repeat(2000));
+    await saveMemo(USER, read?.doc ?? doc(), "user");
+    expect(db.versions.map((x) => [x.version, x.changed_by, x.doc])).toEqual([
+      ["0", "user", { legacyInstructions: legacy }],
+      ["1", "user", read?.doc],
+    ]);
+    // The kept text is not a memo: it is never listed or restored as one.
+    expect((await listMemoVersions(USER)).map((x) => x.version)).toEqual([1]);
+    await expect(restoreMemoVersion(USER, 0)).rejects.toThrow(/No such version/);
+    // A cut never splits a surrogate pair, so the pre-filled doc always saves.
+    db.memo = null;
+    db.versions = [];
+    db.profile = { resume_text: null, instructions: `${"x".repeat(1999)}😀tail`, profile_version: "v" };
+    const cut = await getMemo(USER);
+    expect(cut?.doc.other).toBe("x".repeat(1999));
+    expect(cut).toMatchObject({ legacyTruncated: true, legacyLength: 2005 });
+  });
+
+  test("old instructions that fit are not flagged and keep no version 0", async () => {
+    db.profile = { resume_text: null, instructions: "y".repeat(2000), profile_version: "v" };
+    const read = await getMemo(USER);
+    expect(read).not.toHaveProperty("legacyTruncated");
+    await saveMemo(USER, read?.doc ?? doc(), "user");
+    expect(db.versions.map((x) => x.version)).toEqual(["1"]);
+  });
+
+  test("every proposal UPDATE is scoped to the caller", async () => {
+    await saveMemo(USER, doc({ role: "A" }), "user");
+    const p1 = await createMemoProposal(USER, { proposedDoc: doc({ role: "B" }), rationale: "", source: "background" });
+    await resolveMemoProposal(USER, p1.id, "decline");
+    const p2 = await createMemoProposal(USER, { proposedDoc: doc({ role: "C" }), rationale: "", source: "background" });
+    await resolveMemoProposal(USER, p2.id, "approve");
+    const p3 = await createMemoProposal(USER, { proposedDoc: doc({ role: "D" }), rationale: "", source: "background" });
+    await saveMemo(USER, doc({ role: "E" }), "user");
+    expect(await resolveMemoProposal(USER, p3.id, "approve")).toBeNull();
+    const updates = db.calls.filter((c) => c.text.includes("UPDATE search_memo_proposals"));
+    expect(updates.length).toBeGreaterThanOrEqual(5);
+    for (const u of updates) {
+      expect(u.text).toMatch(/user_id = \?::uuid/);
+      expect(u.values).toContain(USER);
+    }
   });
 
   test("a malformed doc or rationale throws before any SQL", async () => {

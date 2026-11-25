@@ -23,6 +23,7 @@ import { ApplicationInputError, setApplicationStage } from "@/lib/workspaces/app
 import { TILE_LAYOUT_MAX_ITEMS, TileLayoutError, getTileLayout, saveTileLayout } from "@/lib/workspaces/analyticsTiles";
 import { MemoInputError, MemoNotFoundError, resolveMemoProposal } from "@/lib/workspaces/memo";
 import { compareMessage } from "@/lib/agent/actions/compareText";
+import { answerMessage, frameTextProblem } from "@/lib/agent/actions/describe";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -173,10 +174,7 @@ export const INTENT_HANDLERS: { [N in IntentName]: Handler<N> } = {
     }
   },
   compare: async (_ctx, i) => ({ kind: "send", text: compareMessage(i.jobIds[0], i.jobIds[1]) }),
-  answer: async (_ctx, i) => ({
-    kind: "send",
-    text: `Answer to ${i.questionId}: ${Array.isArray(i.value) ? i.value.join(", ") : i.value}`,
-  }),
+  answer: async (_ctx, i) => ({ kind: "send", text: answerMessage(i) }),
   open: async (ctx, i) => {
     if (i.target !== "posting") return { kind: "navigate", href: OPEN_ROUTES[i.target] };
     if (i.jobId === undefined) return { kind: "dropped" };
@@ -213,23 +211,30 @@ function auditFor(userId: string, threadId: string): AuditCtx {
   return { userId, threadId, runId: null, unattended: false };
 }
 
-/** The surface is the caller's and belongs to the thread; checked for every press. */
-async function surfaceInThread(userId: string, threadId: string, surfaceId: string): Promise<boolean> {
-  if (!UUID_RE.test(threadId) || !UUID_RE.test(surfaceId)) return false;
+/** The surface's variant when it is the caller's and belongs to the thread, else null; checked for every press. */
+async function surfaceVariantInThread(userId: string, threadId: string, surfaceId: string): Promise<1 | 2 | 3 | null> {
+  if (!UUID_RE.test(threadId) || !UUID_RE.test(surfaceId)) return null;
   const surface = await getSurface(userId, surfaceId);
-  return surface !== null && surface.threadId === threadId;
+  return surface !== null && surface.threadId === threadId ? surface.variant : null;
+}
+
+async function surfaceInThread(userId: string, threadId: string, surfaceId: string): Promise<boolean> {
+  return (await surfaceVariantInThread(userId, threadId, surfaceId)) !== null;
 }
 
 /**
- * Runs one intent from a surface. `frame` (variant 3) is reserved until the host chip
- * press of Task 2.6 exists; until then a frame intent is dropped.
+ * Runs one intent from a surface. `host` is a press on host-rendered UI of any variant.
+ * `frame` is the user's press of a variant 3 frame's chip (Task 2.6, D13): accepted only
+ * for a variant 3 surface, and only when the frame's free text in it passes
+ * frameTextProblem, so it is exactly what the chip showed. High-risk intents still answer
+ * with their fixed confirm card either way.
  */
 export async function executeIntent(
   userId: string,
   a: { threadId: string; surfaceId: string; raw: unknown; source: "host" | "frame"; email?: string | null },
 ): Promise<IntentOutcome> {
-  if (a.source !== "host") {
-    logDropped("frame_unsupported", a.surfaceId);
+  if (a.source !== "host" && a.source !== "frame") {
+    logDropped("unknown_source", a.surfaceId);
     return { kind: "dropped" };
   }
   const parsed = ActionIntentSchema.safeParse(a.raw);
@@ -237,8 +242,17 @@ export async function executeIntent(
     logDropped("invalid_intent", a.surfaceId);
     return { kind: "dropped" };
   }
-  if (!(await surfaceInThread(userId, a.threadId, a.surfaceId))) {
+  if (a.source === "frame" && frameTextProblem(parsed.data) !== null) {
+    logDropped("frame_text", a.surfaceId);
+    return { kind: "dropped" };
+  }
+  const variant = await surfaceVariantInThread(userId, a.threadId, a.surfaceId);
+  if (variant === null) {
     logDropped("surface_not_in_thread", a.surfaceId);
+    return { kind: "dropped" };
+  }
+  if (a.source === "frame" && variant !== 3) {
+    logDropped("frame_not_variant_3", a.surfaceId);
     return { kind: "dropped" };
   }
   return dispatch(

@@ -74,13 +74,6 @@ describe("present", () => {
     expect(await runPresent(c, { payload: "just text" })).toMatchObject({ outcome: "fallback", payload: fallbackSurface(c.gathered) });
   });
 
-  test("a variant 3 thread still falls back to the variant 1 surface (no grammar until Task 2.4)", async () => {
-    const out = await runPresent(ctx({ variant: 3 }), { payload: { variant: 3, title: "x", html: "<p>x</p>" } });
-    expect(out).toMatchObject({ variant: 1, outcome: "fallback", errors: ["variant 3 has no grammar yet"] });
-    expect(saved()).toMatchObject({ variant: 1, outcome: "fallback" });
-    expect(m.setSurfaceFailure).not.toHaveBeenCalled();
-  });
-
   test("present with surfaceId stores a new row that supersedes the old one", async () => {
     m.ownSurfaces.add(OLD);
     const payload = { variant: 1, blocks: [{ type: "JobCard", jobId: JOB_A }] };
@@ -278,5 +271,58 @@ describe("present, variant 2", () => {
     await runPresent(e, { payload: broken }, step1);
     expect(await runPresent(e, { payload: broken }, step2)).toMatchObject({ outcome: "fallback" });
     expect((m.setSurfaceFailure.mock.calls.at(-1) as unknown[])[2]).toBe("invalid_after_repair");
+  });
+});
+
+// Variant 3 (plan Task 2.4, R13): the schema and static checks are its gate, through the
+// same one-repair path as variant 2; a fallback is stored as a variant 3 row with the
+// variant 1 fallback in payload and fallback_payload and the failure code in the same
+// transaction.
+describe("present, variant 3", () => {
+  const doc = (title = "Top picks") => ({ variant: 3, title, html: "<h1>Picks</h1><script>host.onInit(function () {});</script>" });
+  const hostile = { variant: 3, title: "Picks", html: '<form></form><script>fetch("x")</script>' };
+
+  test("a valid document is stored as a variant 3 row with the variant 1 fallback beside it", async () => {
+    const c = ctx({ variant: 3 });
+    const payload = doc();
+    expect(await runPresent(c, { payload })).toEqual({ surfaceId: NEW, variant: 3, outcome: "valid", payload });
+    expect(saved()).toMatchObject({
+      variant: 3, payload, outcome: "valid", gathered: c.gathered, fallbackPayload: fallbackSurface(c.gathered, "Top picks"),
+    });
+    expect(m.setSurfaceFailure).not.toHaveBeenCalled();
+  });
+
+  test("a document that fails its static checks gets one repair with the errors, then a stored fallback", async () => {
+    const c = ctx({ variant: 3 });
+    const first = await runPresent(c, { payload: hostile });
+    expect(first).toMatchObject({ variant: 3, outcome: "invalid" });
+    expect(first.errors).toEqual(expect.arrayContaining(["html: <form> is not allowed", "html: fetch is not allowed"]));
+    expect(m.saveSurface).not.toHaveBeenCalled();
+    const out = await runPresent(c, { payload: hostile });
+    const expected = fallbackSurface(c.gathered, "Picks");
+    expect(out).toMatchObject({ surfaceId: NEW, variant: 3, outcome: "fallback", payload: expected });
+    expect(saved()).toMatchObject({ variant: 3, payload: expected, fallbackPayload: expected, outcome: "fallback" });
+    expect(m.setSurfaceFailure.mock.calls).toEqual([[(m.saveSurface.mock.calls[0] as unknown[])[0], NEW, "invalid_after_repair"]]);
+  });
+
+  test("a valid document after the repair is stored with outcome repaired", async () => {
+    const c = ctx({ variant: 3 });
+    await runPresent(c, { payload: hostile });
+    const payload = doc("Fixed");
+    expect(await runPresent(c, { payload })).toEqual({ surfaceId: NEW, variant: 3, outcome: "repaired", payload });
+    expect(saved()).toMatchObject({ variant: 3, outcome: "repaired", payload });
+  });
+
+  test("a variant 3 turn that ends with the repair open stores a variant 3 fallback row", async () => {
+    const c = ctx({ variant: 3 });
+    await runPresent(c, { payload: hostile });
+    expect(await finishPendingRepair(c)).toBe(NEW);
+    expect(saved()).toMatchObject({ variant: 3, outcome: "fallback", payload: fallbackSurface(c.gathered, "Picks") });
+    expect((m.setSurfaceFailure.mock.calls[0] as unknown[])[2]).toBe(REPAIR_NOT_ATTEMPTED);
+  });
+
+  test("a variant 2 tree or a variant 1 payload in a variant 3 thread is invalid", async () => {
+    const out = await runPresent(ctx({ variant: 3 }), { payload: { variant: 1, blocks: [{ type: "JobCard", jobId: JOB_A }] } });
+    expect(out).toMatchObject({ variant: 3, outcome: "invalid" });
   });
 });

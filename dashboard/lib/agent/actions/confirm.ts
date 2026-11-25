@@ -58,11 +58,30 @@ export const PROPOSED_ANSWERS_SHOWN = 10;
 const LINK_LABELS = { linkedin: "LinkedIn link", github: "GitHub link", portfolio: "Portfolio link" } as const;
 const REFINE_TARGET_LABELS = { resume: "Résumé", cover: "Cover letter", both: "Résumé and cover letter" } as const;
 
-// Control and bidi-override characters would let a value break its line or reorder what
-// the user reads; they become spaces.
-const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
+// Control, bidi and zero-width characters would let a value break its line, reorder what
+// the user reads, or hide part of it; they become spaces. The ranges are written as code
+// points so the source holds no invisible characters (U+2028 is a line terminator, which
+// a regular expression literal may not hold).
+const UNSAFE_CODE_POINTS: ReadonlyArray<readonly [number, number]> = [
+  [0x0000, 0x001f], // C0 controls
+  [0x007f, 0x009f], // DEL and C1 controls
+  [0x061c, 0x061c], // Arabic letter mark
+  [0x200b, 0x200f], // zero-width space, non-joiner, joiner, LRM, RLM
+  [0x2028, 0x202e], // line and paragraph separators, bidi embeddings and overrides
+  [0x2060, 0x2060], // word joiner
+  [0x2066, 0x2069], // bidi isolates
+  [0xfeff, 0xfeff], // zero-width no-break space (BOM)
+];
+function hexEscape(cp: number): string {
+  return "\\" + "u" + cp.toString(16).padStart(4, "0");
+}
+export const UNSAFE_CHARS = new RegExp(
+  `[${UNSAFE_CODE_POINTS.map(([a, b]) => (a === b ? hexEscape(a) : `${hexEscape(a)}-${hexEscape(b)}`)).join("")}]`,
+  "g",
+);
 
-function clamp(text: string, max: number = DB_TEXT_MAX): string {
+/** One line of display text: unsafe characters and runs of whitespace become one space, capped. */
+export function clamp(text: string, max: number = DB_TEXT_MAX): string {
   const flat = text.replace(UNSAFE_CHARS, " ").replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 }
@@ -100,7 +119,8 @@ const KIND_NOUN: Record<GenerationKind, [string, string]> = {
   cover: ["cover letter", "cover letters"],
 };
 
-async function jobLine(userId: string, jobId: string): Promise<string | null> {
+/** "<title> at <company>" from the database, each clamped; null for an unknown job. */
+export async function jobLine(userId: string, jobId: string): Promise<string | null> {
   const rows = await withUserSql(userId, (tx) => tx`
     SELECT j.title, COALESCE(c.display_name, c.name) AS company
     FROM jobs j JOIN companies c ON c.id = j.company_id

@@ -6,7 +6,12 @@ import { assertNotDeleted } from "@/lib/tombstone";
 import { createThread, renameThread } from "@/lib/agent/threads";
 import { undoAction, type UndoResult } from "@/lib/agent/actions/audit";
 import { confirmIntent, executeIntent } from "@/lib/agent/actions/handlers";
-import type { IntentOutcome } from "@/lib/agent/actions/intents";
+import type { ActionIntent, IntentOutcome } from "@/lib/agent/actions/intents";
+import { describeIntent, frameIntent, isDirectOpen, type IntentDescription } from "@/lib/agent/actions/describe";
+import { getSurface, markSurfaceFailed } from "@/lib/agent/surfaces/store";
+import { SurfacePayloadV1Schema, type SurfacePayloadV1 } from "@/lib/agent/surfaces/v1/blocks";
+import { isFrameFailure } from "@/lib/agent/surfaces/v3/bridge";
+import { parseOrNull } from "@/lib/zodParse";
 import { describePendingApproval, type PendingApproval } from "@/lib/agent/actions/approvalCard";
 import { loadHostSurface, type HostSurface } from "@/lib/agent/surfaces/host";
 import type { BlockRows } from "@/components/agent/blocks/types";
@@ -31,6 +36,8 @@ const UNDO_PATHS = [
   "/looking-for",
   "/analytics",
 ] as const;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Thread actions for the agent page (plan Task 0.14). The user id always comes from the
 // session; a thread id from the client is only ever matched together with it
@@ -78,16 +85,76 @@ export async function undoAgentAction(actionId: number): Promise<UndoResult> {
 /**
  * A press on a surface (plan Task 1.14). The intent is parsed against the closed enum
  * and dispatched host-side; the session user is the only user it can act for. A write
- * refreshes the workspaces the same way an undo does.
+ * refreshes the workspaces the same way an undo does. `source` is "frame" for the press
+ * of a variant 3 frame's chip (Task 2.6); executeIntent accepts that only for a variant 3
+ * surface of the thread.
  */
-export async function executeIntentAction(threadId: string, surfaceId: string, raw: unknown): Promise<IntentOutcome> {
+export async function executeIntentAction(
+  threadId: string,
+  surfaceId: string,
+  raw: unknown,
+  source: "host" | "frame" = "host",
+): Promise<IntentOutcome> {
   const userId = await requireUserId();
   await assertNotDeleted(userId);
   if (typeof threadId !== "string" || typeof surfaceId !== "string") return { kind: "dropped" };
+  if (source !== "host" && source !== "frame") return { kind: "dropped" };
   const claims = await getUserClaims();
-  const outcome = await executeIntent(userId, { threadId, surfaceId, raw, source: "host", email: claims?.email ?? null });
+  const outcome = await executeIntent(userId, { threadId, surfaceId, raw, source, email: claims?.email ?? null });
   if (outcome.kind === "done" && outcome.actionId !== undefined) for (const path of UNDO_PATHS) revalidatePath(path);
   return outcome;
+}
+
+/** A variant 3 surface of the caller's in this thread, or null. */
+async function ownVariant3(userId: string, surfaceId: string, threadId: string | null): Promise<boolean> {
+  if (!UUID_RE.test(surfaceId) || (threadId !== null && !UUID_RE.test(threadId))) return false;
+  const surface = await getSurface(userId, surfaceId);
+  return surface !== null && surface.variant === 3 && (threadId === null || surface.threadId === threadId);
+}
+
+/** The chip a frame's action request becomes (D13): the parsed intent and its database-built text. */
+export interface FrameChip extends IntentDescription {
+  intent: ActionIntent;
+  /** An open of a workspace page with nothing else, which may run without a press once per surface. */
+  direct: boolean;
+}
+
+/**
+ * What a variant 3 frame's action message would do, for its chip (plan Task 2.6). Writes
+ * nothing. The name and args are the frame's: they are parsed with the closed enum, and
+ * the label is built from database values only (lib/agent/actions/describe.ts). Null when
+ * they do not parse, the surface is not a variant 3 surface of the caller's in this
+ * thread, or describeIntent offers no chip.
+ */
+export async function describeFrameIntentAction(
+  threadId: string,
+  surfaceId: string,
+  name: unknown,
+  args: unknown,
+): Promise<FrameChip | null> {
+  const userId = await requireUserId();
+  await assertNotDeleted(userId);
+  if (typeof threadId !== "string" || typeof surfaceId !== "string" || typeof name !== "string") return null;
+  const intent = frameIntent(name, args);
+  if (intent === null) return null;
+  if (!(await ownVariant3(userId, surfaceId, threadId))) return null;
+  const described = await describeIntent(userId, intent);
+  return described === null ? null : { ...described, intent, direct: isDirectOpen(intent) };
+}
+
+/**
+ * A variant 3 frame failed in the browser (plan Task 2.6): no handshake, an error, a
+ * self-navigation or too many action requests. Marks the caller's surface as fallen back
+ * with the reason (one of FRAME_FAILURES) and returns its stored variant 1 fallback, parsed
+ * with the variant 1 schema, or null (the frame then shows the fallback it already has).
+ */
+export async function reportSurfaceFailure(surfaceId: string, reason: string): Promise<SurfacePayloadV1 | null> {
+  const userId = await requireUserId();
+  await assertNotDeleted(userId);
+  if (typeof surfaceId !== "string" || !isFrameFailure(reason)) return null;
+  if (!(await ownVariant3(userId, surfaceId, null))) return null;
+  const stored = await markSurfaceFailed(userId, surfaceId, reason);
+  return stored === null ? null : parseOrNull(SurfacePayloadV1Schema, stored);
 }
 
 /** The Confirm button of a fixed confirm card: runs the intent its signed token carries. */

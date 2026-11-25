@@ -18,12 +18,12 @@ export interface ToolCtx {
   variant: Variant;
   unattended: boolean;
   gathered: GatheredData;
-  /** The turn's variant 2 repair state: one object per turn (lib/agent/tools/present.ts). */
+  /** The turn's variant 2 or 3 repair state: one object per turn (lib/agent/tools/present.ts). */
   repairsLeft: RepairState;
 }
 
 /**
- * Variant 2's one repair per turn. `n` is the repairs left; `attempt` is set when an
+ * Variant 2's and 3's one repair per turn. `n` is the repairs left; `attempt` is set when an
  * invalid payload spent one, and stays `open` until a later payload settles it or the
  * turn ends (then the loop stores the variant 1 fallback, present.ts finishPendingRepair).
  */

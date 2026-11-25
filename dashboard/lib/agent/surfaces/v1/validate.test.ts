@@ -112,10 +112,14 @@ describe("validateSurface (variant 1)", () => {
     expect((await errorsOf(repeatedRow)).length).toBeGreaterThan(0);
   });
 
-  test("variant 3 has no grammar yet and fails, so present falls back to variant 1", async () => {
-    expect(await validateSurface(v1([{ type: "Callout", tone: "info", text: "x" }]), 3, ctx())).toEqual({
-      ok: false, errors: ["variant 3 has no grammar yet"],
-    });
+  test("variant 3 is judged by its schema and static checks: a variant 1 payload fails, a clean document passes", async () => {
+    const asV1 = await validateSurface(v1([{ type: "Callout", tone: "info", text: "x" }]), 3, ctx());
+    expect(asV1.ok).toBe(false);
+    const doc = { variant: 3, title: "Top picks", html: "<h1>Picks</h1><script>host.onInit(function () {});</script>" };
+    expect(await validateSurface(doc, 3, ctx())).toEqual({ ok: true, payload: doc });
+    const hostile = await validateSurface({ ...doc, html: '<a href="x">go</a>' }, 3, ctx());
+    expect(hostile.ok).toBe(false);
+    expect(m.queries).toBe(0);
   });
 
   test("variant 2 is judged by the tree grammar: a variant 1 payload fails it, a tree passes", async () => {

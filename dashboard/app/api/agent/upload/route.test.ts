@@ -94,6 +94,64 @@ test("a declared Content-Length over the limit is refused before the body is rea
   expect(formData).not.toHaveBeenCalled();
 });
 
+/** A streamed multipart body with no Content-Length: one file part of `fileBytes` bytes. */
+function streamedUpload(fileBytes: number, name = "big.txt"): { req: Request; pulled: () => number } {
+  const boundary = "streamboundary";
+  const enc = new TextEncoder();
+  const head = enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: text/plain\r\n\r\n`);
+  const tail = enc.encode(`\r\n--${boundary}--\r\n`);
+  const CHUNK = 256 * 1024;
+  let sent = 0;
+  let pulled = 0;
+  let stage: "head" | "body" | "tail" | "done" = "head";
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      let chunk: Uint8Array;
+      if (stage === "head") { chunk = head; stage = "body"; }
+      else if (stage === "body") {
+        const n = Math.min(CHUNK, fileBytes - sent);
+        chunk = new Uint8Array(n).fill(0x61);
+        sent += n;
+        if (sent >= fileBytes) stage = "tail";
+      } else if (stage === "tail") { chunk = tail; stage = "done"; }
+      else { controller.close(); return; }
+      pulled += chunk.length;
+      controller.enqueue(chunk);
+    },
+  });
+  const req = new Request("http://localhost/api/agent/upload", {
+    method: "POST",
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    body,
+    duplex: "half",
+  } as RequestInit);
+  return { req, pulled: () => pulled };
+}
+
+test("a body with no Content-Length is read with a hard cap: an endless stream is 413 without being buffered", async () => {
+  const { req, pulled } = streamedUpload(40 * 1024 * 1024);
+  expect(req.headers.get("content-length")).toBeNull();
+  const res = await POST(req);
+  expect(res.status).toBe(413);
+  expect(await res.json()).toEqual({ error: "too_large" });
+  // Stops within one chunk of the cap instead of reading all 40 MiB.
+  expect(pulled()).toBeLessThan(MAX_UPLOAD_BYTES + 64 * 1024 + 2 * 256 * 1024);
+  expect(m.upload).not.toHaveBeenCalled();
+});
+
+test("a small body with no Content-Length still uploads", async () => {
+  const { req } = streamedUpload(10, "notes.txt");
+  const res = await POST(req);
+  expect(res.status).toBe(200);
+  expect((await res.json()).document).toMatchObject({ filename: "notes.txt", mime: "text/plain" });
+});
+
+test("a .md file the browser sent with no type is 200 as text/markdown", async () => {
+  const res = await POST(upload({ file: file("# Notes", "notes.md", "") }));
+  expect(res.status).toBe(200);
+  expect((await res.json()).document).toMatchObject({ filename: "notes.md", mime: "text/markdown", extraction: "ok" });
+});
+
 test.each([
   ["an empty file", file(new Uint8Array(), "a.txt", "text/plain"), 422, "empty"],
   ["a file over 4 MiB", file(new Uint8Array(MAX_UPLOAD_BYTES + 1), "a.pdf", "application/pdf"), 413, "too_large"],

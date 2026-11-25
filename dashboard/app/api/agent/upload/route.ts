@@ -14,7 +14,8 @@ export const maxDuration = 60;
 //   401 no session (or an erased account's stale JWT)
 //   402 { error: "subscription_required" }  no plan
 //   400 { error: "bad_request" }            not multipart, or no `file` field
-//   413 { error: "too_large" }              over 4 MiB (by Content-Length before reading, then by size)
+//   413 { error: "too_large" }              over 4 MiB (by Content-Length before reading, by a hard
+//                                           cap while reading, then by the file's size)
 //   415 { error: "type_not_allowed" | "type_mismatch" }
 //   422 { error: "empty" }
 //   429 { error: "budget" }                 an image while the agent budget is not ok
@@ -32,6 +33,31 @@ const STATUS: Record<UploadErrorCode, number> = {
 };
 
 const json = (body: unknown, status: number) => Response.json(body, { status });
+
+/** The whole body, or null as soon as it passes `cap` bytes (the rest is never read). */
+async function readCapped(req: Request, cap: number): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (!req.body) return new Uint8Array(0);
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
 
 export async function POST(req: Request): Promise<Response> {
   const site = req.headers.get("sec-fetch-site");
@@ -54,9 +80,13 @@ export async function POST(req: Request): Promise<Response> {
   const declared = Number(req.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD) return json({ error: "too_large" }, 413);
 
+  // Read the body ourselves with a hard byte cap, so a request without Content-Length
+  // (a chunked or streamed body) cannot make formData() buffer more than the limit.
+  const body = await readCapped(req, MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD);
+  if (body === null) return json({ error: "too_large" }, 413);
   let form: FormData;
   try {
-    form = await req.formData();
+    form = await new Response(body, { headers: { "content-type": req.headers.get("content-type") ?? "" } }).formData();
   } catch {
     return json({ error: "bad_request" }, 400);
   }

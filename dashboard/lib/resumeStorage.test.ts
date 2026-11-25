@@ -90,6 +90,17 @@ describe("documentObjectPath", () => {
     expect((key.match(/\//g) ?? []).length).toBe(1);
   });
 
+  test("keeps only Storage-safe characters in the key's name ([A-Za-z0-9._-])", () => {
+    expect(documentObjectPath(USER, ID, "resume#2?.pdf")).toBe(`${USER}/doc-${ID}-resume_2_.pdf`);
+    expect(documentObjectPath(USER, ID, "50% [final] cv.pdf")).toBe(`${USER}/doc-${ID}-50_final_cv.pdf`);
+    expect(documentObjectPath(USER, ID, "履歴書.pdf")).toBe(`${USER}/doc-${ID}-_.pdf`);
+    expect(documentObjectPath(USER, ID, "###")).toBe(`${USER}/doc-${ID}-file`);
+    for (const name of ["a\u0001b.md", "x%2F..%2Fy.md", "tab\there.txt", "emoji-😀.png"]) {
+      const key = documentObjectPath(USER, ID, name);
+      expect(key.slice(`${USER}/doc-${ID}-`.length)).toMatch(/^[A-Za-z0-9._-]+$/);
+    }
+  });
+
   test("refuses an id or user that is not a uuid (the path must match the row's owner check)", () => {
     expect(() => documentObjectPath("user-1", ID, "a.pdf")).toThrow();
     expect(() => documentObjectPath(USER, "../x", "a.pdf")).toThrow();

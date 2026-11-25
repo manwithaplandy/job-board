@@ -33,11 +33,14 @@ const DOCUMENT_NAME_MAX = 120;
 /**
  * The Storage key for an uploaded document (plan Task 1.10): `{userId}/doc-{id}-{name}`,
  * a direct child of the user's folder (so the deletion sweep sees it), matching the
- * documents table's owner check. Generated server side only; the name is sanitized and
- * cut to 120 code points.
+ * documents table's owner check. Generated server side only; the name is sanitized, cut
+ * to 120 characters, and limited to [A-Za-z0-9._-] (each run of anything else becomes
+ * one `_`), because Supabase Storage refuses keys with characters such as `#`, `?`, `%`
+ * or `[`. The original name is kept in documents.filename, not in the key.
  */
 export function documentObjectPath(userId: string, id: string, filename: string): string {
   if (!UUID_RE.test(userId) || !UUID_RE.test(id)) throw new Error("documentObjectPath: user and id must be uuids");
-  const name = Array.from(sanitizeUploadFilename(filename)).slice(-DOCUMENT_NAME_MAX).join("");
+  const safe = sanitizeUploadFilename(filename).replace(/[^A-Za-z0-9._-]+/g, "_");
+  const name = /[A-Za-z0-9]/.test(safe) ? safe.slice(-DOCUMENT_NAME_MAX) : "file";
   return `${userId}/doc-${id}-${name}`;
 }

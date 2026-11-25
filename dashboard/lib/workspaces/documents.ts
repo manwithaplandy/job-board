@@ -74,6 +74,18 @@ function normalizeMime(declared: string): string {
   return declared.split(";")[0].trim().toLowerCase();
 }
 
+// Browsers often send no type (or application/octet-stream) for Markdown and some text
+// files. Only then is the type read from the extension, and only for text; the byte
+// sniff below stays the real gate (PNG bytes named notes.md are still a mismatch).
+const TEXT_EXTENSIONS: Record<string, AllowedMime> = { md: "text/markdown", markdown: "text/markdown", txt: "text/plain" };
+
+function effectiveMime(declaredMime: string, filename: string): string {
+  const declared = normalizeMime(declaredMime);
+  if (declared !== "" && declared !== "application/octet-stream") return declared;
+  const ext = /\.([A-Za-z0-9]+)$/.exec(filename.trim())?.[1]?.toLowerCase() ?? "";
+  return TEXT_EXTENSIONS[ext] ?? declared;
+}
+
 function isAllowed(mime: string): mime is AllowedMime {
   return (ALLOWED_UPLOAD_MIME as readonly string[]).includes(mime);
 }
@@ -156,7 +168,7 @@ export async function createDocument(
   const bytes = a.bytes;
   if (bytes.length === 0) throw new UploadError("empty");
   if (bytes.length > MAX_UPLOAD_BYTES) throw new UploadError("too_large");
-  const declared = normalizeMime(a.declaredMime);
+  const declared = effectiveMime(a.declaredMime, a.filename);
   if (!isAllowed(declared)) throw new UploadError("type_not_allowed");
   if (!matches(declared, sniffMime(bytes))) throw new UploadError("type_mismatch");
   const isImage = declared.startsWith("image/");

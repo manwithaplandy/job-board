@@ -130,6 +130,38 @@ test("the storage path is generated server side and ignores a client path or '..
   expect(meta).toMatchObject({ filename: "notes.md", mime: "text/markdown", extraction: "ok", kind: "other" });
 });
 
+test.each([
+  ["", "notes.md", "text/markdown"],
+  ["application/octet-stream", "notes.markdown", "text/markdown"],
+  ["", "plan.TXT", "text/plain"],
+  ["application/octet-stream", "plan.txt", "text/plain"],
+])("declared %j with a %s name and text bytes is stored as %s", async (declaredMime, filename, mime) => {
+  answerInsertsFromValues();
+  const meta = await create({ filename, bytes: text("# Notes\nhello"), declaredMime });
+  expect(meta).toMatchObject({ mime, extraction: "ok" });
+  expect(m.upload.mock.calls[0][2]).toMatchObject({ contentType: mime });
+});
+
+test.each([
+  ["PNG bytes named notes.md, no declared type", { filename: "notes.md", bytes: PNG, declaredMime: "" }, "type_mismatch"],
+  ["PDF bytes named plan.txt as octet-stream", { filename: "plan.txt", bytes: PDF, declaredMime: "application/octet-stream" }, "type_mismatch"],
+  ["no declared type and no text extension", { filename: "cv.pdf", bytes: PDF, declaredMime: "" }, "type_not_allowed"],
+  ["octet-stream with an unknown extension", { filename: "notes.doc", bytes: text("hello"), declaredMime: "application/octet-stream" }, "type_not_allowed"],
+])("%s -> %s", async (_name, input, code) => {
+  await expect(createDocument(USER, input)).rejects.toMatchObject({ name: "UploadError", code });
+  expect(m.upload).not.toHaveBeenCalled();
+});
+
+test("Storage-unsafe characters never reach the object key; the row keeps the original name", async () => {
+  answerInsertsFromValues();
+  const meta = await create({ filename: "résumé #2?%[draft].md", bytes: text("hello"), declaredMime: "text/markdown" });
+  const [path] = m.upload.mock.calls[0];
+  const name = String(path).slice(`${USER}/doc-${meta.id}-`.length);
+  expect(name).toMatch(/^[A-Za-z0-9._-]+$/);
+  expect(name.endsWith(".md")).toBe(true);
+  expect(meta.filename).toBe("résumé #2?%[draft].md");
+});
+
 test("an image upload over budget is rejected before any model call", async () => {
   m.checkBudget.mockResolvedValue({ ok: false, reason: "daily_ceiling" });
   await expect(createDocument(USER, { filename: "card.png", bytes: PNG, declaredMime: "image/png" })).rejects.toMatchObject({ code: "budget" });

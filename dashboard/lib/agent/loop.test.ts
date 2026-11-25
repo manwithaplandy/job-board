@@ -50,7 +50,8 @@ vi.mock("@/lib/agent/config", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/agent/config")>();
   // A short wall clock so the wall-clock test runs in about a second; the other models
   // finish well inside it.
-  return { ...real, AGENT_LIMITS: { ...real.AGENT_LIMITS, wallClockMs: 1_000 } };
+  // The summary timeout is short too, so the summary-timeout test runs in well under a second.
+  return { ...real, AGENT_LIMITS: { ...real.AGENT_LIMITS, wallClockMs: 1_000, summaryTimeoutMs: 100 } };
 });
 vi.mock("@/lib/agent/threads", () => ({ loadMessages: vi.fn(), saveThreadSummary: vi.fn() }));
 vi.mock("@/lib/workspaces/memo", () => ({ getMemo: vi.fn() }));
@@ -887,6 +888,63 @@ describe("streamAgentTurn: stable prefix, memo and thread summaries (Task 1.21)"
     await turn(model, message("turn 40", "m-40"));
     expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "over_budget", error: "over_budget" });
     expect(lastAssistantSave()[3]).toBe("failed");
+    // No model step streamed after the refused charge (review m6).
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(vi.mocked(chargeStep)).toHaveBeenCalledTimes(1);
+  });
+
+  /** A model whose summary call hangs until its signal aborts, as a stalled provider's fetch does. */
+  function stalledSummary(steps: Step[]) {
+    const streaming = scripted(steps);
+    const signals: (AbortSignal | undefined)[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: (options) => streaming.doStream(options),
+      doGenerate: (options) => {
+        signals.push(options.abortSignal);
+        return new Promise((_resolve, reject) => {
+          options.abortSignal?.addEventListener("abort", () => reject(options.abortSignal?.reason ?? new Error("aborted")));
+        });
+      },
+    });
+    return { model, signals };
+  }
+
+  test("a summary call that times out falls back to the plain window, once, and the turn completes", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    const { model } = stalledSummary([textStep(["ok"], 0.0008)]);
+    const started = Date.now();
+    await turn(model, message("turn 40", "m-40"));
+    expect(Date.now() - started).toBeLessThan(900);
+    // maxRetries 0: one attempt only.
+    expect(model.doGenerateCalls).toHaveLength(1);
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(JSON.stringify(history)).not.toContain("<thread_summary>");
+    expect(history.length).toBeLessThanOrEqual(AGENT_LIMITS.historyMaxMessages + 1);
+    // Nothing is charged or stored for a summary that never came back.
+    expect(vi.mocked(chargeStep).mock.calls.map(([, , s]) => s.costMicros)).toEqual([800]);
+    expect(saveThreadSummary).not.toHaveBeenCalled();
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "done" });
+  });
+
+  test("the wall clock runs during the summary call, so a stalled summary cannot outlast the turn", async () => {
+    // A summary timeout longer than the (test) wall clock: only the turn's clock can stop it.
+    const limits = AGENT_LIMITS as unknown as { summaryTimeoutMs: number };
+    const saved = limits.summaryTimeoutMs;
+    limits.summaryTimeoutMs = 10_000;
+    try {
+      vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+      const { model, signals } = stalledSummary([textStep(["ok"], 0.0008)]);
+      const started = Date.now();
+      await turn(model, message("turn 40", "m-40"));
+      const elapsed = Date.now() - started;
+      expect(elapsed).toBeGreaterThanOrEqual(900);
+      expect(elapsed).toBeLessThan(3_000);
+      expect(signals[0]?.aborted).toBe(true);
+      expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "aborted", error: "wall_clock" });
+      expect(lastAssistantSave()[3]).toBe("failed");
+    } finally {
+      limits.summaryTimeoutMs = saved;
+    }
   });
 
   test("a failed summary call falls back to the plain history window", async () => {

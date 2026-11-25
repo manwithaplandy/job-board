@@ -111,6 +111,8 @@ export interface SummaryCall {
   modelId: string;
   /** Called when the summary's charge is refused (over budget) or fails: the turn stops. */
   onStop?: (reason: "over_budget" | "charge_failed") => void;
+  /** The turn's own signal (its wall clock): the summary counts against the turn's time. */
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -147,11 +149,15 @@ export async function summarizeIfLong(
   let usage: { inputTokens?: number; outputTokens?: number };
   let providerMetadata: unknown;
   try {
+    // Bounded (PR I3b review I2): its own timeout, one attempt, and the turn's wall clock.
+    const deadline = AbortSignal.timeout(AGENT_LIMITS.summaryTimeoutMs);
     const result = await generateText({
       model: call.model,
       instructions: SUMMARY_INSTRUCTIONS,
       prompt,
       maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS,
+      maxRetries: 0,
+      abortSignal: call.abortSignal ? AbortSignal.any([call.abortSignal, deadline]) : deadline,
       telemetry: { functionId: "agent-thread-summary" },
     });
     text = result.text.trim().slice(0, SUMMARY_TEXT_MAX);

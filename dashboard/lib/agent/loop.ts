@@ -370,8 +370,19 @@ async function runTurn(a: TurnArgs): Promise<Response> {
   let instructions: string;
   let tools: ReturnType<typeof buildTools>;
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
-  // Set when the summary's own charge is refused or fails: the turn stops before its first step.
-  let summaryStop: StopReason | null = null;
+
+  let stopReason: StopReason | null = null;
+  let modelError = false;
+  const controller = new AbortController();
+  const stop = (reason: StopReason) => {
+    if (stopReason === null) stopReason = reason;
+    controller.abort(reason);
+  };
+  const charges: Promise<void>[] = [];
+  // The wall clock starts before the setup, so the summary call counts against the
+  // turn's time (PR I3b review I2). Every path below clears it.
+  const timer = setTimeout(() => stop("wall_clock"), AGENT_LIMITS.wallClockMs);
+
   try {
     // The stable prefix (Task 1.21): fixed rules, then the profile summary, then the
     // compiled memo; the tool definitions follow in the request.
@@ -386,14 +397,15 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 } };
     tools = (a.tools ?? buildTools)(ctx);
     // A long thread goes as its summary plus the newest messages. When it is short, or
-    // the summary call failed (the same array comes back), the plain window goes.
+    // the summary call failed or timed out (the same array comes back), the plain
+    // window goes. A refused or failed charge for the summary stops the turn before its
+    // first step (the controller is already aborted when streamText starts).
     const summarized = await summarizeIfLong(userId, thread, fullHistory, {
       runId,
       model,
       modelId,
-      onStop: (reason) => {
-        summaryStop = reason;
-      },
+      onStop: stop,
+      abortSignal: controller.signal,
     });
     const sent = summarized === fullHistory ? originalMessages : summarized;
     // A turn cut short (wall clock, provider drop) can be stored with a tool call that
@@ -405,22 +417,25 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     // Nothing reached the model: close the run and the placeholder, then let the route
     // answer 500.
     console.error("agent: turn setup failed", errorName(e));
+    clearTimeout(timer);
+    controller.abort("setup_failed");
     await undoPlaceholder();
     await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
     throw e;
   }
 
-  let stopReason: StopReason | null = null;
-  let modelError = false;
-  const controller = new AbortController();
-  const stop = (reason: StopReason) => {
-    if (stopReason === null) stopReason = reason;
-    controller.abort(reason);
-  };
-  const charges: Promise<void>[] = [];
-  const timer = setTimeout(() => stop("wall_clock"), AGENT_LIMITS.wallClockMs);
-  // The summary was billed and its charge refused (or failed): no model step starts.
-  if (summaryStop !== null) stop(summaryStop);
+  // Stopped during setup (the summary's charge was refused or failed, or the wall clock
+  // ran out during the summary): no model step starts. streamText would still call the
+  // model with an aborted signal, so it is not called at all.
+  if (stopReason !== null) {
+    clearTimeout(timer);
+    const outcome = turnOutcome({ stopReason, modelError });
+    await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: placeholder.parts }], outcome.message).catch(
+      (e: unknown) => console.error("agent: closing the placeholder failed", errorName(e)),
+    );
+    await closeRun(userId, runId, outcome.run);
+    return createUIMessageStreamResponse({ stream: errorOnlyStream() });
+  }
 
   // Everything from here to the return runs with the run open. A synchronous throw
   // (streamText, a UI stream) closes the run and the placeholder instead of leaving
@@ -524,6 +539,16 @@ async function runTurn(a: TurnArgs): Promise<Response> {
  * starts from the placeholder, so an approval's turn continues the message that asked
  * (the tool part the stream updates is already in it).
  */
+/** A UI stream that carries only the fixed error line, for a turn stopped before its first step. */
+function errorOnlyStream(): ReadableStream<UIMessageChunk> {
+  return new ReadableStream<UIMessageChunk>({
+    start(controller) {
+      controller.enqueue({ type: "error", errorText: "The assistant hit an error." });
+      controller.close();
+    },
+  });
+}
+
 async function finalAssistantMessage(stream: ReadableStream<UIMessageChunk>, placeholder: AgentUIMessage): Promise<AgentUIMessage> {
   let last: UIMessage = placeholder;
   for await (const m of readUIMessageStream({ stream, message: structuredClone(placeholder), onError: () => {} })) last = m;

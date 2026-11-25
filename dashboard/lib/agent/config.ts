@@ -30,6 +30,9 @@ export const AGENT_LIMITS = {
   // A thread longer than this is sent as a summary plus its newest summaryKeepMessages.
   summarizeAboveMessages: 40,
   summaryKeepMessages: 12,
+  // The summary call's own limit, well inside wallClockMs (which it also counts against).
+  // On timeout the turn goes on with the unsummarised window.
+  summaryTimeoutMs: 25_000,
 } as const;
 
 // usage_counters.kind for agent spend; n is in micro-dollars.

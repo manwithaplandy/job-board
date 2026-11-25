@@ -19,6 +19,7 @@ export default defineConfig({
       "lib/agent/**/*.db.test.ts",
       "lib/workspaces/**/*.db.test.ts",
       "lib/catalogClock.db.test.ts",
+      "lib/appSettings.db.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     fileParallelism: false,

@@ -88,9 +88,12 @@ function parseCompPlan(raw: unknown): InviteCompPlan {
 
 /**
  * A non-negative integer allowance (0 = user invites off). NOT unwrapped: a valid
- * numeric write (saveAppSetting stores JSON.stringify(n)::jsonb) round-trips through
- * postgres.js as a JS number, so a string value is invalid — never a double-encoded
- * number to rescue. (jsonb discipline: reject rather than coerce "5" → 5.)
+ * numeric write (saveAppSetting stores JSON.stringify(n)::text::jsonb, a jsonb number)
+ * round-trips through postgres.js as a JS number, so a string value is invalid.
+ * (jsonb discipline: reject rather than coerce "5" → 5.) The writers below cast
+ * through ::text: a bare ::jsonb parameter makes postgres.js JSON-encode the string a
+ * second time and store a jsonb string, which this parser rejects
+ * (lib/appSettings.db.test.ts).
  */
 function parseDefaultAllowance(raw: unknown): number {
   if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 1000) return raw;
@@ -215,7 +218,7 @@ export async function saveAppSetting(
 ): Promise<void> {
   await serviceSql`
     INSERT INTO app_settings (key, value, updated_at)
-    VALUES (${key}, ${JSON.stringify(value)}::jsonb, now())
+    VALUES (${key}, ${JSON.stringify(value)}::text::jsonb, now())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
   `;
   revalidateAppSettings();
@@ -234,12 +237,12 @@ export async function saveInviteSettings(
   await serviceSql.begin(async (tx) => {
     await tx`
       INSERT INTO app_settings (key, value, updated_at)
-      VALUES ('invite_comp_plan', ${JSON.stringify(compPlan)}::jsonb, now())
+      VALUES ('invite_comp_plan', ${JSON.stringify(compPlan)}::text::jsonb, now())
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
     `;
     await tx`
       INSERT INTO app_settings (key, value, updated_at)
-      VALUES ('invite_default_allowance', ${JSON.stringify(defaultAllowance)}::jsonb, now())
+      VALUES ('invite_default_allowance', ${JSON.stringify(defaultAllowance)}::text::jsonb, now())
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
     `;
   });
@@ -263,7 +266,7 @@ export async function saveAgentSettings(input: AgentSettingsInput): Promise<void
     for (const [key, value] of pairs) {
       await tx`
         INSERT INTO app_settings (key, value, updated_at)
-        VALUES (${key}, ${JSON.stringify(value)}::jsonb, now())
+        VALUES (${key}, ${JSON.stringify(value)}::text::jsonb, now())
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
       `;
     }

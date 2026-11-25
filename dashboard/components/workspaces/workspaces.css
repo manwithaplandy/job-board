@@ -1,0 +1,48 @@
+/* The workspace pages (plan Tasks 1.5, 1.6, 1.8, 1.11). Tokens only; every control is a
+   shared primitive or a marked native composite. */
+.rf-workspace-live { display: grid; gap: var(--space-6); min-width: 0; }
+
+.rf-ws-board { display: grid; gap: var(--space-6); min-width: 0; }
+.rf-ws-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.rf-ws-toolbar__hint { color: var(--text-secondary); font-size: var(--font-size-caption); }
+
+.rf-ws-section { display: grid; gap: var(--space-3); min-width: 0; }
+.rf-ws-section__title { display: flex; align-items: baseline; gap: var(--space-2); margin: 0; color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; }
+.rf-ws-section__count { color: var(--text-muted); font-size: var(--font-size-caption); font-weight: 600; }
+.rf-ws-section__empty { margin: 0; color: var(--text-secondary); font-size: var(--font-size-help); }
+.rf-ws-section__refresh { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.rf-ws-disclosure { display: grid; gap: var(--space-3); min-width: 0; }
+.rf-ws-disclosure__summary { min-height: var(--target-size); display: flex; align-items: center; cursor: pointer; }
+
+.rf-ws-list { display: grid; gap: var(--space-3); min-width: 0; }
+.rf-ws-row { display: grid; gap: var(--space-3); min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-4); background: var(--bg-surface); }
+.rf-ws-row__head { display: flex; align-items: flex-start; gap: var(--space-3); min-width: 0; }
+.rf-ws-row__title { display: grid; gap: var(--space-1); flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.rf-ws-row__meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-ws-row__badges { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rf-ws-row__brief { display: grid; gap: var(--space-2); margin: 0; }
+.rf-ws-row__brief > div { display: grid; gap: var(--space-1); }
+.rf-ws-row__brief dt { color: var(--text-muted); font-size: var(--font-size-small); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.rf-ws-row__brief dd { margin: 0; color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rf-ws-row__status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.rf-ws-row__reason-text { color: var(--text-secondary); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
+.rf-ws-row__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* The compare checkbox: a native control inside a label that keeps the 44px target. */
+.rf-ws-check { min-width: var(--target-size); min-height: var(--target-size); display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; cursor: pointer; }
+.rf-ws-check input { margin: 0; accent-color: var(--accent); cursor: pointer; }
+
+.rf-ws-marker { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.rf-ws-marker__message { color: var(--warning); font-size: var(--font-size-caption); }
+
+.rf-ws-skip { display: grid; gap: var(--space-3); min-width: 0; border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.rf-ws-skip__title { margin: 0; color: var(--text-primary); font-weight: 650; }
+.rf-ws-skip__reasons { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.rf-ws-browse { display: grid; gap: var(--space-4); min-width: 0; }
+.rf-ws-browse__filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: var(--space-3); }
+
+@media (max-width: 760px) {
+  .rf-ws-browse__filters { grid-template-columns: minmax(0, 1fr); }
+}

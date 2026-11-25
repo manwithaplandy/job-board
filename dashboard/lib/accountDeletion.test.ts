@@ -119,7 +119,9 @@ beforeEach(() => {
 describe("user_id table drift guard", () => {
   test("every CREATE TABLE with a user_id column is classified (delete/anonymize/excluded)", () => {
     const schema = readFileSync(path.resolve(__dirname, "..", "..", "schema.sql"), "utf8");
-    const tableRe = /CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(\w+)\s*\(([\s\S]*?)\n\);/g;
+    // The optional public. prefix matters: every table since the agent-first redesign is
+    // created schema-qualified (CREATE TABLE IF NOT EXISTS public.agent_threads ...).
+    const tableRe = /CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(?:public\.)?(\w+)\s*\(([\s\S]*?)\n\);/g;
     const withUserId: string[] = [];
     for (const m of schema.matchAll(tableRe)) {
       const [, name, body] = m;
@@ -128,6 +130,8 @@ describe("user_id table drift guard", () => {
     // Sanity: we actually found the known user tables (guards against a broken regex).
     expect(withUserId).toContain("profiles");
     expect(withUserId).toContain("review_runs");
+    expect(withUserId).toContain("agent_threads"); // a public.-qualified table
+    expect(withUserId).toContain("feedback");
     for (const t of withUserId) {
       expect(
         ALL_CLASSIFIED_TABLES.has(t),
@@ -143,6 +147,34 @@ describe("user_id table drift guard", () => {
     for (const t of ["agent_threads", "agent_messages", "agent_runs", "agent_settings"]) expect(order).toContain(t);
     expect(order.indexOf("agent_messages")).toBeLessThan(order.indexOf("agent_threads"));
     expect(order.indexOf("agent_runs")).toBeLessThan(order.indexOf("agent_threads"));
+  });
+
+  test("the phase 1 workspace and audit tables are deleted with the account, children first", () => {
+    // Classified ahead of migrations 18 and 19 (a migration PR may not carry code).
+    const order: readonly string[] = USER_DELETE_TABLES;
+    const phase1 = [
+      "shortlist_items", "applications", "application_events", "documents", "search_memos",
+      "search_memo_versions", "search_memo_proposals", "analytics_tiles", "analytics_tile_versions",
+      "resume_versions", "agent_surfaces", "agent_actions",
+    ];
+    for (const t of phase1) expect(order).toContain(t);
+    // application_events references applications; agent_surfaces references agent_threads.
+    expect(order.indexOf("application_events")).toBeLessThan(order.indexOf("applications"));
+    expect(order.indexOf("agent_surfaces")).toBeLessThan(order.indexOf("agent_threads"));
+    // Version and proposal rows go no later than the row they version.
+    expect(order.indexOf("search_memo_versions")).toBeLessThan(order.indexOf("search_memos"));
+    expect(order.indexOf("search_memo_proposals")).toBeLessThan(order.indexOf("search_memos"));
+    expect(order.indexOf("analytics_tile_versions")).toBeLessThan(order.indexOf("analytics_tiles"));
+  });
+
+  test("account deletion deletes every phase 1 table, scoped to the user", async () => {
+    await deleteUserRowsTx("user-a", "a@x.com");
+    const joined = s.txSql.join("\n");
+    for (const t of ["shortlist_items", "application_events", "applications", "documents", "search_memo_versions",
+      "search_memo_proposals", "search_memos", "analytics_tile_versions", "analytics_tiles", "resume_versions",
+      "agent_surfaces", "agent_actions"]) {
+      expect(joined).toContain(`DELETE FROM ${t} WHERE user_id = $1::uuid`);
+    }
   });
 
   test("classification lists are disjoint", () => {

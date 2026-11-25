@@ -47,8 +47,26 @@ export const USER_DELETE_TABLES = [
   // ON DELETE SET NULL, so both go before the threads.
   "agent_messages",
   "agent_runs",
+  // Phase 1 audit trail (Task 1.2, migration 19), classified one PR ahead of it like
+  // the four above. agent_surfaces references agent_threads (ON DELETE CASCADE), so it
+  // goes before the threads; agent_actions has no foreign key.
+  "agent_surfaces",
+  "agent_actions",
   "agent_threads",
   "agent_settings",
+  // Phase 1 workspaces (Task 1.1, migration 18), classified one PR ahead of it.
+  // Children first: application_events references applications. The memo, tile and
+  // résumé version tables have no foreign key to their parents; they sit beside them.
+  "shortlist_items",
+  "application_events",
+  "applications",
+  "documents",
+  "search_memo_versions",
+  "search_memo_proposals",
+  "search_memos",
+  "analytics_tile_versions",
+  "analytics_tiles",
+  "resume_versions",
 ] as const;
 
 /** Tables whose rows are kept but de-identified (user_id → NULL) on deletion. */

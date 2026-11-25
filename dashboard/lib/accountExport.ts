@@ -56,6 +56,24 @@ export interface AccountExport {
   agent_runs: unknown[] | null;
   agent_settings: unknown;
   agent_tables_error: string | null;
+  // Phase 1 agent audit tables (Task 1.2, migration 19). null with
+  // agent_audit_tables_error set when they could not be read.
+  agent_surfaces: unknown[] | null;
+  agent_actions: unknown[] | null;
+  agent_audit_tables_error: string | null;
+  // Phase 1 workspace tables (Task 1.1, migration 18). null with
+  // workspace_tables_error set when they could not be read.
+  shortlist_items: unknown[] | null;
+  applications: unknown[] | null;
+  application_events: unknown[] | null;
+  documents: unknown[] | null;
+  search_memos: unknown;
+  search_memo_versions: unknown[] | null;
+  search_memo_proposals: unknown[] | null;
+  analytics_tiles: unknown;
+  analytics_tile_versions: unknown[] | null;
+  resume_versions: unknown[] | null;
+  workspace_tables_error: string | null;
   resume_files: ResumeFileRef[];
   // Non-null when the résumé-object listing FAILED (storage error / down). Distinguishes
   // "this account has no archived files" (error null, resume_files []) from "we could not
@@ -102,8 +120,13 @@ export async function listResumeFiles(userId: string, expiresIn = 300): Promise<
 }
 
 type AgentExportKeys = "agent_threads" | "agent_messages" | "agent_runs" | "agent_settings" | "agent_tables_error";
+type AgentAuditExportKeys = "agent_surfaces" | "agent_actions" | "agent_audit_tables_error";
+type WorkspaceExportKeys =
+  | "shortlist_items" | "applications" | "application_events" | "documents" | "search_memos"
+  | "search_memo_versions" | "search_memo_proposals" | "analytics_tiles" | "analytics_tile_versions"
+  | "resume_versions" | "workspace_tables_error";
 
-async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes" | "job_payload_demands" | "job_payload_demands_error" | AgentExportKeys>> {
+async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes" | "job_payload_demands" | "job_payload_demands_error" | AgentExportKeys | AgentAuditExportKeys | WorkspaceExportKeys>> {
   return withUserSql(userId, async (tx) => {
     const [
       profiles, jobReviews, reviewCorrections, companyReviews, companyOverrides,
@@ -225,6 +248,100 @@ async function collectAgentRows(userId: string): Promise<Pick<AccountExport, Age
 }
 
 /**
+ * The agent's rendered surfaces and its audited actions (migration 19), in their own
+ * withUserSql transaction for the same reason as collectAgentRows: they ship in a
+ * later migration than this code, and a failed read must not pass for an empty one.
+ */
+async function collectAgentAuditRows(userId: string): Promise<Pick<AccountExport, AgentAuditExportKeys>> {
+  try {
+    return await withUserSql(userId, async (tx) => {
+      const [surfaces, actions] = await Promise.all([
+        tx`SELECT id, thread_id, run_id, variant, payload, fallback_payload, gathered, outcome, failure,
+                  supersedes, rerender_of, model, latency_ms, output_tokens, created_at
+           FROM agent_surfaces WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+        tx`SELECT id, run_id, thread_id, actor, kind, target_key, before, after, undone_at, created_at
+           FROM agent_actions WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+      ]);
+      return {
+        agent_surfaces: Array.from(surfaces),
+        agent_actions: Array.from(actions),
+        agent_audit_tables_error: null,
+      };
+    });
+  } catch (e) {
+    // Full cause server-side only; the export carries the fixed marker below.
+    console.error("account export: agent audit tables could not be read", e);
+    return { agent_surfaces: null, agent_actions: null, agent_audit_tables_error: "agent audit export unavailable" };
+  }
+}
+
+/**
+ * The shortlist, tracker, documents, memo, analytics tiles and résumé versions
+ * (migration 18), in their own withUserSql transaction like collectAgentRows: they
+ * ship in a later migration than this code, so a failed read is reported explicitly.
+ */
+async function collectWorkspaceRows(userId: string): Promise<Pick<AccountExport, WorkspaceExportKeys>> {
+  try {
+    return await withUserSql(userId, async (tx) => {
+      const [
+        shortlist, applications, events, documents, memos, memoVersions, proposals,
+        tiles, tileVersions, resumeVersions,
+      ] = await Promise.all([
+        tx`SELECT job_id, state, reason_code, reason_text, brief_why, brief_risk, set_by, created_at, updated_at
+           FROM shortlist_items WHERE user_id = ${userId}::uuid ORDER BY updated_at DESC`,
+        tx`SELECT id, job_id, stage, closed_reason, next_step_on, created_at, updated_at
+           FROM applications WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+        tx`SELECT id, application_id, kind, from_stage, to_stage, note, actor, created_at
+           FROM application_events WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+        tx`SELECT id, kind, filename, mime, bytes, storage_path, extracted_text, extraction, created_at
+           FROM documents WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+        tx`SELECT version, doc, updated_at
+           FROM search_memos WHERE user_id = ${userId}::uuid`,
+        tx`SELECT version, doc, changed_by, proposal_id, created_at
+           FROM search_memo_versions WHERE user_id = ${userId}::uuid ORDER BY version DESC`,
+        tx`SELECT id, base_version, proposed_doc, rationale, status, source, created_at, resolved_at
+           FROM search_memo_proposals WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+        tx`SELECT version, layout, updated_at
+           FROM analytics_tiles WHERE user_id = ${userId}::uuid`,
+        tx`SELECT version, layout, changed_by, created_at
+           FROM analytics_tile_versions WHERE user_id = ${userId}::uuid ORDER BY version DESC`,
+        tx`SELECT version, resume_text, source, document_id, created_at
+           FROM resume_versions WHERE user_id = ${userId}::uuid ORDER BY version DESC`,
+      ]);
+      return {
+        shortlist_items: Array.from(shortlist),
+        applications: Array.from(applications),
+        application_events: Array.from(events),
+        documents: Array.from(documents),
+        search_memos: (memos[0] as unknown) ?? null,
+        search_memo_versions: Array.from(memoVersions),
+        search_memo_proposals: Array.from(proposals),
+        analytics_tiles: (tiles[0] as unknown) ?? null,
+        analytics_tile_versions: Array.from(tileVersions),
+        resume_versions: Array.from(resumeVersions),
+        workspace_tables_error: null,
+      };
+    });
+  } catch (e) {
+    // Full cause server-side only; the export carries the fixed marker below.
+    console.error("account export: workspace tables could not be read", e);
+    return {
+      shortlist_items: null,
+      applications: null,
+      application_events: null,
+      documents: null,
+      search_memos: null,
+      search_memo_versions: null,
+      search_memo_proposals: null,
+      analytics_tiles: null,
+      analytics_tile_versions: null,
+      resume_versions: null,
+      workspace_tables_error: "workspace data export unavailable",
+    };
+  }
+}
+
+/**
  * invite_redemptions is service-role-only under RLS (no authenticated grant), so read
  * it in its OWN withUserSql transaction guarded against a permission error — a blocked
  * read yields an empty array rather than poisoning the main export transaction. The row
@@ -261,7 +378,7 @@ export async function buildAccountExport(
   email: string | null,
   resumeFiles: (uid: string) => Promise<ResumeFileRef[]> = listResumeFiles,
 ): Promise<AccountExport> {
-  const [rows, invites, createdCodes, filesResult, lifecycleDemands, agentRows] = await Promise.all([
+  const [rows, invites, createdCodes, filesResult, lifecycleDemands, agentRows, agentAuditRows, workspaceRows] = await Promise.all([
     collectUserRows(userId),
     collectInviteRedemptions(userId),
     collectCreatedInviteCodes(userId),
@@ -277,6 +394,8 @@ export async function buildAccountExport(
       }),
     collectLifecycleDemands(userId),
     collectAgentRows(userId),
+    collectAgentAuditRows(userId),
+    collectWorkspaceRows(userId),
   ]);
   return {
     exported_at: new Date().toISOString(),
@@ -285,6 +404,8 @@ export async function buildAccountExport(
     ...rows,
     ...lifecycleDemands,
     ...agentRows,
+    ...agentAuditRows,
+    ...workspaceRows,
     invite_redemptions: invites,
     created_invite_codes: createdCodes,
     resume_files: filesResult.files,

@@ -29,6 +29,18 @@ const DB: Record<string, Record<string, unknown[]>> = {
     agent_messages: [{ thread_id: "t1", id: "m1", role: "user", parts: [{ type: "text", text: "A asks" }] }],
     agent_runs: [{ id: "r1", thread_id: "t1", kind: "turn", status: "done", cost_micros: 1200 }],
     agent_settings: [{ default_variant: 2, background_enabled: true }],
+    agent_surfaces: [{ id: "s1", thread_id: "t1", variant: 1, payload: { blocks: [] }, outcome: "valid" }],
+    agent_actions: [{ id: 7, kind: "shortlist.set", actor: "agent", target_key: { jobId: "j1" } }],
+    shortlist_items: [{ job_id: "j1", state: "shortlisted", set_by: "user" }],
+    applications: [{ id: "a1", job_id: "j1", stage: "applied" }],
+    application_events: [{ id: 3, application_id: "a1", kind: "stage", to_stage: "applied", actor: "user" }],
+    documents: [{ id: "d1", kind: "resume", filename: "cv.pdf", extraction: "ok" }],
+    search_memos: [{ version: 2, doc: { other: "A memo" } }],
+    search_memo_versions: [{ version: 1, doc: { other: "A memo v1" }, changed_by: "user" }],
+    search_memo_proposals: [{ id: "p1", base_version: 2, status: "pending", source: "interactive" }],
+    analytics_tiles: [{ version: 1, layout: { tiles: [] } }],
+    analytics_tile_versions: [{ version: 1, layout: { tiles: [] }, changed_by: "agent" }],
+    resume_versions: [{ version: 1, resume_text: "A older résumé", source: "upload" }],
   },
   "user-b": {
     profiles: [{ user_id: "user-b", resume_text: "B SECRET résumé" }],
@@ -45,6 +57,9 @@ const DB: Record<string, Record<string, unknown[]>> = {
     review_runs: [],
     invite_redemptions: [],
     agent_threads: [{ id: "tB", title: "B SECRET thread" }],
+    agent_actions: [{ id: 8, kind: "shortlist.set", target_key: { jobId: "B SECRET job" } }],
+    shortlist_items: [{ job_id: "B SECRET job", state: "skipped" }],
+    search_memos: [{ version: 1, doc: { other: "B SECRET memo" } }],
   },
   "empty-user": {
     profiles: [{ user_id: "empty-user", resume_text: null }],
@@ -57,6 +72,14 @@ const DB: Record<string, Record<string, unknown[]>> = {
 // Every SQL text the export ran, so tests can check exactly which columns it reads.
 const ranSql: string[] = [];
 
+// Phase 1 tables (migrations 18 and 19), served from the fixtures above by name.
+const PHASE1_TABLES = [
+  "agent_surfaces", "agent_actions", "shortlist_items", "applications", "application_events", "documents",
+  "search_memos", "search_memo_versions", "search_memo_proposals", "analytics_tiles", "analytics_tile_versions",
+  "resume_versions",
+] as const;
+const AUDIT_TABLES = new Set<string>(["agent_surfaces", "agent_actions"]);
+
 function makeTx(userId: string) {
   const rows = DB[userId] ?? {};
   const pick = (sql: string): unknown[] => {
@@ -64,6 +87,14 @@ function makeTx(userId: string) {
     if (/FROM job_payload_demands/.test(sql)) throw new Error("permission denied for table job_payload_demands");
     // An account read before the agent migration is applied: the tables do not exist yet.
     if (userId === "pre-agent-user" && /FROM agent_/.test(sql)) throw new Error('relation "agent_threads" does not exist');
+    for (const table of PHASE1_TABLES) {
+      if (!new RegExp(`FROM ${table}\\b`).test(sql)) continue;
+      // An account read after migration 17 but before migrations 18 and 19 are applied.
+      if (userId === "pre-phase1-user") throw new Error(`relation "${table}" does not exist`);
+      // Migration 18 applied, migration 19 not yet.
+      if (userId === "pre-audit-user" && AUDIT_TABLES.has(table)) throw new Error(`relation "${table}" does not exist`);
+      return rows[table] ?? [];
+    }
     if (/FROM agent_threads/.test(sql)) return rows.agent_threads ?? [];
     if (/FROM agent_messages/.test(sql)) return rows.agent_messages ?? [];
     if (/FROM agent_runs/.test(sql)) return rows.agent_runs ?? [];
@@ -226,5 +257,94 @@ describe("agent tables", () => {
     expect(out.agent_settings).toBeNull();
     expect(out.agent_tables_error).toBe("agent data export unavailable");
     expect(JSON.stringify(out)).not.toContain("does not exist");
+  });
+});
+
+describe("phase 1 workspace and audit tables", () => {
+  const selected = (table: string) => {
+    const text = ranSql.filter((q) => new RegExp(`FROM ${table}\\b`).test(q)).at(-1);
+    if (!text) throw new Error(`no read of ${table}`);
+    return text.replace(/\s+/g, " ").match(/SELECT (.*?) FROM/)![1].split(",").map((c) => c.trim());
+  };
+  const LIST_KEYS = [
+    "agent_surfaces", "agent_actions", "shortlist_items", "applications", "application_events", "documents",
+    "search_memo_versions", "search_memo_proposals", "analytics_tile_versions", "resume_versions",
+  ] as const;
+
+  test("exports the caller's rows of all twelve tables, and none of another user's", async () => {
+    const out = await buildAccountExport("user-a", "a@x.com", noFiles);
+    for (const key of LIST_KEYS) expect(out[key], key).toEqual(DB["user-a"][key]);
+    expect(out.search_memos).toEqual(DB["user-a"].search_memos[0]);
+    expect(out.analytics_tiles).toEqual(DB["user-a"].analytics_tiles[0]);
+    expect(out.workspace_tables_error).toBeNull();
+    expect(out.agent_audit_tables_error).toBeNull();
+    expect(JSON.stringify(out)).not.toContain("B SECRET");
+  });
+
+  test("reads only the named columns, never select-star", async () => {
+    await buildAccountExport("user-a", "a@x.com", noFiles);
+    expect(selected("agent_surfaces")).toEqual([
+      "id", "thread_id", "run_id", "variant", "payload", "fallback_payload", "gathered", "outcome", "failure",
+      "supersedes", "rerender_of", "model", "latency_ms", "output_tokens", "created_at",
+    ]);
+    expect(selected("agent_actions")).toEqual([
+      "id", "run_id", "thread_id", "actor", "kind", "target_key", "before", "after", "undone_at", "created_at",
+    ]);
+    expect(selected("shortlist_items")).toEqual([
+      "job_id", "state", "reason_code", "reason_text", "brief_why", "brief_risk", "set_by", "created_at", "updated_at",
+    ]);
+    expect(selected("applications")).toEqual(["id", "job_id", "stage", "closed_reason", "next_step_on", "created_at", "updated_at"]);
+    expect(selected("application_events")).toEqual([
+      "id", "application_id", "kind", "from_stage", "to_stage", "note", "actor", "created_at",
+    ]);
+    expect(selected("documents")).toEqual([
+      "id", "kind", "filename", "mime", "bytes", "storage_path", "extracted_text", "extraction", "created_at",
+    ]);
+    expect(selected("search_memos")).toEqual(["version", "doc", "updated_at"]);
+    expect(selected("search_memo_versions")).toEqual(["version", "doc", "changed_by", "proposal_id", "created_at"]);
+    expect(selected("search_memo_proposals")).toEqual([
+      "id", "base_version", "proposed_doc", "rationale", "status", "source", "created_at", "resolved_at",
+    ]);
+    expect(selected("analytics_tiles")).toEqual(["version", "layout", "updated_at"]);
+    expect(selected("analytics_tile_versions")).toEqual(["version", "layout", "changed_by", "created_at"]);
+    expect(selected("resume_versions")).toEqual(["version", "resume_text", "source", "document_id", "created_at"]);
+    // user_id is never part of a phase 1 table's export row.
+    for (const table of PHASE1_TABLES) expect(selected(table), table).not.toContain("user_id");
+  });
+
+  test("an account with no phase 1 data exports empty lists and null single rows", async () => {
+    const out = await buildAccountExport("empty-user", "e@x.com", noFiles);
+    for (const key of LIST_KEYS) expect(out[key], key).toEqual([]);
+    expect(out.search_memos).toBeNull();
+    expect(out.analytics_tiles).toBeNull();
+    expect(out.workspace_tables_error).toBeNull();
+    expect(out.agent_audit_tables_error).toBeNull();
+  });
+
+  test("before migrations 18 and 19, the rest of the export succeeds and both groups say unavailable", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const out = await buildAccountExport("pre-phase1-user", "p@x.com", noFiles);
+    expect(errSpy).toHaveBeenCalledWith("account export: workspace tables could not be read", expect.any(Error));
+    expect(errSpy).toHaveBeenCalledWith("account export: agent audit tables could not be read", expect.any(Error));
+    errSpy.mockRestore();
+    expect(out).toHaveProperty("profiles");
+    expect(out.agent_tables_error).toBeNull();
+    for (const key of LIST_KEYS) expect(out[key], key).toBeNull();
+    expect(out.search_memos).toBeNull();
+    expect(out.analytics_tiles).toBeNull();
+    expect(out.workspace_tables_error).toBe("workspace data export unavailable");
+    expect(out.agent_audit_tables_error).toBe("agent audit export unavailable");
+    expect(JSON.stringify(out)).not.toContain("does not exist");
+  });
+
+  test("with migration 18 applied and 19 not yet, workspace rows export and only the audit group is unavailable", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const out = await buildAccountExport("pre-audit-user", "q@x.com", noFiles);
+    errSpy.mockRestore();
+    expect(out.workspace_tables_error).toBeNull();
+    expect(out.shortlist_items).toEqual([]);
+    expect(out.agent_surfaces).toBeNull();
+    expect(out.agent_actions).toBeNull();
+    expect(out.agent_audit_tables_error).toBe("agent audit export unavailable");
   });
 });

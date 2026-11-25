@@ -61,6 +61,8 @@ export const VISUAL_ROUTES: VisualRoute[] = [
     live: { hide: [".rf-workspace-live"], mask: [] } },
   { id: "applications-default", path: "/applications", access: "authenticated", family: "workspaces", state: "applications", shell: "app", source: "app/applications/page.tsx",
     live: { hide: [".rf-workspace-live"], mask: [] } },
+  { id: "looking-for-default", path: "/looking-for", access: "authenticated", family: "workspaces", state: "looking-for", shell: "app", source: "app/looking-for/page.tsx",
+    live: { hide: [".rf-workspace-live"], mask: [] } },
   { id: "feedback-default", path: "/feedback", access: "authenticated", family: "feedback", state: "default", shell: "app", source: "app/feedback/page.tsx" },
   { id: "billing-default", path: "/billing", access: "authenticated", family: "billing", state: "default", shell: "app", source: "app/billing/page.tsx" },
   { id: "profile-hub", path: "/profile", access: "authenticated", family: "profile", state: "default", shell: "app", source: "app/profile/layout.tsx" },
@@ -78,6 +80,6 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   fixture("companies", "empty"), fixture("analytics", "data-viz"), fixture("billing", "current"),
   fixture("profile", "error"), fixture("profile", "disabled"), fixture("profile", "destructive"),
   fixture("admin", "empty"), fixture("agent", "empty"), fixture("agent", "budget"), fixture("agent", "disabled"),
-  fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"),
+  fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"), fixture("workspaces", "memo-diff"),
   fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

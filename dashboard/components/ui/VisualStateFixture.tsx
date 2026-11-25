@@ -7,6 +7,7 @@ import { Icon } from "./Icon";
 import { VisualBoardState, type VisualBoardStateName } from "@/components/rolefit/VisualBoardState";
 import { HBarCard } from "@/components/analytics/Chart";
 import { AgentChat } from "@/components/agent/AgentChat";
+import { MemoDiffFixture } from "@/components/workspaces/MemoDiffFixture";
 import { ShortlistBoard } from "@/components/workspaces/ShortlistBoard";
 import type { ShortlistRow } from "@/lib/workspaces/types";
 
@@ -57,6 +58,7 @@ const COPY: Record<string, { eyebrow: string; title: string; description: string
   "agent-disabled": { eyebrow: "Agent · disabled", title: "Agent switched off", description: "The workspaces keep working while the agent is paused." },
   "workspaces-empty": { eyebrow: "Workspaces · empty", title: "Shortlist", description: "Nothing triaged yet; the agent and suggestions fill it." },
   "workspaces-agent-marker": { eyebrow: "Workspaces · agent", title: "Shortlist", description: "A row the agent skipped, with its reason and Undo." },
+  "workspaces-memo-diff": { eyebrow: "Workspaces · memo", title: "What I'm looking for", description: "The agent's proposed memo change, waiting for Approve, Edit or Decline." },
   "system-states-focus": { eyebrow: "System · focus", title: "Keyboard interaction", description: "Focus, selected, disabled, and pressed treatments." },
   "system-states-destructive": { eyebrow: "System · destructive", title: "Destructive confirmation", description: "Danger actions are visually and semantically distinct." },
 };
@@ -75,6 +77,8 @@ export function VisualStateFixture({ state }: { state: string }) {
     // The production shortlist board with fixed rows.
     if (state === "workspaces-empty") return <ShortlistBoard rows={[]} markers={{}} browse={[]} filters={WS_NO_FILTERS} browseError={false} />;
     if (state === "workspaces-agent-marker") return <ShortlistBoard rows={[WS_AGENT_SKIPPED]} markers={{ [WS_AGENT_SKIPPED.jobId]: 1 }} browse={[]} filters={WS_NO_FILTERS} browseError={false} skippedOpen />;
+    // The production memo confirm card with a fixed proposal.
+    if (state === "workspaces-memo-diff") return <MemoDiffFixture />;
     if (state === "companies-empty" || state === "admin-empty") return <EmptyState title={copy.title} description={copy.description} action={<Button variant="outline">Clear filters</Button>} />;
     if (state === "profile-error") return <><Alert tone="danger" title="1 field needs attention">Review the inline message below.</Alert><TextField id="fixture-email" label="Email" error="Enter a valid email address." defaultValue="invalid" /><Button>Save changes</Button></>;
     if (state === "profile-disabled") return <><TextField id="fixture-model" label="Reasoning level" value="High · Pro" disabled readOnly /><Button disabled>Save changes</Button></>;

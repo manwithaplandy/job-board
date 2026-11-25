@@ -18,7 +18,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await db.sql`TRUNCATE agent_runs, agent_messages, agent_settings, agent_threads`;
+  // agent_surfaces (migration 19, in schema.sql) references agent_threads.
+  await db.sql`TRUNCATE agent_runs, agent_messages, agent_settings, agent_surfaces, agent_threads`;
   await db.sql`INSERT INTO agent_threads (id, user_id) VALUES (${THREAD_A}, ${USER_A})`;
   await db.sql`INSERT INTO agent_messages (thread_id, id, user_id, role, parts, status)
                VALUES (${THREAD_A}, 'm1', ${USER_A}, 'user', ${db.sql.json([{ type: "text", text: "hi" }])}, 'complete')`;
@@ -84,11 +85,17 @@ test("anon has no privilege on any of the four tables", async () => {
   }
 });
 
-test("no function whose name starts with agent_ exists after this migration", async () => {
+test("no agent_ function can write the run ledger, message history or spend", async () => {
+  // Migration 17 added no function. Migration 19 (in schema.sql since) added the four
+  // audited writers for surfaces and actions; none of them may reach agent_runs,
+  // agent_messages or usage_counters, whose only writer is the service role.
   const rows = await db.sql`
-    SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname LIKE 'agent\\_%'`;
-  expect(Array.from(rows)).toEqual([]);
+    SELECT p.proname, p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname LIKE 'agent\\_%' ORDER BY p.proname`;
+  expect(rows.map((r) => r.proname)).toEqual([
+    "agent_log_action", "agent_mark_action_undone", "agent_save_surface", "agent_set_surface_outcome",
+  ]);
+  for (const r of rows) expect(r.prosrc, r.proname).not.toMatch(/agent_runs|agent_messages|usage_counters/);
 });
 
 test("an interactive run without a thread violates the CHECK; a vision run without one is accepted", async () => {

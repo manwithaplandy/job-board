@@ -433,6 +433,10 @@ EXPECTED_RLS = {
     "analytics_tiles": {"analytics_tiles_owner": ("ALL", frozenset({"authenticated"}))},
     "analytics_tile_versions": {"analytics_tile_versions_owner": ("ALL", frozenset({"authenticated"}))},
     "resume_versions": {"resume_versions_owner": ("ALL", frozenset({"authenticated"}))},
+    # Agent audit (supabase/migrations/20261125070100_agent_audit.sql): owner read only;
+    # the SECURITY DEFINER functions in EXPECTED_AGENT_DEFINERS are the only writers.
+    "agent_surfaces": {"agent_surfaces_owner_read": ("SELECT", frozenset({"authenticated"}))},
+    "agent_actions": {"agent_actions_owner_read": ("SELECT", frozenset({"authenticated"}))},
     # Full owner CRUD (owner_access FOR ALL, USING/WITH CHECK = app_user_id()).
     "profiles": _OWNER_ALL,
     "job_reviews": _OWNER_ALL,
@@ -493,6 +497,7 @@ _OWNER_SCOPED = {
     "shortlist_items_owner", "applications_owner", "application_events_owner", "documents_owner",
     "search_memos_owner", "search_memo_versions_owner", "search_memo_proposals_owner",
     "analytics_tiles_owner", "analytics_tile_versions_owner", "resume_versions_owner",
+    "agent_surfaces_owner_read", "agent_actions_owner_read",
 }
 
 
@@ -577,7 +582,9 @@ EXPECTED_GRANTS = {
     "analytics_tiles": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
     "analytics_tile_versions": (_R(), _R({"SELECT", "INSERT"})),
     "resume_versions": (_R(), _R({"SELECT", "INSERT"})),
-    "jobs":                (_R({"SELECT"}), _R({"SELECT"})),
+    "agent_surfaces": (_R(), _R({"SELECT"})),
+    "agent_actions": (_R(), _R({"SELECT"})),
+    "jobs":               (_R({"SELECT"}), _R({"SELECT"})),
     "companies":            (_R({"SELECT"}), _R({"SELECT"})),
     "poll_runs":            (_R(), _R({"SELECT"})),
     "discovery_runs":       (_R(), _R({"SELECT"})),
@@ -670,3 +677,36 @@ def test_app_user_id_has_pinned_search_path(conn):
     assert any(c.startswith("search_path=") for c in cfg), (
         f"app_user_id() has a mutable search_path (proconfig={cfg}) — pin it"
     )
+
+
+# ── Agent SECURITY DEFINER contract (supabase/migrations/20261125070100_agent_audit.sql) ──
+# The only writers of agent_surfaces and agent_actions. Each is user-callable (plan Spec
+# gaps S3), so the contract is: SECURITY DEFINER with an empty, pinned search_path,
+# EXECUTE for authenticated only (never PUBLIC or anon), and no other agent_* function.
+EXPECTED_AGENT_DEFINERS = {
+    "agent_save_surface(uuid,uuid,bigint,jsonb,jsonb,jsonb,text,uuid,uuid,text,bigint,bigint)",
+    "agent_set_surface_outcome(uuid,text,text)",
+    "agent_log_action(uuid,uuid,text,text,jsonb,jsonb,jsonb)",
+    "agent_mark_action_undone(bigint)",
+}
+
+
+@requires_db
+def test_agent_definer_functions_match_the_contract(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT replace(p.oid::regprocedure::text, ' ', '') AS sig, p.prosecdef, p.proconfig, "
+            "has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth, "
+            "has_function_privilege('anon', p.oid, 'EXECUTE') AS anon, "
+            "EXISTS (SELECT 1 FROM aclexplode(p.proacl) x WHERE x.grantee = 0) AS public_grant "
+            "FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+            "WHERE n.nspname = 'public' AND p.proname LIKE 'agent\\_%'"
+        )
+        rows = {r["sig"]: r for r in cur.fetchall()}
+    assert set(rows) == EXPECTED_AGENT_DEFINERS, f"agent_* functions drifted: {sorted(rows)}"
+    for sig, r in sorted(rows.items()):
+        assert r["prosecdef"] is True, f"{sig} is not SECURITY DEFINER"
+        assert r["proconfig"] == ['search_path=""'], f"{sig} search_path is {r['proconfig']!r}"
+        assert r["auth"] is True, f"{sig} is not executable by authenticated"
+        assert r["anon"] is False, f"{sig} is executable by anon"
+        assert r["public_grant"] is False, f"{sig} is granted to PUBLIC"

@@ -52,7 +52,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   h.afterTasks.length = 0;
-  await db.sql`TRUNCATE agent_runs, agent_messages, agent_settings, agent_threads, usage_counters, app_settings`;
+  await db.sql`TRUNCATE agent_runs, agent_messages, agent_settings, agent_surfaces, agent_threads, usage_counters, app_settings`;
   await db.sql`DELETE FROM profiles WHERE user_id = ${USER_A}`;
   await seedProfile(db.sql, USER_A);
   const [row] = await db.sql`INSERT INTO agent_threads (user_id) VALUES (${USER_A}) RETURNING id`;

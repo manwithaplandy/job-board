@@ -103,7 +103,7 @@ async function setSettings(daily: number, monthly = 10_000_000) {
 beforeEach(async () => {
   h.afterTasks.length = 0;
   h.userId = USER_A;
-  await db.sql`TRUNCATE agent_runs, agent_messages, agent_settings, agent_threads, usage_counters, app_settings`;
+  await db.sql`TRUNCATE agent_runs, agent_messages, agent_settings, agent_surfaces, agent_threads, usage_counters, app_settings`;
   await db.sql`DELETE FROM job_reviews WHERE user_id IN (${USER_A}, ${USER_B})`;
   await db.sql`DELETE FROM profiles WHERE user_id IN (${USER_A}, ${USER_B})`;
   await db.sql`DELETE FROM jobs WHERE id IN (${JOB_TOP}, ${JOB_LOW})`;

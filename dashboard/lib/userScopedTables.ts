@@ -67,6 +67,9 @@ export const USER_DELETE_TABLES = [
   "analytics_tile_versions",
   "analytics_tiles",
   "resume_versions",
+  // Scoped re-review requests (Task 1.9, migration 20), classified one PR ahead of it.
+  // No table references it and it has no foreign key of its own.
+  "review_scope_requests",
 ] as const;
 
 /** Tables whose rows are kept but de-identified (user_id → NULL) on deletion. */

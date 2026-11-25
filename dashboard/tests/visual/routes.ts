@@ -82,6 +82,7 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   fixture("companies", "empty"), fixture("analytics", "data-viz"), fixture("billing", "current"),
   fixture("profile", "error"), fixture("profile", "disabled"), fixture("profile", "destructive"),
   fixture("admin", "empty"), fixture("agent", "empty"), fixture("agent", "budget"), fixture("agent", "disabled"),
+  fixture("agent", "blocks-jobs"),
   fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"), fixture("workspaces", "memo-diff"),
   fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

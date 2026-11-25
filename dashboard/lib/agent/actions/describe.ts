@@ -5,8 +5,9 @@
 // from a string the frame wrote. The frame's own free text (a skip note, an answer, a
 // chart title or note) is the value being proposed: it is shown apart from the label, in
 // `proposed`, after "From the view:", and only when it fits whole on the chip and holds
-// no control or bidi characters, so what the user reads is exactly what a press sends or
-// stores (frameTextProblem; executeIntent re-checks it for every frame press).
+// no control, bidi or zero-width characters and no whitespace the chip would fold, so
+// what the user reads is exactly what a press sends or stores (frameTextProblem;
+// executeIntent re-checks it for every frame press). memo.resolve is never offered.
 //
 // Server only: it reads the database (jobLine) and parses with ActionIntentSchema.
 import { ActionIntentSchema, OPEN_TARGETS, type ActionIntent, type IntentOf } from "@/lib/agent/actions/intents";
@@ -63,11 +64,27 @@ function frameTexts(intent: ActionIntent): string[] {
 }
 
 /**
- * Why a frame may not propose this intent, or null when it may: free text over
- * FRAME_TEXT_MAX, or with a control or bidi character, could not be shown exactly as it
- * would be sent or stored.
+ * Intents a frame may not propose at all (fix round 1, I4). memo.resolve approves or
+ * declines a memo proposal in one press with no confirm; a frame could put it under the
+ * user's pointer, so it is offered only on the host's own memo proposal block.
+ */
+const FRAME_REFUSED_INTENTS: ReadonlySet<ActionIntent["name"]> = new Set(["memo.resolve"]);
+
+/**
+ * Whitespace that would read differently on the chip than it is sent (fix round 1, M3):
+ * any whitespace other than U+0020, two spaces in a row, or a space at either end. The
+ * chip's clamp folds all of these into single spaces, so such text is refused instead.
+ */
+const FRAME_WHITESPACE_RE = /[^\S ]| {2}|^ | $/;
+
+/**
+ * Why a frame may not propose this intent, or null when it may: an intent a frame may not
+ * propose (FRAME_REFUSED_INTENTS), or free text that could not be shown exactly as it
+ * would be sent or stored (over FRAME_TEXT_MAX, holding a control, bidi or zero-width
+ * character, or whitespace the chip would fold).
  */
 export function frameTextProblem(intent: ActionIntent): string | null {
+  if (FRAME_REFUSED_INTENTS.has(intent.name)) return "frame_intent_not_offered";
   // A skip reason the user's own skip could not store would show as "Other".
   if (intent.name === "shortlist.set" && intent.reasonCode !== undefined && !USER_SKIP_REASON_SET.has(intent.reasonCode)) {
     return "frame_reason_unknown";
@@ -75,6 +92,7 @@ export function frameTextProblem(intent: ActionIntent): string | null {
   for (const text of frameTexts(intent)) {
     if (text.length > FRAME_TEXT_MAX) return "frame_text_too_long";
     if (text.search(UNSAFE_CHARS) !== -1) return "frame_text_unsafe";
+    if (FRAME_WHITESPACE_RE.test(text)) return "frame_text_whitespace";
   }
   return null;
 }
@@ -151,10 +169,7 @@ export async function describeIntent(userId: string, intent: ActionIntent): Prom
     case "memo.review":
       return result("Review a proposed change to What I'm looking for");
     case "memo.resolve":
-      return result(
-        intent.decision === "approve"
-          ? "Approve the proposed change to What I'm looking for"
-          : "Decline the proposed change to What I'm looking for",
-      );
+      // Never offered from a frame (FRAME_REFUSED_INTENTS); frameTextProblem returned above.
+      return null;
   }
 }

@@ -133,6 +133,7 @@ export async function describeFrameIntentAction(
   args: unknown,
 ): Promise<FrameChip | null> {
   const userId = await requireUserId();
+  await assertNotDeleted(userId);
   if (typeof threadId !== "string" || typeof surfaceId !== "string" || typeof name !== "string") return null;
   const intent = frameIntent(name, args);
   if (intent === null) return null;

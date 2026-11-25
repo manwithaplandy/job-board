@@ -341,8 +341,25 @@ describe("a frame chip press (source frame, Task 2.6)", () => {
     expect(await frame({ ...skip, reasonText: "a\u202eb" })).toEqual({ kind: "dropped" });
     expect(await frame({ ...skip, reasonCode: "made_up" })).toEqual({ kind: "dropped" });
     expect(await frame({ name: "answer", questionId: "q1", value: "line one\nline two" })).toEqual({ kind: "dropped" });
+    // Fix round 1, M3: zero-width characters, and whitespace the chip would fold.
+    const zwsp = String.fromCharCode(0x200b);
+    const nbsp = String.fromCharCode(0x00a0);
+    expect(await frame({ ...skip, reasonText: `too${zwsp}far` })).toEqual({ kind: "dropped" });
+    expect(await frame({ ...skip, reasonText: `too${nbsp}far` })).toEqual({ kind: "dropped" });
+    expect(await frame({ ...skip, reasonText: "too  far" })).toEqual({ kind: "dropped" });
+    expect(await frame({ ...skip, reasonText: " too far" })).toEqual({ kind: "dropped" });
     expect(m.setShortlistState).not.toHaveBeenCalled();
     expect(await frame({ name: "answer", questionId: "q1", value: "remote only" })).toEqual({ kind: "send", text: "Answer to q1: remote only" });
+  });
+
+  test("memo.resolve from a frame is dropped, even for a pending proposal (fix round 1, I4)", async () => {
+    const proposal = "55555555-5555-4555-8555-555555555555";
+    m.proposals.add(proposal);
+    expect(await frame({ name: "memo.resolve", proposalId: proposal, decision: "approve" })).toEqual({ kind: "dropped" });
+    expect(await frame({ name: "memo.resolve", proposalId: proposal, decision: "decline" })).toEqual({ kind: "dropped" });
+    expect(m.resolveMemoProposal).not.toHaveBeenCalled();
+    // The host's own press still resolves it.
+    expect(await run({ name: "memo.resolve", proposalId: proposal, decision: "approve" })).toEqual({ kind: "done", toast: MEMO_TOASTS.approved });
   });
 
   test("a high-risk intent still answers with its fixed confirm card", async () => {

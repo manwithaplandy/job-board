@@ -88,6 +88,33 @@ describe("describeIntent", () => {
     expect(frameTextProblem(bidi)).toBe("frame_text_unsafe");
     expect(await describeIntent(USER, bidi)).toBeNull();
   });
+
+  test("zero-width characters and folded whitespace give no chip (fix round 1, M3)", async () => {
+    const skip = { name: "shortlist.set", jobId: A, state: "skipped", reasonCode: "pay" };
+    for (const cp of [0x061c, 0x200b, 0x200c, 0x200d, 0x2028, 0x2029, 0x2060, 0xfeff]) {
+      const i = intent({ ...skip, reasonText: `too${String.fromCharCode(cp)}far` });
+      expect({ cp, problem: frameTextProblem(i) }).toEqual({ cp, problem: "frame_text_unsafe" });
+      expect(await describeIntent(USER, i)).toBeNull();
+    }
+    for (const reasonText of [`too${String.fromCharCode(0x00a0)}far`, `too${String.fromCharCode(0x3000)}far`, "too  far", " too far", "too far "]) {
+      const i = intent({ ...skip, reasonText });
+      expect({ reasonText, problem: frameTextProblem(i) }).toEqual({ reasonText, problem: "frame_text_whitespace" });
+      expect(await describeIntent(USER, i)).toBeNull();
+    }
+    // Single plain spaces are fine, and the chip shows the text exactly as it is sent.
+    const ok = await describeIntent(USER, intent({ ...skip, reasonText: "too far away" }));
+    expect(ok?.proposed).toContain("From the view: too far away");
+  });
+
+  test("memo.resolve is never offered as a chip (fix round 1, I4)", async () => {
+    const proposalId = "55555555-5555-4555-8555-555555555555";
+    for (const decision of ["approve", "decline"]) {
+      const i = intent({ name: "memo.resolve", proposalId, decision });
+      expect(frameTextProblem(i)).toBe("frame_intent_not_offered");
+      expect(await describeIntent(USER, i)).toBeNull();
+    }
+    expect(await describeIntent(USER, intent({ name: "memo.review", proposalId }))).not.toBeNull();
+  });
 });
 
 describe("isDirectOpen", () => {

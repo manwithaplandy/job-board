@@ -216,3 +216,12 @@ test("describeFrameIntentAction parses the frame's request on the server and des
   surfacesOf(USER, 1);
   expect(await describeFrameIntentAction(THREAD, V3, "open", { target: "shortlist" })).toBeNull();
 });
+
+test("describeFrameIntentAction refuses an erased account before reading anything (fix round 1, M1)", async () => {
+  surfacesOf(USER, 3);
+  store.describeIntent.mockResolvedValue({ label: "Open your shortlist" });
+  m.assertNotDeleted.mockRejectedValue(new Error("deleted"));
+  await expect(describeFrameIntentAction(THREAD, V3, "open", { target: "shortlist" })).rejects.toThrow();
+  expect(m.assertNotDeleted).toHaveBeenCalledWith(USER);
+  expect(store.describeIntent).not.toHaveBeenCalled();
+});

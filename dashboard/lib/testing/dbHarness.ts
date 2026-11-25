@@ -25,8 +25,9 @@ export type TestDb = {
 };
 
 /**
- * The three guards of the owned lane (same as lib/jobLifecycle.flow.db.test.ts):
- * the launcher's opt-in flag, a 127.0.0.1 host and the harness database name.
+ * The guards of the owned lane (same as lib/jobLifecycle.flow.db.test.ts): the
+ * launcher's opt-in flag, a 127.0.0.1 host, an explicit port that is not 55432 (a
+ * separate local fixture database) and the harness database name.
  * Returns the DSN when it passes; throws "Refusing …" otherwise. Shared with
  * vitest.db.config.ts so library code under test can only reach this database.
  */
@@ -43,6 +44,7 @@ export function assertHarnessDsn(dsn: string | undefined): string {
     return refuse("the DSN does not parse");
   }
   if (url.hostname !== "127.0.0.1") refuse("the host is not 127.0.0.1");
+  if (!url.port || url.port === "55432") refuse("the port is missing or is 55432");
   if (url.pathname !== "/poller_lifecycle_test") refuse("the database is not poller_lifecycle_test");
   return dsn;
 }

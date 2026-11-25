@@ -15,7 +15,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { PageHeader } from "@/components/ui/Navigation";
 import { Alert } from "@/components/ui/SystemStates";
-import { AgentChat, CompareStarter } from "@/components/agent/AgentChat";
+import { AgentChat, CompareStarter, StartConversation } from "@/components/agent/AgentChat";
 import { AgentNotice, type AgentBlockingNotice } from "@/components/agent/AgentNotice";
 import { TestDataBadge } from "@/components/agent/TestDataBadge";
 import { ThreadList } from "@/components/agent/ThreadList";
@@ -29,7 +29,8 @@ export const metadata: Metadata = { title: "Agent · Rolefit" };
 // thread reads as not found. The plan, kill-switch and budget checks here only pick a
 // notice: POST /api/agent enforces them again on every send. The render writes nothing
 // (previews read the production database): surfaces, their rows and the activity panel
-// are reads, and ?compare with no thread open starts one from the browser.
+// are reads, and ?compare with no thread open, or the first Send on the empty page,
+// starts one from the browser.
 
 async function readBudget(userId: string): Promise<BudgetState> {
   try {
@@ -113,9 +114,13 @@ export default async function AgentPage({
                 />
               ) : compare && notice === null ? (
                 <CompareStarter compare={compare} />
+              ) : notice === null ? (
+                // No conversation open: the empty state with the composer and the upload
+                // target; the first Send starts the thread (PR I3b review I4).
+                <StartConversation hasProfile={profile !== null} />
               ) : (
                 <>
-                  {notice && <AgentNotice kind={notice} />}
+                  <AgentNotice kind={notice} />
                   <p className="rf-agent-chat__empty">Start a new conversation, or pick one from the list.</p>
                 </>
               )}

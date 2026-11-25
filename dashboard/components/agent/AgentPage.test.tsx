@@ -30,7 +30,7 @@ vi.mock("sonner", () => sonner);
 const tracker = vi.hoisted(() => ({ value: null as null | { notifyStarted: ReturnType<typeof vi.fn>; refresh: ReturnType<typeof vi.fn> } }));
 vi.mock("@/components/generation/GenerationToastProvider", () => ({ useGenerationTracker: () => tracker.value }));
 
-import { AgentChat } from "./AgentChat";
+import { AgentChat, StartConversation } from "./AgentChat";
 import { EMPTY_SENTENCE } from "./EmptyState";
 import { TestDataBadge } from "./TestDataBadge";
 import { SURFACE_FAILED_TEXT } from "./SurfaceHost";
@@ -391,6 +391,53 @@ describe("empty state, compare and the test-data badge", () => {
     cleanup();
     const again = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} hasProfile={false} />);
     expect(again.container.querySelector(".rf-agent-empty__sentence")?.textContent).toBe(EMPTY_SENTENCE.noProfile);
+  });
+
+  test("no open thread: the empty state has the composer and upload target, and the first send creates exactly one thread", async () => {
+    const NEW = "33333333-3333-4333-8333-333333333333";
+    let finish: (v: { id: string }) => void = () => {};
+    actions.newThread.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    uploadReply = () => Response.json({ document: { id: DOC, filename: "resume.pdf", kind: "resume" } });
+    const { container } = render(<StartConversation hasProfile={false} />);
+    const empty = container.querySelector(".rf-agent-empty") as HTMLElement;
+    expect(empty.querySelectorAll("p.rf-agent-empty__sentence")).toHaveLength(1);
+    expect(empty.querySelector(".rf-agent-empty__sentence")?.textContent).toBe(EMPTY_SENTENCE.noProfile);
+    expect(within(empty).getByLabelText(/^Message/)).toBeTruthy();
+    // Nothing is created on render.
+    expect(actions.newThread).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Attach a file"), { target: { files: [new File(["x"], "resume.pdf", { type: "application/pdf" })] } });
+    expect(await screen.findByText("resume.pdf")).toBeTruthy();
+    fireEvent.change(composer(), { target: { value: "Here is my résumé" } });
+    fireEvent.click(sendButton());
+    fireEvent.submit(composer().closest("form")!);
+    expect(actions.newThread).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ id: NEW }));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/agent?t=${NEW}`));
+    expect(String(router.push.mock.calls[0][0])).not.toContain("r%C3%A9sum");
+    expect(agentCalls()).toHaveLength(0);
+    cleanup();
+
+    // The opened thread's chat sends the handed-over message once, with its file.
+    render(<AgentChat threadId={NEW} initialMessages={[]} notice={null} />);
+    await waitFor(() => expect(agentCalls()).toHaveLength(1));
+    expect(agentBody(0)).toMatchObject({ threadId: NEW, kind: "message", text: "Here is my résumé", documentIds: [DOC] });
+    expect(actions.renameThreadAction).toHaveBeenCalledWith(NEW, "Here is my résumé");
+    cleanup();
+    render(<AgentChat threadId={NEW} initialMessages={[]} notice={null} />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(agentCalls()).toHaveLength(1);
+  });
+
+  test("a failed thread start says so and lets the user try again", async () => {
+    actions.newThread.mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce({ id: "44444444-4444-4444-8444-444444444444" });
+    render(<StartConversation hasProfile />);
+    fireEvent.change(composer(), { target: { value: "Hi" } });
+    fireEvent.click(sendButton());
+    expect(await screen.findByText("A new conversation could not be started. Try again.")).toBeTruthy();
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith("/agent?t=44444444-4444-4444-8444-444444444444"));
+    expect(actions.newThread).toHaveBeenCalledTimes(2);
   });
 
   test("?compare with two ids sends one structured message and clears the query", async () => {

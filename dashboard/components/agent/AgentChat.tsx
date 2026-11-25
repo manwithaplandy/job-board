@@ -31,6 +31,7 @@ import { AttachButton, type AttachedDocument } from "./AttachButton";
 import { Composer } from "./Composer";
 import { ConfirmCard } from "./ConfirmCard";
 import { EmptyState } from "./EmptyState";
+import { stashFirstMessage, takeFirstMessage } from "./firstMessage";
 import { ReviewProgress } from "./ReviewProgress";
 import { SurfaceHost, mergeSurface, useWideLayout } from "./SurfaceHost";
 import { showUndoToast, writeToastText } from "./UndoToast";
@@ -329,12 +330,23 @@ export function AgentChat({
     void sendMessage({ text }, documentIds.length > 0 ? { body: { documentIds } } : undefined);
   };
 
-  // ?compare=a,b: one structured message on load, then the query is cleared so a reload
-  // does not send it again.
+  // On mount, once: the first message handed over by the empty page (StartConversation),
+  // or ?compare=a,b as one structured message, after which the query is cleared so a
+  // reload does not send it again.
   const compared = useRef(false);
   useEffect(() => {
-    if (!compare || compared.current) return;
+    if (compared.current) return;
     compared.current = true;
+    const first = takeFirstMessage(threadId);
+    if (first && notice === null && !compare) {
+      // The composer is empty and nothing is attached on mount, so this is send() without
+      // its state resets.
+      named.current = true;
+      void renameThreadAction(threadId, titleFromFirstMessage(first.text)).catch(() => {});
+      void sendMessage({ text: first.text }, first.documentIds.length > 0 ? { body: { documentIds: first.documentIds } } : undefined);
+      return;
+    }
+    if (!compare) return;
     if (notice === null) {
       // The composer is empty and nothing is attached on mount, so this is send() without
       // its state resets.
@@ -609,6 +621,63 @@ export function AgentChat({
  * the same compare, which AgentChat sends once. Runs on the user's own navigation from
  * the shortlist's Compare button, never during a server render.
  */
+/**
+ * The agent page with no conversation open (plan Task 1.20, spec 5(a) step 1): the empty
+ * state's one sentence, the composer and the upload target. Uploads need no thread. The
+ * first Send, from its handler and never during render, creates the thread, hands the
+ * message to it (firstMessage.ts) and opens it; its chat sends the message on mount.
+ */
+export function StartConversation({ hasProfile }: { hasProfile: boolean }) {
+  const router = useRouter();
+  const [draft, setDraft] = useState("");
+  const [attached, setAttached] = useState<AttachedDocument[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const starting = useRef(false);
+  const send = (text: string) => {
+    // One thread per first message, however often Send is pressed.
+    if (starting.current) return;
+    starting.current = true;
+    setBusy(true);
+    setFailed(false);
+    const documentIds = attached.map((d) => d.id);
+    void newThread().then(
+      ({ id }) => {
+        stashFirstMessage(id, { text, documentIds });
+        router.push(`/agent?t=${encodeURIComponent(id)}`);
+      },
+      () => {
+        starting.current = false;
+        setBusy(false);
+        setFailed(true);
+      },
+    );
+  };
+  const composer = (
+    <Composer
+      value={draft}
+      onChange={setDraft}
+      onSend={send}
+      disabled={false}
+      busy={busy}
+      attachments={
+        <AttachButton
+          attached={attached}
+          onAttach={(d) => setAttached((prev) => (prev.some((x) => x.id === d.id) ? prev : [...prev, d]))}
+          onRemove={(id) => setAttached((prev) => prev.filter((d) => d.id !== id))}
+          disabled={busy}
+        />
+      }
+    />
+  );
+  return (
+    <section className="rf-agent-chat" aria-label="New conversation">
+      {failed && <Alert tone="danger">A new conversation could not be started. Try again.</Alert>}
+      <EmptyState hasProfile={hasProfile} composer={composer} />
+    </section>
+  );
+}
+
 export function CompareStarter({ compare }: { compare: readonly [string, string] }) {
   const router = useRouter();
   const started = useRef(false);

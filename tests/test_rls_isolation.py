@@ -437,6 +437,12 @@ EXPECTED_RLS = {
     # the SECURITY DEFINER functions in EXPECTED_AGENT_DEFINERS are the only writers.
     "agent_surfaces": {"agent_surfaces_owner_read": ("SELECT", frozenset({"authenticated"}))},
     "agent_actions": {"agent_actions_owner_read": ("SELECT", frozenset({"authenticated"}))},
+    # Scoped re-review queue (supabase/migrations/20261125093000_review_scope_requests.sql):
+    # owner reads and enqueues a fresh pending row; only the reviewer transitions status.
+    "review_scope_requests": {
+        "review_scope_requests_owner_read": ("SELECT", frozenset({"authenticated"})),
+        "review_scope_requests_owner_insert": ("INSERT", frozenset({"authenticated"})),
+    },
     # Full owner CRUD (owner_access FOR ALL, USING/WITH CHECK = app_user_id()).
     "profiles": _OWNER_ALL,
     "job_reviews": _OWNER_ALL,
@@ -498,6 +504,7 @@ _OWNER_SCOPED = {
     "search_memos_owner", "search_memo_versions_owner", "search_memo_proposals_owner",
     "analytics_tiles_owner", "analytics_tile_versions_owner", "resume_versions_owner",
     "agent_surfaces_owner_read", "agent_actions_owner_read",
+    "review_scope_requests_owner_read", "review_scope_requests_owner_insert",
 }
 
 
@@ -584,7 +591,8 @@ EXPECTED_GRANTS = {
     "resume_versions": (_R(), _R({"SELECT", "INSERT"})),
     "agent_surfaces": (_R(), _R({"SELECT"})),
     "agent_actions": (_R(), _R({"SELECT"})),
-    "jobs":               (_R({"SELECT"}), _R({"SELECT"})),
+    "review_scope_requests": (_R(), _R({"SELECT", "INSERT"})),  # owner enqueues; reviewer updates
+    "jobs":              (_R({"SELECT"}), _R({"SELECT"})),
     "companies":            (_R({"SELECT"}), _R({"SELECT"})),
     "poll_runs":            (_R(), _R({"SELECT"})),
     "discovery_runs":       (_R(), _R({"SELECT"})),

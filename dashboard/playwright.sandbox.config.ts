@@ -27,6 +27,9 @@ export default defineConfig({
   use: {
     baseURL,
     serviceWorkers: "block",
+    // No action waits until the test times out (CI run 1: a textContent() on a missing
+    // element did, and the control then failed at the canary read with a closed context).
+    actionTimeout: 10_000,
     trace: "retain-on-failure",
     video: "off",
     screenshot: "only-on-failure",

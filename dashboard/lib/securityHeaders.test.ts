@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+// Next's own matcher for `headers()` sources. It is an internal module and may move on a
+// Next upgrade; it is used anyway because a hand-written matcher could disagree with Next
+// on exactly the edge this test is about (does "/agent/:path*" match "/agent"?).
 import { getPathMatch } from "next/dist/shared/lib/router/utils/path-match";
 import nextConfig, { SANDBOX_HOST_PATHS, headerRules } from "../next.config.mjs";
+import { SANDBOX_LANES } from "../app/ui-gallery/sandbox-harness/fixtures";
 
 type Rule = { source: string; headers: { key: string; value: string }[] };
 
@@ -33,14 +37,16 @@ describe("security headers", () => {
     const rules = (await nextConfig.headers!()) as Rule[];
     const baseline = sentValue(rules, "/privacy", "Content-Security-Policy")!;
     expect(baseline).not.toContain("frame-src");
-    expect(SANDBOX_HOST_PATHS).toEqual(["/agent/:path*", "/ui-gallery/sandbox-harness"]);
+    expect(SANDBOX_HOST_PATHS).toEqual(["/agent/:path*", SANDBOX_LANES["frame-src-none"]]);
     for (const path of ["/agent", "/agent/threads/1", "/ui-gallery/sandbox-harness"]) {
       const csp = sentValue(rules, path, "Content-Security-Policy");
       expect(csp, path).toBe(`${baseline}; frame-src 'none'`);
       // Only the CSP is overridden; the other baseline headers still apply.
       expect(sentValue(rules, path, "X-Frame-Options"), path).toBe("DENY");
     }
-    for (const path of ["/", "/agentx", "/ui-gallery", "/ui-gallery/states/agent-empty"]) {
+    // The harness's baseline-csp lane must keep the site-wide CSP: it exists to test the
+    // host's own teardown when the parent does not stop a self-navigation.
+    for (const path of ["/", "/agentx", "/ui-gallery", "/ui-gallery/states/agent-empty", SANDBOX_LANES["baseline-csp"]]) {
       expect(sentValue(rules, path, "Content-Security-Policy"), path).toBe(baseline);
     }
     const lastIndex = rules.findIndex((r) => r.source === "/:path*");

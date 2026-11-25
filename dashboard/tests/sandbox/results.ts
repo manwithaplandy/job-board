@@ -14,12 +14,63 @@ export interface Probe {
   v: unknown;
 }
 
+/** Where each browser's control results are kept, so the rows they validate can read them. */
+export const SANDBOX_GATES_DIR = path.join("test-results", "sandbox", "results", "gates");
+
+export interface CanaryRequest {
+  method?: string;
+  url?: string;
+  /** The case its path names (/c/<case>/...), or null. */
+  case?: string | null;
+  secFetchDest?: string;
+  secFetchMode?: string;
+  secFetchSite?: string;
+  purpose?: string;
+  origin?: string;
+  referer?: string;
+  cookie?: boolean;
+  contentType?: string;
+  bodyBytes?: number;
+  bodySample?: string;
+}
+
+/** One TCP connection the canary accepted, and what it carried. */
+export interface CanaryConnection {
+  id?: number;
+  bytesRead?: number;
+  firstBytes?: string;
+  httpRequests?: number;
+  closed?: boolean;
+}
+
 export interface CanaryHits {
   total: number;
   tcpConnections: number;
-  requests: Array<{ method?: string; url?: string; secFetchDest?: string; secFetchMode?: string; purpose?: string }>;
+  connections?: CanaryConnection[];
+  requests: CanaryRequest[];
   upgrades: Array<{ url?: string }>;
   udpDatagrams: Array<{ from?: string; bytes?: number }>;
+}
+
+/** Requests that are navigations (a document or frame load, or a form submission). */
+export function navigationRequests(h: CanaryHits): CanaryRequest[] {
+  return h.requests.filter(
+    (r) => r.secFetchMode === "navigate" || r.secFetchDest === "iframe" || r.secFetchDest === "document" || r.secFetchDest === "frame",
+  );
+}
+
+/**
+ * The frame's own inline scripts that its CSP refused, from the prelude's
+ * securitypolicyviolation probes ("csp" with the directive and blocked URI). A refused
+ * fixture script would otherwise look like a script that tried nothing.
+ */
+export function inlineScriptRefusals(probes: Probe[], tag: string): Probe[] {
+  return probes.filter((p) => {
+    if (p.t !== tag || p.k !== "csp" || !isRecord(p.v)) return false;
+    const d = String(p.v.d ?? "");
+    const b = String(p.v.b ?? "");
+    return d.startsWith("script-src") && (b === "inline" || b === "");
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -80,7 +131,16 @@ export function summariseHits(h: CanaryHits): string {
   }
   if (h.upgrades.length > 0) parts.push(`${h.upgrades.length} WebSocket upgrade(s): ${h.upgrades.map((u) => u.url).join(", ")}`);
   if (h.udpDatagrams.length > 0) parts.push(`${h.udpDatagrams.length} UDP datagram(s) (STUN/TURN)`);
-  if (h.tcpConnections > 0) parts.push(`${h.tcpConnections} TCP connection(s)`);
+  if (h.tcpConnections > 0) {
+    const conns = h.connections ?? [];
+    const bare = conns.filter((c) => (c.bytesRead ?? 0) === 0).length;
+    const carried = conns.filter((c) => (c.bytesRead ?? 0) > 0 && (c.httpRequests ?? 0) === 0);
+    const detail = [
+      bare > 0 ? `${bare} bare (no bytes)` : "",
+      carried.length > 0 ? `${carried.length} with bytes but no HTTP request (${carried.map((c) => `${c.bytesRead} B "${(c.firstBytes ?? "").slice(0, 24)}"`).join(", ")})` : "",
+    ].filter(Boolean);
+    parts.push(`${h.tcpConnections} TCP connection(s)${detail.length > 0 ? `: ${detail.join(", ")}` : ""}`);
+  }
   return parts.join("; ");
 }
 

@@ -1,30 +1,57 @@
 // Real-browser enforcement tests for the variant 3 sandbox (plan Task 2.7; spec 10
 // "Variant 3 sandbox"; PR J2 report "Open for Task 2.7" and "Task 2.7 canary cases for I1";
-// PR J2 review "For Task 2.7"). Each case opens the public harness page
-// (app/ui-gallery/sandbox-harness) of a production build with one hostile document from
-// fixtures.ts in the production SandboxFrame, and checks:
-//   - the frame ran at all (its "start" probe), so a zero is not vacuous;
-//   - the canary (canary-server.mjs) saw nothing: no TCP connection, HTTP request,
-//     WebSocket upgrade or UDP datagram. A navigation that reaches the canary is a hit even
-//     where spec 10 accepts a one-request residual; gate A18 is decided from these results;
-//   - every frame is still at about:srcdoc, or the host has already removed it;
-//   - what the case itself is about (storage throws, policies hold, chip timing, ...).
-// Three controls show that the canary is reachable from the harness page and from a plain
-// sandboxed srcdoc frame, and record (without asserting) what a document without the kit
-// would allow.
+// PR J2 review "For Task 2.7"; PR J3 review I1 to I3). Each case opens the public harness
+// page (app/ui-gallery/sandbox-harness) of a production build with one hostile document from
+// fixtures.ts in the production SandboxFrame.
 //
-// Every case writes test-results/sandbox/results/<browser>--<title>.json with the probes,
-// the canary record, the frames' state, the harness logs and the outcome, whether it passed
-// or failed. Cases run one at a time (one worker) because the canary's record is shared.
-import { mkdirSync, writeFileSync } from "node:fs";
+// Two lanes, named by the harness page's CSP (SANDBOX_LANES), each with its own path:
+//   - "frame-src-none" is the configuration the product ships. Every case checks that the
+//     frame ran and tried what it is about (its own "attempted" or "done" probe, and no
+//     refusal of its own inline scripts), that the canary saw nothing at all, and that
+//     every frame is still at about:srcdoc or has been removed.
+//   - "baseline-csp" has only the site-wide CSP, so the parent does not stop a
+//     self-navigation. The navigation, I2, data:/blob: and window-open cases run there too,
+//     to test the host's own teardown (second load, liveness, handshake) and to record what
+//     one navigation request carries: gate A18's input. There the canary's record is kept,
+//     not asserted to be zero; the host must remove a frame that navigated, with a teardown
+//     reason, and a navigated page must never receive init.
+//
+// Controls gate the rows they validate, per browser: a row whose control failed is skipped
+// with the control's name as the reason, never shown green. control-top (the canary counts
+// the top page's requests) gates every case; control-plain-frame (a plain sandboxed srcdoc
+// frame reaches the canary under frame-src 'none') gates the frame-src-none lane except
+// benign, which decides the frame-src question itself; control-nav (a plain sandboxed frame
+// navigates to the canary) gates the baseline-csp lane; control-webrtc (the same STUN/TURN
+// code from the top page reaches the canary) gates the webrtc row.
+//
+// Every case writes test-results/sandbox/results/<browser>--<lane>-<title>.json with the
+// lane and path, the probes, the canary record, the frames' state, the harness logs, the
+// controls it read and the outcome, whether it passed, failed or was skipped. Cases run one
+// at a time (one worker) because the canary's record is shared.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { HARNESS_JOB_A, HARNESS_JOB_B, SANDBOX_CANARY_ORIGIN, sandboxCase, type SandboxCaseName } from "../../app/ui-gallery/sandbox-harness/fixtures";
-import { buildSandboxDocument, newSandboxNonce } from "../../lib/agent/surfaces/v3/document";
+import { expect, test, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
 import {
+  HARNESS_DESCRIBE_DELAY_MS,
+  HARNESS_ENABLE_ENV,
+  HARNESS_JOB_A,
+  HARNESS_JOB_B,
+  SANDBOX_CANARY_ORIGIN,
+  SANDBOX_LANES,
+  WEBRTC_ATTEMPT_JS,
+  isSandboxCaseName,
+  sandboxCase,
+  type SandboxCaseName,
+  type SandboxLane,
+} from "../../app/ui-gallery/sandbox-harness/fixtures";
+import { buildSandboxDocument, checkV3Static, newSandboxNonce } from "../../lib/agent/surfaces/v3/document";
+import {
+  SANDBOX_GATES_DIR,
   SANDBOX_RESULTS_DIR,
   hasProbe,
+  inlineScriptRefusals,
   mergeProbes,
+  navigationRequests,
   parseProbe,
   probeValue,
   resultFileName,
@@ -35,13 +62,44 @@ import {
 } from "./results";
 
 const CONTROL = "http://127.0.0.1:4598";
-const HARNESS = "/ui-gallery/sandbox-harness";
 /** After a case says "done": time for late requests (prefetch, beacon, refresh) to arrive. */
 const SETTLE_MS = 2_000;
-/** Navigation cases: longer than the handshake (3 s) and a missed pong (1 s + 2.5 s). */
+/** frame-src-none navigation cases: longer than the handshake (3 s) and a missed pong (1 s + 2.5 s). */
 const NAV_WAIT_MS = 6_000;
-/** SandboxFrame's CHIP_ARM_MS, plus margin. */
-const ARMED_AFTER_MS = 900;
+/** baseline-csp lane: init, the navigation, then the slowest teardown (no_heartbeat after about 4 s). */
+const BASELINE_WAIT_MS = 9_000;
+/** SandboxFrame's CHIP_ARM_MS (components/agent/sandbox/SandboxFrame.tsx; not imported, it pulls in the server actions). */
+const CHIP_ARM_MS = 700;
+const ARMED_AFTER_MS = CHIP_ARM_MS + 200;
+/** How often the frames' <pre id="probe"> logs are read while a case runs, so a removed frame's log is not lost. */
+const DOM_POLL_MS = 250;
+/** The host's fallback reasons for a frame whose document was replaced or stopped answering. */
+const TEARDOWN_REASONS = ["self_navigation", "no_heartbeat", "no_handshake"];
+
+/** What each case must have recorded to show it tried what it is about. Default: "done". */
+const ATTEMPTS: Partial<Record<SandboxCaseName, { all?: string[]; any?: string[]; ok?: string[] }>> = {
+  "nav-parse": { all: ["before"], any: ["assigned", "navThrow"] },
+  "nav-oninit": { all: ["init", "state"], any: ["assigned", "navThrow"] },
+  "nav-after-load": { all: ["go"], any: ["assigned", "navThrow"] },
+  "nav-meta-refresh": { all: ["attempted"] },
+  // Since CI run 1 the kit refuses createElement("meta"), so "insert" is expected to throw.
+  "nav-meta-refresh-dynamic": { all: ["insert"] },
+  "nav-form": { all: ["submit", "requestSubmit", "done"] },
+  "nav-anchor-script": { all: ["done"], ok: ["click"] },
+  "nav-data-url": { any: ["assigned", "navThrow"] },
+  "nav-blob-url": { any: ["assigned", "navThrow"] },
+  "nav-never-finishes": { all: ["init"], any: ["assigned", "navThrow"] },
+};
+
+/**
+ * Inline scripts a case's CSP is meant to refuse: the speculation-rules script the document
+ * builder leaves unhashed on purpose, and the script text model code injects in
+ * i1-trusted-types. Any other refusal of an inline script means a fixture script never ran.
+ */
+const ALLOWED_INLINE_REFUSALS: Partial<Record<string, number>> = { "link-hints-static": 1, "i1-trusted-types": 1 };
+
+/** baseline-csp lane cases whose navigation the browser has no reason to stop: the host must remove the frame. */
+const MUST_TEAR_DOWN: SandboxCaseName[] = ["nav-parse", "nav-oninit", "nav-after-load", "nav-anchor-script", "nav-anchor-user", "nav-never-finishes"];
 
 interface FrameState {
   index: number;
@@ -53,16 +111,23 @@ interface FrameState {
 interface CaseRecord {
   browser: string;
   case: string;
+  lane: SandboxLane | "controls";
+  path: string;
   parentCsp: string | null;
   parentFrameSrcNone: boolean | null;
+  gates: Record<string, string>;
+  /** What checkV3Static would refuse in each of the case's documents: the harness skips it on purpose. */
+  staticCheck: Array<{ tag: string; refusals: string[] }>;
   probes: Probe[];
   hits: CanaryHits | null;
+  hitsAsserted: boolean;
   frames: FrameState[];
   intents: unknown[];
   fallbacks: unknown[];
   reports: unknown[];
   popups: string[];
   pageUrlAfter: string | null;
+  outcome: string | null;
   notes: string[];
 }
 
@@ -78,10 +143,12 @@ class CaseRun {
     readonly request: APIRequestContext,
     readonly browser: string,
     readonly name: string,
+    readonly lane: SandboxLane | "controls",
   ) {
     this.record = {
-      browser, case: name, parentCsp: null, parentFrameSrcNone: null, probes: [], hits: null, frames: [],
-      intents: [], fallbacks: [], reports: [], popups: [], pageUrlAfter: null, notes: [],
+      browser, case: name, lane, path: lane === "controls" ? "" : SANDBOX_LANES[lane], parentCsp: null, parentFrameSrcNone: null,
+      gates: {}, staticCheck: [], probes: [], hits: null, hitsAsserted: lane === "frame-src-none", frames: [], intents: [], fallbacks: [], reports: [],
+      popups: [], pageUrlAfter: null, outcome: null, notes: [],
     };
   }
 
@@ -89,15 +156,63 @@ class CaseRun {
     return mergeProbes(this.consoleProbes, this.domProbes);
   }
 
-  /** The prefix of every assertion message: browser and case, because CI output is the only evidence. */
+  /** The prefix of every assertion message: browser, lane and case, because CI output is the only evidence. */
   get at(): string {
-    return `[${this.browser}] ${this.name}`;
+    return `[${this.browser}] [${this.lane}] ${this.name}`;
   }
 
   note(text: string) {
     this.record.notes.push(text);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Control gates: a file per browser and control, because a failed test restarts the worker
+// and module state does not survive it.
+// ---------------------------------------------------------------------------
+
+interface Gate {
+  passed: boolean;
+  detail: string;
+}
+
+function gatePath(browser: string, control: string): string {
+  return path.join(SANDBOX_GATES_DIR, `${browser}--${control}.json`);
+}
+
+function writeGate(browser: string, control: string, gate: Gate) {
+  mkdirSync(SANDBOX_GATES_DIR, { recursive: true });
+  writeFileSync(gatePath(browser, control), JSON.stringify(gate, null, 2));
+}
+
+function readGate(browser: string, control: string): Gate | null {
+  const file = gatePath(browser, control);
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as Gate;
+  } catch {
+    return null;
+  }
+}
+
+/** Skips the row, with the control's name, unless every listed control passed in this browser. */
+function requireControls(run: CaseRun, controls: string[]) {
+  for (const control of controls) {
+    const gate = readGate(run.browser, control);
+    run.record.gates[control] = gate === null ? "did not run" : gate.passed ? "passed" : `failed: ${gate.detail}`;
+    if (gate === null) test.skip(true, `${run.at}: inconclusive, ${control} did not run in this browser, so this row has no control`);
+    else if (!gate.passed) test.skip(true, `${run.at}: inconclusive, ${control} failed in this browser (${gate.detail})`);
+  }
+}
+
+function laneControls(lane: SandboxLane, caseName: SandboxCaseName): string[] {
+  if (lane === "baseline-csp") return ["control-top", "control-nav"];
+  return caseName === "benign" ? ["control-top"] : ["control-top", "control-plain-frame"];
+}
+
+// ---------------------------------------------------------------------------
+// The canary, the page and the probes
+// ---------------------------------------------------------------------------
 
 async function resetCanary(request: APIRequestContext) {
   const res = await request.post(`${CONTROL}/reset`);
@@ -110,9 +225,22 @@ async function readHits(request: APIRequestContext): Promise<CanaryHits> {
   return (await res.json()) as CanaryHits;
 }
 
-async function startCase(page: Page, request: APIRequestContext, browser: string, name: string): Promise<CaseRun> {
+async function startCase(page: Page, request: APIRequestContext, browser: string, name: string, lane: SandboxLane | "controls"): Promise<CaseRun> {
   await resetCanary(request);
-  const run = new CaseRun(page, request, browser, name);
+  const run = new CaseRun(page, request, browser, name, lane);
+  if (isSandboxCaseName(name)) {
+    // The harness gives SandboxFrame the documents without checkV3Static, on purpose: these
+    // cases test what the browser, the sandbox, the CSP and the kit stop on their own when
+    // the static checks have been beaten. The record says what the static checks would have
+    // refused in production, per document.
+    run.record.staticCheck = sandboxCase(name).frames.map((f) => ({ tag: f.tag, refusals: checkV3Static(f.html) }));
+    const refused = run.record.staticCheck.filter((s) => s.refusals.length > 0);
+    run.note(
+      refused.length > 0
+        ? `Static checks bypassed on purpose: in production checkV3Static would refuse this document (${refused.map((s) => `${s.tag}: ${s.refusals.join("; ")}`).join(" | ")}).`
+        : "Static checks bypassed on purpose, but checkV3Static would accept this document: the browser layer is all that stands here.",
+    );
+  }
   page.on("console", (message) => {
     const probe = parseProbe(message.text());
     if (probe) run.consoleProbes.push(probe);
@@ -122,13 +250,24 @@ async function startCase(page: Page, request: APIRequestContext, browser: string
   return run;
 }
 
-async function openHarness(run: CaseRun, caseName: SandboxCaseName | null) {
-  const response = await run.page.goto(caseName ? `${HARNESS}?case=${caseName}` : HARNESS, { waitUntil: "load" });
-  expect(response?.status(), `${run.at}: the harness page answered`).toBe(200);
+/** Opens the harness for a case (or its index), checks it rendered, and reads the frames' first probes while they exist. */
+async function openHarness(run: CaseRun, lane: SandboxLane, caseName: SandboxCaseName | null, startTags: string[] = caseName ? [caseName] : []) {
+  const url = caseName ? `${SANDBOX_LANES[lane]}?case=${caseName}` : SANDBOX_LANES[lane];
+  const response = await run.page.goto(url, { waitUntil: "load" });
+  expect(response?.status(), `${run.at}: ${url} answered`).toBe(200);
   const csp = response?.headers()["content-security-policy"] ?? null;
   run.record.parentCsp = csp;
   run.record.parentFrameSrcNone = csp === null ? null : /(?:^|;)\s*frame-src 'none'/.test(csp);
-  await expect(run.page.locator(`[data-sandbox-harness="${caseName ?? "index"}"]`)).toBeVisible();
+  const main = run.page.locator("main[data-sandbox-harness]");
+  await expect(main).toBeVisible();
+  const rendered = await main.getAttribute("data-sandbox-harness");
+  if (caseName && rendered === "index") {
+    throw new Error(`${run.at}: the harness rendered its index, not the case: the server needs ${HARNESS_ENABLE_ENV}=1`);
+  }
+  expect(rendered, `${run.at}: the harness rendered`).toBe(caseName ?? "index");
+  expect(await main.getAttribute("data-sandbox-lane"), `${run.at}: the lane`).toBe(lane);
+  expect(run.record.parentFrameSrcNone, `${run.at}: ${url} has the lane's CSP (${csp})`).toBe(lane === "frame-src-none");
+  for (const tag of startTags) await waitForProbe(run, tag, "start", 3_000);
 }
 
 async function readDomProbes(page: Page): Promise<Probe[]> {
@@ -136,31 +275,41 @@ async function readDomProbes(page: Page): Promise<Probe[]> {
   for (const frame of page.frames()) {
     if (frame === page.mainFrame()) continue;
     try {
-      const text = await frame.locator("#probe").textContent({ timeout: 500 });
+      const text = await frame.locator("#probe").textContent({ timeout: 200 });
       for (const line of (text ?? "").split("\n")) {
         const probe = parseProbe(line);
         if (probe) out.push(probe);
       }
     } catch {
-      // The frame navigated away or was removed: its console lines are all there is.
+      // The frame navigated away or was removed: what was read before, and its console lines, are all there is.
     }
   }
   return out;
 }
 
-/** Waits for a probe without failing; returns whether it came. */
+async function readDomNow(run: CaseRun) {
+  run.domProbes = mergeProbes(run.domProbes, await readDomProbes(run.page));
+}
+
+/** Waits for a probe without failing, reading the frames' logs as it goes; returns whether it came. */
 async function waitForProbe(run: CaseRun, tag: string, key: string, timeoutMs: number): Promise<boolean> {
   const end = Date.now() + timeoutMs;
-  let lastDomRead = 0;
   while (Date.now() < end) {
     if (hasProbe(run.probes, tag, key)) return true;
-    if (Date.now() - lastDomRead > 1_000) {
-      run.domProbes = mergeProbes(run.domProbes, await readDomProbes(run.page));
-      lastDomRead = Date.now();
-    }
-    await run.page.waitForTimeout(100);
+    await readDomNow(run);
+    if (hasProbe(run.probes, tag, key)) return true;
+    await run.page.waitForTimeout(DOM_POLL_MS);
   }
   return hasProbe(run.probes, tag, key);
+}
+
+/** Lets a case run for a while, reading the frames' logs as it goes. */
+async function pollFor(run: CaseRun, ms: number) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    await readDomNow(run);
+    await run.page.waitForTimeout(DOM_POLL_MS);
+  }
 }
 
 async function frameStates(page: Page): Promise<FrameState[]> {
@@ -181,8 +330,17 @@ async function frameStates(page: Page): Promise<FrameState[]> {
   return out;
 }
 
+/**
+ * A harness log, or [] where the page has none. CI run 1: the controls open the harness
+ * index, which has no <output> logs, and a bare textContent() waits for its element until
+ * the test times out (Playwright has no default action timeout); the control then failed at
+ * the canary read with "Target page, context or browser has been closed". So: count first,
+ * and never wait.
+ */
 async function harnessLog(page: Page, kind: "intents" | "fallbacks" | "reports"): Promise<unknown[]> {
-  const text = await page.locator(`output[data-sandbox-log="${kind}"]`).textContent().catch(() => null);
+  const output = page.locator(`output[data-sandbox-log="${kind}"]`);
+  if ((await output.count()) === 0) return [];
+  const text = await output.textContent({ timeout: 1_000 }).catch(() => null);
   try {
     const parsed: unknown = JSON.parse(text ?? "[]");
     return Array.isArray(parsed) ? parsed : [];
@@ -191,10 +349,14 @@ async function harnessLog(page: Page, kind: "intents" | "fallbacks" | "reports")
   }
 }
 
+function fallbackReasons(run: CaseRun): string[] {
+  return run.record.fallbacks.map((f) => String((f as { value?: unknown }).value));
+}
+
 /** Lets late requests arrive, then records the probes, the frames, the harness logs and the canary. */
 async function finishCase(run: CaseRun, settleMs: number) {
-  await run.page.waitForTimeout(settleMs);
-  run.domProbes = mergeProbes(run.domProbes, await readDomProbes(run.page));
+  if (settleMs > 0) await pollFor(run, settleMs);
+  await readDomNow(run);
   run.record.frames = await frameStates(run.page);
   run.record.intents = await harnessLog(run.page, "intents");
   run.record.fallbacks = await harnessLog(run.page, "fallbacks");
@@ -202,7 +364,14 @@ async function finishCase(run: CaseRun, settleMs: number) {
   run.record.pageUrlAfter = run.page.url();
   run.record.hits = await readHits(run.request);
   run.record.probes = run.probes;
+  const reasons = fallbackReasons(run);
+  run.record.outcome = run.record.frames.map((f) => (f.present ? `frame ${f.index} at ${f.url}` : `frame ${f.index} removed`)).join("; ") +
+    (reasons.length > 0 ? `; fallback: ${reasons.join(", ")}` : "; no fallback");
 }
+
+// ---------------------------------------------------------------------------
+// Assertions
+// ---------------------------------------------------------------------------
 
 function expectRan(run: CaseRun, tag: string = run.name) {
   expect(
@@ -210,6 +379,26 @@ function expectRan(run: CaseRun, tag: string = run.name) {
     `${run.at}: the frame "${tag}" never ran (no "start" probe), so nothing it should have tried was tried. ` +
       `If every case shows this, the parent's CSP blocks the srcdoc load itself in this browser (parent CSP: ${run.record.parentCsp}).`,
   ).toBe(true);
+}
+
+/** The frame tried what the case is about: its own probes, and none of its inline scripts refused. */
+function expectAttempted(run: CaseRun, caseName: SandboxCaseName, tag: string = caseName) {
+  expectRan(run, tag);
+  const spec = ATTEMPTS[caseName] ?? { all: ["done"] };
+  for (const key of spec.all ?? []) {
+    expect(hasProbe(run.probes, tag, key), `${run.at}: the frame never recorded "${key}", so the attack did not run`).toBe(true);
+  }
+  if (spec.any) {
+    expect(spec.any.some((key) => hasProbe(run.probes, tag, key)), `${run.at}: the frame recorded none of ${spec.any.join(", ")}, so the navigation was never attempted`).toBe(true);
+  }
+  for (const key of spec.ok ?? []) {
+    expect(threw(run.probes, tag, key), `${run.at}: "${key}" threw or never ran (${JSON.stringify(probeValue(run.probes, tag, key))}), so the attack did not run`).toBe(false);
+  }
+  const refusals = inlineScriptRefusals(run.probes, tag);
+  expect(
+    refusals.length,
+    `${run.at}: the frame's CSP refused ${refusals.length} of its own inline script(s) (${JSON.stringify(refusals.map((p) => p.v))}), so part of the fixture never ran`,
+  ).toBeLessThanOrEqual(ALLOWED_INLINE_REFUSALS[caseName] ?? 0);
 }
 
 function expectNoHits(run: CaseRun) {
@@ -225,19 +414,99 @@ function expectContained(run: CaseRun) {
   }
 }
 
-function expectThrew(run: CaseRun, tag: string, key: string, what: string) {
-  expect(threw(run.probes, tag, key), `${run.at}: ${what} (probe ${key}: ${JSON.stringify(probeValue(run.probes, tag, key))})`).toBe(true);
+/** Throws are recorded, not asserted: a browser that blocks silently is just as safe; the outcome is what is asserted. */
+function noteThrows(run: CaseRun, tag: string, keys: string[]) {
+  run.note(`Calls that threw: ${keys.map((k) => `${k}=${JSON.stringify(probeValue(run.probes, tag, k))}`).join(", ")}`);
 }
 
-/** The standard hostile case: open, wait for "done" (or the wait), settle, then the three checks. */
+/** Records what reached the canary on the baseline-csp lane (gate A18's input), as an annotation and in the JSON. */
+function recordHits(run: CaseRun, testInfo: TestInfo) {
+  const hits = run.record.hits!;
+  const navs = navigationRequests(hits);
+  testInfo.annotations.push({
+    type: "recorded-canary",
+    description: `${run.at}: ${summariseHits(hits)}${navs.length > 0 ? `; navigations: ${navs.map((r) => `${r.method} ${r.url}`).join(", ")}` : ""}`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Case runners
+// ---------------------------------------------------------------------------
+
+/** The standard frame-src-none case: open, wait for "done", settle, then the checks. */
 async function hostileCase(run: CaseRun, caseName: SandboxCaseName, waitMs: number, settleMs = SETTLE_MS) {
-  await openHarness(run, caseName);
+  requireControls(run, laneControls("frame-src-none", caseName));
+  await openHarness(run, "frame-src-none", caseName);
   await waitForProbe(run, caseName, "done", waitMs);
   await finishCase(run, settleMs);
-  expectRan(run, caseName);
   expectNoHits(run);
+  expectAttempted(run, caseName);
   expectContained(run);
 }
+
+/** A real click inside the case's frame, before the case navigates; returns whether it was made. */
+async function clickInFrame(run: CaseRun, selector: string): Promise<boolean> {
+  return run.page
+    .frameLocator("[data-sandbox-surface] iframe")
+    .first()
+    .locator(selector)
+    .click({ timeout: 2_000 })
+    .then(() => true, () => false);
+}
+
+const USER_CLICKS: Partial<Record<SandboxCaseName, string>> = { "nav-form": "#send", "nav-anchor-user": "#go", "window-open": "#topa" };
+
+/** A navigation-style case on either lane: open, the user's click if any, wait, record. */
+async function navigationCase(run: CaseRun, lane: SandboxLane, caseName: SandboxCaseName) {
+  requireControls(run, laneControls(lane, caseName));
+  await openHarness(run, lane, caseName);
+  const selector = USER_CLICKS[caseName];
+  if (selector) {
+    await waitForProbe(run, caseName, "done", 5_000);
+    const clicked = await clickInFrame(run, selector);
+    run.note(`Real click on ${selector}: ${clicked ? "made" : "not possible (the frame was gone)"}`);
+    if (caseName === "nav-anchor-user") expect(clicked, `${run.at}: the anchor could be clicked`).toBe(true);
+  }
+  await pollFor(run, lane === "baseline-csp" ? BASELINE_WAIT_MS : NAV_WAIT_MS);
+  await finishCase(run, 0);
+}
+
+function expectNavigatedPageGotNoInit(run: CaseRun, caseName: SandboxCaseName) {
+  run.note(
+    `The navigated page ran: ${hasProbe(run.probes, caseName, "navigatedAlive")}; posted its own ready: ` +
+      `${hasProbe(run.probes, caseName, "navigatedPostedReady")}`,
+  );
+  const gotInit = run.probes.filter(
+    (p) => p.t === caseName && (p.k === "navigatedGotPortMessage" || p.k === "navigatedGotWindowMessage") && p.v === "init",
+  );
+  expect(gotInit, `${run.at}: the navigated page received init`).toEqual([]);
+}
+
+/** baseline-csp lane: a frame that navigated is removed by the host, with a teardown reason. */
+function expectHostTeardown(run: CaseRun, caseName: SandboxCaseName) {
+  const reasons = fallbackReasons(run);
+  for (const reason of reasons) {
+    expect(TEARDOWN_REASONS, `${run.at}: unexpected fallback reason "${reason}"`).toContain(reason);
+  }
+  // Any request this case's paths name: in these cases only a navigation, or the page it
+  // navigated to, makes one (not every engine sends Sec-Fetch headers to classify it by).
+  const navigated = run.record.hits!.requests.filter((r) => r.case === caseName);
+  const navigatedPageRan = hasProbe(run.probes, caseName, "navigatedAlive");
+  const removed = run.record.frames.every((f) => !f.present);
+  if (navigated.length > 0 || navigatedPageRan || MUST_TEAR_DOWN.includes(caseName)) {
+    expect(
+      removed && reasons.length > 0,
+      `${run.at}: the frame ${navigated.length > 0 ? `navigated (${navigated.map((r) => r.url).join(", ")})` : navigatedPageRan ? "was replaced by the navigated page" : "should have navigated"} ` +
+        `but the host did not remove it with a teardown reason (${run.record.outcome})`,
+    ).toBe(true);
+  } else {
+    run.note(`No navigation reached the canary and the frame was ${removed ? "removed" : "left in place"}: the browser stopped this navigation itself.`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The per-case result file
+// ---------------------------------------------------------------------------
 
 test.afterEach(async ({ browserName }, testInfo) => {
   if (!current) return;
@@ -253,30 +522,32 @@ test.afterEach(async ({ browserName }, testInfo) => {
   };
   const body = JSON.stringify(out, null, 2);
   mkdirSync(SANDBOX_RESULTS_DIR, { recursive: true });
-  writeFileSync(path.join(SANDBOX_RESULTS_DIR, resultFileName(out.browser, testInfo.title)), body);
+  writeFileSync(path.join(SANDBOX_RESULTS_DIR, resultFileName(out.browser, `${out.lane} ${testInfo.title}`)), body);
   await testInfo.attach("sandbox-result", { body, contentType: "application/json" });
   current = null;
 });
 
 // ---------------------------------------------------------------------------
-// Controls
+// Controls (run first in each browser; their results gate the rows below)
 // ---------------------------------------------------------------------------
 
 test.describe("controls", () => {
   test("control-top: the canary counts requests from the harness page itself", async ({ page, request, browserName }) => {
-    const run = await startCase(page, request, browserName, "control-top");
-    await openHarness(run, null);
+    const run = await startCase(page, request, browserName, "control-top", "controls");
+    await openHarness(run, "frame-src-none", null);
     await page.evaluate((origin) => {
       fetch(`${origin}/c/control-top/fetch`, { mode: "no-cors" }).catch(() => {});
       new Image().src = `${origin}/c/control-top/img`;
     }, SANDBOX_CANARY_ORIGIN);
     await finishCase(run, SETTLE_MS);
-    expect(run.record.hits!.requests.length, `${run.at}: the canary saw nothing from the top page, so every zero below would mean nothing`).toBeGreaterThan(0);
+    const n = run.record.hits!.requests.length;
+    writeGate(browserName, "control-top", { passed: n > 0, detail: `${n} request(s) from the top page` });
+    expect(n, `${run.at}: the canary saw nothing from the top page, so every zero below would mean nothing`).toBeGreaterThan(0);
   });
 
-  test("control-plain-frame: a sandboxed srcdoc frame without the CSP or kit reaches the canary", async ({ page, request, browserName }) => {
-    const run = await startCase(page, request, browserName, "control-plain-frame");
-    await openHarness(run, null);
+  test("control-plain-frame: a sandboxed srcdoc frame without the CSP or kit reaches the canary under frame-src 'none'", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "control-plain-frame", "controls");
+    await openHarness(run, "frame-src-none", null);
     await page.evaluate((origin) => {
       const f = document.createElement("iframe");
       f.setAttribute("sandbox", "allow-scripts");
@@ -288,12 +559,97 @@ test.describe("controls", () => {
       document.body.appendChild(f);
     }, SANDBOX_CANARY_ORIGIN);
     await finishCase(run, SETTLE_MS);
+    const n = run.record.hits!.requests.length;
+    writeGate(browserName, "control-plain-frame", { passed: n > 0, detail: `${n} request(s) from a plain sandboxed srcdoc frame` });
     expect(
-      run.record.hits!.requests.length,
+      n,
       `${run.at}: a plain sandboxed srcdoc frame on the harness page made no request. Either the parent's CSP ` +
         `(${run.record.parentCsp}) blocks srcdoc frames in this browser, or opaque-origin frames cannot reach the canary here; ` +
-        "either way the zero-hit cases prove nothing in this browser.",
+        "either way the frame-src-none zero-hit rows prove nothing in this browser.",
     ).toBeGreaterThan(0);
+  });
+
+  test("control-nav: on the baseline-csp path, a plain sandboxed srcdoc frame's self-navigation reaches the canary", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "control-nav", "controls");
+    run.record.path = SANDBOX_LANES["baseline-csp"];
+    await openHarness(run, "baseline-csp", null);
+    await page.evaluate((origin) => {
+      const f = document.createElement("iframe");
+      f.setAttribute("sandbox", "allow-scripts");
+      f.srcdoc = "<script>" + `location.href = "${origin}/c/control-nav/nav";` + "</scr" + "ipt>";
+      document.body.appendChild(f);
+    }, SANDBOX_CANARY_ORIGIN);
+    await finishCase(run, 3_000);
+    // The frame does nothing but navigate, so any request on its path is the navigation.
+    const navs = run.record.hits!.requests.filter((r) => r.case === "control-nav");
+    writeGate(browserName, "control-nav", { passed: navs.length > 0, detail: `${navs.length} navigation request(s) from a plain sandboxed frame` });
+    expect(
+      navs.length,
+      `${run.at}: a plain sandboxed srcdoc frame's navigation never reached the canary (${summariseHits(run.record.hits!)}), ` +
+        "so a zero on the baseline-csp lane would mean nothing in this browser",
+    ).toBeGreaterThan(0);
+  });
+
+  test("control-webrtc: the same STUN/TURN attempt from the top page reaches the canary", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "control-webrtc", "controls");
+    await openHarness(run, "frame-src-none", null);
+    await page.evaluate((code) => {
+      const w = window as unknown as { sbxRtcProbes: Array<{ t: string; k: string; v: unknown }> };
+      w.sbxRtcProbes = [];
+      const P = (k: string, v?: unknown) => w.sbxRtcProbes.push({ t: "control-webrtc", k, v: v === undefined ? null : v });
+      const T = (k: string, f: () => unknown) => {
+        try {
+          const r = f();
+          P(k, { ok: true, r: r === undefined || r === null ? null : String(r) });
+        } catch (e) {
+          P(k, { ok: false, e: String((e as Error)?.name ?? e) });
+        }
+      };
+      const Q = (k: string, p: Promise<unknown>) =>
+        Promise.resolve(p).then(
+          (r) => P(k, { ok: true, r: r === undefined || r === null ? null : String(r) }),
+          (e) => P(k, { ok: false, e: String((e as Error)?.name ?? e) }),
+        );
+      new Function("P", "T", "Q", code)(P, T, Q);
+    }, WEBRTC_ATTEMPT_JS);
+    await page.waitForTimeout(5_000);
+    const probes = await page.evaluate(() => (window as unknown as { sbxRtcProbes: Probe[] }).sbxRtcProbes);
+    run.consoleProbes.push(...probes);
+    await finishCase(run, 0);
+    const hits = run.record.hits!;
+    const traffic = hits.udpDatagrams.length + hits.tcpConnections;
+    const detail = `${hits.udpDatagrams.length} UDP datagram(s), ${hits.tcpConnections} TCP connection(s) from the top page; rtc ${JSON.stringify(probeValue(probes, "control-webrtc", "rtc"))}`;
+    writeGate(browserName, "control-webrtc", { passed: traffic > 0, detail });
+    run.note(detail);
+    test.skip(traffic === 0, `[${browserName}] inconclusive: control saw no traffic (ICE in this build sends nothing to 127.0.0.1 from the top page)`);
+  });
+
+  test("control-webrtc-no-kit: the webrtc case without the kit, under the frame's CSP with webrtc 'block' (recorded, not asserted)", async ({
+    page,
+    request,
+    browserName,
+  }, testInfo) => {
+    const run = await startCase(page, request, browserName, "control-webrtc-no-kit", "controls");
+    await openHarness(run, "frame-src-none", null);
+    const srcdoc = buildSandboxDocument({ html: sandboxCase("webrtc").frames[0].html, nonce: newSandboxNonce(), kitJs: "/* no kit */", kitCss: "/* no kit */" });
+    await page.evaluate((doc) => {
+      const f = document.createElement("iframe");
+      f.setAttribute("sandbox", "allow-scripts");
+      f.srcdoc = doc;
+      document.body.appendChild(f);
+    }, srcdoc);
+    await waitForProbe(run, "webrtc", "done", 8_000);
+    await finishCase(run, 3_000);
+    const hits = run.record.hits!;
+    testInfo.annotations.push({
+      type: "recorded",
+      description: `${run.at}: rtc ${JSON.stringify(probeValue(run.probes, "webrtc", "rtc"))}, offer ${JSON.stringify(probeValue(run.probes, "webrtc", "offer"))}, canary saw ${summariseHits(hits)}`,
+    });
+    run.note(
+      "Informational: the raw browser behaviour inside the sandbox without the kit's WebRTC lock, with the frame's CSP (which now " +
+        "carries webrtc 'block'). Traffic here and none in the webrtc row means the kit's lock is what stops it in this browser; " +
+        "no traffic here means the browser (or webrtc 'block') stops it too.",
+    );
   });
 
   for (const variant of ["as built", "without the Trusted Types directives"] as const) {
@@ -302,8 +658,8 @@ test.describe("controls", () => {
       request,
       browserName,
     }, testInfo) => {
-      const run = await startCase(page, request, browserName, `control-no-kit-${variant === "as built" ? "built" : "no-tt"}`);
-      await openHarness(run, null);
+      const run = await startCase(page, request, browserName, `control-no-kit-${variant === "as built" ? "built" : "no-tt"}`, "controls");
+      await openHarness(run, "frame-src-none", null);
       let srcdoc = buildSandboxDocument({
         html: sandboxCase("i1-meta-copy").frames[0].html,
         nonce: newSandboxNonce(),
@@ -326,357 +682,393 @@ test.describe("controls", () => {
           `${run.at}: metas readable ${JSON.stringify(probeValue(run.probes, "i1-meta-copy", "metaCount"))}, ` +
           `hashes copied ${JSON.stringify(probeValue(run.probes, "i1-meta-copy", "hashesFound"))}, canary saw ${summariseHits(hits)}`,
       });
-      run.note("Informational: a document without the kit. A hit here shows what the kit's meta removal and Trusted Types policy stop.");
+      run.note(
+        "Informational: a document without the kit. This is the only run of the I1-1 vector (nonce + copied hash + integrity + src), " +
+          "because with the kit no hash is readable. A hit here shows what the kit's meta removal and Trusted Types policy stop. " +
+          "A zero without the TT directives, in a browser that applies script hashes to external scripts (CSP3), means this control " +
+          "did not work, not that the vector is closed.",
+      );
     });
   }
 });
 
 // ---------------------------------------------------------------------------
-// The plan's seven, and the handshake
+// frame-src-none lane: the configuration the product ships
 // ---------------------------------------------------------------------------
 
-test("benign: the srcdoc frame still loads and runs with the parent's frame-src 'none'; port handshake, theme, data, keyboard, system fonts", async ({
-  page,
-  request,
-  browserName,
-}) => {
-  const run = await startCase(page, request, browserName, "benign");
-  await page.addInitScript(() => {
-    localStorage.setItem("rolefit-theme", "dark");
-    document.documentElement.dataset.theme = "dark";
-  });
-  await openHarness(run, "benign");
-  run.note(`Parent CSP on the harness page: ${run.record.parentCsp}`);
-  expect(await waitForProbe(run, "benign", "init", 8_000), `${run.at}: init never reached the frame over the port`).toBe(true);
-  expect(probeValue(run.probes, "benign", "start"), `${run.at}: the frame's origin`).toEqual({ origin: "null", nonce: true });
-  const init = probeValue(run.probes, "benign", "init") as Record<string, unknown>;
-  expect(init.jobs, `${run.at}: the snapshot's jobs reached the frame`).toBe(2);
-  expect(init.profileName, `${run.at}: the profile name must not be in the snapshot`).toBe(false);
-  expect(init.theme, `${run.at}: the theme from init`).toBe("dark");
-  expect(init.attr, `${run.at}: the kit set data-theme`).toBe("dark");
-  expect(String(probeValue(run.probes, "benign", "font")), `${run.at}: the kit's system font stack`).toContain("system-ui");
-
-  // Keyboard on jb-button: Enter sends an action, which becomes a host chip; only a press runs it.
-  const frame = page.frameLocator("[data-sandbox-surface] iframe").first();
-  await frame.locator("jb-button#act").focus();
-  await page.keyboard.press("Enter");
-  const chip = page.locator("[data-sandbox-chip]");
-  await expect(chip, `${run.at}: Enter on jb-button produced a chip`).toHaveText("Shortlist Senior Product Engineer at Acme Systems");
-  expect(await harnessLog(page, "intents"), `${run.at}: nothing ran before the press`).toEqual([]);
-  await page.waitForTimeout(ARMED_AFTER_MS);
-  await chip.click();
-
-  // Liveness: the frame keeps answering pings well past the handshake and pong deadlines.
-  await finishCase(run, 4_000);
-  expectNoHits(run);
-  expectContained(run);
-  expect(run.record.frames[0]?.present, `${run.at}: the frame is still mounted after 4 s of pings`).toBe(true);
-  expect(run.record.fallbacks, `${run.at}: no fallback`).toEqual([]);
-  expect(run.record.intents, `${run.at}: the press ran the stub's intent once, from the frame`).toEqual([
-    { surface: expect.any(String), value: { intent: { name: "shortlist.set", jobId: HARNESS_JOB_A, state: "shortlisted" }, source: "frame" } },
-  ]);
-});
-
-test("origin-storage: origin inside the frame is 'null' and localStorage, cookies and parent.document throw", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "origin-storage");
-  await hostileCase(run, "origin-storage", 8_000);
-  const origin = probeValue(run.probes, "origin-storage", "origin") as { ok?: boolean; r?: string } | undefined;
-  expect(origin?.r, `${run.at}: self.origin`).toBe("null");
-  expectThrew(run, "origin-storage", "localStorage", "localStorage did not throw");
-  expectThrew(run, "origin-storage", "sessionStorage", "sessionStorage did not throw");
-  expectThrew(run, "origin-storage", "cookieRead", "reading document.cookie did not throw");
-  expectThrew(run, "origin-storage", "cookieWrite", "writing document.cookie did not throw");
-  expectThrew(run, "origin-storage", "parentDocument", "parent.document was readable");
-  expectThrew(run, "origin-storage", "topDocument", "top.document was readable");
-  expectThrew(run, "origin-storage", "parentLocationRead", "parent.location.href was readable");
-});
-
-test("subresources: fetch, img, script src, font, WebSocket, sendBeacon and every other subresource to the canary are blocked", async ({
-  page,
-  request,
-  browserName,
-}) => {
-  const run = await startCase(page, request, browserName, "subresources");
-  await hostileCase(run, "subresources", 8_000);
-});
-
-const NAVIGATION_CASES: Array<[SandboxCaseName, string]> = [
-  ["nav-parse", "location assigned while the document is parsing (I2)"],
-  ["nav-oninit", "location assigned from onInit, possibly before load (I2)"],
-  ["nav-after-load", "location = canary after load"],
-  ["nav-meta-refresh", "meta refresh in the markup"],
-  ["nav-meta-refresh-dynamic", "meta refresh inserted by script"],
-  ["nav-anchor-script", "an anchor clicked by script"],
-  ["nav-never-finishes", "navigation after init to a page that never finishes loading (I2)"],
-];
-
-for (const [caseName, what] of NAVIGATION_CASES) {
-  test(`${caseName}: ${what} does not reach the canary, and frame.url() stays about:srcdoc or the host has blanked it`, async ({
+test.describe(`frame-src-none lane (${SANDBOX_LANES["frame-src-none"]})`, () => {
+  test("benign: the srcdoc frame still loads and runs with the parent's frame-src 'none'; port handshake, theme, data, keyboard, system fonts", async ({
     page,
     request,
     browserName,
   }) => {
-    const run = await startCase(page, request, browserName, caseName);
-    await openHarness(run, caseName);
-    await page.waitForTimeout(NAV_WAIT_MS);
-    await finishCase(run, 0);
-    expectRan(run, caseName);
+    const run = await startCase(page, request, browserName, "benign", "frame-src-none");
+    requireControls(run, laneControls("frame-src-none", "benign"));
+    await page.addInitScript(() => {
+      localStorage.setItem("rolefit-theme", "dark");
+      document.documentElement.dataset.theme = "dark";
+    });
+    await openHarness(run, "frame-src-none", "benign");
+    run.note(`Parent CSP on the harness page: ${run.record.parentCsp}`);
+    expect(await waitForProbe(run, "benign", "init", 8_000), `${run.at}: init never reached the frame over the port`).toBe(true);
+    expect(probeValue(run.probes, "benign", "start"), `${run.at}: the frame's origin`).toEqual({ origin: "null", nonce: true });
+    const init = probeValue(run.probes, "benign", "init") as Record<string, unknown>;
+    expect(init.jobs, `${run.at}: the snapshot's jobs reached the frame`).toBe(2);
+    expect(init.profileName, `${run.at}: the profile name must not be in the snapshot`).toBe(false);
+    expect(init.theme, `${run.at}: the theme from init`).toBe("dark");
+    expect(init.attr, `${run.at}: the kit set data-theme`).toBe("dark");
+    expect(String(probeValue(run.probes, "benign", "font")), `${run.at}: the kit's system font stack`).toContain("system-ui");
+
+    // Keyboard on jb-button: Enter sends an action, which becomes a host chip; only a press runs it.
+    const frame = page.frameLocator("[data-sandbox-surface] iframe").first();
+    await frame.locator("jb-button#act").focus();
+    await page.keyboard.press("Enter");
+    const chip = page.locator("[data-sandbox-chip]");
+    await expect(chip, `${run.at}: Enter on jb-button produced a chip`).toHaveText("Shortlist Senior Product Engineer at Acme Systems");
+    expect(await harnessLog(page, "intents"), `${run.at}: nothing ran before the press`).toEqual([]);
+    await page.waitForTimeout(ARMED_AFTER_MS);
+    await chip.click();
+
+    // Liveness: the frame keeps answering pings well past the handshake and pong deadlines.
+    await finishCase(run, 4_000);
     expectNoHits(run);
+    expectAttempted(run, "benign");
+    expectContained(run);
+    expect(run.record.frames[0]?.present, `${run.at}: the frame is still mounted after 4 s of pings`).toBe(true);
+    expect(run.record.fallbacks, `${run.at}: no fallback`).toEqual([]);
+    expect(run.record.intents, `${run.at}: the press ran the stub's intent once, from the frame`).toEqual([
+      { surface: expect.any(String), value: { intent: { name: "shortlist.set", jobId: HARNESS_JOB_A, state: "shortlisted" }, source: "frame" } },
+    ]);
+  });
+
+  test("origin-storage: origin inside the frame is 'null' and localStorage, cookies and parent.document throw", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "origin-storage", "frame-src-none");
+    await hostileCase(run, "origin-storage", 8_000);
+    const origin = probeValue(run.probes, "origin-storage", "origin") as { ok?: boolean; r?: string } | undefined;
+    expect(origin?.r, `${run.at}: self.origin`).toBe("null");
+    expect(threw(run.probes, "origin-storage", "localStorage"), `${run.at}: localStorage did not throw`).toBe(true);
+    expect(threw(run.probes, "origin-storage", "sessionStorage"), `${run.at}: sessionStorage did not throw`).toBe(true);
+    // Cookies: a read is empty (or throws; WebKit returns "" in an opaque origin, CI run 1), a
+    // write does not persist (the read-back after it is empty, or it throws), and no request
+    // carried a cookie (expectNoHits above: there are no requests at all).
+    const cookieRead = probeValue(run.probes, "origin-storage", "cookieRead") as { ok?: boolean; r?: unknown } | undefined;
+    const cookieWrite = probeValue(run.probes, "origin-storage", "cookieWrite") as { ok?: boolean; r?: unknown } | undefined;
+    expect(cookieRead?.ok === false || cookieRead?.r === "", `${run.at}: document.cookie read back ${JSON.stringify(cookieRead)}`).toBe(true);
+    expect(cookieWrite?.ok === false || cookieWrite?.r === "", `${run.at}: a cookie written in the frame persisted (${JSON.stringify(cookieWrite)})`).toBe(true);
+    expect(run.record.hits!.requests.filter((r) => r.cookie), `${run.at}: a request carried a cookie`).toEqual([]);
+    run.note(`Cookie read: ${JSON.stringify(cookieRead)}; write and read-back: ${JSON.stringify(cookieWrite)}`);
+    expect(threw(run.probes, "origin-storage", "parentDocument"), `${run.at}: parent.document was readable`).toBe(true);
+    expect(threw(run.probes, "origin-storage", "topDocument"), `${run.at}: top.document was readable`).toBe(true);
+    expect(threw(run.probes, "origin-storage", "parentLocationRead"), `${run.at}: parent.location.href was readable`).toBe(true);
+  });
+
+  test("subresources: fetch, img, script src, font, WebSocket, sendBeacon and every other subresource to the canary are blocked", async ({
+    page,
+    request,
+    browserName,
+  }) => {
+    const run = await startCase(page, request, browserName, "subresources", "frame-src-none");
+    await hostileCase(run, "subresources", 8_000);
+  });
+
+  const NAVIGATION_CASES: Array<[SandboxCaseName, string]> = [
+    ["nav-parse", "location assigned while the document is parsing (I2)"],
+    ["nav-oninit", "location assigned from onInit, possibly before load (I2)"],
+    ["nav-after-load", "location = canary after load"],
+    ["nav-meta-refresh", "meta refresh in the markup"],
+    ["nav-meta-refresh-dynamic", "meta refresh inserted by script"],
+    ["nav-anchor-script", "an anchor clicked by script"],
+    ["nav-anchor-user", "an anchor the user clicks"],
+    ["nav-form", "form submit, requestSubmit and a pressed submit button"],
+    ["nav-never-finishes", "navigation after init to a page that never finishes loading (I2)"],
+  ];
+
+  for (const [caseName, what] of NAVIGATION_CASES) {
+    test(`${caseName}: ${what} does not reach the canary, and the frame stays at about:srcdoc or is removed`, async ({ page, request, browserName }) => {
+      const run = await startCase(page, request, browserName, caseName, "frame-src-none");
+      await navigationCase(run, "frame-src-none", caseName);
+      expectNoHits(run);
+      expectAttempted(run, caseName);
+      expectContained(run);
+      run.note(`Outcome: ${run.record.outcome}`);
+    });
+  }
+
+  for (const caseName of ["nav-data-url", "nav-blob-url"] as const) {
+    test(`${caseName}: a self-navigation to ${caseName === "nav-data-url" ? "data:" : "blob:"} never delivers init, and nothing reaches the canary`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, caseName, "frame-src-none");
+      await navigationCase(run, "frame-src-none", caseName);
+      expectNoHits(run);
+      expectAttempted(run, caseName);
+      expectNavigatedPageGotNoInit(run, caseName);
+      expectContained(run);
+    });
+  }
+
+  test("window-open: window.open, top navigation and target=_top reach nothing and open nothing", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "window-open", "frame-src-none");
+    await navigationCase(run, "frame-src-none", "window-open");
+    expectNoHits(run);
+    expectAttempted(run, "window-open");
+    noteThrows(run, "window-open", ["open", "topAssign", "parentAssign", "topReplace", "clickBlank", "clickTop"]);
+    expect(run.record.popups, `${run.at}: popups opened`).toEqual([]);
+    expect(run.record.pageUrlAfter, `${run.at}: the top page navigated`).toContain(`${SANDBOX_LANES["frame-src-none"]}?case=window-open`);
     expectContained(run);
   });
-}
 
-test("nav-form: form submit, requestSubmit and a pressed submit button do not reach the canary", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "nav-form");
-  await openHarness(run, "nav-form");
-  await waitForProbe(run, "nav-form", "done", 5_000);
-  const pressed = await page
-    .frameLocator("[data-sandbox-surface] iframe")
-    .first()
-    .locator("#send")
-    .click({ timeout: 2_000 })
-    .then(() => true, () => false);
-  run.note(`Real click on the submit button: ${pressed ? "made" : "not possible (the frame was gone)"}`);
-  await page.waitForTimeout(NAV_WAIT_MS);
-  await finishCase(run, 0);
-  expectRan(run, "nav-form");
-  expectNoHits(run);
-  expectContained(run);
-});
+  for (const caseName of ["link-hints-static", "link-hints-dynamic"] as const) {
+    test(`${caseName}: a dns-prefetch, preconnect, prefetch, preload or speculation-rules hint produces no request`, async ({ page, request, browserName }) => {
+      const run = await startCase(page, request, browserName, caseName, "frame-src-none");
+      await hostileCase(run, caseName, 6_000, 3_000);
+      run.note("dns-prefetch to an IP literal makes no DNS query; a DNS-only leak is not observable with this canary.");
+    });
+  }
 
-test("nav-anchor-user: an anchor the user clicks does not reach the canary", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "nav-anchor-user");
-  await openHarness(run, "nav-anchor-user");
-  await waitForProbe(run, "nav-anchor-user", "done", 5_000);
-  const clicked = await page
-    .frameLocator("[data-sandbox-surface] iframe")
-    .first()
-    .locator("#go")
-    .click({ timeout: 2_000 })
-    .then(() => true, () => false);
-  expect(clicked, `${run.at}: the anchor could be clicked`).toBe(true);
-  await page.waitForTimeout(NAV_WAIT_MS);
-  await finishCase(run, 0);
-  expectRan(run, "nav-anchor-user");
-  expectNoHits(run);
-  expectContained(run);
-});
-
-for (const caseName of ["nav-data-url", "nav-blob-url"] as const) {
-  test(`${caseName}: a self-navigated page never receives init, and nothing reaches the canary`, async ({ page, request, browserName }) => {
-    const run = await startCase(page, request, browserName, caseName);
-    await openHarness(run, caseName);
-    await page.waitForTimeout(NAV_WAIT_MS);
-    await finishCase(run, 0);
-    expectRan(run, caseName);
-    run.note(
-      `The navigated page ran: ${hasProbe(run.probes, caseName, "navigatedAlive")}; posted its own ready: ` +
-        `${hasProbe(run.probes, caseName, "navigatedPostedReady")}`,
-    );
-    const gotInit = run.probes.filter(
-      (p) => p.t === caseName && (p.k === "navigatedGotPortMessage" || p.k === "navigatedGotWindowMessage") && p.v === "init",
-    );
-    expect(gotInit, `${run.at}: the navigated page received init`).toEqual([]);
+  test("webrtc: RTCPeerConnection with STUN and TURN servers on the canary sends nothing", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "webrtc", "frame-src-none");
+    requireControls(run, [...laneControls("frame-src-none", "webrtc"), "control-webrtc"]);
+    await openHarness(run, "frame-src-none", "webrtc");
+    await waitForProbe(run, "webrtc", "done", 8_000);
+    await finishCase(run, 3_000);
     expectNoHits(run);
+    if (probeValue(run.probes, "webrtc", "rtc") === "unavailable") {
+      test.skip(true, `[${browserName}] RTCPeerConnection is not available inside the sandbox in this browser build, so the WebRTC case cannot run here`);
+    }
+    expectAttempted(run, "webrtc");
+    // The attempt is the frame's `new RTCPeerConnection(...)`. Since CI run 1 the kit replaces
+    // the constructor with one that throws, so a thrown "rtc" is the expected outcome; if the
+    // constructor ran, the frame must also have tried ICE (an offer or a candidate).
+    const rtcProbe = probeValue(run.probes, "webrtc", "rtc");
+    expect(hasProbe(run.probes, "webrtc", "rtc"), `${run.at}: the frame never tried to create an RTCPeerConnection`).toBe(true);
+    run.note(`rtc: ${JSON.stringify(rtcProbe)}; offer: ${JSON.stringify(probeValue(run.probes, "webrtc", "offer"))}`);
+    expect(threw(run.probes, "webrtc", "rtc"), `${run.at}: the kit's lock did not refuse new RTCPeerConnection (${JSON.stringify(rtcProbe)})`).toBe(true);
     expectContained(run);
   });
-}
 
-test("window-open: window.open and top navigation are blocked", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "window-open");
-  await openHarness(run, "window-open");
-  const harnessUrl = page.url();
-  await waitForProbe(run, "window-open", "done", 5_000);
-  const clicked = await page
-    .frameLocator("[data-sandbox-surface] iframe")
-    .first()
-    .locator("#topa")
-    .click({ timeout: 2_000 })
-    .then(() => true, () => false);
-  run.note(`Real click on the target=_top anchor: ${clicked ? "made" : "not possible"}`);
-  await finishCase(run, SETTLE_MS);
-  expectRan(run, "window-open");
-  const opened = probeValue(run.probes, "window-open", "open") as { ok?: boolean; r?: string } | undefined;
-  expect(opened?.ok === false || opened?.r === "null", `${run.at}: window.open returned a window (${JSON.stringify(opened)})`).toBe(true);
-  expectThrew(run, "window-open", "topAssign", "top.location could be assigned");
-  expectThrew(run, "window-open", "parentAssign", "parent.location could be assigned");
-  expectThrew(run, "window-open", "topReplace", "top.location.replace did not throw");
-  expect(run.record.popups, `${run.at}: popups opened`).toEqual([]);
-  expect(run.record.pageUrlAfter, `${run.at}: the top page navigated`).toBe(harnessUrl);
-  expectNoHits(run);
-  expectContained(run);
-});
+  // I1: the hash policy, the metas and Trusted Types.
 
-for (const caseName of ["link-hints-static", "link-hints-dynamic"] as const) {
-  test(`${caseName}: a dns-prefetch, preconnect, prefetch, preload or speculation-rules hint produces no request`, async ({ page, request, browserName }) => {
-    const run = await startCase(page, request, browserName, caseName);
-    await hostileCase(run, caseName, 6_000, 3_000);
-    run.note("dns-prefetch to an IP literal makes no DNS query; a DNS-only leak is not observable with this canary.");
+  test("i1-meta-copy: the metas are gone before model code runs, so no nonce-and-hash script with integrity loads", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "i1-meta-copy", "frame-src-none");
+    await hostileCase(run, "i1-meta-copy", 6_000);
+    expect(probeValue(run.probes, "i1-meta-copy", "metaCount"), `${run.at}: CSP metas still in the DOM`).toBe(0);
+    expect(probeValue(run.probes, "i1-meta-copy", "hashesFound"), `${run.at}: hashes readable`).toBe(0);
   });
-}
 
-test("webrtc: RTCPeerConnection with STUN and TURN servers on the canary sends nothing", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "webrtc");
-  await openHarness(run, "webrtc");
-  await waitForProbe(run, "webrtc", "done", 8_000);
-  await finishCase(run, 3_000);
-  expectRan(run, "webrtc");
-  run.note(
-    "The STUN/TURN servers are on 127.0.0.1; some browsers do not use loopback for ICE by default, so a zero here does not " +
-      "rule out a leak to a routable address.",
-  );
-  if (probeValue(run.probes, "webrtc", "rtc") === "unavailable") {
-    test.skip(true, `[${browserName}] RTCPeerConnection is not available in this browser build, so the WebRTC case cannot run here`);
-  }
-  expectNoHits(run);
-  expectContained(run);
+  test("i1-runtime-hash: a script hashing its own salted text and loading with nonce, integrity and src reaches nothing", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "i1-runtime-hash", "frame-src-none");
+    await hostileCase(run, "i1-runtime-hash", 8_000);
+    const tag = "i1-runtime-hash";
+    const tt = probeValue(run.probes, tag, "trustedTypes") === true;
+    run.note(`Trusted Types: ${tt}; crypto.subtle: ${JSON.stringify(probeValue(run.probes, tag, "haveSubtle"))}`);
+    if (!hasProbe(run.probes, tag, "hashComputed")) {
+      test.skip(true, `[${browserName}] the frame could not hash its own text (crypto.subtle ${JSON.stringify(probeValue(run.probes, tag, "haveSubtle"))}, digest ${JSON.stringify(probeValue(run.probes, tag, "digestFailed"))}), so the I1-2 attempt never ran`);
+    }
+    for (const key of ["byProperty", "byAttribute", "byFragment"]) {
+      expect(hasProbe(run.probes, tag, key), `${run.at}: the ${key} attempt never ran`).toBe(true);
+    }
+    if (tt) {
+      expect(threw(run.probes, tag, "byProperty"), `${run.at}: script.src was assignable under Trusted Types`).toBe(true);
+      expect(threw(run.probes, tag, "byAttribute"), `${run.at}: setAttribute('src') was allowed under Trusted Types`).toBe(true);
+      expect(threw(run.probes, tag, "byFragment"), `${run.at}: createContextualFragment with script markup was allowed under Trusted Types`).toBe(true);
+    }
+  });
+
+  test("i1-meta-removed: with both metas removed, policy 1 still blocks an image and policy 2 still blocks a nonce'd style", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "i1-meta-removed", "frame-src-none");
+    await hostileCase(run, "i1-meta-removed", 6_000);
+    const tag = "i1-meta-removed";
+    expect(probeValue(run.probes, tag, "metaCount"), `${run.at}: CSP metas still in the DOM`).toBe(0);
+    expect(threw(run.probes, tag, "nonceStyle"), `${run.at}: inserting the nonce'd style threw or never ran, so styleApplied says nothing about policy 2`).toBe(false);
+    expect(probeValue(run.probes, tag, "styleApplied"), `${run.at}: a nonce'd style applied, so policy 2 (hashes) is no longer enforced`).toBe(false);
+  });
+
+  test("i1-trusted-types: the default policy refuses script URLs and script text, a second policy, and frame markup", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "i1-trusted-types", "frame-src-none");
+    await hostileCase(run, "i1-trusted-types", 6_000);
+    const tag = "i1-trusted-types";
+    expect(hasProbe(run.probes, tag, "scriptTextRan"), `${run.at}: script text set from model code ran`).toBe(false);
+    const tt = probeValue(run.probes, tag, "trustedTypes") === true;
+    run.note(`Trusted Types available: ${tt}`);
+    if (tt) {
+      for (const [key, what] of [
+        ["srcProperty", "script.src was assignable"],
+        ["srcAttribute", "setAttribute('src') on a script was allowed"],
+        ["scriptText", "script text was assignable"],
+        ["createPolicyOther", "a second Trusted Types policy could be created"],
+        ["createPolicyDefault", "a second default policy could be created"],
+        ["innerHTMLFrame", "innerHTML with frame markup was allowed"],
+        ["innerHTMLScript", "innerHTML with script markup was allowed"],
+      ] as const) {
+        expect(threw(run.probes, tag, key), `${run.at}: ${what} (probe ${key}: ${JSON.stringify(probeValue(run.probes, tag, key))})`).toBe(true);
+      }
+    }
+  });
+
+  test("i1-child-realm: document.write and frame elements throw, the locks hold, and no child realm loads anything", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "i1-child-realm", "frame-src-none");
+    await hostileCase(run, "i1-child-realm", 6_000);
+    const tag = "i1-child-realm";
+    for (const [key, what] of [
+      ["write", "document.write did not throw"],
+      ["writeln", "document.writeln did not throw"],
+      ["createIframe", "createElement('iframe') did not throw"],
+      ["createIframeNS", "createElementNS(xhtml, 'iframe') did not throw"],
+      ["createObject", "createElement('object') did not throw"],
+      ["restoreWrite", "Document.prototype.write could be redefined"],
+      ["implementationWrite", "write on a document.implementation document did not throw"],
+    ] as const) {
+      expect(threw(run.probes, tag, key), `${run.at}: ${what} (probe ${key}: ${JSON.stringify(probeValue(run.probes, tag, key))})`).toBe(true);
+    }
+    run.note(`innerHTML frame markup: ${JSON.stringify(probeValue(run.probes, tag, "innerHTMLFrame"))}; child write: ${JSON.stringify(probeValue(run.probes, tag, "childWrite"))}`);
+  });
+
+  // I3, layout, and two frames.
+
+  test("i3-chip-swap: a chip swapped in as the pointer leaves the frame cannot take the press aimed at the old one", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "i3-chip-swap", "frame-src-none");
+    requireControls(run, laneControls("frame-src-none", "i3-chip-swap"));
+    await openHarness(run, "frame-src-none", "i3-chip-swap");
+    const chip = page.locator("[data-sandbox-chip]");
+    await expect(chip, `${run.at}: the first request's chip`).toHaveText("Shortlist Senior Product Engineer at Acme Systems", { timeout: 8_000 });
+
+    // The frame has been sized by now (the handshake is done); put the pointer inside it.
+    const iframe = page.locator("[data-sandbox-surface] iframe").first();
+    const box = await iframe.boundingBox();
+    expect(box && box.height > 0, `${run.at}: the frame has a box (${JSON.stringify(box)})`).toBe(true);
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + Math.min(box!.height / 2, 40));
+    await page.waitForTimeout(ARMED_AFTER_MS);
+
+    // (a) Leave the frame for the armed chip and press down on it; the frame swaps the request.
+    const chipBox = await chip.boundingBox();
+    expect(chipBox, `${run.at}: the chip has a box`).not.toBeNull();
+    await page.mouse.move(chipBox!.x + Math.min(chipBox!.width / 2, 40), chipBox!.y + chipBox!.height / 2, { steps: 8 });
+    await page.mouse.down();
+    const compare = "Compare Senior Product Engineer at Acme Systems with Staff Backend Engineer at Globex";
+    const swapped = await expect(chip)
+      .toHaveText(compare, { timeout: 3_000 })
+      .then(() => true, () => false);
+    await page.mouse.up();
+    await waitForProbe(run, "i3-chip-swap", "swap", 1_000);
+    expect(hasProbe(run.probes, "i3-chip-swap", "swap"), `${run.at}: the frame did not see the pointer leave, so the swap never happened`).toBe(true);
+    expect(swapped, `${run.at}: the chip was not replaced after the pointer left the frame`).toBe(true);
+    expect(await harnessLog(page, "intents"), `${run.at}: a press that began on the old chip ran something`).toEqual([]);
+
+    // (b) A click right after the swap is ignored (the new chip is not armed yet). The window is
+    // measured from the frame's own swap timestamp: the new chip appears at least
+    // HARNESS_DESCRIBE_DELAY_MS after it, and is armed CHIP_ARM_MS after it appears.
+    const swapAt = Number((probeValue(run.probes, "i3-chip-swap", "swap") as { at?: number } | undefined)?.at);
+    const newBox = await chip.boundingBox();
+    await page.mouse.click(newBox!.x + Math.min(newBox!.width / 2, 40), newBox!.y + newBox!.height / 2);
+    const sinceSwap = Date.now() - swapAt;
+    const unarmedUntil = HARNESS_DESCRIBE_DELAY_MS + CHIP_ARM_MS - 100;
+    if (Number.isFinite(sinceSwap) && sinceSwap < unarmedUntil) {
+      expect(await harnessLog(page, "intents"), `${run.at}: a click ${sinceSwap} ms after the swap (before the new chip could be armed) ran something`).toEqual([]);
+      run.note(`Step (b): the click landed ${sinceSwap} ms after the frame's swap and ran nothing.`);
+    } else {
+      run.note(`Step (b) inconclusive: the click landed ${sinceSwap} ms after the frame's swap, at or after ${unarmedUntil} ms, too late to test the arming delay.`);
+    }
+
+    // (c) Once armed, one click runs the new request once.
+    await page.waitForTimeout(ARMED_AFTER_MS);
+    await chip.click();
+    await finishCase(run, 500);
+    expectNoHits(run);
+    expectAttempted(run, "i3-chip-swap");
+    const ran = run.record.intents;
+    if (ran.length === 2 && run.record.notes.some((n) => n.startsWith("Step (b) inconclusive"))) {
+      run.note("Step (b)'s late click ran the new request once it was armed; only the armed press in (c) is counted below.");
+      ran.shift();
+    }
+    expect(ran, `${run.at}: the armed press ran the new request once`).toEqual([
+      { surface: expect.any(String), value: { intent: { name: "compare", jobIds: [HARNESS_JOB_A, HARNESS_JOB_B] }, source: "frame" } },
+    ]);
+    expectContained(run);
+  });
+
+  test("cap-1200: a 3,000px document is shown at most 1,200px tall", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "cap-1200", "frame-src-none");
+    await hostileCase(run, "cap-1200", 8_000, 500);
+    expect(Number(probeValue(run.probes, "cap-1200", "height")), `${run.at}: the document is taller than the cap`).toBeGreaterThanOrEqual(3_000);
+    expect(run.record.frames[0]?.styleHeight, `${run.at}: the iframe's height`).toBe("1200px");
+    const box = await page.locator("[data-sandbox-surface] iframe").first().boundingBox();
+    expect(Math.round(box?.height ?? 0), `${run.at}: the iframe's rendered height`).toBeLessThanOrEqual(1_202);
+    expect(Math.round(box?.height ?? 0), `${run.at}: the iframe's rendered height`).toBeGreaterThanOrEqual(1_198);
+  });
+
+  test("siblings: one frame cannot inject init into, read, or navigate another frame on the page", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "siblings", "frame-src-none");
+    requireControls(run, laneControls("frame-src-none", "siblings"));
+    await openHarness(run, "frame-src-none", "siblings", ["siblings-a", "siblings-b"]);
+    await waitForProbe(run, "siblings-a", "done", 8_000);
+    await waitForProbe(run, "siblings-b", "done", 8_000);
+    await finishCase(run, SETTLE_MS);
+    expectNoHits(run);
+    expectAttempted(run, "siblings", "siblings-a");
+    expectAttempted(run, "siblings", "siblings-b");
+    const frames = Number(probeValue(run.probes, "siblings-a", "frames"));
+    expect(frames, `${run.at}: the first frame sees the second in parent.frames`).toBeGreaterThanOrEqual(2);
+    expect(run.probes.some((p) => p.t === "siblings-a" && p.k.startsWith("navigate")), `${run.at}: the first frame never tried to navigate the second`).toBe(true);
+    const bInit = probeValue(run.probes, "siblings-b", "bInit") as { fake?: boolean; jobs?: number } | undefined;
+    const bLater = probeValue(run.probes, "siblings-b", "bLater") as { fake?: boolean; jobs?: number } | undefined;
+    expect(bInit, `${run.at}: the second frame got its own init`).toEqual({ fake: false, jobs: 2 });
+    expect(bLater, `${run.at}: the second frame's host.data stayed its own`).toEqual({ fake: false, jobs: 2 });
+    noteThrows(run, "siblings-a", run.probes.filter((x) => x.t === "siblings-a" && (x.k.startsWith("readDocument") || x.k.startsWith("navigate"))).map((x) => x.k));
+    expect(run.record.fallbacks, `${run.at}: neither frame fell back`).toEqual([]);
+    expect(run.record.frames.map((f) => f.present), `${run.at}: both frames still mounted`).toEqual([true, true]);
+    expectContained(run);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// I1: the hash policy, the metas and Trusted Types
+// baseline-csp lane: the host's own teardown, and what one navigation carries (gate A18)
 // ---------------------------------------------------------------------------
 
-test("i1-meta-copy: the metas are gone before model code runs, so no nonce-and-hash script with integrity loads", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "i1-meta-copy");
-  await hostileCase(run, "i1-meta-copy", 6_000);
-  expect(probeValue(run.probes, "i1-meta-copy", "metaCount"), `${run.at}: CSP metas still in the DOM`).toBe(0);
-  expect(probeValue(run.probes, "i1-meta-copy", "hashesFound"), `${run.at}: hashes readable`).toBe(0);
-});
+test.describe(`baseline-csp lane (${SANDBOX_LANES["baseline-csp"]}): teardown without frame-src 'none', canary hits recorded`, () => {
+  const BASELINE_CASES: Array<[SandboxCaseName, string]> = [
+    ["nav-parse", "location assigned while the document is parsing (I2)"],
+    ["nav-oninit", "location assigned from onInit, possibly before load (I2)"],
+    ["nav-after-load", "location = canary after load"],
+    ["nav-meta-refresh", "meta refresh in the markup"],
+    ["nav-meta-refresh-dynamic", "meta refresh inserted by script"],
+    ["nav-anchor-script", "an anchor clicked by script"],
+    ["nav-anchor-user", "an anchor the user clicks"],
+    ["nav-form", "form submit, requestSubmit and a pressed submit button"],
+    ["nav-never-finishes", "navigation after init to a page that never finishes loading (I2)"],
+    ["nav-data-url", "self-navigation to a data: page that posts its own ready"],
+    ["nav-blob-url", "self-navigation to a blob: page that posts its own ready"],
+  ];
 
-test("i1-runtime-hash: a script hashing its own salted text and loading with nonce, integrity and src reaches nothing", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "i1-runtime-hash");
-  await hostileCase(run, "i1-runtime-hash", 8_000);
-  const tt = probeValue(run.probes, "i1-runtime-hash", "trustedTypes") === true;
-  run.note(`Trusted Types: ${tt}; crypto.subtle: ${JSON.stringify(probeValue(run.probes, "i1-runtime-hash", "haveSubtle"))}; hash computed: ${hasProbe(run.probes, "i1-runtime-hash", "hashComputed")}`);
-  if (tt && hasProbe(run.probes, "i1-runtime-hash", "hashComputed")) {
-    expectThrew(run, "i1-runtime-hash", "byProperty", "script.src was assignable under Trusted Types");
-    expectThrew(run, "i1-runtime-hash", "byAttribute", "setAttribute('src') was allowed under Trusted Types");
-    expectThrew(run, "i1-runtime-hash", "byFragment", "createContextualFragment with script markup was allowed under Trusted Types");
-  }
-});
-
-test("i1-meta-removed: with both metas removed, policy 1 still blocks an image and policy 2 still blocks a nonce'd style", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "i1-meta-removed");
-  await hostileCase(run, "i1-meta-removed", 6_000);
-  expect(probeValue(run.probes, "i1-meta-removed", "metaCount"), `${run.at}: CSP metas still in the DOM`).toBe(0);
-  expect(probeValue(run.probes, "i1-meta-removed", "styleApplied"), `${run.at}: a nonce'd style applied, so policy 2 (hashes) is no longer enforced`).toBe(false);
-});
-
-test("i1-trusted-types: the default policy refuses script URLs and script text, a second policy, and frame markup", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "i1-trusted-types");
-  await hostileCase(run, "i1-trusted-types", 6_000);
-  const tag = "i1-trusted-types";
-  expect(hasProbe(run.probes, tag, "scriptTextRan"), `${run.at}: script text set from model code ran`).toBe(false);
-  const tt = probeValue(run.probes, tag, "trustedTypes") === true;
-  run.note(`Trusted Types available: ${tt}`);
-  if (tt) {
-    expectThrew(run, tag, "srcProperty", "script.src was assignable");
-    expectThrew(run, tag, "srcAttribute", "setAttribute('src') on a script was allowed");
-    expectThrew(run, tag, "scriptText", "script text was assignable");
-    expectThrew(run, tag, "createPolicyOther", "a second Trusted Types policy could be created");
-    expectThrew(run, tag, "createPolicyDefault", "a second default policy could be created");
-    expectThrew(run, tag, "innerHTMLFrame", "innerHTML with frame markup was allowed");
-    expectThrew(run, tag, "innerHTMLScript", "innerHTML with script markup was allowed");
-  }
-});
-
-test("i1-child-realm: document.write and frame elements throw, the locks hold, and no child realm loads anything", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "i1-child-realm");
-  await hostileCase(run, "i1-child-realm", 6_000);
-  const tag = "i1-child-realm";
-  expectThrew(run, tag, "write", "document.write did not throw");
-  expectThrew(run, tag, "writeln", "document.writeln did not throw");
-  expectThrew(run, tag, "createIframe", "createElement('iframe') did not throw");
-  expectThrew(run, tag, "createIframeNS", "createElementNS(xhtml, 'iframe') did not throw");
-  expectThrew(run, tag, "createObject", "createElement('object') did not throw");
-  expectThrew(run, tag, "restoreWrite", "Document.prototype.write could be redefined");
-  expectThrew(run, tag, "implementationWrite", "write on a document.implementation document did not throw");
-  run.note(`innerHTML frame markup: ${JSON.stringify(probeValue(run.probes, tag, "innerHTMLFrame"))}; child write: ${JSON.stringify(probeValue(run.probes, tag, "childWrite"))}`);
-});
-
-// ---------------------------------------------------------------------------
-// I3, layout, and two frames
-// ---------------------------------------------------------------------------
-
-test("i3-chip-swap: a chip swapped in as the pointer leaves the frame cannot take the press aimed at the old one", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "i3-chip-swap");
-  await openHarness(run, "i3-chip-swap");
-  const iframe = page.locator("[data-sandbox-surface] iframe").first();
-  const box = await iframe.boundingBox();
-  expect(box, `${run.at}: the frame has a box`).not.toBeNull();
-  await page.mouse.move(box!.x + box!.width / 2, box!.y + Math.min(box!.height / 2, 40));
-  const chip = page.locator("[data-sandbox-chip]");
-  await expect(chip, `${run.at}: the first request's chip`).toHaveText("Shortlist Senior Product Engineer at Acme Systems", { timeout: 8_000 });
-  await page.waitForTimeout(ARMED_AFTER_MS);
-
-  // (a) Leave the frame for the armed chip and press down on it; the frame swaps the request.
-  const chipBox = await chip.boundingBox();
-  expect(chipBox, `${run.at}: the chip has a box`).not.toBeNull();
-  const cx = chipBox!.x + Math.min(chipBox!.width / 2, 40);
-  const cy = chipBox!.y + chipBox!.height / 2;
-  await page.mouse.move(cx, cy, { steps: 8 });
-  await page.mouse.down();
-  const compare = "Compare Senior Product Engineer at Acme Systems with Staff Backend Engineer at Globex";
-  const swapped = await expect(chip)
-    .toHaveText(compare, { timeout: 3_000 })
-    .then(() => true, () => false);
-  const swappedAt = Date.now();
-  await page.mouse.up();
-  expect(hasProbe(run.probes, "i3-chip-swap", "swap") || swapped, `${run.at}: the frame did not see the pointer leave, so the swap never happened`).toBe(true);
-  expect(swapped, `${run.at}: the chip was not replaced after the pointer left the frame`).toBe(true);
-  expect(await harnessLog(page, "intents"), `${run.at}: a press that began on the old chip ran something`).toEqual([]);
-
-  // (b) A click right after the swap is ignored (the chip is not armed yet).
-  const newBox = await chip.boundingBox();
-  await page.mouse.click(newBox!.x + Math.min(newBox!.width / 2, 40), newBox!.y + newBox!.height / 2);
-  const elapsed = Date.now() - swappedAt;
-  if (elapsed < 600) {
-    expect(await harnessLog(page, "intents"), `${run.at}: a click ${elapsed} ms after the swap ran something`).toEqual([]);
-  } else {
-    run.note(`Step (b) inconclusive: the click came ${elapsed} ms after the swap, too late to test the arming delay.`);
+  for (const [caseName, what] of BASELINE_CASES) {
+    test(`${caseName}: ${what}: a frame that navigated is removed with a teardown reason, and a navigated page never gets init`, async ({
+      page,
+      request,
+      browserName,
+    }, testInfo) => {
+      const run = await startCase(page, request, browserName, caseName, "baseline-csp");
+      await navigationCase(run, "baseline-csp", caseName);
+      recordHits(run, testInfo);
+      expectAttempted(run, caseName);
+      expectNavigatedPageGotNoInit(run, caseName);
+      expectContained(run);
+      expectHostTeardown(run, caseName);
+      run.note(`Outcome: ${run.record.outcome}`);
+    });
   }
 
-  // (c) Once armed, one click runs the new request once.
-  await page.waitForTimeout(ARMED_AFTER_MS);
-  await chip.click();
-  await finishCase(run, 500);
-  expectRan(run, "i3-chip-swap");
-  expect(run.record.intents, `${run.at}: the armed press ran the new request once`).toEqual([
-    { surface: expect.any(String), value: { intent: { name: "compare", jobIds: [HARNESS_JOB_A, HARNESS_JOB_B] }, source: "frame" } },
-  ]);
-  expectNoHits(run);
-  expectContained(run);
-});
-
-test("cap-1200: a 3,000px document is shown at most 1,200px tall", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "cap-1200");
-  await hostileCase(run, "cap-1200", 8_000, 500);
-  expect(Number(probeValue(run.probes, "cap-1200", "height")), `${run.at}: the document is taller than the cap`).toBeGreaterThanOrEqual(3_000);
-  expect(run.record.frames[0]?.styleHeight, `${run.at}: the iframe's height`).toBe("1200px");
-  const box = await page.locator("[data-sandbox-surface] iframe").first().boundingBox();
-  expect(Math.round(box?.height ?? 0), `${run.at}: the iframe's rendered height`).toBeLessThanOrEqual(1_202);
-  expect(Math.round(box?.height ?? 0), `${run.at}: the iframe's rendered height`).toBeGreaterThanOrEqual(1_198);
-});
-
-test("siblings: one frame cannot inject init into, read, or navigate another frame on the page", async ({ page, request, browserName }) => {
-  const run = await startCase(page, request, browserName, "siblings");
-  await openHarness(run, "siblings");
-  await waitForProbe(run, "siblings-a", "done", 8_000);
-  await waitForProbe(run, "siblings-b", "done", 8_000);
-  await finishCase(run, SETTLE_MS);
-  expectRan(run, "siblings-a");
-  expectRan(run, "siblings-b");
-  const frames = Number(probeValue(run.probes, "siblings-a", "frames"));
-  expect(frames, `${run.at}: the first frame sees the second in parent.frames`).toBeGreaterThanOrEqual(2);
-  const bInit = probeValue(run.probes, "siblings-b", "bInit") as { fake?: boolean; jobs?: number } | undefined;
-  const bLater = probeValue(run.probes, "siblings-b", "bLater") as { fake?: boolean; jobs?: number } | undefined;
-  expect(bInit, `${run.at}: the second frame got its own init`).toEqual({ fake: false, jobs: 2 });
-  expect(bLater, `${run.at}: the second frame's host.data stayed its own`).toEqual({ fake: false, jobs: 2 });
-  for (const p of run.probes.filter((x) => x.t === "siblings-a" && (x.k.startsWith("readDocument") || x.k.startsWith("navigate")))) {
-    expect(threw([p], "siblings-a", p.k), `${run.at}: ${p.k} on the sibling frame did not throw (${JSON.stringify(p.v)})`).toBe(true);
-  }
-  expect(run.record.fallbacks, `${run.at}: neither frame fell back`).toEqual([]);
-  expect(run.record.frames.map((f) => f.present), `${run.at}: both frames still mounted`).toEqual([true, true]);
-  expectNoHits(run);
-  expectContained(run);
+  test("window-open: window.open, top navigation and target=_top open nothing and leave the top page in place", async ({ page, request, browserName }, testInfo) => {
+    const run = await startCase(page, request, browserName, "window-open", "baseline-csp");
+    await navigationCase(run, "baseline-csp", "window-open");
+    recordHits(run, testInfo);
+    expectAttempted(run, "window-open");
+    noteThrows(run, "window-open", ["open", "topAssign", "parentAssign", "topReplace", "clickBlank", "clickTop"]);
+    expect(run.record.popups, `${run.at}: popups opened`).toEqual([]);
+    expect(run.record.pageUrlAfter, `${run.at}: the top page navigated`).toContain(`${SANDBOX_LANES["baseline-csp"]}?case=window-open`);
+    const escaped = run.record.hits!.requests.filter((r) => /\/c\/window-open\/(top|parent|top-replace|open|anchor-top|anchor-blank)$/.test(r.url ?? ""));
+    expect(escaped.map((r) => r.url), `${run.at}: a top, parent or new-window navigation reached the canary`).toEqual([]);
+    expectContained(run);
+  });
 });

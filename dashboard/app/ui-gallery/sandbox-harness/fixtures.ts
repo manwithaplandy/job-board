@@ -22,6 +22,31 @@ export const SANDBOX_CANARY_PORT = 4599;
 export const SANDBOX_CANARY_ORIGIN = `http://127.0.0.1:${SANDBOX_CANARY_PORT}`;
 const WS_ORIGIN = `ws://127.0.0.1:${SANDBOX_CANARY_PORT}`;
 
+/**
+ * The two places the harness is served, named by the parent page's CSP, so a result says
+ * which one it came from. "frame-src-none" is the configuration the product ships
+ * (next.config.mjs gives the path the route-scoped CSP with frame-src 'none').
+ * "baseline-csp" has only the site-wide CSP: there a self-navigation is not stopped by the
+ * parent, so the host's own teardown (second load, liveness, handshake) is what is tested,
+ * and what one navigation request carries is recorded for gate A18. This second path must
+ * never be added to next.config.mjs's frame-src entry.
+ */
+export const SANDBOX_LANES = {
+  "frame-src-none": "/ui-gallery/sandbox-harness",
+  "baseline-csp": "/ui-gallery/sandbox-harness/baseline-csp",
+} as const;
+export type SandboxLane = keyof typeof SANDBOX_LANES;
+
+/**
+ * The hostile cases render only when the server has this set to "1" (the CI job and the
+ * suite's own server set it). Without it the page lists the cases and renders none: it
+ * fails closed on every deployment.
+ */
+export const HARNESS_ENABLE_ENV = "SANDBOX_HARNESS";
+
+/** How long the harness's stub takes to describe a request, like a server round trip. */
+export const HARNESS_DESCRIBE_DELAY_MS = 400;
+
 /** The two gathered jobs the harness surfaces carry (AgentBlocksFixture's FIXTURE_GATHERED). */
 export const HARNESS_JOB_A = "greenhouse:acme:1001";
 export const HARNESS_JOB_B = "lever:globex:2002";
@@ -133,7 +158,34 @@ function jsString(s: string): string {
   return JSON.stringify(s).replace(/<\//g, "<\\/");
 }
 
-const SHORTLIST_A_ACTION = `{"name":"shortlist.set","jobId":"${HARNESS_JOB_A}","state":"shortlisted"}`;
+/**
+ * The WebRTC attempt: STUN, TURN over UDP and TURN over TCP on the canary. Shared by the
+ * webrtc case (inside the sandbox) and the suite's control-webrtc (the same code in the
+ * harness page itself, with P, T and Q of its own), so the control shows whether this
+ * browser's ICE sends anything to 127.0.0.1 at all. The connection is kept on window so it
+ * is not collected while it gathers.
+ */
+export const WEBRTC_ATTEMPT_JS = `if (typeof RTCPeerConnection !== "function") {
+  P("rtc", "unavailable");
+} else {
+  T("rtc", function () {
+    var pc = new RTCPeerConnection({ iceServers: [
+      { urls: "stun:127.0.0.1:${SANDBOX_CANARY_PORT}" },
+      { urls: "turn:127.0.0.1:${SANDBOX_CANARY_PORT}?transport=udp", username: "sbx", credential: "sbx" },
+      { urls: "turn:127.0.0.1:${SANDBOX_CANARY_PORT}?transport=tcp", username: "sbx", credential: "sbx" }
+    ] });
+    window.sbxPeer = pc;
+    pc.onicecandidate = function (e) {
+      if (e.candidate) P("candidate", String(e.candidate.type || e.candidate.candidate).slice(0, 60));
+      else P("gatheringDone", true);
+    };
+    pc.createDataChannel("sbx");
+    Q("offer", pc.createOffer().then(function (o) { return pc.setLocalDescription(o); }).then(function () { return "local description set"; }));
+    return "created";
+  });
+}`;
+
+const SHORTLIST_A_ACTION =`{"name":"shortlist.set","jobId":"${HARNESS_JOB_A}","state":"shortlisted"}`;
 
 const CASES: Record<SandboxCaseName, Omit<SandboxCase, "name">> = {
   benign: {
@@ -221,6 +273,7 @@ try { location.href = C + "/nav"; P("assigned", true); } catch (e) { P("navThrow
     title: "location assigned from host.onInit, possibly before load",
     frames: [{ tag: "nav-oninit", html: doc("nav-oninit", `<script>
 host.onInit(function () {
+  P("init", true);
   P("state", document.readyState);
   try { location.href = C + "/nav"; P("assigned", true); } catch (e) { P("navThrow", errName(e)); }
 });
@@ -242,7 +295,8 @@ window.addEventListener("load", function () {
   "nav-meta-refresh": {
     title: "a meta refresh in the markup",
     frames: [{ tag: "nav-meta-refresh", html: doc("nav-meta-refresh", `<meta http-equiv="refresh" content="0;url=${SANDBOX_CANARY_ORIGIN}/c/nav-meta-refresh/meta">
-<p>meta refresh above</p>`) }],
+<p>meta refresh above</p>
+<script>P("attempted", document.querySelectorAll('meta[http-equiv="refresh"]').length);</script>`) }],
   },
 
   "nav-meta-refresh-dynamic": {
@@ -311,6 +365,7 @@ try {
     title: "self-navigation after init to a page that never finishes loading",
     frames: [{ tag: "nav-never-finishes", html: doc("nav-never-finishes", `<script>
 host.onInit(function () {
+  P("init", true);
   try { location.href = C + "/stream"; P("assigned", true); } catch (e) { P("navThrow", errName(e)); }
 });
 </script>`) }],
@@ -373,26 +428,8 @@ setTimeout(function () { P("done"); }, 2000);
   webrtc: {
     title: "RTCPeerConnection with STUN and TURN (UDP and TCP) servers on the canary",
     frames: [{ tag: "webrtc", html: doc("webrtc", `<script>
-if (typeof RTCPeerConnection !== "function") {
-  P("rtc", "unavailable");
-  P("done");
-} else {
-  T("rtc", function () {
-    var pc = new RTCPeerConnection({ iceServers: [
-      { urls: "stun:127.0.0.1:${SANDBOX_CANARY_PORT}" },
-      { urls: "turn:127.0.0.1:${SANDBOX_CANARY_PORT}?transport=udp", username: "sbx", credential: "sbx" },
-      { urls: "turn:127.0.0.1:${SANDBOX_CANARY_PORT}?transport=tcp", username: "sbx", credential: "sbx" }
-    ] });
-    pc.onicecandidate = function (e) {
-      if (e.candidate) P("candidate", String(e.candidate.type || e.candidate.candidate).slice(0, 60));
-      else P("gatheringDone", true);
-    };
-    pc.createDataChannel("sbx");
-    Q("offer", pc.createOffer().then(function (o) { return pc.setLocalDescription(o); }).then(function () { return "local description set"; }));
-    return "created";
-  });
-  setTimeout(function () { P("done"); }, 4000);
-}
+${WEBRTC_ATTEMPT_JS}
+setTimeout(function () { P("done"); }, 4000);
 </script>`) }],
   },
 
@@ -549,8 +586,9 @@ var swapped = false;
 function swap(how) {
   if (swapped) return;
   swapped = true;
+  var at = Date.now();
   host.action("compare", { jobIds: ["${HARNESS_JOB_A}", "${HARNESS_JOB_B}"] });
-  P("swap", how);
+  P("swap", { how: how, at: at });
 }
 host.onInit(function () {
   host.action("shortlist.set", { jobId: "${HARNESS_JOB_A}", state: "shortlisted" });

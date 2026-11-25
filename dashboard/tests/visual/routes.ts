@@ -45,6 +45,7 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   // The variant 3 sandbox enforcement harness (plan Task 2.7): hostile frames that make
   // requests to a local canary, driven only by tests/sandbox/sandbox.spec.ts.
   { id: "agent-sandbox-harness", path: "/ui-gallery/sandbox-harness", access: "public", family: "agent", state: "sandbox-harness", shell: "none", source: "app/ui-gallery/sandbox-harness/page.tsx", harness: "tests/sandbox/sandbox.spec.ts" },
+  { id: "agent-sandbox-harness-baseline-csp", path: "/ui-gallery/sandbox-harness/baseline-csp", access: "public", family: "agent", state: "sandbox-harness-baseline-csp", shell: "none", source: "app/ui-gallery/sandbox-harness/baseline-csp/page.tsx", harness: "tests/sandbox/sandbox.spec.ts" },
   { id: "board-default", path: "/", access: "authenticated", family: "board", state: "default", shell: "board", source: "components/rolefit/RolefitBoard.tsx",
     // Pipeline-health operator strip, the review-now panel and the list/detail workspace
     // all track live pipeline/review state; the role counts sit in fixed-width slots.

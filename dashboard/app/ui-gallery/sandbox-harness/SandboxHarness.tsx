@@ -15,13 +15,18 @@ import { FIXTURE_GATHERED } from "@/components/agent/blocks/AgentBlocksFixture";
 import { SandboxFrame, type SandboxFrameServer, type SandboxSurface } from "@/components/agent/sandbox/SandboxFrame";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
-import { HARNESS_JOB_A, HARNESS_JOB_B, sandboxCase, type SandboxCaseName } from "./fixtures";
+import {
+  HARNESS_DESCRIBE_DELAY_MS,
+  HARNESS_JOB_A,
+  HARNESS_JOB_B,
+  sandboxCase,
+  type SandboxCaseName,
+  type SandboxLane,
+} from "./fixtures";
 
 const THREAD_ID = "00000000-0000-4000-8000-00000000a001";
 const SURFACE_IDS = ["00000000-0000-4000-8000-00000000b001", "00000000-0000-4000-8000-00000000b002"];
 export const HARNESS_FALLBACK_TEXT = "Harness fallback: the generated view was removed.";
-/** How long the stub takes to describe a request, like a server round trip. */
-const DESCRIBE_DELAY_MS = 400;
 
 const SHORTLIST_A: ActionIntent = { name: "shortlist.set", jobId: HARNESS_JOB_A, state: "shortlisted" };
 const COMPARE_AB: ActionIntent = { name: "compare", jobIds: [HARNESS_JOB_A, HARNESS_JOB_B] };
@@ -37,7 +42,7 @@ interface LogEntry {
   value: unknown;
 }
 
-export function SandboxHarness({ caseName }: { caseName: SandboxCaseName }) {
+export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; lane: SandboxLane }) {
   const c = sandboxCase(caseName);
   const [intents, setIntents] = useState<LogEntry[]>([]);
   const [fallbacks, setFallbacks] = useState<LogEntry[]>([]);
@@ -59,7 +64,7 @@ export function SandboxHarness({ caseName }: { caseName: SandboxCaseName }) {
   const server = useMemo<SandboxFrameServer>(
     () => ({
       describe: async (_threadId, _surfaceId, name) => {
-        await new Promise((resolve) => setTimeout(resolve, DESCRIBE_DELAY_MS));
+        await new Promise((resolve) => setTimeout(resolve, HARNESS_DESCRIBE_DELAY_MS));
         return typeof name === "string" && Object.prototype.hasOwnProperty.call(HARNESS_CHIPS, name) ? HARNESS_CHIPS[name] : null;
       },
       report: async (surfaceId, reason) => {
@@ -71,9 +76,11 @@ export function SandboxHarness({ caseName }: { caseName: SandboxCaseName }) {
   );
 
   return (
-    <main className="rf-gallery" data-sandbox-harness={c.name}>
+    <main className="rf-gallery" data-sandbox-harness={c.name} data-sandbox-lane={lane}>
       <div className="rf-gallery__intro">
-        <h1>Sandbox harness: {c.name}</h1>
+        <h1>
+          Sandbox harness: {c.name} ({lane})
+        </h1>
         <p>{c.title}</p>
       </div>
       <div className="rf-gallery__stack">

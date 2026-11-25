@@ -1,5 +1,16 @@
 import { describe, expect, test } from "vitest";
-import { hasProbe, mergeProbes, parseProbe, probeValue, resultFileName, summariseHits, threw, type CanaryHits } from "./results";
+import {
+  hasProbe,
+  inlineScriptRefusals,
+  mergeProbes,
+  navigationRequests,
+  parseProbe,
+  probeValue,
+  resultFileName,
+  summariseHits,
+  threw,
+  type CanaryHits,
+} from "./results";
 
 const empty: CanaryHits = { total: 0, tcpConnections: 0, requests: [], upgrades: [], udpDatagrams: [] };
 
@@ -44,6 +55,42 @@ describe("sandbox suite helpers", () => {
     expect(s).toContain("1 WebSocket upgrade(s)");
     expect(s).toContain("1 UDP datagram(s)");
     expect(s).toContain("1 TCP connection(s)");
+  });
+
+  test("summariseHits says what each TCP connection carried, so a bare connect is visible", () => {
+    const s = summariseHits({
+      ...empty,
+      total: 2,
+      tcpConnections: 2,
+      connections: [
+        { id: 1, bytesRead: 0, firstBytes: "", httpRequests: 0 },
+        { id: 2, bytesRead: 5, firstBytes: "....x", httpRequests: 0 },
+      ],
+    });
+    expect(s).toBe('2 TCP connection(s): 1 bare (no bytes), 1 with bytes but no HTTP request (5 B "....x")');
+  });
+
+  test("navigationRequests keeps document and frame loads and form submissions, not subresources", () => {
+    const hits: CanaryHits = {
+      ...empty,
+      total: 3,
+      requests: [
+        { url: "/c/nav-parse/nav", secFetchDest: "iframe", secFetchMode: "navigate" },
+        { url: "/c/nav-form/form?q=x", secFetchMode: "navigate" },
+        { url: "/c/subresources/img", secFetchDest: "image", secFetchMode: "no-cors" },
+      ],
+    };
+    expect(navigationRequests(hits).map((r) => r.url)).toEqual(["/c/nav-parse/nav", "/c/nav-form/form?q=x"]);
+  });
+
+  test("inlineScriptRefusals finds the frame's own refused inline scripts only", () => {
+    const probes = [
+      { t: "x", k: "csp", v: { d: "script-src-elem", b: "inline" } },
+      { t: "x", k: "csp", v: { d: "img-src", b: "http://127.0.0.1:4599/c/x/img" } },
+      { t: "x", k: "csp", v: { d: "script-src", b: "eval" } },
+      { t: "y", k: "csp", v: { d: "script-src-elem", b: "inline" } },
+    ];
+    expect(inlineScriptRefusals(probes, "x")).toEqual([probes[0]]);
   });
 
   test("resultFileName is filesystem-safe and names the browser", () => {

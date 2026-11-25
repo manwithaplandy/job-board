@@ -57,8 +57,8 @@ production.
 | Lint changed migrations | squawk finds anything other than a destructive change (drops, renames, type changes, `TRUNCATE ... CASCADE`); destructive changes are allowed here and gated at deploy |
 | Classify destructive migrations | never; it writes the classification to the job summary |
 | Start local Supabase, Replay migrations | a migration does not apply cleanly from scratch |
-| Schema-sync gate | the replayed schema differs from `schema.sql` beyond `supabase/fingerprint-ignore.json` and `supabase/schema-sync-expected-diff.json` (dormant until the baseline exists) |
-| Baseline equals prod snapshot | the baseline files no longer rebuild the schema captured from production at cutover (dormant until the baseline exists) |
+| Schema-sync gate | the replayed schema differs from `schema.sql` beyond `supabase/fingerprint-ignore.json` and `supabase/schema-sync-expected-diff.json` |
+| Baseline equals prod snapshot | the baseline files no longer rebuild the schema captured from production at cutover |
 
 A file counts as destructive when squawk or `tools/migrations/classify.py` finds a drop,
 a column type change, a rename, a `TRUNCATE`, or a `DELETE`/`UPDATE` without `WHERE`. An
@@ -101,11 +101,9 @@ Supabase and paste the new string into both environments.
   `dump` uploads a schema-only dump and the migration history; `fingerprint` uploads a
   catalog fingerprint. It connects through the session pooler (port 5432) with
   `SUPABASE_DB_URL`.
-- `Cutover history re-baseline` (`cutover-rebaseline.yml`): run once during the cutover.
-  The `plan` job is read-only and prints the repair commands. The `apply` job runs only with
-  `dry_run` off, waits for approval on `production-db-destructive`, backs up the history
-  table (so it cannot run twice), repairs the history to the two baseline versions, checks
-  local and remote history match, and proves the schema fingerprint did not change.
+- `Cutover history re-baseline` (`cutover-rebaseline.yml`) ran once, on 2026-11-24, to
+  replace production's migration history with the two baseline versions. It was then
+  deleted; [the ledger runbook](migration-ledger-state.md) records the run.
 
 ## Deploy on merge
 

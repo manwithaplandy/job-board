@@ -164,6 +164,7 @@ The read-only dump and fingerprint taken on 2026-11-21 (`db-ops` runs `op=dump` 
 - `public.schema_migrations` stays frozen at its current rows. Nothing writes to it again.
 - The October 15/16 identity pilot pair stays unapplied. It ships as the first migration
   through the pipeline, so it is listed in `supabase/schema-sync-expected-diff.json` until then.
+  (Done on 2026-11-25, see below.)
 
 The re-baseline ran on 2026-11-24, its apply job from 20:11:03 to 20:11:51 UTC
 ([run 45477643624](https://github.com/manwithaplandy/job-board/actions/runs/45477643624),
@@ -171,6 +172,13 @@ baseline commit `d7500673e387cecc5ee81d31e18bcacc868a3cbd`). Afterwards producti
 2 history rows (20261121225347, 20261121225348) and 65 rows in
 `supabase_migrations.schema_migrations_pre_cd`, 20260624004157 through 20261014040233.
 The fingerprints taken before and after the repair matched.
+
+The pilot pair shipped through the pipeline on 2026-11-25 as
+`20261124205256_identity_exploratory_pilot` and `20261124205257_identity_pilot_wal_assumption`
+(PR #39). Andrew approved `Migrate` in `production-db-destructive`, and both applied in
+[Deploy run 45517716295](https://github.com/manwithaplandy/job-board/actions/runs/45517716295).
+Production then held 4 history rows, and its schema matched `schema.sql` with an empty
+expected-diff list. `cutover-rebaseline.yml` was deleted afterwards.
 
 **This runbook is frozen.** New schema work follows [the migrations pipeline](migrations-cd.md).
 

@@ -8,6 +8,7 @@ import { SelectField, TextArea, TextField } from "@/components/ui/FormControls";
 import { Badge } from "@/components/ui/Panel";
 import { Alert } from "@/components/ui/SystemStates";
 import { AgentMarker } from "@/components/workspaces/AgentMarker";
+import { JobLink } from "@/components/workspaces/JobLink";
 import { ageLabel } from "@/components/workspaces/ShortlistRowCard";
 import { CLOSED_REASON_LABELS, STAGE_LABELS } from "@/lib/workspaces/labels";
 import type { ApplicationEvent, ApplicationRow, ClosedReason, Stage } from "@/lib/workspaces/types";
@@ -74,9 +75,9 @@ export function TrackerRow({ row, actionId }: { row: ApplicationRow; actionId: n
     <article className="rf-ws-row" aria-labelledby={titleId}>
       <div className="rf-ws-row__head">
         <div className="rf-ws-row__title">
-          <a id={titleId} className="rf-secondary-link" href={row.job.url} target="_blank" rel="noopener noreferrer">
+          <JobLink id={titleId} url={row.job.url}>
             {row.job.title}
-          </a>
+          </JobLink>
           <p className="rf-ws-row__meta">
             {row.job.company}
             {row.job.location ? ` · ${row.job.location}` : ""}

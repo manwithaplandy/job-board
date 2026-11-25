@@ -108,6 +108,20 @@ test("saving the memo sends the edited doc; a refusal is shown and nothing refre
   expect(actions.refresh).not.toHaveBeenCalled();
 });
 
+test("after a refresh brings a newer memo version, an untouched editor shows it", () => {
+  const { rerender } = render(<MemoEditor memo={{ version: 3, doc: doc(), pending: [] }} versions={[]} />);
+  rerender(<MemoEditor memo={{ version: 4, doc: doc({ role: "Staff engineer" }), pending: [] }} versions={[]} />);
+  expect((screen.getByLabelText(/Role and seniority/) as HTMLTextAreaElement).value).toBe("Staff engineer");
+  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("a newer memo version does not throw away the user's unsaved edits", () => {
+  const { rerender } = render(<MemoEditor memo={{ version: 3, doc: doc(), pending: [] }} versions={[]} />);
+  fireEvent.change(screen.getByLabelText("Must-haves"), { target: { value: "Go or Rust" } });
+  rerender(<MemoEditor memo={{ version: 4, doc: doc({ role: "Staff engineer" }), pending: [] }} versions={[]} />);
+  expect((screen.getByLabelText("Must-haves") as HTMLTextAreaElement).value).toBe("Go or Rust");
+});
+
 test("a memo whose compiled text runs over the cap cannot be saved", () => {
   render(<MemoEditor memo={{ version: 1, doc: doc(), pending: [] }} versions={[]} />);
   for (const label of ["Must-haves", "Deal-breakers", "Anything else", "Companies and industries"]) {

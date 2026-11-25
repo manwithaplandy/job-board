@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Panel";
 import { AgentMarker } from "@/components/workspaces/AgentMarker";
+import { JobLink } from "@/components/workspaces/JobLink";
 import { SkipReasonPicker } from "@/components/workspaces/SkipReasonPicker";
 import { skipReasonLabel, STAGE_LABELS } from "@/lib/workspaces/labels";
 import type { ShortlistRow, ShortlistState, Stage } from "@/lib/workspaces/types";
@@ -64,9 +65,9 @@ export function ShortlistRowCard({
           <span className="sr-only">Compare {row.job.title}</span>
         </label>
         <div className="rf-ws-row__title">
-          <a id={titleId} className="rf-secondary-link" href={row.job.url} target="_blank" rel="noopener noreferrer">
+          <JobLink id={titleId} url={row.job.url}>
             {row.job.title}
-          </a>
+          </JobLink>
           <p className="rf-ws-row__meta">
             {row.job.company}
             {row.job.location ? ` · ${row.job.location}` : ""}

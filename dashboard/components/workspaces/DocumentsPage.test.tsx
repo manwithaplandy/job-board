@@ -115,6 +115,14 @@ test("Delete asks first, then calls the action", async () => {
   await waitFor(() => expect(actions.deleteDocumentAction).toHaveBeenCalledWith(DOC_EMPTY));
 });
 
+test("a generated document whose job URL is not http(s) shows the title without a link", () => {
+  const bad = generated("c");
+  render(<DocumentsPage {...props()} generated={[{ ...bad, job: { ...bad.job, url: "javascript:alert(1)" } }]} />);
+  const list = screen.getByRole("list", { name: "Generated documents" });
+  expect(within(list).queryByRole("link", { name: "Title c" })).toBeNull();
+  expect(within(list).getByText("Title c")).toBeTruthy();
+});
+
 test("generated documents link to their job and show Outdated when the profile changed", () => {
   render(<DocumentsPage {...props()} />);
   const list = screen.getByRole("list", { name: "Generated documents" });

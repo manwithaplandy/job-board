@@ -46,7 +46,9 @@ export function TrackerBoard({
             ) : (
               <div className="rf-ws-list">
                 {list.map((row) => (
-                  <TrackerRow key={row.jobId} row={row} actionId={markers[row.jobId] ?? null} />
+                  // Keyed on updatedAt too: the row seeds its controls from props, so a
+                  // refresh that changed it (an Undo, another tab) remounts it fresh.
+                  <TrackerRow key={`${row.jobId}|${row.updatedAt}`} row={row} actionId={markers[row.jobId] ?? null} />
                 ))}
               </div>
             )}

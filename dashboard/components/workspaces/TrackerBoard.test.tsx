@@ -93,6 +93,32 @@ test("the page groups rows by stage in the order preparing..closed and shows sta
   expect(screen.getByRole("article", { name: "Title gh:a:6" }).textContent).toContain("Rejected");
 });
 
+test("a job URL that is not http(s) renders the title without a link", () => {
+  const bad = app("gh:acme:1", "preparing");
+  render(<TrackerBoard rows={[{ ...bad, job: { ...bad.job, url: "javascript:alert(1)" } }]} markers={{}} />);
+  expect(screen.queryByRole("link", { name: "Title gh:acme:1" })).toBeNull();
+  expect(screen.getAllByText("Title gh:acme:1").length).toBeGreaterThan(0);
+  expect(document.querySelector('a[href^="javascript:"]')).toBeNull();
+});
+
+test("after a refresh moves a row (an Undo, say), its controls show the new stage", () => {
+  const before = app("gh:a:1", "interviewing");
+  const { rerender } = render(<TrackerBoard rows={[before]} markers={{}} />);
+  rerender(<TrackerBoard rows={[{ ...before, stage: "applied", updatedAt: "2026-11-11T12:00:00.000Z" }]} markers={{}} />);
+  const card = screen.getByRole("article", { name: "Title gh:a:1" });
+  expect((within(card).getByLabelText("Stage") as HTMLSelectElement).value).toBe("applied");
+  expect((within(card).getByRole("button", { name: "Move" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("after a refresh changes a row's next step in place, the date field shows the new one", () => {
+  const before = app("gh:a:1", "applied", { nextStepOn: "2026-12-01" });
+  const { rerender } = render(<TrackerBoard rows={[before]} markers={{}} />);
+  rerender(<TrackerBoard rows={[{ ...before, nextStepOn: "2026-12-09", updatedAt: "2026-11-11T12:00:00.000Z" }]} markers={{}} />);
+  const card = screen.getByRole("article", { name: "Title gh:a:1" });
+  expect((within(card).getByLabelText("Next step on") as HTMLInputElement).value).toBe("2026-12-09");
+  expect((within(card).getByRole("button", { name: "Save date" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
 test("an empty tracker shows the fixed empty state with a link to the shortlist", () => {
   render(<TrackerBoard rows={[]} markers={{}} />);
   expect(screen.getByText("No applications tracked yet")).toBeTruthy();

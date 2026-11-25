@@ -43,6 +43,13 @@ export function MemoEditor({ memo, versions }: { memo: MemoEditorRead; versions:
   const [draft, setDraft] = useState<MemoDoc>(memo.doc);
   const [editing, setEditing] = useState<MemoProposal | null>(null);
   const [message, setMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+  // When a refresh brings a newer version (an approval or save elsewhere), an editor the
+  // user has not touched follows it; unsaved edits are kept for the user to decide.
+  const [seen, setSeen] = useState<{ version: number; doc: MemoDoc }>({ version: memo.version, doc: memo.doc });
+  if (memo.version !== seen.version) {
+    setSeen({ version: memo.version, doc: memo.doc });
+    if (!editing && sameDoc(draft, seen.doc)) setDraft(memo.doc);
+  }
 
   const base = editing ? editing.proposedDoc : memo.doc;
   const overflow = compiledMemoOverflow(draft);

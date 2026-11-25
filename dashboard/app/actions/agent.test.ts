@@ -57,6 +57,17 @@ test("undoAgentAction undoes as the session user and revalidates the workspaces 
   expect(m.revalidatePath).toHaveBeenCalledWith("/agent");
 });
 
+test("a successful undo revalidates every page an undoable kind changes", async () => {
+  // shortlist.set -> /shortlist; application.* -> /applications, /shortlist (stage) and the
+  // board (package status); profile.set_resume -> /documents, /profile, /profile/resume,
+  // /looking-for; analytics.set_tiles -> /analytics; every kind -> /agent.
+  undo.undoAction.mockResolvedValue({ ok: true });
+  await undoAgentAction(42);
+  expect(m.revalidatePath.mock.calls.map((c) => c[0]).sort()).toEqual(
+    ["/", "/agent", "/analytics", "/applications", "/board", "/documents", "/looking-for", "/profile", "/profile/resume", "/shortlist"].sort(),
+  );
+});
+
 test("undoAgentAction passes a refusal through and revalidates nothing", async () => {
   undo.undoAction.mockResolvedValue({ ok: false, reason: "changed_since" });
   expect(await undoAgentAction(42)).toEqual({ ok: false, reason: "changed_since" });

@@ -228,6 +228,24 @@ test("sections come in the order Suggested, Shortlisted, Later, Skipped, Browse 
   expect(headings).toEqual(["Suggested", "Shortlisted", "Later", "Skipped", "Browse all"]);
 });
 
+test("a job URL that is not http(s) renders the title without a link, on rows and browse", () => {
+  render(
+    <ShortlistBoard
+      rows={[row("gh:acme:1", { job: { ...row("gh:acme:1").job, url: "javascript:alert(1)" } })]}
+      markers={{}}
+      filters={NO_FILTERS}
+      browseError={false}
+      browse={[{ jobId: "gh:acme:9", title: "Data Engineer", company: "Initech", url: "data:text/html,x", fitScore: 70, pay: null, ageDays: 3 }]}
+    />,
+  );
+  const card = screen.getByRole("article", { name: "Title gh:acme:1" });
+  expect(within(card).queryByRole("link", { name: "Title gh:acme:1" })).toBeNull();
+  expect(within(card).getByText("Title gh:acme:1")).toBeTruthy();
+  const item = screen.getByRole("article", { name: "Data Engineer" });
+  expect(within(item).queryByRole("link", { name: "Data Engineer" })).toBeNull();
+  expect(document.querySelector('a[href^="javascript:"], a[href^="data:"]')).toBeNull();
+});
+
 test("browse rows show title, company, fit, pay and age, and can be shortlisted", async () => {
   render(
     <ShortlistBoard

@@ -6,8 +6,25 @@ import { assertNotDeleted } from "@/lib/tombstone";
 import { createThread, renameThread } from "@/lib/agent/threads";
 import { undoAction, type UndoResult } from "@/lib/agent/actions/audit";
 
-// The pages that show agent writes, refreshed after a successful undo.
-const UNDO_PATHS = ["/shortlist", "/applications", "/documents", "/agent"] as const;
+// The pages that show agent writes, refreshed after a successful undo. undoAction does
+// not say which kind it undid, so this covers every registered undoer:
+//   shortlist.set        /shortlist
+//   application.*        /applications, /shortlist (tracked stage), / and /board (package status)
+//   profile.set_resume   /documents, /profile, /profile/resume, /looking-for
+//   analytics.set_tiles  /analytics
+// and /agent for all of them.
+const UNDO_PATHS = [
+  "/shortlist",
+  "/applications",
+  "/documents",
+  "/agent",
+  "/",
+  "/board",
+  "/profile",
+  "/profile/resume",
+  "/looking-for",
+  "/analytics",
+] as const;
 
 // Thread actions for the agent page (plan Task 0.14). The user id always comes from the
 // session; a thread id from the client is only ever matched together with it

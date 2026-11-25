@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { SelectField, TextField } from "@/components/ui/FormControls";
 import { Badge } from "@/components/ui/Panel";
 import { Alert } from "@/components/ui/SystemStates";
+import { JobLink } from "@/components/workspaces/JobLink";
 import { ageLabel, fitLabel } from "@/components/workspaces/ShortlistRowCard";
 
 /** One reviewed, open job in the reduced Browse all list. */
@@ -80,9 +81,9 @@ export function BrowseAll({
               <article key={row.jobId} className="rf-ws-row rf-ws-row--browse" aria-labelledby={titleId}>
                 <div className="rf-ws-row__head">
                   <div className="rf-ws-row__title">
-                    <a id={titleId} className="rf-secondary-link" href={row.url} target="_blank" rel="noopener noreferrer">
+                    <JobLink id={titleId} url={row.url}>
                       {row.title}
-                    </a>
+                    </JobLink>
                     <p className="rf-ws-row__meta">
                       <span>{row.company}</span>
                       {row.pay && <span>{row.pay}</span>}

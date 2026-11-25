@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { FileUpload } from "@/components/ui/FormControls";
 import { Badge } from "@/components/ui/Panel";
 import { Alert } from "@/components/ui/SystemStates";
+import { JobLink } from "@/components/workspaces/JobLink";
 import type { GeneratedDocuments } from "@/lib/workspaces/generatedDocuments";
 import type { ResumeVersion } from "@/lib/workspaces/resumeVersions";
 import type { DocumentMeta } from "@/lib/workspaces/types";
@@ -275,9 +276,7 @@ export function DocumentsPage({
               <li key={g.job.jobId} className="rf-ws-row">
                 <div className="rf-ws-row__head">
                   <div className="rf-ws-row__title">
-                    <a className="rf-secondary-link" href={g.job.url} target="_blank" rel="noopener noreferrer">
-                      {g.job.title}
-                    </a>
+                    <JobLink url={g.job.url}>{g.job.title}</JobLink>
                     <p className="rf-ws-row__meta">
                       {g.job.company} · Prepared <time dateTime={g.preparedAt}>{day(g.preparedAt)}</time>
                       {g.status === "applied" ? " · Applied" : ""}

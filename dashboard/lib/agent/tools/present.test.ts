@@ -73,10 +73,14 @@ describe("present", () => {
     expect(await runPresent(c, { payload: "just text" })).toMatchObject({ outcome: "fallback", payload: fallbackSurface(c.gathered) });
   });
 
-  test("a variant 2 thread falls back to the variant 1 surface", async () => {
+  test("a variant 2 thread judges the payload by the tree grammar; a variant 1 payload falls back", async () => {
     const out = await runPresent(ctx({ variant: 2 }), { payload: { variant: 1, blocks: [{ type: "JobCard", jobId: JOB_A }] } });
-    expect(out).toMatchObject({ variant: 1, outcome: "fallback", errors: ["variant 2 has no grammar yet"] });
+    expect(out).toMatchObject({ variant: 1, outcome: "fallback" });
+    expect(out.errors).toContain('payload: Unrecognized key: "blocks"');
     expect(saved()).toMatchObject({ variant: 1, outcome: "fallback" });
+    const tree = { variant: 2, root: { type: "JobTitle", jobId: JOB_A } };
+    expect(await runPresent(ctx({ variant: 2 }), { payload: tree })).toMatchObject({ variant: 2, outcome: "valid", payload: tree });
+    expect(saved()).toMatchObject({ variant: 2, outcome: "valid", payload: tree });
   });
 
   test("present with surfaceId stores a new row that supersedes the old one", async () => {

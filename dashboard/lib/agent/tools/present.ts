@@ -13,6 +13,7 @@
 import { jsonSchema, tool } from "ai";
 import { z } from "zod";
 import type { JSONSchema7 } from "@ai-sdk/provider";
+import type { Variant } from "@/lib/agent/config";
 import type { ToolCtx } from "@/lib/agent/tools";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
@@ -31,7 +32,7 @@ export interface PresentInput {
 
 export type PresentResult = {
   surfaceId: string;
-  variant: 1;
+  variant: Variant;
   outcome: Extract<SurfaceOutcome, "valid" | "fallback">;
   payload: SurfacePayload;
   /** Why the payload fell back (only with outcome fallback). */
@@ -85,6 +86,8 @@ export async function runPresent(ctx: ToolCtx, input: PresentInput): Promise<Pre
   const checked = await validateSurface(input.payload, ctx.variant, ctx);
   const payload = checked.ok ? checked.payload : fallback;
   const outcome = checked.ok ? "valid" : "fallback";
+  // A stored payload is in its own variant's grammar: the fallback is variant 1.
+  const variant: Variant = checked.ok ? ctx.variant : 1;
 
   const surfaceId = await withUserSql(ctx.userId, async (tx) => {
     // Only one of the caller's own surfaces in this thread can be superseded; any other
@@ -99,7 +102,7 @@ export async function runPresent(ctx: ToolCtx, input: PresentInput): Promise<Pre
     return saveSurface(tx, {
       threadId,
       runId: ctx.runId,
-      variant: 1,
+      variant,
       payload,
       fallbackPayload: fallback,
       gathered: ctx.gathered,
@@ -112,8 +115,8 @@ export async function runPresent(ctx: ToolCtx, input: PresentInput): Promise<Pre
     });
   });
   return checked.ok
-    ? { surfaceId, variant: 1, outcome, payload }
-    : { surfaceId, variant: 1, outcome, payload, errors: checked.errors.slice(0, ERRORS_TO_MODEL_MAX) };
+    ? { surfaceId, variant, outcome, payload }
+    : { surfaceId, variant, outcome, payload, errors: checked.errors.slice(0, ERRORS_TO_MODEL_MAX) };
 }
 
 export function presentTool(ctx: ToolCtx) {

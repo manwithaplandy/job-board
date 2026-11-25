@@ -112,9 +112,19 @@ describe("validateSurface (variant 1)", () => {
     expect((await errorsOf(repeatedRow)).length).toBeGreaterThan(0);
   });
 
-  test("variants without a grammar yet fail, so present falls back to variant 1", async () => {
-    expect(await validateSurface(v1([{ type: "Callout", tone: "info", text: "x" }]), 2, ctx())).toEqual({
-      ok: false, errors: ["variant 2 has no grammar yet"],
+  test("variant 3 has no grammar yet and fails, so present falls back to variant 1", async () => {
+    expect(await validateSurface(v1([{ type: "Callout", tone: "info", text: "x" }]), 3, ctx())).toEqual({
+      ok: false, errors: ["variant 3 has no grammar yet"],
     });
+  });
+
+  test("variant 2 is judged by the tree grammar: a variant 1 payload fails it, a tree passes", async () => {
+    const asV1 = await validateSurface(v1([{ type: "Callout", tone: "info", text: "x" }]), 2, ctx());
+    expect(asV1.ok).toBe(false);
+    const tree = { variant: 2, root: { type: "JobTitle", jobId: JOB_A } };
+    expect(await validateSurface(tree, 2, ctx())).toEqual({ ok: true, payload: tree });
+    // A tree is not a variant 1 payload.
+    expect((await errorsOf(tree)).length).toBeGreaterThan(0);
+    expect(m.queries).toBe(0);
   });
 });

@@ -22,6 +22,9 @@ export interface VisualRoute {
    *  live values in place. Runtime contracts still run on the full, unmodified page, and
    *  the hidden bodies are covered pixel-for-pixel by the gallery fixtures. */
   live?: { hide: string[]; mask: string[] };
+  /** A test driver rather than a product surface: declared so the inventory stays complete,
+   *  and skipped by the screenshot matrix (no baseline). The value says which suite drives it. */
+  harness?: string;
 }
 
 const fixture = (family: VisualFamily, state: string): VisualRoute => ({
@@ -39,6 +42,9 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   { id: "privacy", path: "/privacy", access: "public", family: "legal", state: "default", shell: "none", source: "app/privacy/page.tsx" },
   { id: "terms", path: "/terms", access: "public", family: "legal", state: "default", shell: "none", source: "app/terms/page.tsx" },
   { id: "primitive-and-state-gallery", path: "/ui-gallery", access: "public", family: "system-states", state: "interaction-contracts", shell: "none", source: "app/ui-gallery/page.tsx" },
+  // The variant 3 sandbox enforcement harness (plan Task 2.7): hostile frames that make
+  // requests to a local canary, driven only by tests/sandbox/sandbox.spec.ts.
+  { id: "agent-sandbox-harness", path: "/ui-gallery/sandbox-harness", access: "public", family: "agent", state: "sandbox-harness", shell: "none", source: "app/ui-gallery/sandbox-harness/page.tsx", harness: "tests/sandbox/sandbox.spec.ts" },
   { id: "board-default", path: "/", access: "authenticated", family: "board", state: "default", shell: "board", source: "components/rolefit/RolefitBoard.tsx",
     // Pipeline-health operator strip, the review-now panel and the list/detail workspace
     // all track live pipeline/review state; the role counts sit in fixed-width slots.

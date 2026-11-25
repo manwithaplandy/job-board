@@ -18,6 +18,33 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
 ];
 
+// The pages that host variant 3 sandbox frames (plan Task 2.7, spec 10 mitigation (c)) get
+// a later, route-scoped header entry that restates the full CSP with frame-src 'none'.
+// Next sends the last matching value of a header key, so on these paths this entry
+// replaces the baseline CSP. A srcdoc frame loads no URL; frame-src 'none' is there to
+// stop the frame from navigating itself anywhere. Task 3.6 adds "/" when the agent page
+// moves there.
+//
+// If the real-browser suite (tests/sandbox/sandbox.spec.ts, "the srcdoc frame still loads
+// and runs with the parent's frame-src 'none'") shows that frame-src 'none' blocks the
+// srcdoc load itself in any browser, the plan says to drop this entry and rely on the
+// second-load and liveness teardown plus the static checks: set
+// SANDBOX_HOST_FRAME_SRC_NONE to false. lib/securityHeaders.test.ts covers both versions.
+const SANDBOX_HOST_FRAME_SRC_NONE = true;
+export const SANDBOX_HOST_PATHS = ["/agent/:path*", "/ui-gallery/sandbox-harness"];
+const sandboxHostCsp = `${contentSecurityPolicy}; frame-src 'none'`;
+
+/** The header rules, with or without the sandbox host entry (exported for the test). */
+export function headerRules(sandboxHostFrameSrcNone) {
+  const rules = [{ source: "/:path*", headers: securityHeaders }];
+  if (sandboxHostFrameSrcNone) {
+    for (const source of SANDBOX_HOST_PATHS) {
+      rules.push({ source, headers: [{ key: "Content-Security-Policy", value: sandboxHostCsp }] });
+    }
+  }
+  return rules;
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
@@ -37,7 +64,7 @@ const nextConfig = {
     "@grpc/grpc-js",
   ],
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return headerRules(SANDBOX_HOST_FRAME_SRC_NONE);
   },
 };
 export default nextConfig;

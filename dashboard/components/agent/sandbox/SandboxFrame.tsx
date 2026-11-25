@@ -75,12 +75,27 @@ export interface SandboxSurface {
   rows: BlockRows;
 }
 
+/** The two server calls the frame host makes. Production uses the server actions. */
+export interface SandboxFrameServer {
+  describe: typeof describeFrameIntentAction;
+  report: typeof reportSurfaceFailure;
+}
+
+const SERVER_ACTIONS: SandboxFrameServer = { describe: describeFrameIntentAction, report: reportSurfaceFailure };
+
 export interface SandboxFrameProps {
   surface: SandboxSurface;
   /** "frame" for a chip press or the one direct open; "host" for a press on the fallback's blocks. */
   onIntent: (surfaceId: string, intent: ActionIntent, source: "host" | "frame") => void;
   onFallback?: (reason: FrameFailure) => void;
   onPrepSettled?: (jobId: string) => void;
+  /**
+   * Test seam for the real-browser enforcement harness (plan Task 2.7,
+   * app/ui-gallery/sandbox-harness), which has no database or session. Product code never
+   * passes it and gets the server actions. It changes only where the describe and report
+   * calls go: every check on the frame's messages, the chip arming and the limits stay.
+   */
+  server?: SandboxFrameServer;
 }
 
 interface Live {
@@ -104,9 +119,9 @@ function pageTheme(): "light" | "dark" {
   return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
 
-export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled }: SandboxFrameProps) {
+export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, server }: SandboxFrameProps) {
   const holderRef = useRef<HTMLDivElement>(null);
-  const latest = useRef({ surface, onIntent, onFallback });
+  const latest = useRef({ surface, onIntent, onFallback, server });
   // Both are kept with the surface id they belong to, so a new surface starts clean.
   const [fallbackState, setFallbackState] = useState<{ id: string; payload: SurfacePayloadV1 } | null>(null);
   const [chipState, setChipState] = useState<{ id: string; seq: number; shownAt: number; chip: FrameChip } | null>(
@@ -116,7 +131,7 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled }: S
   const chipEntry = chipState?.id === surface.id ? chipState : null;
 
   useEffect(() => {
-    latest.current = { surface, onIntent, onFallback };
+    latest.current = { surface, onIntent, onFallback, server };
   });
 
   useEffect(() => {
@@ -162,7 +177,7 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled }: S
       setChipState(null);
       setFallbackState({ id: s.id, payload: s.fallback });
       latest.current.onFallback?.(reason);
-      reportSurfaceFailure(s.id, reason).then(
+      (latest.current.server ?? SERVER_ACTIONS).report(s.id, reason).then(
         (stored) => {
           if (stored && !live.disposed) setFallbackState({ id: s.id, payload: stored });
         },
@@ -178,7 +193,7 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled }: S
       if (live.actionTotal > FRAME_ACTION_LIMITS.total) return fail("action_total_limit");
       if (live.actionTimes.length > FRAME_ACTION_LIMITS.perMinute) return fail("action_rate_limit");
       const seq = ++live.requestSeq;
-      describeFrameIntentAction(s.threadId, s.id, msg.name, msg.args).then(
+      (latest.current.server ?? SERVER_ACTIONS).describe(s.threadId, s.id, msg.name, msg.args).then(
         (described) => {
           if (live.disposed || live.failed || seq !== live.requestSeq) return;
           if (described !== null && described.direct && !live.openUsed) {

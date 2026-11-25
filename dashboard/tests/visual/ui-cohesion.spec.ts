@@ -118,6 +118,7 @@ for (const viewport of VIEWPORTS) {
           test(`${route.id}`, async ({ page }) => {
             test.skip(route.access === "authenticated" && PUBLIC_ONLY, "Explicit public-only screenshot subset.");
             test.skip(route.access === "public" && AUTHENTICATED_ONLY, "Explicit authenticated-only screenshot subset.");
+            test.skip(Boolean(route.harness), `Test driver, not a product surface: covered by ${route.harness}.`);
             await page.addInitScript((selectedTheme) => {
               localStorage.setItem("rolefit-theme", selectedTheme);
               document.documentElement.dataset.theme = selectedTheme;

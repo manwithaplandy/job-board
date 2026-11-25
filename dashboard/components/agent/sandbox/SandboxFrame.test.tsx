@@ -541,4 +541,29 @@ describe("SandboxFrame", () => {
     expect(actions.describeFrameIntentAction).not.toHaveBeenCalled();
     expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
   });
+
+  test("the harness seam replaces only where describe and report go; the frame checks still apply", async () => {
+    // Task 2.7's harness passes `server` (no database or session there); product code does not.
+    const server = {
+      describe: vi.fn().mockResolvedValue(chipFor(SHORTLIST_A, "Shortlist from the stub")),
+      report: vi.fn().mockResolvedValue(null),
+    };
+    const s = surface();
+    const onIntent = vi.fn();
+    const view = render(<SandboxFrame surface={s} onIntent={onIntent} server={server} />);
+    const iframe = view.container.querySelector("iframe")!;
+    const wrong = ready(iframe, { origin: "https://evil.example" });
+    const { port } = ready(iframe);
+    await waitFor(() => expect(wrong.received).toEqual([]));
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    const chip = await screen.findByRole("button", { name: "Shortlist from the stub" });
+    expect(server.describe).toHaveBeenCalledWith(THREAD, ID, "shortlist.set", { jobId: JOB_A, state: "shortlisted" });
+    expect(actions.describeFrameIntentAction).not.toHaveBeenCalled();
+    fireEvent.click(chip);
+    expect(onIntent).not.toHaveBeenCalled(); // still unarmed
+    port.postMessage({ type: "error", message: "boom" });
+    await screen.findByText(FALLBACK_TEXT);
+    expect(server.report).toHaveBeenCalledWith(ID, "frame_error");
+    expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+  });
 });

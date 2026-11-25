@@ -20,7 +20,7 @@ const baselinesWorkflowPath = path.join(
 const workflowsDir = path.join(repositoryRoot, ".github/workflows");
 const dashboardPackage = JSON.parse(
   readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
-) as { devDependencies: Record<string, string> };
+) as { devDependencies: Record<string, string>; scripts: Record<string, string> };
 const playwrightVersion = dashboardPackage.devDependencies["@playwright/test"];
 const playwrightImage = `image: mcr.microsoft.com/playwright:v${playwrightVersion}-noble`;
 const authenticatedVisualDesignPath = path.join(
@@ -64,9 +64,10 @@ describe("deployment-triggered authenticated visual workflow", () => {
   test("uses only inert local infrastructure placeholders in ordinary dashboard CI", () => {
     const dashboardJob = workflowJob(ordinaryCi, "dashboard");
     const publicVisualJob = workflowJob(ordinaryCi, "public-visual");
+    const sandboxJob = workflowJob(ordinaryCi, "sandbox-enforcement");
     const authenticatedWorkflow = readFileSync(authenticatedWorkflowPath, "utf8");
 
-    for (const job of [dashboardJob, publicVisualJob]) {
+    for (const job of [dashboardJob, publicVisualJob, sandboxJob]) {
       expect(job).toContain(
         "DATABASE_URL: postgresql://test:test@127.0.0.1:1/test",
       );
@@ -75,7 +76,7 @@ describe("deployment-triggered authenticated visual workflow", () => {
       );
       expect(job).toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY: test");
     }
-    expect(ordinaryCi.match(/^\s+DATABASE_URL:/gm)).toHaveLength(2);
+    expect(ordinaryCi.match(/^\s+DATABASE_URL:/gm)).toHaveLength(3);
     for (const variable of [
       "DATABASE_URL",
       "NEXT_PUBLIC_SUPABASE_URL",
@@ -114,6 +115,25 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(upload).toContain("name: public-visual-results");
     expect(upload).toContain("dashboard/test-results/visual/**");
     expect(upload).toContain("!dashboard/test-results/visual/**/trace.zip");
+  });
+  test("runs the sandbox enforcement suite in the pinned Playwright Linux container and uploads per-case results on success too", () => {
+    const sandboxJob = workflowJob(ordinaryCi, "sandbox-enforcement");
+    const cases = workflowStep(ordinaryCi, "Upload sandbox per-case results");
+    const evidence = workflowStep(ordinaryCi, "Upload sandbox failure evidence");
+
+    expect(sandboxJob).toContain("name: Sandbox enforcement");
+    expectPinnedLinuxContainer(sandboxJob);
+    expect(sandboxJob).toContain("working-directory: dashboard");
+    expect(sandboxJob).toContain("run: npm run test:sandbox");
+    expect(dashboardPackage.scripts["test:sandbox"]).toContain("playwright test --config playwright.sandbox.config.ts");
+    expect(dashboardPackage.scripts["test:sandbox"]).toMatch(/^next build && /);
+    expect(cases).toContain("if: always()");
+    expect(cases).toContain("uses: actions/upload-artifact@v4");
+    expect(cases).toContain("dashboard/test-results/sandbox/results/**");
+    expect(cases).toContain("retention-days: 7");
+    expect(evidence).toContain("if: failure()");
+    expect(evidence).toContain("dashboard/test-results/sandbox/**");
+    expect(evidence).toContain("retention-days: 7");
   });
   test("runs deployment visuals in the same pinned Playwright Linux container", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");

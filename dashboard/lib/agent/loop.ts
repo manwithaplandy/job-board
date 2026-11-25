@@ -34,6 +34,7 @@ import {
   type UIMessageChunk,
 } from "ai";
 import { catalogNow } from "@/lib/catalogClock";
+import { flushLangfuseTraces } from "@/lib/observability";
 import { AGENT_LIMITS, AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
 import { stepCostMicros } from "@/lib/agent/budget";
 import { buildInstructions } from "@/lib/agent/context";
@@ -45,6 +46,7 @@ import type { AgentThread } from "@/lib/agent/threads";
 import { loadMessages } from "@/lib/agent/threads";
 import { buildTools, type ToolCtx } from "@/lib/agent/tools";
 import { getProfileSummary } from "@/lib/agent/tools/read";
+import { withAgentTrace } from "@/lib/agent/telemetry";
 import type { ProfileSummary } from "@/lib/workspaces/types";
 
 export type TurnInput =
@@ -117,14 +119,25 @@ async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft">): Pro
   }
 }
 
-export async function streamAgentTurn(a: {
+type TurnArgs = {
   userId: string;
   email: string | null;
   thread: AgentThread;
   input: TurnInput;
   model?: LanguageModel;
   tools?: typeof buildTools;
-}): Promise<Response> {
+};
+
+export async function streamAgentTurn(a: TurnArgs): Promise<Response> {
+  // The whole turn runs inside the trace context, so the model, tool and step spans
+  // (including those that end after this returns) carry the thread and variant.
+  return withAgentTrace(
+    { userId: a.userId, threadId: a.thread.id, variant: a.thread.variant, runKind: "interactive" },
+    () => runTurn(a),
+  );
+}
+
+async function runTurn(a: TurnArgs): Promise<Response> {
   const { userId, thread } = a;
   const model = a.model ?? agentModel();
   const modelId = typeof model === "string" ? model : (model.modelId ?? AGENT_MODEL_DEFAULT);
@@ -197,6 +210,10 @@ export async function streamAgentTurn(a: {
     stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null],
     maxOutputTokens: AGENT_LIMITS.maxOutputTokens,
     abortSignal: controller.signal,
+    telemetry: { functionId: "agent-turn" },
+    onEnd: async () => {
+      await flushLangfuseTraces();
+    },
     onStepEnd: (step) => {
       const charge = (async () => {
         try {
@@ -296,15 +313,15 @@ async function persistTurn(p: {
   // Every step's charge lands before the run is closed.
   await Promise.allSettled(p.charges);
 
-  const { run, message } = p.outcome();
+  const outcome = p.outcome();
+  let final = outcome.run;
   try {
-    await saveMessages(p.userId, p.threadId, [assistant], message);
+    await saveMessages(p.userId, p.threadId, [assistant], outcome.message);
   } catch (e) {
     console.error("agent: saving the turn failed", errorName(e));
-    await finishRun(p.userId, p.runId, { status: "failed", error: "persist_failed" }).catch((err: unknown) =>
-      console.error("agent: finishRun failed", errorName(err)),
-    );
-    return;
+    final = { status: "failed", error: "persist_failed" };
   }
-  await finishRun(p.userId, p.runId, run).catch((err: unknown) => console.error("agent: finishRun failed", errorName(err)));
+  await finishRun(p.userId, p.runId, final).catch((err: unknown) => console.error("agent: finishRun failed", errorName(err)));
+  // Spans that ended after streamText's onEnd (an aborted turn, the outer spans).
+  await flushLangfuseTraces();
 }

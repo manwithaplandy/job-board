@@ -28,9 +28,12 @@ const nextConfig = {
   // Prevent webpack from trying to bundle Node.js-only OTel/gRPC packages.
   // ensureTracingStarted() in lib/observability.ts dynamically imports these
   // server-side only; keeping them external loads them at runtime via require().
+  // @ai-sdk/otel (lib/agent/telemetry.ts) is external too, so it resolves the same
+  // @opentelemetry/api copy as the tracer provider it records into.
   serverExternalPackages: [
     "@opentelemetry/sdk-trace-node",
     "@langfuse/otel",
+    "@ai-sdk/otel",
     "@grpc/grpc-js",
   ],
   async headers() {

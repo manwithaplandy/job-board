@@ -67,6 +67,10 @@ export const SANDBOX_CASE_NAMES = [
   "nav-blob-url",
   "nav-never-finishes",
   "window-open",
+  "top-nav",
+  "anchor-blank",
+  "anchor-top",
+  "anchor-top-user",
   "link-hints-static",
   "link-hints-dynamic",
   "webrtc",
@@ -157,6 +161,78 @@ function navigatedPage(tag: string, path: string): string {
 function jsString(s: string): string {
   return JSON.stringify(s).replace(/<\//g, "<\\/");
 }
+
+/**
+ * Task 2.7, CI run 2: what a click on a link looked like from inside the document. The kit
+ * cancels a click whose path holds an element with an href (capture phase, on the window,
+ * before any model listener), and strips href from elements as they are added. So a click
+ * either arrives cancelled or arrives at a link with no href left; the probe says which.
+ */
+function watchLink(id: string, key = "clicked"): string {
+  return `(function () {
+  var a = document.getElementById("${id}");
+  P("${key}HrefAtStart", !!(a && a.hasAttribute("href")));
+  if (a) a.addEventListener("click", function (e) {
+    P("${key}", { prevented: e.defaultPrevented, href: a.hasAttribute("href"), trusted: e.isTrusted });
+  });
+})();`;
+}
+
+/**
+ * A link made by script and clicked in the same task, before the kit's observer can strip
+ * its href: only the kit's click guard stands between it and a navigation.
+ */
+function freshLinkClick(target: string): string {
+  return `T("clickFresh", function () {
+  var f = document.createElement("a");
+  f.setAttribute("href", C + "/fresh");
+  f.setAttribute("target", "${target}");
+  f.textContent = "fresh link";
+  document.body.appendChild(f);
+  f.addEventListener("click", function (e) { P("freshClicked", { prevented: e.defaultPrevented, href: f.hasAttribute("href") }); });
+  f.click();
+  setTimeout(function () { P("freshHrefLater", f.hasAttribute("href")); }, 0);
+});`;
+}
+
+/**
+ * Task 2.7, CI run 2: markup that would make a resource hint, a refresh or a base URL, in
+ * case and whitespace variants and inside foreign and inert content. checkV3Static must
+ * refuse every one by its tag (document.test.ts and the link-hints-static row assert it),
+ * because a parser-inserted preconnect is not governed by CSP in WebKit, so the static
+ * check is the layer that stops it.
+ */
+export const STATIC_MARKUP_VARIANTS: ReadonlyArray<{ html: string; tag: "link" | "meta" | "base" }> = [
+  { html: `<link rel="preconnect" href="${SANDBOX_CANARY_ORIGIN}">`, tag: "link" },
+  { html: "<link rel=preconnect>", tag: "link" },
+  { html: "<LINK rel=preconnect>", tag: "link" },
+  { html: "<Link rel=preconnect>", tag: "link" },
+  { html: "<lInK rel=dns-prefetch>", tag: "link" },
+  { html: "<link\nrel=preconnect>", tag: "link" },
+  { html: "<link\trel=preconnect>", tag: "link" },
+  { html: "<link\frel=preconnect>", tag: "link" },
+  { html: "<link\r\nrel=preconnect>", tag: "link" },
+  { html: "<link/rel=preconnect>", tag: "link" },
+  { html: "<link>", tag: "link" },
+  { html: "<p>end</p><link", tag: "link" },
+  { html: "<svg><link rel=preconnect></svg>", tag: "link" },
+  { html: "<math><link rel=preconnect></math>", tag: "link" },
+  { html: "<template><link rel=preconnect></template>", tag: "link" },
+  { html: "<noscript><link rel=preconnect></noscript>", tag: "link" },
+  { html: "<!-- x --><link rel=preconnect>", tag: "link" },
+  { html: '<meta http-equiv="refresh" content="0">', tag: "meta" },
+  { html: "<META HTTP-EQUIV=Refresh CONTENT=0>", tag: "meta" },
+  { html: "<Meta http-equiv='refresh' content='0'>", tag: "meta" },
+  { html: "<meta\nhttp-equiv=refresh content=0>", tag: "meta" },
+  { html: "<meta/http-equiv=refresh content=0>", tag: "meta" },
+  { html: "<svg><meta http-equiv=refresh content=0></svg>", tag: "meta" },
+  { html: "<template><meta http-equiv=refresh content=0></template>", tag: "meta" },
+  { html: "<base>", tag: "base" },
+  { html: "<BASE target=_top>", tag: "base" },
+  { html: "<Base\nhref=x>", tag: "base" },
+  { html: "<svg><base></svg>", tag: "base" },
+  { html: "<template><base></template>", tag: "base" },
+];
 
 /**
  * The WebRTC attempt: STUN, TURN over UDP and TURN over TCP on the canary. Shared by the
@@ -328,8 +404,10 @@ P("done");
     title: "an anchor clicked by script",
     frames: [{ tag: "nav-anchor-script", html: doc("nav-anchor-script", `<a id="go" href="${SANDBOX_CANARY_ORIGIN}/c/nav-anchor-script/anchor">Go</a>
 <script>
+${watchLink("go")}
 T("click", function () { document.getElementById("go").click(); });
-P("done");
+${freshLinkClick("_self")}
+setTimeout(function () { P("done"); }, 300);
 </script>`) }],
   },
 
@@ -337,7 +415,10 @@ P("done");
     title: "an anchor the user clicks (the test clicks it)",
     frames: [{ tag: "nav-anchor-user", html: doc("nav-anchor-user", `<style>.sbx-big { display: block; padding: 24px; }</style>
 <a id="go" class="sbx-big" href="${SANDBOX_CANARY_ORIGIN}/c/nav-anchor-user/anchor">Go to the canary</a>
-<script>P("done");</script>`) }],
+<script>
+${watchLink("go")}
+P("done");
+</script>`) }],
   },
 
   "nav-data-url": {
@@ -363,26 +444,74 @@ try {
 
   "nav-never-finishes": {
     title: "self-navigation after init to a page that never finishes loading",
+    // CI run 2: WebKit does not commit a navigation whose response never finishes, so the old
+    // document stays and answers pings. The kit tells the host on beforeunload and the
+    // Navigation API's navigate event; this document records which of those the browser
+    // fired, and tries to suppress the kit's message first (a capture listener that stops
+    // propagation, a handler assignment, and a replaced MessagePort.prototype.postMessage).
     frames: [{ tag: "nav-never-finishes", html: doc("nav-never-finishes", `<script>
+window.addEventListener("beforeunload", function (e) { P("beforeunloadSeen", true); e.stopImmediatePropagation(); }, true);
+window.addEventListener("pagehide", function () { P("pagehideSeen", true); }, true);
+if (window.navigation && typeof navigation.addEventListener === "function") {
+  navigation.addEventListener("navigate", function (e) { P("navigateSeen", true); e.stopImmediatePropagation(); }, true);
+}
+T("handlerAssign", function () { window.onbeforeunload = function () { return null; }; });
 host.onInit(function () {
   P("init", true);
+  T("suppressPost", function () { MessagePort.prototype.postMessage = function () {}; });
   try { location.href = C + "/stream"; P("assigned", true); } catch (e) { P("navThrow", errName(e)); }
 });
 </script>`) }],
   },
 
+  // CI run 2: the old window-open case is split, so each sub-action has its own canary record
+  // (WebKit showed one bare TCP connection and the record could not say which action opened it).
   "window-open": {
-    title: "window.open, top and parent navigation, target=_blank and target=_top anchors",
-    frames: [{ tag: "window-open", html: doc("window-open", `<style>.sbx-big { display: block; padding: 24px; }</style>
-<a id="blank" href="${SANDBOX_CANARY_ORIGIN}/c/window-open/anchor-blank" target="_blank">New window</a>
-<a id="topa" class="sbx-big" href="${SANDBOX_CANARY_ORIGIN}/c/window-open/anchor-top" target="_top">Top window</a>
-<script>
+    title: "window.open only",
+    frames: [{ tag: "window-open", html: doc("window-open", `<script>
 T("open", function () { var w = window.open(C + "/open"); return w === null ? "null" : "a window"; });
+P("done");
+</script>`) }],
+  },
+
+  "top-nav": {
+    title: "top and parent navigation by script (location.href and location.replace)",
+    frames: [{ tag: "top-nav", html: doc("top-nav", `<script>
 T("topAssign", function () { top.location.href = C + "/top"; });
 T("parentAssign", function () { parent.location.href = C + "/parent"; });
 T("topReplace", function () { top.location.replace(C + "/top-replace"); });
+P("done");
+</script>`) }],
+  },
+
+  "anchor-blank": {
+    title: "a target=_blank anchor clicked by script, in the markup and made by script",
+    frames: [{ tag: "anchor-blank", html: doc("anchor-blank", `<a id="blank" href="${SANDBOX_CANARY_ORIGIN}/c/anchor-blank/anchor" target="_blank">New window</a>
+<script>
+${watchLink("blank")}
 T("clickBlank", function () { document.getElementById("blank").click(); });
+${freshLinkClick("_blank")}
+setTimeout(function () { P("done"); }, 300);
+</script>`) }],
+  },
+
+  "anchor-top": {
+    title: "a target=_top anchor clicked by script, in the markup and made by script",
+    frames: [{ tag: "anchor-top", html: doc("anchor-top", `<a id="topa" href="${SANDBOX_CANARY_ORIGIN}/c/anchor-top/anchor" target="_top">Top window</a>
+<script>
+${watchLink("topa")}
 T("clickTop", function () { document.getElementById("topa").click(); });
+${freshLinkClick("_top")}
+setTimeout(function () { P("done"); }, 300);
+</script>`) }],
+  },
+
+  "anchor-top-user": {
+    title: "a target=_top anchor the user clicks (the test clicks it)",
+    frames: [{ tag: "anchor-top-user", html: doc("anchor-top-user", `<style>.sbx-big { display: block; padding: 24px; }</style>
+<a id="topa" class="sbx-big" href="${SANDBOX_CANARY_ORIGIN}/c/anchor-top-user/anchor" target="_top">Top window</a>
+<script>
+${watchLink("topa")}
 P("done");
 </script>`) }],
   },

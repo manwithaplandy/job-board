@@ -24,6 +24,20 @@
 // navigates to the canary) gates the baseline-csp lane; control-webrtc (the same STUN/TURN
 // code from the top page reaches the canary) gates the webrtc row.
 //
+// CI run 2 (decisions recorded per row, with a named reason in the JSON and an annotation):
+//   - link-hints-static asserts that checkV3Static refuses the fixture and every case and
+//     whitespace variant of link, meta and base (STATIC_MARKUP_VARIANTS), then runs the
+//     fixture with the check bypassed and records the canary per browser, not asserted:
+//     a parser-inserted preconnect is not governed by CSP in WebKit, so the static check is
+//     the layer that stops it.
+//   - window-open is split into window-open, top-nav, anchor-blank, anchor-top and
+//     anchor-top-user, each with its own canary record, so a hit names its sub-action.
+//   - The kit cancels clicks on links and strips href, so the anchor cases record whether
+//     each click arrived cancelled or at a link with no href left.
+//   - nav-never-finishes records which leaving signals the browser fired; in WebKit, if it
+//     fired none and the frame was left in place, the baseline-csp row is marked fixme
+//     with that reason (production is protected by frame-src 'none', whose row asserts it).
+//
 // Every case writes test-results/sandbox/results/<browser>--<lane>-<title>.json with the
 // lane and path, the probes, the canary record, the frames' state, the harness logs, the
 // controls it read and the outcome, whether it passed, failed or was skipped. Cases run one
@@ -38,6 +52,7 @@ import {
   HARNESS_JOB_B,
   SANDBOX_CANARY_ORIGIN,
   SANDBOX_LANES,
+  STATIC_MARKUP_VARIANTS,
   WEBRTC_ATTEMPT_JS,
   isSandboxCaseName,
   sandboxCase,
@@ -85,11 +100,27 @@ const ATTEMPTS: Partial<Record<SandboxCaseName, { all?: string[]; any?: string[]
   // Since CI run 1 the kit refuses createElement("meta"), so "insert" is expected to throw.
   "nav-meta-refresh-dynamic": { all: ["insert"] },
   "nav-form": { all: ["submit", "requestSubmit", "done"] },
-  "nav-anchor-script": { all: ["done"], ok: ["click"] },
+  "nav-anchor-script": { all: ["clicked", "clickFresh", "freshClicked", "done"], ok: ["click"] },
+  "nav-anchor-user": { all: ["clicked", "done"] },
   "nav-data-url": { any: ["assigned", "navThrow"] },
   "nav-blob-url": { any: ["assigned", "navThrow"] },
-  "nav-never-finishes": { all: ["init"], any: ["assigned", "navThrow"] },
+  "nav-never-finishes": { all: ["init", "suppressPost"], any: ["assigned", "navThrow"] },
+  "window-open": { all: ["open", "done"] },
+  "top-nav": { all: ["topAssign", "parentAssign", "topReplace", "done"] },
+  "anchor-blank": { all: ["clickBlank", "clicked", "clickFresh", "freshClicked", "done"] },
+  "anchor-top": { all: ["clickTop", "clicked", "clickFresh", "freshClicked", "done"] },
+  "anchor-top-user": { all: ["clicked", "done"] },
 };
+
+/** CI run 2, item 1(b): why link-hints-static's canary record is kept, not asserted. */
+const LINK_HINTS_STATIC_REASON =
+  "browser layer: parser-inserted preconnect is not governed by CSP in WebKit; production static check rejects it (see a)";
+
+/** CI run 2, item 3: why the WebKit nav-never-finishes row on the baseline-csp lane may be fixme. */
+const NEVER_FINISHES_WEBKIT_REASON =
+  "browser layer: WebKit fired none of beforeunload, pagehide or navigate for a navigation whose response never finishes, " +
+  "so the kit had nothing to report and the old document kept answering pings; production is protected by frame-src 'none' " +
+  "(the frame-src-none lane's nav-never-finishes row asserts it)";
 
 /**
  * Inline scripts a case's CSP is meant to refuse: the speculation-rules script the document
@@ -98,8 +129,12 @@ const ATTEMPTS: Partial<Record<SandboxCaseName, { all?: string[]; any?: string[]
  */
 const ALLOWED_INLINE_REFUSALS: Partial<Record<string, number>> = { "link-hints-static": 1, "i1-trusted-types": 1 };
 
-/** baseline-csp lane cases whose navigation the browser has no reason to stop: the host must remove the frame. */
-const MUST_TEAR_DOWN: SandboxCaseName[] = ["nav-parse", "nav-oninit", "nav-after-load", "nav-anchor-script", "nav-anchor-user", "nav-never-finishes"];
+/**
+ * baseline-csp lane cases whose navigation nothing in the frame stops: the host must remove
+ * the frame. Since CI run 2 the kit cancels link clicks, so the anchor cases are not here;
+ * expectLinksStopped checks them instead.
+ */
+const MUST_TEAR_DOWN: SandboxCaseName[] = ["nav-parse", "nav-oninit", "nav-after-load", "nav-never-finishes"];
 
 interface FrameState {
   index: number;
@@ -121,6 +156,8 @@ interface CaseRecord {
   probes: Probe[];
   hits: CanaryHits | null;
   hitsAsserted: boolean;
+  /** Why the canary record is kept and not asserted, where a row does that (CI run 2). */
+  recordedReason: string | null;
   frames: FrameState[];
   intents: unknown[];
   fallbacks: unknown[];
@@ -147,7 +184,9 @@ class CaseRun {
   ) {
     this.record = {
       browser, case: name, lane, path: lane === "controls" ? "" : SANDBOX_LANES[lane], parentCsp: null, parentFrameSrcNone: null,
-      gates: {}, staticCheck: [], probes: [], hits: null, hitsAsserted: lane === "frame-src-none", frames: [], intents: [], fallbacks: [], reports: [],
+      gates: {}, staticCheck: [], probes: [], hits: null, hitsAsserted: lane === "frame-src-none",
+      recordedReason: lane === "baseline-csp" ? "baseline-csp lane: the canary record is gate A18's input" : null,
+      frames: [], intents: [], fallbacks: [], reports: [],
       popups: [], pageUrlAfter: null, outcome: null, notes: [],
     };
   }
@@ -454,7 +493,16 @@ async function clickInFrame(run: CaseRun, selector: string): Promise<boolean> {
     .then(() => true, () => false);
 }
 
-const USER_CLICKS: Partial<Record<SandboxCaseName, string>> = { "nav-form": "#send", "nav-anchor-user": "#go", "window-open": "#topa" };
+/** CI run 2: the old window-open case, one sub-action per case (name, what it tries, the calls whose throws are noted). */
+const POPUP_CASES: Array<[SandboxCaseName, string, string[]]> = [
+  ["window-open", "window.open", ["open"]],
+  ["top-nav", "top and parent navigation by script", ["topAssign", "parentAssign", "topReplace"]],
+  ["anchor-blank", "a target=_blank anchor clicked by script (in the markup, and made by script)", ["clickBlank", "clickFresh"]],
+  ["anchor-top", "a target=_top anchor clicked by script (in the markup, and made by script)", ["clickTop", "clickFresh"]],
+  ["anchor-top-user", "a target=_top anchor the user clicks", []],
+];
+
+const USER_CLICKS: Partial<Record<SandboxCaseName, string>> = { "nav-form": "#send", "nav-anchor-user": "#go", "anchor-top-user": "#topa" };
 
 /** A navigation-style case on either lane: open, the user's click if any, wait, record. */
 async function navigationCase(run: CaseRun, lane: SandboxLane, caseName: SandboxCaseName) {
@@ -465,7 +513,7 @@ async function navigationCase(run: CaseRun, lane: SandboxLane, caseName: Sandbox
     await waitForProbe(run, caseName, "done", 5_000);
     const clicked = await clickInFrame(run, selector);
     run.note(`Real click on ${selector}: ${clicked ? "made" : "not possible (the frame was gone)"}`);
-    if (caseName === "nav-anchor-user") expect(clicked, `${run.at}: the anchor could be clicked`).toBe(true);
+    if (caseName === "nav-anchor-user" || caseName === "anchor-top-user") expect(clicked, `${run.at}: the anchor could be clicked`).toBe(true);
   }
   await pollFor(run, lane === "baseline-csp" ? BASELINE_WAIT_MS : NAV_WAIT_MS);
   await finishCase(run, 0);
@@ -480,6 +528,27 @@ function expectNavigatedPageGotNoInit(run: CaseRun, caseName: SandboxCaseName) {
     (p) => p.t === caseName && (p.k === "navigatedGotPortMessage" || p.k === "navigatedGotWindowMessage") && p.v === "init",
   );
   expect(gotInit, `${run.at}: the navigated page received init`).toEqual([]);
+}
+
+/**
+ * CI run 2: every click on a link arrived either cancelled by the kit's guard or at an element
+ * the kit's observer had already stripped of its href, and a link made by script lost its href.
+ */
+function expectLinksStopped(run: CaseRun, tag: string) {
+  for (const key of ["clicked", "freshClicked"]) {
+    if (!hasProbe(run.probes, tag, key)) continue;
+    const v = probeValue(run.probes, tag, key) as { prevented?: boolean; href?: boolean } | undefined;
+    expect(
+      v?.prevented === true || v?.href === false,
+      `${run.at}: a click on a link was neither cancelled by the kit nor left without an href (${key}: ${JSON.stringify(v)})`,
+    ).toBe(true);
+  }
+  if (hasProbe(run.probes, tag, "freshHrefLater")) {
+    expect(probeValue(run.probes, tag, "freshHrefLater"), `${run.at}: the kit's observer left the href on a link made by script`).toBe(false);
+  }
+  run.note(
+    `Links: ${["clickedHrefAtStart", "clicked", "freshClicked", "freshHrefLater"].map((k) => `${k}=${JSON.stringify(probeValue(run.probes, tag, k))}`).join(", ")}`,
+  );
 }
 
 /** baseline-csp lane: a frame that navigated is removed by the host, with a teardown reason. */
@@ -500,7 +569,7 @@ function expectHostTeardown(run: CaseRun, caseName: SandboxCaseName) {
         `but the host did not remove it with a teardown reason (${run.record.outcome})`,
     ).toBe(true);
   } else {
-    run.note(`No navigation reached the canary and the frame was ${removed ? "removed" : "left in place"}: the browser stopped this navigation itself.`);
+    run.note(`No navigation reached the canary and the frame was ${removed ? "removed" : "left in place"}: the browser or the kit stopped this navigation.`);
   }
 }
 
@@ -789,6 +858,7 @@ test.describe(`frame-src-none lane (${SANDBOX_LANES["frame-src-none"]})`, () => 
       await navigationCase(run, "frame-src-none", caseName);
       expectNoHits(run);
       expectAttempted(run, caseName);
+      expectLinksStopped(run, caseName);
       expectContained(run);
       run.note(`Outcome: ${run.record.outcome}`);
     });
@@ -809,24 +879,52 @@ test.describe(`frame-src-none lane (${SANDBOX_LANES["frame-src-none"]})`, () => 
     });
   }
 
-  test("window-open: window.open, top navigation and target=_top reach nothing and open nothing", async ({ page, request, browserName }) => {
-    const run = await startCase(page, request, browserName, "window-open", "frame-src-none");
-    await navigationCase(run, "frame-src-none", "window-open");
-    expectNoHits(run);
-    expectAttempted(run, "window-open");
-    noteThrows(run, "window-open", ["open", "topAssign", "parentAssign", "topReplace", "clickBlank", "clickTop"]);
-    expect(run.record.popups, `${run.at}: popups opened`).toEqual([]);
-    expect(run.record.pageUrlAfter, `${run.at}: the top page navigated`).toContain(`${SANDBOX_LANES["frame-src-none"]}?case=window-open`);
-    expectContained(run);
-  });
-
-  for (const caseName of ["link-hints-static", "link-hints-dynamic"] as const) {
-    test(`${caseName}: a dns-prefetch, preconnect, prefetch, preload or speculation-rules hint produces no request`, async ({ page, request, browserName }) => {
+  // CI run 2, item 2: one case per sub-action, each with its own canary record.
+  for (const [caseName, what, throwKeys] of POPUP_CASES) {
+    test(`${caseName}: ${what} reaches nothing and opens nothing`, async ({ page, request, browserName }) => {
       const run = await startCase(page, request, browserName, caseName, "frame-src-none");
-      await hostileCase(run, caseName, 6_000, 3_000);
-      run.note("dns-prefetch to an IP literal makes no DNS query; a DNS-only leak is not observable with this canary.");
+      await navigationCase(run, "frame-src-none", caseName);
+      if (throwKeys.length > 0) noteThrows(run, caseName, throwKeys);
+      expectNoHits(run);
+      expectAttempted(run, caseName);
+      expectLinksStopped(run, caseName);
+      expect(run.record.popups, `${run.at}: popups opened`).toEqual([]);
+      expect(run.record.pageUrlAfter, `${run.at}: the top page navigated`).toContain(`${SANDBOX_LANES["frame-src-none"]}?case=${caseName}`);
+      expectContained(run);
     });
   }
+
+  // CI run 2, item 1: WebKit opens a bare TCP connection for the parser-inserted preconnect.
+  // (a) proves the layer that stops it in production; (b) records the browser layer.
+  test("link-hints-static: (a) checkV3Static refuses the markup hints and every variant; (b) the browser layer is recorded, not asserted", async (
+    { page, request, browserName },
+    testInfo,
+  ) => {
+    const run = await startCase(page, request, browserName, "link-hints-static", "frame-src-none");
+    const fixture = sandboxCase("link-hints-static").frames[0].html;
+    expect(checkV3Static(fixture), `${run.at}: (a) checkV3Static accepted the link-hints-static fixture`).toContain("html: <link> is not allowed");
+    const missed = STATIC_MARKUP_VARIANTS.filter((v) => !checkV3Static(v.html).includes(`html: <${v.tag}> is not allowed`)).map((v) => v.html);
+    expect(missed, `${run.at}: (a) checkV3Static did not refuse these variants by their tag`).toEqual([]);
+    run.note(`(a) checkV3Static refuses the fixture and all ${STATIC_MARKUP_VARIANTS.length} markup variants by their tag.`);
+
+    run.record.hitsAsserted = false;
+    run.record.recordedReason = LINK_HINTS_STATIC_REASON;
+    testInfo.annotations.push({ type: "recorded-not-asserted", description: `[${browserName}] ${LINK_HINTS_STATIC_REASON}` });
+    requireControls(run, laneControls("frame-src-none", "link-hints-static"));
+    await openHarness(run, "frame-src-none", "link-hints-static");
+    await waitForProbe(run, "link-hints-static", "done", 6_000);
+    await finishCase(run, 3_000);
+    recordHits(run, testInfo);
+    expectAttempted(run, "link-hints-static");
+    expectContained(run);
+    run.note("dns-prefetch to an IP literal makes no DNS query; a DNS-only leak is not observable with this canary.");
+  });
+
+  test("link-hints-dynamic: hints inserted by script produce nothing (the kit refuses link elements)", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "link-hints-dynamic", "frame-src-none");
+    await hostileCase(run, "link-hints-dynamic", 6_000, 3_000);
+    run.note("dns-prefetch to an IP literal makes no DNS query; a DNS-only leak is not observable with this canary.");
+  });
 
   test("webrtc: RTCPeerConnection with STUN and TURN servers on the canary sends nothing", async ({ page, request, browserName }) => {
     const run = await startCase(page, request, browserName, "webrtc", "frame-src-none");
@@ -1052,23 +1150,43 @@ test.describe(`baseline-csp lane (${SANDBOX_LANES["baseline-csp"]}): teardown wi
       await navigationCase(run, "baseline-csp", caseName);
       recordHits(run, testInfo);
       expectAttempted(run, caseName);
+      expectLinksStopped(run, caseName);
       expectNavigatedPageGotNoInit(run, caseName);
       expectContained(run);
+      if (caseName === "nav-never-finishes") {
+        // CI run 2, item 3: which leaving signals the browser fired (the fixture's own
+        // listeners, registered after the kit's). Only WebKit, only when it fired none and
+        // the frame is still in place, is this row fixme, with the reason named.
+        const signals = ["beforeunloadSeen", "navigateSeen", "pagehideSeen"].filter((k) => hasProbe(run.probes, caseName, k));
+        run.note(`Leaving signals the browser fired: ${signals.length > 0 ? signals.join(", ") : "none"}`);
+        const removed = run.record.frames.every((f) => !f.present);
+        if (browserName === "webkit" && signals.length === 0 && !removed) {
+          run.record.recordedReason = NEVER_FINISHES_WEBKIT_REASON;
+          run.note(NEVER_FINISHES_WEBKIT_REASON);
+          test.fixme(true, `[webkit] ${NEVER_FINISHES_WEBKIT_REASON}`);
+        }
+      }
       expectHostTeardown(run, caseName);
       run.note(`Outcome: ${run.record.outcome}`);
     });
   }
 
-  test("window-open: window.open, top navigation and target=_top open nothing and leave the top page in place", async ({ page, request, browserName }, testInfo) => {
-    const run = await startCase(page, request, browserName, "window-open", "baseline-csp");
-    await navigationCase(run, "baseline-csp", "window-open");
-    recordHits(run, testInfo);
-    expectAttempted(run, "window-open");
-    noteThrows(run, "window-open", ["open", "topAssign", "parentAssign", "topReplace", "clickBlank", "clickTop"]);
-    expect(run.record.popups, `${run.at}: popups opened`).toEqual([]);
-    expect(run.record.pageUrlAfter, `${run.at}: the top page navigated`).toContain(`${SANDBOX_LANES["baseline-csp"]}?case=window-open`);
-    const escaped = run.record.hits!.requests.filter((r) => /\/c\/window-open\/(top|parent|top-replace|open|anchor-top|anchor-blank)$/.test(r.url ?? ""));
-    expect(escaped.map((r) => r.url), `${run.at}: a top, parent or new-window navigation reached the canary`).toEqual([]);
-    expectContained(run);
-  });
+  // CI run 2, item 2: one case per sub-action, each with its own canary record. On this lane a
+  // request is still an escape here: none of these documents navigates itself, so any request
+  // from them is a top, parent or new-window navigation.
+  for (const [caseName, what, throwKeys] of POPUP_CASES) {
+    test(`${caseName}: ${what} opens nothing and leaves the top page in place`, async ({ page, request, browserName }, testInfo) => {
+      const run = await startCase(page, request, browserName, caseName, "baseline-csp");
+      await navigationCase(run, "baseline-csp", caseName);
+      recordHits(run, testInfo);
+      if (throwKeys.length > 0) noteThrows(run, caseName, throwKeys);
+      expectAttempted(run, caseName);
+      expectLinksStopped(run, caseName);
+      expect(run.record.popups, `${run.at}: popups opened`).toEqual([]);
+      expect(run.record.pageUrlAfter, `${run.at}: the top page navigated`).toContain(`${SANDBOX_LANES["baseline-csp"]}?case=${caseName}`);
+      const escaped = run.record.hits!.requests.filter((r) => r.case === caseName);
+      expect(escaped.map((r) => r.url), `${run.at}: a top, parent or new-window navigation reached the canary`).toEqual([]);
+      expectContained(run);
+    });
+  }
 });

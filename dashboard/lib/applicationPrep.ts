@@ -46,8 +46,8 @@ import { applyUrl } from "@/lib/rolefit/applyUrl";
 import { DEFAULT_RESUME_MODEL, generateResume } from "@/lib/rolefit/resumeClient";
 import { DEFAULT_COVER_MODEL, generateCoverLetter } from "@/lib/rolefit/coverLetterClient";
 import { DEFAULT_PREFILL_MODEL, generatePrefilledAnswers } from "@/lib/rolefit/prefillClient";
-import { hasCoverLetterQuestion, stripCoverLetterQuestions } from "@/lib/rolefit/coverLetterQuestion";
-import { toPrefillQuestions, type PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
+import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";
+import { prefillQuestionsFor, prepNeeds } from "@/lib/rolefit/prepNeeds";
 import { composeResumeText } from "@/lib/rolefit/resumeText";
 import { getResumeSource } from "@/lib/rolefit/resumeSource";
 import { getStructuredModels } from "@/lib/openrouter";
@@ -141,7 +141,7 @@ export async function startApplicationPrep(
   // A full prep always writes the résumé and the cover letter only when the posting asks
   // for one; a refine writes exactly its targets.
   const wantsResume = opts.refine ? opts.refine.target !== "cover" : true;
-  const wantsCover = opts.refine ? opts.refine.target !== "resume" : hasCoverLetterQuestion(questions);
+  const wantsCover = opts.refine ? opts.refine.target !== "resume" : prepNeeds(questions).cover;
 
   // Charge each written document. reserveGenerations is ATOMIC (avoids check-then-charge
   // TOCTOU) and all-or-nothing across the kinds; a leg that failed before inference is
@@ -228,7 +228,7 @@ export async function startApplicationPrep(
   const { resumeText } = getResumeSource(profile);
   // Prefill answers the answerable (non-file) questions MINUS any cover-letter question
   // (the cover leg writes that letter — prefill must not double-answer it).
-  const prefillQuestions = toPrefillQuestions(stripCoverLetterQuestions(questions));
+  const prefillQuestions = prefillQuestionsFor(questions);
 
   const run = async () => {
     let resumeTraceId: string | null = null;

@@ -6,6 +6,46 @@ export interface SqlQuery {
   values: unknown[];
 }
 
+/**
+ * The board's per-viewer company gate: the viewer's company_overrides (`include` always
+ * passes, `exclude` never does) and the profile's company_exclusions (industries, sizes,
+ * countries, red-flag categories). `viewerPh` is the placeholder bound to the viewer's
+ * user id; the query must alias companies as `c`. `join` goes after the companies join
+ * and `where` is one boolean expression. Shared with the agent's read tools
+ * (lib/agent/tools/read.ts), so both decide visibility the same way.
+ */
+export function companyGateSql(viewerPh: string): { join: string; where: string } {
+  const excl = (key: string) =>
+    `COALESCE((SELECT ARRAY(SELECT jsonb_array_elements_text(p.company_exclusions->'${key}'))` +
+    ` FROM profiles p WHERE p.user_id = ${viewerPh}::uuid), '{}'::text[])`;
+  return {
+    join: `LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = ${viewerPh}::uuid`,
+    where:
+      `(co.verdict = 'include' OR (COALESCE(co.verdict, '') <> 'exclude'` +
+      ` AND NOT (COALESCE(c.industry, 'unknown') = ANY(${excl("industries")}))` +
+      ` AND NOT (COALESCE(c.size, 'unknown') = ANY(${excl("sizes")}))` +
+      ` AND NOT (COALESCE(c.hq_country, 'unknown') = ANY(${excl("countries")}))` +
+      ` AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.red_flags, '[]'::jsonb)) rf` +
+      ` WHERE rf->>'category' = ANY(${excl("redFlagCategories")}))))`,
+  };
+}
+
+/**
+ * The board's "open" test (status "open", without older live listings) in its
+ * per-row form, which the board uses for selective queries so the visibility of the
+ * whole corpus is not materialized. It is equivalent to the set-returning
+ * `COALESCE(visibility.discovery_visible, j.closed_at IS NULL)` path: a job whose every
+ * mapped listing is proven closed is not open even when jobs.closed_at is NULL.
+ */
+export function boardOpenPredicateSql(): string {
+  return discoveryPredicate(false).text;
+}
+
+/** The board's "closed" test (status "closed") in its per-row form; see boardOpenPredicateSql. */
+export function boardClosedPredicateSql(): string {
+  return sourceClosedPredicate().text;
+}
+
 export function buildJobsQuery(
   f: Filters,
   userId: string | null,
@@ -141,19 +181,9 @@ export function buildJobsQuery(
   // makes a missing profile / NULL column mean "no exclusions" (fail open).
   let overridesJoin = "";
   if (opts.companyFiltersFromProfile && viewerPh) {
-    overridesJoin =
-      `LEFT JOIN company_overrides co ON co.company_id = c.id AND co.user_id = ${viewerPh}::uuid`;
-    const excl = (key: string) =>
-      `COALESCE((SELECT ARRAY(SELECT jsonb_array_elements_text(p.company_exclusions->'${key}'))` +
-      ` FROM profiles p WHERE p.user_id = ${viewerPh}::uuid), '{}'::text[])`;
-    where.push(
-      `(co.verdict = 'include' OR (COALESCE(co.verdict, '') <> 'exclude'` +
-      ` AND NOT (COALESCE(c.industry, 'unknown') = ANY(${excl("industries")}))` +
-      ` AND NOT (COALESCE(c.size, 'unknown') = ANY(${excl("sizes")}))` +
-      ` AND NOT (COALESCE(c.hq_country, 'unknown') = ANY(${excl("countries")}))` +
-      ` AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.red_flags, '[]'::jsonb)) rf` +
-      ` WHERE rf->>'category' = ANY(${excl("redFlagCategories")}))))`,
-    );
+    const gate = companyGateSql(viewerPh);
+    overridesJoin = gate.join;
+    where.push(gate.where);
   }
 
   // --- review dimension filters (only on verdicts that carry review columns) ---

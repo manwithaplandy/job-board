@@ -7,13 +7,18 @@ const db = vi.hoisted(() => ({
   respond: (_text: string): unknown[] => [],
 }));
 vi.mock("@/lib/db", () => ({
-  withUserSql: vi.fn(async (userId: string, fn: (tx: unknown) => Promise<unknown>) =>
-    fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+  withUserSql: vi.fn(async (userId: string, fn: (tx: unknown) => Promise<unknown>) => {
+    const tx = (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.join("?");
       db.calls.push({ userId, text, values });
       return Promise.resolve(db.respond(text));
-    }),
-  ),
+    };
+    const unsafe = (text: string, values: unknown[] = []) => {
+      db.calls.push({ userId, text, values });
+      return Promise.resolve(db.respond(text));
+    };
+    return fn(Object.assign(tx, { unsafe }));
+  }),
 }));
 const queries = vi.hoisted(() => ({ getProfile: vi.fn(), getJobReviewDetail: vi.fn() }));
 vi.mock("@/lib/queries", () => queries);
@@ -26,7 +31,16 @@ vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
 import { emptyGathered } from "@/lib/agent/gathered";
 import { assertNoUserIdInput } from "@/lib/agent/tools/assertNoUserIdInput";
 import { buildTools, type ToolCtx } from "@/lib/agent/tools";
-import { getJob, getProfileSummary, getReview, searchJobs, searchJobsInput } from "@/lib/agent/tools/read";
+import {
+  TEXT_CAPS,
+  getJob,
+  getProfileSummary,
+  getReview,
+  searchJobs,
+  searchJobsInput,
+  yearsOfExperience,
+} from "@/lib/agent/tools/read";
+import { boardClosedPredicateSql, boardOpenPredicateSql, companyGateSql } from "@/lib/jobsQuery";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const JOB = "lever:acme:123";
@@ -52,8 +66,9 @@ const jobRow = (extra: Record<string, unknown> = {}) => ({
   remote: true,
   url: "https://example.test/j/123",
   first_seen_at: new Date("2026-11-18T00:00:00Z"),
-  closed_at: null,
   reviewed: true,
+  closed: false,
+  excluded: false,
   ...extra,
 });
 
@@ -116,9 +131,32 @@ describe("get_job", () => {
     expect(db.calls[0]?.userId).toBe(USER);
   });
 
-  test("a closed job is closed", async () => {
-    db.respond = () => [jobRow({ closed_at: new Date("2026-11-19T00:00:00Z") })];
+  test("a closed job is closed and an excluded company is excluded", async () => {
+    db.respond = () => [jobRow({ closed: true })];
     expect(await getJob(ctx(), { jobId: JOB })).toEqual({ status: "not_available", reason: "closed" });
+    db.respond = () => [jobRow({ excluded: true })];
+    expect(await getJob(ctx(), { jobId: JOB })).toEqual({ status: "not_available", reason: "excluded" });
+    expect(queries.getJobReviewDetail).not.toHaveBeenCalled();
+  });
+
+  test("get_job decides closed, excluded and reviewed with the board's own predicates", async () => {
+    await getJob(ctx(), { jobId: JOB });
+    const call = db.calls[0];
+    expect(call?.text).toContain(boardClosedPredicateSql());
+    expect(call?.text).toContain(companyGateSql("$1").where);
+    expect(call?.text).toContain(companyGateSql("$1").join);
+    expect(call?.text).toContain("r.error IS NULL");
+    expect(call?.values).toEqual([USER, JOB]);
+  });
+
+  test("posting strings are capped", async () => {
+    db.respond = () => [jobRow({ title: "T".repeat(500), company: "C".repeat(500), location: "L".repeat(500) })];
+    queries.getJobReviewDetail.mockResolvedValue(detail(null));
+    const out = await getJob(ctx(), { jobId: JOB });
+    if ("status" in out) throw new Error("expected job facts");
+    expect(out.title).toHaveLength(TEXT_CAPS.title);
+    expect(out.company).toHaveLength(TEXT_CAPS.company);
+    expect(out.location).toHaveLength(TEXT_CAPS.location);
   });
 
   test("get_job wraps the description as untrusted and cuts it to 12000 chars", async () => {
@@ -192,6 +230,22 @@ describe("get_profile_summary", () => {
     });
   });
 
+  test("years of experience is the union of role ranges: gaps do not count, overlaps count once", () => {
+    const now = new Date("2026-11-20T00:00:00Z");
+    // 2015-2018 is 3 years and Nov 2022 - Present (Nov 2026) is 4: 7, not the 11-year span.
+    expect(yearsOfExperience(["2015 - 2018", "Nov 2022 - Present"], now)).toBe(7);
+    // Overlapping roles count once: Jan 2019-Jan 2022 and Jan 2020-Jan 2021 is 3 years.
+    expect(yearsOfExperience(["Jan 2019 - Jan 2022", "Jan 2020 - Jan 2021"], now)).toBe(3);
+    // Months are honoured: Mar 2020 - Sep 2020 is half a year.
+    expect(yearsOfExperience(["Mar 2020 - Sep 2020"], now)).toBe(0.5);
+    // Order of roles does not matter.
+    expect(yearsOfExperience(["Nov 2022 - Present", "2015 - 2018"], now)).toBe(7);
+    expect(yearsOfExperience(["no dates here"], now)).toBeNull();
+    expect(yearsOfExperience([], now)).toBeNull();
+    // A range that runs backwards is ignored.
+    expect(yearsOfExperience(["2020 - 2010"], now)).toBeNull();
+  });
+
   test("no profile gives an empty summary", async () => {
     queries.getProfile.mockResolvedValue(null);
     expect(await getProfileSummary(ctx())).toEqual({
@@ -214,8 +268,32 @@ describe("search_jobs", () => {
     pay_min: 150_000,
     pay_max: 190_000,
     pay_currency: "USD",
+    pay_period: "year",
     total: "1", // count(*) is bigint
     ...extra,
+  });
+
+  test("search_jobs uses the board's open test and company gate, and skips errored reviews", async () => {
+    await searchJobs(ctx(), { sort: "fit", limit: 10 });
+    const text = db.calls[0]?.text ?? "";
+    expect(text).toContain(boardOpenPredicateSql());
+    expect(text).toContain(companyGateSql("$1").where);
+    expect(text).toContain(companyGateSql("$1").join);
+    expect(text).toContain("r.error IS NULL");
+    expect(text).not.toContain("j.closed_at IS NULL");
+  });
+
+  test("sort pay annualizes hours and months and puts USD first", async () => {
+    await searchJobs(ctx(), { sort: "pay", limit: 10 });
+    const text = db.calls[0]?.text ?? "";
+    expect(text).toMatch(/WHEN 'hour' THEN 2080 WHEN 'month' THEN 12 ELSE 1/);
+    expect(text).toMatch(/= 'USD' THEN 0/);
+  });
+
+  test("search rows carry payPeriod and currency", async () => {
+    db.respond = () => [searchRow({ pay_period: "hour", pay_max: 90 })];
+    const out = await searchJobs(ctx(), { sort: "pay", limit: 10 });
+    expect(out.rows[0]).toMatchObject({ payMax: 90, payCurrency: "USD", payPeriod: "hour" });
   });
 
   test("search_jobs caps limit at 25 and defaults sort to fit", async () => {
@@ -247,7 +325,8 @@ describe("search_jobs", () => {
     await searchJobs(ctx(), { verdict: "approve", minFit: 70, remoteOnly: true, text: "50%_off' OR 1=1", sort: "pay", limit: 5 });
     const call = db.calls[0];
     expect(call?.text).not.toContain("OR 1=1");
-    expect(call?.values).toEqual(expect.arrayContaining([USER, "approve", 70, true, "pay", 5]));
+    expect(call?.text).not.toContain("_off");
+    expect(call?.values).toEqual(expect.arrayContaining([USER, "approve", 70, 5]));
     expect(call?.values).toContain("50\\%\\_off' OR 1=1"); // LIKE wildcards escaped
   });
 
@@ -261,8 +340,9 @@ describe("search_jobs", () => {
 
 describe("get_review", () => {
   const reviewRow = (extra: Record<string, unknown> = {}) => ({
-    job_exists: true,
     reviewed: true,
+    closed: false,
+    excluded: false,
     verdict: "approve",
     fit_score: 88,
     skills_score: 90,
@@ -311,6 +391,41 @@ describe("get_review", () => {
     expect(await getReview(ctx(), { jobId: JOB })).toEqual({ status: "not_available", reason: "unknown_job" });
     db.respond = () => [reviewRow({ reviewed: false })];
     expect(await getReview(ctx(), { jobId: JOB })).toEqual({ status: "not_available", reason: "not_reviewed" });
+  });
+
+  test("a closed job's review is closed, as get_job says; an errored review is not a review", async () => {
+    db.respond = () => [reviewRow({ closed: true })];
+    expect(await getReview(ctx(), { jobId: JOB })).toEqual({ status: "not_available", reason: "closed" });
+    db.respond = () => [reviewRow({ excluded: true })];
+    expect(await getReview(ctx(), { jobId: JOB })).toEqual({ status: "not_available", reason: "excluded" });
+    expect(db.calls.at(-1)?.text).toContain("(r.job_id IS NOT NULL AND r.error IS NULL) AS reviewed");
+  });
+
+  test("a list column that fails the parse is logged and read as empty", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    db.respond = () => [reviewRow({ red_flags: "{not json", skill_gaps: null, requirements: 7 })];
+    const out = await getReview(ctx(), { jobId: JOB });
+    expect(out).toMatchObject({ redFlags: [], skillGaps: [], requirements: [] });
+    // A NULL column is simply absent; the two corrupt columns are each logged.
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/red_flags/);
+  });
+
+  test("reasoning and list items are capped", async () => {
+    db.respond = () => [
+      reviewRow({
+        reasoning: "r".repeat(5_000),
+        red_flags: ["f".repeat(1_000)],
+        skill_gaps: ["g".repeat(1_000)],
+        requirements: [{ text: "q".repeat(1_000), met: false }],
+      }),
+    ];
+    const out = await getReview(ctx(), { jobId: JOB });
+    if ("status" in out) throw new Error("expected review facts");
+    expect(out.reasoning).toHaveLength(TEXT_CAPS.reasoning);
+    expect(out.redFlags[0]).toHaveLength(TEXT_CAPS.listItem);
+    expect(out.skillGaps[0]).toHaveLength(TEXT_CAPS.listItem);
+    expect(out.requirements[0]?.text).toHaveLength(TEXT_CAPS.listItem);
   });
 });
 

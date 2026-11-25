@@ -12,8 +12,12 @@
 // - application.set_stage re-reads the live row, restores only when it still equals the
 //   action's `after`, and writes `before` through the same stage core a user move uses.
 //   Restoring to preparing or ready from applied-or-later also unmarks the package
-//   (unmarkAppliedTx, the board's unmark statements). Restoring forward to applied is
-//   not re-marked, since marking needs the payload transaction undo cannot open.
+//   (unmarkAppliedTx, the board's unmark statements). Restoring forward to
+//   applied-or-later from a stage before it re-marks the package (remarkAppliedTx, a
+//   status-only update or a content-less marker, since undo cannot open the payload
+//   transaction).
+// - The board's own Mark applied and Unmark mirror into the tracker through
+//   trackAppliedTx and untrackAppliedTx, as the user and with no audit row.
 // - application.add_note: events are append-only (owner SELECT and INSERT only), so the
 //   note is not deleted. Undo checks the agent's note is still there and unchanged; the
 //   action is then marked undone, and listApplications leaves out agent notes whose
@@ -27,7 +31,7 @@ import { isResumeStale } from "@/lib/resumeStale";
 import { parseOrNull } from "@/lib/zodParse";
 import { actorFor, logAction, registerUndoer, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
 import type { ToolCtx } from "@/lib/agent/tools";
-import { markAppliedCore, unmarkAppliedCore, unmarkAppliedTx } from "@/lib/workspaces/appliedCore";
+import { markAppliedCore, remarkAppliedTx, unmarkAppliedCore, unmarkAppliedTx } from "@/lib/workspaces/appliedCore";
 import { jobFactsRowSchema, toJobFacts } from "@/lib/workspaces/jobFacts";
 import { hasReviewTx, NotReviewedError } from "@/lib/workspaces/shortlist";
 import type { ApplicationEvent, ApplicationRow, ClosedReason, Stage } from "@/lib/workspaces/types";
@@ -171,6 +175,31 @@ async function writeStageTx(
     WHERE id = ${existing.id}::uuid AND user_id = ${userId}::uuid`;
   await insertStageEventTx(tx, userId, existing.id, existing.write.stage, w.stage, actor);
   return { before: existing.write, changed: true };
+}
+
+/**
+ * The board's Mark applied, mirrored into the tracker (run as markAppliedCore's `also`,
+ * inside the same transaction). A reviewed job that is untracked, preparing or ready
+ * moves to applied with one stage event by the user; interviewing, offer and closed are
+ * left alone, and an unreviewed job (the board may mark one) gets no row. No audit row:
+ * this is the user's own write.
+ */
+export async function trackAppliedTx(tx: TransactionSql, userId: string, jobId: string): Promise<void> {
+  if (!(await hasReviewTx(tx, userId, jobId))) return;
+  const live = await readAppTx(tx, userId, jobId, true);
+  if (live && !PRE_APPLY.has(live.write.stage)) return;
+  await writeStageTx(tx, userId, jobId, { stage: "applied", closedReason: null }, "user");
+}
+
+/**
+ * The board's Unmark, mirrored into the tracker (run as unmarkAppliedCore's `also`): a
+ * row at exactly applied moves back to ready with one stage event by the user; any other
+ * row, or none, is left alone. No audit row.
+ */
+export async function untrackAppliedTx(tx: TransactionSql, userId: string, jobId: string): Promise<void> {
+  const live = await readAppTx(tx, userId, jobId, true);
+  if (!live || live.write.stage !== "applied") return;
+  await writeStageTx(tx, userId, jobId, { stage: "ready", closedReason: null }, "user");
 }
 
 /**
@@ -418,6 +447,9 @@ export async function undoApplicationSetStage(tx: TransactionSql, action: Stored
   }
   await writeStageTx(tx, userId, jobId, before.data, "user");
   if (PRE_APPLY.has(before.data.stage) && APPLIED_OR_LATER.has(after.data.stage)) await unmarkAppliedTx(tx, userId, jobId);
+  else if (APPLIED_OR_LATER.has(before.data.stage) && !APPLIED_OR_LATER.has(after.data.stage)) {
+    await remarkAppliedTx(tx, userId, jobId);
+  }
   return "restored";
 }
 

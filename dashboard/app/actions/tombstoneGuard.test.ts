@@ -21,13 +21,22 @@ const withUserSql = vi.fn(async (_userId: string, fn: (tx: unknown) => unknown) 
   const tx = (..._a: unknown[]) => Promise.resolve([]);
   return fn(tx);
 });
-vi.mock("@/lib/db", () => ({ withUserSql, withUserPayloadMutation: (userId: string, _job: string, _scope: string, fn: (tx: unknown) => unknown) => withUserSql(userId, fn), serviceSql: (..._a: unknown[]) => Promise.resolve([]) }));
+// The board's unmark mirrors into the tracker, so it runs under withUserMutation (the
+// lifecycle gate); the mock routes it through the same recording withUserSql.
+vi.mock("@/lib/db", () => ({
+  withUserSql,
+  withUserMutation: (userId: string, fn: (tx: unknown) => unknown) => withUserSql(userId, fn),
+  withUserPayloadMutation: (userId: string, _job: string, _scope: string, fn: (tx: unknown) => unknown) => withUserSql(userId, fn),
+  serviceSql: (..._a: unknown[]) => Promise.resolve([]),
+}));
 vi.mock("@/lib/jobLifecycle", () => ({
   requestJobPayload: async () => ({ status: "legacy", id: null }),
   readPrivateSnapshot: async () => null,
 }));
 vi.mock("@/lib/queries", () => ({ bareMarkerPredicate: () => "TRUE" }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// unstable_cache: the tracker library (imported by the board actions) builds a cached
+// catalog clock at module load.
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), unstable_cache: (fn: () => unknown) => fn }));
 vi.mock("@/lib/admin", () => ({ isAdmin: () => false }));
 vi.mock("@/lib/openrouter", () => ({ getOpenRouterCredits: async () => 0 }));
 

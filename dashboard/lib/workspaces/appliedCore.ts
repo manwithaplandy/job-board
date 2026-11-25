@@ -69,6 +69,28 @@ export async function unmarkAppliedTx(tx: TransactionSql, userId: string, jobId:
 }
 
 /**
+ * Re-marks the job applied inside the caller's transaction, for an undo that restores a
+ * tracker row forward to applied-or-later (it cannot open markAppliedCore's payload
+ * transaction). A package that still exists (a prepared package unmarked earlier) only
+ * changes status and applied_at, the status-only update the lifecycle trigger exempts. A
+ * deleted bare marker is re-created content-less, as the board's one-click mark does,
+ * pinned to the job's current description version when it has one (the lifecycle
+ * trigger's protection check asks for a version-ready job once enforced). If the trigger
+ * still refuses, the error rolls the whole undo back rather than half-applying it.
+ */
+export async function remarkAppliedTx(tx: TransactionSql, userId: string, jobId: string): Promise<void> {
+  // Update first and insert only when nothing was there, so an existing package never
+  // passes through an INSERT row trigger (as in markPackageTx).
+  const updated = await tx`UPDATE application_packages SET status = 'applied',
+    applied_at = COALESCE(applied_at, now()) WHERE user_id = ${userId}::uuid AND job_id = ${jobId} RETURNING job_id`;
+  if (updated.length) return;
+  await tx`
+    INSERT INTO application_packages (user_id, job_id, job_version_id, status, applied_at)
+    SELECT ${userId}::uuid, j.id, CASE WHEN j.description IS NOT NULL THEN j.description_version_id END, 'applied', now()
+      FROM jobs j WHERE j.id = ${jobId}`;
+}
+
+/**
  * Unmarks the job, in one transaction (RLS scopes both statements to the caller). With
  * `also` the transaction takes the lifecycle gate, because the tracker tables carry the
  * lifecycle trigger; without it the transaction is exactly the board's as before.

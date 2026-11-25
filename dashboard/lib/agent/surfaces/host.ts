@@ -1,9 +1,21 @@
 // What the agent page's SurfaceHost renders (plan Task 1.20, PR #52 review M6). Every
 // stored surface is total-parsed here, on the server, before a block sees it:
-//   - payload by the variant 1 schema, gathered by GatheredDataSchema;
-//   - a payload that does not parse falls back to the row's stored fallback, else to
-//     fallbackSurface(gathered); gathered data that does not parse falls back to the
-//     empty fallback surface, since no block can bind to it.
+//   - gathered by GatheredDataSchema; gathered data that does not parse falls back to the
+//     empty fallback surface, since nothing can bind to it;
+//   - the renderer is picked by whether the payload passes the gate of the row's variant
+//     now (plan Task 2.8, notes R13 and R15), not by the row's variant alone:
+//       variant 1: the variant 1 schema;
+//       variant 2: validateSurfaceV2 against the row's own gathered data (caps first, so a
+//         hostile depth never reaches the recursive schema), then the tree renderer;
+//       variant 3: canMountSandbox (v3/mount.ts: not fallen back, no failure recorded, a
+//         stored fallback, and validateSurfaceV3 passing now) and the operator switch
+//         agentVariant3Enabled on, then SandboxFrame. A runtime failure that
+//         reportSurfaceFailure stored is therefore sticky: the frame never mounts again;
+//   - anything else shows the variant 1 payload through BlockList: the row's stored
+//     fallback_payload, else its payload when that is a variant 1 payload (a fallen-back
+//     variant 2 or 3 row holds the fallback in both, R13), else fallbackSurface(gathered).
+// Every surface carries a variant 1 payload (`payload`), so a tree or frame that fails in
+// the browser always has blocks to fall back to.
 // The rows a block binds to beyond the gathered data (packages, question schemas, the
 // memo, the catalog clock) are read under RLS, keyed only by ids taken from the parsed
 // payload. Nothing here writes: the page calls it while rendering, and previews read the
@@ -18,16 +30,42 @@ import { parseGathered } from "@/lib/agent/gatheredSchema";
 import { getSurface, listThreadSurfaces, type StoredSurface } from "@/lib/agent/surfaces/store";
 import { SurfacePayloadV1Schema, type SurfacePayloadV1 } from "@/lib/agent/surfaces/v1/blocks";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
+import { validateSurfaceV2, type SurfacePayloadV2 } from "@/lib/agent/surfaces/v2/tree";
+import { SurfacePayloadV3Schema, type SurfacePayloadV3 } from "@/lib/agent/surfaces/v3/document";
+import { canMountSandbox } from "@/lib/agent/surfaces/v3/mount";
+import type { Variant } from "@/lib/agent/config";
 import type { BlockRows, PackageView } from "@/components/agent/blocks/types";
 import type { MemoProposal } from "@/lib/workspaces/types";
 
-/** One surface row, parsed and ready for BlockList. */
+/**
+ * Which renderer shows a surface. `blocks` draws `payload` through BlockList; `tree` and
+ * `sandbox` carry their own validated payload and fall back to `payload` in the browser.
+ */
+export type SurfaceView =
+  | { kind: "blocks" }
+  | { kind: "tree"; tree: SurfacePayloadV2 }
+  | { kind: "sandbox"; document: SurfacePayloadV3 };
+
+/** How the host reads stored surfaces. */
+export interface HostOptions {
+  /** The operator switch agentVariant3Enabled: while false no sandbox frame is mounted. */
+  variant3Enabled: boolean;
+}
+
+/** One surface row, parsed and ready for its renderer. */
 export interface HostSurface {
   /** The surface row id: BlockList's surfaceKey. */
   id: string;
+  threadId: string;
   /** The row this one replaced, when it updated an earlier surface. */
   supersedes: string | null;
+  /** The surface this row re-renders (Task 2.9), or null for an original. */
+  rerenderOf: string | null;
   createdAt: string;
+  /** The variant recorded on the row (the one that produced it). */
+  variant: Variant;
+  view: SurfaceView;
+  /** The variant 1 payload: what BlockList shows for `blocks`, and the browser fallback of a tree or frame. */
   payload: SurfacePayloadV1;
   gathered: GatheredData;
   rows: BlockRows;
@@ -58,14 +96,47 @@ function payloadKeys(payload: SurfacePayloadV1): { jobIds: string[]; memo: boole
   return { jobIds: [...jobIds], memo, clock };
 }
 
-/** The payload and gathered data a stored row renders, by the parse rules above. */
-export function parseStoredSurface(s: StoredSurface): { payload: SurfacePayloadV1; gathered: GatheredData; degraded: boolean } {
-  const gathered = parseGathered(s.gathered);
-  if (!gathered) return { payload: fallbackSurface(emptyGathered()), gathered: emptyGathered(), degraded: true };
-  const payload = parseOrNull(SurfacePayloadV1Schema, s.payload);
-  if (payload) return { payload, gathered, degraded: false };
+export interface ParsedSurface {
+  view: SurfaceView;
+  payload: SurfacePayloadV1;
+  gathered: GatheredData;
+  degraded: boolean;
+}
+
+/** The row's variant 1 fallback: its stored fallback_payload, else its payload as variant 1, else one built from gathered. */
+function blocksFallback(s: StoredSurface, gathered: GatheredData): SurfacePayloadV1 {
   const stored = s.fallbackPayload === null ? null : parseOrNull(SurfacePayloadV1Schema, s.fallbackPayload);
-  return { payload: stored ?? fallbackSurface(gathered), gathered, degraded: true };
+  return stored ?? parseOrNull(SurfacePayloadV1Schema, s.payload) ?? fallbackSurface(gathered);
+}
+
+/**
+ * What a stored row renders, by the parse rules above. `options` defaults to variant 3
+ * off, so a caller that does not say never mounts a frame.
+ */
+export function parseStoredSurface(s: StoredSurface, options: HostOptions = { variant3Enabled: false }): ParsedSurface {
+  const gathered = parseGathered(s.gathered);
+  if (!gathered) return { view: { kind: "blocks" }, payload: fallbackSurface(emptyGathered()), gathered: emptyGathered(), degraded: true };
+  if (s.variant === 1) {
+    const payload = parseOrNull(SurfacePayloadV1Schema, s.payload);
+    if (payload) return { view: { kind: "blocks" }, payload, gathered, degraded: false };
+    return { view: { kind: "blocks" }, payload: blocksFallback(s, gathered), gathered, degraded: true };
+  }
+  if (s.variant === 2) {
+    const tree = validateSurfaceV2(s.payload, gathered);
+    if (tree.ok) return { view: { kind: "tree", tree: tree.payload }, payload: blocksFallback(s, gathered), gathered, degraded: false };
+    return { view: { kind: "blocks" }, payload: blocksFallback(s, gathered), gathered, degraded: true };
+  }
+  // Variant 3: a frame needs the operator switch, canMountSandbox, and a stored fallback
+  // that parses as variant 1 (the frame's only fallback), stricter than canMountSandbox's
+  // "is an object".
+  const fallback = s.fallbackPayload === null ? null : parseOrNull(SurfacePayloadV1Schema, s.fallbackPayload);
+  const document = fallback !== null && canMountSandbox(s) ? parseOrNull(SurfacePayloadV3Schema, s.payload) : null;
+  if (document && fallback) {
+    // Mountable. With the switch off it shows its fallback, which is not a degradation.
+    if (options.variant3Enabled) return { view: { kind: "sandbox", document }, payload: fallback, gathered, degraded: false };
+    return { view: { kind: "blocks" }, payload: fallback, gathered, degraded: false };
+  }
+  return { view: { kind: "blocks" }, payload: blocksFallback(s, gathered), gathered, degraded: true };
 }
 
 const packageRowSchema = z.object({
@@ -160,13 +231,17 @@ export async function loadBlockRows(userId: string, payload: SurfacePayloadV1): 
   return rows;
 }
 
-async function toHostSurface(userId: string, s: StoredSurface): Promise<HostSurface> {
-  const parsed = parseStoredSurface(s);
+async function toHostSurface(userId: string, s: StoredSurface, options: HostOptions): Promise<HostSurface> {
+  const parsed = parseStoredSurface(s, options);
   return {
     id: s.id,
+    threadId: s.threadId,
     supersedes: s.supersedes,
+    rerenderOf: s.rerenderOf,
     createdAt: s.createdAt,
+    variant: s.variant,
     ...parsed,
+    // The rows of the variant 1 payload: BlockList's, for blocks and for a browser fallback.
     rows: await loadBlockRows(userId, parsed.payload),
   };
 }
@@ -195,17 +270,22 @@ export function groupChains(rows: readonly StoredSurface[]): Array<{ chainId: st
 }
 
 /** The thread's surface chains, oldest first, each at its latest row. */
-export async function loadThreadSurfaces(userId: string, threadId: string): Promise<HostChain[]> {
+export async function loadThreadSurfaces(userId: string, threadId: string, options: HostOptions): Promise<HostChain[]> {
   const rows = await listThreadSurfaces(userId, threadId);
   const chains = groupChains(rows);
   return Promise.all(
-    chains.map(async (c) => ({ chainId: c.chainId, memberIds: c.memberIds, surface: await toHostSurface(userId, c.latest) })),
+    chains.map(async (c) => ({ chainId: c.chainId, memberIds: c.memberIds, surface: await toHostSurface(userId, c.latest, options) })),
   );
 }
 
 /** One of the caller's surfaces in this thread, parsed, or null. */
-export async function loadHostSurface(userId: string, threadId: string, surfaceId: string): Promise<HostSurface | null> {
+export async function loadHostSurface(
+  userId: string,
+  threadId: string,
+  surfaceId: string,
+  options: HostOptions,
+): Promise<HostSurface | null> {
   const s = await getSurface(userId, surfaceId);
   if (!s || s.threadId !== threadId) return null;
-  return toHostSurface(userId, s);
+  return toHostSurface(userId, s, options);
 }

@@ -53,6 +53,11 @@
 // event to another document; the host tears down on it. The natives these use, and the
 // port's postMessage, are taken before model code runs, so it cannot replace them.
 //
+// Task 2.8 (review M8): the host forwards a change of the page's theme as
+// { type: "theme", theme } on the port; the kit applies it to data-theme (and host.theme)
+// only after init and only for "light" or "dark", so the frame follows the page without a
+// remount (a remount would start a new document and spend the mount's action budget).
+//
 // Model code must read data inside host.onInit and wire behaviour with classes and
 // addEventListener: there are no inline style attributes or on... handlers under the CSP.
 //
@@ -386,6 +391,14 @@ export const KIT_JS: string = `(function () {
     /* Liveness: the host pings over the port and expects the same number back. */
     if (m.type === "ping") {
       post({ type: "pong", n: typeof m.n === "number" && isFinite(m.n) ? m.n : 0 });
+      return;
+    }
+    /* The page's theme changed: only after init, and only to one of the two themes. */
+    if (m.type === "theme") {
+      if (state.inited && (m.theme === "light" || m.theme === "dark")) {
+        state.theme = m.theme;
+        document.documentElement.setAttribute("data-theme", state.theme);
+      }
       return;
     }
     if (state.inited || m.type !== "init") return;

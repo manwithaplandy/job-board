@@ -180,6 +180,13 @@ describe("the kit in a document", () => {
     expect(host().theme).toBe("light");
   });
 
+  test("a theme message before init changes nothing (Task 2.8, review M8)", async () => {
+    port!.postMessage({ type: "theme", theme: "dark" });
+    await tick();
+    expect(document.documentElement.getAttribute("data-theme")).toBeNull();
+    expect(host().theme).toBe("light");
+  });
+
   test("init on the port sets data and theme once; a second init and an init on the window are ignored", async () => {
     window.dispatchEvent(new MessageEvent("message", { data: { type: "init", data: { forged: true }, theme: "dark" } }));
     await tick();
@@ -215,6 +222,22 @@ describe("the kit in a document", () => {
     port!.postMessage({ type: "ping", n: "x" });
     await vi.waitFor(() => expect(ofType("pong")).toHaveLength(3));
     expect(ofType("pong")).toEqual([{ type: "pong", n: 4 }, { type: "pong", n: 5 }, { type: "pong", n: 0 }]);
+  });
+
+  test("after init a theme message on the port sets data-theme and host.theme; anything else is ignored (Task 2.8)", async () => {
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    port!.postMessage({ type: "theme", theme: "light" });
+    await vi.waitFor(() => expect(document.documentElement.getAttribute("data-theme")).toBe("light"));
+    expect(host().theme).toBe("light");
+    port!.postMessage({ type: "theme", theme: "blue" });
+    port!.postMessage({ type: "theme", theme: "<x>" });
+    await tick();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    port!.postMessage({ type: "theme", theme: "dark" });
+    await vi.waitFor(() => expect(host().theme).toBe("dark"));
+    // The data stays as init set it, and no second ack goes out.
+    expect(host().data).toEqual({ jobs: {} });
+    expect(ofType("inited")).toHaveLength(1);
   });
 
   test("a jb-button press posts its action on the port and nothing else happens", async () => {

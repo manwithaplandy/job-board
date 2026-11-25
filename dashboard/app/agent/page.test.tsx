@@ -34,7 +34,13 @@ vi.mock("@/app/actions/agent", () => ({
   loadSurfaceAction: vi.fn(),
   reloadSurfaceRowsAction: vi.fn(),
   describeApprovalAction: vi.fn(),
+  describeFrameIntentAction: vi.fn(),
+  reportSurfaceFailure: vi.fn(),
+  setThreadVariantAction: vi.fn(),
+  setDefaultVariantAction: vi.fn(),
 }));
+vi.mock("@/lib/appSettings", () => ({ loadAppSettings: async () => ({ agentEnabled: true, agentVariant3Enabled: true }) }));
+vi.mock("@/lib/agent/settings", () => ({ getDefaultVariant: async () => 1 }));
 vi.mock("@/app/actions/shortlist", () => ({ refreshSuggestedAction: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),

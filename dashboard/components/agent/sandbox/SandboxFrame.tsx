@@ -161,10 +161,35 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
     let timer = 0;
     let pingTimer = 0;
     let pongTimer = 0;
+    // Both beforeunload and pagehide stay (PR #58 follow-up, Task 2.8): when this page
+    // unloads, the frame's beforeunload (and so the kit's navigating) comes in this page's
+    // prompt-to-unload step, which can be well before this page's own pagehide (the
+    // browser may wait for the next page's response in between). With pagehide alone that
+    // navigating would land outside the grace window and store a false self_navigation on
+    // every navigation away. The listeners exist only while a frame is mounted.
     let hostLeavingAt = Number.NEGATIVE_INFINITY;
     const onHostLeaving = () => {
       hostLeavingAt = Date.now();
     };
+    // Review M8: a change of the page's theme goes to the frame as a theme message on the
+    // port (the kit applies it to data-theme), never as a remount, which would start a new
+    // document and spend the mount's action budget again. Sent once init has gone out: the
+    // port keeps order, so the kit has init before it.
+    let sentTheme: "light" | "dark" | null = null;
+    const themeObserver =
+      typeof MutationObserver === "function"
+        ? new MutationObserver(() => {
+            if (live.failed || live.disposed || live.port === null) return;
+            const theme = pageTheme();
+            if (theme === sentTheme) return;
+            sentTheme = theme;
+            try {
+              live.port.postMessage({ type: "theme", theme });
+            } catch {
+              // The ping that follows notices a dead port.
+            }
+          })
+        : null;
 
     function teardown() {
       window.clearTimeout(timer);
@@ -173,6 +198,7 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
       window.removeEventListener("message", onWindowMessage);
       window.removeEventListener("beforeunload", onHostLeaving, true);
       window.removeEventListener("pagehide", onHostLeaving, true);
+      themeObserver?.disconnect();
       iframe.removeEventListener("load", onLoad);
       if (live.port) {
         live.port.onmessage = null;
@@ -277,7 +303,8 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
       // The handshake timer keeps running until the kit acknowledges init (inited).
       window.removeEventListener("message", onWindowMessage);
       port.onmessage = onPortMessage;
-      port.postMessage({ type: "init", data, theme: pageTheme() });
+      sentTheme = pageTheme();
+      port.postMessage({ type: "init", data, theme: sentTheme });
     }
 
     function onLoad() {
@@ -305,6 +332,7 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
     window.addEventListener("message", onWindowMessage);
     window.addEventListener("beforeunload", onHostLeaving, true);
     window.addEventListener("pagehide", onHostLeaving, true);
+    themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     timer = window.setTimeout(() => {
       if (!live.inited) fail("no_handshake");
     }, V3_LIMITS.handshakeMs);

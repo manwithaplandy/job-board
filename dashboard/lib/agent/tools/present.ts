@@ -34,9 +34,13 @@
 //     it; the sandbox frame falls back to it at render time (Task 2.6). Variant 3's gate
 //     is its schema and static checks (v3/document.ts, Task 2.4).
 //
-// The model is still shown the variant 1 schema in every thread; the per-variant schema
-// and grammar instructions come with the switcher (Task 2.8), and no thread is on
-// variant 2 or 3 until then.
+// The model is shown the schema of the turn's variant (presentSchemaFor, Task 2.8): the
+// variant the loop picked for this turn from the thread (lib/agent/variants.ts
+// presentVariant), so a switch in the middle of a turn changes only the next turn. The
+// grammar's prose is in the instructions (lib/agent/context.ts variantGrammar).
+//
+// Every stored surface records the run's model (ctx.modelId), so "Re-render as" (Task
+// 2.9) calls the same model as the original.
 import { jsonSchema, tool } from "ai";
 import { z } from "zod";
 import type { JSONSchema7 } from "@ai-sdk/provider";
@@ -46,6 +50,8 @@ import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
 import { saveSurface, setSurfaceFailure, type SurfaceOutcome } from "@/lib/agent/surfaces/store";
 import { SurfacePayloadV1Schema, V1_TITLE_MAX, type SurfacePayloadV1 } from "@/lib/agent/surfaces/v1/blocks";
+import { SurfacePayloadV2Schema } from "@/lib/agent/surfaces/v2/tree";
+import { SurfacePayloadV3Schema } from "@/lib/agent/surfaces/v3/document";
 import { validateSurface, type SurfacePayload } from "@/lib/agent/surfaces/v1/validate";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 
@@ -77,15 +83,27 @@ export type PresentResult =
       errors: string[];
     };
 
+/** The payload schema of one variant (plan Task 2.8): the grammar the model is shown. */
+export function presentSchemaFor(variant: Variant): z.ZodType {
+  if (variant === 2) return SurfacePayloadV2Schema;
+  if (variant === 3) return SurfacePayloadV3Schema;
+  return SurfacePayloadV1Schema;
+}
+
 /**
- * The JSON schema the model is shown: { surfaceId?, payload } with the variant 1 grammar.
+ * The JSON schema the model is shown: { surfaceId?, payload } with the variant's grammar.
  * Draft 7 (PR #51 review L1): the JobComparison tuple is then `items: [...]` with
  * `additionalItems: false`, not draft 2020-12's `prefixItems`, which the tool's
- * JSONSchema7 type and some providers do not read.
+ * JSONSchema7 type and some providers do not read. The variant 2 tree is recursive, so
+ * zod emits its node schema under `definitions` with `#/definitions/...` references;
+ * those resolve against the document root, so the definitions move to the tool schema's
+ * root.
  */
-export function presentJsonSchema(): JSONSchema7 {
-  const payload = z.toJSONSchema(SurfacePayloadV1Schema, { io: "input", target: "draft-7" }) as Record<string, unknown>;
+export function presentJsonSchema(variant: Variant = 1): JSONSchema7 {
+  const payload = z.toJSONSchema(presentSchemaFor(variant), { io: "input", target: "draft-7" }) as Record<string, unknown>;
   delete payload.$schema;
+  const definitions = payload.definitions;
+  delete payload.definitions;
   return {
     type: "object",
     properties: {
@@ -94,7 +112,30 @@ export function presentJsonSchema(): JSONSchema7 {
     },
     required: ["payload"],
     additionalProperties: false,
+    ...(definitions !== undefined ? { definitions: definitions as Record<string, JSONSchema7> } : {}),
   };
+}
+
+const PRESENT_GRAMMAR: Record<Variant, string> = {
+  1:
+    "Show the user a surface: an ordered list of 1 to 8 blocks from the fixed catalog. Blocks name jobs, metrics " +
+    "and proposals by the ids your tools returned this turn; the app fills in the data.",
+  2:
+    "Show the user a surface: a tree of layout, content, input and bound nodes styled only by token enums. Bound " +
+    "nodes name jobs your tools returned this turn and binds point into the data read this turn; the app fills in " +
+    "the values.",
+  3:
+    "Show the user a surface: one self-contained HTML document written against the injected kit, shown in a " +
+    "sandboxed frame with no network. The data read this turn reaches it through host.onInit.",
+};
+
+/** The tool description for one variant. */
+export function presentDescription(variant: Variant): string {
+  return (
+    `${PRESENT_GRAMMAR[variant]} Text is plain (no links). Pass surfaceId to replace a surface shown earlier in ` +
+    "this thread. An invalid payload is shown as a default summary instead. If the result's outcome is invalid, " +
+    "nothing was shown: fix the listed errors and call present once more."
+  );
 }
 
 /** Any object passes; the payload is judged in execute. */
@@ -149,7 +190,7 @@ async function storeSurface(ctx: ToolCtx, a: StoreArgs): Promise<string> {
       outcome: a.outcome,
       supersedes,
       rerenderOf: null,
-      model: null,
+      model: ctx.modelId ?? null,
       latencyMs: Date.now() - a.started,
       outputTokens: null,
     });
@@ -272,15 +313,12 @@ export async function runPresent(ctx: ToolCtx, input: PresentInput, options?: Pr
     : { surfaceId, variant: 1, outcome, payload, errors: checked.errors.slice(0, ERRORS_TO_MODEL_MAX) };
 }
 
+/** The present tool in the turn's variant (ctx.variant, fixed for the whole turn). */
 export function presentTool(ctx: ToolCtx) {
+  const variant = ctx.variant;
   return tool({
-    description:
-      "Show the user a surface: an ordered list of 1 to 8 blocks from the fixed catalog. Blocks name jobs, metrics " +
-      "and proposals by the ids your tools returned this turn; the app fills in the data. Text is plain (no links). " +
-      "Pass surfaceId to replace a surface shown earlier in this thread. An invalid payload is shown as a default " +
-      "summary instead. If the result's outcome is invalid, nothing was shown: fix the listed errors and call " +
-      "present once more.",
-    inputSchema: jsonSchema<PresentInput>(presentJsonSchema, { validate: permissive }),
+    description: presentDescription(variant),
+    inputSchema: jsonSchema<PresentInput>(() => presentJsonSchema(variant), { validate: permissive }),
     execute: (input, options) => runPresent(ctx, input, options),
   });
 }

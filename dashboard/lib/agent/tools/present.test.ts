@@ -126,6 +126,46 @@ describe("present", () => {
   });
 });
 
+// The variant switcher (plan Task 2.8): the present tool's grammar is the turn's variant.
+describe("present's schema per variant", () => {
+  async function schemaOf(variant: 1 | 2 | 3) {
+    const t = presentTool(ctx({ variant }));
+    return {
+      description: t.description ?? "",
+      schema: (await (t.inputSchema as unknown as { jsonSchema: unknown | PromiseLike<unknown> }).jsonSchema) as {
+        properties: { payload: { properties: Record<string, unknown> } };
+        definitions?: Record<string, unknown>;
+      },
+    };
+  }
+
+  test("changing the variant affects the next turn's present schema only", async () => {
+    // Each turn builds its tool from that turn's ctx.variant; the variant 1 tool is unchanged by a variant 2 one.
+    const one = await schemaOf(1);
+    const two = await schemaOf(2);
+    const three = await schemaOf(3);
+    expect(Object.keys(one.schema.properties.payload.properties).sort()).toEqual(["blocks", "title", "variant"]);
+    expect(Object.keys(two.schema.properties.payload.properties).sort()).toEqual(["root", "title", "variant"]);
+    expect(Object.keys(three.schema.properties.payload.properties).sort()).toEqual(["html", "title", "variant"]);
+    expect(JSON.stringify((await schemaOf(1)).schema)).toBe(JSON.stringify(one.schema));
+    expect(one.description).toMatch(/blocks from the fixed catalog/);
+    expect(two.description).toMatch(/tree of layout/);
+    expect(three.description).toMatch(/sandboxed frame/);
+    for (const d of [one, two, three]) expect(d.description).toMatch(/outcome is invalid/);
+  });
+
+  test("the recursive variant 2 schema's references resolve at the tool schema's root", async () => {
+    const { schema } = await schemaOf(2);
+    const text = JSON.stringify(schema);
+    const refs = [...text.matchAll(/"\$ref":"#\/definitions\/([^"]+)"/g)].map((x) => x[1]);
+    expect(refs.length).toBeGreaterThan(0);
+    for (const ref of refs) expect(schema.definitions?.[ref], ref).toBeDefined();
+    expect(JSON.stringify(schema.properties.payload)).not.toContain('"definitions"');
+    expect(text).not.toContain('"$schema"');
+    expect(text).not.toContain("prefixItems");
+  });
+});
+
 // Variant 2 (plan Task 2.3): one repair attempt with the errors fed back, then the
 // variant 1 fallback (spec 7.1 "On failure").
 describe("present, variant 2", () => {

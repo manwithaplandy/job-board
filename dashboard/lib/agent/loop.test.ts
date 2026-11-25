@@ -767,6 +767,49 @@ describe("streamAgentTurn: ask_user keeps its questions (PR I3b review I1)", () 
   });
 });
 
+describe("streamAgentTurn: the thread's variant (plan Task 2.8)", () => {
+  async function variantTurn(variant: 1 | 2 | 3, variant3Enabled: boolean) {
+    const model = scripted([textStep(["ok"], 0.0001)]);
+    const res = await streamAgentTurn({
+      userId: USER,
+      email: "pat@example.com",
+      thread: { ...thread, variant },
+      input: message("hi"),
+      model,
+      variant3Enabled,
+    });
+    await drain(res);
+    await Promise.all(h.afterTasks);
+    const call = model.doStreamCalls[0];
+    const present = (call.tools ?? []).find((t) => t.name === "present") as { inputSchema?: unknown; description?: string } | undefined;
+    return { system: JSON.stringify(call.prompt[0].content), present: JSON.stringify(present?.inputSchema ?? null) };
+  }
+
+  test("with variant 3 switched off, a variant 3 thread presents as variant 1", async () => {
+    const off = await variantTurn(3, false);
+    expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 1 });
+    expect(off.system).toContain("Layout variant: 1.");
+    expect(off.system).not.toContain("host.onInit");
+    expect(off.present).toContain('"blocks"');
+    expect(off.present).not.toContain('"html"');
+
+    const on = await variantTurn(3, true);
+    expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 3 });
+    expect(on.system).toContain("Layout variant: 3.");
+    expect(on.system).toContain("host.onInit");
+    expect(on.present).toContain('"html"');
+  });
+
+  test("the switch changes nothing for a variant 1 or 2 thread", async () => {
+    const two = await variantTurn(2, false);
+    expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 2 });
+    expect(two.system).toContain("Layout variant: 2.");
+    expect(two.present).toContain('"root"');
+    await variantTurn(1, false);
+    expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 1 });
+  });
+});
+
 describe("streamAgentTurn: a variant 2 repair the turn never made (PR J1 review I1)", () => {
   const SURFACE = "33333333-3333-4333-8333-333333333333";
   const tx = { tag: "tx" };

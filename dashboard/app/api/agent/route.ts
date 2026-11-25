@@ -99,7 +99,15 @@ export async function POST(req: Request): Promise<Response> {
   if (!thread) return json({ error: "not_found" }, 404);
 
   try {
-    return await streamAgentTurn({ userId, email: claims.email, thread, input: toTurnInput(body) });
+    // The operator's variant 3 switch goes with the turn: a variant 3 thread presents as
+    // variant 1 while it is off (plan Task 2.8).
+    return await streamAgentTurn({
+      userId,
+      email: claims.email,
+      thread,
+      input: toTurnInput(body),
+      variant3Enabled: settings.agentVariant3Enabled,
+    });
   } catch (e) {
     if (e instanceof TurnInProgressError) return json({ error: "turn_in_progress" }, 409);
     if (e instanceof TurnInputError) return badRequest();

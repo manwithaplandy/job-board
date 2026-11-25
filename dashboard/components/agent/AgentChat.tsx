@@ -33,7 +33,8 @@ import { ConfirmCard } from "./ConfirmCard";
 import { EmptyState } from "./EmptyState";
 import { stashFirstMessage, takeFirstMessage } from "./firstMessage";
 import { ReviewProgress } from "./ReviewProgress";
-import { SurfaceHost, mergeSurface, useWideLayout } from "./SurfaceHost";
+import { SurfaceHost, mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
+import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
@@ -260,11 +261,14 @@ export function AgentChat({
   approvalsEnabled = false,
   compare = null,
   hasProfile = true,
+  variants = null,
 }: {
   threadId: string;
   initialMessages: UIMessage[];
   notice: AgentBlockingNotice | null;
   autoTitle?: boolean;
+  /** The variant switcher's state (plan Task 2.8); null hides it (no plan). */
+  variants?: VariantsState | null;
   /** The thread's surface chains, parsed on the server (lib/agent/surfaces/host.ts). */
   surfaces?: HostChain[];
   /** False without AGENT_TOOL_APPROVAL_SECRET: no confirm card is ever shown for an approval. */
@@ -494,8 +498,8 @@ export function AgentChat({
     handlers.current = { handleOutcome };
   });
   const onIntent = useCallback(
-    (surfaceId: string, intent: ActionIntent) => {
-      void executeIntentAction(threadId, surfaceId, intent).then(
+    (surfaceId: string, intent: ActionIntent, source: "host" | "frame" = "host") => {
+      void executeIntentAction(threadId, surfaceId, intent, source).then(
         (outcome) => handlers.current.handleOutcome(outcome),
         () => toast(INTENT_FAILED),
       );
@@ -514,6 +518,8 @@ export function AgentChat({
     },
     [threadId],
   );
+  // A frame fell back: the surface shows its blocks for the rest of the session (R15).
+  const onFallback = useCallback((surfaceId: string) => setChains((prev) => withBlocksView(prev, surfaceId)), []);
 
   const approve = async (target: ConfirmState) => {
     setConfirmBusy(true);
@@ -555,7 +561,7 @@ export function AgentChat({
   const renderSurface = (surfaceId: string) => {
     if (!inlineIds.has(surfaceId)) return null;
     const chain = chains.find((c) => c.surface.id === surfaceId);
-    return chain ? <SurfaceHost surface={chain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} /> : null;
+    return chain ? <SurfaceHost surface={chain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} onFallback={onFallback} /> : null;
   };
   const orphans = chains.filter((c) => c !== columnChain && !presentedIds.has(c.surface.id));
 
@@ -585,6 +591,8 @@ export function AgentChat({
   return (
     <div className={columnChain ? "rf-agent-workspace rf-agent-workspace--split" : "rf-agent-workspace"}>
       <section className="rf-agent-chat" aria-label="Conversation">
+        {/* A change during a turn applies to the next one: the loop read the variant when the turn started. */}
+        {variants && <VariantSwitcher threadId={threadId} state={variants} />}
         {messages.length > 0 && (
           // aria-busy holds the live region's announcement while a reply streams, so a
           // screen reader reads the finished reply once, not every token.
@@ -595,7 +603,7 @@ export function AgentChat({
           </ol>
         )}
         {orphans.map((c) => (
-          <SurfaceHost key={c.chainId} surface={c.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} />
+          <SurfaceHost key={c.chainId} surface={c.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} onFallback={onFallback} />
         ))}
         <ReviewProgress watch={reviewWatch} />
         {interrupted && !blocking && (
@@ -609,7 +617,7 @@ export function AgentChat({
       </section>
       {columnChain && (
         <aside className="rf-agent-surface-column" aria-label="Latest view">
-          <SurfaceHost surface={columnChain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} />
+          <SurfaceHost surface={columnChain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} onFallback={onFallback} />
         </aside>
       )}
     </div>

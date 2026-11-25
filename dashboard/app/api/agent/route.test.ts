@@ -63,7 +63,7 @@ beforeEach(() => {
   m.getUserClaims.mockResolvedValue({ id: USER, email: "pat@example.com" });
   m.assertNotDeleted.mockResolvedValue(undefined);
   m.getViewerPlan.mockResolvedValue("standard");
-  m.loadAppSettings.mockResolvedValue({ agentEnabled: true });
+  m.loadAppSettings.mockResolvedValue({ agentEnabled: true, agentVariant3Enabled: true });
   m.checkBudget.mockResolvedValue({ ok: true, remainingMicros: 1_000_000 });
   m.getThread.mockImplementation(async (userId: string, id: string) => (userId === USER && id === THREAD ? thread : null));
   m.streamAgentTurn.mockResolvedValue(new Response("stream", { status: 200 }));
@@ -141,7 +141,14 @@ describe("POST /api/agent", () => {
       email: "pat@example.com",
       thread,
       input: { kind: "message", id: "m-1", text: valid.text, documentIds: [] },
+      variant3Enabled: true,
     });
+  });
+
+  test("Task 2.8: the operator's variant 3 switch goes with the turn", async () => {
+    m.loadAppSettings.mockResolvedValue({ agentEnabled: true, agentVariant3Enabled: false });
+    await POST(post(valid));
+    expect(m.streamAgentTurn).toHaveBeenCalledWith(expect.objectContaining({ variant3Enabled: false }));
   });
 
   test("a body with an extra userId field is rejected", async () => {

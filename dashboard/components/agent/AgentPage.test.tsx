@@ -19,6 +19,10 @@ const actions = vi.hoisted(() => ({
   loadSurfaceAction: vi.fn(),
   reloadSurfaceRowsAction: vi.fn(),
   describeApprovalAction: vi.fn(),
+  describeFrameIntentAction: vi.fn(),
+  reportSurfaceFailure: vi.fn(),
+  setThreadVariantAction: vi.fn(),
+  setDefaultVariantAction: vi.fn(),
 }));
 vi.mock("@/app/actions/agent", () => actions);
 const shortlist = vi.hoisted(() => ({ refreshSuggestedAction: vi.fn() }));
@@ -74,8 +78,12 @@ function toolReply(toolName: string, input: unknown, output: unknown, callId = "
 function surface(id: string, text: string, supersedes: string | null = null, blocks?: unknown[]): HostSurface {
   return {
     id,
+    threadId: THREAD,
     supersedes,
+    rerenderOf: null,
     createdAt: "2026-11-25T00:00:00.000Z",
+    variant: 1,
+    view: { kind: "blocks" },
     payload: { variant: 1, title: `View ${text}`, blocks: (blocks ?? [{ type: "Callout", tone: "info", text }]) as never },
     gathered: gatheredFixture(),
     rows: {},
@@ -251,7 +259,7 @@ describe("confirm cards", () => {
     actions.confirmIntentAction.mockResolvedValue({ kind: "done", toast: "Preparing your application.", generation });
     render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={chains} />);
     fireEvent.click(screen.getByRole("button", { name: "Prepare application" }));
-    await waitFor(() => expect(actions.executeIntentAction).toHaveBeenCalledWith(THREAD, S1, { name: "application.prepare", jobId: JOB_A }));
+    await waitFor(() => expect(actions.executeIntentAction).toHaveBeenCalledWith(THREAD, S1, { name: "application.prepare", jobId: JOB_A }, "host"));
     fireEvent.click(await screen.findByRole("button", { name: "Prepare" }));
     await waitFor(() => expect(tracker.value?.notifyStarted).toHaveBeenCalledWith(generation));
     expect(actions.confirmIntentAction).toHaveBeenCalledWith("tok");

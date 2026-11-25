@@ -7,7 +7,7 @@ import { createThread, renameThread } from "@/lib/agent/threads";
 import { undoAction, type UndoResult } from "@/lib/agent/actions/audit";
 
 // The pages that show agent writes, refreshed after a successful undo.
-const UNDO_PATHS = ["/shortlist", "/agent"] as const;
+const UNDO_PATHS = ["/shortlist", "/applications", "/agent"] as const;
 
 // Thread actions for the agent page (plan Task 0.14). The user id always comes from the
 // session; a thread id from the client is only ever matched together with it

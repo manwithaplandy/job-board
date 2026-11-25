@@ -6,6 +6,7 @@
 // Kinds whose library has not landed yet answer undo with not_found.
 import "@/lib/workspaces/shortlist";
 import "@/lib/workspaces/analyticsTiles";
+import "@/lib/workspaces/applications";
 
 /** The kinds this module's imports register (checked by undoers.test.ts). */
-export const UNDOABLE_KINDS = ["shortlist.set", "analytics.set_tiles"] as const;
+export const UNDOABLE_KINDS = ["shortlist.set", "analytics.set_tiles", "application.set_stage", "application.add_note"] as const;

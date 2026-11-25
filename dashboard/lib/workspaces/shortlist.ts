@@ -167,7 +167,8 @@ async function readRowTx(tx: TransactionSql, userId: string, jobId: string, now:
   return row;
 }
 
-async function hasReviewTx(tx: TransactionSql, userId: string, jobId: string): Promise<boolean> {
+/** Whether the caller has a finished (non-errored, scored or verdicted) review of the job. Shared with the tracker. */
+export async function hasReviewTx(tx: TransactionSql, userId: string, jobId: string): Promise<boolean> {
   const rows = await tx`
     SELECT EXISTS (
       SELECT 1 FROM job_reviews r

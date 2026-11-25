@@ -59,6 +59,8 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   // production database below a fixed page header; the gallery fixtures cover the bodies.
   { id: "shortlist-default", path: "/shortlist", access: "authenticated", family: "workspaces", state: "default", shell: "app", source: "app/shortlist/page.tsx",
     live: { hide: [".rf-workspace-live"], mask: [] } },
+  { id: "applications-default", path: "/applications", access: "authenticated", family: "workspaces", state: "applications", shell: "app", source: "app/applications/page.tsx",
+    live: { hide: [".rf-workspace-live"], mask: [] } },
   { id: "feedback-default", path: "/feedback", access: "authenticated", family: "feedback", state: "default", shell: "app", source: "app/feedback/page.tsx" },
   { id: "billing-default", path: "/billing", access: "authenticated", family: "billing", state: "default", shell: "app", source: "app/billing/page.tsx" },
   { id: "profile-hub", path: "/profile", access: "authenticated", family: "profile", state: "default", shell: "app", source: "app/profile/layout.tsx" },

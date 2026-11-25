@@ -87,6 +87,10 @@ jobs:
         run: >-
           python tools/lifecycle_test_db.py --postgres-major ${{ matrix.postgres }} --
           python tools/run_lifecycle_acceptance.py dashboard
+      - name: Run the dashboard database test lane
+        run: >-
+          python tools/lifecycle_test_db.py --postgres-major ${{ matrix.postgres }} --
+          npm --prefix dashboard run test:db
 
   dashboard:
     name: Dashboard tests

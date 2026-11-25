@@ -25,6 +25,10 @@ const DB: Record<string, Record<string, unknown[]>> = {
     generation_jobs: [{ user_id: "user-a", job_id: "j1", kind: "resume", status: "ready" }],
     review_runs: [{ user_id: "user-a", id: 10 }],
     invite_redemptions: [{ user_id: "user-a", email: "a@x.com", code: "INV" }],
+    agent_threads: [{ id: "t1", title: "A thread", variant: 1 }],
+    agent_messages: [{ thread_id: "t1", id: "m1", role: "user", parts: [{ type: "text", text: "A asks" }] }],
+    agent_runs: [{ id: "r1", thread_id: "t1", kind: "turn", status: "done", cost_micros: 1200 }],
+    agent_settings: [{ default_variant: 2, background_enabled: true }],
   },
   "user-b": {
     profiles: [{ user_id: "user-b", resume_text: "B SECRET résumé" }],
@@ -40,6 +44,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
     review_requests: [],
     review_runs: [],
     invite_redemptions: [],
+    agent_threads: [{ id: "tB", title: "B SECRET thread" }],
   },
   "empty-user": {
     profiles: [{ user_id: "empty-user", resume_text: null }],
@@ -49,10 +54,20 @@ const DB: Record<string, Record<string, unknown[]>> = {
   },
 };
 
+// Every SQL text the export ran, so tests can check exactly which columns it reads.
+const ranSql: string[] = [];
+
 function makeTx(userId: string) {
   const rows = DB[userId] ?? {};
   const pick = (sql: string): unknown[] => {
+    ranSql.push(sql);
     if (/FROM job_payload_demands/.test(sql)) throw new Error("permission denied for table job_payload_demands");
+    // An account read before the agent migration is applied: the tables do not exist yet.
+    if (userId === "pre-agent-user" && /FROM agent_/.test(sql)) throw new Error('relation "agent_threads" does not exist');
+    if (/FROM agent_threads/.test(sql)) return rows.agent_threads ?? [];
+    if (/FROM agent_messages/.test(sql)) return rows.agent_messages ?? [];
+    if (/FROM agent_runs/.test(sql)) return rows.agent_runs ?? [];
+    if (/FROM agent_settings/.test(sql)) return rows.agent_settings ?? [];
     if (/FROM feedback/.test(sql)) return rows.feedback ?? [];
     if (/FROM matching_activity/.test(sql)) return rows.matching_activity ?? [];
     if (/FROM profiles/.test(sql)) return rows.profiles ?? [];
@@ -158,4 +173,58 @@ test("reports inaccessible lifecycle demands without claiming a complete empty e
   expect(result).toHaveProperty("job_payload_demands", null);
   expect(result).toHaveProperty("job_payload_demands_error", "lifecycle demand export unavailable");
   expect(JSON.stringify(result)).not.toContain("permission denied");
+});
+
+describe("agent tables", () => {
+  const selected = (table: string) => {
+    const text = ranSql.filter((q) => new RegExp(`FROM ${table}\\b`).test(q)).at(-1);
+    if (!text) throw new Error(`no read of ${table}`);
+    return text.replace(/\s+/g, " ").match(/SELECT (.*?) FROM/)![1].split(",").map((c) => c.trim());
+  };
+
+  test("exports the caller's agent threads, messages, runs and settings, and none of another user's", async () => {
+    const out = await buildAccountExport("user-a", "a@x.com", noFiles);
+    expect(out.agent_threads).toEqual(DB["user-a"].agent_threads);
+    expect(out.agent_messages).toEqual(DB["user-a"].agent_messages);
+    expect(out.agent_runs).toEqual(DB["user-a"].agent_runs);
+    expect(out.agent_settings).toEqual(DB["user-a"].agent_settings[0]);
+    expect(out.agent_tables_error).toBeNull();
+    expect(JSON.stringify(out)).not.toContain("B SECRET thread");
+  });
+
+  test("reads only the named columns, never select-star", async () => {
+    await buildAccountExport("user-a", "a@x.com", noFiles);
+    expect(selected("agent_threads")).toEqual(["id", "title", "variant", "summary", "created_at", "updated_at", "archived_at"]);
+    expect(selected("agent_messages")).toEqual(["thread_id", "id", "role", "parts", "status", "created_at"]);
+    expect(selected("agent_runs")).toEqual([
+      "id", "thread_id", "kind", "job", "status", "model", "variant", "steps", "input_tokens", "output_tokens",
+      "cost_micros", "error", "scheduled_for", "started_at", "finished_at", "created_at",
+    ]);
+    expect(selected("agent_settings")).toEqual(["default_variant", "background_enabled", "updated_at"]);
+  });
+
+  test("an account with no agent data exports empty lists and a null settings row", async () => {
+    const out = await buildAccountExport("empty-user", "e@x.com", noFiles);
+    expect(out.agent_threads).toEqual([]);
+    expect(out.agent_messages).toEqual([]);
+    expect(out.agent_runs).toEqual([]);
+    expect(out.agent_settings).toBeNull();
+    expect(out.agent_tables_error).toBeNull();
+  });
+
+  test("before the agent tables exist, the rest of the export still succeeds and says agent data is unavailable", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const out = await buildAccountExport("pre-agent-user", "p@x.com", noFiles);
+    // The cause is logged server-side, not swallowed…
+    expect(errSpy).toHaveBeenCalledWith("account export: agent tables could not be read", expect.any(Error));
+    errSpy.mockRestore();
+    // …and only the fixed marker reaches the download.
+    expect(out).toHaveProperty("profiles");
+    expect(out.agent_threads).toBeNull();
+    expect(out.agent_messages).toBeNull();
+    expect(out.agent_runs).toBeNull();
+    expect(out.agent_settings).toBeNull();
+    expect(out.agent_tables_error).toBe("agent data export unavailable");
+    expect(JSON.stringify(out)).not.toContain("does not exist");
+  });
 });

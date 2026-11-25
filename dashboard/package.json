@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
+    "test:db": "NODE_OPTIONS=--no-experimental-webstorage vitest run --config vitest.db.config.ts",
     "test:ui-contract": "NODE_OPTIONS=--no-experimental-webstorage vitest run app/ui-contract.test.ts app/visual-regression-contract.test.ts",
     "test:visual:auth-harness": "playwright test --config playwright.auth-harness.config.ts",
     "test:visual": "VISUAL_DISABLE_TRACE=1 PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test",
@@ -18,14 +19,18 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@ai-sdk/otel": "1.0.163",
+    "@ai-sdk/react": "4.0.167",
     "@aws-sdk/client-sesv2": "^3.1089.0",
     "@langfuse/client": "^5.9.1",
     "@langfuse/otel": "^5.9.1",
     "@langfuse/tracing": "^5.9.1",
+    "@openrouter/ai-sdk-provider": "3.1.0",
     "@opentelemetry/sdk-trace-node": "^2.9.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.110.0",
     "@tanstack/react-virtual": "^3.14.5",
+    "ai": "7.0.163",
     "jspdf": "^4.2.1",
     "next": "16.4.3",
     "postgres": "^3.4.5",
@@ -34,7 +39,8 @@
     "recharts": "^3.9.1",
     "sonner": "^2.0.7",
     "stripe": "^19.3.0",
-    "unpdf": "^1.6.2"
+    "unpdf": "^1.6.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

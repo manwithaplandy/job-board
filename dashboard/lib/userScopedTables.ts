@@ -41,6 +41,14 @@ export const USER_DELETE_TABLES = [
   // Operator-pinned effective tier. Deleting the row with the account is correct:
   // a pin for an erased user is meaningless, and absence is the well-defined state.
   "plan_overrides",
+  // Agent-first redesign (Task 0.5). Classified one PR ahead of the migration that
+  // creates them, because a migration PR may not carry code. Children first:
+  // agent_messages references agent_threads, and agent_runs points at it with
+  // ON DELETE SET NULL, so both go before the threads.
+  "agent_messages",
+  "agent_runs",
+  "agent_threads",
+  "agent_settings",
 ] as const;
 
 /** Tables whose rows are kept but de-identified (user_id → NULL) on deletion. */

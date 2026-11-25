@@ -225,11 +225,14 @@ async function fitShortlistedVsApplied({ tx, userId, days }: Ctx) {
   };
 }
 
+// Agent events (actor 'agent') are not the user's. The migration's backfilled "applied"
+// events carry actor 'user' at the package's applied_at, the time the user marked it
+// applied, and no column sets them apart, so they count as that user action.
 async function weeklyActivity({ tx, userId, days }: Ctx) {
   const rows = await tx`
     WITH acts AS (
       SELECT date_trunc('week', e.created_at) AS wk FROM application_events e
-      WHERE e.user_id = ${userId}::uuid
+      WHERE e.user_id = ${userId}::uuid AND e.actor = 'user'
         AND (${days}::int IS NULL OR e.created_at >= now() - make_interval(days => ${days}::int))
       UNION ALL
       SELECT date_trunc('week', s.updated_at) FROM shortlist_items s
@@ -260,10 +263,11 @@ async function staleApplications({ tx, userId }: Ctx, now: Date) {
   return { kind: "value" as const, value: r.stale, n: r.n };
 }
 
+// Version 0 is the old free-text instructions kept at the first memo save, not a change.
 async function memoChanges({ tx, userId, days }: Ctx) {
   const rows = await tx`
     SELECT count(*) AS n FROM search_memo_versions
-    WHERE user_id = ${userId}::uuid
+    WHERE user_id = ${userId}::uuid AND version > 0
       AND (${days}::int IS NULL OR created_at >= now() - make_interval(days => ${days}::int))`;
   const [r] = rowsOf(z.object({ n: count }), rows, "memo_changes");
   return { kind: "value" as const, value: r.n, n: r.n };

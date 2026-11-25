@@ -74,6 +74,9 @@ beforeEach(async () => {
   await addApp(USER_A, 5, "offer", 60, [["applied", 60], ["interviewing", 50], ["offer", 31]]);
   await db.sql`INSERT INTO application_events (user_id, application_id, kind, note, actor, created_at)
                VALUES (${USER_A}, ${app(5)}, 'note', 'Call went well', 'user', ${ago(1)})`;
+  // The agent's note is not the user's action: weekly_activity never counts it.
+  await db.sql`INSERT INTO application_events (user_id, application_id, kind, note, actor, created_at)
+               VALUES (${USER_A}, ${app(2)}, 'note', 'Agent summary', 'agent', ${ago(2)})`;
 
   // USER_A's shortlist.
   await addShortlist(USER_A, 1, "shortlisted", "user", 45);
@@ -90,6 +93,8 @@ beforeEach(async () => {
   await seedReview(db.sql, USER_A, job(5), { fit_score: 90 });
   await db.sql`INSERT INTO review_corrections (user_id, job_id, fit_score) VALUES (${USER_A}, ${job(2)}, 50)`;
 
+  // Version 0 (the old instructions kept at the first save) is not a memo change.
+  await addMemoVersion(USER_A, 0, 2);
   await addMemoVersion(USER_A, 1, 40);
   await addMemoVersion(USER_A, 2, 3);
   await addMemoVersion(USER_A, 3, 1);
@@ -171,10 +176,12 @@ const CASES: Case[] = [
     kind: "rows", columns: ["group", "avg_fit", "jobs"], rows: [["shortlisted", 50, 1], ["applied", 55, 2]], n: 3,
   })],
   ["weekly_activity, 7d", { metric: "weekly_activity", groupBy: "week", window: "7d" }, () => ({
-    // Events 5, 3, 2, 1 (note) days ago; user shortlist rows 4 and 6 days ago.
+    // User events 5, 3, 2, 1 (note) days ago; user shortlist rows 4 and 6 days ago. Not the
+    // agent's note 2 days ago, nor the agent and system shortlist rows.
     kind: "series", points: weeks(7, [5, 3, 2, 1, 4, 6]), n: 6,
   })],
   ["weekly_activity, all", { metric: "weekly_activity", window: "all" }, () => ({
+    // Every user event and user shortlist row; the agent's note is left out.
     kind: "series", points: weeks(60, [40, 20, 11, 5, 2, 3, 60, 50, 31, 1, 45, 25, 4, 6]), n: 14,
   })],
   ["stale_applications", { metric: "stale_applications", window: "all" }, () => ({ kind: "value", value: 1, n: 1 })],

@@ -100,7 +100,9 @@ export const METRIC_CATALOG: Record<MetricId, MetricCatalogEntry> = {
     groupBy: ["week"],
     windows: ALL_WINDOWS,
     stageFilter: false,
-    description: "The user's own actions per week: tracker moves and notes, and shortlist rows they set.",
+    description:
+      "The user's own actions per week (never the agent's): tracker stage moves and notes they made, " +
+      "and shortlist rows whose latest change was theirs, counted once at that change.",
   },
   stale_applications: {
     kind: "value",

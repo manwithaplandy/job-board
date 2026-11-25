@@ -510,3 +510,34 @@ describe("streamAgentTurn: PR C batch 3 review fixes", () => {
     expect(prompt).not.toContain("old reply");
   });
 });
+
+describe("streamAgentTurn: PR C batch 4 review M7 (finishRun retried once)", () => {
+  test("a finishRun that fails once is retried and the run closes", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(finishRun).mockRejectedValueOnce(new Error("connection reset")).mockResolvedValue(undefined);
+    await turn(scripted([textStep(["ok"], 0.0008)]));
+    expect(vi.mocked(finishRun).mock.calls).toEqual([
+      [USER, RUN, { status: "done" }],
+      [USER, RUN, { status: "done" }],
+    ]);
+  });
+
+  test("a finishRun that fails twice is given up after the one retry, without throwing", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(finishRun).mockRejectedValue(new Error("db down"));
+    await turn(scripted([textStep(["ok"], 0.0008)]));
+    expect(finishRun).toHaveBeenCalledTimes(2);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("finishRun failed twice"), "Error");
+  });
+
+  test("the early closes are retried too: a refused duplicate id", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(loadMessages).mockResolvedValue([{ id: "m-1", role: "user", parts: [{ type: "text", text: "x" }] }]);
+    vi.mocked(finishRun).mockRejectedValueOnce(new Error("connection reset")).mockResolvedValue(undefined);
+    const call = streamAgentTurn({ userId: USER, email: null, thread, input: message("hi", "m-1"), model: scripted([textStep(["ok"], 0.0008)]) });
+    await expect(call).rejects.toMatchObject({ code: "duplicate_message_id" });
+    expect(finishRun).toHaveBeenCalledTimes(2);
+    expect(finishRun).toHaveBeenLastCalledWith(USER, RUN, { status: "failed", error: "bad_input" });
+  });
+});

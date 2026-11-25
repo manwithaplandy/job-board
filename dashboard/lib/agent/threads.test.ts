@@ -92,9 +92,16 @@ describe("threads", () => {
   });
 
   test("renameThread trims and caps the title; an empty title is refused", async () => {
+    db.rows = [{ id: THREAD }];
     await renameThread(USER, THREAD, `  ${"t".repeat(200)}  `);
     expect(db.calls[0]?.values).toContain("t".repeat(120));
     await expect(renameThread(USER, THREAD, "   ")).rejects.toThrow();
+  });
+
+  test("renameThread refuses a thread the update did not touch (unknown, or another user's)", async () => {
+    db.rows = [];
+    await expect(renameThread(USER, THREAD, "Remote roles")).rejects.toThrow("agent: thread not found");
+    expect(db.calls[0]?.text).toMatch(/RETURNING id/);
   });
 
   test("setThreadVariant refuses a variant outside 1 to 3", async () => {

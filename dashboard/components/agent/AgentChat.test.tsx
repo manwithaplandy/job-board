@@ -140,6 +140,114 @@ test("Enter sends, Shift+Enter adds a line, empty text does not send", async () 
   await waitFor(() => expect(composer().value).toBe(""));
 });
 
+const sentText = (text: string) => screen.queryByText(text, { selector: ".rf-agent-message__text" });
+
+test("a 409 shows an inline Alert, takes the message back out and restores the draft", async () => {
+  fetchMock.mockResolvedValue(Response.json({ error: "turn_in_progress" }, { status: 409 }));
+  render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Are you still there?" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(/A reply is still being written in this conversation/);
+  expect(sentText("Are you still there?")).toBeNull();
+  expect(composer().value).toBe("Are you still there?");
+  expect(composer().disabled).toBe(false);
+});
+
+test("a 404 shows an inline Alert and restores the draft", async () => {
+  fetchMock.mockResolvedValue(Response.json({ error: "not_found" }, { status: 404 }));
+  render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Hello?" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(/This conversation was not found/);
+  expect(sentText("Hello?")).toBeNull();
+  expect(composer().value).toBe("Hello?");
+});
+
+test("a 5xx keeps the user message (the server may have stored it) and shows the generic Alert", async () => {
+  fetchMock.mockResolvedValue(new Response("Internal Server Error", { status: 500 }));
+  render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Which roles fit?" } });
+  fireEvent.click(sendButton());
+  await screen.findByText("The assistant could not answer just now. Try again.");
+  expect(sentText("Which roles fit?")).toBeTruthy();
+  expect(composer().value).toBe("");
+});
+
+test("an error mid-stream keeps the user message and shows the generic Alert", async () => {
+  fetchMock.mockImplementation(async () =>
+    createUIMessageStreamResponse({
+      stream: new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          controller.enqueue({ type: "start", messageId: "msg-reply" });
+          controller.enqueue({ type: "error", errorText: "boom" });
+          controller.close();
+        },
+      }),
+    }),
+  );
+  render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Tell me more" } });
+  fireEvent.click(sendButton());
+  await screen.findByText("The assistant could not answer just now. Try again.");
+  expect(sentText("Tell me more")).toBeTruthy();
+  expect(composer().value).toBe("");
+});
+
+test("a thrown fetch (network error) takes the message back out and restores the draft", async () => {
+  fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+  render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Offline question" } });
+  fireEvent.click(sendButton());
+  await screen.findByText("The assistant could not answer just now. Try again.");
+  await waitFor(() => expect(sentText("Offline question")).toBeNull());
+  expect(composer().value).toBe("Offline question");
+});
+
+test("the transcript is not a token-by-token live region: it is marked busy while a reply streams", async () => {
+  let release: () => void = () => {};
+  fetchMock.mockImplementation(async () =>
+    createUIMessageStreamResponse({
+      stream: new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          controller.enqueue({ type: "start", messageId: "msg-reply" });
+          controller.enqueue({ type: "text-start", id: "t1" });
+          controller.enqueue({ type: "text-delta", id: "t1", delta: "Partial" });
+          release = () => {
+            controller.enqueue({ type: "text-end", id: "t1" });
+            controller.enqueue({ type: "finish" });
+            controller.close();
+          };
+        },
+      }),
+    }),
+  );
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Stream please" } });
+  fireEvent.click(sendButton());
+  await screen.findByText("Partial");
+  const transcript = () => container.querySelector(".rf-agent-transcript");
+  expect(transcript()?.getAttribute("aria-busy")).toBe("true");
+  act(() => release());
+  await waitFor(() => expect(transcript()?.getAttribute("aria-busy")).toBe("false"));
+});
+
+test("a pending reply turns into the interrupted notice once it passes 300 s, without a reload", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  try {
+    vi.setSystemTime(new Date("2026-11-25T12:00:00Z"));
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }], metadata: { status: "complete" } },
+      { id: "a1", role: "assistant", parts: [], metadata: { status: "pending", createdAt: "2026-11-25T11:55:10Z" } },
+    ];
+    render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+    expect(screen.queryByText("This reply was interrupted")).toBeNull();
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(screen.getByText("This reply was interrupted")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("the first message of an untitled thread names the thread from its text", async () => {
   render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} autoTitle />);
   fireEvent.change(composer(), { target: { value: "  Find   remote ML roles  " } });

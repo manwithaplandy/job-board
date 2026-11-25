@@ -137,6 +137,31 @@ export function historyWindow(history: AgentUIMessage[]): AgentUIMessage[] {
   return history.slice(start);
 }
 
+// The pause before the one retry of a failed finishRun.
+export const FINISH_RETRY_MS = 200;
+
+/**
+ * Closes the run, retrying once after a short pause (PR C batch 4 review M7). A run left
+ * `running` holds the thread's one live-run slot, so the user would get 409 until the
+ * stale rule (AGENT_LIMITS.staleTurnMs) fires. finishRun is idempotent (it updates only
+ * a row still `running`), so the retry cannot change a run that the first call closed.
+ * Never throws: a second failure is logged and left to the stale rule.
+ */
+async function closeRun(userId: string, runId: string, final: Parameters<typeof finishRun>[2]): Promise<void> {
+  try {
+    await finishRun(userId, runId, final);
+    return;
+  } catch (first) {
+    console.warn("agent: finishRun failed; retrying once", errorName(first));
+  }
+  await new Promise((resolve) => setTimeout(resolve, FINISH_RETRY_MS));
+  try {
+    await finishRun(userId, runId, final);
+  } catch (second) {
+    console.error("agent: finishRun failed twice; the stale rule will close the run", errorName(second));
+  }
+}
+
 /** The profile for the instructions; null when the read failed (getProfileSummary itself never returns null). */
 async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft">): Promise<ProfileSummary | null> {
   try {
@@ -183,11 +208,11 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     history = await loadMessages(userId, thread.id);
   } catch (e) {
     console.error("agent: history read failed", errorName(e));
-    await finishRun(userId, runId, { status: "failed", error: "setup_failed" }).catch(() => {});
+    await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
     throw e;
   }
   if (history.some((m) => m.id === userMessage.id)) {
-    await finishRun(userId, runId, { status: "failed", error: "bad_input" }).catch(() => {});
+    await closeRun(userId, runId, { status: "failed", error: "bad_input" });
     throw new TurnInputError("duplicate_message_id");
   }
   const originalMessages: AgentUIMessage[] = [...historyWindow(history), userMessage];
@@ -198,7 +223,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     await saveMessages(userId, thread.id, [userMessage], "complete");
     await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: [] }], "pending");
   } catch (e) {
-    await finishRun(userId, runId, { status: "failed", error: "persist_failed" }).catch(() => {});
+    await closeRun(userId, runId, { status: "failed", error: "persist_failed" });
     throw e;
   }
 
@@ -234,7 +259,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     // answer 500.
     console.error("agent: turn setup failed", errorName(e));
     await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: [] }], "failed").catch(() => {});
-    await finishRun(userId, runId, { status: "failed", error: "setup_failed" }).catch(() => {});
+    await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
     throw e;
   }
 
@@ -337,7 +362,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     controller.abort("setup_failed");
     console.error("agent: starting the stream failed", errorName(e));
     await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: [] }], "failed").catch(() => {});
-    await finishRun(userId, runId, { status: "failed", error: "setup_failed" }).catch(() => {});
+    await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
     throw e;
   }
 }
@@ -398,7 +423,7 @@ async function persistTurn(p: {
       console.error("agent: the text-only fallback save failed too", errorName(err)),
     );
   }
-  await finishRun(p.userId, p.runId, final).catch((err: unknown) => console.error("agent: finishRun failed", errorName(err)));
+  await closeRun(p.userId, p.runId, final);
   // Spans that ended after streamText's onEnd (an aborted turn, the outer spans).
   await flushLangfuseTraces();
 }

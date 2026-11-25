@@ -198,3 +198,44 @@ describe("POST /api/agent", () => {
     expect(res.status).toBe(400);
   });
 });
+
+// The same-origin guard of app/auth/signout and app/api/board-filters: the route spends
+// money, so a cross-site or sibling-subdomain POST is refused before the session is read.
+describe("POST /api/agent same-origin guard", () => {
+  function postWith(headers: Record<string, string>): Request {
+    return new Request("http://localhost/api/agent", { method: "POST", headers, body: JSON.stringify(valid) });
+  }
+
+  test.each(["cross-site", "same-site"])("sec-fetch-site %s -> 403 forbidden, nothing read", async (site) => {
+    const res = await POST(postWith({ "content-type": "application/json", "sec-fetch-site": site }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "forbidden" });
+    expect(m.getUserClaims).not.toHaveBeenCalled();
+    expect(m.streamAgentTurn).not.toHaveBeenCalled();
+  });
+
+  test.each([["same-origin"], ["none"], [undefined]])("sec-fetch-site %s is allowed", async (site) => {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (site !== undefined) headers["sec-fetch-site"] = site;
+    const res = await POST(postWith(headers));
+    expect(res.status).toBe(200);
+  });
+
+  test("the chat transport's content type with a charset is accepted", async () => {
+    const res = await POST(postWith({ "content-type": "application/json; charset=utf-8" }));
+    expect(res.status).toBe(200);
+  });
+
+  test.each([["text/plain"], ["application/x-www-form-urlencoded"], [undefined]])(
+    "a %s body (a form post needs no preflight) is a 400 before the body is parsed",
+    async (type) => {
+      const headers: Record<string, string> = {};
+      if (type !== undefined) headers["content-type"] = type;
+      const res = await POST(postWith(headers));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "bad_request" });
+      expect(m.getViewerPlan).not.toHaveBeenCalled();
+      expect(m.streamAgentTurn).not.toHaveBeenCalled();
+    },
+  );
+});

@@ -15,8 +15,9 @@ export const maxDuration = 300;
 
 // One agent turn (plan Task 0.13), streamed as a UI message stream. Authed only: NOT in
 // PUBLIC_PREFIXES. The gates run in the order of the status contract:
+//   403 { error: "forbidden" }              Sec-Fetch-Site is cross-site or same-site
 //   401 no session (or an erased account's stale JWT)
-//   400 { error: "bad_request" }            the body fails the strict schema
+//   400 { error: "bad_request" }            not application/json, or the body fails the strict schema
 //   402 { error: "subscription_required" }  no plan
 //   503 { error: "agent_disabled" }         the kill switch (fails closed on a failed read)
 //   429 { error: "agent_budget_exhausted", reason }  a ceiling is reached
@@ -33,6 +34,10 @@ const json = (body: unknown, status: number) => Response.json(body, { status });
 const badRequest = () => json({ error: "bad_request" }, 400);
 
 async function readBody(req: Request): Promise<AgentRequest | null> {
+  // JSON only. A cross-site HTML form can post text/plain or urlencoded with no
+  // preflight; application/json cannot be sent cross-origin without one.
+  const type = (req.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (type !== "application/json") return null;
   const declared = Number(req.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > BODY_MAX_CHARS) return null;
   let text: string;
@@ -60,6 +65,11 @@ function toTurnInput(body: AgentRequest): TurnInput {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // The same-origin guard of app/auth/signout and app/api/board-filters: this route
+  // spends money, so a cross-site or sibling-subdomain request is refused first.
+  const site = req.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") return json({ error: "forbidden" }, 403);
+
   const claims = await getUserClaims();
   if (!claims) return json({ error: "sign in" }, 401);
   const userId = claims.id;

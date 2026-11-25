@@ -93,15 +93,21 @@ export async function getThread(userId: string, id: string): Promise<AgentThread
   return rows.length > 0 ? toThread(rows[0]) : null;
 }
 
-/** Sets a user-chosen title: whitespace collapsed, at most 120 characters, never empty. */
+/**
+ * Sets a user-chosen title: whitespace collapsed, at most 120 characters, never empty.
+ * Throws for a thread that is not the caller's (the UPDATE touched no row).
+ */
 export async function renameThread(userId: string, id: string, title: string): Promise<void> {
   const clean = cutCodePoints(squashWhitespace(title), THREAD_TITLE_MAX);
   if (!clean) throw new Error("agent: a thread title cannot be empty");
   if (!UUID_RE.test(id)) throw new Error("agent: thread not found");
-  await withUserSql(userId, (tx) => tx`
+  const rows = await withUserSql(userId, (tx) => tx`
     UPDATE agent_threads SET title = ${clean}, updated_at = now()
     WHERE id = ${id}::uuid AND user_id = ${userId}::uuid
+    RETURNING id
   `);
+  // No row: not this user's thread (or no such thread), so the rename is refused.
+  if (rows.length === 0) throw new Error("agent: thread not found");
 }
 
 export async function setThreadVariant(userId: string, id: string, variant: Variant): Promise<void> {

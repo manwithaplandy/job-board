@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { createIdGenerator, DefaultChatTransport, type UIMessage } from "ai";
 import { z } from "zod";
@@ -51,18 +51,33 @@ function isInterrupted(messages: UIMessage[], now: number): boolean {
   return Number.isFinite(at) && now - at > AGENT_LIMITS.staleTurnMs;
 }
 
-/** What a rejected request means for the page. */
-type Rejection = { notice: AgentBlockingNotice } | { message: string };
+/**
+ * What a failed request means for the page. `rollback` is true when nothing was stored,
+ * so the optimistic message comes back out and its text returns to the composer.
+ */
+type Rejection = ({ notice: AgentBlockingNotice } | { message: string }) & { rollback: boolean };
+
+const GENERIC_PROBLEM = "The assistant could not answer just now. Try again.";
+
+// The route's own refusals, each answered before anything is stored (app/api/agent/route.ts).
+// Any other status (a 5xx) may come after the server stored the user message, so the
+// message stays and a reload shows what was kept.
+const NOTHING_STORED = new Set([400, 402, 404, 409, 429, 503]);
 
 function rejectionFrom(status: number, body: unknown): Rejection {
+  const rollback = NOTHING_STORED.has(status);
   const reason = z.object({ reason: z.string() }).safeParse(body);
-  if (status === 429) return { notice: reason.success && reason.data.reason === "monthly_ceiling" ? "monthly_ceiling" : "daily_ceiling" };
-  if (status === 503) return { notice: "agent_disabled" };
-  if (status === 402) return { notice: "no_plan" };
-  if (status === 409) return { message: "A reply is still being written in this conversation. Wait for it to finish, then send again." };
-  if (status === 404) return { message: "This conversation was not found. Start a new one from the list." };
-  return { message: "The assistant could not answer just now. Try again." };
+  if (status === 429) return { rollback, notice: reason.success && reason.data.reason === "monthly_ceiling" ? "monthly_ceiling" : "daily_ceiling" };
+  if (status === 503) return { rollback, notice: "agent_disabled" };
+  if (status === 402) return { rollback, notice: "no_plan" };
+  if (status === 409) return { rollback, message: "A reply is still being written in this conversation. Wait for it to finish, then send again." };
+  if (status === 404) return { rollback, message: "This conversation was not found. Start a new one from the list." };
+  return { rollback, message: GENERIC_PROBLEM };
 }
+
+// How often the stale-turn check is re-run, so a pending reply turns "interrupted" once
+// it passes AGENT_LIMITS.staleTurnMs without a reload.
+const CLOCK_TICK_MS = 15_000;
 
 /**
  * The HTTP transport plus a small ledger of the request in flight: its message id and
@@ -83,7 +98,15 @@ function chatTransport(threadId: string) {
       return { body };
     },
     fetch: async (input, init) => {
-      const res = await globalThis.fetch(input, init);
+      let res: Response;
+      try {
+        res = await globalThis.fetch(input, init);
+      } catch (e) {
+        // A network failure: treated like a refusal, so the text goes back to the
+        // composer for a resend (unless the user aborted it, which is no error).
+        if (!init?.signal?.aborted) rejected = { rollback: true, message: GENERIC_PROBLEM };
+        throw e;
+      }
       if (!res.ok) rejected = rejectionFrom(res.status, await res.clone().json().catch(() => null));
       return res;
     },
@@ -126,7 +149,11 @@ export function AgentChat({
   const [draft, setDraft] = useState("");
   const [blocking, setBlocking] = useState<AgentBlockingNotice | null>(notice);
   const [problem, setProblem] = useState<string | null>(null);
-  const [now] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
+    return () => clearInterval(tick);
+  }, []);
   const named = useRef(!autoTitle);
   // One transport per mounted chat (the page keys AgentChat by thread id).
   const [{ transport, book }] = useState(() => chatTransport(threadId));
@@ -137,13 +164,11 @@ export function AgentChat({
     transport,
     generateId,
     onError: () => {
-      // An HTTP rejection stored nothing; an error mid-stream comes after the server
-      // saved the message, so it stays.
+      // A refusal or a network failure stored nothing; a 5xx or an error mid-stream may
+      // come after the server saved the message, so it stays.
       const { rejected, sent } = book.take();
-      const wasRejected = rejected !== null;
       const r = rejected ?? rejectionFrom(0, null);
-      if (sent && wasRejected) {
-        // Nothing was stored for a rejected request: take the message back out.
+      if (sent && r.rollback) {
         setMessages((prev) => prev.filter((m) => m.id !== sent.id));
         setDraft((d) => (d === "" ? sent.text : d));
       }
@@ -173,7 +198,9 @@ export function AgentChat({
       {messages.length === 0 ? (
         <p className="rf-agent-chat__empty">Ask about your reviewed jobs, a company, or your profile.</p>
       ) : (
-        <ol className="rf-agent-transcript" aria-live="polite">
+        // aria-busy holds the live region's announcement while a reply streams, so a
+        // screen reader reads the finished reply once, not every token.
+        <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
           {messages.map((m) => (
             <MessageView key={m.id} message={m} />
           ))}

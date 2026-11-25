@@ -139,8 +139,9 @@ describe("present's schema per variant", () => {
     };
   }
 
-  test("changing the variant affects the next turn's present schema only", async () => {
-    // Each turn builds its tool from that turn's ctx.variant; the variant 1 tool is unchanged by a variant 2 one.
+  test("each variant's present tool has its own schema and description, and building one leaves another unchanged", async () => {
+    // The tool is built from ctx.variant. That the loop reads the variant once per turn is
+    // lib/agent/loop.test.ts ("the thread's variant").
     const one = await schemaOf(1);
     const two = await schemaOf(2);
     const three = await schemaOf(3);

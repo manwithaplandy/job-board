@@ -81,10 +81,10 @@ const V3_PAYLOAD = { variant: 3, title: "Picks", html: V3_HTML };
 const ON = { variant3Enabled: true };
 const OFF = { variant3Enabled: false };
 
-test("an older surface still renders with its recorded variant", () => {
-  // A variant 1 row in a thread switched to variant 2 later: blocks, as recorded.
+test("the renderer follows the row's own recorded variant: a variant 1 row shows blocks, a variant 2 row its tree", () => {
+  // parseStoredSurface takes no thread variant, so a thread switched later cannot change
+  // how an older row renders.
   expect(parseStoredSurface(stored("s1"), ON).view).toEqual({ kind: "blocks" });
-  // A variant 2 row renders its validated tree whatever the thread is set to now.
   const tree = parseStoredSurface(stored("s2", { variant: 2, payload: everyNodePayload() as unknown as Record<string, unknown>, fallbackPayload: STORED_FALLBACK }), OFF);
   expect(tree).toMatchObject({ view: { kind: "tree", tree: everyNodePayload() }, payload: STORED_FALLBACK, degraded: false });
 });

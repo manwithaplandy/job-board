@@ -355,6 +355,49 @@ service).
   `VISUAL_AUTH_*`, `VISUAL_ONBOARDING_*`, `VERCEL_AUTOMATION_BYPASS_SECRET`).
 - No branch protection or required-check config in the repo.
 
+### Running the live agent eval
+
+The live golden-scenario eval (plan Task 1.22) plays 4 scenarios for 3 personas (12
+cases per variant) against a real model. It is never part of CI. **It spends money on
+Andrew's OpenRouter key.** Use a dedicated OpenRouter key with its own credit limit set
+in OpenRouter, as an outer guard beyond the caps below.
+
+```
+python tools/lifecycle_test_db.py --postgres-major 17 --allow-env OPENROUTER_API_KEY -- \
+  npm --prefix dashboard run eval:agent -- --variant 1 --model anthropic/claude-sonnet-5.5
+```
+
+- `tools/lifecycle_test_db.py` forwards a variable only when it is named with
+  `--allow-env`, and only `OPENROUTER_API_KEY` is allowed (gate A17). Without the flag
+  the key never reaches the eval, and the eval refuses to start. The key goes to the
+  test command alone, never to docker, the database container, argv or the logs.
+- `npm run eval:agent` (`dashboard/scripts/eval-agent.mjs`) is the only entry point. It
+  needs Node 22.18 or later.
+
+Every run is capped, and the caps fail closed. A flag may lower a cap; a value above its
+ceiling is refused before anything runs.
+
+| Flag | Bounds | Default | Ceiling |
+|---|---|---|---|
+| `--max-cases <n>` | scenario × persona cases played (the first n) | 12 | 12 |
+| `--max-steps <n>` | model calls in one turn of a case | 8 | 8 (the route's own step limit) |
+| `--max-tokens <n>` | input + output tokens over the whole run | 2,000,000 | 8,000,000 |
+| `--max-usd <n>` | cost OpenRouter reports, over the whole run | $5 | $20 |
+| `--max-minutes <n>` | wall clock for the whole run | 30 | 60 |
+
+- Every model call is checked before it is sent, including whether it could pass the
+  token or dollar cap. The first cap reached stops the whole run: the case in progress
+  writes no recording, later cases are skipped, the run is reported as `cap_exceeded`
+  with the cap, the usage table so far is printed, and the command exits non-zero.
+- A call whose token usage cannot be read stops the run too (`usage_unknown`). It is
+  never counted as zero.
+- `--max-usd` is enforced only when OpenRouter reports each call's cost. If it does not,
+  only the token cap applies, and the report says USD was not enforced.
+- Sizing: one call sends about 7k tokens of fixed prefix (tool schemas, instructions,
+  profile, memo) plus the thread so far. The scripted gate turns make about 100 calls
+  for 12 cases, so a run is roughly 1.3 to 1.6M tokens. 2M allows for that with
+  headroom, and costs about $4 to $5 on Sonnet 5.5 at its list price.
+
 ## 12. Runbooks
 
 - [Backup and restore](runbooks/backup-restore.md)

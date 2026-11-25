@@ -12,6 +12,12 @@
 // persona's fixed tailored résumé instead of fetching a posting and generating documents
 // (writeStandInPackage), and the caller (live.eval.ts) mocks the plan lookup and
 // next/cache. Everything else is the real loop, tools, stores and database.
+//
+// Spend caps (gate A17, budget.ts): the model is wrapped by budgetMiddleware, so every
+// call is checked against the run's RunBudget before it reaches the provider. A case
+// starts with budget.startCase() and each turn with startTurn(); once a cap trips,
+// runScenario throws CapExceededError before it reads a Recording, so the caller writes
+// nothing for that case.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { wrapLanguageModel, type LanguageModel } from "ai";
@@ -28,6 +34,8 @@ import { SCENARIOS, type ScenarioId } from "@/lib/agent/evals/scenarios";
 import { collectRecording, snapshotDb } from "@/lib/agent/evals/record";
 import { playScenario, readStream, type TurnRunner } from "@/lib/agent/evals/play";
 import { recordingFileName, type Recording } from "@/lib/agent/evals/recording";
+import type { RunBudget } from "@/lib/agent/evals/budget";
+import { budgetMiddleware } from "@/lib/agent/evals/budgetMiddleware";
 
 export interface RunScenarioArgs {
   persona: PersonaId;
@@ -40,6 +48,11 @@ export interface RunScenarioArgs {
 /** The harness database's owner connection (lib/testing/dbHarness openTestDb). */
 export interface HarnessCtx {
   sql: postgres.Sql;
+}
+
+/** A scenario run's context: the harness database and the whole run's spend caps. */
+export interface ScenarioCtx extends HarnessCtx {
+  budget: RunBudget;
 }
 
 /** Ceilings for the eval users: far above one run, so the budget never cuts a scenario short. */
@@ -61,14 +74,18 @@ export async function prepareHarness(ctx: HarnessCtx): Promise<void> {
   }
 }
 
-/** The live model with the run's seed on every call (providers that support seeds use it). */
-function seededModel(modelId: string, seed: number): LanguageModel {
+/**
+ * The live model with the run's seed on every call (providers that support seeds use it)
+ * and every call checked against the run's caps. A model given only by id could not be
+ * checked, so it is refused.
+ */
+function seededModel(modelId: string, seed: number, budget: RunBudget): LanguageModel {
   const base = agentModel(modelId);
-  if (typeof base === "string") return base;
+  if (typeof base === "string") throw new Error("eval: the budgeted model needs a model instance, not an id");
   return wrapLanguageModel({
     model: base,
     modelId,
-    middleware: { transformParams: async ({ params }) => ({ ...params, seed }) },
+    middleware: [{ transformParams: async ({ params }) => ({ ...params, seed }) }, budgetMiddleware(budget)],
   });
 }
 
@@ -115,25 +132,33 @@ async function waitForRuns(sql: postgres.Sql, threadId: string): Promise<void> {
 }
 
 /** Plays one scenario for one persona against the live model and returns its recording. */
-export async function runScenario(a: RunScenarioArgs, ctx: HarnessCtx): Promise<Recording & { skipped: string[] }> {
+export async function runScenario(a: RunScenarioArgs, ctx: ScenarioCtx): Promise<Recording & { skipped: string[] }> {
+  const { budget } = ctx;
+  budget.startCase();
   const persona = PERSONAS[a.persona];
   const scenario = SCENARIOS[a.scenario];
   const userId = await seedPersona(ctx.sql, persona, scenario.setup);
   const thread = await createThread(userId, a.variant);
   const dbBefore = await snapshotDb(ctx.sql, userId);
-  const model = seededModel(a.model, a.seed);
+  const model = seededModel(a.model, a.seed, budget);
   const tools = evalTools(ctx, persona);
 
   const runTurn: TurnRunner = async (input) => {
+    budget.startTurn();
     const startedAt = Date.now();
     const current = (await getThread(userId, thread.id)) ?? thread;
     const res = await streamAgentTurn({ userId, email: persona.email, thread: current, input, model, tools });
     const { firstRenderMs } = await readStream(res, startedAt);
     await waitForRuns(ctx.sql, thread.id);
+    // A cap that tripped during the turn, or a call whose usage was never read, stops the
+    // whole run here, before the next step.
+    budget.endTurn();
     return { status: res.status, ms: Date.now() - startedAt, firstRenderMs };
   };
 
   const played = await playScenario({ scenario, persona, userId, email: persona.email, threadId: thread.id, runTurn });
+  // Never a Recording from a case the caps stopped.
+  budget.throwIfTripped();
   const recording = await collectRecording({
     sql: ctx.sql,
     source: "live",

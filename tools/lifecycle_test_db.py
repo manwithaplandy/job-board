@@ -26,6 +26,10 @@ READINESS_TIMEOUT_SECONDS = 60
 _HOSTS = {"localhost", "127.0.0.1", "::1"}
 _DATABASES = {"poller_test", "poller_lifecycle_test"}
 _SAFE_ENV = {"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "TMPDIR", "VIRTUAL_ENV"}
+# Gate A17 (plan Q8): the only variables a caller may forward to the test command, and
+# only by naming each with --allow-env. They reach the child command alone; never
+# docker, the database container, argv or any printed message.
+_OPT_IN_ENV = frozenset({"OPENROUTER_API_KEY"})
 
 
 def validate_test_dsn(dsn: str) -> None:
@@ -98,14 +102,34 @@ def checkpoint_owned_reset(conn: psycopg.Connection) -> bool:
         conn.autocommit = previous
     return True
 
-def child_environment(dsn: str) -> dict[str, str]:
+def opt_in_name(name: str) -> str:
+    """argparse type for --allow-env. The error never repeats what was passed: a
+    mistyped command could put a secret's value where its name belongs."""
+    if name not in _OPT_IN_ENV:
+        raise argparse.ArgumentTypeError("not an allowed name; allowed: " + ", ".join(sorted(_OPT_IN_ENV)))
+    return name
+
+
+def check_opt_in(allow_env=()) -> None:
+    """Every asked-for name must be allowed and set, so a run never goes on without it."""
+    for name in allow_env:
+        if name not in _OPT_IN_ENV:
+            raise ValueError("--allow-env accepts only: " + ", ".join(sorted(_OPT_IN_ENV)))
+        if not os.environ.get(name):
+            raise ValueError(f"--allow-env {name}: {name} is not set in this environment")
+
+
+def child_environment(dsn: str, allow_env=()) -> dict[str, str]:
     """An allowlist prevents inherited provider/production/PG credentials.
 
 Existing tests supply offline SDK doubles themselves. Placeholder OpenAI auth
 lets constructors work; AWS credential files and instance metadata are disabled.
+allow_env adds only the _OPT_IN_ENV names the caller asked for (--allow-env).
 """
     validate_test_dsn(dsn)
+    check_opt_in(allow_env)
     env = {name: value for name, value in os.environ.items() if name in _SAFE_ENV}
+    env.update({name: os.environ[name] for name in allow_env})
     env.update({
         "TEST_DATABASE_URL": dsn,
         "DATABASE_URL": dsn,
@@ -262,7 +286,7 @@ def _cleanup_owned_container(name: str, owner: str, created_id: str | None) -> N
 
 
 def run_existing_database(
-    command: list[str], dsn: str, *, owned_container: tuple[str, str] | None = None
+    command: list[str], dsn: str, *, owned_container: tuple[str, str] | None = None, allow_env=()
 ) -> int:
     """Required CI entry for its already-owned local PostgreSQL service.
 
@@ -271,7 +295,7 @@ This entry never creates, drops, stops or cleans up a service/container.
 """
     if not command:
         raise ValueError("a test command is required")
-    env = child_environment(dsn)
+    env = child_environment(dsn, allow_env)
     if owned_container is not None:
         env["LIFECYCLE_TEST_CONTAINER_ID"], env["LIFECYCLE_TEST_CONTAINER_OWNER"] = owned_container
     with _termination_handlers():
@@ -296,17 +320,18 @@ This entry never creates, drops, stops or cleans up a service/container.
             raise
 
 
-def isolated_database(command: list[str], postgres_major: int = 17) -> int:
+def isolated_database(command: list[str], postgres_major: int = 17, allow_env=()) -> int:
     """Provision a new owned container, run a bounded child, and clean only it."""
     if postgres_major not in {16, 17}:
         raise ValueError("postgres-major must be 17 or 16")
     if not command:
         raise ValueError("a test command is required")
+    check_opt_in(allow_env)  # Before any container exists.
     with _termination_handlers():
-        return _isolated_database(command, postgres_major)
+        return _isolated_database(command, postgres_major, tuple(allow_env))
 
 
-def _isolated_database(command: list[str], postgres_major: int) -> int:
+def _isolated_database(command: list[str], postgres_major: int, allow_env=()) -> int:
     name = "poller-lifecycle-test-" + secrets.token_hex(12)
     owner = secrets.token_urlsafe(24)  # Invocation identity is independent of name collision.
     password = secrets.token_urlsafe(32)
@@ -345,7 +370,7 @@ def _isolated_database(command: list[str], postgres_major: int) -> int:
                 if time.monotonic() >= deadline:
                     raise RuntimeError("owned PostgreSQL readiness timed out") from None
                 threading.Event().wait(0.2)
-        return run_existing_database(command, dsn, owned_container=(created_id, owner))
+        return run_existing_database(command, dsn, owned_container=(created_id, owner), allow_env=allow_env)
     except (subprocess.SubprocessError, OSError, RuntimeError, ValueError):
         # Never print CalledProcessError: its argv contains the generated password.
         print("Lifecycle test database launch failed", file=sys.stderr)
@@ -359,18 +384,27 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--postgres-major", type=int, choices=(17, 16), default=17)
     parser.add_argument("--existing-service", action="store_true", help="reuse CI's explicit local TEST_DATABASE_URL")
+    parser.add_argument(
+        "--allow-env", action="append", default=[], type=opt_in_name, metavar="NAME",
+        help="forward this variable to the test command only (repeatable); allowed: " + ", ".join(sorted(_OPT_IN_ENV)),
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("provide a command after --")
+    allow_env = tuple(dict.fromkeys(args.allow_env))
+    try:
+        check_opt_in(allow_env)
+    except ValueError as error:
+        parser.error(str(error))
     try:
         if args.existing_service:
             try:
-                return run_existing_database(command, os.environ.get("TEST_DATABASE_URL", ""))
+                return run_existing_database(command, os.environ.get("TEST_DATABASE_URL", ""), allow_env=allow_env)
             except ValueError as error:
                 parser.error(str(error))
-        return isolated_database(command, args.postgres_major)
+        return isolated_database(command, args.postgres_major, allow_env)
     except _HarnessTermination as interrupted:
         return 128 + interrupted.signum
 

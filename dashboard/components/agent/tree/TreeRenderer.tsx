@@ -29,21 +29,25 @@ export function TreeRenderer({
   gathered: GatheredData;
   onIntent: (intent: ActionIntent) => void;
 }) {
-  const [values, setValues] = useState<Record<string, string>>({});
+  // `order` keeps the ids in the order first filled: Object.entries would list integer-like
+  // ids ("1", "2") first, whatever the fill order (PR J1 review M5).
+  const [fields, setFields] = useState<{ values: Record<string, string>; order: string[] }>({ values: {}, order: [] });
+  const values = fields.values;
   const setValue = useCallback((id: string, value: string) => {
-    setValues((v) => ({ ...v, [id]: value }));
+    setFields((f) => ({ values: { ...f.values, [id]: value }, order: f.order.includes(id) ? f.order : [...f.order, id] }));
   }, []);
   const press = useCallback(
     (action: ActionIntent) => {
       if (action.name === "answer") {
-        for (const [questionId, value] of Object.entries(values)) {
-          if (value.trim() !== "") onIntent({ name: "answer", questionId, value });
+        for (const questionId of fields.order) {
+          const value = fields.values[questionId];
+          if (typeof value === "string" && value.trim() !== "") onIntent({ name: "answer", questionId, value });
         }
-        setValues({});
+        setFields({ values: {}, order: [] });
       }
       onIntent(action);
     },
-    [onIntent, values],
+    [onIntent, fields],
   );
   const ctx = useMemo<TreeCtx>(() => ({ gathered, values, setValue, press }), [gathered, values, setValue, press]);
   return (

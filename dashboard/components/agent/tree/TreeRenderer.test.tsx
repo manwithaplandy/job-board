@@ -136,6 +136,40 @@ describe("TreeRenderer", () => {
     expect(onIntent.mock.calls.map((c) => c[0])).toEqual([action]);
   });
 
+  test("M5: answers go in the order first filled, numeric field ids included", () => {
+    const action: ActionIntent = { name: "answer", questionId: "intake", value: "send" };
+    const { onIntent } = draw(
+      tree({ type: "Stack", gap: "1", children: [
+        { type: "Field", id: "where", label: "Where", kind: "text" },
+        { type: "Field", id: "2", label: "Second", kind: "text" },
+        { type: "Field", id: "1", label: "First", kind: "text" },
+        { type: "Button", label: "Send", variant: "primary", action },
+      ] }),
+    );
+    fireEvent.change(screen.getByLabelText("Where"), { target: { value: "Austin" } });
+    fireEvent.change(screen.getByLabelText("Second"), { target: { value: "b" } });
+    fireEvent.change(screen.getByLabelText("First"), { target: { value: "a" } });
+    // A refill keeps the field's first place.
+    fireEvent.change(screen.getByLabelText("Where"), { target: { value: "Remote" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onIntent.mock.calls.map((c) => c[0])).toEqual([
+      { name: "answer", questionId: "where", value: "Remote" },
+      { name: "answer", questionId: "2", value: "b" },
+      { name: "answer", questionId: "1", value: "a" },
+      action,
+    ]);
+  });
+
+  test("M7: a PostingLink whose stored URL is not http(s) renders no link", () => {
+    const g = gathered();
+    g.jobs[JOB_A] = { ...g.jobs[JOB_A], url: "javascript:alert(1)" };
+    const { container } = draw(tree({ type: "PostingLink", jobId: JOB_A }), g);
+    expect(screen.getByText("View posting")).toBeTruthy();
+    expect(container.querySelector("a")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(container.innerHTML).not.toContain("javascript:");
+  });
+
   test("an unresolved bind renders a placeholder, not a crash", () => {
     const g = emptyGathered();
     const { container } = draw(

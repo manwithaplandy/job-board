@@ -60,7 +60,6 @@ const REFINE_TARGET_LABELS = { resume: "Résumé", cover: "Cover letter", both: 
 
 // Control and bidi-override characters would let a value break its line or reorder what
 // the user reads; they become spaces.
-// eslint-disable-next-line no-control-regex
 const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
 
 function clamp(text: string, max: number = DB_TEXT_MAX): string {

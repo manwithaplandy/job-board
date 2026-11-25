@@ -5,9 +5,9 @@
 // stores the deterministic fallback instead.
 //
 // This is the one validateSurface for every variant (the plan's `surfaces/validate.ts`).
-// Variant 2 is the primitive tree's gate (v2/tree.ts, Task 2.1). Variant 3 gets its
-// static checks in Task 2.4; until then it fails here, and present falls back to
-// variant 1 as the spec's variant 3 failure path does.
+// Variant 2 is the primitive tree's gate (v2/tree.ts, Task 2.1). Variant 3 is its payload
+// schema plus the static checks (v3/document.ts, Task 2.4); the sandbox handshake is its
+// runtime gate (components/agent/sandbox/SandboxFrame.tsx, Task 2.6).
 import { z } from "zod";
 import type { Variant } from "@/lib/agent/config";
 import type { GatheredData } from "@/lib/agent/gathered";
@@ -16,9 +16,10 @@ import { parseOrNull } from "@/lib/zodParse";
 import { VIZ_FOR_KIND } from "@/lib/workspaces/analyticsTiles";
 import { SurfacePayloadV1Schema, type SurfacePayloadV1 } from "@/lib/agent/surfaces/v1/blocks";
 import { validateSurfaceV2, type SurfacePayloadV2 } from "@/lib/agent/surfaces/v2/tree";
+import { validateSurfaceV3, type SurfacePayloadV3 } from "@/lib/agent/surfaces/v3/document";
 
-/** A validated payload of any variant (variant 3 is added in Task 2.4). */
-export type SurfacePayload = SurfacePayloadV1 | SurfacePayloadV2;
+/** A validated payload of any variant. */
+export type SurfacePayload = SurfacePayloadV1 | SurfacePayloadV2 | SurfacePayloadV3;
 
 export type SurfaceValidation = { ok: true; payload: SurfacePayload } | { ok: false; errors: string[] };
 
@@ -97,7 +98,8 @@ export async function validateSurface(
   ctx: { userId: string; gathered: GatheredData },
 ): Promise<SurfaceValidation> {
   if (variant === 2) return validateSurfaceV2(payload, ctx.gathered);
-  if (variant !== 1) return { ok: false, errors: [`variant ${variant} has no grammar yet`] };
+  if (variant === 3) return validateSurfaceV3(payload);
+  if (variant !== 1) return { ok: false, errors: [`variant ${String(variant)} is unknown`] };
   const parsed = SurfacePayloadV1Schema.safeParse(payload);
   if (!parsed.success) {
     return {

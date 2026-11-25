@@ -11,7 +11,7 @@
 // On an invalid payload (spec 7.1 "On failure"):
 //   - variant 1: the fallback ("text plus a default block") is stored at once with
 //     outcome `fallback`;
-//   - variant 2: one repair attempt per turn, kept on the turn's context
+//   - variants 2 and 3 (R13): one repair attempt per turn, kept on the turn's context
 //     (ctx.repairsLeft, one object per turn). While ctx.repairsLeft.n > 0 the errors go
 //     back to the model as the tool output (outcome `invalid`, nothing stored), the count
 //     is spent and the attempt is recorded as open; the next payload that validates, in
@@ -28,12 +28,15 @@
 //     is stored with outcome `valid` (it was not a repair) and settles the attempt. A step
 //     is told apart by the count of messages the model was sent for it, which every
 //     call in one step shares and which grows from step to step;
-//   - variant 3 has no grammar until Task 2.4: its payloads fail and the variant 1
-//     fallback is stored, as the spec's variant 3 failure path does.
+//   - a surface that falls back is stored as a row of the thread's variant (2 or 3) with
+//     the variant 1 fallback in both payload and fallback_payload (plan R13). A valid
+//     variant 3 surface stores its HTML document as the payload and the fallback beside
+//     it; the sandbox frame falls back to it at render time (Task 2.6). Variant 3's gate
+//     is its schema and static checks (v3/document.ts, Task 2.4).
 //
 // The model is still shown the variant 1 schema in every thread; the per-variant schema
 // and grammar instructions come with the switcher (Task 2.8), and no thread is on
-// variant 2 until then.
+// variant 2 or 3 until then.
 import { jsonSchema, tool } from "ai";
 import { z } from "zod";
 import type { JSONSchema7 } from "@ai-sdk/provider";
@@ -155,19 +158,29 @@ async function storeSurface(ctx: ToolCtx, a: StoreArgs): Promise<string> {
   });
 }
 
+/** The variants with one repair attempt per turn. */
+type RepairVariant = 2 | 3;
+
 /**
- * Variant 2: validate, spend the one repair on the first invalid payload, then fall back.
- * The repair state is read and settled before any await that stores, so parallel calls
- * see each other's changes.
+ * Variants 2 and 3: validate, spend the one repair on the first invalid payload, then fall
+ * back. The repair state is read and settled before any await that stores, so parallel
+ * calls see each other's changes.
  */
-async function presentTree(ctx: ToolCtx, threadId: string, input: PresentInput, started: number, step: number | null): Promise<PresentResult> {
+async function presentWithRepair(
+  ctx: ToolCtx,
+  variant: RepairVariant,
+  threadId: string,
+  input: PresentInput,
+  started: number,
+  step: number | null,
+): Promise<PresentResult> {
   const state = ctx.repairsLeft;
-  const checked = await validateSurface(input.payload, 2, ctx);
+  const checked = await validateSurface(input.payload, variant, ctx);
   const attempt = state.attempt;
   if (!checked.ok) {
     const errors = checked.errors.slice(0, ERRORS_TO_MODEL_MAX);
     // Part of the attempt that spent the repair (M2): the same answer, nothing stored.
-    if (attempt !== undefined && sameStep(attempt.step, step)) return { variant: 2, outcome: "invalid", errors };
+    if (attempt !== undefined && sameStep(attempt.step, step)) return { variant, outcome: "invalid", errors };
     if (state.n > 0) {
       state.n -= 1;
       const title = fallbackText(input.payload);
@@ -178,41 +191,42 @@ async function presentTree(ctx: ToolCtx, threadId: string, input: PresentInput, 
         ...(title !== undefined ? { title } : {}),
         ...(input.surfaceId !== undefined ? { surfaceId: input.surfaceId } : {}),
       };
-      return { variant: 2, outcome: "invalid", errors };
+      return { variant, outcome: "invalid", errors };
     }
     if (attempt !== undefined) attempt.open = false;
     const fallback = fallbackSurface(ctx.gathered, fallbackText(input.payload));
     const surfaceId = await storeSurface(ctx, {
-      threadId, surfaceId: input.surfaceId, variant: 2, payload: fallback, fallback, outcome: "fallback", failure: REPAIR_FAILED, started,
+      threadId, surfaceId: input.surfaceId, variant, payload: fallback, fallback, outcome: "fallback", failure: REPAIR_FAILED, started,
     });
-    return { surfaceId, variant: 2, outcome: "fallback", payload: fallback, errors };
+    return { surfaceId, variant, outcome: "fallback", payload: fallback, errors };
   }
   const outcome: SurfaceOutcome = attempt?.open === true && !sameStep(attempt.step, step) ? "repaired" : "valid";
   if (attempt !== undefined) attempt.open = false;
   const fallback = fallbackSurface(ctx.gathered, fallbackText(checked.payload));
   const surfaceId = await storeSurface(ctx, {
-    threadId, surfaceId: input.surfaceId, variant: 2, payload: checked.payload, fallback, outcome, failure: null, started,
+    threadId, surfaceId: input.surfaceId, variant, payload: checked.payload, fallback, outcome, failure: null, started,
   });
-  return { surfaceId, variant: 2, outcome, payload: checked.payload };
+  return { surfaceId, variant, outcome, payload: checked.payload };
 }
 
 /**
- * At the end of a turn (lib/agent/loop.ts): when a variant 2 repair is still open, store
- * the variant 1 fallback for it with the code `repair_not_attempted`, so the turn still
- * leaves a surface and the failure is counted (PR J1 review I1). Closes the attempt
+ * At the end of a turn (lib/agent/loop.ts): when a variant 2 or 3 repair is still open,
+ * store the variant 1 fallback for it with the code `repair_not_attempted`, so the turn
+ * still leaves a surface and the failure is counted (PR J1 review I1). Closes the attempt
  * first, so it runs at most once. Returns the stored surface's id, or null when nothing
- * was owed.
+ * was owed. An attempt is only ever opened in a variant 2 or 3 turn, whose variant the
+ * context keeps for the whole turn.
  */
 export async function finishPendingRepair(ctx: ToolCtx): Promise<string | null> {
   const attempt = ctx.repairsLeft.attempt;
   if (attempt === undefined || !attempt.open) return null;
   attempt.open = false;
-  if (ctx.threadId === null) return null;
+  if (ctx.threadId === null || (ctx.variant !== 2 && ctx.variant !== 3)) return null;
   const fallback = fallbackSurface(ctx.gathered, attempt.title);
   return storeSurface(ctx, {
     threadId: ctx.threadId,
     surfaceId: attempt.surfaceId,
-    variant: 2,
+    variant: ctx.variant,
     payload: fallback,
     fallback,
     outcome: "fallback",
@@ -243,9 +257,9 @@ export async function runPresent(ctx: ToolCtx, input: PresentInput, options?: Pr
   const threadId = ctx.threadId;
   if (threadId === null) throw new Error("present: a surface needs a thread");
   const started = Date.now();
-  if (ctx.variant === 2) return presentTree(ctx, threadId, input, started, stepOf(options));
+  if (ctx.variant === 2 || ctx.variant === 3) return presentWithRepair(ctx, ctx.variant, threadId, input, started, stepOf(options));
 
-  // Variant 1 (and variant 3 until it has a grammar): an invalid payload falls back at once.
+  // Variant 1: an invalid payload falls back at once.
   const fallback = fallbackSurface(ctx.gathered, fallbackText(input.payload));
   const checked = await validateSurface(input.payload, ctx.variant, ctx);
   const payload = checked.ok ? checked.payload : fallback;

@@ -15,6 +15,7 @@ import {
   resolveBind,
   validateSurfaceV2,
 } from "@/lib/agent/surfaces/v2/tree";
+import { resolveRowBind } from "@/lib/agent/surfaces/v2/bind";
 
 const text = (t = "Hello") => ({ type: "Text", text: t });
 const stack = (...children: unknown[]) => ({ type: "Stack", gap: "2", children });
@@ -137,13 +138,43 @@ describe("validateSurfaceV2", () => {
       name: "Sam", titles: [], yearsOfExperience: null, education: [], preferredLocations: [], workAuthorized: null,
       needsSponsorship: null,
     };
-    // Even if a stray field were present, an eeo segment never resolves.
-    (g.profile as unknown as Record<string, unknown>).eeo_gender = "x";
+    // Even if stray fields were present (M6: a real email value), they never resolve.
+    const stray = g.profile as unknown as Record<string, unknown>;
+    stray.email = "sam@example.test";
+    stray.Email = "sam@example.test";
+    stray.eeo_gender = "x";
+    stray.EEO_race = "x";
     expect(resolveBind(g, "/profile/name")).toBe("Sam");
-    for (const pointer of ["/profile/email", "/profile/eeo_gender", "/profile/eeo_race", "/eeo/gender", "/profile", "profile/name", "/profile/../x"]) {
+    const pointers = [
+      "/profile/email", "/profile/Email", "/profile/eeo_gender", "/profile/eeo_race", "/profile/EEO_race", "/eeo/gender",
+      // I2: percent-encoded forms decode to a denied key and are refused too.
+      "/profile/%65eo_gender", "/profile/%45EO_race", "/profile/%65%65%6F_gender", "/profile/%65mail", "/profile/%45mail",
+      "/profile", "profile/name", "/profile/../x",
+    ];
+    for (const pointer of pointers) {
       expect(resolveBind(g, pointer)).toBeUndefined();
       expect(errorsOf(v2({ type: "Stat", label: "X", bind: pointer }), g).length).toBeGreaterThan(0);
     }
+    // Keys that only start like the denied ones still resolve.
+    stray.emailVerified = true;
+    expect(resolveBind(g, "/profile/emailVerified")).toBe(true);
+  });
+
+  test("I2: a row bind refuses eeo and email keys, raw or percent-encoded", () => {
+    const row = { name: "Sam", email: "sam@example.test", eeo_gender: "x", EEO_race: "x", nested: { eeo_veteran: "x" } };
+    expect(resolveRowBind(row, "/name")).toBe("Sam");
+    for (const pointer of ["/email", "/%65mail", "/eeo_gender", "/%65eo_gender", "/%45EO_race", "/nested/eeo_veteran", "/nested/%65eo_veteran"]) {
+      expect(resolveRowBind(row, pointer)).toBeUndefined();
+    }
+    // Through the validator: a column bound only to a denied key resolves in no row.
+    const g = gatheredFixture();
+    const rowsBind = `/reviews/${JOB_A}/requirements`;
+    const reqs = resolveBind(g, rowsBind);
+    expect(Array.isArray(reqs) && reqs.length > 0).toBe(true);
+    (reqs as Record<string, unknown>[])[0].eeo_gender = "x";
+    const table = (bind: string) => ({ type: "Table", rowsBind, columns: [{ header: "G", bind }] });
+    expect(errorsOf(v2(table("/text")), g)).toEqual([]);
+    expect(errorsOf(v2(table("/%65eo_gender")), g).length).toBeGreaterThan(0);
   });
 
   test("resolveBind reads own keys and digit indexes only, and decodes a percent-encoded job id", () => {

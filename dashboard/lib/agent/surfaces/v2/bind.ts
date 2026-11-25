@@ -36,8 +36,21 @@ function decoded(segment: string): string | null {
   }
 }
 
+// EEO fields and the profile email never enter gathered data (Global Constraints, and
+// getProfileSummary builds an explicit object). As defense in depth, a key that names one
+// resolves to nothing anyway. The check is made on every key a step could read, the
+// segment as written and its percent-decoded form, so "%65eo_gender" is refused like
+// "eeo_gender" (PR J1 review I2, M6).
+const DENIED_KEY_RE = /^(eeo|email$)/i;
+
+function denied(key: string): boolean {
+  return DENIED_KEY_RE.test(key);
+}
+
 /** One step of a pointer: an array index or an own key (as written, then percent-decoded). */
 function step(value: unknown, segment: string): unknown {
+  const alt = decoded(segment);
+  if (denied(segment) || (alt !== null && denied(alt))) return undefined;
   if (Array.isArray(value)) {
     if (!INDEX_RE.test(segment)) return undefined;
     const i = Number(segment);
@@ -45,18 +58,12 @@ function step(value: unknown, segment: string): unknown {
   }
   if (!isRecord(value)) return undefined;
   if (Object.prototype.hasOwnProperty.call(value, segment)) return value[segment];
-  const alt = decoded(segment);
   return alt !== null && Object.prototype.hasOwnProperty.call(value, alt) ? value[alt] : undefined;
 }
-
-// EEO fields never enter gathered data (Global Constraints); a segment that names one
-// resolves to nothing anyway, as defense in depth.
-const EEO_RE = /^eeo/i;
 
 function walk(value: unknown, segments: readonly string[]): unknown {
   let at = value;
   for (const s of segments) {
-    if (EEO_RE.test(s)) return undefined;
     at = step(at, s);
     if (at === undefined) return undefined;
   }

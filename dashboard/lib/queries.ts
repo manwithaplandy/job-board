@@ -745,28 +745,46 @@ export async function upsertInstructionDraft(
   leg: "resume" | "cover",
   value: string,
 ): Promise<void> {
+  await upsertInstructionDrafts(userId, jobId, leg === "resume" ? { resume: value } : { cover: value });
+}
+
+/**
+ * Saves one or both instructions boxes in ONE transaction, so a failure leaves both as
+ * they were (refine_documents writes both targets at once).
+ */
+export async function upsertInstructionDrafts(
+  userId: string,
+  jobId: string,
+  drafts: { resume?: string; cover?: string },
+): Promise<void> {
+  const legs: ["resume" | "cover", string][] = [];
+  if (drafts.resume !== undefined) legs.push(["resume", drafts.resume]);
+  if (drafts.cover !== undefined) legs.push(["cover", drafts.cover]);
+  if (legs.length === 0) return;
   const payload=await requestJobPayload(userId,jobId,"generation");
   if(payload.status === "pending" || payload.status === "deferred") throw new Error("Job details are being prepared. Try again shortly.");
   await withUserPayloadMutation(userId,jobId,"application_packages",async tx => {
     const snapshot=await readPrivateSnapshot(tx,jobId,"application_packages");
-    if (leg === "resume") {
-      await tx`
-        INSERT INTO application_packages
-          (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, resume_instructions_draft, status, prepared_at)
-        VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
-          ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
-        ON CONFLICT (user_id, job_id) DO UPDATE SET
-          resume_instructions_draft = EXCLUDED.resume_instructions_draft
-      `;
-    } else {
-      await tx`
-        INSERT INTO application_packages
-          (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, cover_letter_instructions_draft, status, prepared_at)
-        VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
-          ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
-        ON CONFLICT (user_id, job_id) DO UPDATE SET
-          cover_letter_instructions_draft = EXCLUDED.cover_letter_instructions_draft
-      `;
+    for (const [leg, value] of legs) {
+      if (leg === "resume") {
+        await tx`
+          INSERT INTO application_packages
+            (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, resume_instructions_draft, status, prepared_at)
+          VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+            ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
+          ON CONFLICT (user_id, job_id) DO UPDATE SET
+            resume_instructions_draft = EXCLUDED.resume_instructions_draft
+        `;
+      } else {
+        await tx`
+          INSERT INTO application_packages
+            (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, cover_letter_instructions_draft, status, prepared_at)
+          VALUES (${userId}::uuid, ${jobId}, ${snapshot?.versionId ?? null}::uuid, ${snapshot?.description ?? null},
+            ${snapshot?.questions ? JSON.stringify(snapshot.questions) : null}::text::jsonb, ${snapshot?.capturedAt ?? null}, ${value}, 'prepared', now())
+          ON CONFLICT (user_id, job_id) DO UPDATE SET
+            cover_letter_instructions_draft = EXCLUDED.cover_letter_instructions_draft
+        `;
+      }
     }
   });
 }

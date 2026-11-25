@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   getJobForPackage: vi.fn(),
   getJobQuestion: vi.fn(),
   upsertApplicationPackage: vi.fn(),
-  upsertInstructionDraft: vi.fn(),
+  upsertInstructionDrafts: vi.fn(),
   reserveGenerations: vi.fn(),
   refundGenerations: vi.fn(),
   createGenerationJob: vi.fn(),
@@ -34,7 +34,7 @@ vi.mock("@/lib/queries", () => ({
   getJobForPackage: mocks.getJobForPackage,
   getJobQuestion: mocks.getJobQuestion,
   upsertApplicationPackage: mocks.upsertApplicationPackage,
-  upsertInstructionDraft: mocks.upsertInstructionDraft,
+  upsertInstructionDrafts: mocks.upsertInstructionDrafts,
 }));
 vi.mock("@/lib/usage", () => ({ reserveGenerations: mocks.reserveGenerations, refundGenerations: mocks.refundGenerations }));
 vi.mock("@/lib/generationJobs", () => ({
@@ -82,7 +82,7 @@ beforeEach(() => {
   mocks.getJobForPackage.mockResolvedValue({ ...JOB });
   mocks.getJobQuestion.mockResolvedValue(TEXT_Q); // no cover-letter question
   mocks.upsertApplicationPackage.mockResolvedValue({});
-  mocks.upsertInstructionDraft.mockResolvedValue(undefined);
+  mocks.upsertInstructionDrafts.mockResolvedValue(undefined);
   mocks.reserveGenerations.mockResolvedValue({ ok: true, plan: "pro" });
   mocks.refundGenerations.mockResolvedValue(undefined);
   mocks.createGenerationJob.mockResolvedValue({ created: true, job: GEN_ROW });
@@ -98,7 +98,7 @@ describe("startApplicationPrep", () => {
     const out = await startApplicationPrep(USER, EMAIL, JOB_ID);
     expect(out).toMatchObject({ status: "started", generationId: "gen-1", generation: { jobTitle: "Engineer", company: "Acme" } });
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["resume"]);
-    expect(mocks.upsertInstructionDraft).not.toHaveBeenCalled();
+    expect(mocks.upsertInstructionDrafts).not.toHaveBeenCalled();
     expect(mocks.afterCallbacks).toHaveLength(1);
     mocks.createGenerationJob.mockResolvedValueOnce({ created: false, job: GEN_ROW });
     expect(await startApplicationPrep(USER, EMAIL, JOB_ID)).toMatchObject({ status: "already_running", generationId: "gen-1" });
@@ -160,10 +160,13 @@ describe("refine (refine_documents)", () => {
     expect(out).toMatchObject({ status: "started" });
     // Both targets are charged, even though the posting asks for no cover letter.
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["resume", "cover"]);
-    expect(mocks.upsertInstructionDraft.mock.calls).toEqual([
-      [USER, JOB_ID, "resume", "Lead with platform work."],
-      [USER, JOB_ID, "cover", "Lead with platform work."],
+    // Both boxes in one write, after the tracking row exists.
+    expect(mocks.upsertInstructionDrafts.mock.calls).toEqual([
+      [USER, JOB_ID, { resume: "Lead with platform work.", cover: "Lead with platform work." }],
     ]);
+    expect(mocks.createGenerationJob.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.upsertInstructionDrafts.mock.invocationCallOrder[0],
+    );
     await flushBackground();
     expect(mocks.generateResume.mock.calls[0][0].instructions).toBe("Lead with platform work.");
     expect(mocks.generateCoverLetter.mock.calls[0][0].instructions).toBe("Lead with platform work.");
@@ -178,7 +181,7 @@ describe("refine (refine_documents)", () => {
     vi.clearAllMocks();
     await startApplicationPrep(USER, EMAIL, JOB_ID, { refine: { target: "cover" }, coverLetterInstructions: "Shorter." });
     expect(mocks.reserveGenerations).toHaveBeenCalledWith(USER, EMAIL, ["cover"]);
-    expect(mocks.upsertInstructionDraft.mock.calls).toEqual([[USER, JOB_ID, "cover", "Shorter."]]);
+    expect(mocks.upsertInstructionDrafts.mock.calls).toEqual([[USER, JOB_ID, { cover: "Shorter." }]]);
     await flushBackground();
     expect(mocks.generateResume).not.toHaveBeenCalled();
     expect(mocks.generateCoverLetter).toHaveBeenCalledTimes(1);
@@ -190,17 +193,41 @@ describe("refine (refine_documents)", () => {
     mocks.reserveGenerations.mockResolvedValue(EXHAUSTED);
     const out = await startApplicationPrep(USER, EMAIL, JOB_ID, { refine: { target: "both" }, resumeInstructions: "x", coverLetterInstructions: "x" });
     expect(out).toMatchObject({ status: "allowance_exhausted" });
-    expect(mocks.upsertInstructionDraft).not.toHaveBeenCalled();
+    expect(mocks.upsertInstructionDrafts).not.toHaveBeenCalled();
     expect(mocks.upsertApplicationPackage).not.toHaveBeenCalled();
     expect(mocks.createGenerationJob).not.toHaveBeenCalled();
   });
 
-  test("a failed instructions write refunds the reservation and starts nothing", async () => {
-    mocks.upsertInstructionDraft.mockRejectedValueOnce(new Error("Job details are being prepared. Try again shortly."));
+  test("refine_documents while an identical prep is already running leaves the instruction boxes unchanged", async () => {
+    mocks.createGenerationJob.mockResolvedValueOnce({ created: false, job: GEN_ROW });
+    const out = await startApplicationPrep(USER, EMAIL, JOB_ID, {
+      refine: { target: "both" }, resumeInstructions: "Model text.", coverLetterInstructions: "Model text.",
+    });
+    expect(out).toMatchObject({ status: "already_running", generationId: "gen-1" });
+    expect(mocks.upsertInstructionDrafts).not.toHaveBeenCalled();
+    expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume", "cover"]);
+    expect(mocks.afterCallbacks).toHaveLength(0);
+  });
+
+  test("refine_documents whose tracking insert fails leaves the instruction boxes unchanged", async () => {
+    mocks.createGenerationJob.mockRejectedValueOnce(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const out = await startApplicationPrep(USER, EMAIL, JOB_ID, { refine: { target: "cover" }, coverLetterInstructions: "x" });
+    expect(out).toEqual({ status: "tracking_failed" });
+    expect(mocks.upsertInstructionDrafts).not.toHaveBeenCalled();
+    expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["cover"]);
+  });
+
+  test("a failed instructions write refunds the reservation, fails the row and starts nothing", async () => {
+    mocks.upsertInstructionDrafts.mockRejectedValueOnce(new Error("Job details are being prepared. Try again shortly."));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const out = await startApplicationPrep(USER, EMAIL, JOB_ID, { refine: { target: "resume" }, resumeInstructions: "x" });
     expect(out).toEqual({ status: "tracking_failed" });
     expect(mocks.refundGenerations).toHaveBeenCalledWith(USER, ["resume"]);
-    expect(mocks.createGenerationJob).not.toHaveBeenCalled();
+    // The refund comes before the row is failed, so a crash between them never keeps a charge.
+    expect(mocks.refundGenerations.mock.invocationCallOrder[0]).toBeLessThan(mocks.settleGenerationJob.mock.invocationCallOrder[0]);
+    expect(mocks.settleGenerationJob).toHaveBeenCalledWith(USER, "gen-1", { status: "failed", error: "Generation failed — try again." });
+    expect(mocks.afterCallbacks).toHaveLength(0);
+    expect(mocks.generateResume).not.toHaveBeenCalled();
   });
 });

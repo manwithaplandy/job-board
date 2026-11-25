@@ -20,10 +20,12 @@
 // failed, and 'failed' only when nothing new persisted.
 //
 // refine (refine_documents, spec 5(c) step 4): only the target documents are reserved
-// and regenerated. Once the reservation succeeds the instructions are saved as each
-// target's instructions box (the *_instructions_draft columns the box saves); the
-// regenerated document then stores them as resume_instructions / cover_letter_instructions
-// in lockstep with itself (upsertApplicationPackage). A refused reservation writes nothing.
+// and regenerated. Once the reservation succeeds and the new tracking row exists, the
+// instructions are saved as each target's instructions box (the *_instructions_draft
+// columns the box saves), both in one transaction; the regenerated document then stores
+// them as resume_instructions / cover_letter_instructions in lockstep with itself
+// (upsertApplicationPackage). A refused reservation, an identical prep already running or
+// a failed tracking insert writes nothing.
 //
 // after() from inside a tool's execute: Next's after() registers the task with the
 // request's waitUntil whether or not the response has finished (next 16.4.3
@@ -33,7 +35,7 @@
 import { requestJobPayload, type DemandResult } from "@/lib/jobLifecycle";
 import { after } from "next/server";
 import { propagateAttributes } from "@langfuse/tracing";
-import { getProfile, getJobForPackage, getJobQuestion, upsertApplicationPackage, upsertInstructionDraft } from "@/lib/queries";
+import { getProfile, getJobForPackage, getJobQuestion, upsertApplicationPackage, upsertInstructionDrafts } from "@/lib/queries";
 import type { AllowanceGateRejection } from "@/lib/gateRejection";
 import { reserveGenerations, refundGenerations, type GenerationKind } from "@/lib/usage";
 import { isBilledGenerationError } from "@/lib/rolefit/openrouterClient";
@@ -158,21 +160,6 @@ export async function startApplicationPrep(
     return { status: "allowance_exhausted", kind: gate.kind ?? kinds[0], gate };
   }
 
-  // refine: the instructions are saved only now that the reservation holds, so a refused
-  // reservation changes nothing.
-  if (opts.refine) {
-    try {
-      if (wantsResume) await upsertInstructionDraft(userId, jobId, "resume", resumeInstructions ?? "");
-      if (wantsCover) await upsertInstructionDraft(userId, jobId, "cover", coverLetterInstructions ?? "");
-    } catch (e) {
-      await refundGenerations(userId, kinds);
-      console.error("application refine instructions failed", {
-        userId, jobId, error: e instanceof Error ? e.message : String(e),
-      });
-      return { status: "tracking_failed" };
-    }
-  }
-
   // Resolve each leg's reasoning setting from the gate's OWN plan snapshot (the same
   // authoritative plan the charge used — no second getViewerPlan lookup): clamp to the
   // tier, and OMIT the param (null) for models that can't take it. The prefill leg is
@@ -213,6 +200,27 @@ export async function startApplicationPrep(
         userId, jobId, generationJobId, error: e instanceof Error ? e.message : String(e),
       });
     });
+
+  // refine: the instructions are saved only now that the reservation holds AND this call
+  // owns the new tracking row, so a refused reservation, an identical prep already
+  // running or a failed tracking insert leaves the instruction boxes unchanged. Both
+  // targets are written in one transaction; if that fails, nothing was written: refund
+  // (before settling, as the background catch does) and fail the row.
+  if (opts.refine) {
+    try {
+      await upsertInstructionDrafts(userId, jobId, {
+        ...(wantsResume ? { resume: resumeInstructions ?? "" } : {}),
+        ...(wantsCover ? { cover: coverLetterInstructions ?? "" } : {}),
+      });
+    } catch (e) {
+      await refundGenerations(userId, kinds);
+      console.error("application refine instructions failed", {
+        userId, jobId, error: e instanceof Error ? e.message : String(e),
+      });
+      await settle({ status: "failed", error: "Generation failed — try again." });
+      return { status: "tracking_failed" };
+    }
+  }
 
   const answers = applicationAnswersFromProfile(profile);
   // Résumé/cover source plaintext via the shared helper (the profile résumé). NOTE: prefill

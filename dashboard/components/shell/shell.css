@@ -135,7 +135,9 @@
 .profile-section-nav__link[aria-current="page"] { color: var(--accent); background: var(--accent-bg); }
 .profile-section-nav__mobile { display: none; }
 
-@media (max-width: 1100px) {
+/* Six primary links (~530px) plus the board's search and status need ~1300px, so the
+   desktop nav collapses into the menu below 1280px. */
+@media (max-width: 1280px) {
   .app-header { grid-template-columns: auto minmax(0, 1fr) auto; }
   .app-header__desktop-nav,
   .app-header__operator,

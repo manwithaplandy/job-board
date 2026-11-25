@@ -106,8 +106,8 @@ describe("AppHeader", () => {
 
     const css = readFileSync("components/shell/shell.css", "utf8");
     expect(css).toMatch(/\.app-header__mobile-nav\s*\{[^}]*display:\s*none/s);
-    expect(css).toMatch(/@media \(max-width: 1100px\)[\s\S]*\.app-header__desktop-nav[^}]*display:\s*none/s);
-    expect(css).toMatch(/@media \(max-width: 1100px\)[\s\S]*\.app-header__mobile-nav[^}]*display:\s*block/s);
+    expect(css).toMatch(/@media \(max-width: 1280px\)[\s\S]*\.app-header__desktop-nav[^}]*display:\s*none/s);
+    expect(css).toMatch(/@media \(max-width: 1280px\)[\s\S]*\.app-header__mobile-nav[^}]*display:\s*block/s);
   });
 
   test("supports keyboard entry, movement, and escape in the responsive navigation", () => {

@@ -5,6 +5,7 @@
 @import "../components/agent/agent.css";
 @import "../components/workspaces/workspaces.css";
 @import "../components/agent/blocks/blocks.css";
+@import "../components/agent/tree/tree.css";
 
 /* Theme tokens. :root holds the light defaults; :root[data-theme="dark"] overrides
    them. Every color across the app resolves to one of these var(--token) names, so a

@@ -29,7 +29,7 @@ describe("visual regression route inventory", () => {
     expect(statesFor("admin").has("empty")).toBe(true);
     expect(statesFor("companies").has("empty")).toBe(true);
     expect(statesFor("analytics").has("data-viz")).toBe(true);
-    for (const state of ["default", "empty", "budget", "disabled", "blocks-jobs", "blocks-prep"]) expect(statesFor("agent").has(state)).toBe(true);
+    for (const state of ["default", "empty", "budget", "disabled", "blocks-jobs", "blocks-prep", "tree-sample"]) expect(statesFor("agent").has(state)).toBe(true);
     for (const state of ["default", "applications", "looking-for", "documents", "empty", "agent-marker", "memo-diff"]) expect(statesFor("workspaces").has(state)).toBe(true);
   });
 
@@ -53,6 +53,8 @@ describe("visual regression route inventory", () => {
     expect(gallery).toContain("<AgentBlocksJobsFixture");
     expect(gallery).toContain("<AgentBlocksPrepFixture");
     expect(readFileSync("components/agent/blocks/AgentBlocksFixture.tsx", "utf8")).toContain("<BlockList");
+    expect(gallery).toContain("<AgentTreeFixture");
+    expect(readFileSync("components/agent/tree/AgentTreeFixture.tsx", "utf8")).toContain("<TreeRenderer");
     expect(fixture).toContain('state === "selected" || state === "rejected"');
     expect(fixture).toContain("jobs={[JOB]}");
     expect(fixture).toContain("selectedId={JOB.id}");

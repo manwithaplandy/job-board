@@ -50,8 +50,11 @@ function rowBars(m: Extract<MetricResult, { kind: "rows" }>) {
     .filter((d) => d.label !== "" && Number.isFinite(d.count));
 }
 
-/** The chart for one metric, drawn with the analytics page's own cards. */
-function Chart({ m, viz, title, subtitle }: { m: MetricResult; viz: Viz; title: string; subtitle: string }) {
+/**
+ * The chart for one metric, drawn with the analytics page's own cards. Also drawn by the
+ * variant 2 tree's Chart node (components/agent/tree/nodes.tsx).
+ */
+export function MetricVisual({ m, viz, title, subtitle }: { m: MetricResult; viz: Viz; title: string; subtitle: string }) {
   if (m.kind === "value" || viz === "stat") {
     return (
       <div className="rf-block-chart__stat">
@@ -93,7 +96,7 @@ export function MetricChartBlock({ block, gathered, onIntent }: { block: MetricC
   return (
     <section className="rf-block rf-block-chart" aria-label={block.title}>
       <div className="rf-block-chart__visual" data-ui-visual="data-viz">
-        <Chart m={m} viz={block.viz} title={block.title} subtitle={subtitle} />
+        <MetricVisual m={m} viz={block.viz} title={block.title} subtitle={subtitle} />
       </div>
       <div className="rf-block__actions">
         <Button variant="outline" size="sm" onClick={() => onIntent({ name: "analytics.pin", tile: pinTile(m.spec, block.viz, block.title) })}>

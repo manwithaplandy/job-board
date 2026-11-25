@@ -38,6 +38,7 @@ import {
   createIdGenerator,
   createUIMessageStreamResponse,
   getToolName,
+  hasToolCall,
   isStepCount,
   isToolUIPart,
   readUIMessageStream,
@@ -50,7 +51,7 @@ import {
 import { catalogNow } from "@/lib/catalogClock";
 import { flushLangfuseTraces } from "@/lib/observability";
 import { AGENT_LIMITS, AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
-import { AGENT_TEXT_MAX } from "@/lib/agent/request";
+import { AGENT_DOCUMENTS_MAX, AGENT_TEXT_MAX } from "@/lib/agent/request";
 import { stepCostMicros } from "@/lib/agent/budget";
 import { buildInstructions } from "@/lib/agent/context";
 import { emptyGathered } from "@/lib/agent/gathered";
@@ -64,7 +65,11 @@ import { getProfileSummary } from "@/lib/agent/tools/read";
 import { TOOL_APPROVAL, approvalStreamOptions } from "@/lib/agent/tools/approval";
 import { approvalSecret } from "@/lib/agent/approvalSecret";
 import { withAgentTrace } from "@/lib/agent/telemetry";
-import type { ProfileSummary } from "@/lib/workspaces/types";
+import { listDocuments } from "@/lib/workspaces/documents";
+import { getMemo } from "@/lib/workspaces/memo";
+import { compileMemo } from "@/lib/workspaces/memoCompile";
+import { summarizeIfLong } from "@/lib/agent/summary";
+import type { DocumentMeta, ProfileSummary } from "@/lib/workspaces/types";
 
 export type TurnInput =
   | { kind: "message"; id: string; text: string; documentIds: string[] }
@@ -73,7 +78,8 @@ export type TurnInput =
 export type TurnInputErrorCode =
   | "approval_unavailable"
   | "approval_not_found"
-  | "documents_unsupported"
+  | "unknown_document"
+  | "too_many_documents"
   | "bad_message_id"
   | "duplicate_message_id"
   | "empty_text"
@@ -122,17 +128,42 @@ function errorName(e: unknown): string {
   return e instanceof Error ? e.name : typeof e;
 }
 
+const ATTACHED_NAME_MAX = 120;
+// Quotes, control and bidi-override characters in a filename become spaces, so a name
+// cannot close its own quotes or reorder the note.
+const UNSAFE_NAME_CHARS = /["\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
+
+/** The fixed note that names the message's attached documents for the model (Task 1.20). */
+export function attachmentNote(docs: ReadonlyArray<Pick<DocumentMeta, "id" | "filename">>): string {
+  const names = docs.map((d) => {
+    const flat = d.filename.replace(UNSAFE_NAME_CHARS, " ").replace(/\s+/g, " ").trim();
+    const name = Array.from(flat).slice(0, ATTACHED_NAME_MAX).join("");
+    return `"${name}" (document id ${d.id})`;
+  });
+  return `Attached files, readable with read_document: ${names.join("; ")}.`;
+}
+
 /**
- * Checks the input and builds the user message from its text alone. The text cap is the
- * route's (AGENT_TEXT_MAX, 8,000 characters), enforced here too for any other caller.
+ * Checks the input and builds the user message from its text, plus a fixed note naming
+ * the attached documents. Each document id must be one of the caller's own documents
+ * (read under RLS); the note carries only ids and filenames, never document text. The
+ * text cap is the route's (AGENT_TEXT_MAX, 8,000 characters), enforced here too for any
+ * other caller.
  */
-function userMessageFrom(input: Extract<TurnInput, { kind: "message" }>): AgentUIMessage {
-  // Phase 0 has no documents table; Task 1.x adds document attachments.
-  if (input.documentIds.length > 0) throw new TurnInputError("documents_unsupported");
+async function userMessageFrom(userId: string, input: Extract<TurnInput, { kind: "message" }>): Promise<AgentUIMessage> {
   if (!MESSAGE_ID_RE.test(input.id)) throw new TurnInputError("bad_message_id");
   if (input.text.trim() === "") throw new TurnInputError("empty_text");
   if (input.text.length > AGENT_TEXT_MAX) throw new TurnInputError("text_too_long");
-  return { id: input.id, role: "user", parts: [{ type: "text", text: input.text }] };
+  const ids = [...new Set(input.documentIds)];
+  if (ids.length > AGENT_DOCUMENTS_MAX) throw new TurnInputError("too_many_documents");
+  const parts: AgentUIMessage["parts"] = [{ type: "text", text: input.text }];
+  if (ids.length > 0) {
+    const mine = new Map((await listDocuments(userId)).map((d) => [d.id, d]));
+    const attached = ids.map((id) => mine.get(id));
+    if (attached.some((d) => d === undefined)) throw new TurnInputError("unknown_document");
+    parts.push({ type: "text", text: attachmentNote(attached.filter((d): d is DocumentMeta => d !== undefined)) });
+  }
+  return { id: input.id, role: "user", parts };
 }
 
 /** What the model reads for a denied approval (the SDK passes it as the tool result). */
@@ -223,6 +254,21 @@ async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft">): Pro
   }
 }
 
+/**
+ * The compiled memo for the instructions (compileMemo: the memo's sections only, so no
+ * EEO field); null when there is none or the read failed. A memo is context, not a
+ * requirement, so a failed read never stops the turn.
+ */
+async function loadMemoText(userId: string): Promise<string | null> {
+  try {
+    const memo = await getMemo(userId);
+    return memo ? compileMemo(memo.doc) : null;
+  } catch (e) {
+    console.warn("agent: memo read failed; instructions go without it", errorName(e));
+    return null;
+  }
+}
+
 type TurnArgs = {
   userId: string;
   email: string | null;
@@ -252,7 +298,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     if (approvalSecret() === null) throw new TurnInputError("approval_unavailable");
     start = { kind: "approval", approvalId: a.input.approvalId, approved: a.input.approved };
   } else {
-    start = { kind: "message", message: userMessageFrom(a.input) };
+    start = { kind: "message", message: await userMessageFrom(userId, a.input) };
   }
 
   const runId = await startRun(userId, { threadId: thread.id, kind: "interactive", model: modelId, variant: thread.variant });
@@ -272,6 +318,8 @@ async function runTurn(a: TurnArgs): Promise<Response> {
   // parts so far are the placeholder.
   let originalMessages: AgentUIMessage[];
   let placeholder: AgentUIMessage;
+  // The whole thread as of this turn, for the summary (originalMessages is the window).
+  let fullHistory: AgentUIMessage[];
   if (start.kind === "approval") {
     const patched = patchApproval(history, start.approvalId, start.approved);
     if (!patched) {
@@ -281,6 +329,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     const window = historyWindow(patched.history);
     originalMessages = window.at(-1)?.id === patched.assistant.id ? window : [patched.assistant];
     placeholder = patched.assistant;
+    fullHistory = patched.history;
   } else {
     const userMessage = start.message;
     if (history.some((m) => m.id === userMessage.id)) {
@@ -288,6 +337,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       throw new TurnInputError("duplicate_message_id");
     }
     originalMessages = [...historyWindow(history), userMessage];
+    fullHistory = [...history, userMessage];
     placeholder = { id: createIdGenerator({ prefix: "msg", size: 16 })(), role: "assistant", parts: [] };
   }
   const assistantId = placeholder.id;
@@ -320,30 +370,6 @@ async function runTurn(a: TurnArgs): Promise<Response> {
   let instructions: string;
   let tools: ReturnType<typeof buildTools>;
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
-  try {
-    const [clock, profile] = await Promise.all([catalogNow(), loadProfile(base)]);
-    instructions = buildInstructions({
-      profile,
-      memoText: null,
-      variant: thread.variant,
-      clock: { frozen: clock.frozen },
-      unattended: false,
-    });
-    const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 } };
-    tools = (a.tools ?? buildTools)(ctx);
-    // A turn cut short (wall clock, provider drop) can be stored with a tool call that
-    // never got its result; replayed as is, the SDK refuses the whole prompt
-    // (MissingToolResultsError) and the thread could never answer again. Such calls are
-    // dropped; the text around them is kept (PR C batch 3 review I1).
-    modelMessages = await convertToModelMessages(originalMessages, { ignoreIncompleteToolCalls: true });
-  } catch (e) {
-    // Nothing reached the model: close the run and the placeholder, then let the route
-    // answer 500.
-    console.error("agent: turn setup failed", errorName(e));
-    await undoPlaceholder();
-    await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
-    throw e;
-  }
 
   let stopReason: StopReason | null = null;
   let modelError = false;
@@ -353,7 +379,63 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     controller.abort(reason);
   };
   const charges: Promise<void>[] = [];
+  // The wall clock starts before the setup, so the summary call counts against the
+  // turn's time (PR I3b review I2). Every path below clears it.
   const timer = setTimeout(() => stop("wall_clock"), AGENT_LIMITS.wallClockMs);
+
+  try {
+    // The stable prefix (Task 1.21): fixed rules, then the profile summary, then the
+    // compiled memo; the tool definitions follow in the request.
+    const [clock, profile, memoText] = await Promise.all([catalogNow(), loadProfile(base), loadMemoText(userId)]);
+    instructions = buildInstructions({
+      profile,
+      memoText,
+      variant: thread.variant,
+      clock: { frozen: clock.frozen },
+      unattended: false,
+    });
+    const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 } };
+    tools = (a.tools ?? buildTools)(ctx);
+    // A long thread goes as its summary plus the newest messages. When it is short, or
+    // the summary call failed or timed out (the same array comes back), the plain
+    // window goes. A refused or failed charge for the summary stops the turn before its
+    // first step (the controller is already aborted when streamText starts).
+    const summarized = await summarizeIfLong(userId, thread, fullHistory, {
+      runId,
+      model,
+      modelId,
+      onStop: stop,
+      abortSignal: controller.signal,
+    });
+    const sent = summarized === fullHistory ? originalMessages : summarized;
+    // A turn cut short (wall clock, provider drop) can be stored with a tool call that
+    // never got its result; replayed as is, the SDK refuses the whole prompt
+    // (MissingToolResultsError) and the thread could never answer again. Such calls are
+    // dropped; the text around them is kept (PR C batch 3 review I1).
+    modelMessages = await convertToModelMessages(sent, { ignoreIncompleteToolCalls: true });
+  } catch (e) {
+    // Nothing reached the model: close the run and the placeholder, then let the route
+    // answer 500.
+    console.error("agent: turn setup failed", errorName(e));
+    clearTimeout(timer);
+    controller.abort("setup_failed");
+    await undoPlaceholder();
+    await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
+    throw e;
+  }
+
+  // Stopped during setup (the summary's charge was refused or failed, or the wall clock
+  // ran out during the summary): no model step starts. streamText would still call the
+  // model with an aborted signal, so it is not called at all. The thread goes back to how
+  // it was, as for any turn that never reached the model: an approval's message waits
+  // again with its approval request (the tool never ran), a new turn's placeholder is
+  // closed failed (PR I3b re-review).
+  if (stopReason !== null) {
+    clearTimeout(timer);
+    await undoPlaceholder();
+    await closeRun(userId, runId, turnOutcome({ stopReason, modelError }).run);
+    return createUIMessageStreamResponse({ stream: errorOnlyStream() });
+  }
 
   // Everything from here to the return runs with the run open. A synchronous throw
   // (streamText, a UI stream) closes the run and the placeholder instead of leaving
@@ -369,7 +451,8 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       ...approvalStreamOptions(base),
       // The second condition: onStepEnd has stopped the turn (over budget, a failed
       // charge, the wall clock), so no further step starts even before the abort lands.
-      stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null],
+      // The third: the turn ends at an ask_user call, whose answers come next turn.
+      stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null, hasToolCall("ask_user")],
       maxOutputTokens: AGENT_LIMITS.maxOutputTokens,
       abortSignal: controller.signal,
       telemetry: { functionId: "agent-turn" },
@@ -456,6 +539,16 @@ async function runTurn(a: TurnArgs): Promise<Response> {
  * starts from the placeholder, so an approval's turn continues the message that asked
  * (the tool part the stream updates is already in it).
  */
+/** A UI stream that carries only the fixed error line, for a turn stopped before its first step. */
+function errorOnlyStream(): ReadableStream<UIMessageChunk> {
+  return new ReadableStream<UIMessageChunk>({
+    start(controller) {
+      controller.enqueue({ type: "error", errorText: "The assistant hit an error." });
+      controller.close();
+    },
+  });
+}
+
 async function finalAssistantMessage(stream: ReadableStream<UIMessageChunk>, placeholder: AgentUIMessage): Promise<AgentUIMessage> {
   let last: UIMessage = placeholder;
   for await (const m of readUIMessageStream({ stream, message: structuredClone(placeholder), onError: () => {} })) last = m;

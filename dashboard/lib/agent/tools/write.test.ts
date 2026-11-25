@@ -58,11 +58,17 @@ describe("tool surface", () => {
   test("buildTools exposes the phase 0 and phase 1 read tools and the write tools", () => {
     expect(Object.keys(buildTools(ctx())).sort()).toEqual(
       [
-        "add_application_note", "get_job", "get_memo", "get_profile_summary", "get_review", "list_applications",
-        "list_documents", "list_shortlist", "propose_memo_change", "query_metrics", "read_document", "request_review",
+        "add_application_note", "ask_user", "get_job", "get_memo", "get_profile_summary", "get_review", "list_applications",
+        "list_documents", "list_shortlist", "present", "propose_memo_change", "query_metrics", "read_document", "request_review",
         "search_jobs", "set_analytics_tiles", "set_application_stage", "set_shortlist_state", "update_document_draft",
       ].sort(),
     );
+  });
+
+  test("an unattended run gets neither present nor ask_user", () => {
+    const names = Object.keys(buildTools(ctx({ unattended: true })));
+    expect(names).not.toContain("present");
+    expect(names).not.toContain("ask_user");
   });
 
   test("unattended ctx exposes exactly set_shortlist_state and propose_memo_change among write tools", () => {

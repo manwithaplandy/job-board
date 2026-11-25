@@ -24,9 +24,15 @@ export const AGENT_LIMITS = {
   // messages, at most 40 of them and at most 120,000 characters of serialized parts
   // (roughly 30k tokens), cut so the window starts at a user message. Every step of a
   // turn re-sends it, so this bounds one step's input. Older turns stay stored and
-  // shown; summarising them for the model is a later task.
+  // shown; past summarizeAboveMessages they are summarised (Task 1.21, lib/agent/summary.ts).
   historyMaxMessages: 40,
   historyMaxChars: 120_000,
+  // A thread longer than this is sent as a summary plus its newest summaryKeepMessages.
+  summarizeAboveMessages: 40,
+  summaryKeepMessages: 12,
+  // The summary call's own limit, well inside wallClockMs (which it also counts against).
+  // On timeout the turn goes on with the unsummarised window.
+  summaryTimeoutMs: 25_000,
 } as const;
 
 // usage_counters.kind for agent spend; n is in micro-dollars.

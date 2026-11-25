@@ -10,6 +10,8 @@ import { AppHeader } from "@/components/shell/AppHeader";
 import { PageHeader } from "@/components/ui/Navigation";
 import { MemoEditor } from "@/components/workspaces/MemoEditor";
 import { MemoStructured } from "@/components/workspaces/MemoStructured";
+import { ActivityPanel } from "@/components/workspaces/ActivityPanel";
+import { readActivity } from "@/lib/workspaces/activity";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "What I'm looking for · Rolefit" };
@@ -23,7 +25,12 @@ export default async function LookingForPage() {
   const claims = await getUserClaims();
   const email = claims?.email ?? null;
 
-  const [profile, memo, versions] = await Promise.all([getProfile(userId), getMemo(userId), listMemoVersions(userId)]);
+  const [profile, memo, versions, activity] = await Promise.all([
+    getProfile(userId),
+    getMemo(userId),
+    listMemoVersions(userId),
+    readActivity(userId),
+  ]);
   // The memo compiles into the profile's review instructions, so it needs a profile.
   if (!profile) redirect("/onboarding");
 
@@ -44,6 +51,7 @@ export default async function LookingForPage() {
               <MemoStructured locations={profile.preferred_locations} exclusions={profile.company_exclusions} />
             </section>
           </div>
+          <ActivityPanel items={activity} />
         </div>
       </main>
     </AppShell>

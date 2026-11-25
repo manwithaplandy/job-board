@@ -50,15 +50,21 @@ vi.mock("@/lib/agent/config", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/agent/config")>();
   // A short wall clock so the wall-clock test runs in about a second; the other models
   // finish well inside it.
-  return { ...real, AGENT_LIMITS: { ...real.AGENT_LIMITS, wallClockMs: 1_000 } };
+  // The summary timeout is short too, so the summary-timeout test runs in well under a second.
+  return { ...real, AGENT_LIMITS: { ...real.AGENT_LIMITS, wallClockMs: 1_000, summaryTimeoutMs: 100 } };
 });
-vi.mock("@/lib/agent/threads", () => ({ loadMessages: vi.fn() }));
+vi.mock("@/lib/agent/threads", () => ({ loadMessages: vi.fn(), saveThreadSummary: vi.fn() }));
+vi.mock("@/lib/workspaces/memo", () => ({ getMemo: vi.fn() }));
 vi.mock("@/lib/agent/runs", () => {
   class TurnInProgressError extends Error {}
   return { TurnInProgressError, startRun: vi.fn(), chargeStep: vi.fn(), finishRun: vi.fn(), saveMessages: vi.fn() };
 });
 vi.mock("@/lib/catalogClock", () => ({ catalogNow: vi.fn() }));
 vi.mock("@/lib/applicationPrep", () => ({ startApplicationPrep: vi.fn() }));
+vi.mock("@/lib/workspaces/documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspaces/documents")>()),
+  listDocuments: vi.fn(async () => []),
+}));
 vi.mock("@/lib/agent/tools/read", async () => {
   const { tool } = await import("ai");
   const { z } = await import("zod");
@@ -71,7 +77,10 @@ vi.mock("@/lib/agent/tools/read", async () => {
 });
 
 import { catalogNow } from "@/lib/catalogClock";
-import { loadMessages } from "@/lib/agent/threads";
+import { loadMessages, saveThreadSummary } from "@/lib/agent/threads";
+import { getMemo } from "@/lib/workspaces/memo";
+import { compileMemo } from "@/lib/workspaces/memoCompile";
+import { SUMMARY_MESSAGE_ID } from "@/lib/agent/summary";
 import { TurnInProgressError, chargeStep, finishRun, saveMessages, startRun } from "@/lib/agent/runs";
 import type { AgentThread } from "@/lib/agent/threads";
 import { APPROVAL_DENIED_REASON, streamAgentTurn, TurnInputError, type TurnInput } from "@/lib/agent/loop";
@@ -80,8 +89,10 @@ import { AGENT_LIMITS } from "@/lib/agent/config";
 import { startApplicationPrep } from "@/lib/applicationPrep";
 import { resetApprovalSecretWarning } from "@/lib/agent/approvalSecret";
 import { isToolUIPart } from "ai";
+import { listDocuments } from "@/lib/workspaces/documents";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const DOC_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const RUN = "11111111-1111-4111-8111-111111111111";
 const thread: AgentThread = {
   id: "22222222-2222-4222-8222-222222222222",
@@ -170,6 +181,9 @@ beforeEach(() => {
   h.uiStreamThrowsAt = 0;
   h.uiStreamCalls = 0;
   vi.mocked(loadMessages).mockReset().mockResolvedValue([]);
+  vi.mocked(listDocuments).mockReset().mockResolvedValue([]);
+  vi.mocked(getMemo).mockReset().mockResolvedValue(null);
+  vi.mocked(saveThreadSummary).mockReset().mockResolvedValue(undefined);
   vi.mocked(startRun)
     .mockReset()
     .mockImplementation(async () => {
@@ -345,6 +359,23 @@ describe("streamAgentTurn: failure handling and input rules", () => {
     expect(user).toEqual({ id: "m-77", role: "user", parts: [{ type: "text", text: "find me jobs" }] });
   });
 
+  test("an attached document of the user's own adds a fixed note with its id and filename, never its text", async () => {
+    vi.mocked(listDocuments).mockResolvedValue([
+      { id: DOC_ID, kind: "other", filename: 'notes "q".pdf', mime: "application/pdf", bytes: 10, extraction: "ok", createdAt: "2026-11-25T00:00:00.000Z" },
+    ]);
+    await turn(scripted([textStep(["ok"], 0.0008)]), { kind: "message", id: "m-78", text: "read this", documentIds: [DOC_ID, DOC_ID] });
+    const [, , [user]] = saves()[0];
+    expect(user).toEqual({
+      id: "m-78",
+      role: "user",
+      parts: [
+        { type: "text", text: "read this" },
+        { type: "text", text: `Attached files, readable with read_document: "notes q .pdf" (document id ${DOC_ID}).` },
+      ],
+    });
+    expect(listDocuments).toHaveBeenCalledWith(USER);
+  });
+
   test("history is fed to the model before the new user message", async () => {
     vi.mocked(loadMessages).mockResolvedValue([
       { id: "m-1", role: "user", parts: [{ type: "text", text: "earlier" }] },
@@ -360,7 +391,12 @@ describe("streamAgentTurn: failure handling and input rules", () => {
     ["an id with bad characters", message("hi", "m 1/../x"), "bad_message_id"],
     ["a text over 8000 characters", message("x".repeat(8001)), "text_too_long"],
     ["an empty message", message("   "), "empty_text"],
-    ["document ids (no documents in phase 0)", { kind: "message", id: "m-9", text: "hi", documentIds: ["d"] }, "documents_unsupported"],
+    ["a document id that is not one of the user's documents", { kind: "message", id: "m-9", text: "hi", documentIds: [DOC_ID] }, "unknown_document"],
+    [
+      "more than four documents",
+      { kind: "message", id: "m-9", text: "hi", documentIds: ["1", "2", "3", "4", "5"].map((n) => DOC_ID.slice(0, -1) + n) },
+      "too_many_documents",
+    ],
     ["an approval without the approval secret", { kind: "approval", approvalId: "a-1", approved: true }, "approval_unavailable"],
   ] as const)("rejects %s before starting a run", async (_name, input, code) => {
     vi.mocked(loadMessages).mockResolvedValue([{ id: "m-1", role: "user", parts: [{ type: "text", text: "x" }] }]);
@@ -649,5 +685,318 @@ describe("streamAgentTurn: approvals (Task 1.16)", () => {
     expect(saveMessages).not.toHaveBeenCalled();
     expect(model.doStreamCalls).toHaveLength(0);
     expect(startApplicationPrep).not.toHaveBeenCalled();
+  });
+
+  test("a refused summary charge on an approval turn restores the waiting approval and runs nothing (re-review)", async () => {
+    const pending = await pendingApproval();
+    // 39 earlier messages plus the pending pair: 41, so this turn needs a summary.
+    const earlier: UIMessage[] = Array.from({ length: 39 }, (_, i) => ({
+      id: `f-${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      parts: [{ type: "text" as const, text: `earlier ${i}` }],
+    }));
+    const waiting = pending.history[1];
+    vi.mocked(loadMessages).mockResolvedValue([...earlier, ...pending.history]);
+    vi.mocked(saveMessages).mockClear();
+    vi.mocked(finishRun).mockClear();
+    vi.mocked(chargeStep).mockReset().mockResolvedValue({ ok: false, reason: "daily_ceiling" });
+    const streaming = scripted([textStep(["should not run"], 0.0005)]);
+    const model = new MockLanguageModelV4({
+      doStream: (options) => streaming.doStream(options),
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "Summary." }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage,
+        providerMetadata: billed(0.0005),
+        warnings: [],
+      }),
+    });
+
+    await turn(model, approval(pending.approvalId, true));
+
+    expect(model.doGenerateCalls).toHaveLength(1);
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(startApplicationPrep).not.toHaveBeenCalled();
+    // The waiting message is saved pending for the turn, then back as it was: still asking.
+    const [, , [restored], status] = lastAssistantSave();
+    expect(restored.id).toBe(waiting.id);
+    expect(restored.parts).toEqual(waiting.parts);
+    expect(prepPart(restored).state).toBe("approval-requested");
+    expect(status).toBe("complete");
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "over_budget", error: "over_budget" });
+  });
+});
+
+describe("streamAgentTurn: ask_user keeps its questions (PR I3b review I1)", () => {
+  const QUESTIONS = {
+    questions: [
+      { id: "sponsor", label: "Do you need visa sponsorship?", kind: "choice", options: ["Yes", "No"] },
+      { id: "floor", label: "What is your pay floor?", kind: "text" },
+    ],
+  };
+  const askStep: LanguageModelV4StreamPart[] = [
+    { type: "stream-start", warnings: [] },
+    { type: "tool-call", toolCallId: "ask-1", toolName: "ask_user", input: JSON.stringify(QUESTIONS) },
+    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage, providerMetadata: billed(0.0005) },
+  ];
+
+  test("the turn ends at the call, and the next turn's model still sees the questions", async () => {
+    const asking = scripted([askStep, textStep(["should not run"], 0.0008)]);
+    await turn(asking, message("help me get started", "m-a"));
+    expect(asking.doStreamCalls).toHaveLength(1);
+    const [, , [saved], status] = lastAssistantSave();
+    expect(status).toBe("complete");
+    const part = saved.parts.find((p) => isToolUIPart(p));
+    expect(part).toMatchObject({ type: "tool-ask_user", state: "output-available", output: { status: "asked" } });
+
+    vi.mocked(loadMessages).mockResolvedValue([
+      { id: "m-a", role: "user", parts: [{ type: "text", text: "help me get started" }] },
+      saved,
+    ]);
+    const next = scripted([textStep(["Thanks"], 0.0008)]);
+    await turn(next, message("No, 140k", "m-b"));
+    const prompt = JSON.stringify(next.doStreamCalls[0].prompt);
+    expect(prompt).toContain("Do you need visa sponsorship?");
+    expect(prompt).toContain("What is your pay floor?");
+    expect(prompt.indexOf("What is your pay floor?")).toBeLessThan(prompt.indexOf("No, 140k"));
+  });
+});
+
+describe("streamAgentTurn: stable prefix, memo and thread summaries (Task 1.21)", () => {
+  const MEMO_DOC = {
+    role: "Backend engineer",
+    locations: "Berlin or remote in the EU",
+    compensation: "At least 90k EUR",
+    mustHaves: "",
+    dealBreakers: "No on-call rotations",
+    companies: "",
+    other: "",
+  };
+
+  /** A thread of `n` stored text messages, alternating user and assistant, starting with a user. */
+  function storedTurns(n: number): UIMessage[] {
+    const out: UIMessage[] = [];
+    for (let i = 0; i < n; i += 1) {
+      out.push({ id: `m-${i}`, role: i % 2 === 0 ? "user" : "assistant", parts: [{ type: "text", text: `turn ${i}` }] });
+    }
+    return out;
+  }
+
+  /** A model that answers the summary call (doGenerate) and streams `steps` (doStream). */
+  function withSummary(summary: string, dollars: number, steps: Step[]) {
+    const streaming = scripted(steps);
+    // Built through the constructor so doGenerateCalls records each call.
+    return new MockLanguageModelV4({
+      doStream: (options) => streaming.doStream(options),
+      doGenerate: async () => {
+        h.calls.push("summary");
+        return {
+          content: [{ type: "text", text: summary }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage,
+          providerMetadata: billed(dollars),
+          warnings: [],
+        };
+      },
+    });
+  }
+
+  const systemOf = (model: MockLanguageModelV4, i = 0) => JSON.stringify(model.doStreamCalls[i].prompt[0]);
+
+  test("the prefix is byte-identical across two turns of one user when profile and memo are unchanged", async () => {
+    vi.mocked(getMemo).mockResolvedValue({ version: 3, doc: MEMO_DOC, pending: [] });
+    const first = scripted([textStep(["ok"], 0.0008)]);
+    await turn(first, message("first question", "m-a"));
+    vi.mocked(loadMessages).mockResolvedValue([
+      { id: "m-a", role: "user", parts: [{ type: "text", text: "first question" }] },
+      { id: "msg-a", role: "assistant", parts: [{ type: "text", text: "ok" }] },
+    ]);
+    vi.mocked(catalogNow).mockResolvedValue({ now: new Date("2026-11-25T09:30:00Z"), frozen: false });
+    const second = scripted([textStep(["ok"], 0.0008)]);
+    await turn(second, message("second question", "m-b"));
+
+    const a = first.doStreamCalls[0];
+    const b = second.doStreamCalls[0];
+    expect(a.prompt[0].role).toBe("system");
+    expect(systemOf(second)).toBe(systemOf(first));
+    expect(JSON.stringify(b.tools)).toBe(JSON.stringify(a.tools));
+    // Fixed rules, then the profile, then the memo; no time in the prefix.
+    const system = String(a.prompt[0].content);
+    const rules = system.indexOf("job-search assistant");
+    const profileAt = system.indexOf("<user_profile>");
+    const memoAt = system.indexOf("<search_memo>");
+    expect(rules).toBeGreaterThanOrEqual(0);
+    expect(profileAt).toBeGreaterThan(rules);
+    expect(memoAt).toBeGreaterThan(profileAt);
+    expect(system).not.toContain("2026-11-25");
+  });
+
+  test("the memo text is the compiled memo and contains no eeo field", async () => {
+    // A doc carrying stray fields (as if a row had more keys) still compiles to its sections only.
+    const leaky = { ...MEMO_DOC, eeoGender: "Female", eeo_race: "Asian", veteranStatus: "Yes" } as typeof MEMO_DOC;
+    vi.mocked(getMemo).mockResolvedValue({ version: 1, doc: leaky, pending: [] });
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model);
+    const system = String(model.doStreamCalls[0].prompt[0].content);
+    expect(system).toContain(JSON.stringify(compileMemo(MEMO_DOC)));
+    expect(system.toLowerCase()).not.toContain("eeo");
+    expect(system).not.toContain("Female");
+    expect(system).not.toContain("veteran");
+  });
+
+  test("a failed memo read leaves the memo out and the turn goes on", async () => {
+    vi.mocked(getMemo).mockRejectedValue(new Error("db down"));
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model);
+    expect(String(model.doStreamCalls[0].prompt[0].content)).not.toContain("<search_memo>");
+    expect(lastAssistantSave()[3]).toBe("complete");
+  });
+
+  test("41 messages produce a summary and exactly 12 verbatim messages", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    const model = withSummary("They want backend roles in Berlin.", 0.0005, [textStep(["ok"], 0.0008)]);
+    await turn(model, message("turn 40", "m-40"));
+    expect(model.doGenerateCalls).toHaveLength(1);
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(history).toHaveLength(13);
+    expect(JSON.stringify(history[0])).toContain("<thread_summary>");
+    expect(JSON.stringify(history[0])).toContain("They want backend roles in Berlin.");
+    const verbatim = history.slice(1).map((m) => JSON.stringify(m));
+    expect(verbatim.map((s) => /turn (\d+)/.exec(s)?.[1])).toEqual(
+      Array.from({ length: 12 }, (_, i) => String(29 + i)),
+    );
+    // The summary covers the first 29 and is stored with the id of the last one.
+    const summaryPrompt = JSON.stringify(model.doGenerateCalls[0].prompt);
+    expect(summaryPrompt).toContain("turn 0");
+    expect(summaryPrompt).toContain("turn 28");
+    expect(summaryPrompt).not.toContain("turn 29");
+    expect(saveThreadSummary).toHaveBeenCalledWith(
+      USER,
+      thread.id,
+      JSON.stringify({ v: 1, through: "m-28", text: "They want backend roles in Berlin." }),
+    );
+    // The synthetic message is never stored.
+    expect(saves().some(([, , msgs]) => msgs.some((m) => m.id === SUMMARY_MESSAGE_ID))).toBe(false);
+  });
+
+  test("40 messages are sent verbatim with no summary call", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(39));
+    const model = withSummary("unused", 0.0005, [textStep(["ok"], 0.0008)]);
+    await turn(model, message("turn 39", "m-39"));
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(saveThreadSummary).not.toHaveBeenCalled();
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(history).toHaveLength(40);
+    expect(JSON.stringify(history)).not.toContain("<thread_summary>");
+  });
+
+  test("the summary call's cost is added to the run total", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    const model = withSummary("Summary.", 0.0005, [textStep(["ok"], 0.0008)]);
+    await turn(model, message("turn 40", "m-40"));
+    expect(vi.mocked(chargeStep).mock.calls.map(([u, r, s]) => [u, r, s.costMicros])).toEqual([
+      [USER, RUN, 500],
+      [USER, RUN, 800],
+    ]);
+    expect(h.calls.indexOf("summary")).toBeLessThan(h.calls.indexOf("model"));
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "done" });
+  });
+
+  test("a stored summary that still covers the thread is reused without a new call", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(50));
+    const model = withSummary("unused", 0.0005, [textStep(["ok"], 0.0008)]);
+    const res = await streamAgentTurn({
+      userId: USER,
+      email: null,
+      thread: { ...thread, summary: JSON.stringify({ v: 1, through: "m-28", text: "Stored summary." }) },
+      input: message("turn 50", "m-50"),
+      model,
+    });
+    await drain(res);
+    await Promise.all(h.afterTasks);
+    expect(model.doGenerateCalls).toHaveLength(0);
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(JSON.stringify(history[0])).toContain("Stored summary.");
+    expect(history).toHaveLength(1 + 22);
+  });
+
+  test("a refused charge for the summary stops the turn as over budget before any step", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    vi.mocked(chargeStep).mockResolvedValueOnce({ ok: false, reason: "daily_ceiling" });
+    const model = withSummary("Summary.", 0.0005, [textStep(["ok"], 0.0008)]);
+    await turn(model, message("turn 40", "m-40"));
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "over_budget", error: "over_budget" });
+    expect(lastAssistantSave()[3]).toBe("failed");
+    // No model step streamed after the refused charge (review m6).
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(vi.mocked(chargeStep)).toHaveBeenCalledTimes(1);
+  });
+
+  /** A model whose summary call hangs until its signal aborts, as a stalled provider's fetch does. */
+  function stalledSummary(steps: Step[]) {
+    const streaming = scripted(steps);
+    const signals: (AbortSignal | undefined)[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: (options) => streaming.doStream(options),
+      doGenerate: (options) => {
+        signals.push(options.abortSignal);
+        return new Promise((_resolve, reject) => {
+          options.abortSignal?.addEventListener("abort", () => reject(options.abortSignal?.reason ?? new Error("aborted")));
+        });
+      },
+    });
+    return { model, signals };
+  }
+
+  test("a summary call that times out falls back to the plain window, once, and the turn completes", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    const { model } = stalledSummary([textStep(["ok"], 0.0008)]);
+    const started = Date.now();
+    await turn(model, message("turn 40", "m-40"));
+    expect(Date.now() - started).toBeLessThan(900);
+    // maxRetries 0: one attempt only.
+    expect(model.doGenerateCalls).toHaveLength(1);
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(JSON.stringify(history)).not.toContain("<thread_summary>");
+    expect(history.length).toBeLessThanOrEqual(AGENT_LIMITS.historyMaxMessages + 1);
+    // Nothing is charged or stored for a summary that never came back.
+    expect(vi.mocked(chargeStep).mock.calls.map(([, , s]) => s.costMicros)).toEqual([800]);
+    expect(saveThreadSummary).not.toHaveBeenCalled();
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "done" });
+  });
+
+  test("the wall clock runs during the summary call, so a stalled summary cannot outlast the turn", async () => {
+    // A summary timeout longer than the (test) wall clock: only the turn's clock can stop it.
+    const limits = AGENT_LIMITS as unknown as { summaryTimeoutMs: number };
+    const saved = limits.summaryTimeoutMs;
+    limits.summaryTimeoutMs = 10_000;
+    try {
+      vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+      const { model, signals } = stalledSummary([textStep(["ok"], 0.0008)]);
+      const started = Date.now();
+      await turn(model, message("turn 40", "m-40"));
+      const elapsed = Date.now() - started;
+      expect(elapsed).toBeGreaterThanOrEqual(900);
+      expect(elapsed).toBeLessThan(3_000);
+      expect(signals[0]?.aborted).toBe(true);
+      expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "aborted", error: "wall_clock" });
+      expect(lastAssistantSave()[3]).toBe("failed");
+    } finally {
+      limits.summaryTimeoutMs = saved;
+    }
+  });
+
+  test("a failed summary call falls back to the plain history window", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(storedTurns(40));
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    model.doGenerate = async () => {
+      throw new Error("provider down");
+    };
+    await turn(model, message("turn 40", "m-40"));
+    const history = model.doStreamCalls[0].prompt.slice(1);
+    expect(JSON.stringify(history)).not.toContain("<thread_summary>");
+    expect(history.length).toBeLessThanOrEqual(AGENT_LIMITS.historyMaxMessages + 1);
+    expect(vi.mocked(chargeStep)).toHaveBeenCalledTimes(1);
+    expect(lastAssistantSave()[3]).toBe("complete");
   });
 });

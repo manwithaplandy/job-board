@@ -24,6 +24,37 @@
 .rf-agent-composer { display: grid; gap: var(--space-2); min-width: 0; }
 .rf-agent-composer__actions { display: flex; justify-content: flex-end; }
 
+.rf-agent-composer__actions { flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
+
+/* Agent page chrome (plan Task 1.20). */
+.rf-agent-workspace { display: grid; gap: var(--space-6); min-width: 0; }
+/* At 1024px and wider the latest surface takes the wide column, the conversation beside it. */
+@media (min-width: 1024px) {
+  .rf-agent-workspace--split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; }
+  .rf-agent-surface-column { position: sticky; top: var(--space-4); }
+}
+.rf-agent-surface-column { min-width: 0; }
+.rf-agent-surface { min-width: 0; }
+.rf-agent-surface__failed { margin: 0; color: var(--text-secondary); }
+.rf-agent-message__questions { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-5); color: var(--text-primary); overflow-wrap: anywhere; }
+
+.rf-agent-empty { display: grid; gap: var(--space-4); min-width: 0; }
+.rf-agent-empty__sentence { margin: 0; color: var(--text-secondary); }
+
+.rf-agent-attach { display: grid; gap: var(--space-2); flex: 1 1 auto; min-width: 0; }
+.rf-agent-attach__list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.rf-agent-attach__item { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.rf-agent-attach__name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: var(--font-size-caption); }
+
+.rf-agent-confirm { display: grid; gap: var(--space-3); min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-card); padding: var(--space-4); background: var(--bg-surface); }
+.rf-agent-confirm__title { margin: 0; color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; }
+.rf-agent-confirm__lines { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-5); color: var(--text-primary); overflow-wrap: anywhere; white-space: pre-wrap; }
+.rf-agent-confirm__proposed { display: grid; gap: var(--space-1); }
+.rf-agent-confirm__label { margin: 0; color: var(--text-muted); font-size: var(--font-size-small); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.rf-agent-confirm__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.rf-agent-review { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
+
 @media (max-width: 760px) {
   .rf-agent-layout { grid-template-columns: minmax(0, 1fr); }
 }

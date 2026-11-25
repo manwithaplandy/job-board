@@ -161,6 +161,31 @@ export async function getSurface(userId: string, id: string): Promise<StoredSurf
   return rows.length === 0 ? null : toSurface(rows[0]);
 }
 
+/** How many surfaces of one thread the agent page reads, newest first. */
+export const THREAD_SURFACES_MAX = 50;
+
+/**
+ * The caller's newest surfaces in one thread, oldest first (at most
+ * THREAD_SURFACES_MAX). Malformed rows are skipped. Read-only: the agent page calls it
+ * while rendering.
+ */
+export async function listThreadSurfaces(userId: string, threadId: string): Promise<StoredSurface[]> {
+  if (!UUID_RE.test(threadId)) return [];
+  const rows = await withUserSql(userId, (tx) => tx`
+    SELECT id, thread_id, run_id, variant, payload, fallback_payload, gathered, outcome, failure,
+           supersedes, rerender_of, model, latency_ms, created_at
+    FROM agent_surfaces
+    WHERE thread_id = ${threadId}::uuid AND user_id = ${userId}::uuid
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${THREAD_SURFACES_MAX}`);
+  const out: StoredSurface[] = [];
+  for (const raw of rows) {
+    const s = toSurface(raw);
+    if (s) out.push(s);
+  }
+  return out.reverse();
+}
+
 /**
  * Records that a surface failed to render (outcome fallback, with a short failure code)
  * and returns its stored fallback payload, or null when it has none or is not the

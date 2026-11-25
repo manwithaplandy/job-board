@@ -79,6 +79,16 @@
 .rf-ws-browse { display: grid; gap: var(--space-4); min-width: 0; }
 .rf-ws-browse__filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: var(--space-3); }
 
+/* The agent activity panel (plan Task 1.20, spec 6.7), collapsed at a page's foot. */
+.rf-ws-activity { display: grid; gap: var(--space-3); min-width: 0; border-top: 1px solid var(--border); padding-top: var(--space-4); }
+.rf-ws-activity__list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; min-width: 0; }
+.rf-ws-activity__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); min-width: 0; border-bottom: 1px solid var(--border); padding-bottom: var(--space-2); }
+.rf-ws-activity__text { display: grid; gap: var(--space-1); min-width: 0; overflow-wrap: anywhere; }
+.rf-ws-activity__label { color: var(--text-primary); font-weight: 600; }
+.rf-ws-activity__subject { color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-ws-activity__time { color: var(--text-muted); font-size: var(--font-size-caption); }
+.rf-ws-activity__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
 @media (max-width: 760px) {
   .rf-ws-browse__filters { grid-template-columns: minmax(0, 1fr); }
   .rf-ws-tracker__controls { grid-template-columns: minmax(0, 1fr); }

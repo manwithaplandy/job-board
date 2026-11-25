@@ -346,7 +346,7 @@ test("confirmIntent runs a token only for its own user and a surface still in it
   expect(await confirmIntent(OTHER, null, out.token)).toEqual({ kind: "dropped" });
   expect(m.startApplicationPrep).not.toHaveBeenCalled();
   expect(await confirmIntent(USER, "pat@example.com", out.token)).toEqual({
-    kind: "done", toast: "Preparing your application. It takes a minute or two.",
+    kind: "done", toast: "Preparing your application. It takes a minute or two.", generation: {},
   });
   // The job comes from the signed token, the user and email from the session.
   expect(m.startApplicationPrep).toHaveBeenCalledWith(USER, "pat@example.com", JOB);
@@ -368,7 +368,7 @@ test("a confirm token starts at most one prep: a replay after its prep was creat
   const out = await run({ name: "application.prepare", jobId: JOB });
   if (out.kind !== "confirm") throw new Error("expected a confirm");
   expect(await confirmIntent(USER, null, out.token)).toEqual({
-    kind: "done", toast: "Preparing your application. It takes a minute or two.",
+    kind: "done", toast: "Preparing your application. It takes a minute or two.", generation: {},
   });
   // The same token again (a double press, a retried request, or after the prep settled).
   expect(await confirmIntent(USER, null, out.token)).toEqual({ kind: "done", toast: CONFIRM_ALREADY_USED });

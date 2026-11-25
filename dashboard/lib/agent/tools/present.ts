@@ -38,9 +38,14 @@ export type PresentResult = {
   errors?: string[];
 };
 
-/** The JSON schema the model is shown: { surfaceId?, payload } with the variant 1 grammar. */
-function presentJsonSchema(): JSONSchema7 {
-  const payload = z.toJSONSchema(SurfacePayloadV1Schema, { io: "input" }) as Record<string, unknown>;
+/**
+ * The JSON schema the model is shown: { surfaceId?, payload } with the variant 1 grammar.
+ * Draft 7 (PR #51 review L1): the JobComparison tuple is then `items: [...]` with
+ * `additionalItems: false`, not draft 2020-12's `prefixItems`, which the tool's
+ * JSONSchema7 type and some providers do not read.
+ */
+export function presentJsonSchema(): JSONSchema7 {
+  const payload = z.toJSONSchema(SurfacePayloadV1Schema, { io: "input", target: "draft-7" }) as Record<string, unknown>;
   delete payload.$schema;
   return {
     type: "object",

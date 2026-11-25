@@ -16,16 +16,8 @@ import { JobLink } from "@/components/workspaces/JobLink";
 import type { GeneratedDocuments } from "@/lib/workspaces/generatedDocuments";
 import type { ResumeVersion } from "@/lib/workspaces/resumeVersions";
 import type { DocumentMeta } from "@/lib/workspaces/types";
+import { UPLOAD_ACCEPT, UPLOAD_FAILED, uploadErrorMessage } from "@/lib/uploadMessages";
 
-const UPLOAD_ERRORS: Record<string, string> = {
-  too_large: "That file is larger than 4 MB.",
-  empty: "That file is empty.",
-  type_not_allowed: "Upload a PDF, PNG, JPEG, WebP, plain-text or Markdown file.",
-  type_mismatch: "That file's contents do not match its type.",
-  budget: "Reading text from images is paused: your agent budget is used up for now.",
-  subscription_required: "Uploads need an active plan.",
-};
-const UPLOAD_FAILED = "That upload did not go through. Try again.";
 
 const EXTRACTION: Record<DocumentMeta["extraction"], { label: string; tone: "success" | "warning" | "danger"; note: string | null }> = {
   ok: { label: "Text read", tone: "success", note: null },
@@ -99,8 +91,8 @@ export function DocumentsPage({
         body.append("file", file);
         const res = await fetch("/api/agent/upload", { method: "POST", body });
         if (!res.ok) {
-          const code = await res.json().then((j: { error?: unknown }) => (typeof j.error === "string" ? j.error : ""), () => "");
-          setMessage({ tone: "danger", text: UPLOAD_ERRORS[code] ?? UPLOAD_FAILED });
+          const code = await res.json().then((j: { error?: unknown }) => j.error, () => null);
+          setMessage({ tone: "danger", text: uploadErrorMessage(code) });
           return;
         }
         setFile(null);
@@ -184,7 +176,7 @@ export function DocumentsPage({
             key={uploadKey}
             label="Add a file"
             description="PDF, PNG, JPEG, WebP, plain text or Markdown, up to 4 MB. Text in images is read by the agent and counts toward its budget."
-            accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,application/pdf,image/png,image/jpeg,image/webp,text/plain,text/markdown"
+            accept={UPLOAD_ACCEPT}
             disabled={pending}
             onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)}
           />

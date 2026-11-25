@@ -12,6 +12,8 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { PageHeader } from "@/components/ui/Navigation";
 import { ShortlistBoard, type BrowseFilters, type BrowseRow } from "@/components/workspaces/ShortlistBoard";
+import { ActivityPanel } from "@/components/workspaces/ActivityPanel";
+import { readActivity } from "@/lib/workspaces/activity";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Shortlist · Rolefit" };
@@ -85,11 +87,12 @@ export default async function ShortlistPage({
   const filters = parseFilters(await searchParams);
   const email = claims?.email ?? null;
 
-  const [rows, markers, browse, stages] = await Promise.all([
+  const [rows, markers, browse, stages, activity] = await Promise.all([
     listShortlist(userId),
     listAgentMarkers(userId, "shortlist.set"),
     readBrowse(userId, email, filters),
     listTrackedStages(userId),
+    readActivity(userId),
   ]);
 
   return (
@@ -110,6 +113,7 @@ export default async function ShortlistPage({
               browseError={browse === null}
             />
           </div>
+          <ActivityPanel items={activity} />
         </div>
       </main>
     </AppShell>

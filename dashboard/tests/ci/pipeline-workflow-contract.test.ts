@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -133,10 +133,6 @@ describe("existing CI jobs", () => {
 });
 
 const dbOps = readFileSync(path.join(repositoryRoot, ".github/workflows/db-ops.yml"), "utf8");
-const rebaseline = readFileSync(
-  path.join(repositoryRoot, ".github/workflows/cutover-rebaseline.yml"),
-  "utf8",
-);
 
 function jobs(workflow: string): Record<string, string> {
   const body = workflow.slice(workflow.indexOf("\njobs:\n"));
@@ -174,7 +170,7 @@ describe("Secret scan job", () => {
 
 describe("artifacts taken from production", () => {
   test("are kept for one day, because the repository is public", () => {
-    for (const workflow of [dbOps, rebaseline]) {
+    for (const workflow of [dbOps]) {
       const retentions = [...workflow.matchAll(/retention-days: (\d+)/g)].map((m) => m[1]);
       expect(retentions.length).toBeGreaterThan(0);
       expect(new Set(retentions)).toEqual(new Set(["1"]));
@@ -184,14 +180,14 @@ describe("artifacts taken from production", () => {
 
 describe("production database workflows", () => {
   test("are manual only", () => {
-    for (const workflow of [dbOps, rebaseline]) {
+    for (const workflow of [dbOps]) {
       const triggers = [...onBlock(workflow).matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]);
       expect(triggers).toEqual(["workflow_dispatch"]);
     }
   });
 
   test("scope Supabase secrets to jobs with an environment", () => {
-    for (const workflow of [dbOps, rebaseline]) {
+    for (const workflow of [dbOps]) {
       for (const [id, text] of Object.entries(jobs(workflow))) {
         if (text.includes("secrets.SUPABASE_")) {
           expect(text, id).toMatch(/\n {4}environment: production-db(-destructive)?\n/);
@@ -216,7 +212,7 @@ describe("production database workflows", () => {
 
   test("hand the database URL to commands only through prod_dsn", () => {
     const deploy = readFileSync(path.join(repositoryRoot, ".github/workflows/deploy.yml"), "utf8");
-    for (const workflow of [dbOps, rebaseline, deploy]) {
+    for (const workflow of [dbOps, deploy]) {
       for (const text of Object.values(jobs(workflow))) {
         for (const name of stepNames(text)) {
           const body = step(text, name);
@@ -250,23 +246,8 @@ describe("production database workflows", () => {
     expect(dbOps).toContain("python -m tools.migrations.prod_dsn");
   });
 
-  test("re-baseline writes only from the approval-gated job and defaults to a dry run", () => {
-    const all = jobs(rebaseline);
-    expect(Object.keys(all)).toEqual(["plan", "apply"]);
-    expect(all.plan).toContain("environment: production-db\n");
-    expect(all.plan).not.toMatch(/^\s*supabase migration repair|CREATE TABLE|psql/m);
-    expect(all.apply).toContain("environment: production-db-destructive\n");
-    expect(all.apply).toContain("if: inputs.dry_run == false");
-    expect(all.apply).toContain("needs: plan");
-    expect(rebaseline).toMatch(/dry_run:\n(?: {8}.+\n)*? {8}default: true\n/);
-    expect(rebaseline).toContain("^[0-9a-f]{40}$");
-    expect(all.apply).toContain(
-      "CREATE TABLE supabase_migrations.schema_migrations_pre_cd AS TABLE supabase_migrations.schema_migrations;",
-    );
-    expect(all.apply).toContain("python -m tools.migrations.history check-synced history-after.txt");
-    expect(all.apply).toContain(
-      "python -m tools.migrations.fingerprint compare fingerprint-before.json fingerprint-after.json",
-    );
+  test("the one-time cutover re-baseline workflow is gone after its single run", () => {
+    expect(existsSync(path.join(repositoryRoot, ".github/workflows/cutover-rebaseline.yml"))).toBe(false);
   });
 });
 

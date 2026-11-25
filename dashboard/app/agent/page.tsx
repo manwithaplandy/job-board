@@ -7,7 +7,10 @@ import { catalogNow } from "@/lib/catalogClock";
 import { JOB_ID_RE } from "@/lib/jobIdValidator";
 import { approvalSecret } from "@/lib/agent/approvalSecret";
 import { checkBudget, type BudgetState } from "@/lib/agent/budget";
-import { loadThreadSurfaces, type HostChain } from "@/lib/agent/surfaces/host";
+import { loadAppSettings } from "@/lib/appSettings";
+import { getDefaultVariant } from "@/lib/agent/settings";
+import type { Variant } from "@/lib/agent/config";
+import { loadThreadSurfaces, type HostChain, type HostOptions } from "@/lib/agent/surfaces/host";
 import { getThread, listThreads, loadMessages } from "@/lib/agent/threads";
 import { DEFAULT_THREAD_TITLE } from "@/lib/agent/titles";
 import { readActivity } from "@/lib/workspaces/activity";
@@ -41,9 +44,18 @@ async function readBudget(userId: string): Promise<BudgetState> {
   }
 }
 
-async function readSurfaces(userId: string, threadId: string): Promise<HostChain[]> {
+async function readDefaultVariant(userId: string): Promise<Variant> {
   try {
-    return await loadThreadSurfaces(userId, threadId);
+    return await getDefaultVariant(userId);
+  } catch {
+    // The switcher then shows the column default; a new thread starts in variant 1 too.
+    return 1;
+  }
+}
+
+async function readSurfaces(userId: string, threadId: string, options: HostOptions): Promise<HostChain[]> {
+  try {
+    return await loadThreadSurfaces(userId, threadId, options);
   } catch (e) {
     // The conversation still shows; its surfaces are missing until a reload works.
     console.error("agent page: surface read failed", e instanceof Error ? e.name : typeof e);
@@ -73,7 +85,7 @@ export default async function AgentPage({
   const compare = parseCompare(sp.compare);
   const admin = isAdmin(claims);
 
-  const [plan, budget, threads, thread, profile, clock, activity] = await Promise.all([
+  const [plan, budget, threads, thread, profile, clock, activity, settings, defaultVariant] = await Promise.all([
     getViewerPlan(userId, claims?.email ?? null),
     readBudget(userId),
     listThreads(userId),
@@ -81,9 +93,14 @@ export default async function AgentPage({
     getProfile(userId).catch(() => null),
     catalogNow(),
     readActivity(userId),
+    // loadAppSettings never throws.
+    loadAppSettings(),
+    readDefaultVariant(userId),
   ]);
+  // A variant 3 surface mounts its frame only while the operator switch is on (R15).
+  const variant3Enabled = settings.agentVariant3Enabled;
   const [messages, surfaces] = thread
-    ? await Promise.all([loadMessages(userId, thread.id), readSurfaces(userId, thread.id)])
+    ? await Promise.all([loadMessages(userId, thread.id), readSurfaces(userId, thread.id, { variant3Enabled })])
     : [[], []];
   const notice: AgentBlockingNotice | null = !plan ? "no_plan" : budget.ok ? null : budget.reason;
 
@@ -111,6 +128,7 @@ export default async function AgentPage({
                   approvalsEnabled={approvalSecret() !== null}
                   compare={compare}
                   hasProfile={profile !== null}
+                  variants={plan ? { thread: thread.variant, default: defaultVariant, variant3Enabled } : null}
                 />
               ) : compare && notice === null ? (
                 <CompareStarter compare={compare} />

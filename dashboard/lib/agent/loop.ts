@@ -50,7 +50,9 @@ import {
 } from "ai";
 import { catalogNow } from "@/lib/catalogClock";
 import { flushLangfuseTraces } from "@/lib/observability";
-import { AGENT_LIMITS, AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
+import { loadAppSettings } from "@/lib/appSettings";
+import { AGENT_LIMITS, AGENT_MODEL_DEFAULT, type Variant } from "@/lib/agent/config";
+import { presentVariant } from "@/lib/agent/variants";
 import { AGENT_DOCUMENTS_MAX, AGENT_TEXT_MAX } from "@/lib/agent/request";
 import { stepCostMicros } from "@/lib/agent/budget";
 import { buildInstructions } from "@/lib/agent/context";
@@ -277,18 +279,36 @@ type TurnArgs = {
   input: TurnInput;
   model?: LanguageModel;
   tools?: typeof buildTools;
+  /**
+   * The operator switch agentVariant3Enabled, as the route read it. Left out (an eval
+   * harness, a test), a variant 3 thread reads it from loadAppSettings, which never throws
+   * and reads a failed read or a malformed value as off (PR J4 review I2).
+   */
+  variant3Enabled?: boolean;
 };
 
+/**
+ * The variant this turn presents in (plan Task 2.8): the thread's recorded variant, read
+ * once at the start of the turn, so a switch made during the turn applies to the next
+ * one; a variant 3 thread presents as variant 1 while variant 3 is switched off.
+ */
+async function turnVariant(a: TurnArgs): Promise<Variant> {
+  if (a.thread.variant !== 3) return a.thread.variant;
+  const enabled = a.variant3Enabled ?? (await loadAppSettings()).agentVariant3Enabled;
+  return presentVariant(a.thread.variant, enabled);
+}
+
 export async function streamAgentTurn(a: TurnArgs): Promise<Response> {
+  const variant = await turnVariant(a);
   // The whole turn runs inside the trace context, so the model, tool and step spans
   // (including those that end after this returns) carry the thread and variant.
   return withAgentTrace(
-    { userId: a.userId, threadId: a.thread.id, variant: a.thread.variant, runKind: "interactive" },
-    () => runTurn(a),
+    { userId: a.userId, threadId: a.thread.id, variant, runKind: "interactive" },
+    () => runTurn(a, variant),
   );
 }
 
-async function runTurn(a: TurnArgs): Promise<Response> {
+async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
   const { userId, thread } = a;
   const model = a.model ?? agentModel();
   const modelId = typeof model === "string" ? model : (model.modelId ?? AGENT_MODEL_DEFAULT);
@@ -302,7 +322,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     start = { kind: "message", message: await userMessageFrom(userId, a.input) };
   }
 
-  const runId = await startRun(userId, { threadId: thread.id, kind: "interactive", model: modelId, variant: thread.variant });
+  const runId = await startRun(userId, { threadId: thread.id, kind: "interactive", model: modelId, variant });
 
   // History is read only once this turn holds the thread's one live run, so it includes
   // a turn that finished just before (PR C batch 3 review M2).
@@ -365,12 +385,12 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     email: a.email,
     threadId: thread.id,
     runId,
-    variant: thread.variant,
+    variant,
     unattended: false,
   };
   // The turn's tool context: one gathered store and one repair state per turn. Built
   // before the setup so the end of the turn can settle a pending variant 2 or 3 repair.
-  const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 } };
+  const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 }, modelId };
   let instructions: string;
   let tools: ReturnType<typeof buildTools>;
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
@@ -394,7 +414,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     instructions = buildInstructions({
       profile,
       memoText,
-      variant: thread.variant,
+      variant,
       clock: { frozen: clock.frozen },
       unattended: false,
     });

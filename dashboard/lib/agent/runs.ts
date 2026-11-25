@@ -33,6 +33,21 @@ export class TurnInProgressError extends Error {
   }
 }
 
+/**
+ * A second re-render while one of this user's re-renders is still running (route: 409
+ * rerender_in_progress). PR J4 review M1: one re-render in flight per user.
+ */
+export class RerenderInProgressError extends Error {
+  constructor() {
+    super("agent: a re-render is already running for this user");
+    this.name = "RerenderInProgressError";
+  }
+}
+
+// The per-user lock that serializes re-render starts (agent_runs_one_live_turn covers
+// interactive turns only, and a new index would need a migration).
+const rerenderLockKey = (userId: string) => `agent-rerender:${userId}`;
+
 function assertUuid(id: string | null, what: string): void {
   if (id === null || !UUID_RE.test(id)) throw new Error(`agent: ${what} not found`);
 }
@@ -47,7 +62,11 @@ const idRowSchema = z.object({ id: z.string() });
  * Opens a run in status `running` and returns its id. One transaction: the thread must
  * belong to `userId`; for an interactive turn, that thread's running interactive runs
  * older than AGENT_LIMITS.staleTurnMs are aborted first. A second live turn on the
- * thread violates agent_runs_one_live_turn and becomes TurnInProgressError.
+ * thread violates agent_runs_one_live_turn and becomes TurnInProgressError. For a
+ * re-render, under a per-user advisory lock, this user's running re-renders older than
+ * AGENT_LIMITS.staleTurnMs are aborted first, and a re-render still running becomes
+ * RerenderInProgressError, so a user has at most one re-render in flight (PR J4 review
+ * M1). Nothing is spent before this check: the model call comes after startRun.
  */
 export async function startRun(
   userId: string,
@@ -70,6 +89,19 @@ export async function startRun(
               AND COALESCE(started_at, created_at) < now() - ${`${AGENT_LIMITS.staleTurnMs} milliseconds`}::interval
           `;
         }
+      }
+      if (a.kind === "rerender") {
+        // Taken after the thread lock, and only here, so the lock order is always the same.
+        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${rerenderLockKey(userId)}, 0))`;
+        await tx`
+          UPDATE agent_runs SET status = 'aborted', error = 'stale_rerender', finished_at = now()
+          WHERE user_id = ${userId}::uuid AND kind = 'rerender' AND status = 'running'
+            AND COALESCE(started_at, created_at) < now() - ${`${AGENT_LIMITS.staleTurnMs} milliseconds`}::interval
+        `;
+        const live = await tx`
+          SELECT 1 FROM agent_runs WHERE user_id = ${userId}::uuid AND kind = 'rerender' AND status = 'running' LIMIT 1
+        `;
+        if (live.length > 0) throw new RerenderInProgressError();
       }
       const rows = await tx`
         INSERT INTO agent_runs (user_id, thread_id, kind, job, status, model, variant, started_at)

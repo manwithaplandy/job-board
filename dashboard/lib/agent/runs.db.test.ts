@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import type { TransactionSql } from "postgres";
 import { openTestDb, USER_A, USER_B, type TestDb } from "@/lib/testing/dbHarness";
-import { chargeFlat, chargeStep, finishRun, saveMessages, startRun, TurnInProgressError } from "@/lib/agent/runs";
+import { chargeFlat, chargeStep, finishRun, RerenderInProgressError, saveMessages, startRun, TurnInProgressError } from "@/lib/agent/runs";
 import type { AgentUIMessage } from "@/lib/agent/messageCodec";
 import { loadMessages } from "@/lib/agent/threads";
 import { AGENT_LIMITS, USAGE_KIND_AGENT } from "@/lib/agent/config";
@@ -247,6 +247,42 @@ describe("startRun", () => {
                  WHERE id = ${recent}`;
     await expect(startRun(USER_A, interactive)).rejects.toBeInstanceOf(TurnInProgressError);
     expect(await run(recent)).toMatchObject({ status: "running" });
+  });
+});
+
+// One re-render in flight per user (PR J4 review M1), under a per-user advisory lock.
+describe("startRun for a re-render", () => {
+  const THREAD_A2 = "33333333-3333-4333-8333-333333333333";
+  const rerender = { threadId: THREAD_A, kind: "rerender" as const, model: "m", variant: 2 as const };
+
+  test("two parallel re-render starts for one user, on two threads: exactly one wins, one is RerenderInProgressError", async () => {
+    await db.sql`INSERT INTO agent_threads (id, user_id) VALUES (${THREAD_A2}, ${USER_A})`;
+    const results = await Promise.allSettled([startRun(USER_A, rerender), startRun(USER_A, { ...rerender, threadId: THREAD_A2 })]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toBeInstanceOf(RerenderInProgressError);
+    const rows = await db.sql`SELECT count(*)::int AS n FROM agent_runs WHERE kind = 'rerender' AND status = 'running'`;
+    expect(rows[0]?.n).toBe(1);
+  });
+
+  test("a finished re-render, another user's, or an interactive turn does not block one", async () => {
+    const first = await startRun(USER_A, rerender);
+    await startRun(USER_B, { ...rerender, threadId: THREAD_B });
+    await expect(startRun(USER_A, rerender)).rejects.toBeInstanceOf(RerenderInProgressError);
+    // A live interactive turn on the thread is a different rule.
+    await expect(startRun(USER_A, interactive)).resolves.toEqual(expect.any(String));
+    await finishRun(USER_A, first, { status: "done" });
+    await expect(startRun(USER_A, rerender)).resolves.toEqual(expect.any(String));
+  });
+
+  test("a re-render running longer than staleTurnMs is aborted and replaced", async () => {
+    const old = await startRun(USER_A, rerender);
+    await db.sql`UPDATE agent_runs SET started_at = now() - ${`${AGENT_LIMITS.staleTurnMs + 1000} milliseconds`}::interval
+                 WHERE id = ${old}`;
+    const next = await startRun(USER_A, rerender);
+    expect(await run(old)).toMatchObject({ status: "aborted", error: "stale_rerender" });
+    expect(await run(next)).toMatchObject({ status: "running" });
   });
 });
 

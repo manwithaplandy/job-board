@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { getUserClaims, requireUserId } from "@/lib/auth";
 import { assertNotDeleted } from "@/lib/tombstone";
-import { createThread, renameThread } from "@/lib/agent/threads";
+import { getViewerPlan } from "@/lib/subscriptions";
+import { loadAppSettings } from "@/lib/appSettings";
+import { createThread, getThread, renameThread, setThreadVariant } from "@/lib/agent/threads";
+import { getDefaultVariant, setDefaultVariant } from "@/lib/agent/settings";
+import { isVariant } from "@/lib/agent/variants";
 import { undoAction, type UndoResult } from "@/lib/agent/actions/audit";
 import { confirmIntent, executeIntent } from "@/lib/agent/actions/handlers";
 import type { ActionIntent, IntentOutcome } from "@/lib/agent/actions/intents";
@@ -43,13 +47,61 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // session; a thread id from the client is only ever matched together with it
 // (lib/agent/threads.ts puts both in every WHERE, under RLS).
 
-/** Starts a new conversation. Phase 0 runs variant 1 only. */
+/**
+ * Starts a new conversation in the user's default variant (agent_settings.default_variant,
+ * plan Task 2.8). A failed settings read starts it in variant 1. A variant 3 default is
+ * kept as recorded: while variant 3 is switched off the thread presents as variant 1.
+ */
 export async function newThread(): Promise<{ id: string }> {
   const userId = await requireUserId();
   await assertNotDeleted(userId);
-  const thread = await createThread(userId, 1);
+  const variant = await getDefaultVariant(userId).catch(() => 1 as const);
+  const thread = await createThread(userId, variant);
   revalidatePath("/agent");
   return { id: thread.id };
+}
+
+export type VariantChange = { ok: true } | { ok: false; reason: "invalid" | "no_plan" | "variant3_off" | "not_found" };
+
+/**
+ * The switcher's two checks (plan Task 2.8): any signed-in user with a plan may pick any of
+ * the three variants (spec 7.2, Andrew 2026-11-19: no admin gate). Variant 3 is refused
+ * while the operator switch agentVariant3Enabled is off; nothing here changes that switch.
+ */
+async function variantAllowed(userId: string, variant: unknown): Promise<VariantChange> {
+  if (!isVariant(variant)) return { ok: false, reason: "invalid" };
+  const claims = await getUserClaims();
+  if (!(await getViewerPlan(userId, claims?.email ?? null))) return { ok: false, reason: "no_plan" };
+  if (variant === 3 && !(await loadAppSettings()).agentVariant3Enabled) return { ok: false, reason: "variant3_off" };
+  return { ok: true };
+}
+
+/**
+ * Sets the variant of one of the caller's threads. It applies from the next turn on (the
+ * loop reads the thread's variant when a turn starts); surfaces already shown keep the
+ * variant recorded on their rows.
+ */
+export async function setThreadVariantAction(threadId: string, variant: number): Promise<VariantChange> {
+  const userId = await requireUserId();
+  await assertNotDeleted(userId);
+  if (typeof threadId !== "string" || !UUID_RE.test(threadId)) return { ok: false, reason: "not_found" };
+  const allowed = await variantAllowed(userId, variant);
+  if (!allowed.ok || !isVariant(variant)) return allowed;
+  if (!(await getThread(userId, threadId))) return { ok: false, reason: "not_found" };
+  await setThreadVariant(userId, threadId, variant);
+  revalidatePath("/agent");
+  return { ok: true };
+}
+
+/** Sets the variant new threads start with (agent_settings.default_variant). */
+export async function setDefaultVariantAction(variant: number): Promise<VariantChange> {
+  const userId = await requireUserId();
+  await assertNotDeleted(userId);
+  const allowed = await variantAllowed(userId, variant);
+  if (!allowed.ok || !isVariant(variant)) return allowed;
+  await setDefaultVariant(userId, variant);
+  revalidatePath("/agent");
+  return { ok: true };
 }
 
 /** Renames one of the caller's threads. A blank title or an unknown thread is refused. */
@@ -174,7 +226,9 @@ export async function confirmIntentAction(token: string): Promise<IntentOutcome>
 export async function loadSurfaceAction(threadId: string, surfaceId: string): Promise<HostSurface | null> {
   const userId = await requireUserId();
   if (typeof threadId !== "string" || typeof surfaceId !== "string") return null;
-  return loadHostSurface(userId, threadId, surfaceId);
+  // A variant 3 surface mounts its frame only while the operator switch is on (R15).
+  const { agentVariant3Enabled } = await loadAppSettings();
+  return loadHostSurface(userId, threadId, surfaceId, { variant3Enabled: agentVariant3Enabled });
 }
 
 /** A shown surface's database rows again (after a prep settles), keyed by the stored payload's ids. */

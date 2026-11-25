@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { toast } from "sonner";
@@ -23,7 +23,7 @@ import { compareMessage } from "@/lib/agent/actions/compareText";
 import type { PendingApproval } from "@/lib/agent/actions/approvalCard";
 import type { ActionIntent, ConfirmDescriptor, IntentOutcome } from "@/lib/agent/actions/intents";
 import type { AgentRequest } from "@/lib/agent/request";
-import type { HostChain } from "@/lib/agent/surfaces/host";
+import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { titleFromFirstMessage } from "@/lib/agent/titles";
 import { parseGenerationJob } from "@/lib/generationJobCodec";
 import { AgentNotice, type AgentBlockingNotice } from "./AgentNotice";
@@ -33,7 +33,9 @@ import { ConfirmCard } from "./ConfirmCard";
 import { EmptyState } from "./EmptyState";
 import { stashFirstMessage, takeFirstMessage } from "./firstMessage";
 import { ReviewProgress } from "./ReviewProgress";
-import { SurfaceHost, mergeSurface, useWideLayout } from "./SurfaceHost";
+import { mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
+import { RerenderTabs } from "./RerenderTabs";
+import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
@@ -260,11 +262,14 @@ export function AgentChat({
   approvalsEnabled = false,
   compare = null,
   hasProfile = true,
+  variants = null,
 }: {
   threadId: string;
   initialMessages: UIMessage[];
   notice: AgentBlockingNotice | null;
   autoTitle?: boolean;
+  /** The variant switcher's state (plan Task 2.8); null hides it (no plan). */
+  variants?: VariantsState | null;
   /** The thread's surface chains, parsed on the server (lib/agent/surfaces/host.ts). */
   surfaces?: HostChain[];
   /** False without AGENT_TOOL_APPROVAL_SECRET: no confirm card is ever shown for an approval. */
@@ -494,8 +499,8 @@ export function AgentChat({
     handlers.current = { handleOutcome };
   });
   const onIntent = useCallback(
-    (surfaceId: string, intent: ActionIntent) => {
-      void executeIntentAction(threadId, surfaceId, intent).then(
+    (surfaceId: string, intent: ActionIntent, source: "host" | "frame" = "host") => {
+      void executeIntentAction(threadId, surfaceId, intent, source).then(
         (outcome) => handlers.current.handleOutcome(outcome),
         () => toast(INTENT_FAILED),
       );
@@ -507,12 +512,37 @@ export function AgentChat({
       void reloadSurfaceRowsAction(threadId, surfaceId).then(
         (rows) => {
           if (!rows) return;
-          setChains((prev) => prev.map((c) => (c.surface.id === surfaceId ? { ...c, surface: { ...c.surface, rows } } : c)));
+          setChains((prev) =>
+            prev.map((c) => {
+              if (c.surface.id === surfaceId) return { ...c, surface: { ...c.surface, rows } };
+              // A re-render's rows (Task 2.9).
+              if (c.rerenders?.some((r) => r.id === surfaceId)) {
+                return { ...c, rerenders: c.rerenders.map((r) => (r.id === surfaceId ? { ...r, rows } : r)) };
+              }
+              return c;
+            }),
+          );
         },
         () => {},
       );
     },
     [threadId],
+  );
+  // A frame fell back: the surface shows its blocks for the rest of the session (R15).
+  const onFallback = useCallback((surfaceId: string) => setChains((prev) => withBlocksView(prev, surfaceId)), []);
+  // A re-render joins its original's chain as another version (Task 2.9).
+  const onRerendered = useCallback((surface: HostSurface) => setChains((prev) => mergeSurface(prev, surface)), []);
+  const rerenderSwitch = variants ? variants.variant3Enabled : null;
+  const chainView = (chain: HostChain) => (
+    <RerenderTabs
+      chain={chain}
+      threadId={threadId}
+      variant3Enabled={rerenderSwitch}
+      onIntent={onIntent}
+      onPrepSettled={onPrepSettled}
+      onFallback={onFallback}
+      onRerendered={onRerendered}
+    />
   );
 
   const approve = async (target: ConfirmState) => {
@@ -555,7 +585,7 @@ export function AgentChat({
   const renderSurface = (surfaceId: string) => {
     if (!inlineIds.has(surfaceId)) return null;
     const chain = chains.find((c) => c.surface.id === surfaceId);
-    return chain ? <SurfaceHost surface={chain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} /> : null;
+    return chain ? chainView(chain) : null;
   };
   const orphans = chains.filter((c) => c !== columnChain && !presentedIds.has(c.surface.id));
 
@@ -585,6 +615,8 @@ export function AgentChat({
   return (
     <div className={columnChain ? "rf-agent-workspace rf-agent-workspace--split" : "rf-agent-workspace"}>
       <section className="rf-agent-chat" aria-label="Conversation">
+        {/* A change during a turn applies to the next one: the loop read the variant when the turn started. */}
+        {variants && <VariantSwitcher threadId={threadId} state={variants} />}
         {messages.length > 0 && (
           // aria-busy holds the live region's announcement while a reply streams, so a
           // screen reader reads the finished reply once, not every token.
@@ -595,7 +627,7 @@ export function AgentChat({
           </ol>
         )}
         {orphans.map((c) => (
-          <SurfaceHost key={c.chainId} surface={c.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} />
+          <Fragment key={c.chainId}>{chainView(c)}</Fragment>
         ))}
         <ReviewProgress watch={reviewWatch} />
         {interrupted && !blocking && (
@@ -609,7 +641,7 @@ export function AgentChat({
       </section>
       {columnChain && (
         <aside className="rf-agent-surface-column" aria-label="Latest view">
-          <SurfaceHost surface={columnChain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} />
+          {chainView(columnChain)}
         </aside>
       )}
     </div>

@@ -5,7 +5,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createUIMessageStreamResponse, type UIMessage, type UIMessageChunk } from "ai";
 
-const actions = vi.hoisted(() => ({ renameThreadAction: vi.fn(), newThread: vi.fn() }));
+const actions = vi.hoisted(() => ({
+  renameThreadAction: vi.fn(),
+  newThread: vi.fn(),
+  describeFrameIntentAction: vi.fn(),
+  reportSurfaceFailure: vi.fn(),
+  setThreadVariantAction: vi.fn(),
+  setDefaultVariantAction: vi.fn(),
+}));
 vi.mock("@/app/actions/agent", () => actions);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
 // The review indicator polls its own route; these tests count only /api/agent requests.

@@ -9,6 +9,18 @@
 .rf-agent-threads__error { margin: 0; color: var(--danger); font-size: var(--font-size-caption); }
 
 .rf-agent-chat { display: grid; gap: var(--space-4); min-width: 0; }
+/* The per-thread variant switcher (plan Task 2.8). */
+.rf-agent-variants { display: grid; gap: var(--space-1); min-width: 0; }
+.rf-agent-variants__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.rf-agent-variants__note { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-agent-variants__status { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
+.rf-agent-variants__status:empty { display: none; }
+/* A surface's versions and its "Re-render as" buttons (plan Task 2.9). */
+.rf-agent-versions { display: grid; gap: var(--space-2); min-width: 0; }
+.rf-agent-versions__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
+.rf-agent-versions__label { color: var(--text-muted); font-size: var(--font-size-caption); }
+.rf-agent-versions__status { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
+.rf-agent-versions__status:empty { display: none; }
 .rf-agent-chat__empty { margin: 0; color: var(--text-secondary); }
 .rf-agent-transcript { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
 .rf-agent-message { display: grid; gap: var(--space-1); min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-3) var(--space-4); background: var(--bg-surface); }

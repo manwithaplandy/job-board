@@ -1,5 +1,6 @@
 // The postMessage bridge between the host page and the variant 3 frame (plan Task 2.5,
-// spec 10 "Variant 3 sandbox" item 2). Host to frame: init { data, theme }, ping { n }.
+// spec 10 "Variant 3 sandbox" item 2). Host to frame: init { data, theme }, ping { n },
+// theme { theme } (Task 2.8: the page's theme changed after init).
 // Frame to host: ready, inited (the ack of init), pong { n }, resize { height },
 // action { name, args }, error { message }, navigating. ping, pong and inited are fix round 1 (I2)
 // additions: the host's handshake timer ends only on inited, and a ping without its pong
@@ -32,9 +33,15 @@ export const FRAME_ERROR_MAX = 500;
 
 const pingNumber = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
+export const FRAME_THEMES = ["light", "dark"] as const;
+export type FrameTheme = (typeof FRAME_THEMES)[number];
+
 export const HostToFrameSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("init"), data: z.unknown(), theme: z.enum(["light", "dark"]) }).strict(),
+  z.object({ type: z.literal("init"), data: z.unknown(), theme: z.enum(FRAME_THEMES) }).strict(),
   z.object({ type: z.literal("ping"), n: pingNumber }).strict(),
+  // Task 2.8 (review M8): the page's theme changed after init. The kit applies it to
+  // data-theme, so the frame follows the page without a remount.
+  z.object({ type: z.literal("theme"), theme: z.enum(FRAME_THEMES) }).strict(),
 ]);
 export type HostToFrame = z.infer<typeof HostToFrameSchema>;
 

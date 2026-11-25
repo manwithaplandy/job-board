@@ -1,6 +1,6 @@
 // The agent page's thread actions. withUserSql is stubbed (the next query returns
 // db.rows); lib/agent/threads.ts is real, so an UPDATE that touches no row is refused.
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
   rows: [] as unknown[],
@@ -13,6 +13,28 @@ vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: m.assertNotDeleted }));
 vi.mock("next/cache", async (orig) => ({ ...(await orig<typeof import("next/cache")>()), revalidatePath: m.revalidatePath }));
 vi.mock("@/lib/db", () => ({
   withUserSql: vi.fn(async (_userId: string, fn: (tx: unknown) => Promise<unknown>) => fn(() => Promise.resolve(m.rows))),
+}));
+const gates = vi.hoisted(() => ({ plan: { tier: "pro" } as unknown, variant3: true }));
+vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: vi.fn(async () => gates.plan) }));
+vi.mock("@/lib/appSettings", () => ({
+  loadAppSettings: vi.fn(async () => ({ agentEnabled: true, agentVariant3Enabled: gates.variant3 })),
+}));
+const variants = vi.hoisted(() => ({
+  getThread: vi.fn(),
+  setThreadVariant: vi.fn(),
+  createThread: vi.fn(),
+  getDefaultVariant: vi.fn(),
+  setDefaultVariant: vi.fn(),
+}));
+vi.mock("@/lib/agent/threads", async (orig) => ({
+  ...(await orig<typeof import("@/lib/agent/threads")>()),
+  getThread: variants.getThread,
+  setThreadVariant: variants.setThreadVariant,
+  createThread: variants.createThread,
+}));
+vi.mock("@/lib/agent/settings", () => ({
+  getDefaultVariant: variants.getDefaultVariant,
+  setDefaultVariant: variants.setDefaultVariant,
 }));
 const undo = vi.hoisted(() => ({ undoAction: vi.fn() }));
 vi.mock("@/lib/agent/actions/audit", async (orig) => ({
@@ -37,9 +59,12 @@ import {
   describeFrameIntentAction,
   executeIntentAction,
   loadSurfaceAction,
+  newThread,
   reloadSurfaceRowsAction,
   renameThreadAction,
   reportSurfaceFailure,
+  setDefaultVariantAction,
+  setThreadVariantAction,
   undoAgentAction,
 } from "@/app/actions/agent";
 
@@ -54,6 +79,8 @@ beforeEach(() => {
   m.rows = [];
   m.requireUserId.mockResolvedValue(USER);
   m.assertNotDeleted.mockResolvedValue(undefined);
+  gates.plan = { tier: "pro" };
+  gates.variant3 = true;
 });
 
 test("renaming one of the caller's threads is ok and revalidates the page", async () => {
@@ -138,7 +165,11 @@ test("the surface and approval readers take the user from the session, never fro
   const SURFACE = "22222222-2222-4222-8222-222222222222";
   host.loadHostSurface.mockResolvedValue({ id: SURFACE, rows: { packages: {} } });
   expect(await loadSurfaceAction(THREAD, SURFACE)).toEqual({ id: SURFACE, rows: { packages: {} } });
-  expect(host.loadHostSurface).toHaveBeenCalledWith(USER, THREAD, SURFACE);
+  expect(host.loadHostSurface).toHaveBeenCalledWith(USER, THREAD, SURFACE, { variant3Enabled: true });
+  // With variant 3 switched off the host is told so, and mounts no frame (R15).
+  gates.variant3 = false;
+  await loadSurfaceAction(THREAD, SURFACE);
+  expect(host.loadHostSurface).toHaveBeenLastCalledWith(USER, THREAD, SURFACE, { variant3Enabled: false });
   expect(await reloadSurfaceRowsAction(THREAD, SURFACE)).toEqual({ packages: {} });
   host.loadHostSurface.mockResolvedValue(null);
   expect(await reloadSurfaceRowsAction(THREAD, SURFACE)).toBeNull();
@@ -146,6 +177,64 @@ test("the surface and approval readers take the user from the session, never fro
   host.describePendingApproval.mockResolvedValue({ status: "pending" });
   expect(await describeApprovalAction(THREAD, "ap1")).toEqual({ status: "pending" });
   expect(host.describePendingApproval).toHaveBeenCalledWith(USER, THREAD, "ap1", "a@example.com");
+});
+
+// The variant switcher (plan Task 2.8).
+describe("the variant switcher's actions", () => {
+  const OWN = { id: THREAD, title: "t", variant: 1, summary: null, createdAt: "x", updatedAt: "x" };
+
+  test("all three options are offered to any signed-in user with a plan; there is no admin check", async () => {
+    // getUserClaims returns a plain user (no admin role); every variant is accepted.
+    variants.getThread.mockResolvedValue(OWN);
+    for (const v of [1, 2, 3] as const) {
+      expect(await setThreadVariantAction(THREAD, v)).toEqual({ ok: true });
+      expect(variants.setThreadVariant).toHaveBeenLastCalledWith(USER, THREAD, v);
+      expect(await setDefaultVariantAction(v)).toEqual({ ok: true });
+      expect(variants.setDefaultVariant).toHaveBeenLastCalledWith(USER, v);
+    }
+    expect(m.revalidatePath).toHaveBeenCalledWith("/agent");
+  });
+
+  test("without a plan, or for a variant outside 1 to 3, nothing is written", async () => {
+    variants.getThread.mockResolvedValue(OWN);
+    gates.plan = null;
+    expect(await setThreadVariantAction(THREAD, 2)).toEqual({ ok: false, reason: "no_plan" });
+    expect(await setDefaultVariantAction(2)).toEqual({ ok: false, reason: "no_plan" });
+    gates.plan = { tier: "pro" };
+    expect(await setThreadVariantAction(THREAD, 4)).toEqual({ ok: false, reason: "invalid" });
+    expect(await setThreadVariantAction(THREAD, "2" as unknown as number)).toEqual({ ok: false, reason: "invalid" });
+    expect(await setDefaultVariantAction(0)).toEqual({ ok: false, reason: "invalid" });
+    expect(variants.setThreadVariant).not.toHaveBeenCalled();
+    expect(variants.setDefaultVariant).not.toHaveBeenCalled();
+  });
+
+  test("with variant 3 switched off, variant 3 is refused and the switch itself is untouched", async () => {
+    variants.getThread.mockResolvedValue(OWN);
+    gates.variant3 = false;
+    expect(await setThreadVariantAction(THREAD, 3)).toEqual({ ok: false, reason: "variant3_off" });
+    expect(await setDefaultVariantAction(3)).toEqual({ ok: false, reason: "variant3_off" });
+    expect(await setThreadVariantAction(THREAD, 2)).toEqual({ ok: true });
+    expect(variants.setThreadVariant).toHaveBeenCalledTimes(1);
+    expect(variants.setDefaultVariant).not.toHaveBeenCalled();
+  });
+
+  test("another user's thread, or a malformed id, is not found", async () => {
+    variants.getThread.mockResolvedValue(null);
+    expect(await setThreadVariantAction(THREAD, 2)).toEqual({ ok: false, reason: "not_found" });
+    expect(await setThreadVariantAction("nope", 2)).toEqual({ ok: false, reason: "not_found" });
+    expect(variants.getThread).toHaveBeenCalledWith(USER, THREAD);
+    expect(variants.setThreadVariant).not.toHaveBeenCalled();
+  });
+
+  test("a new thread starts in the user's default variant, or in variant 1 when the read fails", async () => {
+    variants.createThread.mockResolvedValue({ id: THREAD });
+    variants.getDefaultVariant.mockResolvedValue(2);
+    expect(await newThread()).toEqual({ id: THREAD });
+    expect(variants.createThread).toHaveBeenLastCalledWith(USER, 2);
+    variants.getDefaultVariant.mockRejectedValue(new Error("down"));
+    await newThread();
+    expect(variants.createThread).toHaveBeenLastCalledWith(USER, 1);
+  });
 });
 
 // Variant 3 (plan Task 2.6).

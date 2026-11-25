@@ -393,6 +393,46 @@ describe("SandboxFrame", () => {
     spy.mockRestore();
   });
 
+  test("the host listens for its own beforeunload as well as pagehide (PR #58 follow-up kept, Task 2.8)", () => {
+    // The frame's navigating comes in this page's prompt-to-unload, possibly well before
+    // this page's pagehide; pagehide alone would store a false self_navigation.
+    const add = vi.spyOn(window, "addEventListener");
+    const { unmount } = mount();
+    const kinds = add.mock.calls.map(([type]) => type);
+    expect(kinds).toContain("beforeunload");
+    expect(kinds).toContain("pagehide");
+    const remove = vi.spyOn(window, "removeEventListener");
+    unmount();
+    expect(remove.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(["beforeunload", "pagehide"]));
+  });
+
+  test("a change of the page's theme goes to the mounted frame as a theme message, with no remount (Task 2.8, review M8)", async () => {
+    document.documentElement.setAttribute("data-theme", "light");
+    const { iframe, onFallback } = mount();
+    // Before ready there is no port: nothing to send, and no failure.
+    act(() => document.documentElement.setAttribute("data-theme", "dark"));
+    await settle();
+    const { received } = ready(iframe);
+    await waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]).toMatchObject({ type: "init", theme: "dark" });
+
+    act(() => document.documentElement.setAttribute("data-theme", "light"));
+    await waitFor(() => expect(received).toHaveLength(2));
+    expect(received[1]).toEqual({ type: "theme", theme: "light" });
+    // The same theme again sends nothing; an unknown value reads as light, already sent.
+    act(() => document.documentElement.setAttribute("data-theme", "light"));
+    act(() => document.documentElement.setAttribute("data-theme", "sepia"));
+    act(() => document.documentElement.setAttribute("data-theme", "dark"));
+    await waitFor(() => expect(received).toHaveLength(3));
+    await settle();
+    expect(received[2]).toEqual({ type: "theme", theme: "dark" });
+    expect(received).toHaveLength(3);
+    // Still the same frame: nothing remounted, nothing fell back.
+    expect(iframe.isConnected).toBe(true);
+    expect(document.querySelectorAll("iframe")).toHaveLength(1);
+    expect(onFallback).not.toHaveBeenCalled();
+  });
+
   test("resize above 1200 is clamped", async () => {
     const { iframe } = mount();
     expect(iframe.style.height).toBe("0px");

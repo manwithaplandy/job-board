@@ -74,7 +74,28 @@ describe("overlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipl
   test("agent toggles accept only booleans (a double-encoded 'true' unwraps, 1 does not)", () => {
     expect(overlayAppSettings([{ key: "agent_background_enabled", value: true }]).agentBackgroundEnabled).toBe(true);
     expect(overlayAppSettings([{ key: "agent_background_enabled", value: "true" }]).agentBackgroundEnabled).toBe(true);
-    expect(overlayAppSettings([{ key: "agent_variant3_enabled", value: 0 }]).agentVariant3Enabled).toBe(true);
+    // 0 is not a boolean: the variant 3 switch reads it as off (fail closed, PR J4 review I2).
+    expect(overlayAppSettings([{ key: "agent_variant3_enabled", value: 0 }]).agentVariant3Enabled).toBe(false);
+  });
+  test("a malformed variant 3 switch reads as OFF; a valid stored value and a missing row are unchanged (PR J4 review I2)", () => {
+    for (const value of ["no", "off", 0, 1, "yes", null, "", "{garbage", '"\\"true\\""']) {
+      expect(overlayAppSettings([{ key: "agent_variant3_enabled", value }]).agentVariant3Enabled, String(value)).toBe(false);
+    }
+    // Only that key: the other settings keep their values.
+    const s = overlayAppSettings([
+      { key: "agent_variant3_enabled", value: "garbage" },
+      { key: "agent_enabled", value: true },
+      { key: "agent_background_enabled", value: true },
+    ]);
+    expect(s).toEqual({ ...defaultAppSettings(), agentVariant3Enabled: false, agentBackgroundEnabled: true });
+    // A valid stored boolean (plain or double-encoded) reads as stored.
+    expect(overlayAppSettings([{ key: "agent_variant3_enabled", value: true }]).agentVariant3Enabled).toBe(true);
+    expect(overlayAppSettings([{ key: "agent_variant3_enabled", value: false }]).agentVariant3Enabled).toBe(false);
+    expect(overlayAppSettings([{ key: "agent_variant3_enabled", value: "true" }]).agentVariant3Enabled).toBe(true);
+    expect(overlayAppSettings([{ key: "agent_variant3_enabled", value: "false" }]).agentVariant3Enabled).toBe(false);
+    // No row: the compiled default, unchanged.
+    expect(overlayAppSettings([]).agentVariant3Enabled).toBe(defaultAppSettings().agentVariant3Enabled);
+    expect(defaultAppSettings().agentVariant3Enabled).toBe(true);
   });
   test("a malformed kill switch or background switch reads as OFF (fail closed)", () => {
     for (const value of ["no", "off", 0, 1, "yes", null, "", "{garbage"]) {
@@ -122,6 +143,8 @@ describe("loadAppSettings on a failed read (fail closed)", () => {
     expect(s.agentBackgroundEnabled).toBe(false);
     expect(s.agentDailyCeilingMicros).toBe(0);
     expect(s.agentMonthlyCeilingMicros).toBe(0);
+    // Variant 3 is off too, so a failed read never mounts a frame (PR J4 review I2).
+    expect(s.agentVariant3Enabled).toBe(false);
     expect(s.inviteCompPlan).toBe(defaultAppSettings().inviteCompPlan);
     expect(s.inviteDefaultAllowance).toBe(defaultAppSettings().inviteDefaultAllowance);
     expect(withAnonSql).toHaveBeenCalledTimes(1);
@@ -134,6 +157,19 @@ describe("loadAppSettings on a failed read (fail closed)", () => {
       .mockResolvedValueOnce([{ key: "agent_enabled", value: true }]);
     expect((await loadAppSettings()).agentEnabled).toBe(false);
     expect((await loadAppSettings()).agentEnabled).toBe(true);
+  });
+
+  test("after a failed read, a stored variant 3 value and a missing row read as before", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    (withAnonSql as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("db down"))
+      .mockResolvedValueOnce([{ key: "agent_variant3_enabled", value: false }])
+      .mockResolvedValueOnce([{ key: "agent_variant3_enabled", value: true }])
+      .mockResolvedValueOnce([]);
+    expect((await loadAppSettings()).agentVariant3Enabled).toBe(false);
+    expect((await loadAppSettings()).agentVariant3Enabled).toBe(false);
+    expect((await loadAppSettings()).agentVariant3Enabled).toBe(true);
+    expect((await loadAppSettings()).agentVariant3Enabled).toBe(true);
   });
 });
 

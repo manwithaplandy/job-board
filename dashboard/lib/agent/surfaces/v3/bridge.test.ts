@@ -136,5 +136,11 @@ describe("HostToFrameSchema", () => {
     expect(HostToFrameSchema.safeParse({ type: "ping", n: 1.5 }).success).toBe(false);
     expect(HostToFrameSchema.safeParse({ type: "ping" }).success).toBe(false);
     expect(HostToFrameSchema.safeParse({ type: "ping", n: 1, extra: 1 }).success).toBe(false);
+    // Task 2.8 (review M8): a theme change after init, light or dark only, strict.
+    expect(HostToFrameSchema.safeParse({ type: "theme", theme: "dark" }).success).toBe(true);
+    expect(HostToFrameSchema.safeParse({ type: "theme", theme: "light" }).success).toBe(true);
+    expect(HostToFrameSchema.safeParse({ type: "theme", theme: "blue" }).success).toBe(false);
+    expect(HostToFrameSchema.safeParse({ type: "theme" }).success).toBe(false);
+    expect(HostToFrameSchema.safeParse({ type: "theme", theme: "dark", data: {} }).success).toBe(false);
   });
 });

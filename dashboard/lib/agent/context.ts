@@ -56,6 +56,64 @@ export function scenarioRules(a: { unattended: boolean }): string[] {
   return rules;
 }
 
+/**
+ * How to write the present payload in one variant (plan Task 2.8): fixed text per variant,
+ * so it stays inside the stable prefix. The variant 3 points follow what the static check
+ * (lib/agent/surfaces/v3/document.ts checkV3Static), the CSP and the kit (v3/kit.ts)
+ * actually enforce, so a document written to them passes the gate first time (plan note
+ * R15 and the PR J4 brief).
+ */
+export function variantGrammar(variant: Variant): string[] {
+  if (variant === 2) {
+    return [
+      "Present payloads in this thread are { variant: 2, title?, root }: root is a tree of the nodes in the present " +
+        "tool's schema, at most 6 levels deep and 120 nodes. Layout: Stack, Grid, Card, Tabs, Divider. Content: " +
+        "Heading, Text, Badge, List, Stat, Table, Chart. Inputs: Button, Field, Select. Bound atoms: JobTitle, " +
+        "FitScore, Pay, PostingLink.",
+      "Style only through the token enums (gap, columns, tone, button variant); there is no style, class, colour, " +
+        "size, link or image property. Bound atoms take a jobId your tools returned this turn. Stat, Table and Chart " +
+        "take binds: pointers into the data read this turn that start with /jobs, /reviews, /metrics, /applications, " +
+        "/shortlist or /profile, such as /reviews/<jobId>/fitScore or /metrics/0. A Chart binds one metric; a Table's " +
+        "rowsBind is a list and each column binds into one row, such as /text.",
+      "Every Button, Field and Select needs a label, every table column a header, tab labels must differ, and " +
+        "headings never skip a level on the way down. A Button carries one action from the schema's closed set.",
+    ];
+  }
+  if (variant === 3) {
+    return [
+      "Present payloads in this thread are { variant: 3, title, html }: one self-contained HTML document of at most " +
+        "60,000 bytes, shown in a sandboxed frame with no network. The app injects a kit before your markup. Your " +
+        "chat replies stay plain text; only this payload is HTML.",
+      "Read the data only inside host.onInit(function (data, theme) { ... }), never at top level: it arrives after " +
+        "your scripts start. data holds profile, jobs (keyed by job id: jobId, title, company, place, remote, " +
+        "ageDays, closed), reviews (keyed by job id), memo, shortlist, applications, documents and metrics. It has no " +
+        "posting links.",
+      "The kit gives you CSS variables for the design tokens (var(--text-primary), var(--bg-surface), var(--accent), " +
+        "var(--border), var(--space-4) and the rest), the classes jb-card, jb-badge, jb-muted, jb-secondary, " +
+        "jb-small, jb-caption, jb-success, jb-warning, jb-danger and jb-accent, a <jb-field name label> text input, " +
+        "host.chart(element, { viz, points: [{ label, value }], title }) for an SVG chart, and <jb-button " +
+        "action='{\"name\":\"open\",\"target\":\"shortlist\"}'> (variant=\"secondary\" for a quieter one) or " +
+        "host.action(name, args) to ask for an action. Each request becomes a button under the frame that the user " +
+        "must press.",
+      "Action names and their fields: shortlist.set (jobId, state: suggested, shortlisted, later or skipped), " +
+        "application.set_stage (jobId, stage), application.prepare (jobId), compare (jobIds: two job ids), open " +
+        "(target: posting with a jobId, shortlist, applications, looking-for, documents or analytics), memo.review " +
+        "(proposalId).",
+      "The sandbox refuses inline style=\"...\" attributes and on...= handler attributes: put styles in your " +
+        "<style> element as classes and wire behaviour with addEventListener. No links: no href or target " +
+        "attributes; use a <jb-button> with an open action instead. No <form>, <iframe>, <object>, <embed>, <link>, " +
+        "<meta> or <base>; no script src; no URLs (no http:, https: or \"//\" anywhere, so write comments as /* */); " +
+        "no \"<!--\" inside a script; and no fetch, XMLHttpRequest, WebSocket, WebRTC, workers, import(), " +
+        "document.cookie, window.open, location or top navigation. The static check and the kit refuse them.",
+    ];
+  }
+  return [
+    "Present payloads in this thread are { variant: 1, title?, blocks }: 1 to 8 blocks from the fixed catalog in " +
+      "the present tool's schema. Blocks name jobs, metrics and proposals by the ids your tools returned this turn; " +
+      "the app draws them from its own data.",
+  ];
+}
+
 /** The fixed rules, in order. Exported so tests can pin the order. */
 export function fixedRules(a: { frozen: boolean; variant: Variant; unattended: boolean }): string[] {
   return [
@@ -87,6 +145,8 @@ export function fixedRules(a: { frozen: boolean; variant: Variant; unattended: b
     // 9. Run kind and layout: fixed per thread, so they stay inside the stable prefix.
     ...(a.unattended ? ["This run is unattended: the user is not watching. Read and summarise only."] : []),
     `Layout variant: ${a.variant}.`,
+    // 10. The variant's grammar (Task 2.8). An unattended run has no present tool.
+    ...(a.unattended ? [] : variantGrammar(a.variant)),
   ];
 }
 

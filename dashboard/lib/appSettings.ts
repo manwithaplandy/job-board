@@ -15,9 +15,9 @@ import { DEFAULT_INVITE_COMP_PLAN, type InviteCompPlan } from "@/lib/entitlement
 // Operator app config (user-sent invites, spec 2026-07-13). Same pattern as
 // lib/tierConfig.ts: compiled defaults + a DB overlay read through a HAND-ROLLED
 // TOTAL PARSER (dashboard/CLAUDE.md jsonb discipline) — a bad/absent value keeps the
-// default for THAT key and logs, except that a bad agent_enabled or
-// agent_background_enabled reads as off and a bad agent ceiling reads as 0; the loader
-// never throws to a page/route.
+// default for THAT key and logs, except that a bad agent_enabled,
+// agent_background_enabled or agent_variant3_enabled reads as off and a bad agent ceiling
+// reads as 0; the loader never throws to a page/route.
 
 const CACHE_TTL_SECONDS = 60;
 
@@ -105,7 +105,8 @@ function parseDefaultAllowance(raw: unknown): number {
 /**
  * A boolean switch. Unwrapped one level (a double-encoded "true" is the JSON text of a
  * boolean), but nothing else is coerced: 1, "yes" or "on" is invalid and reads as
- * `fallback`. The agent kill switch and background switch pass false (fail closed).
+ * `fallback`. The agent kill switch, background switch and variant 3 switch pass false
+ * (fail closed).
  */
 function parseToggle(key: string, raw: unknown, fallback: boolean): boolean {
   const v = unwrap(raw);
@@ -116,8 +117,10 @@ function parseToggle(key: string, raw: unknown, fallback: boolean): boolean {
 
 // The two switches that permit agent spend fail CLOSED: a malformed value reads as off,
 // never as the default on (controller ruling, PR C review I1). agent_variant3_enabled
-// only picks a layout, so it keeps its default.
-const FAIL_CLOSED_TOGGLES: ReadonlySet<AgentToggleKey> = new Set(["agentEnabled", "agentBackgroundEnabled"]);
+// fails closed too (PR J4 review I2): it decides whether a sandbox frame mounts, so a
+// malformed value must never turn variant 3 back on. A missing row still keeps the
+// compiled default (overlayAppSettings only parses rows that exist).
+const FAIL_CLOSED_TOGGLES: ReadonlySet<AgentToggleKey> = new Set(["agentEnabled", "agentBackgroundEnabled", "agentVariant3Enabled"]);
 
 /**
  * A ceiling in micros. Like the allowance, NOT unwrapped: a string is invalid. An absent
@@ -165,13 +168,16 @@ async function fetchAppSettings(): Promise<AppSettings> {
  * What a failed read yields. Invite settings degrade to their defaults (a read failure
  * must never take a gated page down). Agent spend fails CLOSED: both switches off and
  * both ceilings 0, so a failed read never turns the agent back on or loosens a ceiling
- * an admin lowered. The admin panel shows these values during such a failure.
+ * an admin lowered. Variant 3 is off too (PR J4 review I2), so a failed read never mounts
+ * a sandbox frame an admin switched off. The admin panel shows these values during such a
+ * failure.
  */
 function failedReadSettings(): AppSettings {
   return {
     ...defaultAppSettings(),
     agentEnabled: false,
     agentBackgroundEnabled: false,
+    agentVariant3Enabled: false,
     agentDailyCeilingMicros: 0,
     agentMonthlyCeilingMicros: 0,
   };
@@ -201,14 +207,14 @@ function revalidateAppSettings(): void {
 
 /**
  * The DB-overlaid operator settings, cached ~60s. Never throws: a failed read is logged
- * and yields failedReadSettings() (agent off), and is not cached, so the next call
+ * and yields failedReadSettings() (agent and variant 3 off), and is not cached, so the next call
  * reads again.
  */
 export async function loadAppSettings(): Promise<AppSettings> {
   try {
     return await _cached();
   } catch (e) {
-    console.error("appSettings: failed to load app_settings; agent off, invite defaults", e);
+    console.error("appSettings: failed to load app_settings; agent and variant 3 off, invite defaults", e);
     return failedReadSettings();
   }
 }

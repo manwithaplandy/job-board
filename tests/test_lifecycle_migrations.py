@@ -27,6 +27,19 @@ ALTER TABLE profiles RENAME CONSTRAINT profiles_reasoning_effort_cover_check
   TO reasoning_effort_cover_valid;
 """
 
+# Supabase migrations up to the cutover pilots are copies of archive migrations (the
+# baseline dump and the two identity pilots), so the archive replay already covers
+# them. Anything newer exists only under supabase/migrations/ and is replayed after
+# the archive, in version order.
+LAST_ARCHIVE_TWIN = "20261124205257"
+
+
+def post_cutover_migrations() -> list[Path]:
+    return sorted(
+        p for p in (ROOT / "supabase" / "migrations").glob("*.sql")
+        if p.name.split("_", 1)[0] > LAST_ARCHIVE_TWIN
+    )
+
 
 def helpers():
     assert (ROOT / "tests/lifecycle_helpers.py").exists(), "migration helpers are absent"
@@ -51,7 +64,7 @@ def test_clean_schema_matches_frozen_baseline_plus_all_new_migrations(conn):
     paths = sorted(
         p for p in (ROOT / "migrations" / "archive").glob("*.sql")
         if p.name not in manifest["existing_migrations"]
-    )
+    ) + post_cutover_migrations()
     module.bootstrap_schema(conn, FROZEN.read_text())
     conn.execute(FROZEN_FIXTURE_DRIFT)
     module.apply_migrations(conn, paths)

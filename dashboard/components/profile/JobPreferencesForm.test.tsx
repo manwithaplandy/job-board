@@ -32,14 +32,12 @@ describe("JobPreferencesForm", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     for (const name of [
       "Where you want to work",
-      "Priorities and deal-breakers",
       "Companies and industries",
       "Rolefit will",
     ]) {
       expect(screen.getByRole("heading", { name })).not.toBeNull();
     }
 
-    expect(screen.getByLabelText("Must-haves and deal-breakers")).not.toBeNull();
     expect(container.querySelector('textarea[name="company_instructions"]')).not.toBeNull();
     expect(container.textContent).toContain(
       "Rolefit will use your locations and written guidance when reviewing jobs.",
@@ -54,6 +52,18 @@ describe("JobPreferencesForm", () => {
     ]) {
       expect(container.querySelector(`[name="${name}"]`)).toBeNull();
     }
+  });
+
+  test("has no instructions field; it points to What I'm looking for instead", () => {
+    const { container } = render(
+      <JobPreferencesForm profile={profile} locations={[{ location: "London", count: 12 }]} />,
+    );
+    expect(container.querySelector('[name="instructions"]')).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Priorities and deal-breakers" })).toBeNull();
+    expect(screen.queryByText(/Current job guidance/)).toBeNull();
+    expect(screen.queryByText(/Prioritize platform engineering/)).toBeNull();
+    expect(screen.getByText(/now live in What I'm looking for/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Edit what you're looking for" }).getAttribute("href")).toBe("/looking-for");
   });
 
   test("maps an empty-location server error to the visible combobox", async () => {
@@ -88,15 +98,15 @@ describe("JobPreferencesForm", () => {
     fireEvent.focus(screen.getByRole("combobox"));
     fireEvent.mouseDown(screen.getByRole("option", { name: /Paris/ }));
     expect(screen.getByText(/London, Paris/)).toBeTruthy();
-    const guidance = screen.getByLabelText("Must-haves and deal-breakers");
-    fireEvent.change(guidance, { target: { value: "Prioritize distributed systems" } });
-    expect(screen.getByText(/Prioritize distributed systems/)).toBeTruthy();
+    const guidance = screen.getByLabelText("Companies and industries", { selector: "textarea" });
+    fireEvent.change(guidance, { target: { value: "Prefer climate companies" } });
+    expect(screen.getByText(/Current company guidance: Prefer climate companies/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save preferences" }));
     await screen.findByText("Changes saved");
     fireEvent.change(guidance, { target: { value: "Temporary edit" } });
     expect(screen.queryByText("Changes saved")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.getByText(/Prioritize distributed systems/)).toBeTruthy();
+    expect(screen.getByText(/Current company guidance: Prefer climate companies/)).toBeTruthy();
     expect(screen.getByText(/London, Paris/)).toBeTruthy();
   });
 });

@@ -35,7 +35,7 @@ async function setCeilings(daily: number, monthly: number) {
 }
 
 beforeEach(async () => {
-  await db.sql`TRUNCATE agent_runs, agent_messages, agent_settings, agent_threads, usage_counters, app_settings`;
+  await db.sql`TRUNCATE agent_runs, agent_messages, agent_settings, agent_surfaces, agent_threads, usage_counters, app_settings`;
   await db.sql`INSERT INTO agent_threads (id, user_id) VALUES (${THREAD_A}, ${USER_A}), (${THREAD_B}, ${USER_B})`;
   await setCeilings(1_000_000, 10_000_000);
 });

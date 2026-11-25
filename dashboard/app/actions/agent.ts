@@ -14,6 +14,7 @@ import type { IntentOutcome } from "@/lib/agent/actions/intents";
 //   application.*        /applications, /shortlist (tracked stage), / and /board (package status)
 //   profile.set_resume   /documents, /profile, /profile/resume, /looking-for
 //   analytics.set_tiles  /analytics
+//   document.update_draft  /documents, /applications, / (the cover letter overlay)
 // and /agent for all of them.
 const UNDO_PATHS = [
   "/shortlist",

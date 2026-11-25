@@ -8,6 +8,7 @@ import "@/lib/workspaces/shortlist";
 import "@/lib/workspaces/analyticsTiles";
 import "@/lib/workspaces/applications";
 import "@/lib/workspaces/resumeVersions";
+import "@/lib/coverLetterEditCore";
 
 /** The kinds this module's imports register (checked by undoers.test.ts). */
 export const UNDOABLE_KINDS = [
@@ -16,4 +17,5 @@ export const UNDOABLE_KINDS = [
   "application.set_stage",
   "application.add_note",
   "profile.set_resume",
+  "document.update_draft",
 ] as const;

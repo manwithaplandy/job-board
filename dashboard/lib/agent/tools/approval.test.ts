@@ -41,7 +41,7 @@ const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DOC = "55555555-5555-4555-8555-555555555555";
 const JOB = "greenhouse:acme:101";
 // A test-only key: long enough to count, never a real secret.
-const TEST_KEY = "test-approval-key-0123456789abcdefghijklmnop";
+const TEST_KEY = "t".repeat(40); // low-entropy fixture, at least 32 characters
 
 function ctx(extra: Partial<ToolCtx> = {}): ToolCtx {
   return {

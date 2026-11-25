@@ -73,7 +73,7 @@ const OTHER_THREAD = "22222222-2222-4222-8222-222222222222";
 const SURFACE = "33333333-3333-4333-8333-333333333333";
 const JOB = "greenhouse:acme:101";
 // A test-only key: long enough to count, never a real secret.
-const TEST_KEY = "test-approval-key-0123456789abcdefghijklmnop";
+const TEST_KEY = "t".repeat(40); // low-entropy fixture, at least 32 characters
 
 let warn: { mock: { calls: unknown[][] }; mockRestore: () => void };
 beforeEach(() => {

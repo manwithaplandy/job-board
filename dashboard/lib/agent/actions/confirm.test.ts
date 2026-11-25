@@ -29,7 +29,7 @@ const OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const THREAD = "11111111-1111-4111-8111-111111111111";
 const SURFACE = "33333333-3333-4333-8333-333333333333";
 const DOC = "55555555-5555-4555-8555-555555555555";
-const TEST_KEY = "test-approval-key-0123456789abcdefghijklmnop";
+const TEST_KEY = "t".repeat(40); // low-entropy fixture, at least 32 characters
 
 beforeEach(() => {
   m.documents = { [DOC]: "cv-2026.pdf" };

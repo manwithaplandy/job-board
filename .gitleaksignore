@@ -38,3 +38,11 @@ c85fd8a1d982465b72755b3de2d9c7b28e58ce54:.superpowers/sdd/2026-10-07-job-lifecyc
 eca7f6c438a29cc3ae93b615b7cad236453a2ad9:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-evidence/development17-fix.txt:generic-api-key:142
 eca7f6c438a29cc3ae93b615b7cad236453a2ad9:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-evidence/python-diagnostic17.txt:generic-api-key:1611
 eca7f6c438a29cc3ae93b615b7cad236453a2ad9:.superpowers/sdd/2026-10-07-job-lifecycle-reconstruction/task-13-evidence/python-diagnostic17.txt:generic-api-key:1624
+#
+# - dashboard/lib/agent/** tests (PR #51 branch commits): a made-up approval key
+#   fixture ("test-approval-key-" plus the alphabet), replaced by a low-entropy
+#   value in a later commit so the squash-merged commit carries no finding.
+80f47a30403581afa5fd4c9ec25ebc45dca5637b:dashboard/lib/agent/actions/handlers.test.ts:generic-api-key:74
+80f47a30403581afa5fd4c9ec25ebc45dca5637b:dashboard/lib/agent/actions/confirm.test.ts:generic-api-key:32
+c7ef8743b2b6434316b7fb30885865fa370a0044:dashboard/lib/agent/loop.test.ts:generic-api-key:551
+c7ef8743b2b6434316b7fb30885865fa370a0044:dashboard/lib/agent/tools/approval.test.ts:generic-api-key:44

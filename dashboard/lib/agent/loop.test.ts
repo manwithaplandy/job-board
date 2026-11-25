@@ -548,7 +548,7 @@ describe("streamAgentTurn: PR C batch 4 review M7 (finishRun retried once)", () 
 
 describe("streamAgentTurn: approvals (Task 1.16)", () => {
   // A test-only key: long enough to count, never a real secret.
-  const TEST_KEY = "test-approval-key-0123456789abcdefghijklmnop";
+  const TEST_KEY = "t".repeat(40); // low-entropy fixture, at least 32 characters
   const JOB = "greenhouse:acme:101";
 
   beforeEach(() => {

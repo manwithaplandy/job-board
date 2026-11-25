@@ -16,8 +16,8 @@ SET statement_timeout = '60s';
 CREATE TABLE IF NOT EXISTS public.review_scope_requests (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id uuid NOT NULL,
-  job_ids text[] NOT NULL CHECK (cardinality(job_ids) BETWEEN 1 AND 200),
-  reason text CHECK (reason IN ('memo_change')),
+  job_ids text[] NOT NULL CHECK (cardinality(job_ids) BETWEEN 1 AND 200 AND array_position(job_ids, NULL) IS NULL),
+  reason text NOT NULL DEFAULT 'memo_change' CHECK (reason IN ('memo_change')),
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed')),
   requested_at timestamptz NOT NULL DEFAULT now(),
   started_at timestamptz,
@@ -39,7 +39,8 @@ CREATE POLICY review_scope_requests_owner_read ON public.review_scope_requests F
   USING (user_id = (SELECT public.app_user_id()));
 DROP POLICY IF EXISTS review_scope_requests_owner_insert ON public.review_scope_requests;
 -- A user enqueues only a fresh request of their own: never a claimed, running or
--- finished row, which would skip or fake the reviewer's work.
+-- finished row, which would skip or fake the reviewer's work, and never a backdated
+-- one, which would jump the worker's oldest-first claim.
 CREATE POLICY review_scope_requests_owner_insert ON public.review_scope_requests FOR INSERT TO authenticated
   WITH CHECK (
     user_id = (SELECT public.app_user_id())
@@ -48,4 +49,5 @@ CREATE POLICY review_scope_requests_owner_insert ON public.review_scope_requests
     AND started_at IS NULL
     AND finished_at IS NULL
     AND notes IS NULL
+    AND requested_at = now()
   );

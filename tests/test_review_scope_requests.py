@@ -102,6 +102,7 @@ def test_scope_request_rls(conn):
         ("started_at", STAMP),
         ("finished_at", STAMP),
         ("notes", "faked"),
+        ("requested_at", STAMP),  # backdated, would jump the oldest-first claim
     ]
     for column, value in refused:
         cols = {"user_id": A, "job_ids": ["lever:acme:1"], "reason": "memo_change", column: value}
@@ -142,6 +143,27 @@ def test_scope_request_job_ids_cardinality_check(conn):
     _enqueue(conn, A, job_ids=["lever:acme:1"])
     _enqueue(conn, B, job_ids=[f"lever:acme:{n}" for n in range(200)])
     conn.commit()
+
+
+@requires_db
+def test_scope_request_refuses_null_job_ids_and_null_reason(conn):
+    with pytest.raises(psycopg.errors.CheckViolation):
+        _enqueue(conn, A, job_ids=["lever:acme:1", None])
+    conn.rollback()
+    with conn.cursor() as cur, pytest.raises(psycopg.errors.NotNullViolation):
+        cur.execute(
+            "INSERT INTO review_scope_requests (user_id, job_ids, reason) VALUES (%s, %s, NULL)",
+            (A, ["lever:acme:1"]),
+        )
+    conn.rollback()
+    # reason defaults to memo_change when omitted.
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO review_scope_requests (user_id, job_ids) VALUES (%s, %s) RETURNING reason",
+            (A, ["lever:acme:1"]),
+        )
+        assert cur.fetchone() == {"reason": "memo_change"}
+    conn.rollback()
 
 
 @requires_db

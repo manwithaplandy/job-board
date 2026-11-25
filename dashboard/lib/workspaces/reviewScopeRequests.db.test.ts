@@ -129,6 +129,19 @@ test("job_ids holds 1 to 200 ids; reason, status and notes are checked", async (
     .rejects.toMatchObject({ code: "23514" });
 });
 
+test("a user cannot backdate a request; null job ids and a null reason are refused", async () => {
+  const backdated = await attempt(USER_A, (tx) =>
+    tx`INSERT INTO review_scope_requests (user_id, job_ids, requested_at) VALUES (${USER_A}, ${["j"]}, now() - interval '1 day') RETURNING id`,
+  );
+  expect(backdated.code).toBe("42501");
+  await expect(db.sql`INSERT INTO review_scope_requests (user_id, job_ids) VALUES (${USER_A}, ${["j", null]})`)
+    .rejects.toMatchObject({ code: "23514" });
+  await expect(db.sql`INSERT INTO review_scope_requests (user_id, job_ids, reason) VALUES (${USER_A}, ${["j"]}, ${null})`)
+    .rejects.toMatchObject({ code: "23502" });
+  const [row] = await db.sql`INSERT INTO review_scope_requests (user_id, job_ids) VALUES (${USER_A}, ${["j"]}) RETURNING reason`;
+  expect(row.reason).toBe("memo_change");
+});
+
 test("account deletion erases the caller's requests and keeps another user's", async () => {
   // Real deleteUserRowsTx (service role, lifecycle gate, USER_DELETE_TABLES order).
   vi.stubEnv("ACCOUNT_DELETION_HASH_SECRET", "test-only-key");

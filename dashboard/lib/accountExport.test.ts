@@ -41,6 +41,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
     analytics_tiles: [{ version: 1, layout: { tiles: [] } }],
     analytics_tile_versions: [{ version: 1, layout: { tiles: [] }, changed_by: "agent" }],
     resume_versions: [{ version: 1, resume_text: "A older résumé", source: "upload" }],
+    review_scope_requests: [{ id: "4", job_ids: ["j1"], reason: "memo_change", status: "done", claim_version: "1" }],
   },
   "user-b": {
     profiles: [{ user_id: "user-b", resume_text: "B SECRET résumé" }],
@@ -60,6 +61,7 @@ const DB: Record<string, Record<string, unknown[]>> = {
     agent_actions: [{ id: 8, kind: "shortlist.set", target_key: { jobId: "B SECRET job" } }],
     shortlist_items: [{ job_id: "B SECRET job", state: "skipped" }],
     search_memos: [{ version: 1, doc: { other: "B SECRET memo" } }],
+    review_scope_requests: [{ id: "5", job_ids: ["B SECRET job"], reason: "memo_change", status: "pending" }],
   },
   "empty-user": {
     profiles: [{ user_id: "empty-user", resume_text: null }],
@@ -94,6 +96,13 @@ function makeTx(userId: string) {
       // Migration 18 applied, migration 19 not yet.
       if (userId === "pre-audit-user" && AUDIT_TABLES.has(table)) throw new Error(`relation "${table}" does not exist`);
       return rows[table] ?? [];
+    }
+    if (/FROM review_scope_requests\b/.test(sql)) {
+      // An account read before migration 20 is applied (and every earlier pre-migration fixture).
+      if (["pre-scope-user", "pre-phase1-user", "pre-audit-user"].includes(userId)) {
+        throw new Error('relation "review_scope_requests" does not exist');
+      }
+      return rows.review_scope_requests ?? [];
     }
     if (/FROM agent_threads/.test(sql)) return rows.agent_threads ?? [];
     if (/FROM agent_messages/.test(sql)) return rows.agent_messages ?? [];
@@ -346,5 +355,46 @@ describe("phase 1 workspace and audit tables", () => {
     expect(out.agent_surfaces).toBeNull();
     expect(out.agent_actions).toBeNull();
     expect(out.agent_audit_tables_error).toBe("agent audit export unavailable");
+  });
+});
+
+describe("review_scope_requests (migration 20)", () => {
+  const selected = () => {
+    const text = ranSql.filter((q) => /FROM review_scope_requests\b/.test(q)).at(-1);
+    if (!text) throw new Error("no read of review_scope_requests");
+    return text.replace(/\s+/g, " ").match(/SELECT (.*?) FROM/)![1].split(",").map((c) => c.trim());
+  };
+
+  test("exports the caller's scope requests, and none of another user's", async () => {
+    const out = await buildAccountExport("user-a", "a@x.com", noFiles);
+    expect(out.review_scope_requests).toEqual(DB["user-a"].review_scope_requests);
+    expect(out.review_scope_requests_error).toBeNull();
+    expect(JSON.stringify(out)).not.toContain("B SECRET");
+  });
+
+  test("reads only the named columns, never select-star or user_id", async () => {
+    await buildAccountExport("user-a", "a@x.com", noFiles);
+    expect(selected()).toEqual([
+      "id", "job_ids", "reason", "status", "requested_at", "started_at", "finished_at", "notes", "claim_version",
+    ]);
+  });
+
+  test("an account with no scope requests exports an empty list", async () => {
+    const out = await buildAccountExport("empty-user", "e@x.com", noFiles);
+    expect(out.review_scope_requests).toEqual([]);
+    expect(out.review_scope_requests_error).toBeNull();
+  });
+
+  test("before migration 20, the rest of the export succeeds and the group says unavailable", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const out = await buildAccountExport("pre-scope-user", "s@x.com", noFiles);
+    expect(errSpy).toHaveBeenCalledWith("account export: review scope requests could not be read", expect.any(Error));
+    errSpy.mockRestore();
+    expect(out).toHaveProperty("profiles");
+    expect(out.workspace_tables_error).toBeNull();
+    expect(out.agent_audit_tables_error).toBeNull();
+    expect(out.review_scope_requests).toBeNull();
+    expect(out.review_scope_requests_error).toBe("review scope requests export unavailable");
+    expect(JSON.stringify(out)).not.toContain("does not exist");
   });
 });

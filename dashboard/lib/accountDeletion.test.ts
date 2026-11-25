@@ -177,6 +177,13 @@ describe("user_id table drift guard", () => {
     }
   });
 
+  test("review_scope_requests is deleted with the account, scoped to the user", async () => {
+    // Classified ahead of migration 20 (a migration PR may not carry code).
+    expect(USER_DELETE_TABLES as readonly string[]).toContain("review_scope_requests");
+    await deleteUserRowsTx("user-a", "a@x.com");
+    expect(s.txSql.join("\n")).toContain("DELETE FROM review_scope_requests WHERE user_id = $1::uuid");
+  });
+
   test("classification lists are disjoint", () => {
     const del = new Set<string>(USER_DELETE_TABLES);
     for (const t of USER_ANONYMIZE_TABLES) expect(del.has(t)).toBe(false);

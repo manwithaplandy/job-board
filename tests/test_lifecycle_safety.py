@@ -78,6 +78,10 @@ def test_catalog_gate_covers_all_tables_and_fk_ancestors(conn):
         "profiles",
         "matching_activity",
         "account_deletions",
+        # Workspace job children (supabase/migrations/20261125070000_agent_workspaces.sql).
+        "shortlist_items",
+        "applications",
+        "application_events",
     }
     rows = conn.execute(
         "SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE t.tgname='lifecycle_pre_dml'"

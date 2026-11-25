@@ -16,6 +16,7 @@ import { getSurface } from "@/lib/agent/surfaces/store";
 import { CONFIRMATIONS_UNAVAILABLE, approvalSecret } from "@/lib/agent/approvalSecret";
 import { ActionIntentSchema, type IntentName, type IntentOf, type IntentOutcome } from "@/lib/agent/actions/intents";
 import { describeConfirmation, signConfirmToken, verifyConfirmToken } from "@/lib/agent/actions/confirm";
+import { startApplicationPrep, type PrepOutcome } from "@/lib/applicationPrep";
 import { NotReviewedError, ShortlistInputError, setShortlistState } from "@/lib/workspaces/shortlist";
 import { ApplicationInputError, setApplicationStage } from "@/lib/workspaces/applications";
 import { TILE_LAYOUT_MAX_ITEMS, TileLayoutError, getTileLayout, saveTileLayout } from "@/lib/workspaces/analyticsTiles";
@@ -40,6 +41,20 @@ const OPEN_ROUTES = {
 } as const;
 
 const NOT_ALLOWED = "That change isn't allowed here.";
+
+/** The fixed toast for each prep outcome of a confirmed application.prepare. */
+const PREP_TOASTS: Record<PrepOutcome["status"], string> = {
+  started: "Preparing your application. It takes a minute or two.",
+  already_running: "That application is already being prepared.",
+  pending_payload: "The job's details are still loading. Try again shortly.",
+  no_plan: "Generating needs a subscription.",
+  allowance_exhausted: "You've used this month's allowance for that.",
+  no_resume: "Add your résumé first.",
+  unknown_job: "That job isn't available any more.",
+  not_greenhouse: "Prefill works for Greenhouse postings only.",
+  not_configured: "Preparing couldn't start. Try again later.",
+  tracking_failed: "Preparing couldn't start. Try again.",
+};
 
 /** A library refusal (bad input, unreviewed job) becomes a fixed toast; anything else is a real error. */
 function refused(error: unknown): IntentOutcome {
@@ -203,8 +218,7 @@ export async function confirmIntent(userId: string, email: string | null, token:
   }
   switch (confirmed.intent.name) {
     case "application.prepare":
-      // Task 1.16 runs the prep here through startApplicationPrep.
-      return { kind: "done", toast: "Preparing applications from here isn't available yet." };
+      return { kind: "done", toast: PREP_TOASTS[(await startApplicationPrep(userId, email, confirmed.intent.jobId)).status] };
     default:
       return { kind: "dropped" };
   }

@@ -118,6 +118,7 @@ export async function reserveGenerations(
           status: 429 as const,
           code: "allowance_exhausted" as const,
           plan,
+          kind,
           error: `Monthly ${KIND_LABEL[kind]} allowance used (${used}/${limit} on ${PLAN_LABEL[plan]}).`,
         };
       }

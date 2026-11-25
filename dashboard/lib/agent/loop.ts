@@ -21,12 +21,25 @@
 // No database transaction is open across a model call: each runs.ts call is its own
 // short transaction. The request's own abort signal is never passed to the model: the
 // turn runs to the end under its own AbortController and wall-clock timer.
+//
+// Approvals (plan Task 1.16, Spike B): an approval tool stops its turn with the tool part
+// at `approval-requested`, signed with AGENT_TOOL_APPROVAL_SECRET. The user's decision
+// arrives as a TurnInput of kind `approval`: the loop finds that pending part in the
+// thread's last assistant message (else 400 through TurnInputError), patches the STORED
+// part to `approval-responded` (a denial carries a reason telling the model not to try
+// again), and continues that same assistant message with a new turn. The SDK runs the
+// tool only when approved and only if the signature still matches. Without the secret
+// there are no approval tools, no toolApproval and no secret on the model call, and an
+// approval input is refused before anything is written.
 import { after } from "next/server";
+import { z } from "zod";
 import {
   convertToModelMessages,
   createIdGenerator,
   createUIMessageStreamResponse,
+  getToolName,
   isStepCount,
+  isToolUIPart,
   readUIMessageStream,
   streamText,
   toUIMessageStream,
@@ -41,13 +54,15 @@ import { AGENT_TEXT_MAX } from "@/lib/agent/request";
 import { stepCostMicros } from "@/lib/agent/budget";
 import { buildInstructions } from "@/lib/agent/context";
 import { emptyGathered } from "@/lib/agent/gathered";
-import type { AgentUIMessage, MessageStatus } from "@/lib/agent/messageCodec";
+import { MESSAGE_STATUSES, type AgentUIMessage, type MessageStatus } from "@/lib/agent/messageCodec";
 import { agentModel } from "@/lib/agent/provider";
 import { chargeStep, finishRun, saveMessages, startRun } from "@/lib/agent/runs";
 import type { AgentThread } from "@/lib/agent/threads";
 import { loadMessages } from "@/lib/agent/threads";
 import { buildTools, type ToolCtx } from "@/lib/agent/tools";
 import { getProfileSummary } from "@/lib/agent/tools/read";
+import { TOOL_APPROVAL, approvalStreamOptions } from "@/lib/agent/tools/approval";
+import { approvalSecret } from "@/lib/agent/approvalSecret";
 import { withAgentTrace } from "@/lib/agent/telemetry";
 import type { ProfileSummary } from "@/lib/workspaces/types";
 
@@ -56,7 +71,8 @@ export type TurnInput =
   | { kind: "approval"; approvalId: string; approved: boolean };
 
 export type TurnInputErrorCode =
-  | "approval_unsupported"
+  | "approval_unavailable"
+  | "approval_not_found"
   | "documents_unsupported"
   | "bad_message_id"
   | "duplicate_message_id"
@@ -65,8 +81,9 @@ export type TurnInputErrorCode =
 
 /**
  * The input cannot start a turn. Thrown before startRun, so nothing is written, except
- * duplicate_message_id: history is read after the run opens (so it includes a turn that
- * finished just before), and that run is then closed `failed` with `bad_input`.
+ * duplicate_message_id and approval_not_found: history is read after the run opens (so
+ * it includes a turn that finished just before), and that run is then closed `failed`
+ * with `bad_input`.
  */
 export class TurnInputError extends Error {
   constructor(readonly code: TurnInputErrorCode) {
@@ -109,14 +126,46 @@ function errorName(e: unknown): string {
  * Checks the input and builds the user message from its text alone. The text cap is the
  * route's (AGENT_TEXT_MAX, 8,000 characters), enforced here too for any other caller.
  */
-function userMessageFrom(input: TurnInput): AgentUIMessage {
-  if (input.kind === "approval") throw new TurnInputError("approval_unsupported");
+function userMessageFrom(input: Extract<TurnInput, { kind: "message" }>): AgentUIMessage {
   // Phase 0 has no documents table; Task 1.x adds document attachments.
   if (input.documentIds.length > 0) throw new TurnInputError("documents_unsupported");
   if (!MESSAGE_ID_RE.test(input.id)) throw new TurnInputError("bad_message_id");
   if (input.text.trim() === "") throw new TurnInputError("empty_text");
   if (input.text.length > AGENT_TEXT_MAX) throw new TurnInputError("text_too_long");
   return { id: input.id, role: "user", parts: [{ type: "text", text: input.text }] };
+}
+
+/** What the model reads for a denied approval (the SDK passes it as the tool result). */
+export const APPROVAL_DENIED_REASON =
+  "The user declined this action. Do not call this tool again for the same request unless the user asks for it.";
+
+/**
+ * Patches the pending approval `approvalId` in the thread's last assistant message to
+ * `approval-responded`. Only an approval tool's part counts. Null when the last message
+ * holds no such pending part (already answered, superseded by a newer message, or never
+ * there), so a stale or forged approval id never reaches the model.
+ */
+export function patchApproval(
+  history: AgentUIMessage[],
+  approvalId: string,
+  approved: boolean,
+): { history: AgentUIMessage[]; assistant: AgentUIMessage } | null {
+  const last = history.at(-1);
+  if (!last || last.role !== "assistant") return null;
+  let found = false;
+  const parts = last.parts.map((part): AgentUIMessage["parts"][number] => {
+    if (found || !isToolUIPart(part) || part.state !== "approval-requested" || part.approval.id !== approvalId) return part;
+    if (!Object.prototype.hasOwnProperty.call(TOOL_APPROVAL, getToolName(part))) return part;
+    found = true;
+    return {
+      ...part,
+      state: "approval-responded",
+      approval: approved ? { ...part.approval, approved: true } : { ...part.approval, approved: false, reason: APPROVAL_DENIED_REASON },
+    };
+  });
+  if (!found) return null;
+  const assistant: AgentUIMessage = { id: last.id, role: "assistant", parts };
+  return { history: [...history.slice(0, -1), assistant], assistant };
 }
 
 /**
@@ -197,7 +246,14 @@ async function runTurn(a: TurnArgs): Promise<Response> {
   const model = a.model ?? agentModel();
   const modelId = typeof model === "string" ? model : (model.modelId ?? AGENT_MODEL_DEFAULT);
 
-  const userMessage = userMessageFrom(a.input);
+  // Checked before startRun, so a refused input writes nothing.
+  let start: { kind: "message"; message: AgentUIMessage } | { kind: "approval"; approvalId: string; approved: boolean };
+  if (a.input.kind === "approval") {
+    if (approvalSecret() === null) throw new TurnInputError("approval_unavailable");
+    start = { kind: "approval", approvalId: a.input.approvalId, approved: a.input.approved };
+  } else {
+    start = { kind: "message", message: userMessageFrom(a.input) };
+  }
 
   const runId = await startRun(userId, { threadId: thread.id, kind: "interactive", model: modelId, variant: thread.variant });
 
@@ -211,17 +267,43 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
     throw e;
   }
-  if (history.some((m) => m.id === userMessage.id)) {
-    await closeRun(userId, runId, { status: "failed", error: "bad_input" });
-    throw new TurnInputError("duplicate_message_id");
-  }
-  const originalMessages: AgentUIMessage[] = [...historyWindow(history), userMessage];
-
   // One id for the placeholder row, both UI streams and the final save: they are one row.
-  const assistantId = createIdGenerator({ prefix: "msg", size: 16 })();
+  // An approval continues the assistant message that asked for it, so its id and its
+  // parts so far are the placeholder.
+  let originalMessages: AgentUIMessage[];
+  let placeholder: AgentUIMessage;
+  if (start.kind === "approval") {
+    const patched = patchApproval(history, start.approvalId, start.approved);
+    if (!patched) {
+      await closeRun(userId, runId, { status: "failed", error: "bad_input" });
+      throw new TurnInputError("approval_not_found");
+    }
+    const window = historyWindow(patched.history);
+    originalMessages = window.at(-1)?.id === patched.assistant.id ? window : [patched.assistant];
+    placeholder = patched.assistant;
+  } else {
+    const userMessage = start.message;
+    if (history.some((m) => m.id === userMessage.id)) {
+      await closeRun(userId, runId, { status: "failed", error: "bad_input" });
+      throw new TurnInputError("duplicate_message_id");
+    }
+    originalMessages = [...historyWindow(history), userMessage];
+    placeholder = { id: createIdGenerator({ prefix: "msg", size: 16 })(), role: "assistant", parts: [] };
+  }
+  const assistantId = placeholder.id;
+  // A turn that never reached the model leaves the thread as it was: an approval's
+  // message goes back to waiting with its stored status (so the user can answer again),
+  // a new turn's placeholder is closed `failed`.
+  const waiting = start.kind === "approval" ? history.at(-1) : undefined;
+  const waitingStatus = z.object({ status: z.enum(MESSAGE_STATUSES) }).safeParse(waiting?.metadata);
+  const undoPlaceholder = () =>
+    (waiting
+      ? saveMessages(userId, thread.id, [{ id: waiting.id, role: waiting.role, parts: waiting.parts }], waitingStatus.success ? waitingStatus.data.status : "complete")
+      : saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: [] }], "failed")
+    ).catch(() => {});
   try {
-    await saveMessages(userId, thread.id, [userMessage], "complete");
-    await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: [] }], "pending");
+    if (start.kind === "message") await saveMessages(userId, thread.id, [start.message], "complete");
+    await saveMessages(userId, thread.id, [placeholder], "pending");
   } catch (e) {
     await closeRun(userId, runId, { status: "failed", error: "persist_failed" });
     throw e;
@@ -258,7 +340,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     // Nothing reached the model: close the run and the placeholder, then let the route
     // answer 500.
     console.error("agent: turn setup failed", errorName(e));
-    await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: [] }], "failed").catch(() => {});
+    await undoPlaceholder();
     await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
     throw e;
   }
@@ -283,6 +365,8 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       instructions,
       messages: modelMessages,
       tools,
+      // toolApproval and the signing secret, or nothing when the secret is missing.
+      ...approvalStreamOptions(base),
       // The second condition: onStepEnd has stopped the turn (over budget, a failed
       // charge, the wall clock), so no further step starts even before the abort lands.
       stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null],
@@ -339,7 +423,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       userId,
       threadId: thread.id,
       runId,
-      assistantId,
+      placeholder,
       steps: result.steps,
       persistStream,
       outcome: () => turnOutcome({ stopReason, modelError }),
@@ -361,24 +445,28 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     clearTimeout(timer);
     controller.abort("setup_failed");
     console.error("agent: starting the stream failed", errorName(e));
-    await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: [] }], "failed").catch(() => {});
+    await undoPlaceholder();
     await closeRun(userId, runId, { status: "failed", error: "setup_failed" });
     throw e;
   }
 }
 
-/** The assistant message the stream built: its last snapshot, with the turn's id. */
-async function finalAssistantMessage(stream: ReadableStream<UIMessageChunk>, assistantId: string): Promise<AgentUIMessage> {
-  let last: UIMessage = { id: assistantId, role: "assistant", parts: [] };
-  for await (const m of readUIMessageStream({ stream, onError: () => {} })) last = m;
-  return { id: assistantId, role: "assistant", parts: last.parts };
+/**
+ * The assistant message the stream built: its last snapshot, with the turn's id. It
+ * starts from the placeholder, so an approval's turn continues the message that asked
+ * (the tool part the stream updates is already in it).
+ */
+async function finalAssistantMessage(stream: ReadableStream<UIMessageChunk>, placeholder: AgentUIMessage): Promise<AgentUIMessage> {
+  let last: UIMessage = placeholder;
+  for await (const m of readUIMessageStream({ stream, message: structuredClone(placeholder), onError: () => {} })) last = m;
+  return { id: placeholder.id, role: "assistant", parts: last.parts };
 }
 
 async function persistTurn(p: {
   userId: string;
   threadId: string;
   runId: string;
-  assistantId: string;
+  placeholder: AgentUIMessage;
   steps: PromiseLike<ReadonlyArray<{ finishReason: string }>>;
   persistStream: ReadableStream<UIMessageChunk>;
   outcome: () => ReturnType<typeof turnOutcome>;
@@ -386,7 +474,7 @@ async function persistTurn(p: {
   charges: Promise<void>[];
   timer: ReturnType<typeof setTimeout>;
 }): Promise<void> {
-  let assistant: AgentUIMessage = { id: p.assistantId, role: "assistant", parts: [] };
+  let assistant: AgentUIMessage = { id: p.placeholder.id, role: "assistant", parts: p.placeholder.parts };
   try {
     try {
       const steps = await p.steps;
@@ -395,7 +483,7 @@ async function persistTurn(p: {
       p.noteModelError();
       console.warn("agent: the turn ended without its steps", errorName(e));
     }
-    assistant = await finalAssistantMessage(p.persistStream, p.assistantId);
+    assistant = await finalAssistantMessage(p.persistStream, p.placeholder);
   } catch (e) {
     p.noteModelError();
     console.warn("agent: reading the turn's messages failed", errorName(e));
@@ -415,7 +503,7 @@ async function persistTurn(p: {
     // Keep what the user read and close the placeholder: the text parts alone, which
     // always pass the stored-message schema, saved `failed` (PR C batch 3 review M4).
     const textOnly: AgentUIMessage = {
-      id: p.assistantId,
+      id: p.placeholder.id,
       role: "assistant",
       parts: assistant.parts.flatMap((part) => (part.type === "text" ? [{ type: "text" as const, text: part.text }] : [])),
     };

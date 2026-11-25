@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   saveTileLayout: vi.fn(),
   getViewerPlan: vi.fn(),
   monthlyGenerationSpend: vi.fn(),
+  startApplicationPrep: vi.fn(),
 }));
 
 function fakeTx() {
@@ -53,6 +54,7 @@ vi.mock("@/lib/workspaces/analyticsTiles", async (orig) => ({
   saveTileLayout: m.saveTileLayout,
 }));
 vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: m.getViewerPlan }));
+vi.mock("@/lib/applicationPrep", () => ({ startApplicationPrep: m.startApplicationPrep }));
 vi.mock("@/lib/usage", () => ({ monthlyGenerationSpend: m.monthlyGenerationSpend }));
 vi.mock("@/lib/tierConfig", async () => {
   const { ENTITLEMENTS, PLAN_PRICE_USD } = await import("@/lib/entitlements");
@@ -222,8 +224,17 @@ test("a secret under 32 characters counts as missing", async () => {
 test("confirmIntent runs a token only for its own user and a surface still in its thread", async () => {
   const out = await run({ name: "application.prepare", jobId: JOB });
   if (out.kind !== "confirm") throw new Error("expected a confirm");
+  m.startApplicationPrep.mockResolvedValue({ status: "started", generationId: "g1", generation: {} });
   expect(await confirmIntent(OTHER, null, out.token)).toEqual({ kind: "dropped" });
-  expect((await confirmIntent(USER, null, out.token)).kind).toBe("done");
+  expect(m.startApplicationPrep).not.toHaveBeenCalled();
+  expect(await confirmIntent(USER, "pat@example.com", out.token)).toEqual({
+    kind: "done", toast: "Preparing your application. It takes a minute or two.",
+  });
+  // The job comes from the signed token, the user and email from the session.
+  expect(m.startApplicationPrep).toHaveBeenCalledWith(USER, "pat@example.com", JOB);
+  m.startApplicationPrep.mockResolvedValue({ status: "allowance_exhausted", kind: "cover", gate: {} });
+  expect(await confirmIntent(USER, null, out.token)).toEqual({ kind: "done", toast: "You've used this month's allowance for that." });
   m.getSurface.mockResolvedValue(null);
   expect(await confirmIntent(USER, null, out.token)).toEqual({ kind: "dropped" });
+  expect(m.startApplicationPrep).toHaveBeenCalledTimes(2);
 });

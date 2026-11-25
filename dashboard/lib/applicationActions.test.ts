@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
+  // The tracker library (imported by the board actions) builds a cached catalog clock at load.
+  unstable_cache: (fn: () => unknown) => fn,
 }));
 
 vi.mock("@/lib/auth", () => ({

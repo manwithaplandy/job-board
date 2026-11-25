@@ -10,7 +10,8 @@
 // so they pass through unchanged. Pure and total: never throws, and returns null
 // when there is no usable url.
 
-function safeHttpUrl(raw: string): string | null {
+/** `raw` when it parses as an absolute http: or https: URL, otherwise null. Never throws. */
+export function safeHttpUrl(raw: string): string | null {
   try {
     const u = new URL(raw);
     return u.protocol === "http:" || u.protocol === "https:" ? raw : null;

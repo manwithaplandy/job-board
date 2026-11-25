@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { saveJobPreferences } from "@/app/actions/profileSettings";
 import { LocationPicker } from "@/components/LocationPicker";
+import { ButtonLink } from "@/components/ui/Button";
 import type { ProfileRow } from "@/lib/types";
 import { Field } from "./Field";
 import { SectionFormShell, useSectionField } from "./SectionFormShell";
@@ -46,13 +47,11 @@ export function JobPreferencesForm({
 }) {
   const [preview, setPreview] = useState({
     locations: profile.preferred_locations,
-    instructions: profile.instructions ?? "",
     companyInstructions: profile.company_instructions ?? "",
   });
   const [pickerKey, setPickerKey] = useState(0);
   const previewFrom = (values: FormData) => ({
     locations: (() => { try { return JSON.parse(String(values.get("preferred_locations") ?? "[]")) as string[]; } catch { return []; } })(),
-    instructions: String(values.get("instructions") ?? ""),
     companyInstructions: String(values.get("company_instructions") ?? ""),
   });
   return (
@@ -67,16 +66,10 @@ export function JobPreferencesForm({
         <PreferredLocationsField key={pickerKey} locations={locations} defaultValue={preview.locations} onChange={(next) => setPreview((current) => ({ ...current, locations: next }))} />
       </section>
 
-      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="priorities-heading">
-        <h2 id="priorities-heading">Priorities and deal-breakers</h2>
-        <Field
-          id="instructions"
-          name="instructions"
-          label="Must-haves and deal-breakers"
-          description="Describe the work to prioritize and roles or skills to avoid."
-        >
-          <textarea rows={5} defaultValue={profile.instructions ?? ""} onChange={(event) => setPreview((current) => ({ ...current, instructions: event.target.value }))} />
-        </Field>
+      <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="looking-for-heading">
+        <h2 id="looking-for-heading">What you&apos;re looking for</h2>
+        <p>Your must-haves and deal-breakers now live in What I&apos;m looking for, which every review uses.</p>
+        <ButtonLink href="/looking-for" variant="secondary">Edit what you&apos;re looking for</ButtonLink>
       </section>
 
       <section className="rf-card rf-card--lg profile-form-section" aria-labelledby="companies-heading">
@@ -97,7 +90,6 @@ export function JobPreferencesForm({
         {preview.locations.length > 0 && (
           <p>Current locations: {preview.locations.join(", ")}</p>
         )}
-        {preview.instructions && <p>Current job guidance: {preview.instructions}</p>}
         {preview.companyInstructions && (
           <p>Current company guidance: {preview.companyInstructions}</p>
         )}

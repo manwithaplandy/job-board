@@ -7,8 +7,35 @@ import { Icon } from "./Icon";
 import { VisualBoardState, type VisualBoardStateName } from "@/components/rolefit/VisualBoardState";
 import { HBarCard } from "@/components/analytics/Chart";
 import { AgentChat } from "@/components/agent/AgentChat";
+import { MemoDiffFixture } from "@/components/workspaces/MemoDiffFixture";
+import { ShortlistBoard } from "@/components/workspaces/ShortlistBoard";
+import type { ShortlistRow } from "@/lib/workspaces/types";
 
 const AGENT_FIXTURE_THREAD = "00000000-0000-4000-8000-000000000000";
+
+const WS_NO_FILTERS = { verdict: null, minFit: null, remote: false } as const;
+const WS_AGENT_SKIPPED: ShortlistRow = {
+  jobId: "greenhouse:acme:1001",
+  state: "skipped",
+  reasonCode: "red_flag",
+  reasonText: "The posting asks for an unpaid trial week.",
+  briefWhy: "Strong match on product engineering and the remote setup you asked for.",
+  briefRisk: "Unpaid trial week before an offer.",
+  setBy: "agent",
+  updatedAt: "2026-11-20T00:00:00.000Z",
+  fitScore: 84,
+  job: {
+    jobId: "greenhouse:acme:1001",
+    title: "Senior Product Engineer",
+    company: "Acme Systems",
+    location: "Remote",
+    remote: true,
+    url: "https://example.com/jobs/1001",
+    firstSeenAt: "2026-11-18T00:00:00.000Z",
+    ageDays: 2,
+    closed: false,
+  },
+};
 
 const COPY: Record<string, { eyebrow: string; title: string; description: string }> = {
   "board-selected": { eyebrow: "Board · selected", title: "Senior Product Engineer", description: "Acme Systems · Remote · Selected job detail" },
@@ -29,6 +56,9 @@ const COPY: Record<string, { eyebrow: string; title: string; description: string
   "agent-empty": { eyebrow: "Agent · empty", title: "New conversation", description: "Ask about your reviewed jobs, companies and profile." },
   "agent-budget": { eyebrow: "Agent · budget", title: "Daily budget reached", description: "The composer stays disabled until the budget resets." },
   "agent-disabled": { eyebrow: "Agent · disabled", title: "Agent switched off", description: "The workspaces keep working while the agent is paused." },
+  "workspaces-empty": { eyebrow: "Workspaces · empty", title: "Shortlist", description: "Nothing triaged yet; the agent and suggestions fill it." },
+  "workspaces-agent-marker": { eyebrow: "Workspaces · agent", title: "Shortlist", description: "A row the agent skipped, with its reason and Undo." },
+  "workspaces-memo-diff": { eyebrow: "Workspaces · memo", title: "What I'm looking for", description: "The agent's proposed memo change, waiting for Approve, Edit or Decline." },
   "system-states-focus": { eyebrow: "System · focus", title: "Keyboard interaction", description: "Focus, selected, disabled, and pressed treatments." },
   "system-states-destructive": { eyebrow: "System · destructive", title: "Destructive confirmation", description: "Danger actions are visually and semantically distinct." },
 };
@@ -44,6 +74,11 @@ export function VisualStateFixture({ state }: { state: string }) {
     if (state === "agent-empty") return <AgentChat threadId={AGENT_FIXTURE_THREAD} initialMessages={[]} notice={null} />;
     if (state === "agent-budget") return <AgentChat threadId={AGENT_FIXTURE_THREAD} initialMessages={[]} notice="daily_ceiling" />;
     if (state === "agent-disabled") return <AgentChat threadId={AGENT_FIXTURE_THREAD} initialMessages={[]} notice="agent_disabled" />;
+    // The production shortlist board with fixed rows.
+    if (state === "workspaces-empty") return <ShortlistBoard rows={[]} markers={{}} browse={[]} filters={WS_NO_FILTERS} browseError={false} />;
+    if (state === "workspaces-agent-marker") return <ShortlistBoard rows={[WS_AGENT_SKIPPED]} markers={{ [WS_AGENT_SKIPPED.jobId]: 1 }} browse={[]} filters={WS_NO_FILTERS} browseError={false} skippedOpen />;
+    // The production memo confirm card with a fixed proposal.
+    if (state === "workspaces-memo-diff") return <MemoDiffFixture />;
     if (state === "companies-empty" || state === "admin-empty") return <EmptyState title={copy.title} description={copy.description} action={<Button variant="outline">Clear filters</Button>} />;
     if (state === "profile-error") return <><Alert tone="danger" title="1 field needs attention">Review the inline message below.</Alert><TextField id="fixture-email" label="Email" error="Enter a valid email address." defaultValue="invalid" /><Button>Save changes</Button></>;
     if (state === "profile-disabled") return <><TextField id="fixture-model" label="Reasoning level" value="High · Pro" disabled readOnly /><Button disabled>Save changes</Button></>;

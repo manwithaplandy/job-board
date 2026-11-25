@@ -1,5 +1,18 @@
 import { describe, expect, it, test } from "vitest";
-import { applyUrl } from "@/lib/rolefit/applyUrl";
+import { applyUrl, safeHttpUrl } from "@/lib/rolefit/applyUrl";
+
+describe("safeHttpUrl", () => {
+  test("keeps http and https URLs as they are", () => {
+    expect(safeHttpUrl("https://jobs.example.com/1")).toBe("https://jobs.example.com/1");
+    expect(safeHttpUrl("http://jobs.example.com/1?x=1")).toBe("http://jobs.example.com/1?x=1");
+  });
+  test.each(["javascript:alert(1)", "JavaScript:alert(1)", "data:text/html,hi", "vbscript:x", "/relative/path", "not a url", "", "ftp://x.example.com"])(
+    "refuses %j",
+    (raw) => {
+      expect(safeHttpUrl(raw)).toBeNull();
+    },
+  );
+});
 
 describe("applyUrl", () => {
   test("greenhouse uses the absolute_url as-is", () => {

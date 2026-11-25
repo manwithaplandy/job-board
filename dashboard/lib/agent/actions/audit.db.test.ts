@@ -6,6 +6,10 @@
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { openTestDb, seedJob, USER_A, USER_B, type TestDb } from "@/lib/testing/dbHarness";
 import { USER_DELETE_TABLES } from "@/lib/userScopedTables";
+import { serviceSql } from "@/lib/db";
+import { emptyGathered } from "@/lib/agent/gathered";
+import { listRecentActions, logAction as libLogAction } from "@/lib/agent/actions/audit";
+import { getSurface, markSurfaceFailed, saveSurface as libSaveSurface } from "@/lib/agent/surfaces/store";
 
 // deleteUserRowsTx is exercised for real below; its sibling steps' clients are not.
 vi.mock("@/lib/stripe", () => ({ cancelSubscriptionIfPresent: vi.fn(), deleteCustomerIfPresent: vi.fn() }));
@@ -31,6 +35,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await db?.close();
+  await serviceSql.end();
 });
 
 beforeEach(async () => {
@@ -289,4 +294,39 @@ test("the migration applies twice on top of schema.sql", async () => {
     SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname LIKE 'agent\\_%' ORDER BY 1`;
   expect(fns.map((r) => r.sig.replace(/\s+/g, ""))).toEqual([...FUNCTIONS].sort());
+});
+
+// The libraries (Task 1.2) against the real definer functions.
+const ctxFor = (userId: string, threadId: string) => ({
+  userId, email: null, threadId, runId: RUN, variant: 1 as const, unattended: false,
+  gathered: emptyGathered(), repairsLeft: { n: 1 },
+});
+
+test("logAction and listRecentActions round-trip through agent_log_action, bigint ids parsed", async () => {
+  const id = await db.asUser(USER_A, (tx) => libLogAction(tx, {
+    ctx: ctxFor(USER_A, THREAD_A), actor: "agent", kind: "shortlist.set",
+    targetKey: { jobId: "lever:x:1" }, before: null, after: { state: "later", note: "a \"quoted\" string" },
+  }));
+  expect(typeof id).toBe("number");
+  const [row] = await db.sql`SELECT before, after, jsonb_typeof(after) AS t FROM agent_actions WHERE id = ${id}`;
+  // json text is stored as a jsonb object, not a double-encoded string; a null before is SQL NULL.
+  expect(row).toEqual({ before: null, after: { state: "later", note: "a \"quoted\" string" }, t: "object" });
+  const listed = await listRecentActions(USER_A);
+  expect(listed).toEqual([expect.objectContaining({ id, kind: "shortlist.set", actor: "agent", undoneAt: null })]);
+  expect(await listRecentActions(USER_B)).toEqual([]);
+});
+
+test("saveSurface, getSurface and markSurfaceFailed round-trip; failure is a short code", async () => {
+  const id = await db.asUser(USER_A, (tx) => libSaveSurface(tx, {
+    threadId: THREAD_A, runId: RUN, variant: 2, payload: { tree: {} }, fallbackPayload: { blocks: [] },
+    gathered: emptyGathered(), outcome: "valid", supersedes: null, rerenderOf: null, model: "m".repeat(300),
+    latencyMs: 900, outputTokens: 12,
+  }));
+  const surface = await getSurface(USER_A, id);
+  expect(surface).toMatchObject({ id, threadId: THREAD_A, variant: 2, outcome: "valid", latencyMs: 900 });
+  expect(surface?.model).toHaveLength(200);
+  expect(await getSurface(USER_B, id)).toBeNull();
+  expect(await markSurfaceFailed(USER_B, id, "render_error")).toBeNull();
+  expect(await markSurfaceFailed(USER_A, id, `Error: boom\n at x ${"y".repeat(400)}`)).toEqual({ blocks: [] });
+  expect(await getSurface(USER_A, id)).toMatchObject({ outcome: "fallback", failure: "unknown_failure" });
 });

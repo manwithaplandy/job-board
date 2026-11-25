@@ -11,8 +11,8 @@ import { getStructuredModels, validateModelId } from "@/lib/openrouter";
 import { parsePreferredLocations } from "@/lib/preferredLocations";
 import {
   updateApplicationDetails,
+  updateDiscoveryPreferences,
   updateGenerationDefaults,
-  updateJobPreferences,
   updateModelPreferences,
   updateResumeSource,
 } from "@/lib/profileSettings";
@@ -116,15 +116,12 @@ export async function saveJobPreferences(
     const userId = await requireUserId();
     const preferredLocations = parsePreferredLocations(String(fd.get("preferred_locations") ?? ""));
     if (!preferredLocations.length) return invalid({ preferred_locations: "Pick at least one location." });
-    const instructions = text(fd, "instructions");
+    // The review instructions compile from "What I'm looking for" (/looking-for), so this
+    // form neither reads nor writes `instructions`: a stale copy must not overwrite them.
     const companyInstructions = text(fd, "company_instructions");
-    const lengthErrors: Record<string, string> = {};
-    const instructionsTooLong = instructionsError(instructions);
     const companyTooLong = instructionsError(companyInstructions);
-    if (instructionsTooLong) lengthErrors.instructions = instructionsTooLong;
-    if (companyTooLong) lengthErrors.company_instructions = companyTooLong;
-    if (Object.keys(lengthErrors).length) return invalid(lengthErrors);
-    await updateJobPreferences(userId, { preferredLocations, instructions, companyInstructions });
+    if (companyTooLong) return invalid({ company_instructions: companyTooLong });
+    await updateDiscoveryPreferences(userId, { preferredLocations, companyInstructions });
     revalidate("/profile", "/profile/job-preferences");
     return success();
   } catch (error) {

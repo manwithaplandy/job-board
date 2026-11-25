@@ -21,7 +21,7 @@ describe("visual regression route inventory", () => {
   test("covers every route family and the required named state inventory", () => {
     const families = new Set(VISUAL_ROUTES.map((route) => route.family));
     expect([...families].sort()).toEqual([
-      "admin", "agent", "analytics", "billing", "board", "companies", "entry", "feedback", "legal", "onboarding", "profile", "system-states",
+      "admin", "agent", "analytics", "billing", "board", "companies", "entry", "feedback", "legal", "onboarding", "profile", "system-states", "workspaces",
     ]);
     const statesFor = (family: string) => new Set(VISUAL_ROUTES.filter((route) => route.family === family).map((route) => route.state));
     for (const state of ["default", "selected", "filter-empty", "rejected", "applied", "loading", "error-retry", "generation", "application-package"]) expect(statesFor("board").has(state)).toBe(true);
@@ -30,6 +30,7 @@ describe("visual regression route inventory", () => {
     expect(statesFor("companies").has("empty")).toBe(true);
     expect(statesFor("analytics").has("data-viz")).toBe(true);
     for (const state of ["default", "empty", "budget", "disabled"]) expect(statesFor("agent").has(state)).toBe(true);
+    for (const state of ["default", "applications", "looking-for", "documents", "empty", "agent-marker", "memo-diff"]) expect(statesFor("workspaces").has(state)).toBe(true);
   });
 
   test("documents route-specific shell and exact SVG provenance contracts", () => {
@@ -108,7 +109,7 @@ describe("visual regression route inventory", () => {
 
   test("declares live-data regions explicitly for routes rendered from the production database", () => {
     const live = VISUAL_ROUTES.filter((route) => route.live);
-    expect(live.map((route) => route.id).sort()).toEqual(["analytics-default", "board-default", "companies-default"]);
+    expect(live.map((route) => route.id).sort()).toEqual(["analytics-default", "applications-default", "board-default", "companies-default", "documents-default", "looking-for-default", "shortlist-default"]);
     for (const route of live) {
       expect(route.access).toBe("authenticated");
       expect(route.live!.hide.length + route.live!.mask.length).toBeGreaterThan(0);

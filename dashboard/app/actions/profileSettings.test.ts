@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   assertNotDeleted: vi.fn(),
   updateApplicationDetails: vi.fn(),
   updateJobPreferences: vi.fn(),
+  updateDiscoveryPreferences: vi.fn(),
   updateGenerationDefaults: vi.fn(),
   updateModelPreferences: vi.fn(),
   updateResumeSource: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: mocks.assertNotDeleted }))
 vi.mock("@/lib/profileSettings", () => ({
   updateApplicationDetails: mocks.updateApplicationDetails,
   updateJobPreferences: mocks.updateJobPreferences,
+  updateDiscoveryPreferences: mocks.updateDiscoveryPreferences,
   updateGenerationDefaults: mocks.updateGenerationDefaults,
   updateModelPreferences: mocks.updateModelPreferences,
   updateResumeSource: mocks.updateResumeSource,
@@ -76,6 +78,7 @@ beforeEach(() => {
   mocks.assertNotDeleted.mockResolvedValue(undefined);
   mocks.updateApplicationDetails.mockResolvedValue(undefined);
   mocks.updateJobPreferences.mockResolvedValue(undefined);
+  mocks.updateDiscoveryPreferences.mockResolvedValue(undefined);
   mocks.updateGenerationDefaults.mockResolvedValue(undefined);
   mocks.updateModelPreferences.mockResolvedValue(undefined);
   mocks.updateResumeSource.mockResolvedValue(undefined);
@@ -96,16 +99,27 @@ describe("profile settings actions", () => {
       message: "Check the highlighted fields.",
       fieldErrors: { preferred_locations: "Pick at least one location." },
     });
+    expect(mocks.updateDiscoveryPreferences).not.toHaveBeenCalled();
+  });
+
+  test("saves locations and company guidance, and never writes the memo-compiled instructions", async () => {
+    // The review instructions now compile from "What I'm looking for" (/looking-for); a
+    // stale `instructions` field posted here must not overwrite them (review G2 I3).
+    await expect(saveJobPreferences(INITIAL_SECTION_SAVE_STATE, form({
+      preferred_locations: '[" Remote "]', instructions: " stale memo text ", company_instructions: " fintech ",
+    }))).resolves.toMatchObject({ status: "success" });
+    expect(mocks.updateDiscoveryPreferences).toHaveBeenCalledWith("u1", {
+      preferredLocations: ["Remote"], companyInstructions: "fintech",
+    });
+    expect(mocks.updateDiscoveryPreferences.mock.calls[0][1]).not.toHaveProperty("instructions");
     expect(mocks.updateJobPreferences).not.toHaveBeenCalled();
   });
 
-  test("saves all job preferences atomically", async () => {
+  test("an oversized instructions field no longer blocks the save (it is ignored)", async () => {
     await expect(saveJobPreferences(INITIAL_SECTION_SAVE_STATE, form({
-      preferred_locations: '[" Remote "]', instructions: " backend ", company_instructions: " fintech ",
+      preferred_locations: '["Remote"]', instructions: "x".repeat(10_000),
     }))).resolves.toMatchObject({ status: "success" });
-    expect(mocks.updateJobPreferences).toHaveBeenCalledWith("u1", {
-      preferredLocations: ["Remote"], instructions: "backend", companyInstructions: "fintech",
-    });
+    expect(mocks.updateDiscoveryPreferences).toHaveBeenCalledTimes(1);
   });
 
   test("company filters preserve the 'unknown' HQ sentinel case-insensitively", async () => {
@@ -208,7 +222,7 @@ describe("profile settings actions", () => {
 
   test.each([
     ["application details", mocks.updateApplicationDetails, () => saveApplicationDetails(INITIAL_SECTION_SAVE_STATE, form({ full_name: "Jane", email: "jane@example.com" }))],
-    ["job preferences", mocks.updateJobPreferences, () => saveJobPreferences(INITIAL_SECTION_SAVE_STATE, form({ preferred_locations: '["Remote"]' }))],
+    ["job preferences", mocks.updateDiscoveryPreferences, () => saveJobPreferences(INITIAL_SECTION_SAVE_STATE, form({ preferred_locations: '["Remote"]' }))],
     ["personalization", mocks.updateGenerationDefaults, () => saveApplicationPersonalization(INITIAL_SECTION_SAVE_STATE, form({}))],
     ["advanced settings", mocks.updateModelPreferences, () => saveAdvancedAiSettings(INITIAL_SECTION_SAVE_STATE, form({}))],
     ["résumé", mocks.updateResumeSource, () => saveResumeSettings(INITIAL_SECTION_SAVE_STATE, form({}))],

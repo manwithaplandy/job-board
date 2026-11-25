@@ -26,3 +26,18 @@ export function sanitizeUploadFilename(name: string): string {
 export function resumeObjectPath(userId: string, filename: string): string {
   return `${userId}/${Date.now()}-${sanitizeUploadFilename(filename)}`;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DOCUMENT_NAME_MAX = 120;
+
+/**
+ * The Storage key for an uploaded document (plan Task 1.10): `{userId}/doc-{id}-{name}`,
+ * a direct child of the user's folder (so the deletion sweep sees it), matching the
+ * documents table's owner check. Generated server side only; the name is sanitized and
+ * cut to 120 code points.
+ */
+export function documentObjectPath(userId: string, id: string, filename: string): string {
+  if (!UUID_RE.test(userId) || !UUID_RE.test(id)) throw new Error("documentObjectPath: user and id must be uuids");
+  const name = Array.from(sanitizeUploadFilename(filename)).slice(-DOCUMENT_NAME_MAX).join("");
+  return `${userId}/doc-${id}-${name}`;
+}

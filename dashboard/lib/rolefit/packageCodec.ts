@@ -8,7 +8,7 @@
 // Every parser here is PURE and TOTAL: it unwraps a possibly double-encoded value,
 // validates exactly the fields the renderers dereference, and returns a valid typed
 // object or null. Mirrors the existing hand-rolled idiom (parseGreenhouseQuestions,
-// parseBoardFilters). No zod.
+// parseBoardFilters). Hand-rolled here; new shapes may use zod through `parseOrNull` (see dashboard/CLAUDE.md).
 import type { TailoredResume, ResumeExperience } from "@/lib/rolefit/resumeSchema";
 import type { TailoredCoverLetter } from "@/lib/rolefit/coverLetterSchema";
 import type { PrefilledAnswer } from "@/lib/rolefit/prefillSchema";

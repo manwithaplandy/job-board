@@ -10,9 +10,7 @@ scalar** (from a double-encoded write) as a JS **string**, so an unvalidated
 Rules:
 - Every jsonb read goes through a **total parser** that unwraps and validates, returning
   a valid typed value or `null` — never a bare `as` cast.
-- Colocate parsers with the type they parse (see `lib/rolefit/packageCodec.ts`,
-  `lib/rolefit/greenhouseQuestions.ts`, `lib/rolefit/boardFilters.ts`). No zod — hand-rolled
-  total parsers are the house style.
+- Colocate parsers with the type they parse (see `lib/rolefit/packageCodec.ts`, `lib/rolefit/greenhouseQuestions.ts`, `lib/rolefit/boardFilters.ts`). zod is allowed anywhere it fits (pinned `^4.6.7`): use it as a total parser through `parseOrNull` in `lib/zodParse.ts` (`safeParse` to a value or `null`). Hand-rolled total parsers remain fine. One schema per shape, shared by the LLM-output check and the storage read.
 - The same parser validates both the storage read AND the LLM/HTTP generation output, so
   "valid shape" has one definition and serialize/deserialize can't drift.
 - Broaden the review heuristic: any `as SomeShape` on a value that crossed a process,

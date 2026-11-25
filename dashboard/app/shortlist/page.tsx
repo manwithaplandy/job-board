@@ -6,6 +6,7 @@ import { emptyGathered } from "@/lib/agent/gathered";
 import { searchJobs } from "@/lib/agent/tools/read";
 import type { ToolCtx } from "@/lib/agent/tools";
 import { agentMarkersByJob } from "@/lib/workspaces/agentMarkers";
+import { listTrackedStages } from "@/lib/workspaces/applications";
 import { listShortlist } from "@/lib/workspaces/shortlist";
 import { fmtPay } from "@/lib/rolefit/fit";
 import { AppShell } from "@/components/shell/AppShell";
@@ -85,10 +86,11 @@ export default async function ShortlistPage({
   const filters = parseFilters(await searchParams);
   const email = claims?.email ?? null;
 
-  const [rows, actions, browse] = await Promise.all([
+  const [rows, actions, browse, stages] = await Promise.all([
     listShortlist(userId),
     listRecentActions(userId, 100),
     readBrowse(userId, email, filters),
+    listTrackedStages(userId),
   ]);
 
   return (
@@ -103,6 +105,7 @@ export default async function ShortlistPage({
             <ShortlistBoard
               rows={rows}
               markers={agentMarkersByJob(actions, "shortlist.set")}
+              stages={stages}
               browse={browse ?? []}
               filters={filters}
               browseError={browse === null}

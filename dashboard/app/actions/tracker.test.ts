@@ -40,7 +40,8 @@ test("each action writes as the session user, as the user, then revalidates the 
   await setNextStepAction("gh:acme:1", null);
   expect(m.setNextStep).toHaveBeenCalledWith(USER, "gh:acme:1", null);
   expect(m.assertNotDeleted).toHaveBeenCalledTimes(3);
-  expect(m.revalidatePath.mock.calls).toEqual([["/applications"], ["/applications"], ["/applications"]]);
+  // A stage move also revalidates the shortlist, which shows each tracked job's stage.
+  expect(m.revalidatePath.mock.calls).toEqual([["/applications"], ["/shortlist"], ["/applications"], ["/applications"]]);
 });
 
 test("an erased account writes nothing", async () => {

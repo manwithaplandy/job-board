@@ -10,6 +10,7 @@ const actions = vi.hoisted(() => ({
   setShortlistStateAction: vi.fn(),
   refreshSuggestedAction: vi.fn(),
   undoAgentAction: vi.fn(),
+  setStageAction: vi.fn(),
   refresh: vi.fn(),
 }));
 vi.mock("@/app/actions/shortlist", () => ({
@@ -17,6 +18,7 @@ vi.mock("@/app/actions/shortlist", () => ({
   refreshSuggestedAction: actions.refreshSuggestedAction,
 }));
 vi.mock("@/app/actions/agent", () => ({ undoAgentAction: actions.undoAgentAction }));
+vi.mock("@/app/actions/tracker", () => ({ setStageAction: actions.setStageAction }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: actions.refresh }) }));
 
 import { ShortlistBoard } from "./ShortlistBoard";
@@ -53,9 +55,66 @@ beforeEach(() => {
   actions.setShortlistStateAction.mockReset().mockResolvedValue(undefined);
   actions.refreshSuggestedAction.mockReset().mockResolvedValue(3);
   actions.undoAgentAction.mockReset().mockResolvedValue({ ok: true });
+  actions.setStageAction.mockReset().mockResolvedValue(undefined);
   actions.refresh.mockReset();
 });
 afterEach(cleanup);
+
+test("Shortlisted and Later rows offer Start preparing, which adds the job to the tracker", async () => {
+  render(
+    <ShortlistBoard
+      rows={[row("gh:acme:1", { state: "shortlisted" }), row("gh:acme:2", { state: "later" })]}
+      markers={{}}
+      stages={{}}
+      browse={[]}
+      filters={NO_FILTERS}
+      browseError={false}
+    />,
+  );
+  const first = screen.getByRole("article", { name: "Title gh:acme:1" });
+  fireEvent.click(within(first).getByRole("button", { name: "Start preparing" }));
+  await waitFor(() => expect(actions.setStageAction).toHaveBeenCalledWith("gh:acme:1", "preparing"));
+  await waitFor(() => expect(actions.refresh).toHaveBeenCalled());
+  const second = screen.getByRole("article", { name: "Title gh:acme:2" });
+  expect(within(second).getByRole("button", { name: "Start preparing" })).toBeTruthy();
+});
+
+test("a row already on the tracker shows its stage instead of Start preparing", () => {
+  render(
+    <ShortlistBoard
+      rows={[row("gh:acme:1", { state: "shortlisted" })]}
+      markers={{}}
+      stages={{ "gh:acme:1": "ready" }}
+      browse={[]}
+      filters={NO_FILTERS}
+      browseError={false}
+    />,
+  );
+  const card = screen.getByRole("article", { name: "Title gh:acme:1" });
+  expect(within(card).queryByRole("button", { name: "Start preparing" })).toBeNull();
+  expect(within(card).getByText("Tracker: Ready to apply")).toBeTruthy();
+});
+
+test("Suggested and Skipped rows do not offer Start preparing", () => {
+  render(
+    <ShortlistBoard
+      rows={[row("gh:acme:1"), row("gh:acme:2", { state: "skipped", setBy: "user", reasonCode: "pay" })]}
+      markers={{}}
+      browse={[]}
+      filters={NO_FILTERS}
+      browseError={false}
+      skippedOpen
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "Start preparing" })).toBeNull();
+});
+
+test("a failed Start preparing says so", async () => {
+  actions.setStageAction.mockRejectedValue(new Error("nope"));
+  renderBoard([row("gh:acme:1", { state: "shortlisted" })]);
+  fireEvent.click(screen.getByRole("button", { name: "Start preparing" }));
+  expect(await screen.findByText("That job could not be added to your applications. Try again.")).toBeTruthy();
+});
 
 function renderBoard(rows: ShortlistRow[], markers: Record<string, number> = {}) {
   return render(<ShortlistBoard rows={rows} markers={markers} browse={[]} filters={NO_FILTERS} browseError={false} />);

@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Panel";
 import { AgentMarker } from "@/components/workspaces/AgentMarker";
 import { SkipReasonPicker } from "@/components/workspaces/SkipReasonPicker";
-import { skipReasonLabel } from "@/lib/workspaces/labels";
-import type { ShortlistRow, ShortlistState } from "@/lib/workspaces/types";
+import { skipReasonLabel, STAGE_LABELS } from "@/lib/workspaces/labels";
+import type { ShortlistRow, ShortlistState, Stage } from "@/lib/workspaces/types";
 
 const TRIAGE: Array<{ state: Exclude<ShortlistState, "suggested" | "skipped">; label: string }> = [
   { state: "shortlisted", label: "Shortlist" },
@@ -33,6 +33,8 @@ export function ShortlistRowCard({
   checked,
   onCheck,
   onSet,
+  stage = null,
+  onStartPreparing,
   pending,
 }: {
   row: ShortlistRow;
@@ -40,8 +42,13 @@ export function ShortlistRowCard({
   checked: boolean;
   onCheck: (checked: boolean) => void;
   onSet: (state: ShortlistState, reasonCode?: string, reasonText?: string) => void;
+  /** The job's tracker stage when it is already on /applications. */
+  stage?: Stage | null;
+  /** Adds the job to the tracker at preparing (offered on Shortlisted and Later rows). */
+  onStartPreparing?: () => void;
   pending: boolean;
 }) {
+  const canTrack = row.state === "shortlisted" || row.state === "later";
   const [picking, setPicking] = useState(false);
   const titleId = `ws-row-${row.jobId.replace(/[^\w-]/g, "-")}`;
   const fit = fitLabel(row.fitScore);
@@ -113,6 +120,12 @@ export function ShortlistRowCard({
           {row.state !== "skipped" && (
             <Button variant="ghost" size="sm" disabled={pending} onClick={() => setPicking(true)}>
               Skip
+            </Button>
+          )}
+          {canTrack && stage !== null && <Badge tone="neutral">{`Tracker: ${STAGE_LABELS[stage]}`}</Badge>}
+          {canTrack && stage === null && onStartPreparing && (
+            <Button variant="primary" size="sm" disabled={pending} onClick={onStartPreparing}>
+              Start preparing
             </Button>
           )}
         </div>

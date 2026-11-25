@@ -308,6 +308,18 @@ export async function setNextStep(userId: string, jobId: string, date: string | 
 // Reads
 // ---------------------------------------------------------------------------
 
+/** Each of the caller's tracked jobs mapped to its stage (the shortlist shows it per row). */
+export async function listTrackedStages(userId: string): Promise<Record<string, Stage>> {
+  const rows = await withUserSql(userId, (tx) => tx`
+    SELECT job_id, stage FROM applications WHERE user_id = ${userId}::uuid`);
+  const out: Record<string, Stage> = {};
+  for (const raw of rows) {
+    const r = parseOrNull(z.object({ job_id: z.string(), stage: z.enum(STAGES) }), raw);
+    if (r) out[r.job_id] = r.stage;
+  }
+  return out;
+}
+
 const listRowSchema = jobFactsRowSchema.extend({
   id: z.string(),
   stage: z.enum(STAGES),

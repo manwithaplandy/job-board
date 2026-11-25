@@ -26,7 +26,7 @@ export function TrackerBoard({
       <div className="rf-ws-board">
         <EmptyState
           title="No applications tracked yet"
-          description="Move a job to Preparing from your shortlist, or ask the agent to track one."
+          description="Choose Start preparing on a shortlisted job, mark a job applied on your board, or ask the agent to track one."
           action={<ButtonLink href="/shortlist">Open your shortlist</ButtonLink>}
         />
       </div>

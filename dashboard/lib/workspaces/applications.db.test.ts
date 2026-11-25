@@ -10,6 +10,7 @@ import type { ToolCtx } from "@/lib/agent/tools";
 import {
   addApplicationNote,
   listApplications,
+  listTrackedStages,
   NotReviewedError,
   setApplicationStage,
   setNextStep,
@@ -91,6 +92,14 @@ test("moving to applied marks the package applied when one exists and is fine wh
   expect(await pkg()).toEqual({ status: "prepared", stamped: false, resume_json: { kept: true } });
   await setApplicationStage(USER_A, { jobId: JOB_2, stage: "ready", actor: "user" });
   expect(await pkg(JOB_2)).toBeUndefined();
+});
+
+test("listTrackedStages maps each of the caller's tracked jobs to its stage, and no one else's", async () => {
+  expect(await listTrackedStages(USER_A)).toEqual({});
+  await setApplicationStage(USER_A, { jobId: JOB, stage: "preparing", actor: "user" });
+  await setApplicationStage(USER_A, { jobId: JOB_2, stage: "closed", closedReason: "rejected", actor: "user" });
+  expect(await listTrackedStages(USER_A)).toEqual({ [JOB]: "preparing", [JOB_2]: "closed" });
+  expect(await listTrackedStages(USER_B)).toEqual({});
 });
 
 test("a job with no review for the user cannot be tracked, and nothing is written", async () => {

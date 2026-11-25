@@ -16,6 +16,7 @@ export async function setStageAction(jobId: string, stage: Stage, closedReason?:
   await assertNotDeleted(userId);
   await setApplicationStage(userId, { jobId, stage, closedReason, actor: "user" });
   revalidatePath("/applications");
+  revalidatePath("/shortlist"); // the shortlist shows each tracked job's stage
 }
 
 /** Adds a note to a job's history on the caller's tracker. */

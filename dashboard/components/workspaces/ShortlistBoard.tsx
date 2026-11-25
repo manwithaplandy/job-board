@@ -3,11 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { refreshSuggestedAction, setShortlistStateAction } from "@/app/actions/shortlist";
+import { setStageAction } from "@/app/actions/tracker";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Alert, EmptyState } from "@/components/ui/SystemStates";
 import { BrowseAll, type BrowseFilters, type BrowseRow } from "@/components/workspaces/BrowseAll";
 import { ShortlistRowCard } from "@/components/workspaces/ShortlistRowCard";
-import type { ShortlistRow, ShortlistState } from "@/lib/workspaces/types";
+import type { ShortlistRow, ShortlistState, Stage } from "@/lib/workspaces/types";
 
 export type { BrowseFilters, BrowseRow };
 
@@ -26,6 +27,7 @@ const SECTIONS: Array<{ state: ShortlistState; title: string; empty: string }> =
 export function ShortlistBoard({
   rows,
   markers,
+  stages = {},
   browse,
   filters,
   browseError,
@@ -34,6 +36,8 @@ export function ShortlistBoard({
   rows: ShortlistRow[];
   /** Job id to the id of the agent write that set the row, for its Undo. */
   markers: Record<string, number>;
+  /** Job id to its tracker stage, for jobs already on /applications. */
+  stages?: Record<string, Stage>;
   browse: BrowseRow[];
   filters: BrowseFilters;
   browseError: boolean;
@@ -64,6 +68,8 @@ export function ShortlistBoard({
       "That change could not be saved. Try again.",
     );
   const refresh = () => run(() => refreshSuggestedAction(), "Suggestions could not be refreshed. Try again.");
+  const startPreparing = (jobId: string) =>
+    run(() => setStageAction(jobId, "preparing"), "That job could not be added to your applications. Try again.");
   const toggle = (jobId: string, on: boolean) =>
     setChecked((current) => (on ? [...current.filter((id) => id !== jobId), jobId] : current.filter((id) => id !== jobId)));
 
@@ -81,6 +87,8 @@ export function ShortlistBoard({
           checked={checked.includes(row.jobId)}
           onCheck={(on) => toggle(row.jobId, on)}
           onSet={(state, code, text) => setState(row.jobId, state, code, text)}
+          stage={stages[row.jobId] ?? null}
+          onStartPreparing={() => startPreparing(row.jobId)}
           pending={pending}
         />
       ))}

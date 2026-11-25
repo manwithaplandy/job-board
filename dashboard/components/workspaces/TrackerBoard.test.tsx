@@ -96,6 +96,11 @@ test("the page groups rows by stage in the order preparing..closed and shows sta
 test("an empty tracker shows the fixed empty state with a link to the shortlist", () => {
   render(<TrackerBoard rows={[]} markers={{}} />);
   expect(screen.getByText("No applications tracked yet")).toBeTruthy();
+  // Every way the copy names exists: Start preparing on the shortlist, Mark applied on
+  // the board, and the agent.
+  expect(
+    screen.getByText("Choose Start preparing on a shortlisted job, mark a job applied on your board, or ask the agent to track one."),
+  ).toBeTruthy();
   expect(screen.getByRole("link", { name: "Open your shortlist" }).getAttribute("href")).toBe("/shortlist");
 });
 

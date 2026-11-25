@@ -55,6 +55,41 @@ def _in_flight_snapshot(*, scope: bool = False) -> set[int]:
         return set(_registry(scope))
 
 
+# Scoped-run slots: at most K-1 of this process's K loops may run a scoped request at
+# once, so one loop is always free to serve a full ("review now") request within a
+# poll. With K = 1 there is nothing to reserve and the one loop may run scoped
+# requests. The slot is taken before the claim (so two loops cannot both pass the
+# check and claim) and given back when the attempt ends. Guarded by _in_flight_lock.
+_scope_slots_in_use = 0
+
+
+def _scope_slot_limit() -> int:
+    # Read per call so a config change (or a test's monkeypatch) is honoured.
+    return max(1, config.REVIEW_WORKER_PARALLELISM - 1)
+
+
+def _take_scope_slot() -> bool:
+    global _scope_slots_in_use
+    with _in_flight_lock:
+        if _scope_slots_in_use >= _scope_slot_limit():
+            return False
+        _scope_slots_in_use += 1
+        return True
+
+
+def _release_scope_slot() -> None:
+    global _scope_slots_in_use
+    with _in_flight_lock:
+        _scope_slots_in_use = max(0, _scope_slots_in_use - 1)
+
+
+def _rollback_quietly(conn) -> None:
+    try:
+        conn.rollback()
+    except Exception:
+        pass
+
+
 class _Stop:
     """Request cooperative shutdown with a bounded in-flight drain window."""
 
@@ -74,7 +109,11 @@ def process_one(conn) -> bool:
     a request was handled (caller should poll again immediately), False if the queue
     was empty (caller should sleep). Per-request isolation: any failure is recorded on
     the request row and never propagates out of this function. When no full request is
-    pending, one scoped re-review request is processed instead (process_scope_request)."""
+    pending, one scoped re-review request is processed instead (process_scope_request).
+
+    The full queue never depends on the scoped table: its recovery commits first, and
+    the scoped recovery and the scoped claim each run in their own try/except that
+    logs, rolls back only the scoped work and carries on."""
     from job_discovery.lifecycle.demand import process_pending
     process_pending(conn)
     recovered = db.recover_stale_review_requests(
@@ -82,19 +121,20 @@ def process_one(conn) -> bool:
     )
     if recovered:
         log.warning("recovered %s stale 'running' request(s)", recovered)
-    recovered_scope = db.recover_stale_scope_requests(
-        conn, STALE_MINUTES, exclude_ids=_in_flight_snapshot(scope=True)
-    )
-    if recovered_scope:
-        log.warning("recovered %s stale 'running' scoped request(s)", recovered_scope)
     conn.commit()
+    _recover_stale_scope_requests(conn)
 
     claimed = db.claim_next_review_request(conn)
     conn.commit()
     if not claimed:
         # Full requests go first: a scoped re-review is claimed only in a cycle that
         # claimed no full request.
-        return process_scope_request(conn)
+        try:
+            return process_scope_request(conn)
+        except Exception:
+            _rollback_quietly(conn)
+            log.exception("scoped review queue failed; the full queue carries on")
+            return False
 
     req_id = claimed["id"]
     claim_version = claimed["claim_version"]
@@ -144,6 +184,30 @@ def process_one(conn) -> bool:
     return True
 
 
+def _recover_stale_scope_requests(conn) -> None:
+    """Scoped stale recovery in its own transaction: a fault here (say, a database
+    without the scoped table) is logged and rolled back, and the full queue carries on."""
+    try:
+        recovered = db.recover_stale_scope_requests(
+            conn, STALE_MINUTES, exclude_ids=_in_flight_snapshot(scope=True)
+        )
+        conn.commit()
+    except Exception:
+        _rollback_quietly(conn)
+        log.exception("scoped request recovery failed; the full queue carries on")
+        return
+    if recovered:
+        log.warning("recovered %s stale 'running' scoped request(s)", recovered)
+
+
+# Why a scoped run can stop with nothing reviewed for a reason that may clear by
+# itself (run._review_user's `skip` codes). Such a request goes back to pending and is
+# retried after db.SCOPE_RETRY_BACKOFF_MINUTES, until it is db.SCOPE_MAX_AGE_HOURS
+# old. Every other stop (all listed jobs gone, closed, denied or fresh; no location
+# filter; account deleted; a superseded claim) finishes the request at once.
+SCOPE_TEMPORARY_SKIPS = frozenset({"daily_cap", "not_ready", "paused", "no_subscription"})
+
+
 def _scope_outcome_notes(job_ids: list[str], outcome: dict) -> str:
     """One short line on how a scoped request ended (finish_scope_request caps it)."""
     counts = outcome.get("counts") or {}
@@ -153,13 +217,42 @@ def _scope_outcome_notes(job_ids: list[str], outcome: dict) -> str:
     return f"{line}; {extra}" if extra else line
 
 
+def _scope_expired_notes(job_ids: list[str], reason: str) -> str:
+    """The honest note for a request given up on after SCOPE_MAX_AGE_HOURS of retries:
+    nothing will run it again, and its jobs are left to the regular review."""
+    return (f"gave up after {db.SCOPE_MAX_AGE_HOURS} hours: {reason}; none of the "
+            f"{len(job_ids)} listed job(s) reviewed here; left to the regular review")
+
+
 def process_scope_request(conn) -> bool:
     """Claim + process one pending scoped re-review request (plan Task 1.9). Returns
-    True if one was handled, False if the queue was empty or the user's review lock
-    was held (the request goes back to pending). Like process_one, every failure is
-    recorded on the request row and never propagates. Listed jobs that are gone,
-    closed or denied are filtered by the candidate query, so a request whose ids all
-    drop out finishes 'done' with a note."""
+    True if one was handled, False if nothing was claimable, every scoped slot of this
+    process is busy (see _take_scope_slot), or the request was handed back to pending.
+    Like process_one, every failure is recorded on the request row and never
+    propagates past the per-request handler."""
+    if not _take_scope_slot():
+        return False
+    try:
+        return _process_scope_request(conn)
+    finally:
+        _release_scope_slot()
+
+
+def _process_scope_request(conn) -> bool:
+    """The body of process_scope_request, run while holding a scoped slot.
+
+    How a claimed request ends:
+    - the user's lock is busy: back to pending at once (no backoff);
+    - nothing reviewed for a temporary reason (SCOPE_TEMPORARY_SKIPS): back to pending
+      after a backoff;
+    - either of those once the request is SCOPE_MAX_AGE_HOURS old: 'done' with an
+      honest note instead (db.retry_scope_request decides by the database clock);
+    - otherwise 'done' with a one-line note. Listed jobs that are gone, closed or
+      denied are filtered by the candidate query, so a request whose ids all drop out
+      finishes 'done' at once. If the profile changed while the run worked, a fresh
+      pending request with the same job_ids is inserted in the same transaction,
+      after the old one is finished (so the one-active index admits it);
+    - an exception: 'failed'."""
     claimed = db.claim_next_scope_request(conn)
     conn.commit()
     if not claimed:
@@ -183,19 +276,45 @@ def process_scope_request(conn) -> bool:
             job_ids=job_ids, scope_claim=(req_id, claim_version), outcome=outcome,
         )
         if completed is False:
-            # Another run holds the user's lock: hand the request back and back off.
-            db.finish_scope_request(conn, req_id, "pending", "waiting for active review", claim_version=claim_version)
+            # Another run holds the user's lock: hand the request back (claimable at
+            # once, as before) unless it is too old.
+            status = db.retry_scope_request(
+                conn, req_id, claim_version=claim_version,
+                retry_notes="waiting for active review",
+                expired_notes=_scope_expired_notes(job_ids, "another review kept holding the user's lock"),
+                backoff=False,
+            )
             conn.commit()
-            return False
-        db.finish_scope_request(
-            conn, req_id, "done", _scope_outcome_notes(job_ids, outcome), claim_version=claim_version,
-        )
+            return status != "pending"
+        skip = outcome.get("skip")
+        if skip in SCOPE_TEMPORARY_SKIPS:
+            # Nothing was reviewed, for a reason that may clear: retry later.
+            reason = outcome.get("notes") or skip
+            status = db.retry_scope_request(
+                conn, req_id, claim_version=claim_version,
+                retry_notes=f"will retry: {reason}",
+                expired_notes=_scope_expired_notes(job_ids, reason),
+                backoff=True,
+            )
+            conn.commit()
+            return status != "pending"
+
+        # M1: a memo saved while this run worked wrote a new profile_version, and its
+        # enqueue got already_active. Queue the same jobs again for the new version.
+        run_pv = outcome.get("pv")
+        current_pv = db.current_profile_version(conn, user_id) if run_pv is not None else None
+        profile_changed = current_pv is not None and current_pv != run_pv
+        notes = _scope_outcome_notes(job_ids, outcome)
+        if profile_changed:
+            notes += "; the profile changed during the run, so the jobs were queued again"
+        moved = db.finish_scope_request(conn, req_id, "done", notes, claim_version=claim_version)
+        if moved and profile_changed:
+            new_id = db.requeue_scope_request(conn, user_id, job_ids)
+            log.info("profile changed during scoped request %s; queued %s for the new version",
+                     req_id, new_id if new_id is not None else "nothing (another request is active)")
         conn.commit()
     except Exception as exc:  # never let one request kill the loop
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        _rollback_quietly(conn)
         db.finish_scope_request(conn, req_id, "failed", f"{type(exc).__name__}: {exc}"[:500], claim_version=claim_version)
         conn.commit()
         log.exception("scoped review request %s failed", req_id)

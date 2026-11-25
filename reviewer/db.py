@@ -513,6 +513,17 @@ def recover_stale_review_requests(conn, minutes: int = 30, exclude_ids=None) -> 
 # review_scope_requests.notes carries CHECK (char_length(notes) <= 2000).
 SCOPE_NOTES_MAX = 2000
 _SCOPE_FINISH_STATUSES = ("pending", "done", "failed")
+# A request handed back for a temporary reason (daily cap spent, jobs not hydrated
+# yet, matching paused, no active subscription) waits this long before it can be
+# claimed again, so it neither spins every poll nor holds up the requests behind it.
+# The pending row's started_at records when that attempt was made (no schema change).
+SCOPE_RETRY_BACKOFF_MINUTES = 15
+# Temporary handbacks stop once the request is this old (by requested_at): it then
+# finishes 'done' with a note, and the regular review covers its jobs.
+SCOPE_MAX_AGE_HOURS = 24
+# Stale recovery requeues a 'running' request while claim_version (the number of
+# times it was claimed) is below this, then fails it.
+SCOPE_MAX_ATTEMPTS = 3
 
 
 def _scope_notes(notes) -> str | None:
@@ -520,11 +531,13 @@ def _scope_notes(notes) -> str | None:
     return None if notes is None else str(notes)[:SCOPE_NOTES_MAX]
 
 
-def claim_next_scope_request(conn) -> dict | None:
+def claim_next_scope_request(conn, backoff_minutes: int = SCOPE_RETRY_BACKOFF_MINUTES) -> dict | None:
     """Atomically claim the oldest pending scoped request → status='running', with
     started_at set and claim_version bumped. FOR UPDATE SKIP LOCKED lets parallel
-    loops poll without grabbing the same row. Returns {id, user_id, job_ids,
-    claim_version} or None when the queue is empty. Caller commits."""
+    loops poll without grabbing the same row. A pending row whose started_at is set
+    was handed back for a temporary reason (retry_scope_request with backoff) and is
+    skipped until `backoff_minutes` have passed since that attempt. Returns {id,
+    user_id, job_ids, claim_version} or None when nothing is claimable. Caller commits."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -532,11 +545,13 @@ def claim_next_scope_request(conn) -> dict | None:
                    claim_version = claim_version + 1
             WHERE id = (
               SELECT id FROM review_scope_requests WHERE status = 'pending'
+                AND (started_at IS NULL OR started_at < now() - make_interval(mins => %(backoff)s))
               ORDER BY requested_at, id
               FOR UPDATE SKIP LOCKED LIMIT 1
             )
             RETURNING id, user_id, job_ids, claim_version
-            """
+            """,
+            {"backoff": backoff_minutes},
         )
         return cur.fetchone()
 
@@ -578,27 +593,100 @@ def finish_scope_request(conn, req_id: int, status: str, notes: str | None = Non
         return cur.rowcount == 1
 
 
-def recover_stale_scope_requests(conn, minutes: int = 30, exclude_ids=None) -> int:
-    """Fail scoped requests stuck 'running' longer than `minutes`, so a crashed worker
-    can't wedge the user's one active slot (one_active_review_scope_request counts
-    'running'). Like recover_stale_review_requests: `exclude_ids` protects this
-    process's in-flight ids, and the transactional per-user advisory lock skips a
-    request whose review still holds that lock in another session. The jobs stay
-    stale under the new profile_version, so the regular review picks them up later.
-    Returns the number recovered. Caller commits."""
+def retry_scope_request(conn, req_id: int, *, claim_version: int, retry_notes: str,
+                        expired_notes: str, backoff: bool,
+                        max_age_hours: int = SCOPE_MAX_AGE_HOURS) -> str | None:
+    """Hand a running claim back for a temporary reason, unless the request is too old.
+
+    While the request is younger than `max_age_hours` (by requested_at, which stays
+    unchanged so its place in the queue and its age are kept) it goes back to
+    'pending' with `retry_notes`. With `backoff`, started_at records this attempt, so
+    claim_next_scope_request skips the row for SCOPE_RETRY_BACKOFF_MINUTES; without
+    it (the user's lock was busy) started_at is cleared and the row is claimable at
+    once. Once the request is older, it finishes 'done' with `expired_notes` instead,
+    so a request cannot live forever. The age is read from the database clock.
+
+    Fenced like finish_scope_request: returns the new status ('pending' or 'done'),
+    or None when this claim generation no longer owns the row. Caller commits.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE review_scope_requests AS r SET
+                   status = CASE WHEN x.expired THEN 'done' ELSE 'pending' END,
+                   finished_at = CASE WHEN x.expired THEN now() ELSE NULL END,
+                   started_at = CASE WHEN x.expired THEN r.started_at
+                                     WHEN %(backoff)s::boolean THEN now() ELSE NULL END,
+                   notes = CASE WHEN x.expired THEN %(expired)s::text ELSE %(retry)s::text END
+            FROM (
+              SELECT id, requested_at < now() - make_interval(hours => %(age)s::int) AS expired
+              FROM review_scope_requests WHERE id = %(id)s
+            ) AS x
+            WHERE r.id = x.id AND r.status = 'running' AND r.claim_version = %(cv)s
+            RETURNING r.status
+            """,
+            {"backoff": backoff, "expired": _scope_notes(expired_notes),
+             "retry": _scope_notes(retry_notes), "age": max_age_hours,
+             "id": req_id, "cv": claim_version},
+        )
+        row = cur.fetchone()
+    return row["status"] if row else None
+
+
+def requeue_scope_request(conn, user_id: str, job_ids: list[str]) -> int | None:
+    """Insert a fresh pending scoped request for `user_id` with `job_ids` (the service
+    role's insert, so RLS does not apply). Used when the profile changed while a
+    request ran: the caller finishes the old row first, in the same transaction, so
+    one_active_review_scope_request admits this one. If the user already has an
+    active request it is left alone (it re-reads the profile when it runs) and None
+    is returned. Caller commits."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO review_scope_requests (user_id, job_ids) VALUES (%s, %s) "
+            "ON CONFLICT DO NOTHING RETURNING id",
+            (_uuid(user_id), [str(j) for j in job_ids]),
+        )
+        row = cur.fetchone()
+    return row["id"] if row else None
+
+
+def current_profile_version(conn, user_id: str) -> str | None:
+    """The user's profile_version right now, or None when there is no profile."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT profile_version FROM profiles WHERE user_id = %s", (_uuid(user_id),))
+        row = cur.fetchone()
+    return row["profile_version"] if row else None
+
+
+def recover_stale_scope_requests(conn, minutes: int = 30, exclude_ids=None,
+                                 max_attempts: int = SCOPE_MAX_ATTEMPTS) -> int:
+    """Recover scoped requests stuck 'running' longer than `minutes`, so a crashed or
+    redeployed worker can't wedge the user's one active slot
+    (one_active_review_scope_request counts 'running'). A request claimed fewer than
+    `max_attempts` times (claim_version) goes back to 'pending' to run again, since a
+    SIGTERM drain on every redeploy abandons in-flight runs; after that it is marked
+    'failed' / 'worker timeout' and the regular review covers its jobs. Like
+    recover_stale_review_requests: `exclude_ids` protects this process's in-flight
+    ids, and the transactional per-user advisory lock skips a request whose review
+    still holds that lock in another session. Returns the number recovered (requeued
+    or failed). Caller commits."""
     ex = list(exclude_ids) if exclude_ids is not None else None
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE review_scope_requests SET status = 'failed', finished_at = now(),
-                   notes = 'worker timeout'
+            UPDATE review_scope_requests SET
+                   status = CASE WHEN claim_version < %(attempts)s::bigint THEN 'pending' ELSE 'failed' END,
+                   started_at = CASE WHEN claim_version < %(attempts)s::bigint THEN NULL ELSE started_at END,
+                   finished_at = CASE WHEN claim_version < %(attempts)s::bigint THEN NULL ELSE now() END,
+                   notes = CASE WHEN claim_version < %(attempts)s::bigint
+                                THEN 'worker timeout; requeued' ELSE 'worker timeout' END
             WHERE status = 'running'
               AND started_at < now() - make_interval(mins => %(mins)s)
               AND (%(ex)s::bigint[] IS NULL OR id <> ALL(%(ex)s::bigint[]))
               AND pg_try_advisory_xact_lock(
                     hashtextextended('reviewer:review:' || user_id::text, 0))
             """,
-            {"mins": minutes, "ex": ex},
+            {"mins": minutes, "ex": ex, "attempts": max_attempts},
         )
         return cur.rowcount
 

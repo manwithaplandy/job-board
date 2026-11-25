@@ -20,6 +20,7 @@ from job_discovery import db as poller_db
 from job_discovery.models import Posting
 from reviewer import db as rdb
 from reviewer import worker
+from reviewer.schemas import Stage1Decision, Stage2Result
 from tests.conftest import TEST_DSN, as_user, requires_db
 
 A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -231,13 +232,16 @@ SCOPE_CLAUSE = "      AND j.id = ANY(%(job_ids)s::text[])\n    "
 
 @pytest.fixture(autouse=True)
 def _reset_worker_registries():
-    """The worker's in-flight registries are process-global; never leak an id."""
+    """The worker's in-flight registries and scoped-slot count are process-global;
+    never leak an id or a slot."""
+    worker._scope_slots_in_use = 0
     yield
     worker._in_flight_ids.clear()
     worker._in_flight_scope_ids.clear()
+    worker._scope_slots_in_use = 0
 
 
-def _seed_job(conn, external_id, *, closed=False):
+def _seed_job(conn, external_id, *, closed=False, remote=None):
     poller_db.sync_seed(conn, [{"name": "Acme", "ats": "lever", "token": "acme"}])
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM companies WHERE ats='lever' AND token='acme'")
@@ -245,7 +249,7 @@ def _seed_job(conn, external_id, *, closed=False):
     poller_db.upsert_job(
         conn, cid, "lever", "acme",
         Posting(external_id=external_id, title=f"Engineer {external_id}", url="https://x",
-                location="Remote", raw={"descriptionPlain": "jd"}),
+                location="Remote", remote=remote, raw={"descriptionPlain": "jd"}),
     )
     job_id = f"lever:acme:{external_id}"
     if closed:
@@ -358,7 +362,10 @@ def test_scope_never_resurrects_a_denied_job(conn):
 
 
 @requires_db
-def test_none_scope_matches_previous_behaviour(conn):
+def test_scope_over_every_job_returns_the_unscoped_selection(conn):
+    # The unscoped statement is proven unchanged by the sha256 pin in
+    # test_none_scope_query_is_byte_for_byte_unchanged; this checks on real SQL that
+    # the unscoped selection is the stale set and that a scope only narrows it.
     stale = [_seed_job(conn, f"stale-{n}") for n in range(3)]
     fresh = _seed_job(conn, "fresh")
     denied = _seed_job(conn, "denied")
@@ -427,18 +434,24 @@ def test_claim_takes_the_oldest_pending_request_and_skips_a_locked_one(conn):
     conn.commit()
 
 
+def _age_started(conn, req_id, minutes=31):
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE review_scope_requests SET started_at = now() - make_interval(mins => %s) WHERE id = %s",
+            (minutes, req_id),
+        )
+    conn.commit()
+
+
 @requires_db
-def test_stale_scope_requests_are_recovered(conn):
+def test_stale_scope_requests_are_requeued_then_failed(conn):
     aged = _enqueue(conn, A)
     fresh = _enqueue(conn, B)
     conn.commit()
     rdb.claim_next_scope_request(conn)
     rdb.claim_next_scope_request(conn)
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE review_scope_requests SET started_at = now() - interval '31 minutes' WHERE id = %s", (aged,)
-        )
     conn.commit()
+    _age_started(conn, aged)
     # This process's in-flight id is protected however old it is.
     assert rdb.recover_stale_scope_requests(conn, 30, exclude_ids={aged}) == 0
     conn.commit()
@@ -448,11 +461,26 @@ def test_stale_scope_requests_are_recovered(conn):
         assert rdb.recover_stale_scope_requests(conn, 30) == 0
         conn.commit()
         rdb.unlock_user_review(holder, A)
+
+    # Claimed once (a redeploy's drain abandoned it): back to pending, claimable at once.
     assert rdb.recover_stale_scope_requests(conn, 30) == 1
     conn.commit()
     row = _scope_row(conn, aged)
-    assert row["status"] == "failed" and row["notes"] == "worker timeout" and row["finished_at"] is not None
+    assert row["status"] == "pending" and row["notes"] == "worker timeout; requeued"
+    assert row["started_at"] is None and row["finished_at"] is None and row["claim_version"] == 1
     assert _scope_row(conn, fresh)["status"] == "running"
+
+    # The second claim is requeued too; the third (claim_version 3) is failed.
+    for claim_version, status, notes in ((2, "pending", "worker timeout; requeued"), (3, "failed", "worker timeout")):
+        claimed = rdb.claim_next_scope_request(conn)
+        conn.commit()
+        assert claimed["id"] == aged and claimed["claim_version"] == claim_version
+        _age_started(conn, aged)
+        assert rdb.recover_stale_scope_requests(conn, 30) == 1
+        conn.commit()
+        row = _scope_row(conn, aged)
+        assert row["status"] == status and row["notes"] == notes and row["claim_version"] == claim_version
+    assert row["finished_at"] is not None
     # The user's one active slot is free again.
     _enqueue(conn, A)
     conn.commit()
@@ -533,3 +561,330 @@ def test_scope_request_backs_off_while_locked_and_fails_cleanly_on_error(conn, m
     row = _scope_row(conn, rid)
     assert row["status"] == "failed" and row["notes"] == "RuntimeError: boom" and row["claim_version"] == 2
     assert worker._in_flight_snapshot(scope=True) == set()
+
+
+# ── Fix round 1 (review of PR #50): model path, fences, retries, slots, isolation ──
+
+class _ApprovingModel:
+    """Stands in for ReviewClient with no network: every job passes stage 1 and is
+    approved. Records which jobs reached the model; `on_stage1` runs once, at the first
+    stage-1 call (a test uses it to change the profile while the run works)."""
+
+    def __init__(self, on_stage1=None):
+        self.stage1_jobs: list[str] = []
+        self._on_stage1 = on_stage1
+
+    def __call__(self, *, model_stage1="m1", model_stage2="m2", **_kw):
+        # run._review_user constructs ReviewClient(model_stage1=..., model_stage2=...).
+        self.model_stage1, self.model_stage2 = model_stage1, model_stage2
+        return self
+
+    async def stage1_batch(self, *, profile_block, jobs):
+        if self._on_stage1 is not None:
+            hook, self._on_stage1 = self._on_stage1, None
+            hook()
+        self.stage1_jobs.extend(j["id"] for j in jobs)
+        return [Stage1Decision(job_id=j["id"], decision="pass", reason="r") for j in jobs]
+
+    async def stage2(self, **_kwargs):
+        return Stage2Result(
+            verdict="approve", experience_match="match",
+            industry="software_internet", industry_subcategory="devtools_platforms",
+            confidence="high", reasoning="fit",
+            role_category="Backend", skills_score=80, experience_score=80, comp_score=80,
+        )
+
+
+def _reviews(conn, user_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT job_id, profile_version, verdict FROM job_reviews WHERE user_id = %s ORDER BY job_id",
+            (uuid.UUID(user_id),),
+        )
+        return cur.fetchall()
+
+
+def _scope_rows(conn, user_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, status, job_ids, claim_version, notes FROM review_scope_requests "
+            "WHERE user_id = %s ORDER BY id",
+            (uuid.UUID(user_id),),
+        )
+        return cur.fetchall()
+
+
+def _last_run(conn, user_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT notes, reviewed, approved, errors FROM review_runs WHERE user_id = %s ORDER BY id DESC LIMIT 1",
+            (uuid.UUID(user_id),),
+        )
+        return cur.fetchone()
+
+
+@requires_db
+def test_scoped_run_reaches_the_model_and_is_charged_through_the_budget(conn, monkeypatch):
+    _entitle_profile(conn, A)
+    ids = [_seed_job(conn, str(n), remote=True) for n in range(3)]
+    rid = _enqueue(conn, A, job_ids=(ids[0], ids[2]))
+    conn.commit()
+    model = _ApprovingModel()
+    monkeypatch.setattr(worker.run, "ReviewClient", model)
+
+    assert worker.process_one(conn) is True
+    # Only the listed jobs reached the model, were persisted at the run's version and
+    # were charged to today's budget, one each.
+    assert sorted(model.stage1_jobs) == [ids[0], ids[2]]
+    assert _reviews(conn, A) == [
+        {"job_id": ids[0], "profile_version": "v1", "verdict": "approve"},
+        {"job_id": ids[2], "profile_version": "v1", "verdict": "approve"},
+    ]
+    assert rdb.get_daily_spend(conn, A) == 2
+    assert _last_run(conn, A) == {"notes": None, "reviewed": 2, "approved": 2, "errors": 0}
+    row = _scope_row(conn, rid)
+    assert row["status"] == "done" and row["notes"] == "2 of 2 listed job(s) selected; 2 reviewed, 0 errors"
+    # The profile did not change, so nothing was queued again.
+    assert [r["id"] for r in _scope_rows(conn, A)] == [rid]
+
+
+@requires_db
+def test_scoped_claim_superseded_before_the_user_lock_spends_nothing(conn, monkeypatch):
+    _entitle_profile(conn, A)
+    job = _seed_job(conn, "1", remote=True)
+    rid = _enqueue(conn, A, job_ids=(job,))
+    conn.commit()
+    model = _ApprovingModel()
+    monkeypatch.setattr(worker.run, "ReviewClient", model)
+
+    def delayed_config(connection):
+        # The claimant stalled before taking the user's lock; meanwhile another process
+        # recovered the stale claim (requeued it) and claimed it again.
+        connection.execute(
+            "UPDATE review_scope_requests SET started_at = now() - interval '2 hours' WHERE id = %s", (rid,)
+        )
+        connection.commit()
+        with psycopg.connect(TEST_DSN, row_factory=dict_row) as sibling:
+            assert rdb.recover_stale_scope_requests(sibling) == 1
+            assert rdb.claim_next_scope_request(sibling)["claim_version"] == 2
+        return "standard"
+
+    monkeypatch.setattr(rdb, "load_invite_comp_plan", delayed_config)
+    assert worker.process_one(conn) is True
+    assert _last_run(conn, A)["notes"] == "review scope request claim superseded; skipped"
+    # The old generation's finish was a no-op: the new claim still owns the row.
+    row = _scope_row(conn, rid)
+    assert row["status"] == "running" and row["claim_version"] == 2 and row["finished_at"] is None
+    # Nothing reached the model, nothing was persisted or charged, nothing was queued.
+    assert model.stage1_jobs == []
+    assert _reviews(conn, A) == []
+    assert rdb.get_daily_spend(conn, A) == 0
+    assert [r["id"] for r in _scope_rows(conn, A)] == [rid]
+
+
+@requires_db
+def test_profile_change_during_a_scoped_run_queues_the_jobs_again(conn, monkeypatch):
+    _entitle_profile(conn, A)
+    ids = [_seed_job(conn, str(n), remote=True) for n in range(2)]
+    rid = _enqueue(conn, A, job_ids=ids)
+    conn.commit()
+
+    def save_new_memo():
+        # A memo save lands while the model works: new profile_version, and its
+        # enqueue would get already_active because this request is running.
+        conn.execute("UPDATE profiles SET profile_version = 'v2' WHERE user_id = %s", (uuid.UUID(A),))
+        conn.commit()
+
+    model = _ApprovingModel(on_stage1=save_new_memo)
+    monkeypatch.setattr(worker.run, "ReviewClient", model)
+
+    assert worker.process_one(conn) is True
+    # The run finished at the version it loaded under the lock.
+    assert {r["profile_version"] for r in _reviews(conn, A)} == {"v1"}
+    first, second = _scope_rows(conn, A)
+    assert first["id"] == rid and first["status"] == "done"
+    assert first["notes"] == (
+        "2 of 2 listed job(s) selected; 2 reviewed, 0 errors; "
+        "the profile changed during the run, so the jobs were queued again"
+    )
+    # A fresh pending request with the same jobs, in the same transaction.
+    assert second["status"] == "pending" and second["job_ids"] == ids and second["claim_version"] == 0
+
+    # It runs at the new version and does not queue itself again.
+    assert worker.process_one(conn) is True
+    assert {r["profile_version"] for r in _reviews(conn, A)} == {"v2"}
+    assert rdb.get_daily_spend(conn, A) == 4
+    rows = _scope_rows(conn, A)
+    assert [r["status"] for r in rows] == ["done", "done"]
+    assert rows[1]["notes"] == "2 of 2 listed job(s) selected; 2 reviewed, 0 errors"
+
+
+@requires_db
+def test_a_temporary_stop_retries_the_scoped_request_until_it_is_a_day_old(conn, monkeypatch):
+    _entitle_profile(conn, A)
+    job = _seed_job(conn, "1", remote=True)
+    rdb.add_daily_spend(conn, A, 100_000)  # today's cap is spent
+    conn.commit()
+    rid = _enqueue(conn, A, job_ids=(job,))
+    conn.commit()
+    model = _ApprovingModel()
+    monkeypatch.setattr(worker.run, "ReviewClient", model)
+
+    # Nothing reviewed, for a temporary reason: back to pending, requested_at kept, and
+    # started_at marks the attempt for the backoff.
+    requested_at = conn.execute(
+        "SELECT requested_at FROM review_scope_requests WHERE id = %s", (rid,)
+    ).fetchone()["requested_at"]
+    assert worker.process_one(conn) is False
+    row = _scope_row(conn, rid)
+    assert row["status"] == "pending" and row["notes"] == "will retry: daily cap exhausted"
+    assert row["started_at"] is not None and row["finished_at"] is None and row["claim_version"] == 1
+    assert conn.execute(
+        "SELECT requested_at FROM review_scope_requests WHERE id = %s", (rid,)
+    ).fetchone()["requested_at"] == requested_at
+    # While it backs off, no loop claims it.
+    assert worker.process_one(conn) is False
+    assert _scope_row(conn, rid)["claim_version"] == 1
+    # After the backoff it is tried again.
+    _age_started(conn, rid, rdb.SCOPE_RETRY_BACKOFF_MINUTES + 1)
+    assert worker.process_one(conn) is False
+    row = _scope_row(conn, rid)
+    assert row["status"] == "pending" and row["claim_version"] == 2
+
+    # Once the request is a day old it ends, with a note that promises no later run.
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE review_scope_requests SET requested_at = now() - interval '25 hours', "
+            "started_at = now() - interval '16 minutes' WHERE id = %s",
+            (rid,),
+        )
+    conn.commit()
+    assert worker.process_one(conn) is True
+    row = _scope_row(conn, rid)
+    assert row["status"] == "done" and row["finished_at"] is not None and row["claim_version"] == 3
+    assert row["notes"] == (
+        "gave up after 24 hours: daily cap exhausted; none of the 1 listed job(s) reviewed here; "
+        "left to the regular review"
+    )
+    assert "deferred" not in row["notes"]
+    assert model.stage1_jobs == [] and _reviews(conn, A) == []
+    assert worker.process_one(conn) is False
+
+
+@requires_db
+def test_a_lock_busy_handback_also_ends_once_the_request_is_a_day_old(conn, monkeypatch):
+    _entitle_profile(conn, A)
+    rid = _enqueue(conn, A)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE review_scope_requests SET requested_at = now() - interval '25 hours' WHERE id = %s", (rid,)
+        )
+    conn.commit()
+    monkeypatch.setattr(worker.run, "_review_user", lambda *_a, **_k: False)
+    assert worker.process_one(conn) is True
+    row = _scope_row(conn, rid)
+    assert row["status"] == "done" and row["notes"] == (
+        "gave up after 24 hours: another review kept holding the user's lock; "
+        "none of the 1 listed job(s) reviewed here; left to the regular review"
+    )
+
+
+@pytest.mark.parametrize("parallelism, limit", [(-1, 1), (0, 1), (1, 1), (2, 1), (3, 2), (5, 4)])
+def test_scoped_slots_are_k_minus_one_but_never_zero(monkeypatch, parallelism, limit):
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_PARALLELISM", parallelism)
+    claims = []
+
+    def claim(_conn):
+        claims.append(1)  # and returns None: nothing pending
+
+    monkeypatch.setattr(worker.db, "claim_next_scope_request", claim)
+
+    class _Conn:
+        def commit(self):
+            pass
+
+    held = 0
+    while worker._take_scope_slot():
+        held += 1
+    assert held == limit
+    # Every slot is busy: the loop does not even claim.
+    assert worker.process_scope_request(_Conn()) is False and claims == []
+    # One frees up: the loop claims, and gives the slot back when the attempt ends.
+    worker._release_scope_slot()
+    assert worker.process_scope_request(_Conn()) is False and claims == [1]
+    assert worker._scope_slots_in_use == limit - 1
+
+    def broken_claim(_conn):
+        raise RuntimeError("scoped table unavailable")
+
+    monkeypatch.setattr(worker.db, "claim_next_scope_request", broken_claim)
+    with pytest.raises(RuntimeError):
+        worker.process_scope_request(_Conn())
+    assert worker._scope_slots_in_use == limit - 1  # released on an error too
+
+
+@requires_db
+def test_scoped_runs_never_take_the_last_loop(conn, monkeypatch):
+    monkeypatch.setattr(worker.config, "REVIEW_WORKER_PARALLELISM", 3)
+    calls = []
+
+    def fake_review(_connection, profile, *_args, **kwargs):
+        calls.append((str(profile["user_id"]), kwargs.get("request_claim") is not None))
+
+    monkeypatch.setattr(worker.run, "_review_user", fake_review)
+    _entitle_profile(conn, A)
+    _entitle_profile(conn, B)
+    scoped = _enqueue(conn, A)
+    conn.commit()
+
+    # Two of the three loops are already running scoped requests.
+    assert worker._take_scope_slot() and worker._take_scope_slot()
+    assert worker.process_one(conn) is False
+    row = _scope_row(conn, scoped)
+    assert row["status"] == "pending" and row["claim_version"] == 0 and calls == []
+    # This loop still serves a full request.
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO review_requests (user_id, status) VALUES (%s, 'pending')", (uuid.UUID(B),))
+    conn.commit()
+    assert worker.process_one(conn) is True
+    assert calls == [(B, True)]
+    # Once one scoped run ends, the scoped request runs.
+    worker._release_scope_slot()
+    assert worker.process_one(conn) is True
+    assert calls[1] == (A, False) and _scope_row(conn, scoped)["status"] == "done"
+    assert worker._scope_slots_in_use == 1  # the slot still held above
+
+
+@requires_db
+def test_a_scoped_table_fault_never_stops_the_full_queue(conn, monkeypatch):
+    def broken(connection, *_args, **_kwargs):
+        # A database without the scoped table: the statement fails and aborts the
+        # transaction, exactly as the real query would.
+        connection.execute("SELECT 1 FROM review_scope_requests_missing")
+
+    monkeypatch.setattr(rdb, "recover_stale_scope_requests", broken)
+    monkeypatch.setattr(rdb, "claim_next_scope_request", broken)
+    calls = []
+    monkeypatch.setattr(worker.run, "_review_user", lambda _c, profile, *_a, **_k: calls.append(str(profile["user_id"])))
+    _entitle_profile(conn, A)
+    _entitle_profile(conn, B)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO review_requests (user_id, status) VALUES (%s, 'pending') RETURNING id", (uuid.UUID(B),))
+        stale = cur.fetchone()["id"]
+        cur.execute(
+            "UPDATE review_requests SET status = 'running', started_at = now() - interval '31 minutes' WHERE id = %s",
+            (stale,),
+        )
+        cur.execute("INSERT INTO review_requests (user_id, status) VALUES (%s, 'pending') RETURNING id", (uuid.UUID(A),))
+        pending = cur.fetchone()["id"]
+    conn.commit()
+
+    # The full queue's recovery and claim both still work, and the request is processed.
+    assert worker.process_one(conn) is True
+    assert calls == [A]
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, status FROM review_requests WHERE id = ANY(%s) ORDER BY id", ([stale, pending],))
+        assert {r["id"]: r["status"] for r in cur.fetchall()} == {stale: "failed", pending: "done"}
+    # With no full request left, the broken scoped claim is logged, not raised.
+    assert worker.process_one(conn) is False
+    assert conn.execute("SELECT 1 AS ok").fetchone()["ok"] == 1

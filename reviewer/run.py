@@ -410,8 +410,10 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
     # rule below applies unchanged, and None keeps every existing path the same.
     # `scope_claim` is the (request id, claim_version) of a claimed
     # review_scope_requests row, fenced under the user lock like `request_claim`.
-    # `outcome`, when given, receives this run's notes, counts and the number of jobs
-    # selected, so the worker can record how a scoped request ended.
+    # `outcome`, when given, receives this run's notes, counts, the number of jobs
+    # selected, the profile_version the run reviewed at (`pv`) and, when the run
+    # stopped early, why (`skip`, one of the codes set below; None otherwise), so the
+    # worker can record how a scoped request ended and retry a temporary stop.
     user_id = str(profile["user_id"])
     pv = profile["profile_version"]
     run_id = db.start_review_run(conn, user_id)
@@ -421,6 +423,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
     notes = None
     locked = False
     selected = 0
+    skip = None
     try:
         # M-TOCTOU: serialize per-user review spend across the cron reviewer (review_all)
         # and the on-demand worker. Without this, both can read spend=0, each select up
@@ -433,6 +436,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         locked = db.try_lock_user_review(conn, user_id)
         if not locked:
             notes = "review already in progress; skipped"
+            skip = "lock_busy"
             log.info("review already in progress for %s; skipping", user_id)
             return False
 
@@ -442,11 +446,13 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             conn, user_id, *request_claim
         ):
             notes = "review request claim superseded; skipped"
+            skip = "superseded"
             return
         if scope_claim is not None and not db.current_scope_claim(
             conn, user_id, *scope_claim
         ):
             notes = "review scope request claim superseded; skipped"
+            skip = "superseded"
             return
 
         # Queue/cron snapshots may be old: reload entitlement and profile only after
@@ -454,10 +460,12 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         profile = db.load_profile(conn, user_id)
         if profile is None:
             notes = "profile not found"
+            skip = "profile_missing"
             return
         pv = profile["profile_version"]
         if not db.matching_eligible(conn, user_id):
             notes = "matching paused after 7 days of inactivity; explicit resume required"
+            skip = "paused"
             return
         conn.commit()  # release short activity-row lock before slow model work
 
@@ -478,6 +486,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         )
         if plan is None:
             notes = "no active subscription"
+            skip = "no_subscription"
             log.info("no active subscription for %s; skipping", user_id)
             return
 
@@ -486,6 +495,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         # NULL preferred_locations means an unbounded pool, so skip with zero LLM calls.
         if not (profile.get("preferred_locations") or []):
             notes = "location filter required"
+            skip = "no_location"
             log.info("no location filter for %s; skipping", user_id)
             return
 
@@ -515,6 +525,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             # Budget exhausted — skip the user entirely: zero candidates selected,
             # zero LLM calls. The run row still closes so the skip is auditable.
             notes = "daily cap exhausted"
+            skip = "daily_cap"
             log.info("daily cap %s exhausted for %s; skipping", cap, user_id)
             return
 
@@ -536,15 +547,27 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         selected = len(candidates)
         overflow = total - len(candidates)
         if overflow > 0:
-            notes = f"overflow: {overflow} job(s) deferred to next run"
+            if job_ids is None:
+                notes = f"overflow: {overflow} job(s) deferred to next run"
+            else:
+                # Scoped: no later scoped run is promised for these (the worker retries
+                # the request only when nothing at all was reviewed), so say only what
+                # happened in this run.
+                notes = (f"scope: {overflow} listed job(s) not reviewed in this run "
+                         f"(over the remaining budget or not hydrated yet)")
             log.info("review overflow: %s job(s) over remaining budget %s, deferred",
                      overflow, remaining)
         if job_ids is not None and not candidates:
-            # Scoped and nothing left to review: every listed job is gone, closed,
-            # denied, already fresh or outside a gate (or none is hydrated yet, which
-            # the overflow note above records). Close cleanly with zero LLM calls.
+            # Scoped and nothing left to review. Close cleanly with zero LLM calls.
             if total == 0:
+                # Permanent: every listed job is gone, closed, denied, already fresh or
+                # outside a gate.
                 notes = f"scope: none of the {len(job_ids)} listed job(s) need review"
+                skip = "scope_empty"
+            else:
+                # Temporary: listed jobs are due but none is hydrated yet (with budget
+                # left, the selection is never empty when total > 0).
+                skip = "not_ready"
             return
 
         profile_block = build_profile_block(
@@ -641,6 +664,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         # Cheap EXISTS; the run row still closes below.
         if db.user_deleted(conn, user_id):
             notes = "account deleted mid-run; skipped writes"
+            skip = "deleted"
             log.info("account %s deleted mid-run; skipping writes", user_id)
             return
 
@@ -653,7 +677,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         log.exception("review failed for %s", user_id)
     finally:
         if outcome is not None:
-            outcome.update(notes=notes, counts=dict(counts), selected=selected)
+            outcome.update(notes=notes, counts=dict(counts), selected=selected, pv=pv, skip=skip)
         db.finish_review_run(conn, run_id, notes=notes, **counts)
         conn.commit()
         # Release AFTER the commit above so any concurrent run that now acquires the

@@ -29,7 +29,7 @@ export default async function ApplicationsPage() {
   ]);
 
   return (
-    <AppShell header={<AppHeader email={email} isAdmin={isAdmin(claims)} />}>
+    <AppShell header={<AppHeader current="applications" email={email} isAdmin={isAdmin(claims)} />}>
       <main className="rf-secondary-page">
         <div className="rf-secondary-wrap rf-secondary-wrap--wide rf-secondary-stack">
           <PageHeader

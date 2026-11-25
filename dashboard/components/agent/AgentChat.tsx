@@ -184,6 +184,9 @@ function toolPartsOf(m: UIMessage): ToolPart[] {
 
 const presentOutputSchema = z.object({ surfaceId: z.uuid() });
 const writeOutputSchema = z.object({ status: z.literal("done"), actionId: z.number().int().positive() });
+// The approval tools that start a generation, and the outputs that mean one is running.
+const PREP_TOOLS: ReadonlySet<string> = new Set(["start_application_prep", "refine_documents"]);
+const prepOutputSchema = z.object({ status: z.enum(["started", "already_running"]), generation: z.unknown().optional() });
 // ask_user's questions, shown as plain text (the answer is the user's next message).
 const askUserInputSchema = z.object({ questions: z.array(z.object({ label: z.string(), options: z.array(z.string()).optional() })) });
 
@@ -381,6 +384,31 @@ export function AgentChat({
       }
     }
   }, [messages, router]);
+
+  // A prep the agent started through its approval tool (start_application_prep or
+  // refine_documents, after the user approved the card) tells the generation tracker,
+  // once per call and not for the stored history, so the checklist and the completion
+  // toast follow it (PR I3b review I3). The tool's output carries only the generation
+  // id, so the tracker refreshes; a parseable generation view is handed over directly.
+  const prepSeen = useRef<Set<string> | null>(null);
+  if (prepSeen.current === null) {
+    prepSeen.current = new Set(initialMessages.flatMap((m) => toolPartsOf(m).map((p) => p.toolCallId)));
+  }
+  useEffect(() => {
+    const seen = prepSeen.current as Set<string>;
+    for (const m of messages) {
+      for (const part of toolPartsOf(m)) {
+        if (part.state !== "output-available" || seen.has(part.toolCallId)) continue;
+        if (!PREP_TOOLS.has(getToolName(part))) continue;
+        const out = prepOutputSchema.safeParse(part.output);
+        if (!out.success) continue;
+        seen.add(part.toolCallId);
+        const generation = parseGenerationJob(out.data.generation);
+        if (generation && tracker) tracker.notifyStarted(generation);
+        else tracker?.refresh();
+      }
+    }
+  }, [messages, tracker]);
 
   // The waiting approval's fixed card, built on the server from the stored part. The
   // turn may still be saving when the stream ends, so "pending" is retried briefly.

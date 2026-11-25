@@ -264,6 +264,60 @@ describe("confirm cards", () => {
   });
 });
 
+describe("a prep started through the approval tool (PR I3b review I3)", () => {
+  const generation = {
+    id: "g2", jobId: JOB_A, kind: "prepare", status: "pending", error: null, jobTitle: "Engineer", company: "Acme",
+    createdAt: "2026-11-25T00:00:00.000Z", updatedAt: "2026-11-25T00:00:00.000Z",
+  };
+
+  test("an approved start_application_prep result refreshes the tracker once per call", async () => {
+    tracker.value = { notifyStarted: vi.fn(), refresh: vi.fn() };
+    agentReply = () => stream(toolReply("start_application_prep", { jobId: JOB_A }, { status: "started", generationId: "g1" }, "prep-1"));
+    const { rerender } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+    fireEvent.change(composer(), { target: { value: "Prepare it" } });
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(tracker.value?.refresh).toHaveBeenCalledTimes(1));
+    expect(tracker.value?.notifyStarted).not.toHaveBeenCalled();
+    // A later rerender and a later turn do not raise it again for the same call.
+    rerender(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+    agentReply = () => stream(textReply("It is running."));
+    fireEvent.change(composer(), { target: { value: "Thanks" } });
+    fireEvent.click(sendButton());
+    await screen.findByText("It is running.");
+    expect(tracker.value?.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  test("a refine_documents result that carries a generation view hands it to the tracker", async () => {
+    tracker.value = { notifyStarted: vi.fn(), refresh: vi.fn() };
+    agentReply = () =>
+      stream(toolReply("refine_documents", { jobId: JOB_A }, { status: "already_running", generationId: "g2", generation }, "refine-1"));
+    render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+    fireEvent.change(composer(), { target: { value: "Shorter letter" } });
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(tracker.value?.notifyStarted).toHaveBeenCalledWith(generation));
+    expect(tracker.value?.refresh).not.toHaveBeenCalled();
+  });
+
+  test("a stored prep result, or one that started nothing, does not touch the tracker", async () => {
+    tracker.value = { notifyStarted: vi.fn(), refresh: vi.fn() };
+    const stored: UIMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [{ type: "tool-start_application_prep", toolCallId: "old", state: "output-available", input: {}, output: { status: "started", generationId: "g0" } } as UIMessage["parts"][number]],
+      },
+    ];
+    agentReply = () => stream(toolReply("start_application_prep", { jobId: JOB_A }, { status: "allowance_exhausted", kind: "resume" }, "prep-2"));
+    render(<AgentChat threadId={THREAD} initialMessages={stored} notice={null} />);
+    fireEvent.change(composer(), { target: { value: "Prepare it" } });
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(agentCalls()).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(tracker.value?.refresh).not.toHaveBeenCalled();
+    expect(tracker.value?.notifyStarted).not.toHaveBeenCalled();
+  });
+});
+
 describe("undo and uploads", () => {
   test("a write tool result shows Undo, and Undo calls undoAgentAction with its actionId", async () => {
     agentReply = () => stream(toolReply("set_shortlist_state", { jobId: JOB_A, state: "shortlisted" }, { status: "done", state: "shortlisted", actionId: 42 }));

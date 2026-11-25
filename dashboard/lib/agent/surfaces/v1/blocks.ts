@@ -77,7 +77,14 @@ const IntakeQuestion = z
     id: z.string().regex(QUESTION_ID_RE),
     label: text(120),
     kind: z.enum(QUESTION_KINDS),
-    options: z.array(text(60)).min(2).max(10).optional(),
+    // Options are selected by their text, so two equal options (after trimming) would
+    // toggle together: refused, and validateSurface then renders the fallback.
+    options: z
+      .array(text(60))
+      .min(2)
+      .max(10)
+      .refine((opts) => new Set(opts.map((o) => o.trim())).size === opts.length, { message: "options must be unique" })
+      .optional(),
   })
   .strict()
   .refine((q) => (q.kind === "choice" || q.kind === "multi") === (q.options !== undefined), {

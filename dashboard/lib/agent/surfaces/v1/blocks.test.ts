@@ -45,6 +45,9 @@ describe("V1BlockSchema", () => {
     expect(q([{ id: "seniority", label: "Level?", kind: "choice" }])).toBe(false);
     expect(q([{ id: "where", label: "Where?", kind: "locations", options: ["a", "b"] }])).toBe(false);
     expect(q([{ id: "a", label: "A?", kind: "text" }, { id: "a", label: "B?", kind: "text" }])).toBe(false);
+    // Options are picked by their text, so a duplicate (after trimming) is refused.
+    expect(q([{ id: "level", label: "Level?", kind: "multi", options: ["Staff", "Senior", "Staff"] }])).toBe(false);
+    expect(q([{ id: "level", label: "Level?", kind: "choice", options: ["Staff", " Staff "] }])).toBe(false);
     expect(q(Array.from({ length: 7 }, (_, i) => ({ id: `q${i}`, label: "Q?", kind: "text" })))).toBe(false);
   });
 });

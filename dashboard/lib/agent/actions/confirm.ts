@@ -28,7 +28,7 @@ import { monthlyAllowance, type Plan } from "@/lib/entitlements";
 import { monthlyGenerationSpend, type GenerationKind } from "@/lib/usage";
 import { getViewerPlan } from "@/lib/subscriptions";
 import { parseGreenhouseQuestionsJsonb } from "@/lib/rolefit/packageCodec";
-import { hasCoverLetterQuestion } from "@/lib/rolefit/coverLetterQuestion";
+import { prepNeeds } from "@/lib/rolefit/prepNeeds";
 import { loadTierConfig } from "@/lib/tierConfig";
 import { approvalSecret } from "@/lib/agent/approvalSecret";
 import { ActionIntentSchema, type ActionIntent, type ConfirmDescriptor } from "@/lib/agent/actions/intents";
@@ -111,14 +111,14 @@ async function jobLine(userId: string, jobId: string): Promise<string | null> {
 
 /**
  * Whether a full prep of this job writes a cover letter: the rule startApplicationPrep
- * charges by (hasCoverLetterQuestion over the posting's questions), read from the stored
+ * charges by (prepNeeds over the posting's questions), read from the stored
  * questions; null when they are not stored yet.
  */
 async function prepWantsCover(userId: string, jobId: string): Promise<boolean | null> {
   const rows = await withUserSql(userId, (tx) => tx`SELECT questions FROM job_questions WHERE job_id = ${jobId}`);
   const row = parseOrNull(z.object({ questions: z.unknown() }), rows[0]);
   const questions = row ? parseGreenhouseQuestionsJsonb(row.questions) : null;
-  return questions === null ? null : hasCoverLetterQuestion(questions);
+  return questions === null ? null : prepNeeds(questions).cover;
 }
 
 /**

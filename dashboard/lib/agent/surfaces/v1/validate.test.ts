@@ -96,6 +96,12 @@ describe("validateSurface (variant 1)", () => {
     expect((await errorsOf(v1([]))).length).toBeGreaterThan(0);
   });
 
+  test("IntakeQuestions with duplicate options fails, so present renders the fallback", async () => {
+    const intake = (options: string[]) => v1([{ type: "IntakeQuestions", questions: [{ id: "level", label: "Level?", kind: "choice", options }] }]);
+    expect(await errorsOf(intake(["Senior", "Staff"]))).toEqual([]);
+    expect(await errorsOf(intake(["Senior", "Staff", "Senior"]))).toEqual(["blocks.0.questions.0.options: options must be unique"]);
+  });
+
   test("JobComparison needs exactly two distinct job ids", async () => {
     const cmp = (jobIds: unknown) => v1([{ type: "JobComparison", jobIds, rowOrder: ["pay", "requirements"], verdict: "A pays more." }]);
     expect(await errorsOf(cmp([JOB_A, JOB_B]))).toEqual([]);

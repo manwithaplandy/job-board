@@ -1,3 +1,4 @@
+import { useId, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Panel";
 import { diffMemo } from "@/lib/workspaces/memoCompile";
@@ -24,6 +25,7 @@ export function MemoDiffCard({
   onApprove,
   onEdit,
   onDecline,
+  actions,
 }: {
   proposal: MemoProposal;
   current: MemoDoc;
@@ -32,9 +34,12 @@ export function MemoDiffCard({
   onApprove: () => void;
   onEdit: () => void;
   onDecline: () => void;
+  /** Replaces Approve, Edit and Decline (the agent page's block, for an outdated proposal). */
+  actions?: ReactNode;
 }) {
   const changes = diffMemo(current, proposal.proposedDoc);
-  const titleId = `ws-memo-proposal-${proposal.id}`;
+  // From useId, not the proposal id: the agent page can show one proposal in two surfaces.
+  const titleId = useId();
   return (
     <article className="rf-ws-memo-diff" aria-labelledby={titleId}>
       <div className="rf-ws-memo-diff__head">
@@ -69,19 +74,23 @@ export function MemoDiffCard({
         </p>
       )}
       <div className="rf-ws-row__actions">
-        {!outdated && (
+        {actions ?? (
           <>
-            <Button size="sm" disabled={pending} onClick={onApprove}>
-              Approve
-            </Button>
-            <Button variant="outline" size="sm" disabled={pending} onClick={onEdit}>
-              Edit
+            {!outdated && (
+              <>
+                <Button size="sm" disabled={pending} onClick={onApprove}>
+                  Approve
+                </Button>
+                <Button variant="outline" size="sm" disabled={pending} onClick={onEdit}>
+                  Edit
+                </Button>
+              </>
+            )}
+            <Button variant="ghost" size="sm" disabled={pending} onClick={onDecline}>
+              Decline
             </Button>
           </>
         )}
-        <Button variant="ghost" size="sm" disabled={pending} onClick={onDecline}>
-          Decline
-        </Button>
       </div>
     </article>
   );

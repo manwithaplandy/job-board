@@ -414,6 +414,13 @@ EXPECTED_RLS = {
     "job_payload_demands": {"owner_access": ("ALL", frozenset({"authenticated"}))},
     "matching_activity": {"owner_read": ("SELECT", frozenset({"authenticated"}))},
     "feedback": {"feedback_owner_read": ("SELECT", frozenset({"authenticated"}))},
+    # Agent core (supabase/migrations/20261125040000_agent_core.sql): owner CRUD on
+    # threads, owner read/insert/update on settings, owner read only on messages and
+    # runs (the service role is their only writer).
+    "agent_threads": {"agent_threads_owner": ("ALL", frozenset({"authenticated"}))},
+    "agent_messages": {"agent_messages_owner_read": ("SELECT", frozenset({"authenticated"}))},
+    "agent_runs": {"agent_runs_owner_read": ("SELECT", frozenset({"authenticated"}))},
+    "agent_settings": {"agent_settings_owner": ("ALL", frozenset({"authenticated"}))},
     # Full owner CRUD (owner_access FOR ALL, USING/WITH CHECK = app_user_id()).
     "profiles": _OWNER_ALL,
     "job_reviews": _OWNER_ALL,
@@ -468,7 +475,10 @@ EXPECTED_RLS = {
 
 # Policies whose USING/WITH CHECK must be owner-scoped through app_user_id() — a guard so
 # an owner_* policy can't be silently rewritten to a `true` (all-rows) predicate.
-_OWNER_SCOPED = {"owner_access", "owner_read", "owner_insert", "owner_or_legacy_read", "feedback_owner_read"}
+_OWNER_SCOPED = {
+    "owner_access", "owner_read", "owner_insert", "owner_or_legacy_read", "feedback_owner_read",
+    "agent_threads_owner", "agent_messages_owner_read", "agent_runs_owner_read", "agent_settings_owner",
+}
 
 
 @requires_db
@@ -538,6 +548,10 @@ EXPECTED_GRANTS = {
     "job_payload_demands": (_R(), _R({"SELECT", "DELETE"})),
     "matching_activity": (_R(), _R({"SELECT"})),
     "feedback": (_R(), _R({"SELECT"})),
+    "agent_threads": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "agent_messages": (_R(), _R({"SELECT"})),
+    "agent_runs": (_R(), _R({"SELECT"})),
+    "agent_settings": (_R(), _R({"SELECT", "INSERT", "UPDATE"})),
     "jobs":                 (_R({"SELECT"}), _R({"SELECT"})),
     "companies":            (_R({"SELECT"}), _R({"SELECT"})),
     "poll_runs":            (_R(), _R({"SELECT"})),

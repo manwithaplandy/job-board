@@ -1960,3 +1960,23 @@ variant alone is not enough. Task 2.4 should store variant 3 fallbacks the same 
 R14. The plan's bind pattern cannot bind `/shortlist` or `/applications` as a whole array for
 a Table's `rowsBind` (it needs one to four segments after the root). Revisit before the Task
 2.10 evals if scenarios need those tables.
+
+R15. Variant 3 (PR J2 review, fix round 1). Task 2.8 depends on these:
+
+- The Task 2.8 host mounts `SandboxFrame` only when `canMountSandbox(row)`
+  (`lib/agent/surfaces/v3/mount.ts`) passes. That means a variant 3 row whose `outcome` is not
+  `fallback`, with no `failure` set, a stored `fallback_payload`, and a payload that passes
+  `validateSurfaceV3` (schema plus static checks) at read time. Every other row renders its
+  `fallback_payload` through `BlockList`. This makes a runtime fallback (`self_navigation`,
+  `no_heartbeat`, `action_total_limit` and the rest, stored by `reportSurfaceFailure`) sticky:
+  a frame that failed once is never mounted again, on reload or revisit.
+- The frame's action limits (10 a minute, 30 in total) count per mount of `SandboxFrame`.
+  Combined with the sticky fallback above, that is acceptable.
+- Prompt points for the variant 3 instructions:
+  - model code reads data inside `host.onInit(function (data, theme) { ... })`, never at top
+    level, since `init` arrives after the document's own scripts start;
+  - no inline `style="..."` attributes and no `on...=` handler attributes, since the CSP
+    blocks both. Use classes in the document's `<style>` and `addEventListener`.
+- Deferred to Task 2.8 (review M8): the theme reaches the frame once, in `init`. A theme
+  change after that is not forwarded. Either remount the frame on a theme change or add a
+  `theme` host-to-frame message that the kit applies to `data-theme`.

@@ -98,8 +98,20 @@ describe("enqueueScopedReview", () => {
     await expect(enqueueScopedReview(USER, [job(1)])).rejects.toThrow("permission denied");
   });
 
-  test("an insert that returns no parseable row is an error", async () => {
-    db.insert = () => Promise.resolve([{ id: null }]);
-    await expect(enqueueScopedReview(USER, [job(1)])).rejects.toThrow(/failed the parse/);
+  test("an insert whose returned row fails the parse is still queued, and logged as such", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const returned of [[{ id: null }], []]) {
+        db.insert = () => Promise.resolve(returned);
+        expect(await enqueueScopedReview(USER, [job(1)])).toBe("queued");
+      }
+      expect(logged).toHaveBeenCalledTimes(2);
+      for (const [message] of logged.mock.calls) {
+        expect(message).toBe("reviewScope: the scoped re-review was queued, but its returned row did not parse");
+        expect(String(message)).not.toMatch(/could not enqueue/);
+      }
+    } finally {
+      logged.mockRestore();
+    }
   });
 });

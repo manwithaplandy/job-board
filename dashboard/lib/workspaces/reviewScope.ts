@@ -94,15 +94,20 @@ function isUniqueViolation(e: unknown): boolean {
 export async function enqueueScopedReview(userId: string, jobIds: string[]): Promise<EnqueueScopeResult> {
   const ids = scopeIds(jobIds);
   if (ids.length === 0) return "empty";
+  let rows: readonly unknown[];
   try {
-    const rows = await withUserSql(userId, (tx) => tx`
+    rows = await withUserSql(userId, (tx) => tx`
       INSERT INTO review_scope_requests (user_id, job_ids, reason)
       VALUES (${userId}::uuid, ${ids}::text[], 'memo_change')
       RETURNING id`);
-    if (!parseOrNull(insertedRowSchema, rows[0])) throw new Error("reviewScope: the new request failed the parse");
-    return "queued";
   } catch (e) {
     if (isUniqueViolation(e)) return "already_active";
     throw e;
   }
+  // The insert's transaction has committed by now, so the request exists whatever its
+  // returned row looks like: log a row that fails the parse, but still report "queued".
+  if (!parseOrNull(insertedRowSchema, rows[0])) {
+    console.error("reviewScope: the scoped re-review was queued, but its returned row did not parse");
+  }
+  return "queued";
 }

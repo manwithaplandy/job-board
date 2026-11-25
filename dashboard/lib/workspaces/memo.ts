@@ -73,8 +73,10 @@ const VERSIONS_LIMIT = 100;
  */
 export async function afterMemoChange(userId: string): Promise<void> {
   try {
-    // "already_active": the pending request re-reads the profile when it runs, so it
-    // already reviews against this version; "empty": nothing to re-review.
+    // "already_active": a pending request re-reads the profile when it runs, so it
+    // already reviews against this version; a running one is queued again by the
+    // reviewer worker when it finishes, because the profile_version it reviewed at is
+    // no longer current. "empty": nothing to re-review.
     await enqueueScopedReview(userId, await reviewScopeForMemoChange(userId));
   } catch (e) {
     console.error("memo: could not enqueue the scoped re-review", e instanceof Error ? e.message : String(e));

@@ -23,6 +23,11 @@ export default defineConfig({
     ],
     exclude: ["**/node_modules/**"],
     fileParallelism: false,
+    // Real-database tests seed and run whole agent turns (the phase 1 gate: ~150 seed
+    // statements and up to four POSTs per test); vitest's 5 s default is too tight on a
+    // cold CI runner. No db test relies on a shorter timeout.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     env: { ...base.test?.env, DATABASE_URL: dsn },
   },
 });

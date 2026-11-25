@@ -13,6 +13,7 @@
 // Runs only under `npm run test:db` (CI's db lane).
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { simulateReadableStream } from "ai";
+import { z } from "zod";
 import { MockLanguageModelV4 } from "ai/test";
 import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { openTestDb, type TestDb } from "@/lib/testing/dbHarness";
@@ -27,6 +28,8 @@ const h = vi.hoisted(() => ({
   turns: [] as ScriptTurn[],
   /** Model calls a turn's script had no step for. */
   overruns: [] as string[],
+  /** Per POST that reached the model: how many of its scripted steps were played, of how many. */
+  played: [] as Array<{ played: () => number; total: number }>,
 }));
 
 vi.mock("next/server", async (importOriginal) => {
@@ -71,10 +74,21 @@ import { listShortlist } from "@/lib/workspaces/shortlist";
 import { listApplications } from "@/lib/workspaces/applications";
 import { getMemo } from "@/lib/workspaces/memo";
 import { listDocuments } from "@/lib/workspaces/documents";
+import { getTileLayout } from "@/lib/workspaces/analyticsTiles";
+import { runMetric } from "@/lib/workspaces/metrics/queries";
+
+/** The only intent the scenarios press. */
+const MemoResolvePress = z.object({
+  name: z.literal("memo.resolve"),
+  proposalId: z.string(),
+  decision: z.enum(["approve", "decline"]),
+});
 
 /** A model that plays one scripted turn: step k answers the k-th model call of the POST. */
 function scriptedTurn(steps: ScriptTurn) {
   let i = 0;
+  // A turn that stops before its last step (a tool error, an early stop) must fail the gate.
+  h.played.push({ played: () => Math.min(i, steps.length), total: steps.length });
   return new MockLanguageModelV4({
     doStream: async ({ prompt }) => {
       const step = steps[i];
@@ -116,6 +130,7 @@ beforeEach(async () => {
   h.afterTasks.length = 0;
   h.turns.length = 0;
   h.overruns.length = 0;
+  h.played.length = 0;
   h.userId = "";
   h.email = null;
   // A test-only signing key: long enough to count, never a real secret.
@@ -179,6 +194,8 @@ describe("phase 1 gate", () => {
     expect(script.errors).toEqual([]);
     expect(h.overruns).toEqual([]);
     expect(h.turns).toEqual([]);
+    // Every scripted turn reached the model and played every one of its steps.
+    expect(h.played.map((t) => [t.played(), t.total])).toEqual(script.turns.map((t) => [t.length, t.length]));
     expect(played.skipped).toEqual([]);
     expect(played.turns.map((t) => t.status)).toEqual(played.turns.map(() => 200));
     expect(played.intents.map((p) => p.outcome)).toEqual(played.intents.map(() => "done"));
@@ -207,6 +224,17 @@ describe("phase 1 gate", () => {
 
     // What each scenario is for, beyond the generic asserts.
     const after = recording.dbAfter;
+    // An intent's "done" also covers the "proposal closed" toast, so each memo.resolve
+    // press is checked against what it changed: its proposal resolved as pressed and,
+    // on approve, a memo version written from that proposal.
+    for (const press of played.intents) {
+      const intent = MemoResolvePress.parse(press.intent);
+      const status = intent.decision === "approve" ? "approved" : "declined";
+      expect(after.memoProposals.find((p) => p.id === intent.proposalId)?.status).toBe(status);
+      expect(after.memoVersions.some((v) => v.proposalId === intent.proposalId && v.changedBy === "proposal")).toBe(
+        intent.decision === "approve",
+      );
+    }
     if (id === "a_resume_upload") {
       expect(after.resumeText).toBe(persona.resumeText.trim());
       expect(after.memoVersion).toBe(1);
@@ -264,6 +292,13 @@ describe("phase 1 gate", () => {
     const [profile] = await db.sql`SELECT resume_text FROM profiles WHERE user_id = ${userId}`;
     expect(profile?.resume_text).toBe(persona.resumeText.trim());
 
+    // Analytics page (read only, it has no user action): the tile layout and a metric,
+    // which counts the stage change made above.
+    expect(await getTileLayout(userId)).toEqual({ version: 0, layout: { items: [] } });
+    const byStage = await runMetric(userId, { metric: "applications_by_stage", groupBy: "stage", window: "30d" });
+    expect(byStage.n).toBe(6);
+    expect(byStage.kind === "rows" ? byStage.rows : []).toContainEqual(["interviewing", 3]);
+
     // Still off: the actions turned nothing on.
     expect((await POST(post({ threadId, kind: "message", id: "m-off-2", text: "Still there?" }))).status).toBe(503);
   });
@@ -319,5 +354,6 @@ describe("phase 1 gate", () => {
     expect(startApplicationPrep).toHaveBeenCalledTimes(1);
     expect(startApplicationPrep).toHaveBeenCalledWith(userA.userId, userA.email, jobId);
     expect(h.overruns).toEqual([]);
+    expect(h.played.map((t) => t.played())).toEqual(h.played.map((t) => t.total));
   });
 });

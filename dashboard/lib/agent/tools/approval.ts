@@ -95,28 +95,60 @@ export async function refineDocumentsTool(ctx: ToolCtx, input: z.infer<typeof re
 
 const has = (o: object, key: string) => Object.prototype.hasOwnProperty.call(o, key);
 
+const STORED_UNWRAP_MAX = 5;
+const storedRowSchema = z.object({ links: z.unknown(), screening_answers: z.unknown() });
+const jsonObjectSchema = z.record(z.string(), z.unknown());
+
+/**
+ * A stored jsonb object column (links, screening_answers) as a plain object with all its
+ * keys. A legacy double-encoded row holds a jsonb string scalar, which postgres.js returns
+ * as a JS string: unwrap up to a few string layers (as parseProfileLinks does). Anything
+ * that is not an object after that (an array, garbage) counts as empty.
+ */
+export function storedJsonObject(raw: unknown): Record<string, unknown> {
+  let cur = raw;
+  for (let i = 0; i < STORED_UNWRAP_MAX && typeof cur === "string"; i++) {
+    try {
+      cur = JSON.parse(cur);
+    } catch {
+      return {};
+    }
+  }
+  if (Array.isArray(cur)) return {};
+  return parseOrNull(jsonObjectSchema, cur) ?? {};
+}
+
 /**
  * Writes only the listed application answers. Links and screening answers merge into
- * the stored objects; the EEO columns are neither read nor written, so they never reach
- * the agent and are never changed by it.
+ * the stored objects, read and parsed in the same transaction, so a legacy string-scalar
+ * row keeps its keys instead of turning into an array (jsonb string || object); the
+ * merged objects are written whole. The EEO columns are neither read nor written, so they
+ * never reach the agent and are never changed by it.
  */
 export async function proposeProfileDetailsTool(ctx: ToolCtx, input: ProfileDetailsInput) {
   if (await isAccountDeleted(ctx.userId)) return { status: "refused", reason: "account_deleted" } satisfies ApprovalRefusal;
   const f = input.fields;
   const answers = input.screeningAnswers ?? {};
-  const rows = await withUserSql(ctx.userId, (tx) => tx`
-    UPDATE profiles SET
-      full_name = CASE WHEN ${has(f, "full_name")} THEN ${f.full_name ?? null} ELSE full_name END,
-      email = CASE WHEN ${has(f, "email")} THEN ${f.email ?? null} ELSE email END,
-      phone = CASE WHEN ${has(f, "phone")} THEN ${f.phone ?? null} ELSE phone END,
-      location = CASE WHEN ${has(f, "location")} THEN ${f.location ?? null} ELSE location END,
-      work_authorized = CASE WHEN ${has(f, "work_authorized")} THEN ${f.work_authorized ?? null}::boolean ELSE work_authorized END,
-      needs_sponsorship = CASE WHEN ${has(f, "needs_sponsorship")} THEN ${f.needs_sponsorship ?? null}::boolean ELSE needs_sponsorship END,
-      links = links || ${JSON.stringify(f.links ?? {})}::text::jsonb,
-      screening_answers = screening_answers || ${JSON.stringify(answers)}::text::jsonb,
-      updated_at = now()
-    WHERE user_id = ${ctx.userId}::uuid
-    RETURNING 1 AS ok`);
+  const rows = await withUserSql(ctx.userId, async (tx) => {
+    const current = parseOrNull(storedRowSchema, (await tx`
+      SELECT links, screening_answers FROM profiles WHERE user_id = ${ctx.userId}::uuid FOR UPDATE`)[0]);
+    if (!current) return [];
+    const links = { ...storedJsonObject(current.links), ...(f.links ?? {}) };
+    const screening = { ...storedJsonObject(current.screening_answers), ...answers };
+    return tx`
+      UPDATE profiles SET
+        full_name = CASE WHEN ${has(f, "full_name")} THEN ${f.full_name ?? null} ELSE full_name END,
+        email = CASE WHEN ${has(f, "email")} THEN ${f.email ?? null} ELSE email END,
+        phone = CASE WHEN ${has(f, "phone")} THEN ${f.phone ?? null} ELSE phone END,
+        location = CASE WHEN ${has(f, "location")} THEN ${f.location ?? null} ELSE location END,
+        work_authorized = CASE WHEN ${has(f, "work_authorized")} THEN ${f.work_authorized ?? null}::boolean ELSE work_authorized END,
+        needs_sponsorship = CASE WHEN ${has(f, "needs_sponsorship")} THEN ${f.needs_sponsorship ?? null}::boolean ELSE needs_sponsorship END,
+        links = ${JSON.stringify(links)}::text::jsonb,
+        screening_answers = ${JSON.stringify(screening)}::text::jsonb,
+        updated_at = now()
+      WHERE user_id = ${ctx.userId}::uuid
+      RETURNING 1 AS ok`;
+  });
   if (!parseOrNull(z.object({ ok: z.literal(1) }), rows[0])) return { status: "refused", reason: "no_profile" } satisfies ApprovalRefusal;
   return { status: "done" as const, fields: Object.keys(f), screeningAnswers: Object.keys(answers).length };
 }

@@ -105,3 +105,27 @@ test("propose_profile_details writes only the listed answers, merges links and s
     status: "refused", reason: "no_profile",
   });
 });
+
+test("propose_profile_details keeps the keys of links and screening answers stored as a legacy jsonb string", async () => {
+  // A double-encoded write left both columns as jsonb string scalars holding JSON text.
+  await db.sql`UPDATE profiles SET
+    links = ${JSON.stringify(JSON.stringify({ linkedin: "https://linkedin.example/in/pat" }))}::text::jsonb,
+    screening_answers = ${JSON.stringify(JSON.stringify({ relocation: "No" }))}::text::jsonb
+    WHERE user_id = ${USER_A}`;
+  const [seeded] = await db.sql`SELECT jsonb_typeof(links) AS l, jsonb_typeof(screening_answers) AS s FROM profiles WHERE user_id = ${USER_A}`;
+  expect(seeded).toEqual({ l: "string", s: "string" });
+
+  const out = await proposeProfileDetailsTool(ctx(), {
+    fields: { links: { github: "https://github.example/pat" } },
+    screeningAnswers: { notice_period: "2 weeks" },
+  });
+  expect(out).toEqual({ status: "done", fields: ["links"], screeningAnswers: 1 });
+  const [p] = await db.sql`SELECT links, screening_answers, jsonb_typeof(links) AS l, jsonb_typeof(screening_answers) AS s
+                           FROM profiles WHERE user_id = ${USER_A}`;
+  expect(p).toEqual({
+    links: { linkedin: "https://linkedin.example/in/pat", github: "https://github.example/pat" },
+    screening_answers: { relocation: "No", notice_period: "2 weeks" },
+    l: "object",
+    s: "object",
+  });
+});

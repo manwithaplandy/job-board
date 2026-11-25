@@ -34,6 +34,7 @@ import {
   proposeProfileDetailsTool,
   setResumeTool,
   startApplicationPrepTool,
+  storedJsonObject,
 } from "@/lib/agent/tools/approval";
 import { ProfileDetailsInputSchema } from "@/lib/agent/actions/profileDetails";
 
@@ -188,10 +189,15 @@ describe("propose_profile_details", () => {
   });
 
   test("the write names only the listed columns, merges links and answers, and never touches EEO columns", async () => {
-    const queries: string[] = [];
+    const queries: { text: string; values: unknown[] }[] = [];
     m.withUserSql.mockImplementation(async (_u: string, fn: (tx: unknown) => unknown) =>
-      fn((strings: TemplateStringsArray) => {
-        queries.push(strings.join("?"));
+      fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+        const text = strings.join("?");
+        queries.push({ text, values });
+        if (text.includes("SELECT links, screening_answers")) {
+          // A legacy double-encoded links row (postgres.js returns a jsonb string scalar as a string).
+          return Promise.resolve([{ links: JSON.stringify({ linkedin: "https://linkedin.example/in/pat" }), screening_answers: { relocation: "No" } }]);
+        }
         return Promise.resolve([{ ok: 1 }]);
       }),
     );
@@ -201,10 +207,25 @@ describe("propose_profile_details", () => {
     });
     expect(out).toEqual({ status: "done", fields: ["phone", "links"], screeningAnswers: 1 });
     expect(m.withUserSql).toHaveBeenCalledWith(USER, expect.any(Function));
-    expect(queries).toHaveLength(1);
-    expect(queries[0]).not.toMatch(/eeo/i);
-    expect(queries[0]).toContain("links = links ||");
-    expect(queries[0]).toContain("screening_answers = screening_answers ||");
+    expect(queries).toHaveLength(2);
+    expect(queries[0].text).toContain("FOR UPDATE");
+    for (const q of queries) expect(q.text).not.toMatch(/eeo/i);
+    // The merged objects are written whole: the stored keys are kept, never an array.
+    expect(queries[1].text).not.toContain("||");
+    expect(queries[1].values).toContain(
+      JSON.stringify({ linkedin: "https://linkedin.example/in/pat", github: "https://github.example/pat" }),
+    );
+    expect(queries[1].values).toContain(JSON.stringify({ relocation: "No", notice_period: "2 weeks" }));
+  });
+
+  test("a stored links or answers value is read as an object whatever its legacy encoding", () => {
+    const obj = { linkedin: "https://linkedin.example/in/pat", extra: 1 };
+    expect(storedJsonObject(obj)).toEqual(obj);
+    expect(storedJsonObject(JSON.stringify(obj))).toEqual(obj);
+    expect(storedJsonObject(JSON.stringify(JSON.stringify(obj)))).toEqual(obj);
+    for (const bad of [null, undefined, "not json", JSON.stringify(["a"]), ["a"], 3, JSON.stringify("x")]) {
+      expect(storedJsonObject(bad), JSON.stringify(bad)).toEqual({});
+    }
   });
 
   test("a tombstoned account writes nothing", async () => {

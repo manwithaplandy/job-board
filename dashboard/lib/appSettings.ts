@@ -7,14 +7,16 @@
 // isAdmin-gated actions (app/actions/adminSettings.ts). Reads go through withAnonSql
 // (shared_read), NOT serviceSql.
 // ─────────────────────────────────────────────────────────────────────────────
-import { revalidateTag, unstable_cache } from "next/cache";
+import { revalidateTag } from "next/cache";
+import { cachedWithFallback } from "@/lib/cachedWithFallback";
 import { serviceSql, withAnonSql } from "@/lib/db";
 import { DEFAULT_INVITE_COMP_PLAN, type InviteCompPlan } from "@/lib/entitlements";
 
 // Operator app config (user-sent invites, spec 2026-07-13). Same pattern as
 // lib/tierConfig.ts: compiled defaults + a DB overlay read through a HAND-ROLLED
 // TOTAL PARSER (dashboard/CLAUDE.md jsonb discipline) — a bad/absent value keeps the
-// default for THAT key and logs; the loader never throws to a page/route.
+// default for THAT key and logs, except that a bad agent_enabled or
+// agent_background_enabled reads as off; the loader never throws to a page/route.
 
 const CACHE_TTL_SECONDS = 60;
 
@@ -98,14 +100,20 @@ function parseDefaultAllowance(raw: unknown): number {
 
 /**
  * A boolean switch. Unwrapped one level (a double-encoded "true" is the JSON text of a
- * boolean), but nothing else is coerced: 1, "yes" or "on" keep the default.
+ * boolean), but nothing else is coerced: 1, "yes" or "on" is invalid and reads as
+ * `fallback`. The agent kill switch and background switch pass false (fail closed).
  */
 function parseToggle(key: string, raw: unknown, fallback: boolean): boolean {
   const v = unwrap(raw);
   if (typeof v === "boolean") return v;
-  console.error(`appSettings: ${key} invalid; keeping default`, raw);
+  console.error(`appSettings: ${key} invalid; using ${fallback}`, raw);
   return fallback;
 }
+
+// The two switches that permit agent spend fail CLOSED: a malformed value reads as off,
+// never as the default on (controller ruling, PR C review I1). agent_variant3_enabled
+// only picks a layout, so it keeps its default.
+const FAIL_CLOSED_TOGGLES: ReadonlySet<AgentToggleKey> = new Set(["agentEnabled", "agentBackgroundEnabled"]);
 
 /** A ceiling in micros. Like the allowance, NOT unwrapped: a string is invalid. */
 function parseCeiling(key: string, raw: unknown, fallback: number): number {
@@ -123,34 +131,46 @@ export function overlayAppSettings(rows: { key: string; value: unknown }[]): App
     const ceiling = AGENT_CEILING_KEYS[r.key];
     if (r.key === "invite_comp_plan") out.inviteCompPlan = parseCompPlan(r.value);
     else if (r.key === "invite_default_allowance") out.inviteDefaultAllowance = parseDefaultAllowance(r.value);
-    else if (toggle) out[toggle] = parseToggle(r.key, r.value, defaults[toggle]);
+    else if (toggle)
+      out[toggle] = parseToggle(r.key, r.value, FAIL_CLOSED_TOGGLES.has(toggle) ? false : defaults[toggle]);
     else if (ceiling) out[ceiling] = parseCeiling(r.key, r.value, defaults[ceiling]);
   }
   return out;
 }
 
+/** One read of app_settings. Throws on a failed read, so the failure is never cached. */
 async function fetchAppSettings(): Promise<AppSettings> {
-  try {
-    const rows = await withAnonSql(async (tx) => {
-      const r = await tx`
-        SELECT key, value FROM app_settings
-        WHERE key IN ('invite_comp_plan', 'invite_default_allowance',
-                      'agent_enabled', 'agent_background_enabled', 'agent_variant3_enabled',
-                      'agent_daily_ceiling_micros', 'agent_monthly_ceiling_micros')
-      `;
-      return r as unknown as { key: string; value: unknown }[];
-    });
-    return overlayAppSettings(rows);
-  } catch (e) {
-    // A read failure must never take a gated page down — degrade to defaults.
-    console.error("appSettings: failed to load app_settings; using compiled defaults", e);
-    return defaultAppSettings();
-  }
+  const rows = await withAnonSql(async (tx) => {
+    const r = await tx`
+      SELECT key, value FROM app_settings
+      WHERE key IN ('invite_comp_plan', 'invite_default_allowance',
+                    'agent_enabled', 'agent_background_enabled', 'agent_variant3_enabled',
+                    'agent_daily_ceiling_micros', 'agent_monthly_ceiling_micros')
+    `;
+    return r as unknown as { key: string; value: unknown }[];
+  });
+  return overlayAppSettings(rows);
+}
+
+/**
+ * What a failed read yields. Invite settings degrade to their defaults (a read failure
+ * must never take a gated page down). Agent spend fails CLOSED: both switches off and
+ * both ceilings 0, so a failed read never turns the agent back on or loosens a ceiling
+ * an admin lowered. The admin panel shows these values during such a failure.
+ */
+function failedReadSettings(): AppSettings {
+  return {
+    ...defaultAppSettings(),
+    agentEnabled: false,
+    agentBackgroundEnabled: false,
+    agentDailyCeilingMicros: 0,
+    agentMonthlyCeilingMicros: 0,
+  };
 }
 
 const CACHE_TAG = "app-settings";
 
-const _cached = unstable_cache(fetchAppSettings, ["app-settings"], {
+const _cached = cachedWithFallback(fetchAppSettings, ["app-settings"], {
   revalidate: CACHE_TTL_SECONDS,
   tags: [CACHE_TAG],
 });
@@ -170,13 +190,17 @@ function revalidateAppSettings(): void {
   }
 }
 
-/** The DB-overlaid operator settings, cached ~60s. Degrades to compiled defaults. */
+/**
+ * The DB-overlaid operator settings, cached ~60s. Never throws: a failed read is logged
+ * and yields failedReadSettings() (agent off), and is not cached, so the next call
+ * reads again.
+ */
 export async function loadAppSettings(): Promise<AppSettings> {
   try {
     return await _cached();
-  } catch {
-    // Outside a Next request context (unit tests, scripts) unstable_cache throws.
-    return fetchAppSettings();
+  } catch (e) {
+    console.error("appSettings: failed to load app_settings; agent off, invite defaults", e);
+    return failedReadSettings();
   }
 }
 

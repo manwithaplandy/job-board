@@ -98,6 +98,22 @@ describe("saveAgentSettingsAction", () => {
     expect((await saveAgentSettingsAction({ ...valid, agentEnabled: notBool as boolean })).ok).toBe(false);
     expect(settings.saveAgentSettings).not.toHaveBeenCalled();
   });
+  test("an Infinity ceiling is refused before any write", async () => {
+    expect((await saveAgentSettingsAction({ ...valid, agentDailyCeilingMicros: Number.POSITIVE_INFINITY })).ok).toBe(false);
+    expect((await saveAgentSettingsAction({ ...valid, agentMonthlyCeilingMicros: Number.POSITIVE_INFINITY })).ok).toBe(
+      false,
+    );
+    expect(settings.saveAgentSettings).not.toHaveBeenCalled();
+  });
+  test("a daily ceiling above the monthly ceiling is refused with no write", async () => {
+    const r = await saveAgentSettingsAction({ ...valid, agentDailyCeilingMicros: 6_000_000, agentMonthlyCeilingMicros: 5_000_000 });
+    expect(r).toEqual({ ok: false, error: expect.stringMatching(/daily.*monthly/i) });
+    expect(settings.saveAgentSettings).not.toHaveBeenCalled();
+    // Equal ceilings are allowed.
+    expect(
+      (await saveAgentSettingsAction({ ...valid, agentDailyCeilingMicros: 5_000_000, agentMonthlyCeilingMicros: 5_000_000 })).ok,
+    ).toBe(true);
+  });
   test("a zero ceiling is allowed (it stops all spend)", async () => {
     expect((await saveAgentSettingsAction({ ...valid, agentDailyCeilingMicros: 0 })).ok).toBe(true);
   });

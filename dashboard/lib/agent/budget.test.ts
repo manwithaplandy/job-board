@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 vi.mock("@/lib/db", () => ({ withUserSql: vi.fn() }));
 vi.mock("@/lib/appSettings", () => ({ loadAppSettings: vi.fn() }));
 
-import { headroom, PRICE_PER_MTOK_MICROS, stepCostMicros } from "@/lib/agent/budget";
+import { headroom, PRICE_PER_MTOK_MICROS, STEP_COST_MAX_MICROS, stepCostMicros } from "@/lib/agent/budget";
 import { AGENT_EVAL_MODELS, AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
 
 const settings = { agentEnabled: true, agentDailyCeilingMicros: 1_000_000, agentMonthlyCeilingMicros: 10_000_000 };
@@ -27,6 +27,14 @@ describe("headroom", () => {
       ok: false,
       reason: "monthly_ceiling",
     });
+  });
+
+  test("monthly spend exactly at the ceiling is over the monthly ceiling", () => {
+    expect(headroom({ dayMicros: 0, monthMicros: 10_000_000 }, settings)).toEqual({
+      ok: false,
+      reason: "monthly_ceiling",
+    });
+    expect(headroom({ dayMicros: 0, monthMicros: 9_999_999 }, settings)).toEqual({ ok: true, remainingMicros: 1 });
   });
 
   test("agent_disabled wins over spend", () => {
@@ -73,6 +81,30 @@ describe("stepCostMicros", () => {
       expect(PRICE_PER_MTOK_MICROS[model], model).toBeDefined();
       expect(stepCostMicros({ usage }, model)).toBeLessThanOrEqual(unknown);
     }
+  });
+
+  test("non-finite or negative token counts count as zero", () => {
+    const m = "anthropic/claude-haiku-5.5";
+    expect(stepCostMicros({ usage: { inputTokens: Number.NaN, outputTokens: 0 } }, m)).toBe(0);
+    expect(stepCostMicros({ usage: { inputTokens: Number.POSITIVE_INFINITY, outputTokens: -5 } }, m)).toBe(0);
+    expect(stepCostMicros({ usage: { inputTokens: 1_000_000, outputTokens: Number.NaN } }, m)).toBe(
+      PRICE_PER_MTOK_MICROS[m].input,
+    );
+  });
+
+  test("a prototype name is not a model: it is priced at the default", () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 0 };
+    for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      expect(stepCostMicros({ usage }, name), name).toBe(PRICE_PER_MTOK_MICROS.default.input);
+    }
+  });
+
+  test("a billed or estimated cost is clamped to STEP_COST_MAX_MICROS", () => {
+    expect(STEP_COST_MAX_MICROS).toBeLessThanOrEqual(1_000_000_000);
+    expect(stepCostMicros({ providerMetadata: { openrouter: { usage: { cost: 1e30 } } }, usage: {} }, "x")).toBe(
+      STEP_COST_MAX_MICROS,
+    );
+    expect(stepCostMicros({ usage: { inputTokens: 1e15, outputTokens: 1e15 } }, "x")).toBe(STEP_COST_MAX_MICROS);
   });
 
   test("rounds up to at least 1 micro for any step with tokens", () => {

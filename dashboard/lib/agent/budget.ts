@@ -63,17 +63,35 @@ export function stepCostMicros(
   step: { providerMetadata?: unknown; usage: { inputTokens?: number; outputTokens?: number } },
   modelId: string,
 ): number {
-  const inputTokens = Math.max(0, step.usage.inputTokens ?? 0);
-  const outputTokens = Math.max(0, step.usage.outputTokens ?? 0);
+  const inputTokens = tokenCount(step.usage.inputTokens);
+  const outputTokens = tokenCount(step.usage.outputTokens);
   const billed = parseOrNull(openRouterCostSchema, step.providerMetadata);
   let micros: number;
   if (billed) {
     micros = ceilMicros(billed.openrouter.usage.cost * 1_000_000);
   } else {
-    const price = PRICE_PER_MTOK_MICROS[modelId] ?? PRICE_PER_MTOK_MICROS.default;
+    const price = priceFor(modelId);
     micros = ceilMicros((inputTokens * price.input + outputTokens * price.output) / 1_000_000);
   }
-  return inputTokens + outputTokens > 0 ? Math.max(1, micros) : micros;
+  const charged = inputTokens + outputTokens > 0 ? Math.max(1, micros) : micros;
+  return Math.min(charged, STEP_COST_MAX_MICROS);
+}
+
+/**
+ * The most one step can cost: $1,000. No real step costs this; the clamp keeps a
+ * poisoned billed cost or token count from overflowing usage_counters.n (int4) when
+ * runs.ts adds it to a day that is at most a ceiling (also at most $1,000) plus overshoot.
+ */
+export const STEP_COST_MAX_MICROS = 1_000_000_000;
+
+/** A token count from provider usage: a non-finite or negative value counts as 0. */
+function tokenCount(n: number | undefined): number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Own-property lookup, so "constructor" or "__proto__" is an unknown model, not a price. */
+function priceFor(modelId: string): Price {
+  return Object.hasOwn(PRICE_PER_MTOK_MICROS, modelId) ? PRICE_PER_MTOK_MICROS[modelId] : PRICE_PER_MTOK_MICROS.default;
 }
 
 /** Remaining headroom under both ceilings; the kill switch wins over any spend. */

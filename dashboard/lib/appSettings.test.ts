@@ -13,9 +13,10 @@ vi.mock("next/cache", () => ({
   revalidateTag: vi.fn(),
 }));
 
-import { serviceSql } from "@/lib/db";
+import { serviceSql, withAnonSql } from "@/lib/db";
 import {
   defaultAppSettings,
+  loadAppSettings,
   overlayAppSettings,
   saveAgentSettings,
   saveInviteSettings,
@@ -67,7 +68,18 @@ describe("overlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipl
     expect(overlayAppSettings([{ key: "agent_background_enabled", value: true }]).agentBackgroundEnabled).toBe(true);
     expect(overlayAppSettings([{ key: "agent_background_enabled", value: "true" }]).agentBackgroundEnabled).toBe(true);
     expect(overlayAppSettings([{ key: "agent_variant3_enabled", value: 0 }]).agentVariant3Enabled).toBe(true);
-    expect(overlayAppSettings([{ key: "agent_enabled", value: "no" }]).agentEnabled).toBe(true);
+  });
+  test("a malformed kill switch or background switch reads as OFF (fail closed)", () => {
+    for (const value of ["no", "off", 0, 1, "yes", null, "", "{garbage"]) {
+      expect(overlayAppSettings([{ key: "agent_enabled", value }]).agentEnabled, String(value)).toBe(false);
+      expect(
+        overlayAppSettings([
+          { key: "agent_background_enabled", value: true },
+          { key: "agent_background_enabled", value },
+        ]).agentBackgroundEnabled,
+        String(value),
+      ).toBe(false);
+    }
   });
   test("a ceiling must be a non-negative integer no larger than 1e9", () => {
     const daily = (value: unknown) =>
@@ -87,6 +99,32 @@ describe("overlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipl
     expect(overlayAppSettings([{ key: "invite_default_allowance", value: 2.5 }]).inviteDefaultAllowance).toBe(3);
     expect(overlayAppSettings([{ key: "invite_default_allowance", value: "5" }]).inviteDefaultAllowance).toBe(3);
     expect(overlayAppSettings([{ key: "invite_default_allowance", value: 0 }]).inviteDefaultAllowance).toBe(0);
+  });
+});
+
+describe("loadAppSettings on a failed read (fail closed)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  test("the agent and background switches read OFF, ceilings 0, invite settings default; one query", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    (withAnonSql as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db down"));
+    const s = await loadAppSettings();
+    expect(s.agentEnabled).toBe(false);
+    expect(s.agentBackgroundEnabled).toBe(false);
+    expect(s.agentDailyCeilingMicros).toBe(0);
+    expect(s.agentMonthlyCeilingMicros).toBe(0);
+    expect(s.inviteCompPlan).toBe(defaultAppSettings().inviteCompPlan);
+    expect(s.inviteDefaultAllowance).toBe(defaultAppSettings().inviteDefaultAllowance);
+    expect(withAnonSql).toHaveBeenCalledTimes(1);
+  });
+
+  test("the next load after a failure reads again and sees the stored values", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    (withAnonSql as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("db down"))
+      .mockResolvedValueOnce([{ key: "agent_enabled", value: true }]);
+    expect((await loadAppSettings()).agentEnabled).toBe(false);
+    expect((await loadAppSettings()).agentEnabled).toBe(true);
   });
 });
 

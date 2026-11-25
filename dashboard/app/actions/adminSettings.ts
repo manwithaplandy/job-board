@@ -55,6 +55,9 @@ export async function saveAgentSettingsAction(input: AgentSettingsInput): Promis
   if (!isValidAgentCeiling(input.agentDailyCeilingMicros) || !isValidAgentCeiling(input.agentMonthlyCeilingMicros)) {
     return { ok: false, error: "Each ceiling must be between $0 and $1,000." };
   }
+  if (input.agentDailyCeilingMicros > input.agentMonthlyCeilingMicros) {
+    return { ok: false, error: "The daily ceiling cannot be higher than the monthly ceiling." };
+  }
   try {
     // Atomic five-key upsert: never half-apply a switch and its ceilings.
     await saveAgentSettings({
@@ -72,7 +75,7 @@ export async function saveAgentSettingsAction(input: AgentSettingsInput): Promis
   return { ok: true };
 }
 
-const UUID_RE =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function setInviteAllowanceAction(input: {
   userId: string;

@@ -11,8 +11,8 @@
 //
 // Cost: max(last_seen_at) has no known index ([Unverified]); the 600 s cache bounds it.
 // Only the database read is cached, never the wall clock.
-import { unstable_cache } from "next/cache";
 import { z } from "zod";
+import { cachedWithFallback } from "@/lib/cachedWithFallback";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
 
@@ -44,19 +44,11 @@ async function readCatalogState(): Promise<CachedRead> {
   return { frozen: !row.source_enabled, newestIso: row.newest?.toISOString() ?? null };
 }
 
-const cachedRead = unstable_cache(readCatalogState, ["catalog-clock"], {
+// A failed read is rethrown once, never retried (cachedWithFallback), and never cached.
+const loadCatalogState = cachedWithFallback(readCatalogState, ["catalog-clock"], {
   revalidate: 600,
   tags: ["catalog-clock"],
 });
-
-async function loadCatalogState(): Promise<CachedRead> {
-  try {
-    return await cachedRead();
-  } catch {
-    // Outside a Next request context (unit tests, scripts) unstable_cache throws.
-    return readCatalogState();
-  }
-}
 
 /**
  * The clock age labels use. A failed read falls back to the wall clock: the wall clock
@@ -78,9 +70,13 @@ function ageMs(firstSeenAt: string, clock: { now: Date }): number {
   return clock.now.getTime() - new Date(firstSeenAt).getTime();
 }
 
-/** Whole days since first seen by the given clock, rounded down; never negative. */
+/**
+ * Whole days since first seen by the given clock, rounded down; never negative. An
+ * unparseable first-seen time is 0, never NaN (isNew still calls it not new).
+ */
 export function ageDays(firstSeenAt: string, clock: { now: Date }): number {
-  return Math.max(0, Math.floor(ageMs(firstSeenAt, clock) / DAY_MS));
+  const days = Math.floor(ageMs(firstSeenAt, clock) / DAY_MS);
+  return Number.isFinite(days) ? Math.max(0, days) : 0;
 }
 
 /** True when first seen less than two days before the given clock. */

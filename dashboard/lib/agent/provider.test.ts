@@ -43,6 +43,20 @@ describe("agentModel", () => {
     expect(() => agentModel()).toThrow("agent: OpenRouter key missing");
   });
 
+  test("a whitespace-only key counts as missing", () => {
+    vi.stubEnv("AGENT_OPENROUTER_API_KEY", "   ");
+    vi.stubEnv("OPENROUTER_API_KEY", "\n\t");
+    expect(() => agentModel()).toThrow("agent: OpenRouter key missing");
+  });
+
+  test("a whitespace-only agent key falls through, and keys are trimmed", async () => {
+    vi.stubEnv("AGENT_OPENROUTER_API_KEY", "  ");
+    vi.stubEnv("OPENROUTER_API_KEY", "shared-key\n");
+    const seen = captureFetch();
+    await sendOne(agentModel());
+    expect(seen[0].headers.get("authorization")).toBe("Bearer shared-key");
+  });
+
   test("prefers AGENT_OPENROUTER_API_KEY", async () => {
     vi.stubEnv("AGENT_OPENROUTER_API_KEY", "agent-key");
     vi.stubEnv("OPENROUTER_API_KEY", "shared-key");

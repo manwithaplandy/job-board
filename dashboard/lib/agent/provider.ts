@@ -11,7 +11,9 @@ import type { LanguageModel } from "ai";
 import { AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
 
 export function agentModel(modelId: string = AGENT_MODEL_DEFAULT): LanguageModel {
-  const apiKey = process.env.AGENT_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
+  // Trimmed: a key pasted with a trailing newline, or one that is only whitespace, would
+  // otherwise send a broken bearer token instead of falling through or failing here.
+  const apiKey = process.env.AGENT_OPENROUTER_API_KEY?.trim() || process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new Error("agent: OpenRouter key missing");
   // strict: the OpenRouter API itself, so newer fields (stream usage) are sent.
   const openrouter = createOpenRouter({ apiKey, compatibility: "strict" });

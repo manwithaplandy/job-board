@@ -11,6 +11,7 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }));
 
+import { withUserSql } from "@/lib/db";
 import { ageDays, catalogNow, isNew } from "@/lib/catalogClock";
 
 const WALL = new Date("2026-11-25T12:00:00Z");
@@ -59,6 +60,14 @@ describe("catalogNow", () => {
     read.row = { source_enabled: "no", newest: "yesterday" };
     expect(await catalogNow()).toEqual({ now: WALL, frozen: false });
   });
+
+  test("a failed read queries the database once, not twice", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(withUserSql).mockClear();
+    read.fail = true;
+    await catalogNow();
+    expect(withUserSql).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ageDays and isNew", () => {
@@ -74,5 +83,9 @@ describe("ageDays and isNew", () => {
     expect(ageDays("2026-11-21T00:00:00Z", clock)).toBe(0);
     expect(isNew("2026-11-21T00:00:00Z", clock)).toBe(true);
     expect(isNew("not a date", clock)).toBe(false);
+  });
+  test("an unparseable first-seen time is age 0, never NaN", () => {
+    expect(ageDays("not a date", clock)).toBe(0);
+    expect(ageDays("", clock)).toBe(0);
   });
 });

@@ -421,6 +421,18 @@ EXPECTED_RLS = {
     "agent_messages": {"agent_messages_owner_read": ("SELECT", frozenset({"authenticated"}))},
     "agent_runs": {"agent_runs_owner_read": ("SELECT", frozenset({"authenticated"}))},
     "agent_settings": {"agent_settings_owner": ("ALL", frozenset({"authenticated"}))},
+    # Workspaces (supabase/migrations/20261125070000_agent_workspaces.sql): one owner
+    # policy per table; the grants below decide which commands each table allows.
+    "shortlist_items": {"shortlist_items_owner": ("ALL", frozenset({"authenticated"}))},
+    "applications": {"applications_owner": ("ALL", frozenset({"authenticated"}))},
+    "application_events": {"application_events_owner": ("ALL", frozenset({"authenticated"}))},
+    "documents": {"documents_owner": ("ALL", frozenset({"authenticated"}))},
+    "search_memos": {"search_memos_owner": ("ALL", frozenset({"authenticated"}))},
+    "search_memo_versions": {"search_memo_versions_owner": ("ALL", frozenset({"authenticated"}))},
+    "search_memo_proposals": {"search_memo_proposals_owner": ("ALL", frozenset({"authenticated"}))},
+    "analytics_tiles": {"analytics_tiles_owner": ("ALL", frozenset({"authenticated"}))},
+    "analytics_tile_versions": {"analytics_tile_versions_owner": ("ALL", frozenset({"authenticated"}))},
+    "resume_versions": {"resume_versions_owner": ("ALL", frozenset({"authenticated"}))},
     # Full owner CRUD (owner_access FOR ALL, USING/WITH CHECK = app_user_id()).
     "profiles": _OWNER_ALL,
     "job_reviews": _OWNER_ALL,
@@ -478,6 +490,9 @@ EXPECTED_RLS = {
 _OWNER_SCOPED = {
     "owner_access", "owner_read", "owner_insert", "owner_or_legacy_read", "feedback_owner_read",
     "agent_threads_owner", "agent_messages_owner_read", "agent_runs_owner_read", "agent_settings_owner",
+    "shortlist_items_owner", "applications_owner", "application_events_owner", "documents_owner",
+    "search_memos_owner", "search_memo_versions_owner", "search_memo_proposals_owner",
+    "analytics_tiles_owner", "analytics_tile_versions_owner", "resume_versions_owner",
 }
 
 
@@ -552,7 +567,17 @@ EXPECTED_GRANTS = {
     "agent_messages": (_R(), _R({"SELECT"})),
     "agent_runs": (_R(), _R({"SELECT"})),
     "agent_settings": (_R(), _R({"SELECT", "INSERT", "UPDATE"})),
-    "jobs":                 (_R({"SELECT"}), _R({"SELECT"})),
+    "shortlist_items": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "applications": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "application_events": (_R(), _R({"SELECT", "INSERT"})),
+    "documents": (_R(), _R({"SELECT", "INSERT", "DELETE"})),
+    "search_memos": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "search_memo_versions": (_R(), _R({"SELECT", "INSERT"})),
+    "search_memo_proposals": (_R(), _R({"SELECT", "INSERT"})),  # UPDATE is column-level (status, resolved_at)
+    "analytics_tiles": (_R(), _R({"SELECT", "INSERT", "UPDATE", "DELETE"})),
+    "analytics_tile_versions": (_R(), _R({"SELECT", "INSERT"})),
+    "resume_versions": (_R(), _R({"SELECT", "INSERT"})),
+    "jobs":                (_R({"SELECT"}), _R({"SELECT"})),
     "companies":            (_R({"SELECT"}), _R({"SELECT"})),
     "poll_runs":            (_R(), _R({"SELECT"})),
     "discovery_runs":       (_R(), _R({"SELECT"})),

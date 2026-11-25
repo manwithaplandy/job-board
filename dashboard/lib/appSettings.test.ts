@@ -14,6 +14,7 @@ vi.mock("next/cache", () => ({
 }));
 
 import { serviceSql, withAnonSql } from "@/lib/db";
+import { headroom } from "@/lib/agent/budget";
 import {
   defaultAppSettings,
   loadAppSettings,
@@ -48,13 +49,19 @@ describe("overlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipl
     ]);
     expect(s).toEqual(defaultAppSettings());
   });
-  test("agent keys overlay defaults and bad values keep the default", () => {
+  test("agent keys overlay defaults; a present but malformed ceiling reads as 0 (fail closed)", () => {
     const s = overlayAppSettings([
       { key: "agent_enabled", value: false },
       { key: "agent_daily_ceiling_micros", value: "lots" },
     ]);
     expect(s.agentEnabled).toBe(false);
-    expect(s.agentDailyCeilingMicros).toBe(1_000_000);
+    expect(s.agentDailyCeilingMicros).toBe(0);
+    // An absent ceiling row keeps its placeholder default.
+    expect(s.agentMonthlyCeilingMicros).toBe(10_000_000);
+  });
+  test("a present malformed daily ceiling leaves no headroom", () => {
+    const s = overlayAppSettings([{ key: "agent_daily_ceiling_micros", value: '"250000"' }]);
+    expect(headroom({ dayMicros: 0, monthMicros: 0 }, s)).toEqual({ ok: false, reason: "daily_ceiling" });
   });
   test("agent defaults: on, background off, variant 3 on, placeholder ceilings", () => {
     const s = overlayAppSettings([]);
@@ -88,12 +95,14 @@ describe("overlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipl
       overlayAppSettings([{ key: "agent_monthly_ceiling_micros", value }]).agentMonthlyCeilingMicros;
     expect(daily(0)).toBe(0);
     expect(daily(1_000_000_000)).toBe(1_000_000_000);
-    expect(daily(1_000_000_001)).toBe(1_000_000);
-    expect(daily(-1)).toBe(1_000_000);
-    expect(daily(2.5)).toBe(1_000_000);
-    expect(daily("500")).toBe(1_000_000);
+    // Present but malformed reads as 0, never as the placeholder default.
+    expect(daily(1_000_000_001)).toBe(0);
+    expect(daily(-1)).toBe(0);
+    expect(daily(2.5)).toBe(0);
+    expect(daily("500")).toBe(0);
+    expect(daily(null)).toBe(0);
     expect(monthly(25_000_000)).toBe(25_000_000);
-    expect(monthly(Number.NaN)).toBe(10_000_000);
+    expect(monthly(Number.NaN)).toBe(0);
   });
   test("allowance rejects floats/strings/negatives, accepts 0 (invites off)", () => {
     expect(overlayAppSettings([{ key: "invite_default_allowance", value: 2.5 }]).inviteDefaultAllowance).toBe(3);

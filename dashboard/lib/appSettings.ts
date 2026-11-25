@@ -16,7 +16,8 @@ import { DEFAULT_INVITE_COMP_PLAN, type InviteCompPlan } from "@/lib/entitlement
 // lib/tierConfig.ts: compiled defaults + a DB overlay read through a HAND-ROLLED
 // TOTAL PARSER (dashboard/CLAUDE.md jsonb discipline) — a bad/absent value keeps the
 // default for THAT key and logs, except that a bad agent_enabled or
-// agent_background_enabled reads as off; the loader never throws to a page/route.
+// agent_background_enabled reads as off and a bad agent ceiling reads as 0; the loader
+// never throws to a page/route.
 
 const CACHE_TTL_SECONDS = 60;
 
@@ -118,11 +119,16 @@ function parseToggle(key: string, raw: unknown, fallback: boolean): boolean {
 // only picks a layout, so it keeps its default.
 const FAIL_CLOSED_TOGGLES: ReadonlySet<AgentToggleKey> = new Set(["agentEnabled", "agentBackgroundEnabled"]);
 
-/** A ceiling in micros. Like the allowance, NOT unwrapped: a string is invalid. */
-function parseCeiling(key: string, raw: unknown, fallback: number): number {
+/**
+ * A ceiling in micros. Like the allowance, NOT unwrapped: a string is invalid. An absent
+ * row never reaches here, so it keeps the placeholder default; a present but malformed
+ * value reads as 0 (fail closed, controller ruling PR C review I1), the same as a failed
+ * read, so a corrupted row can never loosen a cap to the placeholder.
+ */
+function parseCeiling(key: string, raw: unknown): number {
   if (isValidAgentCeiling(raw)) return raw;
-  console.error(`appSettings: ${key} invalid; keeping default`, raw);
-  return fallback;
+  console.error(`appSettings: ${key} invalid; reading as 0`, raw);
+  return 0;
 }
 
 /** Overlay raw app_settings rows onto the compiled defaults, key-by-key. */
@@ -136,7 +142,7 @@ export function overlayAppSettings(rows: { key: string; value: unknown }[]): App
     else if (r.key === "invite_default_allowance") out.inviteDefaultAllowance = parseDefaultAllowance(r.value);
     else if (toggle)
       out[toggle] = parseToggle(r.key, r.value, FAIL_CLOSED_TOGGLES.has(toggle) ? false : defaults[toggle]);
-    else if (ceiling) out[ceiling] = parseCeiling(r.key, r.value, defaults[ceiling]);
+    else if (ceiling) out[ceiling] = parseCeiling(r.key, r.value);
   }
   return out;
 }

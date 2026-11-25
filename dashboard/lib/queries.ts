@@ -15,6 +15,7 @@ import { parseProfileLinks } from "@/lib/profileLinks";
 import { parseScreeningAnswers } from "@/lib/screeningAnswers";
 import { companyProfileVersion } from "@/lib/companyProfileVersion";
 import { isAccountDeleted } from "@/lib/tombstone";
+import { z } from "zod";
 import type { BoardFilterState } from "@/lib/rolefit/filter";
 import {
   parseCompanyExclusions,
@@ -812,7 +813,12 @@ export async function upsertProfile(
   // AND the application answers — none must invalidate existing verdicts (spec §4).
   const version = profileVersion(data.resumeText, data.instructions);
   const companyVersion = companyProfileVersion(data.companyInstructions);
-  await withUserSql(userId, (tx) => tx`
+  // The insert sets `instructions`; on conflict the stored value is kept (a repeat
+  // onboarding submit must not wipe review preferences the user or the agent set since).
+  // profile_version must then hash the KEPT instructions, so it is recomputed from what
+  // the row actually holds after the upsert.
+  await withUserSql(userId, async (tx) => {
+    const rows = await tx`
     INSERT INTO profiles (user_id, resume_text, instructions, resume_file_path,
                           model_stage1, model_stage2, preferred_locations, model_resume,
                           company_instructions, company_profile_version, model_company,
@@ -837,7 +843,7 @@ export async function upsertProfile(
             ${version}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       resume_text             = EXCLUDED.resume_text,
-      instructions            = EXCLUDED.instructions,
+      instructions            = profiles.instructions,
       resume_file_path        = EXCLUDED.resume_file_path,
       model_stage1            = EXCLUDED.model_stage1,
       model_stage2            = EXCLUDED.model_stage2,
@@ -865,7 +871,15 @@ export async function upsertProfile(
       cover_letter_generation_instructions = EXCLUDED.cover_letter_generation_instructions,
       profile_version         = EXCLUDED.profile_version,
       updated_at              = now()
-  `);
+    RETURNING instructions
+  `;
+    const kept = z.object({ instructions: z.string().nullable() }).parse(rows[0]).instructions;
+    const keptVersion = profileVersion(data.resumeText, kept);
+    if (keptVersion !== version) {
+      await tx`UPDATE profiles SET profile_version = ${keptVersion}
+        WHERE user_id = ${userId}::uuid`;
+    }
+  });
 }
 
 /**

@@ -73,6 +73,17 @@ describe("resumeObjectPath", () => {
     expect((key.match(/\//g) ?? []).length).toBe(1);
     expect(key).not.toContain("\\");
   });
+
+  test("the name part keeps only [A-Za-z0-9._-], keeps its extension and is never empty", () => {
+    vi.spyOn(Date, "now").mockReturnValue(7);
+    expect(resumeObjectPath("user-1", "Résumé (final) #2 100%.pdf")).toBe("user-1/7-R_sum_final_2_100_.pdf");
+    expect(resumeObjectPath("user-1", "履歴書.docx")).toBe("user-1/7-resume.docx");
+    expect(resumeObjectPath("user-1", "???")).toBe("user-1/7-resume.pdf");
+    expect(resumeObjectPath("user-1", "[cv]?.pdf")).toBe("user-1/7-_cv_.pdf");
+    const long = resumeObjectPath("user-1", `${"a".repeat(300)}.pdf`);
+    expect(long.endsWith(".pdf")).toBe(true);
+    expect(long.length).toBeLessThanOrEqual("user-1/7-".length + 120);
+  });
 });
 
 describe("documentObjectPath", () => {

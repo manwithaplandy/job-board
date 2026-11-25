@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
   assertNotDeleted: vi.fn(),
   updateApplicationDetails: vi.fn(),
-  updateJobPreferences: vi.fn(),
   updateDiscoveryPreferences: vi.fn(),
   updateGenerationDefaults: vi.fn(),
   updateModelPreferences: vi.fn(),
@@ -37,7 +36,6 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/tombstone", () => ({ assertNotDeleted: mocks.assertNotDeleted }));
 vi.mock("@/lib/profileSettings", () => ({
   updateApplicationDetails: mocks.updateApplicationDetails,
-  updateJobPreferences: mocks.updateJobPreferences,
   updateDiscoveryPreferences: mocks.updateDiscoveryPreferences,
   updateGenerationDefaults: mocks.updateGenerationDefaults,
   updateModelPreferences: mocks.updateModelPreferences,
@@ -77,7 +75,6 @@ beforeEach(() => {
   mocks.getViewerPlan.mockResolvedValue("pro");
   mocks.assertNotDeleted.mockResolvedValue(undefined);
   mocks.updateApplicationDetails.mockResolvedValue(undefined);
-  mocks.updateJobPreferences.mockResolvedValue(undefined);
   mocks.updateDiscoveryPreferences.mockResolvedValue(undefined);
   mocks.updateGenerationDefaults.mockResolvedValue(undefined);
   mocks.updateModelPreferences.mockResolvedValue(undefined);
@@ -112,7 +109,6 @@ describe("profile settings actions", () => {
       preferredLocations: ["Remote"], companyInstructions: "fintech",
     });
     expect(mocks.updateDiscoveryPreferences.mock.calls[0][1]).not.toHaveProperty("instructions");
-    expect(mocks.updateJobPreferences).not.toHaveBeenCalled();
   });
 
   test("an oversized instructions field no longer blocks the save (it is ignored)", async () => {

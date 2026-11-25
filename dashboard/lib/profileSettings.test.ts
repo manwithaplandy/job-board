@@ -20,8 +20,6 @@ describe("profile settings write boundary", () => {
 
   test.each([
     ["updateResumeSource", { resumeText: "r", resumeFilePath: null }],
-    ["updateReviewPreferences", { instructions: "backend" }],
-    ["updateJobPreferences", { preferredLocations: ["Remote"], instructions: "backend", companyInstructions: null }],
     ["updateDiscoveryPreferences", { preferredLocations: ["Remote"], companyInstructions: null }],
     ["updateApplicationDetails", {
       full_name: "Jane", email: "jane@example.com", phone: null, location: null, links: {},
@@ -42,8 +40,6 @@ describe("profile settings write boundary", () => {
 
   test.each([
     ["updateResumeSource", { resumeText: "r", resumeFilePath: null }],
-    ["updateReviewPreferences", { instructions: "backend" }],
-    ["updateJobPreferences", { preferredLocations: ["Remote"], instructions: "backend", companyInstructions: null }],
     ["updateDiscoveryPreferences", { preferredLocations: ["Remote"], companyInstructions: null }],
     ["updateApplicationDetails", {
       full_name: null, email: null, phone: null, location: null, links: {},

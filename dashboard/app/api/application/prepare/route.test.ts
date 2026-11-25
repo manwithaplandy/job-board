@@ -265,6 +265,32 @@ describe("POST /api/application/prepare — validation ladder (never charge an u
     expect((await POST(req())).status).toBe(500);
     expect(mocks.reserveGenerations).not.toHaveBeenCalled();
   });
+  // The money gate's responses are exactly what the route returned before the extraction
+  // to lib/applicationPrep.ts: gateRejectionBody(gate) with the gate's status, so the
+  // server-only `kind` never reaches the wire.
+  test("402 no subscription → { error, code }, no tracking row, nothing to refund", async () => {
+    mocks.reserveGenerations.mockResolvedValue({ ok: false, status: 402, code: "subscription_required", error: "Subscribe to generate." });
+    const res = await POST(req());
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: "Subscribe to generate.", code: "subscription_required" });
+    expect(mocks.createGenerationJob).not.toHaveBeenCalled();
+    expect(mocks.refundGenerations).not.toHaveBeenCalled();
+    expect(mocks.afterCallbacks).toHaveLength(0);
+  });
+  test("429 allowance exhausted → { error, code, plan } without the server-only kind", async () => {
+    mocks.reserveGenerations.mockResolvedValue({
+      ok: false, status: 429, code: "allowance_exhausted", plan: "standard", kind: "cover",
+      error: "Monthly cover letter allowance used (5/5 on Standard).",
+    });
+    const res = await POST(req());
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({
+      error: "Monthly cover letter allowance used (5/5 on Standard).", code: "allowance_exhausted", plan: "standard",
+    });
+    expect(mocks.createGenerationJob).not.toHaveBeenCalled();
+    expect(mocks.refundGenerations).not.toHaveBeenCalled();
+    expect(mocks.afterCallbacks).toHaveLength(0);
+  });
   test("over-cap resumeInstructions → 400 before the gate", async () => {
     const res = await POST(req({ jobId: "job-1", resumeInstructions: "x".repeat(4001) }));
     expect(res.status).toBe(400);

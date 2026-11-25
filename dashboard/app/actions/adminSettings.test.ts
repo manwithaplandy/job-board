@@ -2,8 +2,16 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({ getUserClaims: vi.fn() }));
 vi.mock("@/lib/auth", () => auth);
-const settings = vi.hoisted(() => ({ saveInviteSettings: vi.fn(async () => {}) }));
-vi.mock("@/lib/appSettings", () => settings);
+const settings = vi.hoisted(() => ({
+  saveInviteSettings: vi.fn(async () => {}),
+  saveAgentSettings: vi.fn(async () => {}),
+}));
+// The real validator; only the writes are stubbed.
+vi.mock("@/lib/appSettings", async (importOriginal) => ({
+  isValidAgentCeiling: (await importOriginal<typeof import("@/lib/appSettings")>()).isValidAgentCeiling,
+  ...settings,
+}));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), unstable_cache: (fn: unknown) => fn }));
 const invites = vi.hoisted(() => ({ setInviteAllowance: vi.fn(async () => {}) }));
 vi.mock("@/lib/invites", () => invites);
 const overrides = vi.hoisted(() => ({
@@ -13,6 +21,7 @@ const overrides = vi.hoisted(() => ({
 vi.mock("@/lib/planOverrides", () => overrides);
 
 import {
+  saveAgentSettingsAction,
   saveInviteSettingsAction,
   setInviteAllowanceAction,
   setPlanOverrideAction,
@@ -59,6 +68,43 @@ describe("saveInviteSettingsAction", () => {
   });
   test("'none' is a valid comp plan", async () => {
     expect((await saveInviteSettingsAction({ compPlan: "none", defaultAllowance: 0 })).ok).toBe(true);
+  });
+});
+
+describe("saveAgentSettingsAction", () => {
+  const valid = {
+    agentEnabled: true,
+    agentBackgroundEnabled: false,
+    agentVariant3Enabled: true,
+    agentDailyCeilingMicros: 500_000,
+    agentMonthlyCeilingMicros: 5_000_000,
+  };
+  test("non-admin throws before any write", async () => {
+    auth.getUserClaims.mockResolvedValue({ id: "u-x", email: "stranger@x.com" });
+    await expect(saveAgentSettingsAction(valid)).rejects.toThrow();
+    expect(settings.saveAgentSettings).not.toHaveBeenCalled();
+  });
+  test("valid input saves all five values in one call", async () => {
+    expect(await saveAgentSettingsAction(valid)).toEqual({ ok: true });
+    expect(settings.saveAgentSettings).toHaveBeenCalledTimes(1);
+    expect(settings.saveAgentSettings).toHaveBeenCalledWith(valid);
+  });
+  test("a bad ceiling or a non-boolean switch is refused with no write", async () => {
+    expect((await saveAgentSettingsAction({ ...valid, agentDailyCeilingMicros: -1 })).ok).toBe(false);
+    expect((await saveAgentSettingsAction({ ...valid, agentMonthlyCeilingMicros: 1_000_000_001 })).ok).toBe(false);
+    expect((await saveAgentSettingsAction({ ...valid, agentDailyCeilingMicros: Number.NaN })).ok).toBe(false);
+    expect((await saveAgentSettingsAction({ ...valid, agentDailyCeilingMicros: 0.5 })).ok).toBe(false);
+    const notBool: unknown = "true";
+    expect((await saveAgentSettingsAction({ ...valid, agentEnabled: notBool as boolean })).ok).toBe(false);
+    expect(settings.saveAgentSettings).not.toHaveBeenCalled();
+  });
+  test("a zero ceiling is allowed (it stops all spend)", async () => {
+    expect((await saveAgentSettingsAction({ ...valid, agentDailyCeilingMicros: 0 })).ok).toBe(true);
+  });
+  test("a failed write is reported, not thrown", async () => {
+    settings.saveAgentSettings.mockRejectedValueOnce(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await saveAgentSettingsAction(valid)).ok).toBe(false);
   });
 });
 

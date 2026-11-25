@@ -1,8 +1,14 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { getUserClaims } from "@/lib/auth";
 import { isAdmin } from "@/lib/admin";
-import { saveInviteSettings } from "@/lib/appSettings";
+import {
+  isValidAgentCeiling,
+  saveAgentSettings,
+  saveInviteSettings,
+  type AgentSettingsInput,
+} from "@/lib/appSettings";
 import { setInviteAllowance } from "@/lib/invites";
 import { clearPlanOverride, setPlanOverride } from "@/lib/planOverrides";
 
@@ -38,7 +44,35 @@ export async function saveInviteSettingsAction(input: {
   }
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Agent kill switches and per-user spend ceilings (micros). Same contract as above. */
+export async function saveAgentSettingsAction(input: AgentSettingsInput): Promise<AdminActionResult> {
+  if (!isAdmin(await getUserClaims())) throw new Error("not authorized");
+
+  const toggles = [input.agentEnabled, input.agentBackgroundEnabled, input.agentVariant3Enabled];
+  if (!toggles.every((t) => typeof t === "boolean")) {
+    return { ok: false, error: "Each switch must be On or Off." };
+  }
+  if (!isValidAgentCeiling(input.agentDailyCeilingMicros) || !isValidAgentCeiling(input.agentMonthlyCeilingMicros)) {
+    return { ok: false, error: "Each ceiling must be between $0 and $1,000." };
+  }
+  try {
+    // Atomic five-key upsert: never half-apply a switch and its ceilings.
+    await saveAgentSettings({
+      agentEnabled: input.agentEnabled,
+      agentBackgroundEnabled: input.agentBackgroundEnabled,
+      agentVariant3Enabled: input.agentVariant3Enabled,
+      agentDailyCeilingMicros: input.agentDailyCeilingMicros,
+      agentMonthlyCeilingMicros: input.agentMonthlyCeilingMicros,
+    });
+  } catch (err) {
+    console.error("saveAgentSettingsAction failed", err);
+    return { ok: false, error: "Couldn't save agent settings. Please try again." };
+  }
+  revalidatePath("/admin/invites");
+  return { ok: true };
+}
+
+const UUID_RE =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function setInviteAllowanceAction(input: {
   userId: string;

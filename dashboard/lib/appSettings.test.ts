@@ -14,18 +14,24 @@ vi.mock("next/cache", () => ({
 }));
 
 import { serviceSql } from "@/lib/db";
-import { defaultAppSettings, overlayAppSettings, saveInviteSettings } from "@/lib/appSettings";
+import {
+  defaultAppSettings,
+  overlayAppSettings,
+  saveAgentSettings,
+  saveInviteSettings,
+} from "@/lib/appSettings";
 
 describe("overlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipline)", () => {
   test("empty rows → compiled defaults (standard / 3)", () => {
-    expect(overlayAppSettings([])).toEqual({ inviteCompPlan: "standard", inviteDefaultAllowance: 3 });
+    expect(overlayAppSettings([])).toEqual(defaultAppSettings());
+    expect(overlayAppSettings([])).toMatchObject({ inviteCompPlan: "standard", inviteDefaultAllowance: 3 });
   });
   test("valid rows override both keys", () => {
     const s = overlayAppSettings([
       { key: "invite_comp_plan", value: "pro" },
       { key: "invite_default_allowance", value: 10 },
     ]);
-    expect(s).toEqual({ inviteCompPlan: "pro", inviteDefaultAllowance: 10 });
+    expect(s).toEqual({ ...defaultAppSettings(), inviteCompPlan: "pro", inviteDefaultAllowance: 10 });
   });
   test("'none' is a valid comp plan (comping off)", () => {
     expect(overlayAppSettings([{ key: "invite_comp_plan", value: "none" }]).inviteCompPlan).toBe("none");
@@ -40,6 +46,42 @@ describe("overlayAppSettings (total parser — dashboard/CLAUDE.md jsonb discipl
       { key: "invite_default_allowance", value: -2 },
     ]);
     expect(s).toEqual(defaultAppSettings());
+  });
+  test("agent keys overlay defaults and bad values keep the default", () => {
+    const s = overlayAppSettings([
+      { key: "agent_enabled", value: false },
+      { key: "agent_daily_ceiling_micros", value: "lots" },
+    ]);
+    expect(s.agentEnabled).toBe(false);
+    expect(s.agentDailyCeilingMicros).toBe(1_000_000);
+  });
+  test("agent defaults: on, background off, variant 3 on, placeholder ceilings", () => {
+    const s = overlayAppSettings([]);
+    expect(s.agentEnabled).toBe(true);
+    expect(s.agentBackgroundEnabled).toBe(false);
+    expect(s.agentVariant3Enabled).toBe(true);
+    expect(s.agentDailyCeilingMicros).toBe(1_000_000);
+    expect(s.agentMonthlyCeilingMicros).toBe(10_000_000);
+  });
+  test("agent toggles accept only booleans (a double-encoded 'true' unwraps, 1 does not)", () => {
+    expect(overlayAppSettings([{ key: "agent_background_enabled", value: true }]).agentBackgroundEnabled).toBe(true);
+    expect(overlayAppSettings([{ key: "agent_background_enabled", value: "true" }]).agentBackgroundEnabled).toBe(true);
+    expect(overlayAppSettings([{ key: "agent_variant3_enabled", value: 0 }]).agentVariant3Enabled).toBe(true);
+    expect(overlayAppSettings([{ key: "agent_enabled", value: "no" }]).agentEnabled).toBe(true);
+  });
+  test("a ceiling must be a non-negative integer no larger than 1e9", () => {
+    const daily = (value: unknown) =>
+      overlayAppSettings([{ key: "agent_daily_ceiling_micros", value }]).agentDailyCeilingMicros;
+    const monthly = (value: unknown) =>
+      overlayAppSettings([{ key: "agent_monthly_ceiling_micros", value }]).agentMonthlyCeilingMicros;
+    expect(daily(0)).toBe(0);
+    expect(daily(1_000_000_000)).toBe(1_000_000_000);
+    expect(daily(1_000_000_001)).toBe(1_000_000);
+    expect(daily(-1)).toBe(1_000_000);
+    expect(daily(2.5)).toBe(1_000_000);
+    expect(daily("500")).toBe(1_000_000);
+    expect(monthly(25_000_000)).toBe(25_000_000);
+    expect(monthly(Number.NaN)).toBe(10_000_000);
   });
   test("allowance rejects floats/strings/negatives, accepts 0 (invites off)", () => {
     expect(overlayAppSettings([{ key: "invite_default_allowance", value: 2.5 }]).inviteDefaultAllowance).toBe(3);
@@ -67,5 +109,40 @@ describe("saveInviteSettings (atomic two-key upsert)", () => {
     expect(sql).toHaveLength(2);
     expect(sql[0]).toContain("invite_comp_plan");
     expect(sql[1]).toContain("invite_default_allowance");
+  });
+});
+
+describe("saveAgentSettings (atomic five-key upsert)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  test("writes all five keys in one transaction, and what it writes reads back unchanged", async () => {
+    const rows: { key: string; value: unknown }[] = [];
+    // The key and the JSON text are the two bound values of each upsert.
+    const tx = (_strings: TemplateStringsArray, key: unknown, json: unknown) => {
+      rows.push({ key: String(key), value: JSON.parse(String(json)) });
+      return Promise.resolve([]);
+    };
+    (serviceSql.begin as ReturnType<typeof vi.fn>).mockImplementation(
+      async (cb: (t: typeof tx) => Promise<void>) => cb(tx),
+    );
+    const input = {
+      agentEnabled: false,
+      agentBackgroundEnabled: true,
+      agentVariant3Enabled: false,
+      agentDailyCeilingMicros: 250_000,
+      agentMonthlyCeilingMicros: 4_000_000,
+    };
+
+    await saveAgentSettings(input);
+
+    expect(serviceSql.begin).toHaveBeenCalledTimes(1);
+    expect(rows.map((r) => r.key).sort()).toEqual([
+      "agent_background_enabled",
+      "agent_daily_ceiling_micros",
+      "agent_enabled",
+      "agent_monthly_ceiling_micros",
+      "agent_variant3_enabled",
+    ]);
+    expect(overlayAppSettings(rows)).toMatchObject(input);
   });
 });

@@ -7,6 +7,7 @@ import { loadAppSettings } from "@/lib/appSettings";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { InviteGenerator } from "@/components/admin/InviteGenerator";
 import { InviteSettings } from "@/components/admin/InviteSettings";
+import { AgentSettings } from "@/components/admin/AgentSettings";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { SlimHeader } from "@/components/rolefit/SlimHeader";
 import { AppShell } from "@/components/shell/AppShell";
@@ -87,6 +88,19 @@ export default async function AdminInvitesPage() {
             <InviteSettings
               initialCompPlan={settings.inviteCompPlan}
               initialDefaultAllowance={settings.inviteDefaultAllowance}
+            />
+          </Card>
+
+          <Card style={{ marginTop: "var(--space-4)" }}>
+            <PageHeader title="Agent" description="Kill switches for the agent and the per-user spend ceilings it is held to." />
+            <AgentSettings
+              initial={{
+                agentEnabled: settings.agentEnabled,
+                agentBackgroundEnabled: settings.agentBackgroundEnabled,
+                agentVariant3Enabled: settings.agentVariant3Enabled,
+                agentDailyCeilingMicros: settings.agentDailyCeilingMicros,
+                agentMonthlyCeilingMicros: settings.agentMonthlyCeilingMicros,
+              }}
             />
           </Card>
 

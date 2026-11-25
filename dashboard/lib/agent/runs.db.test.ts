@@ -2,7 +2,7 @@
 // Focus 1 and 6): every charge is one service-role transaction under a per-user lock,
 // and a signed-in user cannot write a run, a message or a counter. Runs only under
 // `npm run test:db`.
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import type { TransactionSql } from "postgres";
 import { openTestDb, USER_A, USER_B, type TestDb } from "@/lib/testing/dbHarness";
 import { chargeFlat, chargeStep, finishRun, saveMessages, startRun, TurnInProgressError } from "@/lib/agent/runs";
@@ -96,7 +96,53 @@ describe("chargeStep", () => {
     expect(await counter(USER_A)).toBe(2400);
     expect(results.filter((r) => r.ok).length).toBeLessThanOrEqual(3);
     expect(results.filter((r) => r.ok).length).toBe(3); // serialized: 300, 600, 900 pass; 1200 and up fail
+    // This proves the outcome, not the per-user lock: the global lifecycle gate that
+    // chargeStep takes first already serializes every charge. The two-user test below
+    // shows the counters are kept per user.
   });
+
+  test("parallel charges for two users keep each user's counter and ceiling separate", async () => {
+    await setCeilings(1000, 10_000_000);
+    const start = (userId: string) => startRun(userId, { threadId: null, kind: "background", model: "m", variant: null });
+    const ids = await Promise.all([start(USER_A), start(USER_A), start(USER_B), start(USER_B)]);
+    const users = [USER_A, USER_A, USER_B, USER_B];
+    const results = await Promise.all(
+      ids.map((id, i) => chargeStep(users[i]!, id, { costMicros: 400, inputTokens: 1, outputTokens: 1 })),
+    );
+    expect(await counter(USER_A)).toBe(800);
+    expect(await counter(USER_B)).toBe(800);
+    // 800 is under the 1000 ceiling for each user, so all four pass.
+    expect(results.every((r) => r.ok)).toBe(true);
+  });
+
+  test("ceilings of 0 (a failed settings read) refuse every step and still record it", async () => {
+    await setCeilings(0, 0);
+    const id = await startRun(USER_A, interactive);
+    expect(await chargeStep(USER_A, id, { costMicros: 0, inputTokens: 0, outputTokens: 0 })).toEqual({
+      ok: false,
+      reason: "daily_ceiling",
+    });
+    expect(await chargeStep(USER_A, id, { costMicros: 5, inputTokens: 1, outputTokens: 1 })).toMatchObject({ ok: false });
+    expect(await counter(USER_A)).toBe(5);
+    expect(await run(id)).toMatchObject({ steps: 2, cost: 5 });
+  });
+
+  test("a charge that waits past the lifecycle gate's lock timeout is retried once and recorded", async () => {
+    const id = await startRun(USER_A, interactive);
+    // Hold the global lifecycle gate for longer than its 2 s lock_timeout.
+    const holder = db.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(20916294442894917)`;
+      await new Promise((r) => setTimeout(r, 2_600));
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await chargeStep(USER_A, id, { costMicros: 25, inputTokens: 1, outputTokens: 1 })).toEqual({ ok: true });
+    await holder;
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    expect(await counter(USER_A)).toBe(25);
+    expect(await run(id)).toMatchObject({ steps: 1, cost: 25 });
+  }, 15_000);
 
   test("a negative, fractional or non-finite cost is rejected before any write", async () => {
     const id = await startRun(USER_A, interactive);
@@ -166,6 +212,16 @@ describe("startRun", () => {
 
   test("an interactive run needs a thread", async () => {
     await expect(startRun(USER_A, { ...interactive, threadId: null })).rejects.toThrow();
+  });
+
+  test("two parallel interactive starts on one thread: exactly one wins, one is TurnInProgressError", async () => {
+    const results = await Promise.allSettled([startRun(USER_A, interactive), startRun(USER_A, interactive)]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toBeInstanceOf(TurnInProgressError);
+    const rows = await db.sql`SELECT count(*)::int AS n FROM agent_runs WHERE status = 'running'`;
+    expect(rows[0]?.n).toBe(1);
   });
 
   test("a second interactive run on a busy thread throws TurnInProgressError", async () => {
@@ -286,6 +342,19 @@ describe("saveMessages", () => {
     expect(Array.from(rows)).toEqual([{ id: "a1", status: "complete" }]);
     const [t] = await db.sql`SELECT updated_at > now() - interval '1 minute' AS fresh FROM agent_threads WHERE id = ${THREAD_A}`;
     expect(t?.fresh).toBe(true);
+  });
+
+  test("a late pending write never turns a complete message back to pending", async () => {
+    await saveMessages(USER_A, THREAD_A, [messages[1]!], "complete");
+    const late: AgentUIMessage = { id: "a1", role: "assistant", parts: [{ type: "text", text: "placeholder" }] };
+    await saveMessages(USER_A, THREAD_A, [late], "pending");
+    const rows = await db.sql`SELECT status, parts FROM agent_messages WHERE id = 'a1'`;
+    expect(rows[0]?.status).toBe("complete");
+    // The parts stay the complete ones too.
+    expect(JSON.stringify(rows[0]?.parts)).toContain("It is an engineering role.");
+    // complete -> failed and pending -> complete still apply.
+    await saveMessages(USER_A, THREAD_A, [messages[1]!], "failed");
+    expect((await db.sql`SELECT status FROM agent_messages WHERE id = 'a1'`)[0]?.status).toBe("failed");
   });
 
   test("refuses another user's thread, more than 50 messages, or more than 1 MB", async () => {

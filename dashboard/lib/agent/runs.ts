@@ -127,7 +127,35 @@ export async function chargeStep(
   // Read before the transaction: no settings read while holding the spend lock.
   const settings = await loadAppSettings();
   const runMatches = UUID_RE.test(runId);
-  const spend = await serviceSql.begin(async (tx) => {
+  // The model call is already billed, so a busy lifecycle gate (its 2 s lock_timeout or
+  // 5 s statement_timeout) gets one retry before the step is lost (PR C batch 2 review
+  // M1). The transaction rolled back, so a retry never double-charges.
+  let spend: z.infer<typeof spendRowSchema>;
+  try {
+    spend = await chargeTx(userId, runId, runMatches, s);
+  } catch (e) {
+    if (!isTimeout(e)) throw e;
+    console.warn("agent: chargeStep timed out on a lock; retrying once");
+    spend = await chargeTx(userId, runId, runMatches, s);
+  }
+  if (spend.day_micros >= settings.agentDailyCeilingMicros) return { ok: false, reason: "daily_ceiling" };
+  if (spend.month_micros >= settings.agentMonthlyCeilingMicros) return { ok: false, reason: "monthly_ceiling" };
+  return { ok: true };
+}
+
+/** 55P03 lock_not_available (lock_timeout) or 57014 query_canceled (statement_timeout). */
+function isTimeout(e: unknown): boolean {
+  return typeof e === "object" && e !== null && "code" in e && (e.code === "55P03" || e.code === "57014");
+}
+
+/** chargeStep's one transaction; returns day and month spend read under the lock. */
+async function chargeTx(
+  userId: string,
+  runId: string,
+  runMatches: boolean,
+  s: { costMicros: number; inputTokens: number; outputTokens: number },
+): Promise<z.infer<typeof spendRowSchema>> {
+  return serviceSql.begin(async (tx) => {
     await acquireLifecycleGate(tx);
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${spendLockKey(userId)}, 0))`;
     await tx`
@@ -158,9 +186,6 @@ export async function chargeStep(
     if (!row) throw new Error("agent: spend read returned an unexpected row");
     return row;
   });
-  if (spend.day_micros >= settings.agentDailyCeilingMicros) return { ok: false, reason: "daily_ceiling" };
-  if (spend.month_micros >= settings.agentMonthlyCeilingMicros) return { ok: false, reason: "monthly_ceiling" };
-  return { ok: true };
 }
 
 type FinalStatus = Exclude<RunStatus, "pending" | "running">;
@@ -215,7 +240,9 @@ const SAVE_MAX_BYTES = 1_000_000;
 /**
  * Stores messages for the thread, upserting by (thread_id, id). Each message is
  * redacted (redactForStorage) and must pass StoredMessageSchema, so loadMessages can
- * read back everything stored. At most 50 messages and 1 MB of parts per call. Bumps
+ * read back everything stored. A `pending` write never overwrites a `complete` row, so
+ * a late pending-row hedge cannot turn a finished turn back into an interrupted one
+ * (PR C batch 2 review M3). At most 50 messages and 1 MB of parts per call. Bumps
  * agent_threads.updated_at. Service-only because stored history carries tool-approval
  * state and is fed back to the model as trusted history.
  */
@@ -251,6 +278,7 @@ export async function saveMessages(
         VALUES (${threadId}::uuid, ${r.id}, ${userId}::uuid, ${r.role}, ${r.partsJson}::text::jsonb, ${status})
         ON CONFLICT (thread_id, id) DO UPDATE SET parts = EXCLUDED.parts, status = EXCLUDED.status
         WHERE agent_messages.user_id = EXCLUDED.user_id
+          AND NOT (agent_messages.status = 'complete' AND EXCLUDED.status = 'pending')
       `;
     }
     await tx`UPDATE agent_threads SET updated_at = now() WHERE id = ${threadId}::uuid AND user_id = ${userId}::uuid`;

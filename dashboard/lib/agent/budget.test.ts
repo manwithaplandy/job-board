@@ -100,9 +100,14 @@ describe("stepCostMicros", () => {
   });
 
   test("a billed or estimated cost is clamped to STEP_COST_MAX_MICROS", () => {
-    expect(STEP_COST_MAX_MICROS).toBeLessThanOrEqual(1_000_000_000);
+    // $100: two parallel clamped steps on a day at its $1,000 ceiling stay inside int4.
+    expect(STEP_COST_MAX_MICROS).toBe(100_000_000);
+    expect(2 * STEP_COST_MAX_MICROS + 1_000_000_000).toBeLessThan(2 ** 31 - 1);
     expect(stepCostMicros({ providerMetadata: { openrouter: { usage: { cost: 1e30 } } }, usage: {} }, "x")).toBe(
       STEP_COST_MAX_MICROS,
+    );
+    expect(stepCostMicros({ providerMetadata: { openrouter: { usage: { cost: 150 } } }, usage: {} }, "x")).toBe(
+      100_000_000,
     );
     expect(stepCostMicros({ usage: { inputTokens: 1e15, outputTokens: 1e15 } }, "x")).toBe(STEP_COST_MAX_MICROS);
   });

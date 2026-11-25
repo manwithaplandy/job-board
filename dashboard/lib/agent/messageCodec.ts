@@ -141,13 +141,18 @@ const partSchema = z.union([
 export const MESSAGE_STATUSES = ["complete", "pending", "failed"] as const;
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 
-/** One agent_messages row as stored: the UIMessage plus its persistence status. */
-export const StoredMessageSchema = z.object({
-  id: z.string().min(1).max(200),
-  role: z.enum(["user", "assistant"]),
-  parts: z.array(partSchema),
-  status: z.enum(MESSAGE_STATUSES),
-});
+const messageCommon = { id: z.string().min(1).max(200), status: z.enum(MESSAGE_STATUSES) };
+
+/**
+ * One agent_messages row as stored: the UIMessage plus its persistence status. A user
+ * message carries only text and file parts (PR C batch 2 review M10): a tool, approval,
+ * reasoning or step part on a user message would be replayed to the model as trusted
+ * history, so it never parses, whoever wrote it.
+ */
+export const StoredMessageSchema = z.discriminatedUnion("role", [
+  z.object({ ...messageCommon, role: z.literal("user"), parts: z.array(z.union([textPart, filePart])) }),
+  z.object({ ...messageCommon, role: z.literal("assistant"), parts: z.array(partSchema) }),
+]);
 
 /**
  * A stored row (or any raw value) as a typed UIMessage, or null when it does not parse.
@@ -162,11 +167,13 @@ export function parseStoredMessage(raw: unknown): AgentUIMessage | null {
 }
 
 // Tool outputs whose bulk text must never be stored: the field is replaced with null
-// and the output is marked omitted. The model sees the redacted output on the next
-// turn and can call the tool again if it needs the text.
-const REDACTED_FIELDS: ReadonlyMap<string, string> = new Map([
-  ["tool-get_job", "description"],
-  ["tool-read_document", "text"],
+// and the output is marked omitted (and, for get_job, descriptionOmitted is set, so a
+// redacted output never reads as "this posting has no text"). The model sees the
+// redacted output on the next turn and can call the tool again if it needs the text.
+type Redaction = { field: string; flags: Record<string, true> };
+const REDACTED_FIELDS: ReadonlyMap<string, Redaction> = new Map<string, Redaction>([
+  ["tool-get_job", { field: "description", flags: { descriptionOmitted: true, omitted: true } }],
+  ["tool-read_document", { field: "text", flags: { omitted: true } }],
 ]);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -176,10 +183,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 type Part = AgentUIMessage["parts"][number];
 
 function redactPart(part: Part): Part {
-  const field = REDACTED_FIELDS.get(part.type);
-  if (!field || !("state" in part) || part.state !== "output-available") return part;
-  if (!("output" in part) || !isRecord(part.output) || !(field in part.output)) return part;
-  return { ...part, output: { ...part.output, [field]: null, omitted: true } };
+  const rule = REDACTED_FIELDS.get(part.type);
+  if (!rule || !("state" in part) || part.state !== "output-available") return part;
+  if (!("output" in part) || !isRecord(part.output) || !(rule.field in part.output)) return part;
+  return { ...part, output: { ...part.output, [rule.field]: null, ...rule.flags } };
 }
 
 /** A copy of `m` safe to store: get_job descriptions and read_document text removed. */

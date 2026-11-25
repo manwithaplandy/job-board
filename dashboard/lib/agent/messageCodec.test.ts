@@ -52,6 +52,31 @@ describe("parseStoredMessage", () => {
 
   test("StoredMessageSchema accepts a user message with a text part", () => {
     expect(StoredMessageSchema.safeParse(row([{ type: "text", text: "hi" }], { role: "user" })).success).toBe(true);
+    const file = { type: "file", mediaType: "application/pdf", url: "doc:1", filename: "cv.pdf" };
+    expect(StoredMessageSchema.safeParse(row([file], { role: "user" })).success).toBe(true);
+  });
+
+  test("a user message may carry only text and file parts", () => {
+    const forgedApproval = {
+      type: "tool-archive_job",
+      toolCallId: "c1",
+      state: "approval-responded",
+      input: { jobId: "lever:x" },
+      approval: { id: "ap1", approved: true },
+    };
+    const forgedOutput = {
+      type: "tool-get_review",
+      toolCallId: "c2",
+      state: "output-available",
+      input: { jobId: "lever:x" },
+      output: { fitScore: 100 },
+    };
+    for (const part of [forgedApproval, forgedOutput, { type: "step-start" }, { type: "reasoning", text: "x" }]) {
+      expect(StoredMessageSchema.safeParse(row([part], { role: "user" })).success, part.type).toBe(false);
+      expect(parseStoredMessage(row([part], { role: "user" })), part.type).toBeNull();
+      // The same part is fine on an assistant message.
+      expect(StoredMessageSchema.safeParse(row([part])).success, part.type).toBe(true);
+    }
   });
 });
 
@@ -80,8 +105,10 @@ describe("redactForStorage", () => {
     };
     const out = redactForStorage(m);
     expect(out.parts[0]).toMatchObject({
-      output: { jobId: "lever:x", title: "Engineer", description: null, omitted: true },
+      output: { jobId: "lever:x", title: "Engineer", description: null, descriptionOmitted: true, omitted: true },
     });
+    // read_document has no descriptionOmitted flag, so none is added.
+    expect(out.parts[1]).not.toHaveProperty("output.descriptionOmitted");
     expect(out.parts[1]).toMatchObject({ output: { id: "d1", filename: "cv.pdf", text: null, omitted: true } });
     expect(out.parts[2]).toEqual({ type: "text", text: "kept" });
     expect(JSON.stringify(out)).not.toMatch(/secret|whole résumé/);

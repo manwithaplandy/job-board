@@ -78,11 +78,12 @@ export function stepCostMicros(
 }
 
 /**
- * The most one step can cost: $1,000. No real step costs this; the clamp keeps a
- * poisoned billed cost or token count from overflowing usage_counters.n (int4) when
- * runs.ts adds it to a day that is at most a ceiling (also at most $1,000) plus overshoot.
+ * The most one step can cost: $100. No real step costs this; the clamp keeps a poisoned
+ * billed cost or token count from overflowing usage_counters.n (int4, 2.147e9) when
+ * runs.ts adds it to a day that is at most a ceiling (at most $1,000) plus the overshoot
+ * of each live run, including several parallel overshoot steps (PR C batch 2 review M2).
  */
-export const STEP_COST_MAX_MICROS = 1_000_000_000;
+export const STEP_COST_MAX_MICROS = 100_000_000;
 
 /** A token count from provider usage: a non-finite or negative value counts as 0. */
 function tokenCount(n: number | undefined): number {

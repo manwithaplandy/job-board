@@ -686,6 +686,45 @@ describe("streamAgentTurn: approvals (Task 1.16)", () => {
     expect(model.doStreamCalls).toHaveLength(0);
     expect(startApplicationPrep).not.toHaveBeenCalled();
   });
+
+  test("a refused summary charge on an approval turn restores the waiting approval and runs nothing (re-review)", async () => {
+    const pending = await pendingApproval();
+    // 39 earlier messages plus the pending pair: 41, so this turn needs a summary.
+    const earlier: UIMessage[] = Array.from({ length: 39 }, (_, i) => ({
+      id: `f-${i}`,
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      parts: [{ type: "text" as const, text: `earlier ${i}` }],
+    }));
+    const waiting = pending.history[1];
+    vi.mocked(loadMessages).mockResolvedValue([...earlier, ...pending.history]);
+    vi.mocked(saveMessages).mockClear();
+    vi.mocked(finishRun).mockClear();
+    vi.mocked(chargeStep).mockReset().mockResolvedValue({ ok: false, reason: "daily_ceiling" });
+    const streaming = scripted([textStep(["should not run"], 0.0005)]);
+    const model = new MockLanguageModelV4({
+      doStream: (options) => streaming.doStream(options),
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "Summary." }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage,
+        providerMetadata: billed(0.0005),
+        warnings: [],
+      }),
+    });
+
+    await turn(model, approval(pending.approvalId, true));
+
+    expect(model.doGenerateCalls).toHaveLength(1);
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(startApplicationPrep).not.toHaveBeenCalled();
+    // The waiting message is saved pending for the turn, then back as it was: still asking.
+    const [, , [restored], status] = lastAssistantSave();
+    expect(restored.id).toBe(waiting.id);
+    expect(restored.parts).toEqual(waiting.parts);
+    expect(prepPart(restored).state).toBe("approval-requested");
+    expect(status).toBe("complete");
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "over_budget", error: "over_budget" });
+  });
 });
 
 describe("streamAgentTurn: ask_user keeps its questions (PR I3b review I1)", () => {

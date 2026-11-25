@@ -426,14 +426,14 @@ async function runTurn(a: TurnArgs): Promise<Response> {
 
   // Stopped during setup (the summary's charge was refused or failed, or the wall clock
   // ran out during the summary): no model step starts. streamText would still call the
-  // model with an aborted signal, so it is not called at all.
+  // model with an aborted signal, so it is not called at all. The thread goes back to how
+  // it was, as for any turn that never reached the model: an approval's message waits
+  // again with its approval request (the tool never ran), a new turn's placeholder is
+  // closed failed (PR I3b re-review).
   if (stopReason !== null) {
     clearTimeout(timer);
-    const outcome = turnOutcome({ stopReason, modelError });
-    await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: placeholder.parts }], outcome.message).catch(
-      (e: unknown) => console.error("agent: closing the placeholder failed", errorName(e)),
-    );
-    await closeRun(userId, runId, outcome.run);
+    await undoPlaceholder();
+    await closeRun(userId, runId, turnOutcome({ stopReason, modelError }).run);
     return createUIMessageStreamResponse({ stream: errorOnlyStream() });
   }
 

@@ -33,8 +33,23 @@ const fakeParent = {
 function record(e: MessageEvent) {
   if (e.data && typeof e.data === "object" && "type" in e.data && e.data.type !== "init") onWindow.push(["window", e.data]);
 }
+// The kit's `window`. vitest's jsdom environment copies the window's keys onto Node's global
+// and deletes them on teardown, so a non-configurable lock the kit puts on global `open`
+// would break the teardown. The kit therefore runs against this stand-in: what it defines
+// (host, its locks) lands on the shadow object; everything else is read from the real
+// global, whose functions vitest has already bound to the jsdom window.
+const shadow: Record<string | symbol, unknown> = {};
+const kitWindow: Record<string | symbol, unknown> = new Proxy(shadow, {
+  get(target, key) {
+    return Object.prototype.hasOwnProperty.call(target, key) ? target[key] : Reflect.get(globalThis, key);
+  },
+  getPrototypeOf() {
+    return Object.getPrototypeOf(globalThis);
+  },
+});
+
 function host(): KitHost {
-  const h: unknown = Reflect.get(window, "host");
+  const h: unknown = Reflect.get(kitWindow, "host");
   if (!h || typeof h !== "object") throw new Error("no host");
   return h as KitHost; // test-only view of the kit's global
 }
@@ -71,8 +86,19 @@ beforeAll(() => {
       return {};
     },
   });
-  new Function("parent", KIT_JS)(fakeParent);
+  // jsdom has no WebRTC: a stand-in, so the kit's lock on the real prototype can be checked.
+  shadow.RTCPeerConnection = FakePeerConnection;
+  new Function("parent", "window", KIT_JS)(fakeParent, kitWindow);
 });
+
+class FakePeerConnection {
+  createOffer() {
+    return "offer";
+  }
+  createDataChannel() {
+    return "channel";
+  }
+}
 afterAll(() => {
   window.removeEventListener("message", record);
   port?.close();
@@ -97,7 +123,7 @@ describe("what the kit locks before the model's code runs (fix round 1, I1)", ()
     expect(rules.createScript("alert(1)")).toBeNull();
     expect(rules.createHTML("<svg></svg>")).toBe("<svg></svg>");
     expect(rules.createHTML("<p class=\"a\">x</p>")).toBe("<p class=\"a\">x</p>");
-    for (const bad of ["<script>x</script>", "<SCRIPT src=x>", "<iframe srcdoc=x>", "<frame>", "<object>", "<embed>", "<portal>", "<fencedframe>"]) {
+    for (const bad of ["<script>x</script>", "<SCRIPT src=x>", "<iframe srcdoc=x>", "<frame>", "<object>", "<embed>", "<portal>", "<fencedframe>", "<link rel=preconnect>", "<meta http-equiv=refresh>", "<base>"]) {
       expect(() => rules.createHTML(bad), bad).toThrow();
     }
   });
@@ -117,6 +143,30 @@ describe("what the kit locks before the model's code runs (fix round 1, I1)", ()
     expect(() => document.implementation.createHTMLDocument("x").createElement("iframe")).toThrow();
     expect(document.createElement("div").tagName).toBe("DIV");
     expect(document.createElementNS("http://www.w3.org/2000/svg", "svg").localName).toBe("svg");
+  });
+
+  test("createElement and createElementNS refuse link, meta and base (Task 2.7, CI run 1)", () => {
+    for (const tag of ["link", "LINK", "meta", "base"]) {
+      expect(() => document.createElement(tag), tag).toThrow();
+      expect(() => document.createElementNS("http://www.w3.org/1999/xhtml", tag), tag).toThrow();
+    }
+  });
+
+  test("the WebRTC constructors and window.open throw and cannot be put back (Task 2.7, CI run 1)", () => {
+    for (const name of ["RTCPeerConnection", "webkitRTCPeerConnection", "RTCDataChannel", "RTCIceCandidate", "RTCSessionDescription"]) {
+      const value: unknown = Reflect.get(kitWindow, name);
+      expect(typeof value, name).toBe("function");
+      expect(() => Reflect.construct(value as new () => unknown, []), name).toThrow();
+      expect(Object.getOwnPropertyDescriptor(kitWindow, name), name).toMatchObject({ writable: false, configurable: false });
+      expect(Reflect.set(kitWindow, name, FakePeerConnection), name).toBe(false);
+      expect(() => Object.defineProperty(kitWindow, name, { value: FakePeerConnection }), name).toThrow();
+    }
+    // The methods that start ICE are locked on the original prototype too.
+    expect(() => new FakePeerConnection().createOffer()).toThrow();
+    expect(() => new FakePeerConnection().createDataChannel()).toThrow();
+    const open: unknown = Reflect.get(kitWindow, "open");
+    expect(() => (open as (u: string) => unknown)("x")).toThrow();
+    expect(Object.getOwnPropertyDescriptor(kitWindow, "open")).toMatchObject({ writable: false, configurable: false });
   });
 });
 
@@ -223,5 +273,101 @@ describe("the kit in a document", () => {
     await vi.waitFor(() => expect(ofType("error")).toHaveLength(1));
     await tick();
     expect(ofType("error")).toEqual([{ type: "error", message: "x".repeat(500) }]);
+  });
+});
+
+describe("links and leaving (Task 2.7, CI run 2)", () => {
+  test("a click whose path holds an element with an href is cancelled before any listener the model adds", () => {
+    document.body.innerHTML = "";
+    const a = document.createElement("a");
+    a.setAttribute("href", "#elsewhere");
+    a.setAttribute("target", "_top");
+    const inner = document.createElement("span");
+    a.appendChild(inner);
+    document.body.appendChild(a);
+    // A model listener that tries to get in first: a capture listener on the window that stops propagation.
+    const stopper = (e: Event) => e.stopImmediatePropagation();
+    window.addEventListener("click", stopper, true);
+    const seen: boolean[] = [];
+    a.addEventListener("click", (e) => seen.push(e.defaultPrevented));
+    // All in the same task as the setAttribute, so the observer has not stripped the href yet:
+    // only the guard acts.
+    const first = new MouseEvent("click", { bubbles: true, cancelable: true });
+    try {
+      a.dispatchEvent(first);
+    } finally {
+      window.removeEventListener("click", stopper, true);
+    }
+    expect(first.defaultPrevented).toBe(true);
+    // The stopper ran after the guard and kept the event from reaching the anchor's own listener.
+    expect(seen).toEqual([]);
+    const fromChild = new MouseEvent("click", { bubbles: true, cancelable: true, composed: true });
+    inner.dispatchEvent(fromChild);
+    expect(fromChild.defaultPrevented).toBe(true);
+    expect(seen).toEqual([true]);
+    const aux = new MouseEvent("auxclick", { bubbles: true, cancelable: true });
+    a.dispatchEvent(aux);
+    expect(aux.defaultPrevented).toBe(true);
+
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    const plain = new MouseEvent("click", { bubbles: true, cancelable: true });
+    button.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(false);
+  });
+
+  test("href is stripped from elements as they are added or given one, in the document and in shadow roots", async () => {
+    document.body.innerHTML = "";
+    const holder = document.createElement("div");
+    holder.innerHTML = '<p><a id="m" href="#x">x</a></p>';
+    document.body.appendChild(holder);
+    const later = document.createElement("span");
+    document.body.appendChild(later);
+    await tick();
+    expect(document.getElementById("m")!.hasAttribute("href")).toBe(false);
+    later.setAttribute("href", "#y");
+    const svgA = document.createElementNS("http://www.w3.org/2000/svg", "a");
+    svgA.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#z");
+    document.body.appendChild(svgA);
+    await tick();
+    expect(later.hasAttribute("href")).toBe(false);
+    expect(svgA.getAttributeNames()).toEqual([]);
+
+    const shadowHost = document.createElement("div");
+    document.body.appendChild(shadowHost);
+    const root = shadowHost.attachShadow({ mode: "closed" });
+    expect(shadowHost.shadowRoot).toBe(root);
+    const hidden = document.createElement("a");
+    hidden.setAttribute("href", "#hidden");
+    root.appendChild(hidden);
+    await tick();
+    expect(hidden.hasAttribute("href")).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(Element.prototype, "attachShadow")).toMatchObject({ writable: false, configurable: false });
+  });
+
+  test("the run-time parsers of declarative shadow roots throw", () => {
+    const setHTMLUnsafe: unknown = Reflect.get(Element.prototype, "setHTMLUnsafe");
+    expect(() => (setHTMLUnsafe as (h: string) => void).call(document.createElement("div"), "<p>x</p>")).toThrow();
+    const parseHTMLUnsafe: unknown = Reflect.get(Document, "parseHTMLUnsafe");
+    expect(() => (parseHTMLUnsafe as (h: string) => unknown)("<p>x</p>")).toThrow();
+  });
+
+  test("beforeunload posts navigating once, and a replaced MessagePort.prototype.postMessage cannot stop it", async () => {
+    const original = MessagePort.prototype.postMessage;
+    const pongsBefore = ofType("pong").length;
+    try {
+      MessagePort.prototype.postMessage = function () {};
+      window.addEventListener("beforeunload", (e) => e.stopImmediatePropagation(), true);
+      window.dispatchEvent(new Event("beforeunload"));
+      window.dispatchEvent(new Event("beforeunload"));
+    } finally {
+      MessagePort.prototype.postMessage = original;
+    }
+    await vi.waitFor(() => expect(ofType("navigating")).toEqual([{ type: "navigating" }]));
+    await tick();
+    expect(ofType("navigating")).toHaveLength(1);
+    // The kit still answers pings over its own port after the prototype was replaced and restored.
+    port!.postMessage({ type: "ping", n: 9 });
+    await vi.waitFor(() => expect(ofType("pong")).toHaveLength(pongsBefore + 1));
   });
 });

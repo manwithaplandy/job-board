@@ -16,6 +16,7 @@
     "test:visual:authenticated": "VISUAL_SCOPE=authenticated VISUAL_DISABLE_TRACE=1 playwright test --project=visual --no-deps",
     "test:visual:public": "VISUAL_SCOPE=public playwright test --project=visual --no-deps",
     "test:visual:update": "VISUAL_SCOPE=public playwright test --project=visual --no-deps --update-snapshots",
+    "test:sandbox": "next build && PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test --config playwright.sandbox.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },

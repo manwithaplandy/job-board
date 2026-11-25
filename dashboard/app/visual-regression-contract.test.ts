@@ -124,6 +124,18 @@ describe("visual regression route inventory", () => {
     expect(spec).toContain("fullPage: true");
   });
 
+  test("skips test-driver routes in the screenshot matrix, so they need no baseline", () => {
+    const harnesses = VISUAL_ROUTES.filter((route) => route.harness);
+    expect(harnesses.map((route) => route.id)).toEqual(["agent-sandbox-harness", "agent-sandbox-harness-baseline-csp"]);
+    for (const route of harnesses) {
+      expect(route.access).toBe("public");
+      expect(route.path.startsWith("/ui-gallery/")).toBe(true);
+      expect(statSync(route.harness!).isFile()).toBe(true);
+    }
+    const spec = readFileSync("tests/visual/ui-cohesion.spec.ts", "utf8");
+    expect(spec).toContain("test.skip(Boolean(route.harness)");
+  });
+
   test("has stable unique snapshot ids and explicit access policy", () => {
     const ids = VISUAL_ROUTES.map((route) => route.id);
     expect(new Set(ids).size).toBe(ids.length);

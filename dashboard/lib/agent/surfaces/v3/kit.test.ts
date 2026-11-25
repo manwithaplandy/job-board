@@ -105,6 +105,22 @@ describe("variant 3 kit script", () => {
     expect(KIT_JS).toContain('post({ type: "pong", n:');
   });
 
+  test("the link guard, the observer and the leaving listeners are set up before ready is posted (Task 2.7, CI run 2)", () => {
+    const ready = KIT_JS.indexOf("parent.postMessage(");
+    for (const setup of [
+      'window.addEventListener("click", guardLink, true);',
+      'window.addEventListener("auxclick", guardLink, true);',
+      "watch(watcher, document, WATCH);",
+      'window.addEventListener("beforeunload", leaving, true);',
+      'navigationApi.addEventListener("navigate",',
+    ]) {
+      const at = KIT_JS.indexOf(setup);
+      expect({ setup, found: at > 0, beforeReady: at < ready }).toEqual({ setup, found: true, beforeReady: true });
+    }
+    expect(KIT_JS).toContain('post({ type: "navigating" });');
+    expect(KIT_JS).not.toMatch(/addEventListener\("pagehide"/);
+  });
+
   test("KIT_JS parses as a script", () => {
     expect(() => new Function(KIT_JS)).not.toThrow();
   });
@@ -113,7 +129,9 @@ describe("variant 3 kit script", () => {
     expect(KIT_JS).toMatch(/action: function \(name, args\) \{\s*post\(\{ type: "action"/);
     // ready carries the port, and is the only message to the parent window.
     expect(KIT_JS).toContain('parent.postMessage({ type: "ready" }, "*", [channel.port2])');
-    expect(KIT_JS).toContain("function post(msg) {\n    try { port.postMessage(msg); }");
+    // Task 2.7, CI run 2: through MessagePort.prototype.postMessage as it was when the kit ran.
+    expect(KIT_JS).toContain("var portSend = uncurry(MessagePort.prototype.postMessage);");
+    expect(KIT_JS).toContain("function post(msg) {\n    try { portSend(port, msg); }");
     expect(KIT_JS).toContain('post({ type: "resize", height: h })');
     expect(KIT_JS).toContain('window.addEventListener("error"');
     expect(KIT_JS).toContain('window.addEventListener("unhandledrejection"');

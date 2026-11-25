@@ -155,6 +155,56 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Real-browser enforcement tests for the variant 3 sandbox (plan Task 2.7): every case in
+  # Chromium, Firefox and WebKit against `next build` + `next start`, with a local canary
+  # server. The per-case JSON results are uploaded on success too, because gate A18 is
+  # decided from them.
+  sandbox-enforcement:
+    name: Sandbox enforcement
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --user 1001 --ipc=host
+    env:
+      DATABASE_URL: postgresql://test:test@127.0.0.1:1/test
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test
+      # The harness renders its hostile cases only on this explicit opt-in (fails closed).
+      SANDBOX_HARNESS: "1"
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run sandbox enforcement tests
+        run: npm run test:sandbox
+      - name: Upload sandbox per-case results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-enforcement-cases
+          path: dashboard/test-results/sandbox/results/**
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload sandbox failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-enforcement-results
+          path: |
+            dashboard/test-results/sandbox/**
+            !dashboard/test-results/sandbox/results/**
+          if-no-files-found: ignore
+          retention-days: 7
+
   migrations:
     name: Migrations
     runs-on: ubuntu-24.04

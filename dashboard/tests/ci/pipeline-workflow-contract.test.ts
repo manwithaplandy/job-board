@@ -121,8 +121,10 @@ describe("Pipeline guard job", () => {
 });
 
 describe("existing CI jobs", () => {
-  test("keep exactly two inert DATABASE_URL placeholders", () => {
-    expect(ci.match(/^\s+DATABASE_URL:/gm)).toHaveLength(2);
+  test("keep exactly three inert DATABASE_URL placeholders (dashboard, public visual, sandbox enforcement)", () => {
+    const placeholders = ci.match(/^\s+DATABASE_URL:.*$/gm) ?? [];
+    expect(placeholders).toHaveLength(3);
+    for (const line of placeholders) expect(line.trim()).toBe("DATABASE_URL: postgresql://test:test@127.0.0.1:1/test");
   });
 
   test("leave the acceptance suite on schema.sql", () => {

@@ -349,6 +349,50 @@ describe("SandboxFrame", () => {
     expect(screen.getByText(FALLBACK_TEXT)).toBeTruthy();
   });
 
+  test("a navigating message from the kit falls back at once, though the frame still answers pings (Task 2.7, CI run 2)", async () => {
+    const { iframe, onFallback } = mount();
+    const { port, frame } = ready(iframe);
+    await settle();
+    expect(frame.answerPings).toBe(true);
+    port.postMessage({ type: "navigating" });
+    await waitFor(() => expect(actions.reportSurfaceFailure).toHaveBeenCalledWith(ID, "self_navigation"));
+    expect(actions.reportSurfaceFailure).toHaveBeenCalledTimes(1);
+    expect(onFallback).toHaveBeenCalledWith("self_navigation");
+    expect(iframe.isConnected).toBe(false);
+    expect(screen.getByText(FALLBACK_TEXT)).toBeTruthy();
+  });
+
+  test("a navigating message right after this page's own beforeunload or pagehide is not a failure (Task 2.7, CI run 2)", async () => {
+    for (const event of ["beforeunload", "pagehide"]) {
+      const { iframe, onFallback, unmount } = mount();
+      const { port } = ready(iframe);
+      await settle();
+      act(() => {
+        window.dispatchEvent(new Event(event));
+      });
+      port.postMessage({ type: "navigating" });
+      await settle();
+      expect({ event, reported: actions.reportSurfaceFailure.mock.calls.length }).toEqual({ event, reported: 0 });
+      expect(onFallback).not.toHaveBeenCalled();
+      expect(iframe.isConnected).toBe(true);
+      unmount();
+    }
+  });
+
+  test("a navigating message after the grace period is a failure again (Task 2.7, CI run 2)", async () => {
+    const { iframe } = mount();
+    const { port } = ready(iframe);
+    await settle();
+    const leftAt = Date.now();
+    act(() => {
+      window.dispatchEvent(new Event("beforeunload"));
+    });
+    const spy = vi.spyOn(Date, "now").mockReturnValue(leftAt + 10_000);
+    port.postMessage({ type: "navigating" });
+    await waitFor(() => expect(actions.reportSurfaceFailure).toHaveBeenCalledWith(ID, "self_navigation"));
+    spy.mockRestore();
+  });
+
   test("resize above 1200 is clamped", async () => {
     const { iframe } = mount();
     expect(iframe.style.height).toBe("0px");
@@ -539,6 +583,31 @@ describe("SandboxFrame", () => {
     port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
     await settle();
     expect(actions.describeFrameIntentAction).not.toHaveBeenCalled();
+    expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+  });
+
+  test("the harness seam replaces only where describe and report go; the frame checks still apply", async () => {
+    // Task 2.7's harness passes `server` (no database or session there); product code does not.
+    const server = {
+      describe: vi.fn().mockResolvedValue(chipFor(SHORTLIST_A, "Shortlist from the stub")),
+      report: vi.fn().mockResolvedValue(null),
+    };
+    const s = surface();
+    const onIntent = vi.fn();
+    const view = render(<SandboxFrame surface={s} onIntent={onIntent} server={server} />);
+    const iframe = view.container.querySelector("iframe")!;
+    const wrong = ready(iframe, { origin: "https://evil.example" });
+    const { port } = ready(iframe);
+    await waitFor(() => expect(wrong.received).toEqual([]));
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    const chip = await screen.findByRole("button", { name: "Shortlist from the stub" });
+    expect(server.describe).toHaveBeenCalledWith(THREAD, ID, "shortlist.set", { jobId: JOB_A, state: "shortlisted" });
+    expect(actions.describeFrameIntentAction).not.toHaveBeenCalled();
+    fireEvent.click(chip);
+    expect(onIntent).not.toHaveBeenCalled(); // still unarmed
+    port.postMessage({ type: "error", message: "boom" });
+    await screen.findByText(FALLBACK_TEXT);
+    expect(server.report).toHaveBeenCalledWith(ID, "frame_error");
     expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
   });
 });

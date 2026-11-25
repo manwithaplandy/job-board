@@ -7,6 +7,7 @@ type Row = { state: string; reason_code: string | null; reason_text: string | nu
 const db = vi.hoisted(() => ({
   row: null as Row | null,
   reviewed: true,
+  overridden: false,
   calls: [] as { wrapper: string; text: string; values: unknown[] }[],
   nextActionId: 1,
 }));
@@ -25,6 +26,9 @@ function fakeTx(wrapper: string) {
         j_id: JOB, j_title: "Engineer", j_company: "Acme", j_location: null, j_remote: true,
         j_url: "https://example.test/1", j_first_seen_at: created, j_closed: false, fit_score: 80,
       }]);
+    }
+    if (text.includes("SELECT EXISTS") && text.includes("human_override")) {
+      return Promise.resolve([{ overridden: db.overridden }]);
     }
     if (text.includes("SELECT EXISTS")) return Promise.resolve([{ reviewed: db.reviewed }]);
     if (text.includes("INSERT INTO shortlist_items")) {
@@ -83,6 +87,7 @@ const audits = () => db.calls.filter((c) => c.text.includes("agent_log_action"))
 beforeEach(() => {
   db.row = null;
   db.reviewed = true;
+  db.overridden = false;
   db.calls = [];
   db.nextActionId = 1;
 });
@@ -202,6 +207,23 @@ describe("setShortlistState", () => {
         jobId: JOB, state: "later", setBy: "agent", audit: ctx({ unattended: true }),
       }),
     ).toMatchObject({ before: null, after: { state: "later" } });
+  });
+
+  test("an unattended write for a job the user rejected by hand returns user_owned; an interactive one goes ahead", async () => {
+    db.overridden = true;
+    for (const row of [null, { state: "suggested", reason_code: null, reason_text: null, set_by: "agent" }]) {
+      db.row = row;
+      db.calls = [];
+      const out = await setShortlistState(USER, {
+        jobId: JOB, state: "shortlisted", setBy: "agent", audit: ctx({ unattended: true }),
+      });
+      expect(out).toEqual({ skipped: "user_owned" });
+      expect(db.calls.some((c) => c.text.includes("INSERT INTO shortlist_items"))).toBe(false);
+      expect(audits()).toHaveLength(0);
+    }
+    db.row = null;
+    expect(await setShortlistState(USER, { jobId: JOB, state: "shortlisted", setBy: "agent", audit: ctx() }))
+      .toMatchObject({ before: null, after: { state: "shortlisted" } });
   });
 
   test("an unattended write must be the agent's, and a reason text over 500 chars is refused", async () => {

@@ -130,3 +130,24 @@ test("an unattended write never overwrites a user-set row", async () => {
   expect(await item()).toEqual({ state: "shortlisted", reason_code: null, set_by: "user" });
   expect((await db.sql`SELECT count(*)::int AS n FROM agent_actions`)[0].n).toBe(0);
 });
+
+test("an unattended write never touches a job the user rejected from the board", async () => {
+  const unattended = ctx({ unattended: true, threadId: null });
+  // The board's reject: verdict deny with human_override, and no shortlist row.
+  await db.sql`UPDATE job_reviews SET verdict = 'deny', human_override = TRUE WHERE user_id = ${USER_A} AND job_id = ${JOB}`;
+  expect(await setShortlistState(USER_A, { jobId: JOB, state: "shortlisted", setBy: "agent", audit: unattended }))
+    .toEqual({ skipped: "user_owned" });
+  expect(await item()).toBeUndefined();
+  // Rejected after the agent had already triaged it: the agent's row is left alone too.
+  await setShortlistState(USER_A, { jobId: JOB_2, state: "later", setBy: "agent", audit: unattended });
+  await db.sql`UPDATE job_reviews SET verdict = 'deny', human_override = TRUE WHERE user_id = ${USER_A} AND job_id = ${JOB_2}`;
+  expect(await setShortlistState(USER_A, { jobId: JOB_2, state: "shortlisted", setBy: "agent", audit: unattended }))
+    .toEqual({ skipped: "user_owned" });
+  expect(await item(JOB_2)).toEqual({ state: "later", reason_code: null, set_by: "agent" });
+  expect(await review()).toEqual({ verdict: "deny", human_override: true, fit_score: 77 });
+  expect((await db.sql`SELECT count(*)::int AS n FROM agent_actions`)[0].n).toBe(1);
+  // A deny without human_override (the reviewer's own) is not a hand reject.
+  await db.sql`UPDATE job_reviews SET verdict = 'deny', human_override = FALSE WHERE user_id = ${USER_A} AND job_id = ${JOB}`;
+  expect(await setShortlistState(USER_A, { jobId: JOB, state: "later", setBy: "agent", audit: unattended }))
+    .toMatchObject({ after: { state: "later", setBy: "agent" } });
+});

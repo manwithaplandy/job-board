@@ -6,7 +6,8 @@
 // reviewer never resurrects the job; a row that stops being a user skip clears it again
 // (undenyJobTx to unreviewed, see undenyJobTx). An agent skip never writes the deny.
 // With `audit`, the write logs shortlist.set in the same transaction. An unattended
-// write never overwrites a row the user set.
+// write never overwrites a row the user set, nor touches a job the user rejected by
+// hand (job_reviews.human_override, as the board's reject writes).
 //
 // The shortlist.set undoer re-reads the live row, restores only when it still equals
 // the action's `after`, parses `before` with the write schema below, and writes it
@@ -176,6 +177,16 @@ async function hasReviewTx(tx: TransactionSql, userId: string, jobId: string): P
   return rows[0]?.reviewed === true;
 }
 
+/** Whether the caller rejected the job by hand (job_reviews.human_override, as the board's reject writes). */
+async function hasHumanOverrideTx(tx: TransactionSql, userId: string, jobId: string): Promise<boolean> {
+  const rows = await tx`
+    SELECT EXISTS (
+      SELECT 1 FROM job_reviews r
+      WHERE r.user_id = ${userId}::uuid AND r.job_id = ${jobId} AND r.human_override IS TRUE
+    ) AS overridden`;
+  return rows[0]?.overridden === true;
+}
+
 /**
  * The one write core, shared by setShortlistState and the undoer: upserts the row and
  * moves the sticky deny so that it exists exactly while the row is a user skip.
@@ -245,8 +256,12 @@ export async function setShortlistState(
   return withUserMutation(userId, async (tx): Promise<SetShortlistResult> => {
     const existing = await readRowTx(tx, userId, a.jobId, now);
     if (existing === null && !(await hasReviewTx(tx, userId, a.jobId))) throw new NotReviewedError();
-    // An unattended run writes only over an absent row or one the system or agent set.
-    if (audit?.unattended && existing !== null && existing.setBy === "user") return { skipped: "user_owned" };
+    // An unattended run writes only over an absent row or one the system or agent set,
+    // and never for a job the user rejected by hand (the board's reject leaves no row).
+    if (audit?.unattended) {
+      if (existing !== null && existing.setBy === "user") return { skipped: "user_owned" };
+      if (await hasHumanOverrideTx(tx, userId, a.jobId)) return { skipped: "user_owned" };
+    }
     await writeShortlistTx(tx, userId, a.jobId, existing, w);
     const after = await readRowTx(tx, userId, a.jobId, now);
     if (!after) throw new Error("shortlist: the written row is missing");

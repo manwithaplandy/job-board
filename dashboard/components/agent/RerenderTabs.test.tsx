@@ -99,8 +99,40 @@ test("a re-render posts the surface and variant, loads the new row and shows it 
   expect(screen.getByText("Original view")).toBeTruthy();
 });
 
+test("the buttons describe the version shown: a press re-renders that version, and its own variant is disabled", async () => {
+  fetchMock.mockResolvedValue(Response.json({ error: "x" }, { status: 500 }));
+  const chain: HostChain = {
+    chainId: S1,
+    memberIds: [S1, R1],
+    surface: surface(S1, 1, "Original view"),
+    rerenders: [surface(R1, 2, "Layout view", S1)],
+  };
+  mount(chain);
+  const button = (name: string) => screen.getByRole("button", { name: `Re-render as ${name}` }) as HTMLButtonElement;
+
+  // The original (Blocks) is shown: Blocks is disabled, Layout re-renders the original.
+  expect(button("Blocks").disabled).toBe(true);
+  expect(button("Layout").disabled).toBe(false);
+  await act(async () => {
+    fireEvent.click(button("Layout"));
+  });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ surfaceId: S1, variant: 2 });
+
+  // The Layout re-render is shown: Layout is disabled, Blocks re-renders that version.
+  fireEvent.click(screen.getByRole("radio", { name: "Layout" }));
+  await waitFor(() => expect(button("Blocks").disabled).toBe(false));
+  expect(button("Layout").disabled).toBe(true);
+  await act(async () => {
+    fireEvent.click(button("Blocks"));
+  });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ surfaceId: R1, variant: 1 });
+});
+
 test("a refused re-render says why and adds nothing", async () => {
   for (const [status, text] of [
+    [409, RERENDER_ERRORS.busy],
     [429, RERENDER_ERRORS.budget],
     [503, RERENDER_ERRORS.disabled],
     [402, RERENDER_ERRORS.plan],

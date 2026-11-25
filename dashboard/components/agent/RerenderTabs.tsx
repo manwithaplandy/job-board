@@ -13,9 +13,12 @@ import { SurfaceHost } from "./SurfaceHost";
 // "Re-render as" (plan Task 2.9). A surface chain shows its original and every re-render
 // of it as tabs (one radiogroup), and offers a re-render in each variant. A press posts to
 // /api/agent/rerender (which checks the plan, the switch, the budget and that the surface
-// is the caller's), then reads the new row through loadSurfaceAction and shows it. Variant 3
-// is disabled while the operator switch is off. Without a plan (`variant3Enabled` null) the
-// buttons are not shown; earlier re-renders still are.
+// is the caller's), then reads the new row through loadSurfaceAction and shows it. The
+// buttons describe the version shown (PR J4 review M3): a press re-renders that version, and
+// the button for its own recorded variant is disabled. The new row still joins the chain's
+// first original (the server sets rerender_of to the root). Variant 3 is disabled while the
+// operator switch is off. Without a plan (`variant3Enabled` null) the buttons are not shown;
+// earlier re-renders still are.
 
 export const VERSIONS_LABEL = "Versions of this view";
 export const RERENDER_LABEL = "Re-render as";
@@ -25,6 +28,7 @@ export const RERENDER_ERRORS = {
   disabled: "The agent is switched off right now.",
   plan: "Re-rendering needs a plan.",
   failed: "The view could not be re-rendered. Try again.",
+  busy: "Another re-render is still running. Try again when it is done.",
 } as const;
 
 /** What a re-render request answered: the new surface id, or the error line to show. */
@@ -45,6 +49,7 @@ export async function requestRerender(surfaceId: string, variant: Variant): Prom
   if (res.status === 429) return { ok: false, message: RERENDER_ERRORS.budget };
   if (res.status === 503) return { ok: false, message: RERENDER_ERRORS.disabled };
   if (res.status === 402) return { ok: false, message: RERENDER_ERRORS.plan };
+  if (res.status === 409) return { ok: false, message: RERENDER_ERRORS.busy };
   if (!res.ok) return { ok: false, message: RERENDER_ERRORS.failed };
   let body: unknown;
   try {
@@ -94,10 +99,12 @@ export function RerenderTabs({
 
   const rerender = (variant: Variant) => {
     if (busy) return;
+    // The version the buttons describe: the one shown when the button was pressed.
+    const sourceId = shown.id;
     setBusy(true);
     setMessage(null);
     void (async () => {
-      const answer = await requestRerender(chain.surface.id, variant);
+      const answer = await requestRerender(sourceId, variant);
       if (!answer.ok) {
         setMessage(answer.message);
         return;

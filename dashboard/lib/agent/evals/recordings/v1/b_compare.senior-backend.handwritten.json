@@ -1,0 +1,239 @@
+{
+  "format": 1,
+  "source": "hand-written",
+  "scenario": "b_compare",
+  "persona": "senior-backend",
+  "variant": 1,
+  "model": "hand-written",
+  "seed": 0,
+  "toolCalls": [
+    { "toolCallId": "b-c1", "name": "get_job", "input": { "jobId": "greenhouse:eval-sb-0:1000" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "b-c2", "name": "get_job", "input": { "jobId": "greenhouse:eval-sb-1:1001" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "b-c3", "name": "get_review", "input": { "jobId": "greenhouse:eval-sb-0:1000" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "b-c4", "name": "get_review", "input": { "jobId": "greenhouse:eval-sb-1:1001" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "b-c5", "name": "get_memo", "input": {}, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "b-c6", "name": "present", "input": { "payload": { "variant": 1, "title": "Two backend roles side by side" } }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "b-c7", "name": "get_memo", "input": {}, "state": "executed", "approval": null, "outputDigest": null },
+    {
+      "toolCallId": "b-c8",
+      "name": "propose_memo_change",
+      "input": {
+        "proposedDoc": {
+          "role": "Senior or staff backend engineer on a platform or payments team.",
+          "locations": "Remote first; Exampleton or Testville if the role is exceptional.",
+          "compensation": "At least 160,000 USD a year, but remote matters more than pay.",
+          "mustHaves": "Go or another typed backend language; a team that owns its on-call.",
+          "dealBreakers": "Gambling and crypto companies.",
+          "companies": "",
+          "other": ""
+        },
+        "rationale": "You said remote matters more to you than pay."
+      },
+      "state": "executed",
+      "approval": null,
+      "outputDigest": null
+    },
+    { "toolCallId": "b-c9", "name": "present", "input": { "payload": { "variant": 1, "title": "Remote first" } }, "state": "executed", "approval": null, "outputDigest": null }
+  ],
+  "approvals": [],
+  "intents": [],
+  "surfaces": [
+    {
+      "id": "5f000000-0000-4000-8000-00000000b001",
+      "threadId": "7d000000-0000-4000-8000-00000000000b",
+      "runId": "8b000000-0000-4000-8000-00000000b001",
+      "variant": 1,
+      "payload": {
+        "variant": 1,
+        "title": "Two backend roles side by side",
+        "blocks": [
+          {
+            "type": "JobComparison",
+            "jobIds": ["greenhouse:eval-sb-0:1000", "greenhouse:eval-sb-1:1001"],
+            "rowOrder": ["requirements", "pay", "arrangement", "red_flags", "age", "unknowns"],
+            "verdict": "The platform role is remote and meets the Go requirement; the first role pays about the same but needs you in Exampleton."
+          }
+        ]
+      },
+      "fallbackPayload": {
+        "variant": 1,
+        "blocks": [
+          { "type": "Callout", "tone": "info", "text": "Two backend roles side by side" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-sb-0:1000" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-sb-1:1001" }
+        ]
+      },
+      "gathered": {
+        "profile": null,
+        "jobs": {
+          "greenhouse:eval-sb-0:1000": {
+            "jobId": "greenhouse:eval-sb-0:1000",
+            "title": "Senior Backend Engineer",
+            "company": "Zephyr Example Cloud",
+            "location": "Exampleton",
+            "remote": false,
+            "url": "https://jobs.example.test/eval-sb-0/1000",
+            "firstSeenAt": "2026-11-25T08:00:00.000Z",
+            "ageDays": 0,
+            "closed": false
+          },
+          "greenhouse:eval-sb-1:1001": {
+            "jobId": "greenhouse:eval-sb-1:1001",
+            "title": "Staff Software Engineer, Platform",
+            "company": "Placeholder Payments",
+            "location": "Remote",
+            "remote": true,
+            "url": "https://jobs.example.test/eval-sb-1/1001",
+            "firstSeenAt": "2026-11-24T08:00:00.000Z",
+            "ageDays": 1,
+            "closed": false
+          }
+        },
+        "reviews": {
+          "greenhouse:eval-sb-0:1000": {
+            "jobId": "greenhouse:eval-sb-0:1000",
+            "verdict": "approve",
+            "fitScore": 94,
+            "skillsScore": 97,
+            "experienceScore": 90,
+            "compScore": null,
+            "payMin": 150000,
+            "payMax": 175000,
+            "payCurrency": "USD",
+            "payPeriod": "year",
+            "workArrangement": "hybrid",
+            "seniority": "mid",
+            "redFlags": [],
+            "skillGaps": [],
+            "requirements": [
+              { "text": "Five or more years building backend services", "met": false },
+              { "text": "Production Go or Java", "met": true },
+              { "text": "Owning on-call for a service", "met": true }
+            ],
+            "reasoning": "Synthetic review for the golden scenarios.",
+            "stale": false
+          },
+          "greenhouse:eval-sb-1:1001": {
+            "jobId": "greenhouse:eval-sb-1:1001",
+            "verdict": "approve",
+            "fitScore": 92,
+            "skillsScore": 95,
+            "experienceScore": 88,
+            "compScore": null,
+            "payMin": 151000,
+            "payMax": 176000,
+            "payCurrency": "USD",
+            "payPeriod": "year",
+            "workArrangement": "remote",
+            "seniority": "mid",
+            "redFlags": [],
+            "skillGaps": [],
+            "requirements": [
+              { "text": "Five or more years building backend services", "met": true },
+              { "text": "Production Go or Java", "met": true },
+              { "text": "Owning on-call for a service", "met": false }
+            ],
+            "reasoning": "Synthetic review for the golden scenarios.",
+            "stale": false
+          }
+        },
+        "memo": {
+          "role": "Senior or staff backend engineer on a platform or payments team.",
+          "locations": "Remote, Exampleton or Testville.",
+          "compensation": "At least 160,000 USD a year.",
+          "mustHaves": "Go or another typed backend language; a team that owns its on-call.",
+          "dealBreakers": "Gambling and crypto companies.",
+          "companies": "",
+          "other": ""
+        },
+        "shortlist": [],
+        "applications": [],
+        "documents": [],
+        "metrics": []
+      },
+      "outcome": "valid",
+      "failure": null,
+      "supersedes": null,
+      "rerenderOf": null,
+      "model": "hand-written",
+      "latencyMs": null,
+      "createdAt": "2026-11-25T10:00:30.000Z"
+    },
+    {
+      "id": "5f000000-0000-4000-8000-00000000b002",
+      "threadId": "7d000000-0000-4000-8000-00000000000b",
+      "runId": "8b000000-0000-4000-8000-00000000b002",
+      "variant": 1,
+      "payload": {
+        "variant": 1,
+        "title": "Remote first",
+        "blocks": [
+          { "type": "MemoDiff", "proposalId": "9a000000-0000-4000-8000-00000000b001" },
+          { "type": "Callout", "tone": "info", "text": "Your memo stays as it is until you approve this change." }
+        ]
+      },
+      "fallbackPayload": { "variant": 1, "blocks": [{ "type": "Callout", "tone": "info", "text": "Remote first" }] },
+      "gathered": {
+        "profile": null,
+        "jobs": {},
+        "reviews": {},
+        "memo": {
+          "role": "Senior or staff backend engineer on a platform or payments team.",
+          "locations": "Remote, Exampleton or Testville.",
+          "compensation": "At least 160,000 USD a year.",
+          "mustHaves": "Go or another typed backend language; a team that owns its on-call.",
+          "dealBreakers": "Gambling and crypto companies.",
+          "companies": "",
+          "other": ""
+        },
+        "shortlist": [],
+        "applications": [],
+        "documents": [],
+        "metrics": []
+      },
+      "outcome": "valid",
+      "failure": null,
+      "supersedes": null,
+      "rerenderOf": null,
+      "model": "hand-written",
+      "latencyMs": null,
+      "createdAt": "2026-11-25T10:01:30.000Z"
+    }
+  ],
+  "dbBefore": {
+    "jobs": [
+      { "jobId": "greenhouse:eval-sb-0:1000", "title": "Senior Backend Engineer", "company": "Zephyr Example Cloud", "url": "https://jobs.example.test/eval-sb-0/1000" },
+      { "jobId": "greenhouse:eval-sb-1:1001", "title": "Staff Software Engineer, Platform", "company": "Placeholder Payments", "url": "https://jobs.example.test/eval-sb-1/1001" }
+    ],
+    "reviews": [
+      { "jobId": "greenhouse:eval-sb-0:1000", "fitScore": 94, "payMin": 150000, "payMax": 175000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-sb-1:1001", "fitScore": 92, "payMin": 151000, "payMax": 176000, "payCurrency": "USD", "payPeriod": "year" }
+    ],
+    "shortlist": [],
+    "memoVersion": 1,
+    "memoVersions": [{ "version": 1, "changedBy": "user", "proposalId": null }],
+    "memoProposals": [],
+    "packages": [],
+    "resumeText": "# Avery Example\navery@example.test · Exampleton\n\n## Summary\nBackend engineer with nine years of building payment and data services.\n\n## Experience\n### Lumen Example Systems — Exampleton\n#### Senior Backend Engineer · Mar 2021 – Present\n- Led the move of the billing ledger to an event-sourced service handling forty thousand writes a second.\n- Cut p99 API latency from 900 ms to 180 ms by reworking the query layer.\n- Mentored five engineers and ran the on-call rotation for the payments group.\n### Quarry Sample Labs — Testville\n#### Backend Engineer · Jun 2017 – Feb 2021\n- Built the ingestion pipeline for sensor data in Go and Kafka.\n- Designed the internal gRPC API used by twelve services.\n### Harbor Placeholder Works — Testville\n#### Software Engineer · Jul 2015 – May 2017\n- Maintained the order service and its PostgreSQL schema.\n- Automated deploys with Terraform and a CI pipeline.\n\n## Education\n- B.Sc. Computer Science — Example State University\n\n## Skills\nGo, PostgreSQL, Kafka, Kubernetes, Terraform, gRPC, Redis, Python",
+    "applications": []
+  },
+  "dbAfter": {
+    "jobs": [
+      { "jobId": "greenhouse:eval-sb-0:1000", "title": "Senior Backend Engineer", "company": "Zephyr Example Cloud", "url": "https://jobs.example.test/eval-sb-0/1000" },
+      { "jobId": "greenhouse:eval-sb-1:1001", "title": "Staff Software Engineer, Platform", "company": "Placeholder Payments", "url": "https://jobs.example.test/eval-sb-1/1001" }
+    ],
+    "reviews": [
+      { "jobId": "greenhouse:eval-sb-0:1000", "fitScore": 94, "payMin": 150000, "payMax": 175000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-sb-1:1001", "fitScore": 92, "payMin": 151000, "payMax": 176000, "payCurrency": "USD", "payPeriod": "year" }
+    ],
+    "shortlist": [],
+    "memoVersion": 1,
+    "memoVersions": [{ "version": 1, "changedBy": "user", "proposalId": null }],
+    "memoProposals": [{ "id": "9a000000-0000-4000-8000-00000000b001", "status": "pending" }],
+    "packages": [],
+    "resumeText": "# Avery Example\navery@example.test · Exampleton\n\n## Summary\nBackend engineer with nine years of building payment and data services.\n\n## Experience\n### Lumen Example Systems — Exampleton\n#### Senior Backend Engineer · Mar 2021 – Present\n- Led the move of the billing ledger to an event-sourced service handling forty thousand writes a second.\n- Cut p99 API latency from 900 ms to 180 ms by reworking the query layer.\n- Mentored five engineers and ran the on-call rotation for the payments group.\n### Quarry Sample Labs — Testville\n#### Backend Engineer · Jun 2017 – Feb 2021\n- Built the ingestion pipeline for sensor data in Go and Kafka.\n- Designed the internal gRPC API used by twelve services.\n### Harbor Placeholder Works — Testville\n#### Software Engineer · Jul 2015 – May 2017\n- Maintained the order service and its PostgreSQL schema.\n- Automated deploys with Terraform and a CI pipeline.\n\n## Education\n- B.Sc. Computer Science — Example State University\n\n## Skills\nGo, PostgreSQL, Kafka, Kubernetes, Terraform, gRPC, Redis, Python",
+    "applications": []
+  },
+  "usage": { "costMicros": 0, "inputTokens": 0, "outputTokens": 0 },
+  "timings": { "firstRenderMs": null, "completeMs": 0 }
+}

@@ -22,8 +22,8 @@ export const WINDOW_LABELS: Record<MetricSpec["window"], string> = {
   all: "All time",
 };
 
-/** Metrics whose value is a share from 0 to 1. */
-const RATES: ReadonlySet<MetricId> = new Set(["response_rate"]);
+/** Metrics whose value is a share from 0 to 1 (the golden-scenario asserts check each shows its n). */
+export const RATE_METRICS: ReadonlySet<MetricId> = new Set(["response_rate"]);
 
 export const NOT_ENOUGH_DATA = "Not enough data yet";
 /** A metric reference that no longer indexes the surface's gathered metrics. */
@@ -69,7 +69,7 @@ export function countLabel(m: MetricResult): string | null {
 export function metricValue(m: MetricResult): string {
   if (m.kind === "value") {
     if (m.value === null || !Number.isFinite(m.value)) return NOT_ENOUGH_DATA;
-    return RATES.has(m.spec.metric) ? `${Math.round(m.value * 100)}%` : m.value.toLocaleString("en-US");
+    return RATE_METRICS.has(m.spec.metric) ? `${Math.round(m.value * 100)}%` : m.value.toLocaleString("en-US");
   }
   if (NO_HEADLINE.has(m.spec.metric)) return NO_SINGLE_FIGURE;
   if (m.kind === "series") return m.points.reduce((sum, p) => sum + p.y, 0).toLocaleString("en-US");

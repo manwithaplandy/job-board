@@ -1,0 +1,363 @@
+{
+  "format": 1,
+  "source": "hand-written",
+  "scenario": "d_weekly",
+  "persona": "new-grad",
+  "variant": 1,
+  "model": "hand-written",
+  "seed": 0,
+  "toolCalls": [
+    { "toolCallId": "d-c1", "name": "query_metrics", "input": { "metric": "applications_by_stage", "groupBy": "stage", "window": "30d" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "d-c2", "name": "query_metrics", "input": { "metric": "response_rate", "window": "30d" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "d-c3", "name": "query_metrics", "input": { "metric": "applications_over_time", "groupBy": "week", "window": "30d" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "d-c4", "name": "list_applications", "input": {}, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "d-c5", "name": "present", "input": { "payload": { "variant": 1, "title": "Your last few weeks" } }, "state": "executed", "approval": null, "outputDigest": null }
+  ],
+  "approvals": [],
+  "intents": [],
+  "surfaces": [
+    {
+      "id": "5f000000-0000-4000-8000-00000000d001",
+      "threadId": "7d000000-0000-4000-8000-00000000000d",
+      "runId": "8b000000-0000-4000-8000-00000000d001",
+      "variant": 1,
+      "payload": {
+        "variant": 1,
+        "title": "Your last few weeks",
+        "blocks": [
+          { "type": "StatRow", "metricRefs": [1, 0] },
+          { "type": "MetricChart", "metricRef": 2, "viz": "bar", "title": "Applications sent per week" },
+          { "type": "StaleList", "limit": 5 },
+          { "type": "Callout", "tone": "info", "text": "Two of your six applications led to interviews. Two have had no news for over ten days." }
+        ]
+      },
+      "fallbackPayload": {
+        "variant": 1,
+        "blocks": [
+          { "type": "Callout", "tone": "info", "text": "Your last few weeks" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-ng-4:1010" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-ng-5:1011" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-ng-0:1012" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-ng-1:1013" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-ng-2:1014" },
+          { "type": "StatRow", "metricRefs": [0, 1, 2] }
+        ]
+      },
+      "gathered": {
+        "profile": null,
+        "jobs": {
+          "greenhouse:eval-ng-4:1010": {
+            "jobId": "greenhouse:eval-ng-4:1010",
+            "title": "Software Engineer I",
+            "company": "Fictional Games Lab",
+            "location": "Remote",
+            "remote": true,
+            "url": "https://jobs.example.test/eval-ng-4/1010",
+            "firstSeenAt": "2026-11-15T08:00:00.000Z",
+            "ageDays": 10,
+            "closed": false
+          },
+          "greenhouse:eval-ng-5:1011": {
+            "jobId": "greenhouse:eval-ng-5:1011",
+            "title": "Junior Frontend Engineer",
+            "company": "Imaginary Bank Tech",
+            "location": "Mockport",
+            "remote": false,
+            "url": "https://jobs.example.test/eval-ng-5/1011",
+            "firstSeenAt": "2026-11-14T08:00:00.000Z",
+            "ageDays": 11,
+            "closed": false
+          },
+          "greenhouse:eval-ng-0:1012": {
+            "jobId": "greenhouse:eval-ng-0:1012",
+            "title": "Graduate Software Engineer",
+            "company": "Example Apps Studio",
+            "location": "Testville",
+            "remote": false,
+            "url": "https://jobs.example.test/eval-ng-0/1012",
+            "firstSeenAt": "2026-11-13T08:00:00.000Z",
+            "ageDays": 12,
+            "closed": false
+          },
+          "greenhouse:eval-ng-1:1013": {
+            "jobId": "greenhouse:eval-ng-1:1013",
+            "title": "Associate Software Engineer",
+            "company": "Sample Maps Co",
+            "location": "Remote",
+            "remote": true,
+            "url": "https://jobs.example.test/eval-ng-1/1013",
+            "firstSeenAt": "2026-11-12T08:00:00.000Z",
+            "ageDays": 13,
+            "closed": false
+          },
+          "greenhouse:eval-ng-2:1014": {
+            "jobId": "greenhouse:eval-ng-2:1014",
+            "title": "Junior Full-Stack Developer",
+            "company": "Placeholder Learning",
+            "location": "Mockport",
+            "remote": false,
+            "url": "https://jobs.example.test/eval-ng-2/1014",
+            "firstSeenAt": "2026-11-11T08:00:00.000Z",
+            "ageDays": 14,
+            "closed": false
+          },
+          "greenhouse:eval-ng-3:1015": {
+            "jobId": "greenhouse:eval-ng-3:1015",
+            "title": "Software Engineer I",
+            "company": "Mock Media House",
+            "location": "Testville",
+            "remote": false,
+            "url": "https://jobs.example.test/eval-ng-3/1015",
+            "firstSeenAt": "2026-11-10T08:00:00.000Z",
+            "ageDays": 15,
+            "closed": false
+          }
+        },
+        "reviews": {},
+        "memo": null,
+        "shortlist": [],
+        "applications": [
+          {
+            "id": "a9000000-0000-4000-8000-00000000d001",
+            "jobId": "greenhouse:eval-ng-4:1010",
+            "stage": "interviewing",
+            "closedReason": null,
+            "nextStepOn": null,
+            "updatedAt": "2026-11-24T12:00:00.000Z",
+            "job": {
+              "jobId": "greenhouse:eval-ng-4:1010",
+              "title": "Software Engineer I",
+              "company": "Fictional Games Lab",
+              "location": "Remote",
+              "remote": true,
+              "url": "https://jobs.example.test/eval-ng-4/1010",
+              "firstSeenAt": "2026-11-15T08:00:00.000Z",
+              "ageDays": 10,
+              "closed": false
+            },
+            "events": [
+              { "id": 2, "kind": "stage", "fromStage": "applied", "toStage": "interviewing", "note": null, "actor": "user", "createdAt": "2026-11-24T12:00:00.000Z" },
+              { "id": 1, "kind": "stage", "fromStage": null, "toStage": "applied", "note": null, "actor": "user", "createdAt": "2026-11-23T12:00:00.000Z" }
+            ],
+            "documents": { "resume": false, "cover": false, "outdated": false }
+          },
+          {
+            "id": "a9000000-0000-4000-8000-00000000d002",
+            "jobId": "greenhouse:eval-ng-5:1011",
+            "stage": "interviewing",
+            "closedReason": null,
+            "nextStepOn": null,
+            "updatedAt": "2026-11-22T12:00:00.000Z",
+            "job": {
+              "jobId": "greenhouse:eval-ng-5:1011",
+              "title": "Junior Frontend Engineer",
+              "company": "Imaginary Bank Tech",
+              "location": "Mockport",
+              "remote": false,
+              "url": "https://jobs.example.test/eval-ng-5/1011",
+              "firstSeenAt": "2026-11-14T08:00:00.000Z",
+              "ageDays": 11,
+              "closed": false
+            },
+            "events": [
+              { "id": 4, "kind": "stage", "fromStage": "applied", "toStage": "interviewing", "note": null, "actor": "user", "createdAt": "2026-11-22T12:00:00.000Z" },
+              { "id": 3, "kind": "stage", "fromStage": null, "toStage": "applied", "note": null, "actor": "user", "createdAt": "2026-11-21T12:00:00.000Z" }
+            ],
+            "documents": { "resume": false, "cover": false, "outdated": false }
+          },
+          {
+            "id": "a9000000-0000-4000-8000-00000000d003",
+            "jobId": "greenhouse:eval-ng-0:1012",
+            "stage": "applied",
+            "closedReason": null,
+            "nextStepOn": null,
+            "updatedAt": "2026-11-19T12:00:00.000Z",
+            "job": {
+              "jobId": "greenhouse:eval-ng-0:1012",
+              "title": "Graduate Software Engineer",
+              "company": "Example Apps Studio",
+              "location": "Testville",
+              "remote": false,
+              "url": "https://jobs.example.test/eval-ng-0/1012",
+              "firstSeenAt": "2026-11-13T08:00:00.000Z",
+              "ageDays": 12,
+              "closed": false
+            },
+            "events": [
+              { "id": 5, "kind": "stage", "fromStage": null, "toStage": "applied", "note": null, "actor": "user", "createdAt": "2026-11-19T12:00:00.000Z" }
+            ],
+            "documents": { "resume": false, "cover": false, "outdated": false }
+          },
+          {
+            "id": "a9000000-0000-4000-8000-00000000d004",
+            "jobId": "greenhouse:eval-ng-1:1013",
+            "stage": "applied",
+            "closedReason": null,
+            "nextStepOn": null,
+            "updatedAt": "2026-11-16T12:00:00.000Z",
+            "job": {
+              "jobId": "greenhouse:eval-ng-1:1013",
+              "title": "Associate Software Engineer",
+              "company": "Sample Maps Co",
+              "location": "Remote",
+              "remote": true,
+              "url": "https://jobs.example.test/eval-ng-1/1013",
+              "firstSeenAt": "2026-11-12T08:00:00.000Z",
+              "ageDays": 13,
+              "closed": false
+            },
+            "events": [
+              { "id": 6, "kind": "stage", "fromStage": null, "toStage": "applied", "note": null, "actor": "user", "createdAt": "2026-11-16T12:00:00.000Z" }
+            ],
+            "documents": { "resume": false, "cover": false, "outdated": false }
+          },
+          {
+            "id": "a9000000-0000-4000-8000-00000000d005",
+            "jobId": "greenhouse:eval-ng-2:1014",
+            "stage": "applied",
+            "closedReason": null,
+            "nextStepOn": null,
+            "updatedAt": "2026-11-12T12:00:00.000Z",
+            "job": {
+              "jobId": "greenhouse:eval-ng-2:1014",
+              "title": "Junior Full-Stack Developer",
+              "company": "Placeholder Learning",
+              "location": "Mockport",
+              "remote": false,
+              "url": "https://jobs.example.test/eval-ng-2/1014",
+              "firstSeenAt": "2026-11-11T08:00:00.000Z",
+              "ageDays": 14,
+              "closed": false
+            },
+            "events": [
+              { "id": 7, "kind": "stage", "fromStage": null, "toStage": "applied", "note": null, "actor": "user", "createdAt": "2026-11-12T12:00:00.000Z" }
+            ],
+            "documents": { "resume": false, "cover": false, "outdated": false }
+          },
+          {
+            "id": "a9000000-0000-4000-8000-00000000d006",
+            "jobId": "greenhouse:eval-ng-3:1015",
+            "stage": "applied",
+            "closedReason": null,
+            "nextStepOn": null,
+            "updatedAt": "2026-11-09T12:00:00.000Z",
+            "job": {
+              "jobId": "greenhouse:eval-ng-3:1015",
+              "title": "Software Engineer I",
+              "company": "Mock Media House",
+              "location": "Testville",
+              "remote": false,
+              "url": "https://jobs.example.test/eval-ng-3/1015",
+              "firstSeenAt": "2026-11-10T08:00:00.000Z",
+              "ageDays": 15,
+              "closed": false
+            },
+            "events": [
+              { "id": 8, "kind": "stage", "fromStage": null, "toStage": "applied", "note": null, "actor": "user", "createdAt": "2026-11-09T12:00:00.000Z" }
+            ],
+            "documents": { "resume": false, "cover": false, "outdated": false }
+          }
+        ],
+        "documents": [],
+        "metrics": [
+          {
+            "spec": { "metric": "applications_by_stage", "groupBy": "stage", "window": "30d" },
+            "n": 6,
+            "kind": "rows",
+            "columns": ["stage", "count"],
+            "rows": [
+              ["applied", 4],
+              ["interviewing", 2]
+            ]
+          },
+          { "spec": { "metric": "response_rate", "window": "30d" }, "n": 6, "kind": "value", "value": 0.333 },
+          {
+            "spec": { "metric": "applications_over_time", "groupBy": "week", "window": "30d" },
+            "n": 6,
+            "kind": "series",
+            "points": [
+              { "x": "2026-10-26", "y": 0 },
+              { "x": "2026-11-02", "y": 0 },
+              { "x": "2026-11-09", "y": 2 },
+              { "x": "2026-11-16", "y": 3 },
+              { "x": "2026-11-23", "y": 1 }
+            ]
+          }
+        ]
+      },
+      "outcome": "valid",
+      "failure": null,
+      "supersedes": null,
+      "rerenderOf": null,
+      "model": "hand-written",
+      "latencyMs": null,
+      "createdAt": "2026-11-25T12:00:40.000Z"
+    }
+  ],
+  "dbBefore": {
+    "jobs": [
+      { "jobId": "greenhouse:eval-ng-4:1010", "title": "Software Engineer I", "company": "Fictional Games Lab", "url": "https://jobs.example.test/eval-ng-4/1010" },
+      { "jobId": "greenhouse:eval-ng-5:1011", "title": "Junior Frontend Engineer", "company": "Imaginary Bank Tech", "url": "https://jobs.example.test/eval-ng-5/1011" },
+      { "jobId": "greenhouse:eval-ng-0:1012", "title": "Graduate Software Engineer", "company": "Example Apps Studio", "url": "https://jobs.example.test/eval-ng-0/1012" },
+      { "jobId": "greenhouse:eval-ng-1:1013", "title": "Associate Software Engineer", "company": "Sample Maps Co", "url": "https://jobs.example.test/eval-ng-1/1013" },
+      { "jobId": "greenhouse:eval-ng-2:1014", "title": "Junior Full-Stack Developer", "company": "Placeholder Learning", "url": "https://jobs.example.test/eval-ng-2/1014" },
+      { "jobId": "greenhouse:eval-ng-3:1015", "title": "Software Engineer I", "company": "Mock Media House", "url": "https://jobs.example.test/eval-ng-3/1015" }
+    ],
+    "reviews": [
+      { "jobId": "greenhouse:eval-ng-4:1010", "fitScore": 74, "payMin": 78000, "payMax": 103000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-5:1011", "fitScore": 72, "payMin": null, "payMax": null, "payCurrency": null, "payPeriod": null },
+      { "jobId": "greenhouse:eval-ng-0:1012", "fitScore": 70, "payMin": 80000, "payMax": 105000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-1:1013", "fitScore": 68, "payMin": 81000, "payMax": 106000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-2:1014", "fitScore": 66, "payMin": 75000, "payMax": 100000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-3:1015", "fitScore": 64, "payMin": null, "payMax": null, "payCurrency": null, "payPeriod": null }
+    ],
+    "shortlist": [],
+    "memoVersion": 1,
+    "memoVersions": [{ "version": 1, "changedBy": "user", "proposalId": null }],
+    "memoProposals": [],
+    "packages": [],
+    "resumeText": "# Sam Sample\nsam@example.test · Testville\n\n## Summary\nNew computer science graduate who likes web products and testing.\n\n## Experience\n### Testbed Example Corp — Testville\n#### Software Engineering Intern · Jun 2025 – Aug 2025\n- Shipped a settings page in TypeScript and React used by every customer.\n- Added end-to-end tests that caught two release blockers.\n### Campus Sample Lab — Testville\n#### Research Assistant · Sep 2023 – May 2025\n- Wrote Python scripts that cut experiment setup from a day to an hour.\n- Presented results at the student research fair.\n\n## Education\n- B.Sc. Computer Science — Testville Example University\n\n## Skills\nTypeScript, React, Python, SQL, Git, testing",
+    "applications": [
+      { "jobId": "greenhouse:eval-ng-4:1010", "stage": "interviewing" },
+      { "jobId": "greenhouse:eval-ng-5:1011", "stage": "interviewing" },
+      { "jobId": "greenhouse:eval-ng-0:1012", "stage": "applied" },
+      { "jobId": "greenhouse:eval-ng-1:1013", "stage": "applied" },
+      { "jobId": "greenhouse:eval-ng-2:1014", "stage": "applied" },
+      { "jobId": "greenhouse:eval-ng-3:1015", "stage": "applied" }
+    ]
+  },
+  "dbAfter": {
+    "jobs": [
+      { "jobId": "greenhouse:eval-ng-4:1010", "title": "Software Engineer I", "company": "Fictional Games Lab", "url": "https://jobs.example.test/eval-ng-4/1010" },
+      { "jobId": "greenhouse:eval-ng-5:1011", "title": "Junior Frontend Engineer", "company": "Imaginary Bank Tech", "url": "https://jobs.example.test/eval-ng-5/1011" },
+      { "jobId": "greenhouse:eval-ng-0:1012", "title": "Graduate Software Engineer", "company": "Example Apps Studio", "url": "https://jobs.example.test/eval-ng-0/1012" },
+      { "jobId": "greenhouse:eval-ng-1:1013", "title": "Associate Software Engineer", "company": "Sample Maps Co", "url": "https://jobs.example.test/eval-ng-1/1013" },
+      { "jobId": "greenhouse:eval-ng-2:1014", "title": "Junior Full-Stack Developer", "company": "Placeholder Learning", "url": "https://jobs.example.test/eval-ng-2/1014" },
+      { "jobId": "greenhouse:eval-ng-3:1015", "title": "Software Engineer I", "company": "Mock Media House", "url": "https://jobs.example.test/eval-ng-3/1015" }
+    ],
+    "reviews": [
+      { "jobId": "greenhouse:eval-ng-4:1010", "fitScore": 74, "payMin": 78000, "payMax": 103000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-5:1011", "fitScore": 72, "payMin": null, "payMax": null, "payCurrency": null, "payPeriod": null },
+      { "jobId": "greenhouse:eval-ng-0:1012", "fitScore": 70, "payMin": 80000, "payMax": 105000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-1:1013", "fitScore": 68, "payMin": 81000, "payMax": 106000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-2:1014", "fitScore": 66, "payMin": 75000, "payMax": 100000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-3:1015", "fitScore": 64, "payMin": null, "payMax": null, "payCurrency": null, "payPeriod": null }
+    ],
+    "shortlist": [],
+    "memoVersion": 1,
+    "memoVersions": [{ "version": 1, "changedBy": "user", "proposalId": null }],
+    "memoProposals": [],
+    "packages": [],
+    "resumeText": "# Sam Sample\nsam@example.test · Testville\n\n## Summary\nNew computer science graduate who likes web products and testing.\n\n## Experience\n### Testbed Example Corp — Testville\n#### Software Engineering Intern · Jun 2025 – Aug 2025\n- Shipped a settings page in TypeScript and React used by every customer.\n- Added end-to-end tests that caught two release blockers.\n### Campus Sample Lab — Testville\n#### Research Assistant · Sep 2023 – May 2025\n- Wrote Python scripts that cut experiment setup from a day to an hour.\n- Presented results at the student research fair.\n\n## Education\n- B.Sc. Computer Science — Testville Example University\n\n## Skills\nTypeScript, React, Python, SQL, Git, testing",
+    "applications": [
+      { "jobId": "greenhouse:eval-ng-4:1010", "stage": "interviewing" },
+      { "jobId": "greenhouse:eval-ng-5:1011", "stage": "interviewing" },
+      { "jobId": "greenhouse:eval-ng-0:1012", "stage": "applied" },
+      { "jobId": "greenhouse:eval-ng-1:1013", "stage": "applied" },
+      { "jobId": "greenhouse:eval-ng-2:1014", "stage": "applied" },
+      { "jobId": "greenhouse:eval-ng-3:1015", "stage": "applied" }
+    ]
+  },
+  "usage": { "costMicros": 0, "inputTokens": 0, "outputTokens": 0 },
+  "timings": { "firstRenderMs": null, "completeMs": 0 }
+}

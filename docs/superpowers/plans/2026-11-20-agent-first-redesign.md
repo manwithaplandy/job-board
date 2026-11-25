@@ -1842,6 +1842,44 @@ Tune repair and fallback limits, the handshake timeout, per-run caps and the cei
 
 Appended by Tasks 0.2, 0.3, 1.22, 2.7, 2.11, 2.12 and 2.15. Empty until execution starts.
 
+### Task 0.3, Spike B (2026-11-25, `ai@7.0.163`, `MockLanguageModelV4`, no network)
+
+Tests: `dashboard/lib/agent/spikes/persistOnDisconnect.test.ts` and
+`dashboard/lib/agent/spikes/approvalRoundTrip.test.ts`. Each test asserts the real SDK
+behaviour; all 7 pass.
+
+Persistence on disconnect:
+- "onEnd receives the full assistant message after the client cancels the body": **fails as
+  planned.** `toUIMessageStream`'s `onEnd` does fire after the client cancels the body, but
+  at the moment of the cancel, with `isCancelled: true` and only the parts streamed so far
+  (empty in the test), never the full turn. The test now pins that behaviour.
+- With `result.consumeStream()` the model stream keeps draining after the cancel, the turn
+  finishes (`streamText`'s own `onEnd` fires with `"abcde"`), and `await result.steps` and
+  `(await result.response).messages` hold the full turn. Pinned as its own test.
+- "without consumeStream the same cancel loses the tail": **passes.** After the cancel nothing
+  pulls the model stream and the turn stalls (`streamText`'s `onEnd` has not fired 300 ms after
+  a 140 ms stream). Note that reading `result.steps` later restarts consumption, so the tail
+  is lost only if nothing reads the result before the function is frozen.
+- **Fallback that applies:** Task 0.11 persists from `await result.steps` inside `after()`
+  from `next/server` instead of from `onEnd`, still calls `result.consumeStream()`, and keeps
+  the pending-row hedge (user message and a `pending` assistant row written before streaming;
+  a pending row older than `AGENT_LIMITS.staleTurnMs` renders as interrupted).
+
+Approval round trip (every call sets `experimental_toolApprovalSecret`):
+- "a tool under toolApproval 'user-approval' stops at approval-requested": **passes**; the part
+  carries `approval.signature`, `execute` is not called.
+- "patching the stored part to approval-responded approved:true makes the next call execute
+  the tool": **passes**; `execute` runs once with the signed input, the part ends
+  `output-available`, outcome `completed`. The signature binds approval id, tool call id, tool
+  name and input, not the approval state, so a server-side patch of the stored part is accepted.
+- "approved:false yields output-denied and execute is never called": **passes.**
+- "with the secret set, an approval part whose input was altered after signing is rejected":
+  **passes**; the UI stream emits an `error` chunk, `onEnd`'s outcome is `failed` with an
+  `InvalidToolApprovalSignatureError`, `execute` is not called. It surfaces in the stream, not
+  as a throw from `streamText`.
+- **Fallback that applies:** none. Task 1.16 keeps its primary path (patch the stored part on
+  the server); the client-message fallback is not needed.
+
 ---
 
 ## Plan reconciliation after the CI/CD overhaul (2026-11-25)

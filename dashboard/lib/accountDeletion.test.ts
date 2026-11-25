@@ -27,12 +27,15 @@ const s = vi.hoisted(() => ({
   listOffsets: [] as number[],
   stripeCalledWith: [] as (string | null)[],
   stripeCustomerDeletedWith: [] as (string | null)[],
+  // Tables the to_regclass probe in deleteUserRowsTx reports as not yet created.
+  missingTables: [] as string[],
 }));
 
 vi.mock("@/lib/db", () => {
   const tx = Object.assign(vi.fn(async (parts: TemplateStringsArray) => { s.txSql.push(parts.join("")); return []; }), {
     unsafe: vi.fn(async (sql: string) => {
       s.txSql.push(sql);
+      if (sql.includes("to_regclass")) return s.missingTables.map((name) => ({ name }));
       return [] as unknown[];
     }),
   });
@@ -111,6 +114,7 @@ beforeEach(() => {
   s.listOffsets = [];
   s.stripeCalledWith = [];
   s.stripeCustomerDeletedWith = [];
+  s.missingTables = [];
   vi.mocked(cancelSubscriptionIfPresent).mockClear();
   vi.mocked(deleteCustomerIfPresent).mockClear();
 });
@@ -182,6 +186,20 @@ describe("user_id table drift guard", () => {
     expect(USER_DELETE_TABLES as readonly string[]).toContain("review_scope_requests");
     await deleteUserRowsTx("user-a", "a@x.com");
     expect(s.txSql.join("\n")).toContain("DELETE FROM review_scope_requests WHERE user_id = $1::uuid");
+  });
+
+  test("a classified table its migration has not created yet is skipped, not fatal", async () => {
+    // Between the classify deploy and the migration deploy the table is listed but absent;
+    // a DELETE on it would abort the whole erasure transaction.
+    s.missingTables = ["review_scope_requests"];
+    await deleteUserRowsTx("user-a", "a@x.com");
+    const joined = s.txSql.join("\n");
+    expect(joined).toMatch(/to_regclass\('public\.' \|\| quote_ident\(t\)\) IS NULL/);
+    expect(joined).not.toContain("DELETE FROM review_scope_requests");
+    // Every other table is still erased, and the ledger row is still written.
+    expect(joined).toContain("DELETE FROM profiles WHERE user_id = $1::uuid");
+    expect(joined).toContain("DELETE FROM agent_actions WHERE user_id = $1::uuid");
+    expect(joined).toMatch(/INSERT INTO account_deletions/);
   });
 
   test("classification lists are disjoint", () => {

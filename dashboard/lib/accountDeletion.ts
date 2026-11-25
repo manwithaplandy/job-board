@@ -122,7 +122,20 @@ export async function deleteUserRowsTx(userId: string, email: string | null): Pr
       `SELECT pg_advisory_xact_lock(hashtextextended('feedback:' || $1::uuid::text, 0))`,
       [userId],
     );
+    // A table is classified one PR ahead of the migration that creates it (a migration
+    // PR may not carry code), so between those two deploys it is listed but absent. An
+    // absent table holds no rows to erase; skip it rather than abort the whole erasure.
+    // The user_id drift guard still makes every real table with a user_id classified.
+    const missing = new Set(
+      (
+        await tx.unsafe<{ name: string }[]>(
+          `SELECT t AS name FROM unnest($1::text[]) AS t WHERE to_regclass('public.' || quote_ident(t)) IS NULL`,
+          [_LOOP_DELETE_TABLES],
+        )
+      ).map((r) => r.name),
+    );
     for (const table of _LOOP_DELETE_TABLES) {
+      if (missing.has(table)) continue;
       await tx.unsafe(`DELETE FROM ${table} WHERE user_id = $1::uuid`, [userId]);
     }
     // Both, since early invite rows may predate the user_id back-fill.

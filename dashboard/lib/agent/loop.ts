@@ -63,6 +63,7 @@ import { loadMessages } from "@/lib/agent/threads";
 import { buildTools, type ToolCtx } from "@/lib/agent/tools";
 import { getProfileSummary } from "@/lib/agent/tools/read";
 import { TOOL_APPROVAL, approvalStreamOptions } from "@/lib/agent/tools/approval";
+import { finishPendingRepair } from "@/lib/agent/tools/present";
 import { approvalSecret } from "@/lib/agent/approvalSecret";
 import { withAgentTrace } from "@/lib/agent/telemetry";
 import { listDocuments } from "@/lib/workspaces/documents";
@@ -367,6 +368,9 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     variant: thread.variant,
     unattended: false,
   };
+  // The turn's tool context: one gathered store and one repair state per turn. Built
+  // before the setup so the end of the turn can settle a pending variant 2 repair.
+  const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 } };
   let instructions: string;
   let tools: ReturnType<typeof buildTools>;
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
@@ -394,7 +398,6 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       clock: { frozen: clock.frozen },
       unattended: false,
     });
-    const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 } };
     tools = (a.tools ?? buildTools)(ctx);
     // A long thread goes as its summary plus the newest messages. When it is short, or
     // the summary call failed or timed out (the same array comes back), the plain
@@ -515,6 +518,7 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       },
       charges,
       timer,
+      finishRepair: () => finishPendingRepair(ctx),
     });
     try {
       after(persisting);
@@ -566,6 +570,8 @@ async function persistTurn(p: {
   noteModelError: () => void;
   charges: Promise<void>[];
   timer: ReturnType<typeof setTimeout>;
+  /** Stores the variant 1 fallback for a variant 2 repair the turn never made. */
+  finishRepair: () => Promise<unknown>;
 }): Promise<void> {
   let assistant: AgentUIMessage = { id: p.placeholder.id, role: "assistant", parts: p.placeholder.parts };
   try {
@@ -585,6 +591,15 @@ async function persistTurn(p: {
   }
   // Every step's charge lands before the run is closed.
   await Promise.allSettled(p.charges);
+  // The steps are over, so no present call is still coming: a variant 2 repair that is
+  // still open (an ask_user stop, the step cap, the model stopping, an aborted turn)
+  // gets its variant 1 fallback now, with no model call in flight (PR J1 review I1).
+  // A failure here is logged and does not fail the turn.
+  try {
+    await p.finishRepair();
+  } catch (e) {
+    console.error("agent: storing the repair fallback failed", errorName(e));
+  }
 
   const outcome = p.outcome();
   let final = outcome.run;

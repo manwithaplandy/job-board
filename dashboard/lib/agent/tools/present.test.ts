@@ -23,7 +23,7 @@ vi.mock("@/lib/db", () => ({
 
 import type { ToolCtx } from "@/lib/agent/tools";
 import { assertNoUserIdInput } from "@/lib/agent/tools/assertNoUserIdInput";
-import { presentTool, runPresent } from "@/lib/agent/tools/present";
+import { finishPendingRepair, presentTool, REPAIR_NOT_ATTEMPTED, runPresent } from "@/lib/agent/tools/present";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
 
@@ -187,6 +187,9 @@ describe("present, variant 2", () => {
     // The reason is recorded as a short code in the same transaction (errors go to the model).
     expect(m.setSurfaceFailure).toHaveBeenCalledTimes(1);
     expect((m.setSurfaceFailure.mock.calls[0] as unknown[]).slice(1)).toEqual([NEW, "invalid_after_repair"]);
+    // M1: the very transaction saveSurface got.
+    expect((m.setSurfaceFailure.mock.calls[0] as unknown[])[0]).toBe((m.saveSurface.mock.calls[0] as unknown[])[0]);
+    expect(c.repairsLeft.attempt?.open).toBe(false);
     // With no repair left from the start, the first invalid payload falls back at once.
     vi.clearAllMocks();
     const none = await runPresent(ctx({ variant: 2, repairsLeft: { n: 0 } }), { payload: broken });
@@ -207,5 +210,73 @@ describe("present, variant 2", () => {
     m.ownSurfaces.add(OLD);
     await runPresent(ctx({ variant: 2 }), { surfaceId: OLD, payload: tree() });
     expect(saved()).toMatchObject({ supersedes: OLD, variant: 2 });
+  });
+
+  test("I1: the repair state lives on the turn's context, one per turn", async () => {
+    const turnA = ctx({ variant: 2 });
+    const turnB = ctx({ variant: 2 });
+    await runPresent(turnA, { payload: { ...broken, title: "Matches" }, surfaceId: OLD });
+    expect(turnA.repairsLeft).toEqual({ n: 0, attempt: { step: null, open: true, title: "Matches", surfaceId: OLD, started: expect.any(Number) } });
+    // Another turn's context is untouched: its first valid payload is plain valid.
+    expect(await runPresent(turnB, { payload: tree() })).toMatchObject({ outcome: "valid" });
+    expect(turnB.repairsLeft).toEqual({ n: 1 });
+  });
+
+  test("I1: a turn that ends with the repair open stores the fallback once, coded repair_not_attempted", async () => {
+    m.ownSurfaces.add(OLD);
+    const c = ctx({ variant: 2 });
+    await runPresent(c, { surfaceId: OLD, payload: { ...broken, title: "Matches" } });
+    expect(m.saveSurface).not.toHaveBeenCalled();
+    expect(await finishPendingRepair(c)).toBe(NEW);
+    const expected = fallbackSurface(c.gathered, "Matches");
+    expect(saved()).toMatchObject({
+      threadId: THREAD, runId: RUN, variant: 2, payload: expected, fallbackPayload: expected, outcome: "fallback",
+      gathered: c.gathered, supersedes: OLD,
+    });
+    expect(m.setSurfaceFailure.mock.calls).toEqual([[(m.saveSurface.mock.calls[0] as unknown[])[0], NEW, REPAIR_NOT_ATTEMPTED]]);
+    // Once only.
+    expect(await finishPendingRepair(c)).toBeNull();
+    expect(m.saveSurface).toHaveBeenCalledTimes(1);
+  });
+
+  test("I1: nothing is owed at the end after a repair, a fallback, a valid surface or no present at all", async () => {
+    const repaired = ctx({ variant: 2 });
+    await runPresent(repaired, { payload: broken });
+    await runPresent(repaired, { payload: tree() });
+    const fellBack = ctx({ variant: 2 });
+    await runPresent(fellBack, { payload: broken });
+    await runPresent(fellBack, { payload: broken });
+    const valid = ctx({ variant: 2 });
+    await runPresent(valid, { payload: tree() });
+    vi.clearAllMocks();
+    for (const c of [repaired, fellBack, valid, ctx({ variant: 2 }), ctx({ variant: 1 })]) {
+      expect(await finishPendingRepair(c)).toBeNull();
+    }
+    expect(m.saveSurface).not.toHaveBeenCalled();
+  });
+
+  test("M2: calls from the step that spent the repair are one attempt", async () => {
+    const step1 = { messages: [{}, {}] };
+    const step2 = { messages: [{}, {}, {}, {}] };
+    // Two invalid payloads in one step: both get invalid, nothing is stored.
+    const c = ctx({ variant: 2 });
+    const [a, b] = await Promise.all([runPresent(c, { payload: broken }, step1), runPresent(c, { payload: broken }, step1)]);
+    expect(a).toMatchObject({ outcome: "invalid" });
+    expect(b).toMatchObject({ outcome: "invalid" });
+    expect(m.saveSurface).not.toHaveBeenCalled();
+    expect(c.repairsLeft).toMatchObject({ n: 0, attempt: { step: 2, open: true } });
+    // The next step's payload is the repair.
+    expect(await runPresent(c, { payload: tree() }, step2)).toMatchObject({ outcome: "repaired" });
+    // Invalid then valid in one step: the valid one was not a repair, and it settles the attempt.
+    const d = ctx({ variant: 2 });
+    await runPresent(d, { payload: broken }, step1);
+    expect(await runPresent(d, { payload: tree() }, step1)).toMatchObject({ outcome: "valid" });
+    expect(await runPresent(d, { payload: broken }, step1)).toMatchObject({ outcome: "invalid" });
+    expect(await finishPendingRepair(d)).toBeNull();
+    // An invalid payload in a later step is the failed repair: the fallback is stored.
+    const e = ctx({ variant: 2 });
+    await runPresent(e, { payload: broken }, step1);
+    expect(await runPresent(e, { payload: broken }, step2)).toMatchObject({ outcome: "fallback" });
+    expect((m.setSurfaceFailure.mock.calls.at(-1) as unknown[])[2]).toBe("invalid_after_repair");
   });
 });

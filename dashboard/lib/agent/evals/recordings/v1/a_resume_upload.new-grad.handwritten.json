@@ -1,0 +1,258 @@
+{
+  "format": 1,
+  "source": "hand-written",
+  "scenario": "a_resume_upload",
+  "persona": "new-grad",
+  "variant": 1,
+  "model": "hand-written",
+  "seed": 0,
+  "toolCalls": [
+    { "toolCallId": "a-c1", "name": "read_document", "input": { "documentId": "e7a1d0c0-0000-4000-8000-000000000003" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "a-c2", "name": "set_resume", "input": { "documentId": "e7a1d0c0-0000-4000-8000-000000000003" }, "state": "executed", "approval": { "id": "aprv-a-1", "approved": true }, "outputDigest": null },
+    { "toolCallId": "a-c3", "name": "get_profile_summary", "input": {}, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "a-c4", "name": "present", "input": { "payload": { "variant": 1, "title": "Your profile" } }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "a-c5", "name": "get_memo", "input": {}, "state": "executed", "approval": null, "outputDigest": null },
+    {
+      "toolCallId": "a-c6",
+      "name": "propose_memo_change",
+      "input": {
+        "proposedDoc": {
+          "role": "Entry-level software engineer on a product-minded team.",
+          "locations": "Remote, Testville or Mockport.",
+          "compensation": "A fair salary for the level.",
+          "mustHaves": "Product-minded team.",
+          "dealBreakers": "Gambling and crypto companies.",
+          "companies": "",
+          "other": ""
+        },
+        "rationale": "From your answers to the intake questions."
+      },
+      "state": "executed",
+      "approval": null,
+      "outputDigest": null
+    },
+    { "toolCallId": "a-c7", "name": "present", "input": { "payload": { "variant": 1, "title": "Your memo" } }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "a-c8", "name": "search_jobs", "input": { "sort": "fit", "limit": 10 }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "a-c9", "name": "set_shortlist_state", "input": { "jobId": "greenhouse:eval-ng-0:1000", "state": "suggested" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "a-c10", "name": "set_shortlist_state", "input": { "jobId": "greenhouse:eval-ng-1:1001", "state": "suggested" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "a-c11", "name": "set_shortlist_state", "input": { "jobId": "greenhouse:eval-ng-2:1002", "state": "suggested" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "a-c12", "name": "present", "input": { "payload": { "variant": 1, "title": "Your first shortlist" } }, "state": "executed", "approval": null, "outputDigest": null }
+  ],
+  "approvals": [{ "approvalId": "aprv-a-1", "approved": true }],
+  "intents": [
+    {
+      "surfaceId": "5f000000-0000-4000-8000-00000000a002",
+      "intent": { "name": "memo.resolve", "proposalId": "9a000000-0000-4000-8000-00000000a001", "decision": "approve" },
+      "outcome": "done"
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "5f000000-0000-4000-8000-00000000a001",
+      "threadId": "7d000000-0000-4000-8000-00000000000a",
+      "runId": "8b000000-0000-4000-8000-00000000a002",
+      "variant": 1,
+      "payload": {
+        "variant": 1,
+        "title": "Your profile",
+        "blocks": [
+          { "type": "ProfileReadback", "note": "Read from the résumé you uploaded." },
+          {
+            "type": "IntakeQuestions",
+            "questions": [
+              { "id": "locations", "label": "Where would you like to work?", "kind": "locations" },
+              { "id": "arrangement", "label": "Remote, hybrid or on site?", "kind": "multi", "options": ["Remote", "Hybrid", "On site"] },
+              { "id": "avoid", "label": "Anything you want to avoid?", "kind": "text" }
+            ]
+          }
+        ]
+      },
+      "fallbackPayload": { "variant": 1, "blocks": [{ "type": "Callout", "tone": "info", "text": "Your profile" }] },
+      "gathered": {
+        "profile": {
+          "name": "Sam Sample",
+          "titles": ["Software Engineering Intern", "Research Assistant"],
+          "yearsOfExperience": 1,
+          "education": ["B.Sc. Computer Science — Testville Example University"],
+          "preferredLocations": ["Testville", "Mockport"],
+          "workAuthorized": null,
+          "needsSponsorship": null
+        },
+        "jobs": {},
+        "reviews": {},
+        "memo": null,
+        "shortlist": [],
+        "applications": [],
+        "documents": [
+          {
+            "id": "e7a1d0c0-0000-4000-8000-000000000003",
+            "kind": "resume",
+            "filename": "resume.md",
+            "mime": "text/markdown",
+            "bytes": 707,
+            "extraction": "ok",
+            "createdAt": "2026-11-25T09:00:00.000Z"
+          }
+        ],
+        "metrics": []
+      },
+      "outcome": "valid",
+      "failure": null,
+      "supersedes": null,
+      "rerenderOf": null,
+      "model": "hand-written",
+      "latencyMs": null,
+      "createdAt": "2026-11-25T09:01:10.000Z"
+    },
+    {
+      "id": "5f000000-0000-4000-8000-00000000a002",
+      "threadId": "7d000000-0000-4000-8000-00000000000a",
+      "runId": "8b000000-0000-4000-8000-00000000a003",
+      "variant": 1,
+      "payload": {
+        "variant": 1,
+        "title": "Your memo",
+        "blocks": [
+          { "type": "MemoDiff", "proposalId": "9a000000-0000-4000-8000-00000000a001" },
+          { "type": "Callout", "tone": "info", "text": "Nothing changes until you approve it." }
+        ]
+      },
+      "fallbackPayload": { "variant": 1, "blocks": [{ "type": "Callout", "tone": "info", "text": "Your memo" }] },
+      "gathered": {
+        "profile": null,
+        "jobs": {},
+        "reviews": {},
+        "memo": null,
+        "shortlist": [],
+        "applications": [],
+        "documents": [],
+        "metrics": []
+      },
+      "outcome": "valid",
+      "failure": null,
+      "supersedes": null,
+      "rerenderOf": null,
+      "model": "hand-written",
+      "latencyMs": null,
+      "createdAt": "2026-11-25T09:02:20.000Z"
+    },
+    {
+      "id": "5f000000-0000-4000-8000-00000000a003",
+      "threadId": "7d000000-0000-4000-8000-00000000000a",
+      "runId": "8b000000-0000-4000-8000-00000000a004",
+      "variant": 1,
+      "payload": {
+        "variant": 1,
+        "title": "Your first shortlist",
+        "blocks": [
+          { "type": "ShortlistQueue", "jobIds": ["greenhouse:eval-ng-0:1000", "greenhouse:eval-ng-1:1001", "greenhouse:eval-ng-2:1002"] },
+          { "type": "Callout", "tone": "info", "text": "I suggested your three best fits. Keep, park or skip each one." }
+        ]
+      },
+      "fallbackPayload": {
+        "variant": 1,
+        "blocks": [
+          { "type": "Callout", "tone": "info", "text": "Your first shortlist" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-ng-0:1000" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-ng-1:1001" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-ng-2:1002" }
+        ]
+      },
+      "gathered": {
+        "profile": null,
+        "jobs": {
+          "greenhouse:eval-ng-0:1000": {
+            "jobId": "greenhouse:eval-ng-0:1000",
+            "title": "Software Engineer I",
+            "company": "Example Apps Studio",
+            "location": "Testville",
+            "remote": false,
+            "url": "https://jobs.example.test/eval-ng-0/1000",
+            "firstSeenAt": "2026-11-25T08:00:00.000Z",
+            "ageDays": 0,
+            "closed": false
+          },
+          "greenhouse:eval-ng-1:1001": {
+            "jobId": "greenhouse:eval-ng-1:1001",
+            "title": "Junior Frontend Engineer",
+            "company": "Sample Maps Co",
+            "location": "Remote",
+            "remote": true,
+            "url": "https://jobs.example.test/eval-ng-1/1001",
+            "firstSeenAt": "2026-11-24T08:00:00.000Z",
+            "ageDays": 1,
+            "closed": false
+          },
+          "greenhouse:eval-ng-2:1002": {
+            "jobId": "greenhouse:eval-ng-2:1002",
+            "title": "Graduate Software Engineer",
+            "company": "Placeholder Learning",
+            "location": "Mockport",
+            "remote": false,
+            "url": "https://jobs.example.test/eval-ng-2/1002",
+            "firstSeenAt": "2026-11-23T08:00:00.000Z",
+            "ageDays": 2,
+            "closed": false
+          }
+        },
+        "reviews": {},
+        "memo": null,
+        "shortlist": [],
+        "applications": [],
+        "documents": [],
+        "metrics": []
+      },
+      "outcome": "valid",
+      "failure": null,
+      "supersedes": null,
+      "rerenderOf": null,
+      "model": "hand-written",
+      "latencyMs": null,
+      "createdAt": "2026-11-25T09:03:40.000Z"
+    }
+  ],
+  "dbBefore": {
+    "jobs": [
+      { "jobId": "greenhouse:eval-ng-0:1000", "title": "Software Engineer I", "company": "Example Apps Studio", "url": "https://jobs.example.test/eval-ng-0/1000" },
+      { "jobId": "greenhouse:eval-ng-1:1001", "title": "Junior Frontend Engineer", "company": "Sample Maps Co", "url": "https://jobs.example.test/eval-ng-1/1001" },
+      { "jobId": "greenhouse:eval-ng-2:1002", "title": "Graduate Software Engineer", "company": "Placeholder Learning", "url": "https://jobs.example.test/eval-ng-2/1002" }
+    ],
+    "reviews": [
+      { "jobId": "greenhouse:eval-ng-0:1000", "fitScore": 94, "payMin": 75000, "payMax": 100000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-1:1001", "fitScore": 92, "payMin": 76000, "payMax": 101000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-2:1002", "fitScore": 90, "payMin": 77000, "payMax": 102000, "payCurrency": "USD", "payPeriod": "year" }
+    ],
+    "shortlist": [],
+    "memoVersion": null,
+    "memoVersions": [],
+    "memoProposals": [],
+    "packages": [],
+    "resumeText": null,
+    "applications": []
+  },
+  "dbAfter": {
+    "jobs": [
+      { "jobId": "greenhouse:eval-ng-0:1000", "title": "Software Engineer I", "company": "Example Apps Studio", "url": "https://jobs.example.test/eval-ng-0/1000" },
+      { "jobId": "greenhouse:eval-ng-1:1001", "title": "Junior Frontend Engineer", "company": "Sample Maps Co", "url": "https://jobs.example.test/eval-ng-1/1001" },
+      { "jobId": "greenhouse:eval-ng-2:1002", "title": "Graduate Software Engineer", "company": "Placeholder Learning", "url": "https://jobs.example.test/eval-ng-2/1002" }
+    ],
+    "reviews": [
+      { "jobId": "greenhouse:eval-ng-0:1000", "fitScore": 94, "payMin": 75000, "payMax": 100000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-1:1001", "fitScore": 92, "payMin": 76000, "payMax": 101000, "payCurrency": "USD", "payPeriod": "year" },
+      { "jobId": "greenhouse:eval-ng-2:1002", "fitScore": 90, "payMin": 77000, "payMax": 102000, "payCurrency": "USD", "payPeriod": "year" }
+    ],
+    "shortlist": [
+      { "jobId": "greenhouse:eval-ng-0:1000", "state": "suggested", "setBy": "agent" },
+      { "jobId": "greenhouse:eval-ng-1:1001", "state": "suggested", "setBy": "agent" },
+      { "jobId": "greenhouse:eval-ng-2:1002", "state": "suggested", "setBy": "agent" }
+    ],
+    "memoVersion": 1,
+    "memoVersions": [{ "version": 1, "changedBy": "proposal", "proposalId": "9a000000-0000-4000-8000-00000000a001" }],
+    "memoProposals": [{ "id": "9a000000-0000-4000-8000-00000000a001", "status": "approved" }],
+    "packages": [],
+    "resumeText": "# Sam Sample\nsam@example.test · Testville\n\n## Summary\nNew computer science graduate who likes web products and testing.\n\n## Experience\n### Testbed Example Corp — Testville\n#### Software Engineering Intern · Jun 2025 – Aug 2025\n- Shipped a settings page in TypeScript and React used by every customer.\n- Added end-to-end tests that caught two release blockers.\n### Campus Sample Lab — Testville\n#### Research Assistant · Sep 2023 – May 2025\n- Wrote Python scripts that cut experiment setup from a day to an hour.\n- Presented results at the student research fair.\n\n## Education\n- B.Sc. Computer Science — Testville Example University\n\n## Skills\nTypeScript, React, Python, SQL, Git, testing",
+    "applications": []
+  },
+  "usage": { "costMicros": 0, "inputTokens": 0, "outputTokens": 0 },
+  "timings": { "firstRenderMs": null, "completeMs": 0 }
+}

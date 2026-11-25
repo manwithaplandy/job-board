@@ -30,6 +30,8 @@ export const WINDOW_DAYS: Record<MetricWindow, number | null> = { "7d": 7, "30d"
 export const STALE_AFTER_DAYS = 10;
 /** response_rate has no value below this many applications. */
 export const RESPONSE_RATE_MIN_N = 5;
+/** Metrics whose value is a share from 0 to 1 (shown as a percentage; the golden-scenario asserts check each shows its n). */
+export const RATE_METRICS: ReadonlySet<MetricId> = new Set(["response_rate"]);
 
 export interface MetricCatalogEntry {
   kind: MetricKind;

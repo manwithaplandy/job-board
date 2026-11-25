@@ -1,0 +1,190 @@
+{
+  "format": 1,
+  "source": "hand-written",
+  "scenario": "c_prep",
+  "persona": "career-switcher",
+  "variant": 1,
+  "model": "hand-written",
+  "seed": 0,
+  "toolCalls": [
+    { "toolCallId": "c-c1", "name": "search_jobs", "input": { "sort": "fit", "limit": 1 }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "c-c2", "name": "get_review", "input": { "jobId": "greenhouse:eval-cs-0:1000" }, "state": "executed", "approval": null, "outputDigest": null },
+    {
+      "toolCallId": "c-c3",
+      "name": "start_application_prep",
+      "input": { "jobId": "greenhouse:eval-cs-0:1000" },
+      "state": "executed",
+      "approval": { "id": "aprv-c-1", "approved": true },
+      "outputDigest": null
+    },
+    { "toolCallId": "c-c4", "name": "get_job", "input": { "jobId": "greenhouse:eval-cs-0:1000" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "c-c5", "name": "get_review", "input": { "jobId": "greenhouse:eval-cs-0:1000" }, "state": "executed", "approval": null, "outputDigest": null },
+    { "toolCallId": "c-c6", "name": "present", "input": { "payload": { "variant": 1, "title": "Your application for Junior Data Analyst" } }, "state": "executed", "approval": null, "outputDigest": null }
+  ],
+  "approvals": [{ "approvalId": "aprv-c-1", "approved": true }],
+  "intents": [],
+  "surfaces": [
+    {
+      "id": "5f000000-0000-4000-8000-00000000c001",
+      "threadId": "7d000000-0000-4000-8000-00000000000c",
+      "runId": "8b000000-0000-4000-8000-00000000c002",
+      "variant": 1,
+      "payload": {
+        "variant": 1,
+        "title": "Your application for Junior Data Analyst",
+        "blocks": [
+          { "type": "PrepChecklist", "jobId": "greenhouse:eval-cs-0:1000" },
+          {
+            "type": "EvidenceMap",
+            "jobId": "greenhouse:eval-cs-0:1000",
+            "rows": [
+              { "requirementIndex": 0, "evidence": "The donor dashboard was built in SQL, but the review found no reporting role yet.", "gap": true },
+              { "requirementIndex": 1, "evidence": "Donor retention dashboard used by the board.", "gap": false },
+              { "requirementIndex": 2, "evidence": "Eight years of explaining results to students and the department.", "gap": false }
+            ]
+          },
+          { "type": "DocumentPreview", "jobId": "greenhouse:eval-cs-0:1000", "doc": "resume" }
+        ]
+      },
+      "fallbackPayload": {
+        "variant": 1,
+        "blocks": [
+          { "type": "Callout", "tone": "info", "text": "Your application for Junior Data Analyst" },
+          { "type": "JobCard", "jobId": "greenhouse:eval-cs-0:1000" }
+        ]
+      },
+      "gathered": {
+        "profile": null,
+        "jobs": {
+          "greenhouse:eval-cs-0:1000": {
+            "jobId": "greenhouse:eval-cs-0:1000",
+            "title": "Junior Data Analyst",
+            "company": "Sample Learning Co",
+            "location": "Sampleford",
+            "remote": false,
+            "url": "https://jobs.example.test/eval-cs-0/1000",
+            "firstSeenAt": "2026-11-25T08:00:00.000Z",
+            "ageDays": 0,
+            "closed": false
+          }
+        },
+        "reviews": {
+          "greenhouse:eval-cs-0:1000": {
+            "jobId": "greenhouse:eval-cs-0:1000",
+            "verdict": "approve",
+            "fitScore": 94,
+            "skillsScore": 97,
+            "experienceScore": 90,
+            "compScore": null,
+            "payMin": 60000,
+            "payMax": 85000,
+            "payCurrency": "USD",
+            "payPeriod": "year",
+            "workArrangement": "hybrid",
+            "seniority": "mid",
+            "redFlags": [],
+            "skillGaps": [],
+            "requirements": [
+              { "text": "SQL for reporting", "met": false },
+              { "text": "Dashboards in a BI tool", "met": true },
+              { "text": "Explaining findings to non-technical people", "met": true }
+            ],
+            "reasoning": "Synthetic review for the golden scenarios.",
+            "stale": false
+          }
+        },
+        "memo": null,
+        "shortlist": [],
+        "applications": [],
+        "documents": [],
+        "metrics": []
+      },
+      "outcome": "valid",
+      "failure": null,
+      "supersedes": null,
+      "rerenderOf": null,
+      "model": "hand-written",
+      "latencyMs": null,
+      "createdAt": "2026-11-25T11:02:00.000Z"
+    }
+  ],
+  "dbBefore": {
+    "jobs": [
+      { "jobId": "greenhouse:eval-cs-0:1000", "title": "Junior Data Analyst", "company": "Sample Learning Co", "url": "https://jobs.example.test/eval-cs-0/1000" }
+    ],
+    "reviews": [
+      { "jobId": "greenhouse:eval-cs-0:1000", "fitScore": 94, "payMin": 60000, "payMax": 85000, "payCurrency": "USD", "payPeriod": "year" }
+    ],
+    "shortlist": [],
+    "memoVersion": 1,
+    "memoVersions": [{ "version": 1, "changedBy": "user", "proposalId": null }],
+    "memoProposals": [],
+    "packages": [],
+    "resumeText": "# Jordan Placeholder\njordan@example.test · Sampleford\n\n## Summary\nFormer science teacher moving into data analysis, with a year of hands-on analytics work.\n\n## Experience\n### Brightside Example Nonprofit — Sampleford\n#### Data Analyst Intern · Sep 2025 – Present\n- Built a donor retention dashboard in SQL and a BI tool used by the board.\n- Cleaned five years of volunteer records and documented the data model.\n### Example Valley School — Mockport\n#### Science Teacher · Aug 2017 – Aug 2025\n- Tracked results for 150 students a year and reported trends to the department.\n- Designed a lab curriculum adopted by three other schools.\n\n## Education\n- B.Sc. Biology — Sampleford College\n\n## Certifications\n- Data Analytics Certificate\n\n## Skills\nSQL, Python, spreadsheets, dashboards, statistics",
+    "applications": []
+  },
+  "dbAfter": {
+    "jobs": [
+      { "jobId": "greenhouse:eval-cs-0:1000", "title": "Junior Data Analyst", "company": "Sample Learning Co", "url": "https://jobs.example.test/eval-cs-0/1000" }
+    ],
+    "reviews": [
+      { "jobId": "greenhouse:eval-cs-0:1000", "fitScore": 94, "payMin": 60000, "payMax": 85000, "payCurrency": "USD", "payPeriod": "year" }
+    ],
+    "shortlist": [],
+    "memoVersion": 1,
+    "memoVersions": [{ "version": 1, "changedBy": "user", "proposalId": null }],
+    "memoProposals": [],
+    "packages": [
+      {
+        "jobId": "greenhouse:eval-cs-0:1000",
+        "status": "prepared",
+        "resume": {
+          "name": "Jordan Placeholder",
+          "contact": "jordan@example.test · Sampleford",
+          "headline": "Data Analyst · reporting, dashboards and clear explanations",
+          "summary": "Former science teacher moving into data analysis, with a year of hands-on analytics work and eight years of explaining numbers to people.",
+          "skills": [
+            "SQL",
+            "Python",
+            "Spreadsheets",
+            "Dashboards",
+            "Statistics",
+            "Data cleaning",
+            "Data modeling",
+            "Reporting",
+            "Visualization",
+            "Stakeholder communication",
+            "Documentation",
+            "Survey analysis"
+          ],
+          "experience": [
+            {
+              "role": "Data Analyst Intern",
+              "company": "Brightside Example Nonprofit",
+              "dates": "Sep 2025 – Present",
+              "bullets": [
+                "Built a donor retention dashboard in SQL used by the board.",
+                "Cleaned five years of volunteer records and documented the data model."
+              ]
+            },
+            {
+              "role": "Science Teacher",
+              "company": "Example Valley School",
+              "dates": "Aug 2017 – Aug 2025",
+              "bullets": [
+                "Tracked results for 150 students a year and reported trends to the department.",
+                "Designed a lab curriculum adopted by three other schools."
+              ]
+            }
+          ],
+          "education": ["B.Sc. Biology — Sampleford College"],
+          "certifications": ["Data Analytics Certificate"]
+        }
+      }
+    ],
+    "resumeText": "# Jordan Placeholder\njordan@example.test · Sampleford\n\n## Summary\nFormer science teacher moving into data analysis, with a year of hands-on analytics work.\n\n## Experience\n### Brightside Example Nonprofit — Sampleford\n#### Data Analyst Intern · Sep 2025 – Present\n- Built a donor retention dashboard in SQL and a BI tool used by the board.\n- Cleaned five years of volunteer records and documented the data model.\n### Example Valley School — Mockport\n#### Science Teacher · Aug 2017 – Aug 2025\n- Tracked results for 150 students a year and reported trends to the department.\n- Designed a lab curriculum adopted by three other schools.\n\n## Education\n- B.Sc. Biology — Sampleford College\n\n## Certifications\n- Data Analytics Certificate\n\n## Skills\nSQL, Python, spreadsheets, dashboards, statistics",
+    "applications": []
+  },
+  "usage": { "costMicros": 0, "inputTokens": 0, "outputTokens": 0 },
+  "timings": { "firstRenderMs": null, "completeMs": 0 }
+}

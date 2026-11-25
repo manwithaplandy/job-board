@@ -8,6 +8,7 @@
     "start": "next start",
     "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
     "test:db": "NODE_OPTIONS=--no-experimental-webstorage vitest run --config vitest.db.config.ts",
+    "eval:agent": "node scripts/eval-agent.mjs",
     "test:ui-contract": "NODE_OPTIONS=--no-experimental-webstorage vitest run app/ui-contract.test.ts app/visual-regression-contract.test.ts",
     "test:visual:auth-harness": "playwright test --config playwright.auth-harness.config.ts",
     "test:visual": "VISUAL_DISABLE_TRACE=1 PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test",

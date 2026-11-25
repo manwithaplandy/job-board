@@ -1,5 +1,6 @@
 // Fixed display text for the closed metric catalog (lib/workspaces/metrics/catalog.ts),
 // used by the StatRow and MetricChart blocks. Pure.
+import { RATE_METRICS } from "@/lib/workspaces/metrics/catalog";
 import type { MetricId, MetricResult, MetricSpec } from "@/lib/workspaces/types";
 
 export const METRIC_LABELS: Record<MetricId, string> = {
@@ -21,9 +22,6 @@ export const WINDOW_LABELS: Record<MetricSpec["window"], string> = {
   "90d": "Last 90 days",
   all: "All time",
 };
-
-/** Metrics whose value is a share from 0 to 1. */
-const RATES: ReadonlySet<MetricId> = new Set(["response_rate"]);
 
 export const NOT_ENOUGH_DATA = "Not enough data yet";
 /** A metric reference that no longer indexes the surface's gathered metrics. */
@@ -69,7 +67,7 @@ export function countLabel(m: MetricResult): string | null {
 export function metricValue(m: MetricResult): string {
   if (m.kind === "value") {
     if (m.value === null || !Number.isFinite(m.value)) return NOT_ENOUGH_DATA;
-    return RATES.has(m.spec.metric) ? `${Math.round(m.value * 100)}%` : m.value.toLocaleString("en-US");
+    return RATE_METRICS.has(m.spec.metric) ? `${Math.round(m.value * 100)}%` : m.value.toLocaleString("en-US");
   }
   if (NO_HEADLINE.has(m.spec.metric)) return NO_SINGLE_FIGURE;
   if (m.kind === "series") return m.points.reduce((sum, p) => sum + p.y, 0).toLocaleString("en-US");

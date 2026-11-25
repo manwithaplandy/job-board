@@ -16,8 +16,7 @@ import { z } from "zod";
 import type { TransactionSql } from "postgres";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
-import { actorFor, logAction, registerUndoer, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
-import type { ToolCtx } from "@/lib/agent/tools";
+import { actorFor, logAction, registerUndoer, type AuditCtx, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
 import { METRIC_CATALOG, MetricSpecSchema, type MetricKind } from "@/lib/workspaces/metrics/catalog";
 
 export const VIZ = ["stat", "sparkline", "line", "bar", "stacked_bar", "funnel", "table", "list"] as const;
@@ -151,7 +150,7 @@ export async function saveTileLayout(
   userId: string,
   layout: TileLayout,
   changedBy: "user" | "agent",
-  audit?: ToolCtx,
+  audit?: AuditCtx,
 ): Promise<{ version: number; actionId: number | null }> {
   if (changedBy !== "user" && changedBy !== "agent") throw new TileLayoutError("Unknown writer.");
   if (audit && audit.userId !== userId) throw new TileLayoutError("Audit context is another user's.");

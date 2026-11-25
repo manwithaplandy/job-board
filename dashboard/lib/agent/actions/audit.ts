@@ -18,6 +18,12 @@ import { withUserMutation, withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
 import type { ToolCtx } from "@/lib/agent/tools";
 
+/**
+ * What an audited write needs to know about its caller: a tool's ToolCtx, or the
+ * context of a host intent from a surface (runId null: the user's press is not a run).
+ */
+export type AuditCtx = Pick<ToolCtx, "userId" | "threadId" | "unattended"> & { runId: string | null };
+
 export const ACTION_KINDS = [
   "shortlist.set",
   "application.set_stage",
@@ -66,7 +72,7 @@ export function registeredUndoKinds(): ActionKind[] {
 }
 
 /** The audit actor for a write made under `ctx`. */
-export function actorFor(ctx: ToolCtx): ActionActor {
+export function actorFor(ctx: AuditCtx): ActionActor {
   return ctx.unattended ? "agent_unattended" : "agent";
 }
 
@@ -137,7 +143,7 @@ export function jsonText(value: unknown): string | null {
  */
 export async function logAction(
   tx: TransactionSql,
-  a: { ctx: ToolCtx | null; actor: ActionActor; kind: ActionKind; targetKey: unknown; before: unknown; after: unknown },
+  a: { ctx: AuditCtx | null; actor: ActionActor; kind: ActionKind; targetKey: unknown; before: unknown; after: unknown },
 ): Promise<number> {
   if (!(ACTION_KINDS as readonly string[]).includes(a.kind)) throw new Error("audit: unknown action kind");
   if (!(ACTION_ACTORS as readonly string[]).includes(a.actor)) throw new Error("audit: unknown actor");

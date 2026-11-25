@@ -21,8 +21,7 @@ import { withUserMutation, withUserSql } from "@/lib/db";
 import { resumeTextError } from "@/lib/profileInputLimits";
 import { updateResumeSourceWith } from "@/lib/profileSettings";
 import { parseOrNull } from "@/lib/zodParse";
-import { actorFor, logAction, registerUndoer, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
-import type { ToolCtx } from "@/lib/agent/tools";
+import { actorFor, logAction, registerUndoer, type AuditCtx, type StoredAction, type UndoOutcome } from "@/lib/agent/actions/audit";
 
 export type ResumeVersionSource = "upload" | "agent" | "restore";
 export interface ResumeVersion {
@@ -115,7 +114,7 @@ function checkText(text: string): string {
  */
 export async function setResumeFromDocument(
   userId: string,
-  a: { documentId: string; actor: "user" | "agent"; audit?: ToolCtx },
+  a: { documentId: string; actor: "user" | "agent"; audit?: AuditCtx },
 ): Promise<{ displacedVersion: number | null; actionId: number | null }> {
   if (typeof a.documentId !== "string" || !UUID_RE.test(a.documentId)) throw new ResumeInputError("No such document.");
   if (a.actor !== "user" && a.actor !== "agent") throw new ResumeInputError("Unknown writer.");

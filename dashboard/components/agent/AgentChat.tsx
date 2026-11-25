@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { toast } from "sonner";
@@ -23,7 +23,7 @@ import { compareMessage } from "@/lib/agent/actions/compareText";
 import type { PendingApproval } from "@/lib/agent/actions/approvalCard";
 import type { ActionIntent, ConfirmDescriptor, IntentOutcome } from "@/lib/agent/actions/intents";
 import type { AgentRequest } from "@/lib/agent/request";
-import type { HostChain } from "@/lib/agent/surfaces/host";
+import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { titleFromFirstMessage } from "@/lib/agent/titles";
 import { parseGenerationJob } from "@/lib/generationJobCodec";
 import { AgentNotice, type AgentBlockingNotice } from "./AgentNotice";
@@ -33,7 +33,8 @@ import { ConfirmCard } from "./ConfirmCard";
 import { EmptyState } from "./EmptyState";
 import { stashFirstMessage, takeFirstMessage } from "./firstMessage";
 import { ReviewProgress } from "./ReviewProgress";
-import { SurfaceHost, mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
+import { mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
+import { RerenderTabs } from "./RerenderTabs";
 import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
 
@@ -511,7 +512,16 @@ export function AgentChat({
       void reloadSurfaceRowsAction(threadId, surfaceId).then(
         (rows) => {
           if (!rows) return;
-          setChains((prev) => prev.map((c) => (c.surface.id === surfaceId ? { ...c, surface: { ...c.surface, rows } } : c)));
+          setChains((prev) =>
+            prev.map((c) => {
+              if (c.surface.id === surfaceId) return { ...c, surface: { ...c.surface, rows } };
+              // A re-render's rows (Task 2.9).
+              if (c.rerenders?.some((r) => r.id === surfaceId)) {
+                return { ...c, rerenders: c.rerenders.map((r) => (r.id === surfaceId ? { ...r, rows } : r)) };
+              }
+              return c;
+            }),
+          );
         },
         () => {},
       );
@@ -520,6 +530,20 @@ export function AgentChat({
   );
   // A frame fell back: the surface shows its blocks for the rest of the session (R15).
   const onFallback = useCallback((surfaceId: string) => setChains((prev) => withBlocksView(prev, surfaceId)), []);
+  // A re-render joins its original's chain as another version (Task 2.9).
+  const onRerendered = useCallback((surface: HostSurface) => setChains((prev) => mergeSurface(prev, surface)), []);
+  const rerenderSwitch = variants ? variants.variant3Enabled : null;
+  const chainView = (chain: HostChain) => (
+    <RerenderTabs
+      chain={chain}
+      threadId={threadId}
+      variant3Enabled={rerenderSwitch}
+      onIntent={onIntent}
+      onPrepSettled={onPrepSettled}
+      onFallback={onFallback}
+      onRerendered={onRerendered}
+    />
+  );
 
   const approve = async (target: ConfirmState) => {
     setConfirmBusy(true);
@@ -561,7 +585,7 @@ export function AgentChat({
   const renderSurface = (surfaceId: string) => {
     if (!inlineIds.has(surfaceId)) return null;
     const chain = chains.find((c) => c.surface.id === surfaceId);
-    return chain ? <SurfaceHost surface={chain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} onFallback={onFallback} /> : null;
+    return chain ? chainView(chain) : null;
   };
   const orphans = chains.filter((c) => c !== columnChain && !presentedIds.has(c.surface.id));
 
@@ -603,7 +627,7 @@ export function AgentChat({
           </ol>
         )}
         {orphans.map((c) => (
-          <SurfaceHost key={c.chainId} surface={c.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} onFallback={onFallback} />
+          <Fragment key={c.chainId}>{chainView(c)}</Fragment>
         ))}
         <ReviewProgress watch={reviewWatch} />
         {interrupted && !blocking && (
@@ -617,7 +641,7 @@ export function AgentChat({
       </section>
       {columnChain && (
         <aside className="rf-agent-surface-column" aria-label="Latest view">
-          <SurfaceHost surface={columnChain.surface} onIntent={onIntent} onPrepSettled={onPrepSettled} onFallback={onFallback} />
+          {chainView(columnChain)}
         </aside>
       )}
     </div>

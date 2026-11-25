@@ -80,6 +80,8 @@ export interface HostChain {
   /** Every row id of the chain the page knows, so a later update finds its chain. */
   memberIds: string[];
   surface: HostSurface;
+  /** Re-renders of the chain's rows in other variants (Task 2.9), oldest first. */
+  rerenders?: HostSurface[];
 }
 
 /** The ids the payload's blocks name, for the row reads. */
@@ -251,11 +253,26 @@ async function toHostSurface(userId: string, s: StoredSurface, options: HostOpti
  * oldest known row; a predecessor older than the rows read starts its own chain. Cycle
  * safe: a row is placed once.
  */
-export function groupChains(rows: readonly StoredSurface[]): Array<{ chainId: string; memberIds: string[]; latest: StoredSurface }> {
+export function groupChains(
+  rows: readonly StoredSurface[],
+): Array<{ chainId: string; memberIds: string[]; latest: StoredSurface; rerenders: StoredSurface[] }> {
   const chainOf = new Map<string, string>();
-  const chains = new Map<string, { chainId: string; memberIds: string[]; latest: StoredSurface }>();
+  const chains = new Map<string, { chainId: string; memberIds: string[]; latest: StoredSurface; rerenders: StoredSurface[] }>();
   for (const s of rows) {
     if (chainOf.has(s.id)) continue;
+    // A re-render (Task 2.9) joins the chain of the surface it re-renders as one of its
+    // versions: it neither replaces the chain's surface nor moves the chain. One whose
+    // original is older than the rows read stands alone.
+    const original = s.rerenderOf === null ? undefined : chainOf.get(s.rerenderOf);
+    if (original !== undefined) {
+      chainOf.set(s.id, original);
+      const chain = chains.get(original);
+      if (chain) {
+        chain.memberIds.push(s.id);
+        chain.rerenders.push(s);
+      }
+      continue;
+    }
     const prev = s.supersedes === null ? undefined : chainOf.get(s.supersedes);
     const chainId = prev ?? s.id;
     chainOf.set(s.id, chainId);
@@ -263,7 +280,7 @@ export function groupChains(rows: readonly StoredSurface[]): Array<{ chainId: st
     if (chain) {
       chain.memberIds.push(s.id);
       chain.latest = s;
-    } else chains.set(chainId, { chainId, memberIds: [s.id], latest: s });
+    } else chains.set(chainId, { chainId, memberIds: [s.id], latest: s, rerenders: [] });
   }
   // Ordered by each chain's latest row, so an updated surface becomes the newest one.
   return [...chains.values()].sort((a, b) => a.latest.createdAt.localeCompare(b.latest.createdAt));
@@ -274,7 +291,12 @@ export async function loadThreadSurfaces(userId: string, threadId: string, optio
   const rows = await listThreadSurfaces(userId, threadId);
   const chains = groupChains(rows);
   return Promise.all(
-    chains.map(async (c) => ({ chainId: c.chainId, memberIds: c.memberIds, surface: await toHostSurface(userId, c.latest, options) })),
+    chains.map(async (c) => ({
+      chainId: c.chainId,
+      memberIds: c.memberIds,
+      surface: await toHostSurface(userId, c.latest, options),
+      rerenders: await Promise.all(c.rerenders.map((r) => toHostSurface(userId, r, options))),
+    })),
   );
 }
 

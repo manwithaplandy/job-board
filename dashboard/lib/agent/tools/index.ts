@@ -22,6 +22,11 @@ export interface ToolCtx {
   repairsLeft: RepairState;
   /** The model the run calls, recorded on every surface it presents (Task 2.9 re-renders with it). */
   modelId?: string;
+  /**
+   * Set only by a re-render run (Task 2.9, lib/agent/rerender.ts): the original surface the
+   * stored row re-renders. Such a row never supersedes another.
+   */
+  rerenderOf?: string;
 }
 
 /**

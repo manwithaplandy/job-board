@@ -142,6 +142,24 @@ test("updates join their chain, the chain shows its latest row, and chains sort 
   ]);
 });
 
+test("a re-render joins its original's chain as a version and does not move the chain (Task 2.9)", () => {
+  const rows = [
+    stored("a", { createdAt: "2026-11-25T10:00:00.000Z" }),
+    stored("b", { createdAt: "2026-11-25T10:01:00.000Z" }),
+    stored("ra", { variant: 2, rerenderOf: "a", createdAt: "2026-11-25T10:02:00.000Z" }),
+    stored("a2", { supersedes: "a", createdAt: "2026-11-25T10:03:00.000Z" }),
+    stored("ra2", { rerenderOf: "a2", createdAt: "2026-11-25T10:04:00.000Z" }),
+    stored("rx", { rerenderOf: "missing", createdAt: "2026-11-25T10:05:00.000Z" }),
+  ];
+  const chains = groupChains(rows);
+  expect(chains.map((c) => [c.chainId, c.memberIds, c.latest.id, c.rerenders.map((r) => r.id)])).toEqual([
+    ["b", ["b"], "b", []],
+    ["a", ["a", "ra", "a2", "ra2"], "a2", ["ra", "ra2"]],
+    // A re-render whose original is not in the thread stands alone rather than vanishing.
+    ["rx", ["rx"], "rx", []],
+  ]);
+});
+
 test("rows are read only for the ids the payload names", async () => {
   expect(await loadBlockRows(USER, GOOD as never)).toEqual({});
   expect(db.calls).toHaveLength(0);

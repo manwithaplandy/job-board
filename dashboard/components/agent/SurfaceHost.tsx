@@ -39,6 +39,13 @@ class SurfaceBoundary extends Component<{ children: ReactNode }, { failed: boole
 export function mergeSurface(chains: readonly HostChain[], surface: HostSurface): HostChain[] {
   const known = chains.findIndex((c) => c.memberIds.includes(surface.id));
   if (known !== -1) return chains as HostChain[];
+  // A re-render (Task 2.9) joins its original's chain as another version, in place.
+  const original = surface.rerenderOf === null ? -1 : chains.findIndex((c) => c.memberIds.includes(surface.rerenderOf as string));
+  if (original !== -1) {
+    const c = chains[original];
+    const joined: HostChain = { ...c, memberIds: [...c.memberIds, surface.id], rerenders: [...(c.rerenders ?? []), surface] };
+    return chains.map((x, i) => (i === original ? joined : x));
+  }
   const parent = surface.supersedes === null ? -1 : chains.findIndex((c) => c.memberIds.includes(surface.supersedes as string));
   if (parent === -1) return [...chains, { chainId: surface.id, memberIds: [surface.id], surface }];
   const updated: HostChain = { ...chains[parent], memberIds: [...chains[parent].memberIds, surface.id], surface };
@@ -70,9 +77,13 @@ export function useWideLayout(): boolean {
  * surface between the column and the transcript does not mount the frame again.
  */
 export function withBlocksView(chains: readonly HostChain[], surfaceId: string): HostChain[] {
-  return chains.map((c) =>
-    c.surface.id === surfaceId && c.surface.view.kind === "sandbox" ? { ...c, surface: { ...c.surface, view: { kind: "blocks" } } } : c,
-  );
+  const toBlocks = (s: HostSurface): HostSurface => (s.id === surfaceId && s.view.kind === "sandbox" ? { ...s, view: { kind: "blocks" } } : s);
+  return chains.map((c) => {
+    const surface = toBlocks(c.surface);
+    const rerenders = c.rerenders?.map(toBlocks);
+    const changed = surface !== c.surface || (rerenders ?? []).some((r, i) => r !== c.rerenders?.[i]);
+    return changed ? { ...c, surface, ...(rerenders ? { rerenders } : {}) } : c;
+  });
 }
 
 function toSandboxSurface(surface: HostSurface, document: SurfacePayloadV3): SandboxSurface {

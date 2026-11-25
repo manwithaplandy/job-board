@@ -173,8 +173,9 @@ async function storeSurface(ctx: ToolCtx, a: StoreArgs): Promise<string> {
   return withUserSql(ctx.userId, async (tx) => {
     // Only one of the caller's own surfaces in this thread can be superseded; any other
     // id is ignored and the surface is stored as a new one.
+    // A re-render (Task 2.9) is a sibling of its original, never an update of any row.
     let supersedes: string | null = null;
-    if (a.surfaceId !== undefined && UUID_RE.test(a.surfaceId)) {
+    if (ctx.rerenderOf === undefined && a.surfaceId !== undefined && UUID_RE.test(a.surfaceId)) {
       const rows = await tx`
         SELECT id::text AS id FROM agent_surfaces
         WHERE id = ${a.surfaceId}::uuid AND user_id = ${ctx.userId}::uuid AND thread_id = ${a.threadId}::uuid`;
@@ -189,7 +190,7 @@ async function storeSurface(ctx: ToolCtx, a: StoreArgs): Promise<string> {
       gathered: ctx.gathered,
       outcome: a.outcome,
       supersedes,
-      rerenderOf: null,
+      rerenderOf: ctx.rerenderOf ?? null,
       model: ctx.modelId ?? null,
       latencyMs: Date.now() - a.started,
       outputTokens: null,

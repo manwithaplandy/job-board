@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const m = vi.hoisted(() => ({
   queries: [] as { text: string; values: unknown[] }[],
   jobs: {} as Record<string, { title: string; company: string; url: string }>,
+  questions: {} as Record<string, unknown>,
   proposals: new Set<string>(),
   getSurface: vi.fn(),
   setShortlistState: vi.fn(),
@@ -23,6 +24,10 @@ function fakeTx() {
     if (text.includes("FROM jobs j JOIN companies")) {
       const job = m.jobs[String(values[0])];
       return Promise.resolve(job ? [{ title: job.title, company: job.company }] : []);
+    }
+    if (text.includes("FROM job_questions")) {
+      const questions = m.questions[String(values[0])];
+      return Promise.resolve(questions === undefined ? [] : [{ questions }]);
     }
     if (text.includes("SELECT url FROM jobs")) {
       const job = m.jobs[String(values[0])];
@@ -74,6 +79,9 @@ const SURFACE = "33333333-3333-4333-8333-333333333333";
 const JOB = "greenhouse:acme:101";
 // A test-only key: long enough to count, never a real secret.
 const TEST_KEY = "t".repeat(40); // low-entropy fixture, at least 32 characters
+// Stored Greenhouse questions: one posting asks for a cover letter, one does not.
+const COVER_Q = { questions: [{ label: "Cover Letter", required: false, fields: [{ name: "cover_letter", type: "input_file", options: [] }] }] };
+const TEXT_Q = { questions: [{ label: "Why us?", required: true, fields: [{ name: "q0", type: "textarea", options: [] }] }] };
 
 let warn: { mock: { calls: unknown[][] }; mockRestore: () => void };
 beforeEach(() => {
@@ -81,6 +89,7 @@ beforeEach(() => {
   m.queries = [];
   m.jobs = { [JOB]: { title: "Staff Engineer", company: "Acme", url: "https://boards.example.com/acme/101" } };
   m.proposals = new Set();
+  m.questions = { [JOB]: COVER_Q };
   vi.stubEnv("AGENT_TOOL_APPROVAL_SECRET", TEST_KEY);
   resetApprovalSecretWarning();
   m.getSurface.mockImplementation(async (userId: string, id: string) =>
@@ -150,6 +159,32 @@ test("application.prepare never runs directly; it returns a confirm whose lines 
   expect(writers()).toEqual([]);
   // An unknown job gets no card.
   expect(await run({ name: "application.prepare", jobId: "greenhouse:acme:999" })).toEqual({ kind: "dropped" });
+});
+
+test("the prepare card states the cover letter cost only when the posting asks for one", async () => {
+  const left = (k: "monthlyResume" | "monthlyCover") => ENTITLEMENTS.standard[k] - 1;
+  const lines = async () => {
+    const out = await run({ name: "application.prepare", jobId: JOB });
+    if (out.kind !== "confirm") throw new Error(`expected a confirm, got ${out.kind}`);
+    return out.confirm.lines;
+  };
+  // No cover-letter question: a prep spends a résumé only (startApplicationPrep's rule).
+  m.questions[JOB] = TEXT_Q;
+  expect(await lines()).toEqual([
+    "Staff Engineer at Acme",
+    "Uses 1 résumé from your monthly allowance.",
+    `Left this month: ${left("monthlyResume")} résumés.`,
+  ]);
+  // A double-encoded stored schema is read the same way.
+  m.questions[JOB] = JSON.stringify(COVER_Q);
+  expect((await lines())[1]).toBe("Uses 1 résumé and 1 cover letter from your monthly allowance.");
+  // Questions not stored yet: the cover letter is conditional.
+  delete m.questions[JOB];
+  expect(await lines()).toEqual([
+    "Staff Engineer at Acme",
+    "Uses 1 résumé, and 1 cover letter if the posting asks for one, from your monthly allowance.",
+    `Left this month: ${left("monthlyResume")} résumés, ${left("monthlyCover")} cover letters.`,
+  ]);
 });
 
 test("the confirm descriptor ignores any title or text supplied in the intent", async () => {

@@ -4,6 +4,7 @@
 //
 // Add a library here in the same commit that makes it call registerUndoer.
 // Kinds whose library has not landed yet answer undo with not_found.
+import "@/lib/workspaces/shortlist";
 
 /** The kinds this module's imports register (checked by undoers.test.ts). */
-export const UNDOABLE_KINDS = [] as const;
+export const UNDOABLE_KINDS = ["shortlist.set"] as const;

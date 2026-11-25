@@ -50,7 +50,8 @@ export type UndoResult = { ok: true } | { ok: false; reason: "changed_since" | "
  * would); undoAction answers it as not_found and writes nothing.
  */
 export type UndoOutcome = "restored" | "changed_since" | "invalid";
-export type Undoer = (tx: TransactionSql, action: StoredAction) => Promise<UndoOutcome>;
+/** `userId` is the caller undoing it, the same user the transaction's RLS is scoped to. */
+export type Undoer = (tx: TransactionSql, action: StoredAction, userId: string) => Promise<UndoOutcome>;
 
 const UNDOERS = new Map<ActionKind, Undoer>();
 
@@ -178,7 +179,7 @@ export async function undoAction(userId: string, actionId: number): Promise<Undo
       if (action.undoneAt !== null) return { ok: false, reason: "already_undone" };
       const undoer = UNDOERS.get(action.kind);
       if (!undoer) return { ok: false, reason: "not_found" };
-      const outcome = await undoer(tx, action);
+      const outcome = await undoer(tx, action, userId);
       if (outcome === "changed_since") return { ok: false, reason: "changed_since" };
       if (outcome !== "restored") return { ok: false, reason: "not_found" };
       const marked = await tx`SELECT public.agent_mark_action_undone(${actionId}::bigint) AS ok`;

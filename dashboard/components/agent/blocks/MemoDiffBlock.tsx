@@ -9,14 +9,14 @@ import type { BlockRows, OnIntent } from "./types";
 type MemoDiff = Extract<V1Block, { type: "MemoDiff" }>;
 
 export const MEMO_GONE_TEXT = "This proposed change is no longer waiting for you.";
-
-const inert = () => {};
+export const MEMO_OUTDATED_TEXT = "This proposal is out of date";
 
 /**
  * A pending memo proposal (spec 5(a) step 5), drawn with the workspace's fixed memo
  * card: before and after per section, as plain text, from the proposal row the host
- * read, never from payload text. Its one control emits memo.review, which opens "What
- * I'm looking for", where the same card approves, edits or declines it.
+ * read, never from payload text. Approve and Decline emit memo.resolve, which resolves
+ * it in place; Edit emits memo.review, which opens "What I'm looking for". A proposal
+ * made against an older memo version shows a fixed line and only the Review button.
  */
 export function MemoDiffBlock({ block, rows, onIntent }: { block: MemoDiff; rows: BlockRows; onIntent: OnIntent }) {
   const proposal = rows.memo ? own(rows.memo.proposals, block.proposalId) : null;
@@ -27,19 +27,28 @@ export function MemoDiffBlock({ block, rows, onIntent }: { block: MemoDiff; rows
       </BlockFrame>
     );
   }
+  const outdated = proposal.baseVersion !== rows.memo.version;
+  const review = () => onIntent({ name: "memo.review", proposalId: block.proposalId });
   return (
     // The workspace card draws its own frame, so this wrapper has none.
     <div className="rf-block-memo">
       <MemoDiffCard
         proposal={proposal}
         current={rows.memo.current}
-        onApprove={inert}
-        onEdit={inert}
-        onDecline={inert}
+        onApprove={() => onIntent({ name: "memo.resolve", proposalId: block.proposalId, decision: "approve" })}
+        onEdit={review}
+        onDecline={() => onIntent({ name: "memo.resolve", proposalId: block.proposalId, decision: "decline" })}
         actions={
-          <Button size="sm" onClick={() => onIntent({ name: "memo.review", proposalId: block.proposalId })}>
-            Review this change
-          </Button>
+          outdated ? (
+            <>
+              <p className="rf-block__unavailable" role="note">
+                {MEMO_OUTDATED_TEXT}
+              </p>
+              <Button size="sm" onClick={review}>
+                Review this change
+              </Button>
+            </>
+          ) : undefined
         }
       />
     </div>

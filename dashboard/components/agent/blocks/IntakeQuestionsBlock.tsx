@@ -54,11 +54,12 @@ function OptionGroup({
         {question.label}
       </p>
       <div className="rf-block__actions" role="group" aria-labelledby={labelId}>
-        {(question.options ?? []).map((option) => {
+        {/* The grammar refuses duplicate options; the index keeps keys unique regardless. */}
+        {(question.options ?? []).map((option, i) => {
           const on = picked.includes(option);
           return (
             <Button
-              key={option}
+              key={`${i}:${option}`}
               variant={on ? "secondary" : "outline"}
               size="sm"
               aria-pressed={on}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Panel";
 import type { GatheredData } from "@/lib/agent/gathered";
@@ -32,6 +32,9 @@ export function applyLabel(ats: string | null): string {
 }
 
 const fileSafe = (s: string) => s.replace(/[\\/:*?"<>|]/g, " ");
+
+/** How long the Copy button reads "Copied" before it resets. */
+export const COPIED_RESET_MS = 2_000;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jsPDF is lazy-loaded untyped (lib/rolefit/downloadPdf.ts)
 function renderLetterPdf(doc: any, text: string) {
@@ -90,6 +93,11 @@ function ResumePreview({ resume }: { resume: TailoredResume }) {
  */
 export function DocumentPreviewBlock({ block, gathered, rows, onIntent }: { block: DocumentPreview; gathered: GatheredData; rows: BlockRows; onIntent: OnIntent }) {
   const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    if (copy !== "copied") return;
+    const t = setTimeout(() => setCopy("idle"), COPIED_RESET_MS);
+    return () => clearTimeout(t);
+  }, [copy]);
   const job = own(gathered.jobs, block.jobId);
   const title = block.doc === "resume" ? "Tailored résumé" : "Cover letter";
   if (!job) {
@@ -162,6 +170,9 @@ export function DocumentPreviewBlock({ block, gathered, rows, onIntent }: { bloc
           )
         )}
       </div>
+      <span className="sr-only" role="status" aria-live="polite">
+        {copy === "copied" ? "Copied to the clipboard." : ""}
+      </span>
       {copy === "failed" && <p className="rf-block-prep__note">Copying didn&apos;t work here. Select the text instead.</p>}
     </BlockFrame>
   );

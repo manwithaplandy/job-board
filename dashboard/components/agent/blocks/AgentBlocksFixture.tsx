@@ -73,6 +73,7 @@ const CURRENT_MEMO: MemoDoc = { ...emptyMemoDoc(), role: "Senior backend or prod
 export const JOBS_FIXTURE_ROWS: BlockRows = {
   memo: {
     current: CURRENT_MEMO,
+    version: 3,
     proposals: {
       [PROPOSAL]: {
         id: PROPOSAL,
@@ -193,9 +194,9 @@ export const PREP_FIXTURE_PAYLOAD: SurfacePayloadV1 = {
 const inert = () => {};
 
 export function AgentBlocksJobsFixture() {
-  return <BlockList payload={JOBS_FIXTURE_PAYLOAD} gathered={FIXTURE_GATHERED} rows={JOBS_FIXTURE_ROWS} onIntent={inert} />;
+  return <BlockList surfaceKey="fixture-jobs" payload={JOBS_FIXTURE_PAYLOAD} gathered={FIXTURE_GATHERED} rows={JOBS_FIXTURE_ROWS} onIntent={inert} />;
 }
 
 export function AgentBlocksPrepFixture() {
-  return <BlockList payload={PREP_FIXTURE_PAYLOAD} gathered={PREP_FIXTURE_GATHERED} rows={PREP_FIXTURE_ROWS} onIntent={inert} />;
+  return <BlockList surfaceKey="fixture-prep" payload={PREP_FIXTURE_PAYLOAD} gathered={PREP_FIXTURE_GATHERED} rows={PREP_FIXTURE_ROWS} onIntent={inert} />;
 }

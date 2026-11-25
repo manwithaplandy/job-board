@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Panel";
 import { diffMemo } from "@/lib/workspaces/memoCompile";
@@ -34,11 +34,12 @@ export function MemoDiffCard({
   onApprove: () => void;
   onEdit: () => void;
   onDecline: () => void;
-  /** Replaces Approve, Edit and Decline (the agent page's block offers one fixed control instead). */
+  /** Replaces Approve, Edit and Decline (the agent page's block, for an outdated proposal). */
   actions?: ReactNode;
 }) {
   const changes = diffMemo(current, proposal.proposedDoc);
-  const titleId = `ws-memo-proposal-${proposal.id}`;
+  // From useId, not the proposal id: the agent page can show one proposal in two surfaces.
+  const titleId = useId();
   return (
     <article className="rf-ws-memo-diff" aria-labelledby={titleId}>
       <div className="rf-ws-memo-diff__head">

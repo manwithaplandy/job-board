@@ -36,7 +36,7 @@ export function ShortlistQueueBlock({ block, gathered, onIntent }: { block: Shor
             <li key={jobId} className="rf-block-queue__item">
               <JobHeadline job={job} review={own(gathered.reviews, jobId)} />
               <div className="rf-block__actions">
-                <Button variant="ghost" size="sm" aria-pressed={on} onClick={() => toggle(jobId)}>
+                <Button variant="ghost" size="sm" aria-pressed={on} aria-label={`Select ${job.title} to compare`} onClick={() => toggle(jobId)}>
                   {on ? "Selected to compare" : "Select to compare"}
                 </Button>
               </div>

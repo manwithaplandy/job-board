@@ -19,7 +19,19 @@ import type { BlockRows, OnIntent } from "./types";
 
 const NO_ROWS: BlockRows = {};
 
-function Block({ block, gathered, rows, onIntent }: { block: V1Block; gathered: GatheredData; rows: BlockRows; onIntent: OnIntent }) {
+function Block({
+  block,
+  gathered,
+  rows,
+  onIntent,
+  onPrepSettled,
+}: {
+  block: V1Block;
+  gathered: GatheredData;
+  rows: BlockRows;
+  onIntent: OnIntent;
+  onPrepSettled?: (jobId: string) => void;
+}) {
   switch (block.type) {
     case "JobCard":
       return <JobCardBlock block={block} gathered={gathered} onIntent={onIntent} />;
@@ -36,7 +48,7 @@ function Block({ block, gathered, rows, onIntent }: { block: V1Block; gathered: 
     case "Callout":
       return <CalloutBlock block={block} />;
     case "PrepChecklist":
-      return <PrepChecklistBlock block={block} gathered={gathered} rows={rows} onIntent={onIntent} />;
+      return <PrepChecklistBlock block={block} gathered={gathered} rows={rows} onIntent={onIntent} onSettled={onPrepSettled} />;
     case "EvidenceMap":
       return <EvidenceMapBlock block={block} gathered={gathered} rows={rows} />;
     case "DocumentPreview":
@@ -57,23 +69,40 @@ function Block({ block, gathered, rows, onIntent }: { block: V1Block; gathered: 
  * database rows a block binds to beyond that (memo proposals, application packages, the
  * catalog clock). Buttons emit only
  * closed-enum intents through `onIntent`; the host executes them.
+ *
+ * Preconditions for the host (Task 1.20): `payload` and `gathered` were total-parsed
+ * from the stored row (on failure the host renders the fallback surface instead), and
+ * `surfaceKey` is the surface row's id, so a new surface row remounts every block and no
+ * local state (sent answers, a compare selection) carries over. `onPrepSettled(jobId)`
+ * fires when a prep checklist sees that job's generation settle; reload its package row.
  */
 export function BlockList({
   payload,
   gathered,
   onIntent,
+  surfaceKey,
   rows = NO_ROWS,
+  onPrepSettled,
 }: {
   payload: SurfacePayloadV1;
   gathered: GatheredData;
   onIntent: OnIntent;
+  surfaceKey: string;
   rows?: BlockRows;
+  onPrepSettled?: (jobId: string) => void;
 }) {
   return (
     <div className="rf-blocks">
       {payload.title && <h2 className="rf-blocks__title">{payload.title}</h2>}
       {payload.blocks.map((block, i) => (
-        <Block key={`${i}-${block.type}`} block={block} gathered={gathered} rows={rows} onIntent={onIntent} />
+        <Block
+          key={`${surfaceKey}:${i}:${block.type}`}
+          block={block}
+          gathered={gathered}
+          rows={rows}
+          onIntent={onIntent}
+          onPrepSettled={onPrepSettled}
+        />
       ))}
     </div>
   );

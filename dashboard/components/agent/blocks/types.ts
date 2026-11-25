@@ -39,10 +39,19 @@ export interface PackageView {
  * missing renders a fixed line instead.
  */
 export interface BlockRows {
-  /** The current memo and the user's pending proposals, by proposal id (MemoDiff). */
-  memo?: { current: MemoDoc; proposals: Record<string, MemoProposal> };
+  /**
+   * The current memo with its version, and the user's pending proposals by proposal id
+   * (MemoDiff). A proposal whose baseVersion is not `version` is out of date.
+   */
+  memo?: { current: MemoDoc; version: number; proposals: Record<string, MemoProposal> };
   /** Application packages, by job id (PrepChecklist, EvidenceMap, DocumentPreview). */
   packages?: Record<string, PackageView>;
+  /**
+   * The posting's stored Greenhouse question schema (job_questions.questions), unparsed,
+   * by job id. PrepChecklist reads from it, by the rule startApplicationPrep charges by
+   * (lib/rolefit/prepNeeds.ts), whether the posting asks for a cover letter or answers.
+   */
+  questions?: Record<string, unknown>;
   /** The catalog clock's now (catalogNow), ISO 8601, for StaleList's ages. */
   now?: string;
 }

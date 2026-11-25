@@ -6,7 +6,7 @@ import type { GatheredData } from "@/lib/agent/gathered";
 import type { V1Block } from "@/lib/agent/surfaces/v1/blocks";
 import type { TileSpec } from "@/lib/workspaces/analyticsTiles";
 import type { MetricResult, MetricSpec } from "@/lib/workspaces/types";
-import { METRIC_GONE_TEXT, METRIC_LABELS, WINDOW_LABELS, metricValue, sampleLabel } from "./metricLabels";
+import { METRIC_GONE_TEXT, METRIC_LABELS, WINDOW_LABELS, countLabel, metricValue } from "./metricLabels";
 import { BlockFrame } from "./shared";
 import type { OnIntent } from "./types";
 
@@ -76,7 +76,7 @@ function Chart({ m, viz, title, subtitle }: { m: MetricResult; viz: Viz; title: 
 /**
  * One chart of a metric the turn read (spec 5(d)), by index into gathered.metrics. The
  * agent picks the viz (validated against the metric's kind) and writes the title, which
- * renders as plain text; the subtitle and its n are fixed. "Pin to Analytics" emits
+ * renders as plain text; the subtitle and its count line are fixed (metricLabels). "Pin to Analytics" emits
  * analytics.pin with the tile.
  */
 export function MetricChartBlock({ block, gathered, onIntent }: { block: MetricChart; gathered: GatheredData; onIntent: OnIntent }) {
@@ -88,7 +88,8 @@ export function MetricChartBlock({ block, gathered, onIntent }: { block: MetricC
       </BlockFrame>
     );
   }
-  const subtitle = `${METRIC_LABELS[m.spec.metric]} · ${WINDOW_LABELS[m.spec.window]} · ${sampleLabel(m.n)}`;
+  const counted = countLabel(m);
+  const subtitle = [METRIC_LABELS[m.spec.metric], WINDOW_LABELS[m.spec.window], counted].filter(Boolean).join(" · ");
   return (
     <section className="rf-block rf-block-chart" aria-label={block.title}>
       <div className="rf-block-chart__visual" data-ui-visual="data-viz">

@@ -211,7 +211,9 @@ async function collectAgentRows(userId: string): Promise<Pick<AccountExport, Age
         agent_tables_error: null,
       };
     });
-  } catch {
+  } catch (e) {
+    // Full cause server-side only; the export carries the fixed marker below.
+    console.error("account export: agent tables could not be read", e);
     return {
       agent_threads: null,
       agent_messages: null,

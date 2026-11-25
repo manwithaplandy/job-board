@@ -22,7 +22,8 @@ import {
 // deploy, no restart.
 //
 // jsonb-boundary discipline (dashboard/CLAUDE.md): the config column is read through a
-// HAND-ROLLED TOTAL PARSER — never an `as`-cast, never zod. Any invalid/partial/hostile
+// HAND-ROLLED TOTAL PARSER (hand-rolled here by choice; zod via `parseOrNull` is also
+// allowed) — never an `as`-cast. Any invalid/partial/hostile
 // field (a string scalar, a negative/zero/fractional cap, an unknown key) falls back to
 // the compiled default for THAT field and logs; the parser never throws to a page/route.
 

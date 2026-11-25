@@ -213,7 +213,12 @@ describe("agent tables", () => {
   });
 
   test("before the agent tables exist, the rest of the export still succeeds and says agent data is unavailable", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const out = await buildAccountExport("pre-agent-user", "p@x.com", noFiles);
+    // The cause is logged server-side, not swallowed…
+    expect(errSpy).toHaveBeenCalledWith("account export: agent tables could not be read", expect.any(Error));
+    errSpy.mockRestore();
+    // …and only the fixed marker reaches the download.
     expect(out).toHaveProperty("profiles");
     expect(out.agent_threads).toBeNull();
     expect(out.agent_messages).toBeNull();

@@ -30,23 +30,29 @@ DRAIN_SECONDS = 30
 # review it doesn't own. Module-global and shared across loops, so guard it with a lock.
 _in_flight_lock = threading.Lock()
 _in_flight_ids: set[int] = set()
+# The same for review_scope_requests ids (a separate id space, Task 1.9).
+_in_flight_scope_ids: set[int] = set()
 
 
-def _mark_in_flight(req_id: int) -> None:
+def _registry(scope: bool) -> set[int]:
+    return _in_flight_scope_ids if scope else _in_flight_ids
+
+
+def _mark_in_flight(req_id: int, *, scope: bool = False) -> None:
     with _in_flight_lock:
-        _in_flight_ids.add(req_id)
+        _registry(scope).add(req_id)
 
 
-def _clear_in_flight(req_id: int) -> None:
+def _clear_in_flight(req_id: int, *, scope: bool = False) -> None:
     with _in_flight_lock:
-        _in_flight_ids.discard(req_id)  # discard: tolerate an already-cleared id
+        _registry(scope).discard(req_id)  # discard: tolerate an already-cleared id
 
 
-def _in_flight_snapshot() -> set[int]:
+def _in_flight_snapshot(*, scope: bool = False) -> set[int]:
     """A copy of the current in-flight ids, taken under the lock, so the caller can
     iterate/pass it without racing concurrent mark/clear on another loop."""
     with _in_flight_lock:
-        return set(_in_flight_ids)
+        return set(_registry(scope))
 
 
 class _Stop:
@@ -67,7 +73,8 @@ def process_one(conn) -> bool:
     """Recover stale claims, then claim + process one pending request. Returns True if
     a request was handled (caller should poll again immediately), False if the queue
     was empty (caller should sleep). Per-request isolation: any failure is recorded on
-    the request row and never propagates out of this function."""
+    the request row and never propagates out of this function. When no full request is
+    pending, one scoped re-review request is processed instead (process_scope_request)."""
     from job_discovery.lifecycle.demand import process_pending
     process_pending(conn)
     recovered = db.recover_stale_review_requests(
@@ -75,12 +82,19 @@ def process_one(conn) -> bool:
     )
     if recovered:
         log.warning("recovered %s stale 'running' request(s)", recovered)
+    recovered_scope = db.recover_stale_scope_requests(
+        conn, STALE_MINUTES, exclude_ids=_in_flight_snapshot(scope=True)
+    )
+    if recovered_scope:
+        log.warning("recovered %s stale 'running' scoped request(s)", recovered_scope)
     conn.commit()
 
     claimed = db.claim_next_review_request(conn)
     conn.commit()
     if not claimed:
-        return False
+        # Full requests go first: a scoped re-review is claimed only in a cycle that
+        # claimed no full request.
+        return process_scope_request(conn)
 
     req_id = claimed["id"]
     claim_version = claimed["claim_version"]
@@ -127,6 +141,67 @@ def process_one(conn) -> bool:
         # Fallback: if finish/commit itself raised, we still clear here; the row stays
         # 'running' and the STALE_MINUTES sweep reaps it later — today's crash behavior.
         _clear_in_flight(req_id)
+    return True
+
+
+def _scope_outcome_notes(job_ids: list[str], outcome: dict) -> str:
+    """One short line on how a scoped request ended (finish_scope_request caps it)."""
+    counts = outcome.get("counts") or {}
+    line = (f"{outcome.get('selected', 0)} of {len(job_ids)} listed job(s) selected; "
+            f"{counts.get('reviewed', 0)} reviewed, {counts.get('errors', 0)} errors")
+    extra = outcome.get("notes")
+    return f"{line}; {extra}" if extra else line
+
+
+def process_scope_request(conn) -> bool:
+    """Claim + process one pending scoped re-review request (plan Task 1.9). Returns
+    True if one was handled, False if the queue was empty or the user's review lock
+    was held (the request goes back to pending). Like process_one, every failure is
+    recorded on the request row and never propagates. Listed jobs that are gone,
+    closed or denied are filtered by the candidate query, so a request whose ids all
+    drop out finishes 'done' with a note."""
+    claimed = db.claim_next_scope_request(conn)
+    conn.commit()
+    if not claimed:
+        return False
+
+    req_id = claimed["id"]
+    claim_version = claimed["claim_version"]
+    user_id = str(claimed["user_id"])
+    job_ids = [str(j) for j in (claimed["job_ids"] or [])]
+    log.info("processing scoped review request %s for user %s (%s job(s))", req_id, user_id, len(job_ids))
+    _mark_in_flight(req_id, scope=True)
+    try:
+        profile = db.load_profile(conn, user_id)
+        if profile is None:
+            db.finish_scope_request(conn, req_id, "failed", "profile not found", claim_version=claim_version)
+            conn.commit()
+            return True
+        outcome: dict = {}
+        completed = run._review_user(
+            conn, profile, db.load_tier_settings(conn), db.load_invite_comp_plan(conn),
+            job_ids=job_ids, scope_claim=(req_id, claim_version), outcome=outcome,
+        )
+        if completed is False:
+            # Another run holds the user's lock: hand the request back and back off.
+            db.finish_scope_request(conn, req_id, "pending", "waiting for active review", claim_version=claim_version)
+            conn.commit()
+            return False
+        db.finish_scope_request(
+            conn, req_id, "done", _scope_outcome_notes(job_ids, outcome), claim_version=claim_version,
+        )
+        conn.commit()
+    except Exception as exc:  # never let one request kill the loop
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        db.finish_scope_request(conn, req_id, "failed", f"{type(exc).__name__}: {exc}"[:500], claim_version=claim_version)
+        conn.commit()
+        log.exception("scoped review request %s failed", req_id)
+    finally:
+        # Cleared after the terminal transition + commit, as in process_one.
+        _clear_in_flight(req_id, scope=True)
     return True
 
 

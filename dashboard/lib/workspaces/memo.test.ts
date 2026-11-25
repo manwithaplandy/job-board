@@ -68,6 +68,16 @@ vi.mock("@/lib/db", () => ({
   withUserMutation: vi.fn(async (_u: string, fn: (t: unknown) => Promise<unknown>) => fn(fakeTx("withUserMutation"))),
 }));
 
+// The scoped re-review queue (Task 1.9) is observed, not run: its SQL has its own tests.
+const scope = vi.hoisted(() => ({
+  read: vi.fn(async (_u: string): Promise<string[]> => ["lever:acme:1"]),
+  enqueue: vi.fn(async (_u: string, _ids: string[]): Promise<"queued" | "already_active" | "empty"> => "queued"),
+}));
+vi.mock("@/lib/workspaces/reviewScope", () => ({
+  reviewScopeForMemoChange: (u: string) => scope.read(u),
+  enqueueScopedReview: (u: string, ids: string[]) => scope.enqueue(u, ids),
+}));
+
 import * as memoModule from "@/lib/workspaces/memo";
 import {
   createMemoProposal,
@@ -91,6 +101,53 @@ beforeEach(() => {
   db.proposals = [];
   db.profile = { resume_text: "My résumé", instructions: null, profile_version: "v0" };
   db.calls = [];
+  scope.read.mockReset();
+  scope.read.mockResolvedValue(["lever:acme:1"]);
+  scope.enqueue.mockReset();
+  scope.enqueue.mockResolvedValue("queued");
+});
+
+describe("scoped re-review after a memo change", () => {
+  test("approving a memo proposal enqueues exactly one scoped request", async () => {
+    const p = await createMemoProposal(USER, { proposedDoc: doc({ role: "Staff" }), rationale: "", source: "interactive" });
+    expect(scope.enqueue).not.toHaveBeenCalled();
+    expect(await resolveMemoProposal(USER, p.id, "approve")).toEqual({ version: 1 });
+    expect(scope.read).toHaveBeenCalledTimes(1);
+    expect(scope.enqueue).toHaveBeenCalledTimes(1);
+    expect(scope.enqueue).toHaveBeenCalledWith(USER, ["lever:acme:1"]);
+  });
+
+  test("a user save and a restore enqueue one each; an unchanged save, a decline and a stale approve do not", async () => {
+    await saveMemo(USER, doc({ role: "One" }), "user");
+    await saveMemo(USER, doc({ role: "Two" }), "user");
+    await restoreMemoVersion(USER, 1);
+    expect(scope.enqueue).toHaveBeenCalledTimes(3);
+    scope.enqueue.mockClear();
+    await saveMemo(USER, doc({ role: "One" }), "user"); // already current
+    const declined = await createMemoProposal(USER, { proposedDoc: doc({ role: "X" }), rationale: "", source: "background" });
+    await resolveMemoProposal(USER, declined.id, "decline");
+    expect(scope.enqueue).not.toHaveBeenCalled();
+    const stale = await createMemoProposal(USER, { proposedDoc: doc({ role: "Y" }), rationale: "", source: "background" });
+    await saveMemo(USER, doc({ role: "Z" }), "user");
+    scope.enqueue.mockClear();
+    expect(await resolveMemoProposal(USER, stale.id, "approve")).toBeNull();
+    expect(scope.enqueue).not.toHaveBeenCalled();
+  });
+
+  test("a failed enqueue never fails the memo save", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    scope.enqueue.mockRejectedValue(new Error("db down"));
+    expect(await saveMemo(USER, doc({ role: "Backend" }), "user")).toBe(1);
+    expect(db.versions).toHaveLength(1);
+    expect(db.profile?.instructions).toBe("Role and seniority: Backend");
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("scoped re-review"), "db down");
+    // Reading the scope can fail too; the approve still returns its version.
+    scope.read.mockRejectedValue(new Error("read failed"));
+    const p = await createMemoProposal(USER, { proposedDoc: doc({ role: "Staff" }), rationale: "", source: "interactive" });
+    expect(await resolveMemoProposal(USER, p.id, "approve")).toEqual({ version: 2 });
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("scoped re-review"), "read failed");
+    logged.mockRestore();
+  });
 });
 
 describe("memo versions", () => {

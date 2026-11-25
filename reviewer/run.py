@@ -395,12 +395,23 @@ async def review_batch(candidates: list[dict], profile_block: str, client,
 
 def _review_user(conn, profile: dict, ent: dict | None = None,
                  comp_plan: str = entitlements.DEFAULT_INVITE_COMP_PLAN, *,
-                 request_claim: tuple[int, int] | None = None) -> bool | None:
+                 request_claim: tuple[int, int] | None = None,
+                 job_ids: list[str] | None = None,
+                 scope_claim: tuple[int, int] | None = None,
+                 outcome: dict | None = None) -> bool | None:
     # `ent` is the DB-overlaid entitlements map (T1). review_all loads it once per run;
     # the on-demand worker passes None so it is loaded per request. None → compiled
     # defaults inside the entitlement helpers. `comp_plan` is the DB-configured invite
     # comp plan (db.load_invite_comp_plan), likewise read once per run and threaded into
     # resolve_plan; the default keeps standalone callers on the compiled default.
+    #
+    # Scoped re-review (plan Task 1.9): `job_ids` limits candidate selection to the
+    # listed jobs (db.select_candidates); every plan, location, inactivity and daily-cap
+    # rule below applies unchanged, and None keeps every existing path the same.
+    # `scope_claim` is the (request id, claim_version) of a claimed
+    # review_scope_requests row, fenced under the user lock like `request_claim`.
+    # `outcome`, when given, receives this run's notes, counts and the number of jobs
+    # selected, so the worker can record how a scoped request ended.
     user_id = str(profile["user_id"])
     pv = profile["profile_version"]
     run_id = db.start_review_run(conn, user_id)
@@ -409,6 +420,7 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
     counts = {"reviewed": 0, "gate_rejected": 0, "approved": 0, "denied": 0, "errors": 0}
     notes = None
     locked = False
+    selected = 0
     try:
         # M-TOCTOU: serialize per-user review spend across the cron reviewer (review_all)
         # and the on-demand worker. Without this, both can read spend=0, each select up
@@ -430,6 +442,11 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             conn, user_id, *request_claim
         ):
             notes = "review request claim superseded; skipped"
+            return
+        if scope_claim is not None and not db.current_scope_claim(
+            conn, user_id, *scope_claim
+        ):
+            notes = "review scope request claim superseded; skipped"
             return
 
         # Queue/cron snapshots may be old: reload entitlement and profile only after
@@ -509,17 +526,26 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
             conn, user_id, pv, remaining,
             preferred_locations=profile.get("preferred_locations"),
             exclusions=exclusions,
+            job_ids=job_ids,
         )
         from job_discovery.lifecycle.demand import hydrate_candidates
         ready_ids = set(hydrate_candidates(conn, [c["id"] for c in candidates], user_id))
         candidates = [c for c in candidates if c["id"] in ready_ids]
         candidates = db.attach_demand_snapshots(conn, candidates, user_id)
         conn.commit()
+        selected = len(candidates)
         overflow = total - len(candidates)
         if overflow > 0:
             notes = f"overflow: {overflow} job(s) deferred to next run"
             log.info("review overflow: %s job(s) over remaining budget %s, deferred",
                      overflow, remaining)
+        if job_ids is not None and not candidates:
+            # Scoped and nothing left to review: every listed job is gone, closed,
+            # denied, already fresh or outside a gate (or none is hydrated yet, which
+            # the overflow note above records). Close cleanly with zero LLM calls.
+            if total == 0:
+                notes = f"scope: none of the {len(job_ids)} listed job(s) need review"
+            return
 
         profile_block = build_profile_block(
             profile["resume_text"], profile["instructions"],
@@ -626,6 +652,8 @@ def _review_user(conn, profile: dict, ent: dict | None = None,
         notes = (f"{notes}; " if notes else "") + "review phase errored; see logs"
         log.exception("review failed for %s", user_id)
     finally:
+        if outcome is not None:
+            outcome.update(notes=notes, counts=dict(counts), selected=selected)
         db.finish_review_run(conn, run_id, notes=notes, **counts)
         conn.commit()
         # Release AFTER the commit above so any concurrent run that now acquires the

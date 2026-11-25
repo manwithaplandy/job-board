@@ -239,6 +239,7 @@ def select_candidates(
     conn, user_id: str, profile_version: str, limit: int,
     preferred_locations: list[str] | None = None,
     exclusions: dict | None = None,
+    job_ids: list[str] | None = None,
 ) -> tuple[list[dict], int]:
     """Return (rows, total_stale) where total_stale is the unbounded stale count.
 
@@ -252,6 +253,13 @@ def select_candidates(
     company_overrides verdict wins over the facet gate in BOTH directions:
     'include' readmits a facet-excluded company; 'exclude' removes an
     otherwise-passing one. None/empty lists apply no gate (fail-open).
+
+    `job_ids` (scoped re-review, plan Task 1.9) narrows both the rows and the count
+    to the listed jobs, as one more AND on top of every rule above: a listed job that
+    no longer exists, is closed, is denied, is fresh at this profile_version or fails
+    the location or company gate simply drops out. With job_ids=None the statement
+    and its parameters are byte-for-byte what they were before the option existed
+    (tests/test_review_scope_requests.py pins the SQL's sha256).
     """
     # Empty/None preference list = no location pre-filter (the `NOT has_prefs`
     # guard makes the whole OR true). When set: match the job's canonical
@@ -300,12 +308,17 @@ def select_candidates(
                OR COALESCE(j.location_canonicals, ARRAY[j.location]) && %(prefs)s::text[]
                OR ('Remote' = ANY(%(prefs)s::text[]) AND j.remote IS TRUE))
     """
+    if job_ids is not None:
+        # Appended only when scoped, so the unscoped statement is untouched.
+        _where += "      AND j.id = ANY(%(job_ids)s::text[])\n    "
     from job_discovery.lifecycle.config import read_control
     params = {"uid": _uuid(user_id), "pv": profile_version, "lim": limit,
               "hydrate": read_control(conn).hydration_enabled,
               "has_prefs": bool(prefs), "prefs": prefs,
               "exc_ind": exc["industries"], "exc_size": exc["sizes"],
               "exc_ctry": exc["countries"], "exc_flag": exc["red_flag_categories"]}
+    if job_ids is not None:
+        params["job_ids"] = [str(j) for j in job_ids]
     with conn.cursor() as cur:
         cur.execute(
             f"""SELECT totals.n,
@@ -479,6 +492,106 @@ def recover_stale_review_requests(conn, minutes: int = 30, exclude_ids=None) -> 
                    finished_at = CASE WHEN resume_requested THEN NULL ELSE now() END,
                    started_at = CASE WHEN resume_requested THEN NULL ELSE started_at END,
                    resume_requested=false, notes = 'worker timeout — re-request'
+            WHERE status = 'running'
+              AND started_at < now() - make_interval(mins => %(mins)s)
+              AND (%(ex)s::bigint[] IS NULL OR id <> ALL(%(ex)s::bigint[]))
+              AND pg_try_advisory_xact_lock(
+                    hashtextextended('reviewer:review:' || user_id::text, 0))
+            """,
+            {"mins": minutes, "ex": ex},
+        )
+        return cur.rowcount
+
+
+# ── Scoped re-review queue (plan Task 1.9: reviewer.worker consumes review_scope_requests) ──
+# The dashboard enqueues one request per memo change naming the jobs to re-review
+# (as the user, through RLS); the worker claims it only in a cycle that claimed no
+# full review request, and reviews only those jobs under the same plan, location,
+# inactivity and daily-cap rules. Every status transition is the service role's,
+# fenced by claim_version like review_requests. Dormant until a row exists.
+
+# review_scope_requests.notes carries CHECK (char_length(notes) <= 2000).
+SCOPE_NOTES_MAX = 2000
+_SCOPE_FINISH_STATUSES = ("pending", "done", "failed")
+
+
+def _scope_notes(notes) -> str | None:
+    """Notes cut to the table's 2000-character cap (a longer note would fail the CHECK)."""
+    return None if notes is None else str(notes)[:SCOPE_NOTES_MAX]
+
+
+def claim_next_scope_request(conn) -> dict | None:
+    """Atomically claim the oldest pending scoped request → status='running', with
+    started_at set and claim_version bumped. FOR UPDATE SKIP LOCKED lets parallel
+    loops poll without grabbing the same row. Returns {id, user_id, job_ids,
+    claim_version} or None when the queue is empty. Caller commits."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE review_scope_requests SET status = 'running', started_at = now(),
+                   claim_version = claim_version + 1
+            WHERE id = (
+              SELECT id FROM review_scope_requests WHERE status = 'pending'
+              ORDER BY requested_at, id
+              FOR UPDATE SKIP LOCKED LIMIT 1
+            )
+            RETURNING id, user_id, job_ids, claim_version
+            """
+        )
+        return cur.fetchone()
+
+
+def current_scope_claim(conn, user_id: str, req_id: int, claim_version: int) -> bool:
+    """Read under the user advisory lock before spending on a scoped request."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS(SELECT 1 FROM review_scope_requests WHERE id=%s AND user_id=%s "
+            "AND status='running' AND claim_version=%s) AS current",
+            (req_id, _uuid(user_id), claim_version),
+        )
+        return bool(cur.fetchone()["current"])
+
+
+def finish_scope_request(conn, req_id: int, status: str, notes: str | None = None,
+                         *, claim_version: int) -> bool:
+    """Finish only this running claim generation; True when the row moved.
+
+    A no-op (False) once the claim has moved on: stale recovery failed the row, or it
+    was requeued and claimed again with a higher claim_version. `status` 'pending'
+    hands the row back to the queue (a cron run held the user's lock), clearing
+    started_at; 'done' and 'failed' stamp finished_at. Notes are cut to the table's
+    2000-character cap. Caller commits.
+    """
+    if status not in _SCOPE_FINISH_STATUSES:
+        raise ValueError(f"unknown scope request status: {status!r}")
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE review_scope_requests SET status = %(st)s::text,
+                   finished_at = CASE WHEN %(st)s::text = 'pending' THEN NULL ELSE now() END,
+                   started_at = CASE WHEN %(st)s::text = 'pending' THEN NULL ELSE started_at END,
+                   notes = %(notes)s
+            WHERE id = %(id)s AND status = 'running' AND claim_version = %(cv)s
+            """,
+            {"st": status, "notes": _scope_notes(notes), "id": req_id, "cv": claim_version},
+        )
+        return cur.rowcount == 1
+
+
+def recover_stale_scope_requests(conn, minutes: int = 30, exclude_ids=None) -> int:
+    """Fail scoped requests stuck 'running' longer than `minutes`, so a crashed worker
+    can't wedge the user's one active slot (one_active_review_scope_request counts
+    'running'). Like recover_stale_review_requests: `exclude_ids` protects this
+    process's in-flight ids, and the transactional per-user advisory lock skips a
+    request whose review still holds that lock in another session. The jobs stay
+    stale under the new profile_version, so the regular review picks them up later.
+    Returns the number recovered. Caller commits."""
+    ex = list(exclude_ids) if exclude_ids is not None else None
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE review_scope_requests SET status = 'failed', finished_at = now(),
+                   notes = 'worker timeout'
             WHERE status = 'running'
               AND started_at < now() - make_interval(mins => %(mins)s)
               AND (%(ex)s::bigint[] IS NULL OR id <> ALL(%(ex)s::bigint[]))

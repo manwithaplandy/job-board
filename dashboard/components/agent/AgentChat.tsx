@@ -617,11 +617,6 @@ export function AgentChat({
 }
 
 /**
- * ?compare=a,b with no conversation open: starts one, then reopens the page on it with
- * the same compare, which AgentChat sends once. Runs on the user's own navigation from
- * the shortlist's Compare button, never during a server render.
- */
-/**
  * The agent page with no conversation open (plan Task 1.20, spec 5(a) step 1): the empty
  * state's one sentence, the composer and the upload target. Uploads need no thread. The
  * first Send, from its handler and never during render, creates the thread, hands the
@@ -678,6 +673,11 @@ export function StartConversation({ hasProfile }: { hasProfile: boolean }) {
   );
 }
 
+/**
+ * ?compare=a,b with no conversation open: starts one, then reopens the page on it with
+ * the same compare, which AgentChat sends once. Runs on the user's own navigation from
+ * the shortlist's Compare button, never during a server render.
+ */
 export function CompareStarter({ compare }: { compare: readonly [string, string] }) {
   const router = useRouter();
   const started = useRef(false);

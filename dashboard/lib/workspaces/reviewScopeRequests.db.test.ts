@@ -33,7 +33,11 @@ beforeEach(async () => {
 });
 
 /** Runs `fn` as the user and returns either the rows or the Postgres error code. */
-async function attempt(id: string, fn: (tx: Tx) => Promise<unknown>, role?: "authenticated" | "anon") {
+async function attempt(
+  id: string,
+  fn: (tx: Tx) => Promise<unknown>,
+  role?: "authenticated" | "anon",
+): Promise<{ rows?: unknown[]; code?: string }> {
   return db.asUser(id, fn, role).then(
     (rows) => ({ rows: Array.from(rows as Iterable<unknown>) }),
     (e: { code?: string }) => ({ code: e.code }),

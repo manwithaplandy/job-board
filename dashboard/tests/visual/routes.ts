@@ -1,6 +1,6 @@
 export type VisualAccess = "public" | "authenticated";
 export type VisualShell = "none" | "app" | "board" | "entry";
-export type VisualFamily = "entry" | "legal" | "system-states" | "board" | "companies" | "analytics" | "billing" | "profile" | "admin" | "onboarding" | "feedback";
+export type VisualFamily = "entry" | "legal" | "system-states" | "board" | "companies" | "analytics" | "billing" | "profile" | "admin" | "onboarding" | "feedback" | "agent";
 
 export interface VisualRoute {
   id: string;
@@ -54,6 +54,7 @@ export const VISUAL_ROUTES: VisualRoute[] = [
     // KPI deltas and the summary sentence appear/wrap with the data; every section below
     // the section nav is live aggregates (covered by the analytics data-viz fixture).
     live: { hide: [".rf-analytics-kpi div:has(> .rf-kpi-delta__value)", ".rf-analytics-summary", ".rf-analytics-nav ~ *"], mask: [".rf-analytics-kpi__value"] } },
+  { id: "agent-default", path: "/agent", access: "authenticated", family: "agent", state: "default", shell: "app", source: "app/agent/page.tsx" },
   { id: "feedback-default", path: "/feedback", access: "authenticated", family: "feedback", state: "default", shell: "app", source: "app/feedback/page.tsx" },
   { id: "billing-default", path: "/billing", access: "authenticated", family: "billing", state: "default", shell: "app", source: "app/billing/page.tsx" },
   { id: "profile-hub", path: "/profile", access: "authenticated", family: "profile", state: "default", shell: "app", source: "app/profile/layout.tsx" },
@@ -70,5 +71,6 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   ...["selected", "filter-empty", "rejected", "applied", "loading", "error-retry", "generation", "application-package"].map((state) => fixture("board", state)),
   fixture("companies", "empty"), fixture("analytics", "data-viz"), fixture("billing", "current"),
   fixture("profile", "error"), fixture("profile", "disabled"), fixture("profile", "destructive"),
-  fixture("admin", "empty"), fixture("system-states", "focus"), fixture("system-states", "destructive"),
+  fixture("admin", "empty"), fixture("agent", "empty"), fixture("agent", "budget"), fixture("agent", "disabled"),
+  fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

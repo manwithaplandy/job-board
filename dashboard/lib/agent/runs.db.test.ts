@@ -326,9 +326,10 @@ describe("saveMessages", () => {
   test("what saveMessages stores, loadMessages reads back as the owner only (RLS)", async () => {
     await saveMessages(USER_A, THREAD_A, messages, "pending");
     const back = await loadMessages(USER_A, THREAD_A);
+    const createdAt = expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/);
     expect(back.map((m) => [m.id, m.role, m.metadata])).toEqual([
-      ["u1", "user", { status: "pending" }],
-      ["a1", "assistant", { status: "pending" }],
+      ["u1", "user", { status: "pending", createdAt }],
+      ["a1", "assistant", { status: "pending", createdAt }],
     ]);
     expect(back[1]?.parts[2]).toEqual({ type: "text", text: "It is an engineering role." });
     expect(await loadMessages(USER_B, THREAD_A)).toEqual([]);

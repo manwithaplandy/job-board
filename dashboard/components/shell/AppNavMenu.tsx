@@ -9,6 +9,7 @@ const ITEMS = [
   { key: "board", href: "/", label: "Board" },
   { key: "analytics", href: "/analytics", label: "Analytics" },
   { key: "companies", href: "/companies", label: "Companies" },
+  { key: "agent", href: "/agent", label: "Agent" },
 ] as const;
 
 const MENU_ID = "app-navigation-menu";

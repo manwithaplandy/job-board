@@ -5,12 +5,13 @@ import type { ReactNode } from "react";
 import { AccountMenu } from "@/components/rolefit/AccountMenu";
 import { AppNavMenu } from "./AppNavMenu";
 
-export type AppRoute = "board" | "analytics" | "companies" | "profile" | "billing" | "admin";
+export type AppRoute = "board" | "analytics" | "companies" | "agent" | "profile" | "billing" | "admin";
 
 const NAV = [
   { key: "board", href: "/", label: "Board" },
   { key: "analytics", href: "/analytics", label: "Analytics" },
   { key: "companies", href: "/companies", label: "Companies" },
+  { key: "agent", href: "/agent", label: "Agent" },
 ] as const;
 
 export interface AppHeaderProps {

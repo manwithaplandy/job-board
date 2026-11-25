@@ -119,6 +119,18 @@ describe("loadMessages", () => {
     expect(String(warn.mock.calls[0]?.[0])).toMatch(/1/);
   });
 
+  test("a row's created_at travels in metadata.createdAt; an unreadable one is left out", async () => {
+    db.rows = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }], status: "complete", created_at: new Date("2026-11-25T01:02:03Z") },
+      { id: "a1", role: "assistant", parts: [], status: "pending", created_at: "not a date" },
+    ];
+    const out = await loadMessages(USER, THREAD);
+    expect(out.map((m) => m.metadata)).toEqual([
+      { status: "complete", createdAt: "2026-11-25T01:02:03.000Z" },
+      { status: "pending" },
+    ]);
+  });
+
   test("a malformed thread id reads nothing", async () => {
     expect(await loadMessages(USER, "x")).toEqual([]);
     expect(db.calls).toHaveLength(0);

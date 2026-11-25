@@ -6,6 +6,7 @@ import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
 import { parseStoredMessage, type AgentUIMessage } from "@/lib/agent/messageCodec";
 import type { Variant } from "@/lib/agent/config";
+import { cutCodePoints, squashWhitespace, THREAD_TITLE_MAX } from "@/lib/agent/titles";
 
 export interface AgentThread {
   id: string;
@@ -17,9 +18,6 @@ export interface AgentThread {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DEFAULT_TITLE = "New conversation";
-const TITLE_MAX = 120; // agent_threads.title CHECK
-const AUTO_TITLE_MAX = 60; // D11
 const LIST_LIMIT = 50;
 
 const variantSchema = z.coerce.number().pipe(z.union([z.literal(1), z.literal(2), z.literal(3)]));
@@ -33,6 +31,8 @@ const threadRowSchema = z.object({
   created_at: z.coerce.date(),
   updated_at: z.coerce.date(),
 });
+
+const createdAtSchema = z.object({ created_at: z.coerce.date().refine((d) => !Number.isNaN(d.getTime())) });
 
 function toThread(raw: unknown): AgentThread | null {
   const r = parseOrNull(threadRowSchema, raw);
@@ -51,20 +51,8 @@ function assertVariant(v: unknown): asserts v is Variant {
   if (v !== 1 && v !== 2 && v !== 3) throw new Error("agent: variant must be 1, 2 or 3");
 }
 
-/** Whitespace collapsed to single spaces and trimmed. */
-function squash(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-/** The first `max` code points of `text`, so a surrogate pair is never split. */
-function cut(text: string, max: number): string {
-  return Array.from(text).slice(0, max).join("").trimEnd();
-}
-
-/** D11: the thread title is the first user message, whitespace collapsed, cut to 60 characters. */
-export function titleFromFirstMessage(text: string): string {
-  return cut(squash(text), AUTO_TITLE_MAX) || DEFAULT_TITLE;
-}
+// D11 titles are pure text work, shared with the chat client (lib/agent/titles.ts).
+export { titleFromFirstMessage } from "@/lib/agent/titles";
 
 export async function createThread(userId: string, variant: Variant): Promise<AgentThread> {
   assertVariant(variant);
@@ -107,7 +95,7 @@ export async function getThread(userId: string, id: string): Promise<AgentThread
 
 /** Sets a user-chosen title: whitespace collapsed, at most 120 characters, never empty. */
 export async function renameThread(userId: string, id: string, title: string): Promise<void> {
-  const clean = cut(squash(title), TITLE_MAX);
+  const clean = cutCodePoints(squashWhitespace(title), THREAD_TITLE_MAX);
   if (!clean) throw new Error("agent: a thread title cannot be empty");
   if (!UUID_RE.test(id)) throw new Error("agent: thread not found");
   await withUserSql(userId, (tx) => tx`
@@ -132,7 +120,7 @@ export async function setThreadVariant(userId: string, id: string, variant: Vari
 export async function loadMessages(userId: string, threadId: string): Promise<AgentUIMessage[]> {
   if (!UUID_RE.test(threadId)) return [];
   const rows = await withUserSql(userId, (tx) => tx`
-    SELECT id, role, parts, status FROM agent_messages
+    SELECT id, role, parts, status, created_at FROM agent_messages
     WHERE thread_id = ${threadId}::uuid AND user_id = ${userId}::uuid
     ORDER BY seq
   `);
@@ -140,8 +128,14 @@ export async function loadMessages(userId: string, threadId: string): Promise<Ag
   let skipped = 0;
   for (const raw of rows) {
     const m = parseStoredMessage(raw);
-    if (m) out.push(m);
-    else skipped += 1;
+    if (!m) {
+      skipped += 1;
+      continue;
+    }
+    // When the row was written travels next to its status, so the page can tell a
+    // pending turn that is still running from one that was interrupted (Task 0.14).
+    const createdAt = parseOrNull(createdAtSchema, raw);
+    out.push(createdAt ? { ...m, metadata: Object.assign({}, m.metadata, { createdAt: createdAt.created_at.toISOString() }) } : m);
   }
   if (skipped > 0) console.warn(`agent: loadMessages skipped ${skipped} unparseable message row(s) in a thread`);
   return out;

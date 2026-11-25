@@ -43,7 +43,7 @@ describe("AppHeader", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
     const primaryDestinations = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    expect(primaryDestinations).toEqual(["Board", "Analytics", "Companies"]);
+    expect(primaryDestinations).toEqual(["Board", "Analytics", "Companies", "Agent"]);
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
     fireEvent.click(screen.getByRole("button", { name: /Account:/ }));
     const accountDestinations = screen.getAllByRole("menuitem").map((item) => item.textContent);

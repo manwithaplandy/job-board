@@ -70,10 +70,16 @@ export type IntentOf<N extends IntentName> = Extract<ActionIntent, { name: N }>;
 /** Every intent name, in schema order (the handler table's completeness test reads it). */
 export const INTENT_NAMES: readonly IntentName[] = ActionIntentSchema.options.map((o) => o.shape.name.value);
 
-/** A fixed confirm card: every string is built from database values (confirm.ts). */
+/**
+ * A fixed confirm card (confirm.ts). title, lines and confirmLabel are built from database
+ * values and fixed strings only. `proposed` holds the values the user is approving, taken
+ * from the tool input under fixed labels, trimmed and capped: the card renders them as
+ * plain text in their own section, labelled as proposed. Absent when there are none.
+ */
 export interface ConfirmDescriptor {
   title: string;
   lines: string[];
+  proposed?: string[];
   confirmLabel: string;
   danger: boolean;
 }

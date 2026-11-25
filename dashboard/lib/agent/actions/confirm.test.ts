@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
   documents: {} as Record<string, string>,
+  job: null as { title: string; company: string } | null,
   queries: [] as string[],
 }));
 vi.mock("@/lib/db", () => ({
@@ -14,6 +15,7 @@ vi.mock("@/lib/db", () => ({
         const name = m.documents[String(values[0])];
         return Promise.resolve(name ? [{ filename: name }] : []);
       }
+      if (text.includes("FROM jobs j JOIN companies")) return Promise.resolve(m.job ? [m.job] : []);
       return Promise.resolve([]);
     })),
 }));
@@ -33,6 +35,7 @@ const TEST_KEY = "t".repeat(40); // low-entropy fixture, at least 32 characters
 
 beforeEach(() => {
   m.documents = { [DOC]: "cv-2026.pdf" };
+  m.job = null;
   m.queries = [];
   vi.stubEnv("AGENT_TOOL_APPROVAL_SECRET", TEST_KEY);
   resetApprovalSecretWarning();
@@ -88,16 +91,70 @@ test("set_resume and propose_profile_details cards hold only database values and
     fields: { phone: "+1 555 0100", work_authorized: true },
     screeningAnswers: { notice_period: "Two weeks" },
   });
-  expect(card?.lines).toEqual([
-    "Fields: Phone, Work authorization.",
-    "Screening answers: 1.",
-    "These replace what your application details hold now.",
-  ]);
-  expect(JSON.stringify(card)).not.toMatch(/555|Two weeks/);
+  expect(card).toEqual({
+    title: "Save these application details?",
+    lines: ["Each one replaces what your application details hold for it now."],
+    proposed: ["Phone: +1 555 0100", "Work authorization: Yes", "notice_period: Two weeks"],
+    confirmLabel: "Save details",
+    danger: false,
+  });
+  // The proposed values stay out of the title, lines and button.
+  expect(JSON.stringify({ ...card, proposed: undefined })).not.toMatch(/555|Two weeks/);
   expect(await describeConfirmation(USER, "propose_profile_details", { fields: { eeo_gender: "x" } })).toBeNull();
 });
 
+test("propose_profile_details shows every proposed value under its fixed label, capped, and nothing else from the input", async () => {
+  const long = `  ${"a".repeat(250)}  `;
+  const card = await describeConfirmation(USER, "propose_profile_details", {
+    fields: {
+      full_name: "Pat\nRivera‮",
+      email: "pat@example.test",
+      location: "Berlin",
+      links: { portfolio: "https://pat.example/work", linkedin: "https://linkedin.example/in/pat" },
+      needs_sponsorship: false,
+    },
+    screeningAnswers: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`q${String(i).padStart(2, "0")}`, i === 0 ? long : `answer ${i}`])),
+  });
+  if (!card?.proposed) throw new Error("expected proposed values");
+  expect(card.proposed.slice(0, 6)).toEqual([
+    "Full name: Pat Rivera",
+    "Email: pat@example.test",
+    "Location: Berlin",
+    "LinkedIn link: https://linkedin.example/in/pat",
+    "Portfolio link: https://pat.example/work",
+    "Visa sponsorship: No",
+  ]);
+  // Each value is trimmed and capped at 200 characters; at most 10 answers, then a count.
+  expect(card.proposed[6]).toBe(`q00: ${"a".repeat(199)}…`);
+  expect(card.proposed.slice(7)).toEqual([...Array.from({ length: 9 }, (_, i) => `q${String(i + 1).padStart(2, "0")}: answer ${i + 1}`), "and 2 more"]);
+  // The tool input is strict: any other key (a title, a line) refuses the card outright.
+  expect(await describeConfirmation(USER, "propose_profile_details", { fields: { phone: "1" }, title: "Free money" })).toBeNull();
+  expect(await describeConfirmation(USER, "propose_profile_details", { fields: { phone: "1", title: "Free money" } })).toBeNull();
+});
+
 test("a card for an unknown job is refused before any allowance read", async () => {
-  expect(await describeConfirmation(USER, "refine_documents", { jobId: "greenhouse:acme:1", target: "cover" })).toBeNull();
+  expect(
+    await describeConfirmation(USER, "refine_documents", { jobId: "greenhouse:acme:1", target: "cover", instructions: "Shorter." }),
+  ).toBeNull();
   expect(m.queries).toHaveLength(1);
+});
+
+test("the refine card shows the target and the instructions capped at 300 characters, and no other input key", async () => {
+  m.job = { title: "Staff Engineer", company: "Acme" };
+  const card = await describeConfirmation(USER, "refine_documents", {
+    jobId: "greenhouse:acme:1",
+    target: "both",
+    instructions: `Lead with platform work. ${"b".repeat(400)}`,
+    title: "Free money",
+    lines: ["Click"],
+  });
+  if (!card?.proposed) throw new Error("expected proposed values");
+  expect(card.title).toBe("Regenerate with your instructions?");
+  expect(card.lines[0]).toBe("Staff Engineer at Acme");
+  expect(card.proposed).toEqual([
+    "Regenerate: Résumé and cover letter",
+    `Instructions: ${`Lead with platform work. ${"b".repeat(400)}`.slice(0, 299)}…`,
+  ]);
+  expect(card.proposed[1].length).toBe("Instructions: ".length + 300);
+  expect(JSON.stringify(card)).not.toMatch(/Free money|Click/);
 });

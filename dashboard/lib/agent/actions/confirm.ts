@@ -4,12 +4,18 @@
 // database values only: the job's title and company, the remaining monthly allowance
 // (monthlyAllowance minus monthlyGenerationSpend), whether the posting's stored questions
 // ask for a cover letter (the rule startApplicationPrep charges by), a document's
-// filename, fixed field labels. The input is parsed for ids and enum values; any other text in it (a title,
-// a line) is never read, so the model cannot write the card.
+// filename, fixed field labels. The input is parsed for ids, enum values and the values
+// being approved; any other text in it (a title, a line) is never read, so the model
+// cannot write the card's title, lines, costs or button.
+//
+// The values being approved (propose_profile_details' fields and screening answers,
+// refine_documents' target and instructions) are the subject of the approval, so the
+// card shows them: in `proposed`, under fixed labels, flattened to one line, trimmed and
+// capped, for the client to render as plain text labelled as proposed.
 //
 // A confirm token carries the intent that was confirmed, the thread and surface it came
-// from, its issue time and a 10 minute expiry, signed with HMAC-SHA256 under AGENT_TOOL_APPROVAL_SECRET
-// over the session user and that payload. Verifying needs the same user, so a token
+// from, its issue time and a 10 minute expiry, signed with HMAC-SHA256 under
+// AGENT_TOOL_APPROVAL_SECRET over the session user and that payload. Verifying needs the same user, so a token
 // cannot be used by another user, and the job id is inside the signed payload, so it
 // cannot be replayed for another job. The secret and the signed message are never
 // logged, returned or stored.
@@ -37,12 +43,53 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const DB_TEXT_MAX = 120;
 
 const jobInput = z.object({ jobId: z.string().regex(JOB_ID_RE) });
-const refineInput = z.object({ jobId: z.string().regex(JOB_ID_RE), target: z.enum(["resume", "cover", "both"]) });
+const refineInput = z.object({
+  jobId: z.string().regex(JOB_ID_RE),
+  target: z.enum(["resume", "cover", "both"]),
+  instructions: z.string(),
+});
 const documentInput = z.object({ documentId: z.string().regex(UUID_RE) });
 
-function clamp(text: string): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= DB_TEXT_MAX ? flat : `${flat.slice(0, DB_TEXT_MAX - 1)}…`;
+/** Caps on the proposed values a card shows (each value, after flattening and trimming). */
+export const PROPOSED_VALUE_MAX = 200;
+export const PROPOSED_INSTRUCTIONS_MAX = 300;
+export const PROPOSED_ANSWERS_SHOWN = 10;
+
+const LINK_LABELS = { linkedin: "LinkedIn link", github: "GitHub link", portfolio: "Portfolio link" } as const;
+const REFINE_TARGET_LABELS = { resume: "Résumé", cover: "Cover letter", both: "Résumé and cover letter" } as const;
+
+// Control and bidi-override characters would let a value break its line or reorder what
+// the user reads; they become spaces.
+// eslint-disable-next-line no-control-regex
+const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
+
+function clamp(text: string, max: number = DB_TEXT_MAX): string {
+  const flat = text.replace(UNSAFE_CHARS, " ").replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
+}
+
+const yesNo = (b: boolean) => (b ? "Yes" : "No");
+
+/** One "<label>: <value>" line per proposed profile detail, then the screening answers. */
+function proposedProfileDetails(input: z.infer<typeof ProfileDetailsInputSchema>): string[] {
+  const out: string[] = [];
+  const f = input.fields;
+  for (const key of Object.keys(PROFILE_DETAIL_LABELS) as (keyof typeof PROFILE_DETAIL_LABELS)[]) {
+    if (key === "links") {
+      for (const link of Object.keys(LINK_LABELS) as (keyof typeof LINK_LABELS)[]) {
+        const url = f.links?.[link];
+        if (url !== undefined) out.push(`${LINK_LABELS[link]}: ${clamp(url, PROPOSED_VALUE_MAX)}`);
+      }
+      continue;
+    }
+    const value = f[key];
+    if (value === undefined) continue;
+    out.push(`${PROFILE_DETAIL_LABELS[key]}: ${typeof value === "boolean" ? yesNo(value) : clamp(value, PROPOSED_VALUE_MAX)}`);
+  }
+  const answers = Object.entries(input.screeningAnswers ?? {});
+  for (const [id, answer] of answers.slice(0, PROPOSED_ANSWERS_SHOWN)) out.push(`${id}: ${clamp(answer, PROPOSED_VALUE_MAX)}`);
+  if (answers.length > PROPOSED_ANSWERS_SHOWN) out.push(`and ${answers.length - PROPOSED_ANSWERS_SHOWN} more`);
+  return out;
 }
 
 function count(n: number, one: string, many: string): string {
@@ -106,7 +153,8 @@ async function allowanceLines(
 
 /**
  * The fixed confirm card for `kind`, or null when its target is not found for this user
- * or the input does not parse. Only ids and enum values are read from `input`.
+ * or the input does not parse. Only ids, enum values and the values being approved (into
+ * `proposed`, never into the title, lines or button) are read from `input`.
  */
 export async function describeConfirmation(
   userId: string,
@@ -141,6 +189,10 @@ export async function describeConfirmation(
       return {
         title: "Regenerate with your instructions?",
         lines: [job, ...(await allowanceLines(userId, email, kinds))],
+        proposed: [
+          `Regenerate: ${REFINE_TARGET_LABELS[p.data.target]}`,
+          `Instructions: ${clamp(p.data.instructions, PROPOSED_INSTRUCTIONS_MAX)}`,
+        ],
         confirmLabel: "Regenerate",
         danger: false,
       };
@@ -162,15 +214,13 @@ export async function describeConfirmation(
     case "propose_profile_details": {
       const p = ProfileDetailsInputSchema.safeParse(input);
       if (!p.success) return null;
-      const labels = (Object.keys(PROFILE_DETAIL_LABELS) as (keyof typeof PROFILE_DETAIL_LABELS)[])
-        .filter((k) => p.data.fields[k] !== undefined)
-        .map((k) => PROFILE_DETAIL_LABELS[k]);
-      const answers = Object.keys(p.data.screeningAnswers ?? {}).length;
-      const lines: string[] = [];
-      if (labels.length > 0) lines.push(`Fields: ${labels.join(", ")}.`);
-      if (answers > 0) lines.push(`Screening answers: ${answers}.`);
-      lines.push("These replace what your application details hold now.");
-      return { title: "Save these application details?", lines, confirmLabel: "Save details", danger: false };
+      return {
+        title: "Save these application details?",
+        lines: ["Each one replaces what your application details hold for it now."],
+        proposed: proposedProfileDetails(p.data),
+        confirmLabel: "Save details",
+        danger: false,
+      };
     }
   }
 }

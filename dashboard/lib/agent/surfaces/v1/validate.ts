@@ -4,8 +4,10 @@
 // user's pending proposals. A payload that fails is never rendered; the present tool
 // stores the deterministic fallback instead.
 //
-// Variants 2 and 3 get their grammars in later tasks (2.x); until then they fail here,
-// and present falls back to variant 1 as the spec's variant 2/3 failure path does.
+// This is the one validateSurface for every variant (the plan's `surfaces/validate.ts`).
+// Variant 2 is the primitive tree's gate (v2/tree.ts, Task 2.1). Variant 3 gets its
+// static checks in Task 2.4; until then it fails here, and present falls back to
+// variant 1 as the spec's variant 3 failure path does.
 import { z } from "zod";
 import type { Variant } from "@/lib/agent/config";
 import type { GatheredData } from "@/lib/agent/gathered";
@@ -13,9 +15,10 @@ import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
 import { VIZ_FOR_KIND } from "@/lib/workspaces/analyticsTiles";
 import { SurfacePayloadV1Schema, type SurfacePayloadV1 } from "@/lib/agent/surfaces/v1/blocks";
+import { validateSurfaceV2, type SurfacePayloadV2 } from "@/lib/agent/surfaces/v2/tree";
 
-/** A validated payload of any variant (only variant 1 exists so far). */
-export type SurfacePayload = SurfacePayloadV1;
+/** A validated payload of any variant (variant 3 is added in Task 2.4). */
+export type SurfacePayload = SurfacePayloadV1 | SurfacePayloadV2;
 
 export type SurfaceValidation = { ok: true; payload: SurfacePayload } | { ok: false; errors: string[] };
 
@@ -93,6 +96,7 @@ export async function validateSurface(
   variant: Variant,
   ctx: { userId: string; gathered: GatheredData },
 ): Promise<SurfaceValidation> {
+  if (variant === 2) return validateSurfaceV2(payload, ctx.gathered);
   if (variant !== 1) return { ok: false, errors: [`variant ${variant} has no grammar yet`] };
   const parsed = SurfacePayloadV1Schema.safeParse(payload);
   if (!parsed.success) {

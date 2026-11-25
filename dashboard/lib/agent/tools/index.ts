@@ -18,7 +18,29 @@ export interface ToolCtx {
   variant: Variant;
   unattended: boolean;
   gathered: GatheredData;
-  repairsLeft: { n: number };
+  /** The turn's variant 2 repair state: one object per turn (lib/agent/tools/present.ts). */
+  repairsLeft: RepairState;
+}
+
+/**
+ * Variant 2's one repair per turn. `n` is the repairs left; `attempt` is set when an
+ * invalid payload spent one, and stays `open` until a later payload settles it or the
+ * turn ends (then the loop stores the variant 1 fallback, present.ts finishPendingRepair).
+ */
+export interface RepairState {
+  n: number;
+  attempt?: RepairAttempt;
+}
+
+export interface RepairAttempt {
+  /** The step that sent the invalid payload (its input message count), null if unknown. */
+  step: number | null;
+  /** True until a later payload is stored or the turn's end stores the fallback. */
+  open: boolean;
+  /** The invalid payload's title and surfaceId, for the fallback the turn may store. */
+  title?: string;
+  surfaceId?: string;
+  started: number;
 }
 
 // No return annotation on purpose: the object literal's own type keeps each tool's

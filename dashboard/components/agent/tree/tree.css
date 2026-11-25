@@ -1,0 +1,68 @@
+/* The variant 2 tree (plan Task 2.2). Tokens only: every gap, tone and column count the
+   model can pick maps to one class here, and every control is a shared primitive.
+   Prototype quality (spec 14.19): layout and readability, no further polish. */
+.rf-tree { display: grid; gap: var(--space-4); min-width: 0; }
+.rf-tree__title { margin: 0; color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; overflow-wrap: anywhere; }
+
+.rf-tree-stack { display: grid; align-content: start; min-width: 0; }
+.rf-tree-gap-1 { gap: var(--space-1); }
+.rf-tree-gap-2 { gap: var(--space-2); }
+.rf-tree-gap-3 { gap: var(--space-3); }
+.rf-tree-gap-4 { gap: var(--space-4); }
+
+.rf-tree-grid { display: grid; gap: var(--space-3); min-width: 0; }
+.rf-tree-grid--1 { grid-template-columns: minmax(0, 1fr); }
+.rf-tree-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rf-tree-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rf-tree-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+.rf-tree-card { display: grid; gap: var(--space-2); align-content: start; min-width: 0; border-left: 3px solid var(--border); }
+.rf-tree-tone-neutral { border-left-color: var(--border); }
+.rf-tree-tone-accent { border-left-color: var(--accent); }
+.rf-tree-tone-success { border-left-color: var(--success); }
+.rf-tree-tone-warning { border-left-color: var(--warning); }
+.rf-tree-tone-danger { border-left-color: var(--danger); }
+
+.rf-tree-tabs { display: grid; gap: var(--space-3); min-width: 0; }
+.rf-tree-tabs__panel { min-width: 0; }
+
+.rf-tree-divider { width: 100%; margin: 0; border: 0; border-top: 1px solid var(--border); }
+
+.rf-tree-heading { margin: 0; color: var(--text-primary); font-weight: 700; overflow-wrap: anywhere; }
+.rf-tree-heading--1 { font-size: var(--font-size-body); }
+.rf-tree-heading--2 { font-size: var(--font-size-help); }
+.rf-tree-heading--3 { font-size: var(--font-size-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); }
+
+.rf-tree-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rf-tree-text--neutral { color: var(--text-primary); }
+.rf-tree-text--accent { color: var(--accent); }
+.rf-tree-text--success { color: var(--success); }
+.rf-tree-text--warning { color: var(--warning); }
+.rf-tree-text--danger { color: var(--danger); }
+
+.rf-tree-list { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-4); color: var(--text-primary); overflow-wrap: anywhere; }
+
+.rf-tree-atom { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; color: var(--text-secondary); font-size: var(--font-size-help); overflow-wrap: anywhere; }
+.rf-tree-atom--title { color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; }
+.rf-tree-na { color: var(--text-muted); font-size: var(--font-size-caption); }
+
+.rf-tree-stat { display: grid; gap: var(--space-1); margin: 0; min-width: 0; }
+.rf-tree-stat dt { color: var(--text-muted); font-size: var(--font-size-small); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; overflow-wrap: anywhere; }
+.rf-tree-stat dd { margin: 0; }
+.rf-tree-stat__value { color: var(--text-primary); font-size: var(--font-size-heading); font-weight: 700; }
+
+.rf-tree-table__scroll { min-width: 0; overflow-x: auto; }
+.rf-tree-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-help); }
+.rf-tree-table th,
+.rf-tree-table td { border-bottom: 1px solid var(--border); padding: var(--space-2); text-align: left; vertical-align: top; color: var(--text-primary); overflow-wrap: anywhere; }
+.rf-tree-table th { font-weight: 650; }
+
+.rf-tree-chart { min-width: 0; }
+.rf-tree-field { min-width: 0; }
+.rf-tree-button { display: inline-flex; }
+
+@media (max-width: 760px) {
+  .rf-tree-grid--2,
+  .rf-tree-grid--3,
+  .rf-tree-grid--4 { grid-template-columns: minmax(0, 1fr); }
+}

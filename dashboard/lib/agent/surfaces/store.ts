@@ -108,6 +108,18 @@ export async function saveSurface(tx: TransactionSql, a: SaveSurfaceArgs): Promi
   return saved.id;
 }
 
+/**
+ * Records, inside the caller's transaction, why a just-saved surface holds its fallback
+ * (outcome fallback with a short failure code, as markSurfaceFailed does after a render
+ * failure). agent_save_surface takes no failure, so the present tool calls this right
+ * after saveSurface in the same transaction (Task 2.3).
+ */
+export async function setSurfaceFailure(tx: TransactionSql, id: string, failure: string): Promise<void> {
+  if (!UUID_RE.test(id)) throw new Error("surface: id must be a uuid");
+  const code = clamp(failureCode(failure), SURFACE_TEXT_MAX);
+  await tx`SELECT public.agent_set_surface_outcome(${id}::uuid, 'fallback', ${code})`;
+}
+
 const variantSchema = z.coerce.number().pipe(z.union([z.literal(1), z.literal(2), z.literal(3)]));
 const objectSchema = z.record(z.string(), z.unknown());
 

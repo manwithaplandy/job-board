@@ -15,7 +15,14 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { emptyGathered } from "@/lib/agent/gathered";
-import { failureCode, getSurface, markSurfaceFailed, saveSurface, type SaveSurfaceArgs } from "@/lib/agent/surfaces/store";
+import {
+  failureCode,
+  getSurface,
+  markSurfaceFailed,
+  saveSurface,
+  setSurfaceFailure,
+  type SaveSurfaceArgs,
+} from "@/lib/agent/surfaces/store";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SURFACE = "11111111-1111-4111-8111-111111111111";
@@ -151,5 +158,22 @@ describe("saveSurface", () => {
     await expect(saveSurface(tx as never, args({ fallbackPayload: "x" }))).rejects.toThrow(/fallback/);
     await expect(saveSurface(tx as never, args({ variant: 4 as never }))).rejects.toThrow(/variant/);
     expect(db.calls).toHaveLength(0);
+  });
+});
+
+describe("setSurfaceFailure", () => {
+  test("sets outcome fallback with a short code in the caller's transaction", async () => {
+    await setSurfaceFailure(tx as never, SURFACE, "invalid_after_repair");
+    expect(db.calls).toHaveLength(1);
+    expect(db.calls[0].text).toContain("agent_set_surface_outcome");
+    expect(db.calls[0].text).toContain("'fallback'");
+    expect(db.calls[0].values).toEqual([SURFACE, "invalid_after_repair"]);
+  });
+
+  test("error text is never stored as the failure; a bad id runs no query", async () => {
+    await setSurfaceFailure(tx as never, SURFACE, "root.text: Too big: expected string to have <=400 characters");
+    expect(db.calls[0].values).toEqual([SURFACE, "unknown_failure"]);
+    await expect(setSurfaceFailure(tx as never, "nope", "x")).rejects.toThrow(/uuid/);
+    expect(db.calls).toHaveLength(1);
   });
 });

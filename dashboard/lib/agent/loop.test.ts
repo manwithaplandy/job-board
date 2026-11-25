@@ -46,6 +46,8 @@ vi.mock("ai", async (importOriginal) => {
   };
 });
 vi.mock("@/lib/db", () => ({ withUserSql: vi.fn(), serviceSql: vi.fn() }));
+// The surface store, for the variant 2 repair tests (PR J1 review I1).
+vi.mock("@/lib/agent/surfaces/store", () => ({ saveSurface: vi.fn(), setSurfaceFailure: vi.fn() }));
 vi.mock("@/lib/agent/config", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/agent/config")>();
   // A short wall clock so the wall-clock test runs in about a second; the other models
@@ -90,6 +92,9 @@ import { startApplicationPrep } from "@/lib/applicationPrep";
 import { resetApprovalSecretWarning } from "@/lib/agent/approvalSecret";
 import { isToolUIPart } from "ai";
 import { listDocuments } from "@/lib/workspaces/documents";
+import { withUserSql } from "@/lib/db";
+import { saveSurface, setSurfaceFailure } from "@/lib/agent/surfaces/store";
+import { REPAIR_NOT_ATTEMPTED } from "@/lib/agent/tools/present";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DOC_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -759,6 +764,112 @@ describe("streamAgentTurn: ask_user keeps its questions (PR I3b review I1)", () 
     expect(prompt).toContain("Do you need visa sponsorship?");
     expect(prompt).toContain("What is your pay floor?");
     expect(prompt.indexOf("What is your pay floor?")).toBeLessThan(prompt.indexOf("No, 140k"));
+  });
+});
+
+describe("streamAgentTurn: a variant 2 repair the turn never made (PR J1 review I1)", () => {
+  const SURFACE = "33333333-3333-4333-8333-333333333333";
+  const tx = { tag: "tx" };
+  const v2Thread: AgentThread = { ...thread, variant: 2 };
+  // An unknown key fails the strict node schema; the second is a valid tree.
+  const BROKEN = { variant: 2, title: "Your plan", root: { type: "Text", text: "Hi", style: "x" } };
+  const FIXED = { variant: 2, title: "Your plan", root: { type: "Text", text: "Hi" } };
+  const QUESTIONS = { questions: [{ id: "floor", label: "What is your pay floor?", kind: "text" }] };
+
+  const call = (id: string, toolName: string, input: unknown): LanguageModelV4StreamPart => ({
+    type: "tool-call",
+    toolCallId: id,
+    toolName,
+    input: JSON.stringify(input),
+  });
+  const callsStep = (...calls: LanguageModelV4StreamPart[]): LanguageModelV4StreamPart[] => [
+    { type: "stream-start", warnings: [] },
+    ...calls,
+    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage, providerMetadata: billed(0.0005) },
+  ];
+
+  async function v2Turn(model: MockLanguageModelV4) {
+    const res = await streamAgentTurn({ userId: USER, email: "pat@example.com", thread: v2Thread, input: message("plan"), model });
+    await drain(res);
+    await Promise.all(h.afterTasks);
+  }
+
+  const presentOutputs = () =>
+    lastAssistantSave()[2][0].parts.flatMap((p) => (isToolUIPart(p) && p.type === "tool-present" && p.state === "output-available" ? [p.output] : []));
+
+  beforeEach(() => {
+    vi.mocked(withUserSql).mockReset().mockImplementation((async (_u: string, fn: (t: unknown) => unknown) => fn(tx)) as never);
+    vi.mocked(saveSurface).mockReset().mockResolvedValue(SURFACE);
+    vi.mocked(setSurfaceFailure).mockReset().mockResolvedValue(undefined);
+  });
+
+  test("an invalid present beside ask_user: the turn stops and stores the fallback once, coded repair_not_attempted", async () => {
+    const model = scripted([callsStep(call("p1", "present", { payload: BROKEN }), call("a1", "ask_user", QUESTIONS)), textStep(["no"], 0.0008)]);
+    await v2Turn(model);
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(presentOutputs()).toMatchObject([{ variant: 2, outcome: "invalid" }]);
+    expect(saveSurface).toHaveBeenCalledTimes(1);
+    const saved = vi.mocked(saveSurface).mock.calls[0][1];
+    expect(saved).toMatchObject({ threadId: thread.id, runId: RUN, variant: 2, outcome: "fallback" });
+    // The variant 1 fallback, carrying the broken payload's title as its text.
+    expect(saved.payload).toMatchObject({ variant: 1, blocks: [{ type: "Callout", text: "Your plan" }] });
+    expect(saved.fallbackPayload).toEqual(saved.payload);
+    expect(setSurfaceFailure).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(setSurfaceFailure).mock.calls[0]).toEqual([tx, SURFACE, REPAIR_NOT_ATTEMPTED]);
+    // Stored before the run closes.
+    expect(vi.mocked(saveSurface).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(finishRun).mock.invocationCallOrder[0]);
+  });
+
+  test("an invalid present, then the model answers in text and stops: the same one fallback", async () => {
+    const model = scripted([callsStep(call("p1", "present", { payload: BROKEN })), textStep(["Here is your plan."], 0.0008)]);
+    await v2Turn(model);
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(saveSurface).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(setSurfaceFailure).mock.calls).toEqual([[tx, SURFACE, REPAIR_NOT_ATTEMPTED]]);
+  });
+
+  test("an invalid present on the last step allowed: no repair step, the same one fallback", async () => {
+    const reads = Array.from({ length: AGENT_LIMITS.maxSteps - 1 }, (_, i) => toolStep(`r${i}`, 0.0001));
+    const model = scripted([...reads, callsStep(call("p1", "present", { payload: BROKEN }))]);
+    await v2Turn(model);
+    expect(model.doStreamCalls).toHaveLength(AGENT_LIMITS.maxSteps);
+    expect(presentOutputs()).toMatchObject([{ outcome: "invalid" }]);
+    expect(vi.mocked(setSurfaceFailure).mock.calls).toEqual([[tx, SURFACE, REPAIR_NOT_ATTEMPTED]]);
+  });
+
+  test("two invalid presents in one step are one attempt (M2): both answers are invalid, one fallback at the end", async () => {
+    const model = scripted([
+      callsStep(call("p1", "present", { payload: BROKEN }), call("p2", "present", { payload: BROKEN })),
+      textStep(["Done."], 0.0008),
+    ]);
+    await v2Turn(model);
+    expect(presentOutputs()).toMatchObject([{ outcome: "invalid" }, { outcome: "invalid" }]);
+    expect(saveSurface).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(setSurfaceFailure).mock.calls).toEqual([[tx, SURFACE, REPAIR_NOT_ATTEMPTED]]);
+  });
+
+  test("a repair in the next step is stored repaired and nothing more is stored at the end", async () => {
+    const model = scripted([
+      callsStep(call("p1", "present", { payload: BROKEN })),
+      callsStep(call("p2", "present", { payload: FIXED })),
+      textStep(["Done."], 0.0008),
+    ]);
+    await v2Turn(model);
+    expect(presentOutputs()).toMatchObject([{ outcome: "invalid" }, { outcome: "repaired", surfaceId: SURFACE }]);
+    expect(saveSurface).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(saveSurface).mock.calls[0][1]).toMatchObject({ variant: 2, outcome: "repaired" });
+    expect(setSurfaceFailure).not.toHaveBeenCalled();
+  });
+
+  test("a failed fallback save is logged and the turn still closes complete", async () => {
+    vi.mocked(saveSurface).mockRejectedValue(new Error("db down"));
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const model = scripted([callsStep(call("p1", "present", { payload: BROKEN })), textStep(["Here."], 0.0008)]);
+    await v2Turn(model);
+    expect(err).toHaveBeenCalledWith("agent: storing the repair fallback failed", expect.any(String));
+    expect(lastAssistantSave()[3]).toBe("complete");
+    expect(finishRun).toHaveBeenCalledTimes(1);
+    err.mockRestore();
   });
 });
 

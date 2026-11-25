@@ -1940,3 +1940,23 @@ R11. The spec and plan are not on main yet. They ship in the first PR under
 Phase 0 PR shape: PR A = docs + Tasks 0.1, 0.3, 0.4 (pipeline-change); PR B = migration 17
 (Task 0.5 SQL, schema.sql, db test); PR C = Tasks 0.5 TS parts (userScopedTables,
 accountExport), 0.6 to 0.15.
+
+## Phase 2 notes from execution (2026-11-25)
+
+These record decisions taken while building variant 2 (PR J1, Tasks 2.1 to 2.3) that later
+tasks depend on.
+
+R12. `validateSurface` lives in `lib/agent/surfaces/v1/validate.ts`, which plays the role the
+plan gives `surfaces/validate.ts`. Task 2.4 extends that file for variant 3.
+
+R13. A variant 2 surface that falls back is stored with `variant` 2, the variant 1 fallback in
+both `payload` and `fallback_payload`, outcome `fallback`, and a short failure code
+(`invalid_after_repair`, or `repair_not_attempted` when the turn ends with a repair still
+pending). The full validation errors go back to the model only; `agent_surfaces.failure` holds
+codes, so no migration was needed. Task 2.8's host therefore picks the renderer by whether the
+payload parses as the row's variant, and uses `fallback_payload` when it does not; the row's
+variant alone is not enough. Task 2.4 should store variant 3 fallbacks the same way.
+
+R14. The plan's bind pattern cannot bind `/shortlist` or `/applications` as a whole array for
+a Table's `rowsBind` (it needs one to four segments after the root). Revisit before the Task
+2.10 evals if scenarios need those tables.

@@ -6,7 +6,8 @@
 // search_memos, insert search_memo_versions, and write compileMemo(doc) to
 // profiles.instructions with profile_version recomputed by profileVersion(), through
 // updateReviewPreferencesWith, the same writer the settings page uses. afterMemoChange
-// runs after that transaction commits (Task 1.9 fills it; a no-op until then).
+// runs after that transaction commits and enqueues the scoped re-review (Task 1.9);
+// it never fails the memo write.
 //
 // There is no path from a proposal to a version except resolveMemoProposal with
 // decision "approve", and a proposal made against an older memo version can never be
@@ -32,6 +33,7 @@ import { COMPILED_MEMO_MAX, compiledMemoOverflow, compileMemo } from "@/lib/work
 import {
   emptyMemoDoc, MEMO_RATIONALE_MAX, MEMO_SECTION_MAX, MEMO_SECTIONS, MemoDocSchema,
 } from "@/lib/workspaces/memoSchema";
+import { enqueueScopedReview, reviewScopeForMemoChange } from "@/lib/workspaces/reviewScope";
 import type { MemoDoc, MemoProposal, MemoVersion } from "@/lib/workspaces/types";
 
 export type MemoInputErrorCode = "invalid" | "memo_too_long";
@@ -64,10 +66,22 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const VERSIONS_LIMIT = 100;
 
 /**
- * Runs after a new memo version has committed. Task 1.9 makes it enqueue the scoped
- * re-review; until then it does nothing.
+ * Runs after a new memo version has committed (save, approve, restore): enqueues one
+ * scoped re-review of the shortlist and the newest reviewed jobs (Task 1.9). It never
+ * throws: the version is already saved, so a failed enqueue is logged and the memo
+ * write still succeeds (the reviewer's regular runs pick up the changed profile).
  */
-export async function afterMemoChange(_userId: string): Promise<void> {}
+export async function afterMemoChange(userId: string): Promise<void> {
+  try {
+    // "already_active": a pending request re-reads the profile when it runs, so it
+    // already reviews against this version; a running one is queued again by the
+    // reviewer worker when it finishes, because the profile_version it reviewed at is
+    // no longer current. "empty": nothing to re-review.
+    await enqueueScopedReview(userId, await reviewScopeForMemoChange(userId));
+  } catch (e) {
+    console.error("memo: could not enqueue the scoped re-review", e instanceof Error ? e.message : String(e));
+  }
+}
 
 /** Refuses a doc whose compiled text would run over the cap (nothing would be cut). */
 function assertFits(doc: MemoDoc): void {

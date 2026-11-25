@@ -6,6 +6,9 @@ import { Alert, EmptyState, ErrorState } from "./SystemStates";
 import { Icon } from "./Icon";
 import { VisualBoardState, type VisualBoardStateName } from "@/components/rolefit/VisualBoardState";
 import { HBarCard } from "@/components/analytics/Chart";
+import { AgentChat } from "@/components/agent/AgentChat";
+
+const AGENT_FIXTURE_THREAD = "00000000-0000-4000-8000-000000000000";
 
 const COPY: Record<string, { eyebrow: string; title: string; description: string }> = {
   "board-selected": { eyebrow: "Board · selected", title: "Senior Product Engineer", description: "Acme Systems · Remote · Selected job detail" },
@@ -23,6 +26,9 @@ const COPY: Record<string, { eyebrow: string; title: string; description: string
   "profile-disabled": { eyebrow: "Profile · disabled", title: "Advanced AI settings", description: "Higher reasoning levels are available on Pro." },
   "profile-destructive": { eyebrow: "Profile · destructive", title: "Delete account", description: "This action permanently removes account data after confirmation." },
   "admin-empty": { eyebrow: "Admin · empty", title: "No invite codes yet", description: "Generate an invite when a new teammate is ready." },
+  "agent-empty": { eyebrow: "Agent · empty", title: "New conversation", description: "Ask about your reviewed jobs, companies and profile." },
+  "agent-budget": { eyebrow: "Agent · budget", title: "Daily budget reached", description: "The composer stays disabled until the budget resets." },
+  "agent-disabled": { eyebrow: "Agent · disabled", title: "Agent switched off", description: "The workspaces keep working while the agent is paused." },
   "system-states-focus": { eyebrow: "System · focus", title: "Keyboard interaction", description: "Focus, selected, disabled, and pressed treatments." },
   "system-states-destructive": { eyebrow: "System · destructive", title: "Destructive confirmation", description: "Danger actions are visually and semantically distinct." },
 };
@@ -34,6 +40,10 @@ export function VisualStateFixture({ state }: { state: string }) {
     return <main className="rf-gallery rf-visual-state" data-visual-state={state}><PageHeader eyebrow={copy.eyebrow} title={copy.title} description={copy.description} /><VisualBoardState state={state.slice("board-".length) as VisualBoardStateName} /></main>;
   }
   const content = (() => {
+    // The production chat, with no messages and the page's notice for each state.
+    if (state === "agent-empty") return <AgentChat threadId={AGENT_FIXTURE_THREAD} initialMessages={[]} notice={null} />;
+    if (state === "agent-budget") return <AgentChat threadId={AGENT_FIXTURE_THREAD} initialMessages={[]} notice="daily_ceiling" />;
+    if (state === "agent-disabled") return <AgentChat threadId={AGENT_FIXTURE_THREAD} initialMessages={[]} notice="agent_disabled" />;
     if (state === "companies-empty" || state === "admin-empty") return <EmptyState title={copy.title} description={copy.description} action={<Button variant="outline">Clear filters</Button>} />;
     if (state === "profile-error") return <><Alert tone="danger" title="1 field needs attention">Review the inline message below.</Alert><TextField id="fixture-email" label="Email" error="Enter a valid email address." defaultValue="invalid" /><Button>Save changes</Button></>;
     if (state === "profile-disabled") return <><TextField id="fixture-model" label="Reasoning level" value="High · Pro" disabled readOnly /><Button disabled>Save changes</Button></>;

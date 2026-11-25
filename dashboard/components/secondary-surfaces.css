@@ -80,6 +80,11 @@
 .rf-invite-settings-note { margin-top: var(--space-3); max-width: var(--content-form); color: var(--text-muted); font-size: var(--font-size-caption); line-height: 1.5; }
 .rf-invite-settings-message { margin-top: var(--space-3); }
 
+/* Agent settings card: kill switches + per-user spend ceilings (Invites admin page). */
+.rf-agent-settings-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); align-items: end; max-width: var(--content-form); }
+.rf-agent-settings-note { margin-top: var(--space-3); max-width: var(--content-form); color: var(--text-muted); font-size: var(--font-size-caption); line-height: 1.5; }
+.rf-agent-settings-message { margin-top: var(--space-3); }
+
 /* Company-classification launcher (Classification admin page). Layout geometry lives
    here; the live ROM estimate + config state live in ClassificationLauncher.tsx. */
 .rf-classification-launcher { display: grid; gap: var(--space-4); min-width: 0; max-width: var(--content-form); }
@@ -93,6 +98,8 @@
 @media (max-width: 560px) {
   .rf-invite-settings-fields { grid-template-columns: minmax(0, 1fr); }
   .rf-invite-settings-fields .rf-button { width: 100%; }
+  .rf-agent-settings-fields { grid-template-columns: minmax(0, 1fr); }
+  .rf-agent-settings-fields .rf-button { width: 100%; }
   .rf-classification-row { grid-template-columns: minmax(0, 1fr); }
   .rf-classification-launch { justify-self: stretch; }
   .rf-classification-launch.rf-button { width: 100%; }

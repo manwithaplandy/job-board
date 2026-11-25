@@ -27,6 +27,7 @@ const ALLOWLIST = [
   "lib/planOverrides.ts", // operator-pinned effective tier: service-write-only plan_overrides; writes reachable only via the isAdmin-gated setPlanOverrideAction
   "lib/classificationJobs.ts", // operator-global classification console reads: classification_jobs is RLS deny-all with no authenticated grant; both callers are isAdmin-gated
   "app/actions/classification.ts", // isAdmin-gated enqueue/cancel of classification_jobs (service-write-only queue, no per-tenant context)
+  "lib/agent/runs.ts", // B-COST: agent_runs, agent_messages and agent spend in usage_counters are service-write-only so a user cannot zero or pre-empt a charge through the Data API
 ].sort();
 
 const ROOT = path.resolve(__dirname, "..");

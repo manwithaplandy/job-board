@@ -21,7 +21,7 @@ describe("visual regression route inventory", () => {
   test("covers every route family and the required named state inventory", () => {
     const families = new Set(VISUAL_ROUTES.map((route) => route.family));
     expect([...families].sort()).toEqual([
-      "admin", "analytics", "billing", "board", "companies", "entry", "feedback", "legal", "onboarding", "profile", "system-states",
+      "admin", "agent", "analytics", "billing", "board", "companies", "entry", "feedback", "legal", "onboarding", "profile", "system-states",
     ]);
     const statesFor = (family: string) => new Set(VISUAL_ROUTES.filter((route) => route.family === family).map((route) => route.state));
     for (const state of ["default", "selected", "filter-empty", "rejected", "applied", "loading", "error-retry", "generation", "application-package"]) expect(statesFor("board").has(state)).toBe(true);
@@ -29,6 +29,7 @@ describe("visual regression route inventory", () => {
     expect(statesFor("admin").has("empty")).toBe(true);
     expect(statesFor("companies").has("empty")).toBe(true);
     expect(statesFor("analytics").has("data-viz")).toBe(true);
+    for (const state of ["default", "empty", "budget", "disabled"]) expect(statesFor("agent").has(state)).toBe(true);
   });
 
   test("documents route-specific shell and exact SVG provenance contracts", () => {
@@ -47,6 +48,7 @@ describe("visual regression route inventory", () => {
     const gallery = readFileSync("components/ui/VisualStateFixture.tsx", "utf8");
     expect(gallery).toContain("<VisualBoardState");
     expect(gallery).toContain("<HBarCard");
+    expect(gallery).toContain("<AgentChat");
     expect(fixture).toContain('state === "selected" || state === "rejected"');
     expect(fixture).toContain("jobs={[JOB]}");
     expect(fixture).toContain("selectedId={JOB.id}");

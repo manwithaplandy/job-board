@@ -13,7 +13,7 @@ import { own, payLabel } from "@/components/agent/blocks/shared";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import type { GatheredData } from "@/lib/agent/gathered";
 import type { V2Node } from "@/lib/agent/surfaces/v2/tree";
-import { resolveBind, resolveRowBind } from "@/lib/agent/surfaces/v2/bind";
+import { resolveBind, resolveRowBind, resolveRowsBind } from "@/lib/agent/surfaces/v2/bind";
 import type { MetricResult } from "@/lib/workspaces/types";
 
 // One component per variant 2 node (plan Task 2.2), over the shared primitives. The rules:
@@ -140,7 +140,7 @@ function StatNode({ node }: { node: Extract<V2Node, { type: "Stat" }> }) {
 
 function TableNode({ node }: { node: Extract<V2Node, { type: "Table" }> }) {
   const { gathered } = useTree();
-  const rows = resolveBind(gathered, node.rowsBind);
+  const rows = resolveRowsBind(gathered, node.rowsBind);
   if (!Array.isArray(rows)) return <Na type="Table" />;
   return (
     <div className="rf-tree-table__scroll" data-tree-node="Table">

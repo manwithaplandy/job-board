@@ -170,6 +170,25 @@ describe("TreeRenderer", () => {
     expect(container.innerHTML).not.toContain("javascript:");
   });
 
+  test("R14: a Table bound to the whole shortlist draws one row per shortlist item", () => {
+    const g = gathered();
+    g.shortlist = [JOB_A, JOB_B].map((jobId) => ({
+      jobId, state: "suggested" as const, reasonCode: null, reasonText: null, briefWhy: null, briefRisk: null,
+      setBy: "agent" as const, updatedAt: "2026-11-24T00:00:00.000Z", job: g.jobs[jobId], fitScore: jobId === JOB_A ? 87 : 70,
+    }));
+    const payload = tree({
+      type: "Table",
+      rowsBind: "/shortlist",
+      columns: [{ header: "Job", bind: "/job/title" }, { header: "Fit", bind: "/fitScore" }],
+    });
+    expect(validateSurfaceV2(payload, g).ok).toBe(true);
+    draw(payload, g);
+    const rows = screen.getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[1]).getByText("Staff Platform Engineer")).toBeTruthy();
+    expect(within(rows[2]).getByText("Backend Engineer")).toBeTruthy();
+  });
+
   test("an unresolved bind renders a placeholder, not a crash", () => {
     const g = emptyGathered();
     const { container } = draw(

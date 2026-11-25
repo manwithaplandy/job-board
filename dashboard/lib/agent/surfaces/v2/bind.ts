@@ -1,7 +1,8 @@
 // Data binding for the variant 2 tree (plan Task 2.1, spec 7.1 "data bound by path into a
 // server-supplied data object"). A bind is a JSON pointer into the turn's GatheredData,
 // limited to six roots and one to four segments, so a node can only show data the turn
-// actually read under the user's RLS. Nothing here imports a server module: the client
+// actually read under the user's RLS. A Table's rowsBind may also be /shortlist or
+// /applications, the whole list (R14). Nothing here imports a server module: the client
 // renderer resolves the same pointers against the stored gathered data.
 //
 // Segments may not contain "~" or "/", so there are no JSON pointer escapes. A job id with
@@ -14,6 +15,13 @@ export const BIND_ROOTS = ["jobs", "reviews", "metrics", "applications", "shortl
 
 /** An absolute bind into GatheredData. */
 export const BIND_RE = /^\/(jobs|reviews|metrics|applications|shortlist|profile)(\/[\w.:%-]+){1,4}$/;
+
+/**
+ * A Table's rowsBind (R14): any bind above, or one of the two whole lists, /shortlist or
+ * /applications, which the one-to-four-segment rule cannot name. Only a Table takes it:
+ * every other bind (Stat, Chart) still names one value or one metric.
+ */
+export const WHOLE_LIST_BIND_RE = /^\/(shortlist|applications)$/;
 
 /**
  * A Table column's bind: a pointer relative to one row of the table's rowsBind array.
@@ -77,6 +85,17 @@ function walk(value: unknown, segments: readonly string[]): unknown {
 export function resolveBind(gathered: unknown, pointer: string): unknown {
   if (typeof pointer !== "string" || !BIND_RE.test(pointer)) return undefined;
   return walk(gathered, pointer.slice(1).split("/"));
+}
+
+/**
+ * A Table's rows: what resolveBind gives, or the whole shortlist or applications list
+ * (WHOLE_LIST_BIND_RE). Undefined for anything else. Never throws.
+ */
+export function resolveRowsBind(gathered: unknown, pointer: string): unknown {
+  if (typeof pointer === "string" && WHOLE_LIST_BIND_RE.test(pointer)) {
+    return walk(gathered, [pointer.slice(1)]);
+  }
+  return resolveBind(gathered, pointer);
 }
 
 /** A Table cell: a row-relative pointer into one row, or undefined. Never throws. */

@@ -1985,3 +1985,12 @@ R16. Task 2.9 as built (PR J4 review M7): the re-render sends the earlier surfac
 (for a variant 3 source, its stored variant 1 fallback, never its HTML) instead of the turn's
 text, because the payload is what the user saw and the turn's text adds untrusted content
 the model does not need, and a failed frame's HTML must never be handed back to the model.
+
+R17. R14 resolved before the Task 2.10 evals (PR J5): the scenarios need it. Scenario (a)
+ends on a shortlist and scenario (d) on the applications that went quiet, and a variant 2
+re-render of those surfaces (ShortlistQueue, StaleList) has no way to lay them out as a
+table without it. A Table's `rowsBind` may now also be exactly `/shortlist` or
+`/applications` (`WHOLE_LIST_BIND_RE`, `resolveRowsBind` in `surfaces/v2/bind.ts`). Nothing
+else changed: Stat and Chart binds still need one to four segments, no other root may be
+bound whole, row binds keep their zero-to-three segments and the eeo/email refusal, and
+the renderer reads rows through the same function.

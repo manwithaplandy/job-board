@@ -67,10 +67,10 @@ describe("Header — profile button label matrix", () => {
 });
 
 describe("Header — narrow collapse", () => {
-  test("isNarrow=false → top-level Analytics/Companies links + AI-REVIEWED badge, plus account menu", () => {
+  test("isNarrow=false → top-level Analytics/Shortlist links + AI-REVIEWED badge, plus account menu", () => {
     renderHeader({ isNarrow: false, operator: op({ unreviewed: 4, reviewed: 2 }) });
     expect(screen.getByRole("link", { name: "Analytics" })).not.toBeNull();
-    expect(screen.getByRole("link", { name: "Companies" })).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Shortlist" })).not.toBeNull();
     expect(screen.getByText("AI-REVIEWED")).not.toBeNull();
     expect(screen.getByRole("button", { name: /account/i })).not.toBeNull();
   });

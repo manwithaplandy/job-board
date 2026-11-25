@@ -96,7 +96,7 @@ export default async function ShortlistPage({
   ]);
 
   return (
-    <AppShell header={<AppHeader email={email} isAdmin={isAdmin(claims)} />}>
+    <AppShell header={<AppHeader current="shortlist" email={email} isAdmin={isAdmin(claims)} />}>
       <main className="rf-secondary-page">
         <div className="rf-secondary-wrap rf-secondary-wrap--wide rf-secondary-stack">
           <PageHeader

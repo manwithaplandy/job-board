@@ -3,18 +3,13 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/Action";
-import type { AppRoute } from "./AppHeader";
-
-const ITEMS = [
-  { key: "board", href: "/", label: "Board" },
-  { key: "analytics", href: "/analytics", label: "Analytics" },
-  { key: "companies", href: "/companies", label: "Companies" },
-  { key: "agent", href: "/agent", label: "Agent" },
-] as const;
+import type { AppRoute, NavItem } from "./AppHeader";
 
 const MENU_ID = "app-navigation-menu";
 
-export function AppNavMenu({ current }: { current?: AppRoute }) {
+// The collapsed primary nav. Its items come from AppHeader's NAV, the one list both
+// navigations render.
+export function AppNavMenu({ items, current }: { items: readonly NavItem[]; current?: AppRoute }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -93,7 +88,7 @@ export function AppNavMenu({ current }: { current?: AppRoute }) {
       />
       {open && (
         <div id={MENU_ID} ref={menuRef} role="menu" aria-label="Navigation" className="app-header__mobile-menu" onKeyDown={onMenuKeyDown}>
-          {ITEMS.map((item) => (
+          {items.map((item) => (
             <Link
               key={item.key}
               href={item.href}

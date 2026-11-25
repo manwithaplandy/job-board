@@ -192,6 +192,9 @@ test("locations and company exclusions are edited through their existing actions
   expect(screen.getByText("Remote; New York, NY")).toBeTruthy();
   expect(screen.getByText(/1 industry, 2 red-flag categories/)).toBeTruthy();
   expect(screen.getByRole("link", { name: "Edit locations and company filters" }).getAttribute("href")).toBe("/profile/job-preferences");
+  // Companies left the primary nav (Task 1.23); until the phase 3 cutover moves
+  // include/exclude into the memo, this is its standing entry point.
+  expect(screen.getByRole("link", { name: "Manage companies" }).getAttribute("href")).toBe("/companies");
   // The memo's own actions never write those columns; the job-preferences page's
   // saveJobPreferences and saveCompanyFilters stay their only writers.
   const memoActions = readFileSync("app/actions/memo.ts", "utf8");

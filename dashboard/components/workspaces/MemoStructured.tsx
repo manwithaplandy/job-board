@@ -33,6 +33,11 @@ export function MemoStructured({ locations, exclusions }: { locations: string[];
         <ButtonLink href="/profile/job-preferences" variant="outline" size="sm">
           Edit locations and company filters
         </ButtonLink>
+        {/* Companies left the primary nav (plan Task 1.23); this is its entry point
+            until the phase 3 cutover moves include/exclude into the memo (spec 8.3). */}
+        <ButtonLink href="/companies" variant="outline" size="sm">
+          Manage companies
+        </ButtonLink>
       </div>
     </div>
   );

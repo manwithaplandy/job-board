@@ -49,6 +49,13 @@ export interface AccountExport {
   invite_allowances: unknown;
   plan_overrides: unknown;
   review_runs: unknown[];
+  // Agent-first redesign tables (Task 0.5). null with agent_tables_error set when they
+  // could not be read (for example before their migration is applied).
+  agent_threads: unknown[] | null;
+  agent_messages: unknown[] | null;
+  agent_runs: unknown[] | null;
+  agent_settings: unknown;
+  agent_tables_error: string | null;
   resume_files: ResumeFileRef[];
   // Non-null when the résumé-object listing FAILED (storage error / down). Distinguishes
   // "this account has no archived files" (error null, resume_files []) from "we could not
@@ -94,7 +101,9 @@ export async function listResumeFiles(userId: string, expiresIn = 300): Promise<
   return refs;
 }
 
-async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes" | "job_payload_demands" | "job_payload_demands_error">> {
+type AgentExportKeys = "agent_threads" | "agent_messages" | "agent_runs" | "agent_settings" | "agent_tables_error";
+
+async function collectUserRows(userId: string): Promise<Omit<AccountExport, "exported_at" | "user_id" | "email" | "resume_files" | "resume_files_error" | "invite_redemptions" | "created_invite_codes" | "job_payload_demands" | "job_payload_demands_error" | AgentExportKeys>> {
   return withUserSql(userId, async (tx) => {
     const [
       profiles, jobReviews, reviewCorrections, companyReviews, companyOverrides,
@@ -174,6 +183,46 @@ async function collectLifecycleDemands(userId: string): Promise<Pick<AccountExpo
 }
 
 /**
+ * The agent's threads, messages, run ledger and settings, in their own withUserSql
+ * transaction like collectLifecycleDemands: these tables ship in a later migration
+ * than this code, so a failed read is reported explicitly instead of failing the
+ * whole export or passing for an empty one. Only the columns the export promises
+ * are read.
+ */
+async function collectAgentRows(userId: string): Promise<Pick<AccountExport, AgentExportKeys>> {
+  try {
+    return await withUserSql(userId, async (tx) => {
+      const [threads, messages, runs, settings] = await Promise.all([
+        tx`SELECT id, title, variant, summary, created_at, updated_at, archived_at
+           FROM agent_threads WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+        tx`SELECT thread_id, id, role, parts, status, created_at
+           FROM agent_messages WHERE user_id = ${userId}::uuid ORDER BY thread_id, created_at`,
+        tx`SELECT id, thread_id, kind, job, status, model, variant, steps, input_tokens, output_tokens,
+                  cost_micros, error, scheduled_for, started_at, finished_at, created_at
+           FROM agent_runs WHERE user_id = ${userId}::uuid ORDER BY created_at DESC`,
+        tx`SELECT default_variant, background_enabled, updated_at
+           FROM agent_settings WHERE user_id = ${userId}::uuid`,
+      ]);
+      return {
+        agent_threads: Array.from(threads),
+        agent_messages: Array.from(messages),
+        agent_runs: Array.from(runs),
+        agent_settings: (settings[0] as unknown) ?? null,
+        agent_tables_error: null,
+      };
+    });
+  } catch {
+    return {
+      agent_threads: null,
+      agent_messages: null,
+      agent_runs: null,
+      agent_settings: null,
+      agent_tables_error: "agent data export unavailable",
+    };
+  }
+}
+
+/**
  * invite_redemptions is service-role-only under RLS (no authenticated grant), so read
  * it in its OWN withUserSql transaction guarded against a permission error — a blocked
  * read yields an empty array rather than poisoning the main export transaction. The row
@@ -210,7 +259,7 @@ export async function buildAccountExport(
   email: string | null,
   resumeFiles: (uid: string) => Promise<ResumeFileRef[]> = listResumeFiles,
 ): Promise<AccountExport> {
-  const [rows, invites, createdCodes, filesResult, lifecycleDemands] = await Promise.all([
+  const [rows, invites, createdCodes, filesResult, lifecycleDemands, agentRows] = await Promise.all([
     collectUserRows(userId),
     collectInviteRedemptions(userId),
     collectCreatedInviteCodes(userId),
@@ -225,6 +274,7 @@ export async function buildAccountExport(
         return { files: [] as ResumeFileRef[], error: "résumé files could not be listed" };
       }),
     collectLifecycleDemands(userId),
+    collectAgentRows(userId),
   ]);
   return {
     exported_at: new Date().toISOString(),
@@ -232,6 +282,7 @@ export async function buildAccountExport(
     email,
     ...rows,
     ...lifecycleDemands,
+    ...agentRows,
     invite_redemptions: invites,
     created_invite_codes: createdCodes,
     resume_files: filesResult.files,

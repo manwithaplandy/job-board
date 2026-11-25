@@ -136,6 +136,15 @@ describe("user_id table drift guard", () => {
     }
   });
 
+  test("the agent tables are deleted with the account, children before agent_threads", () => {
+    // Classified ahead of their migration (a migration PR may not carry code). agent_messages
+    // references agent_threads; agent_runs points at it with ON DELETE SET NULL.
+    const order: readonly string[] = USER_DELETE_TABLES;
+    for (const t of ["agent_threads", "agent_messages", "agent_runs", "agent_settings"]) expect(order).toContain(t);
+    expect(order.indexOf("agent_messages")).toBeLessThan(order.indexOf("agent_threads"));
+    expect(order.indexOf("agent_runs")).toBeLessThan(order.indexOf("agent_threads"));
+  });
+
   test("classification lists are disjoint", () => {
     const del = new Set<string>(USER_DELETE_TABLES);
     for (const t of USER_ANONYMIZE_TABLES) expect(del.has(t)).toBe(false);

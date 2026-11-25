@@ -9,6 +9,7 @@
 // (confirm.ts) and a signed token, and only confirmIntent runs it. Without the approval
 // secret there are no confirm cards, and such intents answer with a fixed toast.
 import { z } from "zod";
+import { revalidatePath } from "next/cache";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
 import type { AuditCtx } from "@/lib/agent/actions/audit";
@@ -20,6 +21,7 @@ import { startApplicationPrep, type PrepOutcome } from "@/lib/applicationPrep";
 import { NotReviewedError, ShortlistInputError, setShortlistState } from "@/lib/workspaces/shortlist";
 import { ApplicationInputError, setApplicationStage } from "@/lib/workspaces/applications";
 import { TILE_LAYOUT_MAX_ITEMS, TileLayoutError, getTileLayout, saveTileLayout } from "@/lib/workspaces/analyticsTiles";
+import { MemoInputError, MemoNotFoundError, resolveMemoProposal } from "@/lib/workspaces/memo";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -42,6 +44,15 @@ const OPEN_ROUTES = {
 
 const NOT_ALLOWED = "That change isn't allowed here.";
 export const CONFIRM_ALREADY_USED = "That confirmation was already used.";
+
+/** The fixed toasts of memo.resolve. */
+export const MEMO_TOASTS = {
+  approved: "Your memo is updated.",
+  declined: "Proposal declined.",
+  closed: "This proposal is out of date or already handled. Review it on What I'm looking for.",
+  refused: "That change couldn't be saved. Review it on What I'm looking for.",
+} as const;
+const MEMO_PAGE = "/looking-for";
 
 /** The fixed toast for each prep outcome of a confirmed application.prepare. */
 const PREP_TOASTS: Record<PrepOutcome["status"], string> = {
@@ -91,6 +102,19 @@ async function pendingProposalExists(userId: string, proposalId: string): Promis
   const rows = await withUserSql(userId, (tx) => tx`
     SELECT 1 AS ok FROM search_memo_proposals
     WHERE id = ${proposalId}::uuid AND user_id = ${userId}::uuid AND status = 'pending'`);
+  return rows.length > 0;
+}
+
+/**
+ * A pending proposal of the user's made against their current memo version (version 0
+ * when there is no memo yet): the only kind memo.resolve acts on. An outdated one is
+ * left for "What I'm looking for", so a press on a stale surface writes nothing.
+ */
+async function currentPendingProposal(userId: string, proposalId: string): Promise<boolean> {
+  const rows = await withUserSql(userId, (tx) => tx`
+    SELECT 1 AS ok FROM search_memo_proposals p
+    WHERE p.id = ${proposalId}::uuid AND p.user_id = ${userId}::uuid AND p.status = 'pending'
+      AND p.base_version = COALESCE((SELECT m.version FROM search_memos m WHERE m.user_id = ${userId}::uuid), 0)`);
   return rows.length > 0;
 }
 
@@ -159,7 +183,24 @@ export const INTENT_HANDLERS: { [N in IntentName]: Handler<N> } = {
     return href ? { kind: "navigate", href } : { kind: "done", toast: "That posting has no link." };
   },
   "memo.review": async (ctx, i) =>
-    (await pendingProposalExists(ctx.userId, i.proposalId)) ? { kind: "navigate", href: "/looking-for" } : { kind: "dropped" },
+    (await pendingProposalExists(ctx.userId, i.proposalId)) ? { kind: "navigate", href: MEMO_PAGE } : { kind: "dropped" },
+  // The memo store as the user, as the memo page's own action does: not an approval tool
+  // and no confirm card, because every memo change is a restorable version, and approve
+  // already queues the scoped re-review (afterMemoChange). The store re-checks the
+  // proposal under a row lock, so a press that races another resolve gets the fixed toast.
+  "memo.resolve": async (ctx, i) => {
+    if (!(await currentPendingProposal(ctx.userId, i.proposalId))) return { kind: "done", toast: MEMO_TOASTS.closed };
+    let out: { version: number } | null;
+    try {
+      out = await resolveMemoProposal(ctx.userId, i.proposalId, i.decision);
+    } catch (error) {
+      if (error instanceof MemoInputError || error instanceof MemoNotFoundError) return { kind: "done", toast: MEMO_TOASTS.refused };
+      throw error;
+    }
+    if (!out) return { kind: "done", toast: MEMO_TOASTS.closed };
+    revalidatePath(MEMO_PAGE);
+    return { kind: "done", toast: i.decision === "approve" ? MEMO_TOASTS.approved : MEMO_TOASTS.declined };
+  },
 };
 
 function dispatch(ctx: IntentCtx, intent: z.infer<typeof ActionIntentSchema>): Promise<IntentOutcome> {

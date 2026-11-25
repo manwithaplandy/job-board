@@ -62,6 +62,11 @@ export const ActionIntentSchema = z.discriminatedUnion("name", [
     .strict()
     .refine((i) => i.target !== "posting" || i.jobId !== undefined, { message: "posting needs a job" }),
   z.object({ name: z.literal("memo.review"), proposalId: z.string().regex(UUID_RE) }).strict(),
+  // Approve or decline a pending memo proposal in place (spec 5(a) step 5). No confirm:
+  // a memo change is versioned and restorable. Edit stays memo.review.
+  z
+    .object({ name: z.literal("memo.resolve"), proposalId: z.string().regex(UUID_RE), decision: z.enum(["approve", "decline"]) })
+    .strict(),
 ]);
 export type ActionIntent = z.infer<typeof ActionIntentSchema>;
 export type IntentName = ActionIntent["name"];

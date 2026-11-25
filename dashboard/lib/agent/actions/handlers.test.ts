@@ -1,6 +1,6 @@
 // The host-side intent handlers (plan Task 1.14). The database, the surface store and
 // the workspace writers are fakes; the schema, dispatch and confirm code are real.
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
   queries: [] as { text: string; values: unknown[] }[],
@@ -8,6 +8,10 @@ const m = vi.hoisted(() => ({
   questions: {} as Record<string, unknown>,
   preps: [] as { userId: string; jobId: string; createdAt: number }[],
   proposals: new Set<string>(),
+  // Pending proposals made against an older memo version than the current one.
+  outdated: new Set<string>(),
+  resolveMemoProposal: vi.fn(),
+  revalidatePath: vi.fn(),
   getSurface: vi.fn(),
   setShortlistState: vi.fn(),
   setApplicationStage: vi.fn(),
@@ -39,6 +43,10 @@ function fakeTx() {
       const job = m.jobs[String(values[0])];
       return Promise.resolve(job ? [{ url: job.url }] : []);
     }
+    if (text.includes("FROM search_memo_proposals") && text.includes("base_version")) {
+      const id = String(values[0]);
+      return Promise.resolve(m.proposals.has(id) && !m.outdated.has(id) ? [{ ok: 1 }] : []);
+    }
     if (text.includes("FROM search_memo_proposals")) {
       return Promise.resolve(m.proposals.has(String(values[0])) ? [{ ok: 1 }] : []);
     }
@@ -64,6 +72,11 @@ vi.mock("@/lib/workspaces/analyticsTiles", async (orig) => ({
   getTileLayout: m.getTileLayout,
   saveTileLayout: m.saveTileLayout,
 }));
+vi.mock("@/lib/workspaces/memo", async (orig) => ({
+  ...(await orig<typeof import("@/lib/workspaces/memo")>()),
+  resolveMemoProposal: m.resolveMemoProposal,
+}));
+vi.mock("next/cache", async (orig) => ({ ...(await orig<typeof import("next/cache")>()), revalidatePath: m.revalidatePath }));
 vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: m.getViewerPlan }));
 vi.mock("@/lib/applicationPrep", () => ({ startApplicationPrep: m.startApplicationPrep }));
 vi.mock("@/lib/usage", () => ({ monthlyGenerationSpend: m.monthlyGenerationSpend }));
@@ -74,7 +87,8 @@ vi.mock("@/lib/tierConfig", async () => {
 
 import { CONFIRMATIONS_UNAVAILABLE, resetApprovalSecretWarning } from "@/lib/agent/approvalSecret";
 import { INTENT_NAMES } from "@/lib/agent/actions/intents";
-import { CONFIRM_ALREADY_USED, INTENT_HANDLERS, confirmIntent, executeIntent } from "@/lib/agent/actions/handlers";
+import { CONFIRM_ALREADY_USED, INTENT_HANDLERS, MEMO_TOASTS, confirmIntent, executeIntent } from "@/lib/agent/actions/handlers";
+import { MemoInputError } from "@/lib/workspaces/memo";
 import { ENTITLEMENTS } from "@/lib/entitlements";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -95,6 +109,8 @@ beforeEach(() => {
   m.queries = [];
   m.jobs = { [JOB]: { title: "Staff Engineer", company: "Acme", url: "https://boards.example.com/acme/101" } };
   m.proposals = new Set();
+  m.outdated = new Set();
+  m.resolveMemoProposal.mockResolvedValue({ version: 4 });
   m.questions = { [JOB]: COVER_Q };
   m.preps = [];
   vi.stubEnv("AGENT_TOOL_APPROVAL_SECRET", TEST_KEY);
@@ -235,6 +251,59 @@ test("compare and answer send fixed-format text; memo.review only opens a pendin
   expect(await run({ name: "memo.review", proposalId: proposal })).toEqual({ kind: "navigate", href: "/looking-for" });
 });
 
+describe("memo.resolve", () => {
+  const proposal = "55555555-5555-4555-8555-555555555555";
+
+  test("approve resolves the user's current pending proposal through the memo store, as the user, with no confirm", async () => {
+    m.proposals.add(proposal);
+    expect(await run({ name: "memo.resolve", proposalId: proposal, decision: "approve" })).toEqual({ kind: "done", toast: MEMO_TOASTS.approved });
+    expect(m.resolveMemoProposal).toHaveBeenCalledTimes(1);
+    expect(m.resolveMemoProposal).toHaveBeenCalledWith(USER, proposal, "approve");
+    expect(m.revalidatePath).toHaveBeenCalledWith("/looking-for");
+  });
+
+  test("decline resolves it the same way", async () => {
+    m.proposals.add(proposal);
+    expect(await run({ name: "memo.resolve", proposalId: proposal, decision: "decline" })).toEqual({ kind: "done", toast: MEMO_TOASTS.declined });
+    expect(m.resolveMemoProposal).toHaveBeenCalledWith(USER, proposal, "decline");
+    expect(m.revalidatePath).toHaveBeenCalledWith("/looking-for");
+  });
+
+  test("an outdated, unknown or already-resolved proposal gets the fixed toast and writes nothing", async () => {
+    // Made against an older memo version.
+    m.proposals.add(proposal);
+    m.outdated.add(proposal);
+    for (const decision of ["approve", "decline"] as const) {
+      expect(await run({ name: "memo.resolve", proposalId: proposal, decision })).toEqual({ kind: "done", toast: MEMO_TOASTS.closed });
+    }
+    // Unknown, or no longer pending.
+    const other = "66666666-6666-4666-8666-666666666666";
+    expect(await run({ name: "memo.resolve", proposalId: other, decision: "approve" })).toEqual({ kind: "done", toast: MEMO_TOASTS.closed });
+    expect(m.resolveMemoProposal).not.toHaveBeenCalled();
+    expect(m.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  test("a resolve that loses a race in the store gets the fixed toast; a store refusal gets its own", async () => {
+    m.proposals.add(proposal);
+    m.resolveMemoProposal.mockResolvedValueOnce(null);
+    expect(await run({ name: "memo.resolve", proposalId: proposal, decision: "approve" })).toEqual({ kind: "done", toast: MEMO_TOASTS.closed });
+    m.resolveMemoProposal.mockRejectedValueOnce(new MemoInputError("too long", "memo_too_long", 10));
+    expect(await run({ name: "memo.resolve", proposalId: proposal, decision: "approve" })).toEqual({ kind: "done", toast: MEMO_TOASTS.refused });
+    expect(m.revalidatePath).not.toHaveBeenCalled();
+    m.resolveMemoProposal.mockRejectedValueOnce(new Error("db down"));
+    await expect(run({ name: "memo.resolve", proposalId: proposal, decision: "approve" })).rejects.toThrow("db down");
+  });
+
+  test("the intent is strict: a bad uuid, an unknown decision or an extra key is dropped", async () => {
+    m.proposals.add(proposal);
+    expect(await run({ name: "memo.resolve", proposalId: "not-a-uuid", decision: "approve" })).toEqual({ kind: "dropped" });
+    expect(await run({ name: "memo.resolve", proposalId: proposal, decision: "edit" })).toEqual({ kind: "dropped" });
+    expect(await run({ name: "memo.resolve", proposalId: proposal })).toEqual({ kind: "dropped" });
+    expect(await run({ name: "memo.resolve", proposalId: proposal, decision: "approve", doc: {} })).toEqual({ kind: "dropped" });
+    expect(m.resolveMemoProposal).not.toHaveBeenCalled();
+  });
+});
+
 test("a frame intent is dropped until the host chip press exists", async () => {
   expect(
     await executeIntent(USER, { threadId: THREAD, surfaceId: SURFACE, raw: { name: "open", target: "shortlist" }, source: "frame" }),
@@ -242,6 +311,13 @@ test("a frame intent is dropped until the host chip press exists", async () => {
 });
 
 test("every intent name has exactly one handler", () => {
+  // The closed enum, listed out: a new intent must be added here on purpose.
+  expect([...INTENT_NAMES].sort()).toEqual(
+    [
+      "analytics.pin", "answer", "application.prepare", "application.set_stage", "compare", "memo.resolve", "memo.review",
+      "open", "shortlist.set",
+    ].sort(),
+  );
   expect(Object.keys(INTENT_HANDLERS).sort()).toEqual([...INTENT_NAMES].sort());
   expect(new Set(INTENT_NAMES).size).toBe(INTENT_NAMES.length);
 });

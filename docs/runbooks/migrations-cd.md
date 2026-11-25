@@ -64,6 +64,12 @@ A file counts as destructive when squawk or `tools/migrations/classify.py` finds
 a column type change, a rename, a `TRUNCATE`, or a `DELETE`/`UPDATE` without `WHERE`. An
 author can force the flag with a `-- migration: destructive` comment; nothing can clear it.
 
+A squawk finding that is safe for one statement, such as a constraint added without
+`NOT VALID` on a table known to be tiny, can be waived with a `-- squawk-ignore <rule>`
+comment on the line before it, with a comment above that saying why. The waiver covers
+that one statement and is reviewed with the PR. Never waive a rule for a whole file, and
+never waive one to get past a table that is large in production.
+
 ## Labels
 
 The `Pipeline guard` job only adds labels, never removes them:

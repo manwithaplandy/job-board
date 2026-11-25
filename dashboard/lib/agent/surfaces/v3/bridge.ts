@@ -2,14 +2,22 @@
 // spec 10 "Variant 3 sandbox" item 2). Host to frame: init { data, theme }. Frame to host:
 // ready, resize { height }, action { name, args }, error { message }.
 //
-// Nothing from the frame is trusted. SandboxFrame accepts a message only from its own
-// frame's window with origin "null", and only when parseFrameMessage returns it: strict
+// Transport (stricter than the plan, PR J2): the frame's kit posts ready on the window with
+// one end of a MessageChannel; init and every later message travel on that port (kit.ts
+// says why). SandboxFrame accepts the ready only from its own frame's window with origin
+// "null", once, and ignores every later window message.
+//
+// Nothing from the frame is trusted. Every message, on the window or the port, is used
+// only when parseFrameMessage returns it: strict
 // objects (an unknown type or an extra key fails), bounded fields, and action args that
 // serialise to at most ACTION_ARGS_MAX characters of JSON. An action is still only a
-// request: frameIntent parses it with ActionIntentSchema, the same closed enum every other
-// variant uses, and the host turns it into a chip the user must press (D13).
+// request: the server parses it with ActionIntentSchema, the same closed enum every other
+// variant uses (frameIntent in lib/agent/actions/describe.ts), and the host turns it into
+// a chip the user must press (D13).
+//
+// Client-safe: SandboxFrame imports this file, so it imports nothing but zod (a value
+// import of lib/agent/actions/intents.ts would pull the database module into the bundle).
 import { z } from "zod";
-import { ActionIntentSchema, type ActionIntent } from "@/lib/agent/actions/intents";
 
 export const RESIZE_HEIGHT_MAX = 20_000;
 export const ACTION_NAME_MAX = 64;
@@ -52,13 +60,19 @@ export function parseFrameMessage(raw: unknown): FrameToHost | null {
   return r.success ? r.data : null;
 }
 
-/**
- * The intent an action message asks for, or null. Its args must be a plain object; the
- * message's name wins over any `name` inside args. The result is a request only.
- */
-export function frameIntent(msg: FrameAction): ActionIntent | null {
-  const args = msg.args;
-  if (args === null || typeof args !== "object" || Array.isArray(args)) return null;
-  const r = ActionIntentSchema.safeParse({ ...args, name: msg.name });
-  return r.success ? r.data : null;
+/** D13's per-surface limits on action messages; past either the frame is blanked and falls back. */
+export const FRAME_ACTION_LIMITS = { perMinute: 10, windowMs: 60_000, total: 30 } as const;
+
+/** The failure codes a frame's fallback stores (reportSurfaceFailure accepts these only). */
+export const FRAME_FAILURES = [
+  "no_handshake",
+  "frame_error",
+  "self_navigation",
+  "action_rate_limit",
+  "action_total_limit",
+] as const;
+export type FrameFailure = (typeof FRAME_FAILURES)[number];
+
+export function isFrameFailure(value: unknown): value is FrameFailure {
+  return typeof value === "string" && (FRAME_FAILURES as readonly string[]).includes(value);
 }

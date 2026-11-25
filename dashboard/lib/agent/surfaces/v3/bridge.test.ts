@@ -1,11 +1,20 @@
 import { describe, expect, test } from "vitest";
-import { frameIntent, HostToFrameSchema, parseFrameMessage, type FrameAction } from "@/lib/agent/surfaces/v3/bridge";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { HostToFrameSchema, isFrameFailure, parseFrameMessage, type FrameAction } from "@/lib/agent/surfaces/v3/bridge";
+import { frameIntent } from "@/lib/agent/actions/describe";
 import { JOB_A, JOB_B } from "@/lib/agent/surfaces/v1/testFixtures";
 
 function action(raw: unknown): FrameAction {
   const m = parseFrameMessage(raw);
   if (m === null || m.type !== "action") throw new Error("not an action");
   return m;
+}
+
+/** What the server makes of an action message the host accepted. */
+function intentOf(raw: unknown) {
+  const m = action(raw);
+  return frameIntent(m.name, m.args);
 }
 
 describe("parseFrameMessage", () => {
@@ -55,31 +64,50 @@ describe("parseFrameMessage", () => {
 
 describe("frameIntent", () => {
   test("an action message is not trusted: its args still go through ActionIntentSchema", () => {
-    expect(frameIntent(action({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } }))).toEqual({
+    expect(intentOf(({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } }))).toEqual({
       name: "shortlist.set",
       jobId: JOB_A,
       state: "shortlisted",
     });
-    expect(frameIntent(action({ type: "action", name: "compare", args: { jobIds: [JOB_A, JOB_B] } }))).toEqual({
+    expect(intentOf(({ type: "action", name: "compare", args: { jobIds: [JOB_A, JOB_B] } }))).toEqual({
       name: "compare",
       jobIds: [JOB_A, JOB_B],
     });
     // An unknown intent, an extra key, a bad enum value, a malformed job id.
-    expect(frameIntent(action({ type: "action", name: "delete.everything", args: {} }))).toBeNull();
-    expect(frameIntent(action({ type: "action", name: "open", args: { target: "shortlist", url: "x" } }))).toBeNull();
-    expect(frameIntent(action({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "deleted" } }))).toBeNull();
-    expect(frameIntent(action({ type: "action", name: "application.prepare", args: { jobId: "not a job" } }))).toBeNull();
+    expect(intentOf(({ type: "action", name: "delete.everything", args: {} }))).toBeNull();
+    expect(intentOf(({ type: "action", name: "open", args: { target: "shortlist", url: "x" } }))).toBeNull();
+    expect(intentOf(({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "deleted" } }))).toBeNull();
+    expect(intentOf(({ type: "action", name: "application.prepare", args: { jobId: "not a job" } }))).toBeNull();
     // args that are not a plain object.
-    expect(frameIntent(action({ type: "action", name: "open", args: null }))).toBeNull();
-    expect(frameIntent(action({ type: "action", name: "open", args: ["shortlist"] }))).toBeNull();
-    expect(frameIntent(action({ type: "action", name: "open", args: "shortlist" }))).toBeNull();
+    expect(intentOf(({ type: "action", name: "open", args: null }))).toBeNull();
+    expect(intentOf(({ type: "action", name: "open", args: ["shortlist"] }))).toBeNull();
+    expect(intentOf(({ type: "action", name: "open", args: "shortlist" }))).toBeNull();
   });
 
   test("the message's name wins over a name inside args", () => {
-    expect(frameIntent(action({ type: "action", name: "open", args: { name: "memo.resolve", target: "shortlist" } }))).toEqual({
+    expect(intentOf(({ type: "action", name: "open", args: { name: "memo.resolve", target: "shortlist" } }))).toEqual({
       name: "open",
       target: "shortlist",
     });
+  });
+});
+
+describe("client safety", () => {
+  test("bridge, document and kit import nothing a browser bundle cannot hold", () => {
+    for (const file of ["bridge.ts", "document.ts", "kit.ts", "kitTokens.ts", "sha256.ts"]) {
+      const source = readFileSync(join(__dirname, file), "utf8");
+      const imports = [...source.matchAll(/^import (type )?[^;]*from "([^"]+)";/gm)].filter((m) => !m[1]).map((m) => m[2]);
+      for (const spec of imports) {
+        expect({ file, spec, ok: ["zod", "@/lib/agent/surfaces/v3/sha256", "@/lib/agent/surfaces/v3/kitTokens"].includes(spec) }).toEqual({ file, spec, ok: true });
+      }
+    }
+  });
+
+  test("failure codes are a closed list", () => {
+    expect(isFrameFailure("no_handshake")).toBe(true);
+    expect(isFrameFailure("self_navigation")).toBe(true);
+    expect(isFrameFailure("anything_else")).toBe(false);
+    expect(isFrameFailure(1)).toBe(false);
   });
 });
 

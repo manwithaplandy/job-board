@@ -304,10 +304,65 @@ describe("memo.resolve", () => {
   });
 });
 
-test("a frame intent is dropped until the host chip press exists", async () => {
-  expect(
-    await executeIntent(USER, { threadId: THREAD, surfaceId: SURFACE, raw: { name: "open", target: "shortlist" }, source: "frame" }),
-  ).toEqual({ kind: "dropped" });
+describe("a frame chip press (source frame, Task 2.6)", () => {
+  const V3 = "44444444-4444-4444-8444-444444444444";
+  function frame(raw: unknown, surfaceId = V3) {
+    return executeIntent(USER, { threadId: THREAD, surfaceId, raw, source: "frame" });
+  }
+  beforeEach(() => {
+    m.getSurface.mockImplementation(async (userId: string, id: string) => {
+      if (userId !== USER) return null;
+      if (id === SURFACE) return { id, threadId: THREAD, variant: 1 };
+      if (id === V3) return { id, threadId: THREAD, variant: 3 };
+      return null;
+    });
+  });
+
+  test("runs on a variant 3 surface of the thread", async () => {
+    expect(await frame({ name: "open", target: "shortlist" })).toEqual({ kind: "navigate", href: "/shortlist" });
+    m.setShortlistState.mockResolvedValue({ actionId: 7 });
+    expect(await frame({ name: "shortlist.set", jobId: JOB, state: "shortlisted" })).toMatchObject({ kind: "done", actionId: 7 });
+  });
+
+  test("is dropped for a surface of another variant, another thread or another user", async () => {
+    expect(await frame({ name: "open", target: "shortlist" }, SURFACE)).toEqual({ kind: "dropped" });
+    expect(
+      await executeIntent(USER, { threadId: OTHER_THREAD, surfaceId: V3, raw: { name: "open", target: "shortlist" }, source: "frame" }),
+    ).toEqual({ kind: "dropped" });
+    expect(
+      await executeIntent(OTHER, { threadId: THREAD, surfaceId: V3, raw: { name: "open", target: "shortlist" }, source: "frame" }),
+    ).toEqual({ kind: "dropped" });
+  });
+
+  test("free text the chip could not show exactly is dropped", async () => {
+    m.setShortlistState.mockResolvedValue({ actionId: 7 });
+    const skip = { name: "shortlist.set", jobId: JOB, state: "skipped", reasonCode: "pay" };
+    expect(await frame({ ...skip, reasonText: "x".repeat(281) })).toEqual({ kind: "dropped" });
+    expect(await frame({ ...skip, reasonText: "a\u202eb" })).toEqual({ kind: "dropped" });
+    expect(await frame({ ...skip, reasonCode: "made_up" })).toEqual({ kind: "dropped" });
+    expect(await frame({ name: "answer", questionId: "q1", value: "line one\nline two" })).toEqual({ kind: "dropped" });
+    expect(m.setShortlistState).not.toHaveBeenCalled();
+    expect(await frame({ name: "answer", questionId: "q1", value: "remote only" })).toEqual({ kind: "send", text: "Answer to q1: remote only" });
+  });
+
+  test("a high-risk intent still answers with its fixed confirm card", async () => {
+    m.getViewerPlan.mockResolvedValue("pro");
+    m.monthlyGenerationSpend.mockResolvedValue(0);
+    const out = await frame({ name: "application.prepare", jobId: JOB });
+    expect(out.kind).toBe("confirm");
+    expect(m.startApplicationPrep).not.toHaveBeenCalled();
+  });
+
+  test("an unknown source is dropped", async () => {
+    expect(
+      await executeIntent(USER, {
+        threadId: THREAD,
+        surfaceId: V3,
+        raw: { name: "open", target: "shortlist" },
+        source: "agent" as unknown as "host",
+      }),
+    ).toEqual({ kind: "dropped" });
+  });
 });
 
 test("every intent name has exactly one handler", () => {

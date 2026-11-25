@@ -62,13 +62,22 @@ describe("variant 3 kit script", () => {
     expect(() => buildSandboxDocument({ html: "<p>x</p>", nonce: "AAAAAAAAAAAAAAAAAAAAAAAA", kitJs: KIT_JS, kitCss: KIT_CSS })).not.toThrow();
   });
 
+  test("the ready message is posted before any script of the document can run", () => {
+    // The kit runs as the first script; the post is at its top level, not in a listener.
+    const at = KIT_JS.indexOf("parent.postMessage(");
+    expect(at).toBeGreaterThan(0);
+    expect(KIT_JS.slice(0, at)).not.toMatch(/addEventListener\("(?:DOMContentLoaded|load)"/);
+  });
+
   test("KIT_JS parses as a script", () => {
     expect(() => new Function(KIT_JS)).not.toThrow();
   });
 
   test("host.action only posts a message; it reports ready, resize and error", () => {
     expect(KIT_JS).toMatch(/action: function \(name, args\) \{\s*post\(\{ type: "action"/);
-    expect(KIT_JS).toContain('post({ type: "ready" })');
+    // ready carries the port, and is the only message to the parent window.
+    expect(KIT_JS).toContain('parent.postMessage({ type: "ready" }, "*", [channel.port2])');
+    expect(KIT_JS).toContain("function post(msg) {\n    try { port.postMessage(msg); }");
     expect(KIT_JS).toContain('post({ type: "resize", height: h })');
     expect(KIT_JS).toContain('window.addEventListener("error"');
     expect(KIT_JS).toContain('window.addEventListener("unhandledrejection"');

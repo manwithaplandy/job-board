@@ -60,9 +60,10 @@ const REFINE_TARGET_LABELS = { resume: "Résumé", cover: "Cover letter", both: 
 
 // Control and bidi-override characters would let a value break its line or reorder what
 // the user reads; they become spaces.
-const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
+export const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
 
-function clamp(text: string, max: number = DB_TEXT_MAX): string {
+/** One line of display text: unsafe characters and runs of whitespace become one space, capped. */
+export function clamp(text: string, max: number = DB_TEXT_MAX): string {
   const flat = text.replace(UNSAFE_CHARS, " ").replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 }
@@ -100,7 +101,8 @@ const KIND_NOUN: Record<GenerationKind, [string, string]> = {
   cover: ["cover letter", "cover letters"],
 };
 
-async function jobLine(userId: string, jobId: string): Promise<string | null> {
+/** "<title> at <company>" from the database, each clamped; null for an unknown job. */
+export async function jobLine(userId: string, jobId: string): Promise<string | null> {
   const rows = await withUserSql(userId, (tx) => tx`
     SELECT j.title, COALESCE(c.display_name, c.name) AS company
     FROM jobs j JOIN companies c ON c.id = j.company_id

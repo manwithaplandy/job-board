@@ -10,18 +10,27 @@
 // KIT_JS: the custom elements <jb-button action='{"name":...}'> and
 // <jb-field name label>, and a frozen `host` object:
 //   host.data, host.theme   the snapshot and theme from the host's init (null and "light"
-//                           until init arrives)
+//                           until init arrives, which is after the document's own
+//                           scripts start: read them in host.onInit)
 //   host.onInit(cb)         cb(data, theme) once init has arrived
 //   host.action(name, args) posts a request to the host and nothing else: the host turns
 //                           it into a chip the user must press (D13, SandboxFrame)
 //   host.chart(el, spec)    inline SVG from { viz, points: [{ label, value }], title }
-// and it reports ready (DOMContentLoaded), resize (the document's height, 0 to 20000) and
-// error (window error and unhandledrejection, at most once, 500 characters).
+// and it reports resize (the document's height, 0 to 20000) and error (window error and
+// unhandledrejection, at most once, 500 characters).
 //
-// KIT_JS holds no URL, no "//" and touches the parent window only through
+// The handshake (stricter than the plan, PR J2): the kit is the document's first script,
+// and as it starts it posts { type: "ready" } to the parent with one end of a
+// MessageChannel. Init comes back on that port and every later message goes out on it,
+// never on the window. A port belongs to the document that made it, so if the document
+// navigates itself (spec 10's open hole), the page it navigated to cannot receive init or
+// talk to the host: its window messages are ignored, and only the first ready, which this
+// document posts before any script of the model can run, is accepted.
+//
+// KIT_JS holds no URL, no "//" and touches the parent window only through one
 // parent.postMessage (kit.test.ts checks all three, and that the kit itself passes
-// checkV3Static). It accepts the first init message only. Messages are not authenticated
-// here: anything in the frame can post to it, and the host trusts nothing the frame sends
+// checkV3Static). It accepts the first init only. The host trusts nothing that arrives on
+// the port either: script in the frame can reach the same port through host.action
 // (bridge.ts, SandboxFrame).
 import { KIT_TOKENS, KIT_TOKEN_NAMES, type KitTokenName } from "@/lib/agent/surfaces/v3/kitTokens";
 
@@ -112,9 +121,11 @@ export const KIT_JS: string = `(function () {
   var state = { data: null, theme: "light", inited: false, waiting: [], reported: false, height: -1 };
   var CHART_POINTS_MAX = 50;
   var LABEL_MAX = 40;
+  var channel = new MessageChannel();
+  var port = channel.port1;
 
   function post(msg) {
-    try { parent.postMessage(msg, "*"); } catch (err) { /* an uncloneable value: nothing is sent */ }
+    try { port.postMessage(msg); } catch (err) { /* an uncloneable value: nothing is sent */ }
   }
   function clip(value, max) {
     var s = String(value == null ? "" : value);
@@ -136,7 +147,7 @@ export const KIT_JS: string = `(function () {
   function run(cb) {
     try { cb(state.data, state.theme); } catch (err) { report(errorText(err)); }
   }
-  window.addEventListener("message", function (e) {
+  port.onmessage = function (e) {
     var m = e.data;
     if (state.inited || !m || typeof m !== "object" || m.type !== "init") return;
     state.inited = true;
@@ -146,7 +157,9 @@ export const KIT_JS: string = `(function () {
     var waiting = state.waiting;
     state.waiting = [];
     for (var i = 0; i < waiting.length; i++) run(waiting[i]);
-  });
+  };
+  /* ready goes out now, before any script of the document runs, with the port the rest of the talk uses. */
+  try { parent.postMessage({ type: "ready" }, "*", [channel.port2]); } catch (err) { /* no host: nothing to do */ }
 
   /* Inline SVG only. The SVG namespace comes from a parsed element, so no URL is written here. */
   var svgNamespace = null;
@@ -280,11 +293,10 @@ export const KIT_JS: string = `(function () {
     state.height = h;
     post({ type: "resize", height: h });
   }
-  function ready() {
-    post({ type: "ready" });
+  function watchSize() {
     measure();
     if (typeof ResizeObserver === "function") new ResizeObserver(measure).observe(document.documentElement);
   }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ready); else ready();
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watchSize); else watchSize();
 })();
 `;

@@ -16,12 +16,18 @@ export const maxDuration = 300;
 //   403 { error: "forbidden" }              Sec-Fetch-Site is cross-site or same-site
 //   401 no session (or an erased account's stale JWT)
 //   400 { error: "bad_request" }            not application/json, the body fails the strict
-//                                           schema, or variant 3 while it is switched off
+//                                           schema, variant 3 while it is switched off, or
+//                                           variant 3 for a surface whose frame already
+//                                           failed (PR J4 review I1)
 //   402 { error: "subscription_required" }  no plan
 //   503 { error: "agent_disabled" }         the kill switch (fails closed on a failed read)
-//   429 { error: "agent_budget_exhausted", reason }  a ceiling is reached
+//   429 { error: "agent_budget_exhausted", reason }  a ceiling is reached (pre-check only)
 //   404 { error: "not_found" }              no such surface for this user
-// and 500 { error: "rerender_failed" } when the model call stored no surface. The user id
+//   409 { error: "rerender_in_progress" }   another re-render of this user's is running
+//                                           (PR J4 review M1; startRun, before any spend)
+// and 500 { error: "rerender_failed" } when the model call stored no surface. A ceiling
+// reached mid-run is not a 429: the run stops, and the R13 fallback row (200) or nothing
+// (500) is what it stored. The user id
 // comes only from the session; the body cannot carry one (the schema is strict).
 
 const BODY_MAX_CHARS = 1_000;
@@ -101,7 +107,8 @@ export async function POST(req: Request): Promise<Response> {
   });
   if (out.ok) return json({ surfaceId: out.surface.id, threadId: out.surface.threadId, variant: out.surface.variant }, 200);
   if (out.reason === "not_found") return json({ error: "not_found" }, 404);
-  if (out.reason === "variant3_off") return badRequest();
+  if (out.reason === "variant3_off" || out.reason === "source_failed") return badRequest();
+  if (out.reason === "in_progress") return json({ error: "rerender_in_progress" }, 409);
   if (out.reason === "budget") {
     if (out.budget.reason === "agent_disabled") return json({ error: "agent_disabled" }, 503);
     return json({ error: "agent_budget_exhausted", reason: out.budget.reason }, 429);

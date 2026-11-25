@@ -113,7 +113,21 @@ describe("POST /api/agent/rerender", () => {
     expect((await POST(post({ surfaceId: SURFACE, variant: 1 }))).status).toBe(200);
   });
 
-  test("a ceiling reached between the pre-check and the run is still a 429", async () => {
+  test("variant 3 for a surface whose frame already failed is the same 400 as the switch being off", async () => {
+    m.rerenderSurface.mockResolvedValue({ ok: false, reason: "source_failed" });
+    const res = await POST(post({ surfaceId: SURFACE, variant: 3 }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "bad_request" });
+  });
+
+  test("a second re-render while one of this user's is running answers 409, in the turn route's body shape", async () => {
+    m.rerenderSurface.mockResolvedValue({ ok: false, reason: "in_progress" });
+    const res = await POST(post(valid));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "rerender_in_progress" });
+  });
+
+  test("a ceiling reached between the route's pre-check and rerenderSurface's own pre-check is a 429", async () => {
     m.rerenderSurface.mockResolvedValue({ ok: false, reason: "budget", budget: { ok: false, reason: "monthly_ceiling" } });
     const res = await POST(post(valid));
     expect(res.status).toBe(429);

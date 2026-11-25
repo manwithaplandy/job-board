@@ -19,15 +19,21 @@ vi.mock("@/lib/db", () => ({
   ),
 }));
 vi.mock("@/lib/agent/surfaces/store", () => ({ getSurface: vi.fn(), saveSurface: vi.fn(), setSurfaceFailure: vi.fn() }));
-vi.mock("@/lib/agent/runs", () => ({ startRun: vi.fn(), chargeStep: vi.fn(), finishRun: vi.fn() }));
+const runsErr = vi.hoisted(() => ({ RerenderInProgressError: class RerenderInProgressError extends Error {} }));
+vi.mock("@/lib/agent/runs", () => ({
+  startRun: vi.fn(),
+  chargeStep: vi.fn(),
+  finishRun: vi.fn(),
+  RerenderInProgressError: runsErr.RerenderInProgressError,
+}));
 vi.mock("@/lib/agent/budget", async (orig) => ({ ...(await orig<typeof import("@/lib/agent/budget")>()), checkBudget: vi.fn() }));
 
 import { checkBudget } from "@/lib/agent/budget";
 import { AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
-import { chargeStep, finishRun, startRun } from "@/lib/agent/runs";
+import { chargeStep, finishRun, RerenderInProgressError, startRun } from "@/lib/agent/runs";
 import { getSurface, saveSurface, setSurfaceFailure, type StoredSurface } from "@/lib/agent/surfaces/store";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
-import { rerenderSurface, rerenderInstructions } from "@/lib/agent/rerender";
+import { RERENDER_DATA_MAX, rerenderDataBlocks, rerenderSurface, rerenderInstructions } from "@/lib/agent/rerender";
 import { REPAIR_NOT_ATTEMPTED } from "@/lib/agent/tools/present";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -200,10 +206,13 @@ describe("rerenderSurface", () => {
     expect(out).toMatchObject({ ok: true });
   });
 
-  test("another user's surface is not found, and nothing runs", async () => {
+  test("the surface is read only as the session user; a surface that read does not return is not found, and nothing runs", async () => {
+    // getSurface's own WHERE user_id (under RLS) is what hides another user's row; here it
+    // returns nothing, and the read was made with the caller's id and the requested surface.
     vi.mocked(getSurface).mockResolvedValue(null);
     const model = scripted([[presentCall(V1)]]);
     expect(await run(model, 2).out).toEqual({ ok: false, reason: "not_found" });
+    expect(vi.mocked(getSurface).mock.calls).toEqual([[USER, SOURCE]]);
     expect(checkBudget).not.toHaveBeenCalled();
     expect(startRun).not.toHaveBeenCalled();
     expect(model.doGenerateCalls).toHaveLength(0);
@@ -225,6 +234,70 @@ describe("rerenderSurface", () => {
     expect(await run(on, 3).out).toMatchObject({ ok: true });
     expect(saves()[0]).toMatchObject({ variant: 3, payload: V3, outcome: "valid", rerenderOf: SOURCE });
     expect(JSON.stringify(on.doGenerateCalls[0].prompt)).toContain("host.onInit");
+  });
+
+  test("a variant 3 source whose frame failed at runtime is refused a variant 3 target: no run, no model call, no charge", async () => {
+    vi.mocked(getSurface).mockResolvedValue(
+      source({ variant: 3, payload: V3, fallbackPayload: V1, outcome: "fallback", failure: "self_navigation" }),
+    );
+    const model = scripted([[presentCall(V3)]]);
+    expect(await run(model, 3).out).toEqual({ ok: false, reason: "source_failed" });
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(checkBudget).not.toHaveBeenCalled();
+    expect(startRun).not.toHaveBeenCalled();
+    expect(chargeStep).not.toHaveBeenCalled();
+    expect(saves()).toHaveLength(0);
+  });
+
+  test("a variant 3 source sends its variant 1 fallback as the earlier surface, never its HTML", async () => {
+    const html = { variant: 3, title: "Frame", html: "<p id=\"only-in-html\"></p><script>host.onInit(function (data) { void data; });</script>" };
+    const fallback = { variant: 1, title: "Stored fallback view", blocks: [{ type: "JobCard", jobId: JOB_A }] };
+    vi.mocked(getSurface).mockImplementation(async (_u, id) =>
+      id === SOURCE ? source({ variant: 3, payload: html, fallbackPayload: fallback }) : source({ id: NEW }),
+    );
+    const model = scripted([[presentCall(V2)]]);
+    expect(await run(model, 2).out).toMatchObject({ ok: true });
+    const prompt = JSON.stringify(model.doGenerateCalls[0].prompt);
+    expect(prompt).toContain("Stored fallback view");
+    expect(prompt).not.toContain("only-in-html");
+    expect(prompt).not.toContain("<script>");
+
+    // A stored fallback that does not parse as variant 1 is replaced by one built from the
+    // gathered data, still never the HTML.
+    vi.mocked(getSurface).mockImplementation(async (_u, id) =>
+      id === SOURCE ? source({ variant: 3, payload: html, fallbackPayload: { blocks: "x" } }) : source({ id: NEW }),
+    );
+    const again = scripted([[presentCall(V2)]]);
+    await run(again, 2).out;
+    const prompt2 = JSON.stringify(again.doGenerateCalls[0].prompt);
+    expect(prompt2).toContain("<earlier_surface>");
+    expect(prompt2.slice(prompt2.indexOf("<earlier_surface>"))).toMatch(/variant\\+":1/);
+    expect(prompt2).not.toContain("only-in-html");
+  });
+
+  test("a re-render while another of the user's is running is in_progress: no model call, no charge", async () => {
+    vi.mocked(startRun).mockRejectedValue(new RerenderInProgressError());
+    const model = scripted([[presentCall(V1)]]);
+    expect(await run(model, 1).out).toEqual({ ok: false, reason: "in_progress" });
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(chargeStep).not.toHaveBeenCalled();
+    expect(finishRun).not.toHaveBeenCalled();
+    expect(saves()).toHaveLength(0);
+  });
+
+  test("the data sent is capped at a normal turn's history window, both blocks together", async () => {
+    expect(RERENDER_DATA_MAX).toBe(120_000);
+    const big = { ...gatheredFixture(), notes: "a".repeat(300_000) } as unknown as Parameters<typeof rerenderDataBlocks>[0];
+    const earlier = { variant: 1, title: "b".repeat(200_000), blocks: [] };
+    const text = rerenderDataBlocks(big, earlier);
+    const inner = text
+      .replace("<surface_data>\n", "")
+      .replace("\n</surface_data>\n<earlier_surface>\n", "")
+      .replace("\n</earlier_surface>", "");
+    expect(inner.length).toBeLessThanOrEqual(RERENDER_DATA_MAX);
+    expect(text).toContain("(cut here: the rest did not fit)");
+    // Small data is sent whole.
+    expect(rerenderDataBlocks(gatheredFixture(), V1)).toContain(JSON.stringify(V1));
   });
 
   test("an invalid variant 2 payload gets one repair with its errors, then is stored repaired", async () => {

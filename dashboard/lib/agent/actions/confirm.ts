@@ -8,7 +8,7 @@
 // a line) is never read, so the model cannot write the card.
 //
 // A confirm token carries the intent that was confirmed, the thread and surface it came
-// from and a 10 minute expiry, signed with HMAC-SHA256 under AGENT_TOOL_APPROVAL_SECRET
+// from, its issue time and a 10 minute expiry, signed with HMAC-SHA256 under AGENT_TOOL_APPROVAL_SECRET
 // over the session user and that payload. Verifying needs the same user, so a token
 // cannot be used by another user, and the job id is inside the signed payload, so it
 // cannot be replayed for another job. The secret and the signed message are never
@@ -185,6 +185,7 @@ const tokenPayloadSchema = z
     intent: z.unknown(),
     threadId: z.string().regex(UUID_RE),
     surfaceId: z.string().regex(UUID_RE),
+    iat: z.number().int().positive(),
     exp: z.number().int().positive(),
   })
   .strict();
@@ -193,6 +194,15 @@ export interface ConfirmedIntent {
   intent: ActionIntent;
   threadId: string;
   surfaceId: string;
+}
+
+/**
+ * A verified token: the intent plus its issue time (epoch ms). confirmIntent refuses a
+ * token whose job already has a prep created after `issuedAt`, so a token starts at most
+ * one prep (a double press or a retried request cannot spend twice).
+ */
+export interface VerifiedConfirm extends ConfirmedIntent {
+  issuedAt: number;
 }
 
 function mac(secret: string, userId: string, body: string): Buffer {
@@ -208,14 +218,14 @@ export function signConfirmToken(
   const secret = approvalSecret();
   if (!secret) return null;
   const body = Buffer.from(
-    JSON.stringify({ v: 1, intent: c.intent, threadId: c.threadId, surfaceId: c.surfaceId, exp: now + CONFIRM_TTL_MS }),
+    JSON.stringify({ v: 1, intent: c.intent, threadId: c.threadId, surfaceId: c.surfaceId, iat: now, exp: now + CONFIRM_TTL_MS }),
     "utf8",
   ).toString("base64url");
   return `${body}.${mac(secret, userId, body).toString("base64url")}`;
 }
 
 /** The confirmed intent, or null when the token is malformed, forged, another user's or expired, or the secret is missing. */
-export function verifyConfirmToken(userId: string, token: unknown, now: number = Date.now()): ConfirmedIntent | null {
+export function verifyConfirmToken(userId: string, token: unknown, now: number = Date.now()): VerifiedConfirm | null {
   const secret = approvalSecret();
   if (!secret || typeof token !== "string" || token.length > 8000) return null;
   const dot = token.indexOf(".");
@@ -231,8 +241,8 @@ export function verifyConfirmToken(userId: string, token: unknown, now: number =
     return null;
   }
   const payload = parseOrNull(tokenPayloadSchema, json);
-  if (!payload || payload.exp <= now) return null;
+  if (!payload || payload.exp <= now || payload.iat > payload.exp) return null;
   const intent = ActionIntentSchema.safeParse(payload.intent);
   if (!intent.success || !CONFIRM_INTENTS.has(intent.data.name)) return null;
-  return { intent: intent.data, threadId: payload.threadId, surfaceId: payload.surfaceId };
+  return { intent: intent.data, threadId: payload.threadId, surfaceId: payload.surfaceId, issuedAt: payload.iat };
 }

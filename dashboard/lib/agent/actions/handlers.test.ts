@@ -6,6 +6,7 @@ const m = vi.hoisted(() => ({
   queries: [] as { text: string; values: unknown[] }[],
   jobs: {} as Record<string, { title: string; company: string; url: string }>,
   questions: {} as Record<string, unknown>,
+  preps: [] as { userId: string; jobId: string; createdAt: number }[],
   proposals: new Set<string>(),
   getSurface: vi.fn(),
   setShortlistState: vi.fn(),
@@ -24,6 +25,11 @@ function fakeTx() {
     if (text.includes("FROM jobs j JOIN companies")) {
       const job = m.jobs[String(values[0])];
       return Promise.resolve(job ? [{ title: job.title, company: job.company }] : []);
+    }
+    if (text.includes("FROM generation_jobs")) {
+      const [user, job, since] = values;
+      const hit = m.preps.some((p) => p.userId === user && p.jobId === job && p.createdAt >= Date.parse(String(since)));
+      return Promise.resolve(hit ? [{ ok: 1 }] : []);
     }
     if (text.includes("FROM job_questions")) {
       const questions = m.questions[String(values[0])];
@@ -68,7 +74,7 @@ vi.mock("@/lib/tierConfig", async () => {
 
 import { CONFIRMATIONS_UNAVAILABLE, resetApprovalSecretWarning } from "@/lib/agent/approvalSecret";
 import { INTENT_NAMES } from "@/lib/agent/actions/intents";
-import { INTENT_HANDLERS, confirmIntent, executeIntent } from "@/lib/agent/actions/handlers";
+import { CONFIRM_ALREADY_USED, INTENT_HANDLERS, confirmIntent, executeIntent } from "@/lib/agent/actions/handlers";
 import { ENTITLEMENTS } from "@/lib/entitlements";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -90,6 +96,7 @@ beforeEach(() => {
   m.jobs = { [JOB]: { title: "Staff Engineer", company: "Acme", url: "https://boards.example.com/acme/101" } };
   m.proposals = new Set();
   m.questions = { [JOB]: COVER_Q };
+  m.preps = [];
   vi.stubEnv("AGENT_TOOL_APPROVAL_SECRET", TEST_KEY);
   resetApprovalSecretWarning();
   m.getSurface.mockImplementation(async (userId: string, id: string) =>
@@ -271,5 +278,33 @@ test("confirmIntent runs a token only for its own user and a surface still in it
   expect(await confirmIntent(USER, null, out.token)).toEqual({ kind: "done", toast: "You've used this month's allowance for that." });
   m.getSurface.mockResolvedValue(null);
   expect(await confirmIntent(USER, null, out.token)).toEqual({ kind: "dropped" });
+  expect(m.startApplicationPrep).toHaveBeenCalledTimes(2);
+});
+
+test("a confirm token starts at most one prep: a replay after its prep was created is refused and charges nothing", async () => {
+  // The fake startApplicationPrep records the prepare generation_jobs row a real start creates.
+  m.startApplicationPrep.mockImplementation(async (userId: string, _email: string | null, jobId: string) => {
+    m.preps.push({ userId, jobId, createdAt: Date.now() });
+    return { status: "started", generationId: "g1", generation: {} };
+  });
+  // A prep of this job created before the token was issued does not block it.
+  m.preps.push({ userId: USER, jobId: JOB, createdAt: Date.now() - 60_000 });
+  const out = await run({ name: "application.prepare", jobId: JOB });
+  if (out.kind !== "confirm") throw new Error("expected a confirm");
+  expect(await confirmIntent(USER, null, out.token)).toEqual({
+    kind: "done", toast: "Preparing your application. It takes a minute or two.",
+  });
+  // The same token again (a double press, a retried request, or after the prep settled).
+  expect(await confirmIntent(USER, null, out.token)).toEqual({ kind: "done", toast: CONFIRM_ALREADY_USED });
+  expect(m.startApplicationPrep).toHaveBeenCalledTimes(1);
+  expect(warn).toHaveBeenCalledWith("agent: intent dropped", { reason: "confirm_token_used", surfaceId: SURFACE });
+  // The check is scoped to the token's user and job.
+  const replayQuery = m.queries.filter((q) => q.text.includes("FROM generation_jobs")).at(-1);
+  expect(replayQuery?.values.slice(0, 2)).toEqual([USER, JOB]);
+  // A fresh token (a new confirm card, issued after that prep) can prepare again.
+  await new Promise((r) => setTimeout(r, 2));
+  const again = await run({ name: "application.prepare", jobId: JOB });
+  if (again.kind !== "confirm") throw new Error("expected a confirm");
+  expect(await confirmIntent(USER, null, again.token)).toMatchObject({ toast: "Preparing your application. It takes a minute or two." });
   expect(m.startApplicationPrep).toHaveBeenCalledTimes(2);
 });

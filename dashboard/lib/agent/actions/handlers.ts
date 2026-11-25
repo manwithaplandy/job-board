@@ -41,6 +41,7 @@ const OPEN_ROUTES = {
 } as const;
 
 const NOT_ALLOWED = "That change isn't allowed here.";
+export const CONFIRM_ALREADY_USED = "That confirmation was already used.";
 
 /** The fixed toast for each prep outcome of a confirmed application.prepare. */
 const PREP_TOASTS: Record<PrepOutcome["status"], string> = {
@@ -204,7 +205,23 @@ export async function executeIntent(
   );
 }
 
-/** Runs a confirmed intent: the token must verify for this user, unexpired, from a surface still in its thread. */
+/**
+ * Whether a prepare generation job for this user and job was created at or after the
+ * token's issue time: the token then already started its prep (one read, no new table).
+ */
+async function prepCreatedSince(userId: string, jobId: string, issuedAt: number): Promise<boolean> {
+  const rows = await withUserSql(userId, (tx) => tx`
+    SELECT 1 AS ok FROM generation_jobs
+    WHERE user_id = ${userId}::uuid AND job_id = ${jobId} AND kind = 'prepare'
+      AND created_at >= ${new Date(issuedAt).toISOString()}::timestamptz
+    LIMIT 1`);
+  return rows.length > 0;
+}
+
+/**
+ * Runs a confirmed intent: the token must verify for this user, unexpired, from a surface
+ * still in its thread, and must not have started a prep already.
+ */
 export async function confirmIntent(userId: string, email: string | null, token: unknown): Promise<IntentOutcome> {
   if (!approvalSecret()) return { kind: "done", toast: CONFIRMATIONS_UNAVAILABLE };
   const confirmed = verifyConfirmToken(userId, token);
@@ -218,6 +235,10 @@ export async function confirmIntent(userId: string, email: string | null, token:
   }
   switch (confirmed.intent.name) {
     case "application.prepare":
+      if (await prepCreatedSince(userId, confirmed.intent.jobId, confirmed.issuedAt)) {
+        logDropped("confirm_token_used", confirmed.surfaceId);
+        return { kind: "done", toast: CONFIRM_ALREADY_USED };
+      }
       return { kind: "done", toast: PREP_TOASTS[(await startApplicationPrep(userId, email, confirmed.intent.jobId)).status] };
     default:
       return { kind: "dropped" };

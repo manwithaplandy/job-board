@@ -45,7 +45,7 @@ test("a confirm token expires after 10 minutes and cannot be replayed for anothe
   const t0 = 1_800_000_000_000;
   const token = signConfirmToken(USER, prepare("greenhouse:acme:1"), t0);
   if (!token) throw new Error("expected a token");
-  expect(verifyConfirmToken(USER, token, t0 + CONFIRM_TTL_MS - 1)).toEqual(prepare("greenhouse:acme:1"));
+  expect(verifyConfirmToken(USER, token, t0 + CONFIRM_TTL_MS - 1)).toEqual({ ...prepare("greenhouse:acme:1"), issuedAt: t0 });
   expect(verifyConfirmToken(USER, token, t0 + CONFIRM_TTL_MS)).toBeNull();
   // Swapping the job inside the payload breaks the signature.
   const [body, sig] = token.split(".");

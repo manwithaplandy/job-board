@@ -6,15 +6,14 @@ SET statement_timeout = '60s';
 -- so the only writer is the service role in dashboard/lib/agent/runs.ts.
 -- agent_runs.error holds a short error code only, never provider or stack text,
 -- because it is part of the account export.
+-- Integer columns are bigint (the squawk default); postgres.js returns int8 as a
+-- string, so readers parse them with z.coerce.number().
 
--- Reviewed exception: variant is 1, 2 or 3 (CHECK), and int2 arrives in the
--- dashboard as a JS number, where int8 would arrive as a string.
--- squawk-ignore prefer-bigint-over-smallint
 CREATE TABLE IF NOT EXISTS public.agent_threads (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   title text NOT NULL DEFAULT 'New conversation' CHECK (char_length(title) BETWEEN 1 AND 120),
-  variant smallint NOT NULL DEFAULT 1 CHECK (variant IN (1, 2, 3)),
+  variant bigint NOT NULL DEFAULT 1 CHECK (variant IN (1, 2, 3)),
   summary text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -51,10 +50,6 @@ DROP POLICY IF EXISTS agent_messages_owner_read ON public.agent_messages;
 CREATE POLICY agent_messages_owner_read ON public.agent_messages FOR SELECT TO authenticated
   USING (user_id = (SELECT public.app_user_id()));
 
--- Reviewed exception: variant is 1 to 3, and the per-run counters stay far below
--- 2^31 (cost_micros at the int4 limit is over $2,000 for one run, which the spend
--- ceiling stops long before). int2/int4 arrive in the dashboard as JS numbers.
--- squawk-ignore prefer-bigint-over-int, prefer-bigint-over-smallint
 CREATE TABLE IF NOT EXISTS public.agent_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
@@ -63,11 +58,11 @@ CREATE TABLE IF NOT EXISTS public.agent_runs (
   job text,
   status text NOT NULL CHECK (status IN ('pending', 'running', 'done', 'failed', 'aborted', 'over_budget')),
   model text,
-  variant smallint CHECK (variant IN (1, 2, 3)),
-  steps int NOT NULL DEFAULT 0 CHECK (steps >= 0),
-  input_tokens int NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
-  output_tokens int NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
-  cost_micros int NOT NULL DEFAULT 0 CHECK (cost_micros >= 0),
+  variant bigint CHECK (variant IN (1, 2, 3)),
+  steps bigint NOT NULL DEFAULT 0 CHECK (steps >= 0),
+  input_tokens bigint NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  output_tokens bigint NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  cost_micros bigint NOT NULL DEFAULT 0 CHECK (cost_micros >= 0),
   error text CHECK (error IS NULL OR char_length(error) <= 64),
   scheduled_for timestamptz,
   started_at timestamptz,
@@ -90,11 +85,9 @@ DROP POLICY IF EXISTS agent_runs_owner_read ON public.agent_runs;
 CREATE POLICY agent_runs_owner_read ON public.agent_runs FOR SELECT TO authenticated
   USING (user_id = (SELECT public.app_user_id()));
 
--- Reviewed exception: same as agent_threads.variant.
--- squawk-ignore prefer-bigint-over-smallint
 CREATE TABLE IF NOT EXISTS public.agent_settings (
   user_id uuid PRIMARY KEY,
-  default_variant smallint NOT NULL DEFAULT 1 CHECK (default_variant IN (1, 2, 3)),
+  default_variant bigint NOT NULL DEFAULT 1 CHECK (default_variant IN (1, 2, 3)),
   background_enabled boolean NOT NULL DEFAULT true,
   updated_at timestamptz NOT NULL DEFAULT now()
 );

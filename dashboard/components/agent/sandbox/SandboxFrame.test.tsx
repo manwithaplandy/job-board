@@ -13,7 +13,7 @@ import type { ActionIntent } from "@/lib/agent/actions/intents";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { gatheredFixture, JOB_A, JOB_B } from "@/lib/agent/surfaces/v1/testFixtures";
 import { sandboxSnapshot } from "@/lib/agent/surfaces/v3/document";
-import { CHIP_PROMPT, GENERATED_VIEW_LABEL, SandboxFrame, type SandboxSurface } from "./SandboxFrame";
+import { CHIP_ARM_MS, CHIP_PROMPT, GENERATED_VIEW_LABEL, SandboxFrame, type SandboxSurface } from "./SandboxFrame";
 
 const ID = "44444444-4444-4444-8444-444444444444";
 const THREAD = "11111111-1111-4111-8111-111111111111";
@@ -61,12 +61,38 @@ function mount(s: SandboxSurface = surface()) {
   return { ...view, iframe, onIntent, onFallback, s };
 }
 
-/** The frame's ready: returns the frame's end of the port and what it receives. */
-function ready(iframe: HTMLIFrameElement, opts: { source?: MessageEventSource | null; origin?: string; data?: unknown; port?: boolean } = {}) {
+interface ReadyOptions {
+  source?: MessageEventSource | null;
+  origin?: string;
+  data?: unknown;
+  port?: boolean;
+  /** Answer init with inited, as the kit does (default true). */
+  ack?: boolean;
+}
+
+/**
+ * The frame's ready: returns the frame's end of the port, what it receives (pings aside),
+ * the pings, and a switch for answering them. Like the kit, it acks init and answers
+ * every ping with a pong unless told not to.
+ */
+function ready(iframe: HTMLIFrameElement, opts: ReadyOptions = {}) {
   const channel = new MessageChannel();
   ports.push(channel.port1, channel.port2);
   const received: unknown[] = [];
-  channel.port1.onmessage = (e) => received.push(e.data);
+  const pings: number[] = [];
+  const frame = { answerPings: true };
+  channel.port1.onmessage = (e) => {
+    const m: unknown = e.data;
+    const type = m && typeof m === "object" && "type" in m ? m.type : null;
+    if (type === "ping") {
+      const n = m && typeof m === "object" && "n" in m && typeof m.n === "number" ? m.n : -1;
+      pings.push(n);
+      if (frame.answerPings) channel.port1.postMessage({ type: "pong", n });
+      return;
+    }
+    received.push(m);
+    if (type === "init" && opts.ack !== false) channel.port1.postMessage({ type: "inited" });
+  };
   act(() => {
     window.dispatchEvent(
       new MessageEvent("message", {
@@ -77,10 +103,27 @@ function ready(iframe: HTMLIFrameElement, opts: { source?: MessageEventSource | 
       }),
     );
   });
-  return { port: channel.port1, received };
+  return { port: channel.port1, received, pings, frame };
 }
 
 const settle = () => act(() => new Promise((r) => setTimeout(r, 30)));
+
+/** With fake timers: lets port messages and promises through (setImmediate is not faked). */
+async function flush(rounds = 5) {
+  for (let i = 0; i < rounds; i++) await act(() => new Promise<void>((r) => setImmediate(r)));
+}
+
+const LIVENESS_TIMERS: Parameters<typeof vi.useFakeTimers>[0] = {
+  toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+};
+
+/** A press on the chip once it is armed (CHIP_ARM_MS after it appeared). */
+function pressChip(el: HTMLElement) {
+  const at = Date.now() + CHIP_ARM_MS;
+  const spy = vi.spyOn(Date, "now").mockReturnValue(at);
+  fireEvent.click(el);
+  spy.mockRestore();
+}
 
 function chips(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>("[data-sandbox-chip]")];
@@ -143,6 +186,124 @@ describe("SandboxFrame", () => {
     expect(screen.queryByText(GENERATED_VIEW_LABEL)).toBeNull();
   });
 
+  test("a ready with no inited ack still falls back at 3000 ms (fix round 1, I2)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, onFallback } = mount();
+    const r = ready(iframe, { ack: false });
+    await flush();
+    expect(r.received).toHaveLength(1); // the init went out
+    act(() => vi.advanceTimersByTime(2999));
+    await flush();
+    expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+    expect(iframe.isConnected).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
+    expect(actions.reportSurfaceFailure).toHaveBeenCalledWith(ID, "no_handshake");
+    expect(onFallback).toHaveBeenCalledWith("no_handshake");
+    expect(iframe.isConnected).toBe(false);
+    expect(screen.getByText(FALLBACK_TEXT)).toBeTruthy();
+  });
+
+  test("after the ack, pings about once a second that get pongs keep the frame (fix round 1, I2)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe } = mount();
+    const r = ready(iframe);
+    await flush();
+    const before = r.pings.length; // a load event may already have pinged
+    for (let s = 0; s < 10; s++) {
+      act(() => vi.advanceTimersByTime(1000));
+      await flush();
+    }
+    expect(r.pings.length - before).toBeGreaterThanOrEqual(9);
+    // Each ping carries a new number.
+    expect(new Set(r.pings).size).toBe(r.pings.length);
+    expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+    expect(iframe.isConnected).toBe(true);
+  });
+
+  test("an interval ping with no pong within 2500 ms falls back (fix round 1, I2)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, onFallback } = mount();
+    const r = ready(iframe);
+    await flush();
+    act(() => vi.advanceTimersByTime(3000));
+    await flush();
+    expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+    // The document stops answering (it navigated away or hung).
+    r.frame.answerPings = false;
+    const sentAt = r.pings.length;
+    act(() => vi.advanceTimersByTime(1000)); // the next interval ping goes out
+    await flush();
+    expect(r.pings.length).toBe(sentAt + 1);
+    act(() => vi.advanceTimersByTime(2499));
+    await flush();
+    expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    await flush();
+    expect(actions.reportSurfaceFailure).toHaveBeenCalledWith(ID, "no_heartbeat");
+    expect(onFallback).toHaveBeenCalledWith("no_heartbeat");
+    expect(iframe.isConnected).toBe(false);
+    expect(screen.getByText(FALLBACK_TEXT)).toBeTruthy();
+  });
+
+  test("a load event pings at once, and no pong falls back even with one load only (fix round 1, I2)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, onFallback } = mount();
+    let loads = 0;
+    iframe.addEventListener("load", () => {
+      loads += 1;
+    });
+    const r = ready(iframe);
+    r.frame.answerPings = false;
+    await flush();
+    if (loads === 0) fireEvent.load(iframe);
+    await flush();
+    expect(loads).toBe(1);
+    expect(r.pings.length).toBeGreaterThanOrEqual(1); // sent on the load, before any interval tick
+    act(() => vi.advanceTimersByTime(2499));
+    await flush();
+    expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    await flush();
+    expect(actions.reportSurfaceFailure).toHaveBeenCalledWith(ID, "no_heartbeat");
+    expect(onFallback).toHaveBeenCalledWith("no_heartbeat");
+    expect(iframe.isConnected).toBe(false);
+  });
+
+  test("a chip swapped in under a press ignores presses for 700 ms (fix round 1, I3)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SKIP_B, "Skip Engineer at Acme"));
+    const { iframe, onIntent } = mount();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await flush();
+    const first = screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    // A fresh chip is not pressable at once either.
+    fireEvent.click(first);
+    expect(onIntent).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(2000));
+    await flush();
+
+    // The pointer is on its way to the first chip; the frame swaps in a second request.
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_B, state: "skipped", reasonCode: "pay" } });
+    await flush();
+    const second = screen.getByRole("button", { name: "Skip Engineer at Acme" });
+    expect(second).not.toBe(first); // a new element, keyed by the request number
+    expect(first.isConnected).toBe(false);
+    fireEvent.click(second);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    fireEvent.click(second);
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(chips()).toHaveLength(1);
+
+    act(() => vi.advanceTimersByTime(1));
+    fireEvent.click(second);
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onIntent).toHaveBeenCalledWith(ID, SKIP_B, "frame");
+    expect(chips()).toHaveLength(0);
+  });
+
   test("the fallback shows the stored variant 1 payload the server returns", async () => {
     const s = surface();
     actions.reportSurfaceFailure.mockResolvedValue(fallbackSurface(s.gathered, "Stored fallback from the server"));
@@ -162,11 +323,25 @@ describe("SandboxFrame", () => {
     expect(screen.getByText(FALLBACK_TEXT)).toBeTruthy();
   });
 
-  test("a second load event blanks the frame and triggers the fallback", async () => {
+  test("a second load event blanks the frame and triggers the fallback; the first alone does not", async () => {
     const { iframe, onFallback } = mount();
-    // jsdom may fire the first load itself; two more make at least a second.
+    // Counted from right after mount, so jsdom's own first load (if it fires one) is seen.
+    let loads = 0;
+    iframe.addEventListener("load", () => {
+      loads += 1;
+    });
+    ready(iframe);
+    await settle();
+    if (loads === 0) fireEvent.load(iframe);
+    await settle();
+    // Fix round 1, M5: exactly one load so far, and it did not fall back.
+    expect(loads).toBe(1);
+    expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+    expect(onFallback).not.toHaveBeenCalled();
+    expect(iframe.isConnected).toBe(true);
+
     fireEvent.load(iframe);
-    fireEvent.load(iframe);
+    expect(loads).toBe(2);
     await waitFor(() => expect(actions.reportSurfaceFailure).toHaveBeenCalledWith(ID, "self_navigation"));
     expect(actions.reportSurfaceFailure).toHaveBeenCalledTimes(1);
     expect(onFallback).toHaveBeenCalledWith("self_navigation");
@@ -227,7 +402,7 @@ describe("SandboxFrame", () => {
     expect(screen.getByText("Reason: Pay")).toBeTruthy();
     expect(onIntent).not.toHaveBeenCalled();
 
-    fireEvent.click(chips()[0]);
+    pressChip(chips()[0]);
     expect(onIntent).toHaveBeenCalledTimes(1);
     expect(onIntent).toHaveBeenCalledWith(ID, SKIP_B, "frame");
     expect(chips()).toHaveLength(0);
@@ -254,7 +429,7 @@ describe("SandboxFrame", () => {
     await screen.findByRole("button", { name: "Compare Staff Engineer at Acme with Engineer at Acme" });
     await settle();
     expect(onIntent).not.toHaveBeenCalled();
-    fireEvent.click(chips()[0]);
+    pressChip(chips()[0]);
     expect(onIntent).toHaveBeenCalledWith(ID, compare, "frame");
   });
 
@@ -294,9 +469,10 @@ describe("SandboxFrame", () => {
     expect(iframe.isConnected).toBe(false);
   });
 
-  test("the chip label ignores every string supplied by the frame", async () => {
-    // The host never builds a label: it sends the frame's name and args to the server and
-    // shows the label the server built from database values (lib/agent/actions/describe.ts).
+  test("the host renders the server's label, not strings from the frame's message", async () => {
+    // This only shows that the host renders the label the server returned (the server is
+    // mocked here). That the label itself ignores the frame's strings is tested where it is
+    // built, in lib/agent/actions/describe.test.ts.
     actions.describeFrameIntentAction.mockResolvedValue(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
     const { iframe, container } = mount();
     const { port } = ready(iframe);

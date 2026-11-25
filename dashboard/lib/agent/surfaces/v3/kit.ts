@@ -27,6 +27,22 @@
 // talk to the host: its window messages are ignored, and only the first ready, which this
 // document posts before any script of the model can run, is accepted.
 //
+// Fix round 1 (I2): the kit acks the first init on the port ({ type: "inited" }, before any
+// onInit callback runs) and answers every { type: "ping", n } with { type: "pong", n }.
+// The host ends its handshake timer only on the ack, and falls back when a ping goes
+// unanswered, so a document that navigated, hung or was replaced is noticed even when no
+// second load event comes.
+//
+// Fix round 1 (I1): before anything else, and so before any model byte runs, the kit
+// removes both CSP meta elements (the policies stay enforced; the hash list can no longer
+// be read), creates the one allowed Trusted Types policy ("default": script URLs throw,
+// script text is refused, frame and script markup throw), makes document.write and
+// writeln throw, and makes createElement and createElementNS refuse frame elements. These
+// locks are non-configurable, so model code cannot put the originals back.
+//
+// Model code must read data inside host.onInit and wire behaviour with classes and
+// addEventListener: there are no inline style attributes or on... handlers under the CSP.
+//
 // KIT_JS holds no URL, no "//" and touches the parent window only through one
 // parent.postMessage (kit.test.ts checks all three, and that the kit itself passes
 // checkV3Static). It accepts the first init only. The host trusts nothing that arrives on
@@ -118,7 +134,56 @@ export const KIT_CSS: string =
 // anywhere in it (the static check reads "//" as a URL), so comments are /* */.
 export const KIT_JS: string = `(function () {
   "use strict";
-  var state = { data: null, theme: "light", inited: false, waiting: [], reported: false, height: -1 };
+  /* First statement, before any byte of the model's code can run: take both CSP meta elements
+     out, so the policy text (and its hash list) cannot be read back. A meta CSP stays
+     enforced after the element is removed. */
+  (function () {
+    var metas = document.querySelectorAll('meta[http-equiv="Content-Security-Policy"]');
+    for (var i = 0; i < metas.length; i++) {
+      if (metas[i].parentNode) metas[i].parentNode.removeChild(metas[i]);
+    }
+  })();
+
+  /* Trusted Types (the second policy requires them for script sinks): the only allowed policy
+     is this default one, created here before the model's code runs. Script URLs always throw,
+     script text is refused, and HTML passes unless it would make a nested frame or a script. */
+  var FRAME_MARKUP_RE = /<(?:script|iframe|frame|object|embed|portal|fencedframe)\\b/i;
+  if (window.trustedTypes && typeof window.trustedTypes.createPolicy === "function") {
+    try {
+      window.trustedTypes.createPolicy("default", {
+        createHTML: function (s) {
+          s = String(s);
+          if (FRAME_MARKUP_RE.test(s)) throw new TypeError("markup for scripts and frames is blocked");
+          return s;
+        },
+        createScript: function () { return null; },
+        createScriptURL: function () { throw new TypeError("script URLs are blocked"); }
+      });
+    } catch (err) { /* a policy already exists: nothing more to add */ }
+  }
+
+  /* No document.write, and no nested browsing contexts made through createElement. */
+  function deny() { throw new TypeError("not available in this view"); }
+  function lock(proto, name, value) {
+    try { Object.defineProperty(proto, name, { value: value, writable: false, configurable: false }); } catch (err) { /* already locked */ }
+  }
+  var BLOCKED_ELEMENTS = { iframe: 1, frame: 1, object: 1, embed: 1, portal: 1, fencedframe: 1 };
+  function guardCreate(name, nameArg) {
+    var original = Document.prototype[name];
+    if (typeof original !== "function") return;
+    lock(Document.prototype, name, function () {
+      var tag = String(arguments[nameArg] == null ? "" : arguments[nameArg]).toLowerCase();
+      tag = tag.slice(tag.lastIndexOf(":") + 1);
+      if (Object.prototype.hasOwnProperty.call(BLOCKED_ELEMENTS, tag)) throw new TypeError(tag + " elements are blocked");
+      return original.apply(this, arguments);
+    });
+  }
+  lock(Document.prototype, "write", deny);
+  lock(Document.prototype, "writeln", deny);
+  guardCreate("createElement", 0);
+  guardCreate("createElementNS", 1);
+
+  var state ={ data: null, theme: "light", inited: false, waiting: [], reported: false, height: -1 };
   var CHART_POINTS_MAX = 50;
   var LABEL_MAX = 40;
   var channel = new MessageChannel();
@@ -149,11 +214,19 @@ export const KIT_JS: string = `(function () {
   }
   port.onmessage = function (e) {
     var m = e.data;
-    if (state.inited || !m || typeof m !== "object" || m.type !== "init") return;
+    if (!m || typeof m !== "object") return;
+    /* Liveness: the host pings over the port and expects the same number back. */
+    if (m.type === "ping") {
+      post({ type: "pong", n: typeof m.n === "number" && isFinite(m.n) ? m.n : 0 });
+      return;
+    }
+    if (state.inited || m.type !== "init") return;
     state.inited = true;
     state.data = m.data === undefined ? null : m.data;
     state.theme = m.theme === "dark" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", state.theme);
+    /* The ack goes out before any onInit callback runs, so a slow callback cannot hold it. */
+    post({ type: "inited" });
     var waiting = state.waiting;
     state.waiting = [];
     for (var i = 0; i < waiting.length; i++) run(waiting[i]);

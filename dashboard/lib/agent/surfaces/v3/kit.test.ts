@@ -69,6 +69,42 @@ describe("variant 3 kit script", () => {
     expect(KIT_JS.slice(0, at)).not.toMatch(/addEventListener\("(?:DOMContentLoaded|load)"/);
   });
 
+  test("removing both CSP metas is the kit's first statement (fix round 1, I1)", () => {
+    const strict = KIT_JS.indexOf('"use strict";');
+    const removal = KIT_JS.indexOf("document.querySelectorAll('meta[http-equiv=\"Content-Security-Policy\"]')");
+    expect(strict).toBeGreaterThan(0);
+    expect(removal).toBeGreaterThan(strict);
+    // Between them: comments and the opening of the removal's own function, nothing else.
+    const between = KIT_JS.slice(strict + '"use strict";'.length, removal).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(between).toMatch(/^\s*\(function \(\) \{\s*var metas = $/);
+    // And it comes before everything else the kit does.
+    for (const later of ["trustedTypes", "Document.prototype", "var state", "new MessageChannel", "parent.postMessage("]) {
+      expect({ later, after: KIT_JS.indexOf(later) > removal }).toEqual({ later, after: true });
+    }
+  });
+
+  test("the kit is the first script of the built document, right after both CSP metas", () => {
+    const doc = buildSandboxDocument({ html: "<script>a()</script>", nonce: "AAAAAAAAAAAAAAAAAAAAAAAA", kitJs: KIT_JS, kitCss: KIT_CSS });
+    const firstScript = doc.indexOf("<script");
+    // The script opens with its hash salt comment, then the kit.
+    expect(doc.slice(firstScript)).toMatch(/^<script nonce="[^"]+">\/\*[A-Za-z0-9+/=]+\*\/\(function \(\) \{\n {2}"use strict";/);
+    const metas = [...doc.matchAll(/<meta http-equiv="Content-Security-Policy"/g)].map((m) => m.index!);
+    expect(metas).toHaveLength(2);
+    for (const at of metas) expect(at).toBeLessThan(firstScript);
+  });
+
+  test("the second CSP requires Trusted Types and allows only the kit's default policy", () => {
+    const doc = buildSandboxDocument({ html: "<p>x</p>", nonce: "AAAAAAAAAAAAAAAAAAAAAAAA", kitJs: KIT_JS, kitCss: KIT_CSS });
+    const policies = [...doc.matchAll(/http-equiv="Content-Security-Policy" content="([^"]*)"/g)].map((m) => m[1]);
+    expect(policies[1]).toMatch(/; require-trusted-types-for 'script'; trusted-types default$/);
+    expect(KIT_JS).toContain('createPolicy("default"');
+  });
+
+  test("the kit acknowledges init and answers pings over the port (fix round 1, I2)", () => {
+    expect(KIT_JS).toContain('post({ type: "inited" });');
+    expect(KIT_JS).toContain('post({ type: "pong", n:');
+  });
+
   test("KIT_JS parses as a script", () => {
     expect(() => new Function(KIT_JS)).not.toThrow();
   });

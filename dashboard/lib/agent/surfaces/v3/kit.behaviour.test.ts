@@ -46,13 +46,78 @@ function init(data: unknown, theme: string) {
 }
 const tick = () => new Promise((r) => setTimeout(r, 20));
 
+// jsdom has no Trusted Types, so a stand-in records the policy the kit creates.
+interface DefaultPolicyRules {
+  createHTML(s: string): string;
+  createScript(s: string): string | null;
+  createScriptURL(s: string): string;
+}
+const policies: Array<[string, DefaultPolicyRules]> = [];
+const cspMetasAtPolicy: number[] = [];
+
 beforeAll(() => {
   window.addEventListener("message", record);
+  // The document as buildSandboxDocument writes it: two CSP metas, then the other metas.
+  document.head.innerHTML =
+    '<meta http-equiv="Content-Security-Policy" content="script-src \'nonce-AAAA\'">' +
+    '<meta http-equiv="Content-Security-Policy" content="script-src \'sha256-AAAA\'">' +
+    '<meta http-equiv="x-dns-prefetch-control" content="off">' +
+    '<meta name="referrer" content="no-referrer">';
+  Reflect.set(window, "trustedTypes", {
+    createPolicy(name: string, rules: DefaultPolicyRules) {
+      // What the kit has done by the time it creates the policy: the metas are already gone.
+      cspMetasAtPolicy.push(document.querySelectorAll('meta[http-equiv="Content-Security-Policy"]').length);
+      policies.push([name, rules]);
+      return {};
+    },
+  });
   new Function("parent", KIT_JS)(fakeParent);
 });
 afterAll(() => {
   window.removeEventListener("message", record);
   port?.close();
+});
+
+describe("what the kit locks before the model's code runs (fix round 1, I1)", () => {
+  test("both CSP meta elements are removed, and only those", () => {
+    expect(document.querySelectorAll('meta[http-equiv="Content-Security-Policy"]')).toHaveLength(0);
+    expect(document.head.innerHTML).not.toContain("sha256-AAAA");
+    expect(document.head.innerHTML).not.toContain("nonce-AAAA");
+    expect(document.querySelector('meta[name="referrer"]')).not.toBeNull();
+    expect(document.querySelector('meta[http-equiv="x-dns-prefetch-control"]')).not.toBeNull();
+    // They were already gone when the kit's next step (the Trusted Types policy) ran.
+    expect(cspMetasAtPolicy).toEqual([0]);
+  });
+
+  test("one default Trusted Types policy: script URLs throw, script text is refused, frame markup throws", () => {
+    expect(policies.map(([name]) => name)).toEqual(["default"]);
+    const rules = policies[0][1];
+    expect(() => rules.createScriptURL("x.js")).toThrow();
+    expect(() => rules.createScriptURL("")).toThrow();
+    expect(rules.createScript("alert(1)")).toBeNull();
+    expect(rules.createHTML("<svg></svg>")).toBe("<svg></svg>");
+    expect(rules.createHTML("<p class=\"a\">x</p>")).toBe("<p class=\"a\">x</p>");
+    for (const bad of ["<script>x</script>", "<SCRIPT src=x>", "<iframe srcdoc=x>", "<frame>", "<object>", "<embed>", "<portal>", "<fencedframe>"]) {
+      expect(() => rules.createHTML(bad), bad).toThrow();
+    }
+  });
+
+  test("document.write and writeln throw and cannot be put back", () => {
+    expect(() => document.write("<p>x</p>")).toThrow();
+    expect(() => document.writeln("<p>x</p>")).toThrow();
+    expect(() => Object.defineProperty(Document.prototype, "write", { value: () => {} })).toThrow();
+  });
+
+  test("createElement and createElementNS refuse nested frames, in this document and any other", () => {
+    for (const tag of ["iframe", "IFRAME", "frame", "object", "embed", "portal", "fencedframe"]) {
+      expect(() => document.createElement(tag), tag).toThrow();
+    }
+    expect(() => document.createElementNS("http://www.w3.org/1999/xhtml", "iframe")).toThrow();
+    expect(() => document.createElementNS("http://www.w3.org/1999/xhtml", "html:iframe")).toThrow();
+    expect(() => document.implementation.createHTMLDocument("x").createElement("iframe")).toThrow();
+    expect(document.createElement("div").tagName).toBe("DIV");
+    expect(document.createElementNS("http://www.w3.org/2000/svg", "svg").localName).toBe("svg");
+  });
 });
 
 describe("the kit in a document", () => {
@@ -82,6 +147,24 @@ describe("the kit in a document", () => {
     const late: unknown[] = [];
     host().onInit((data) => late.push(data));
     expect(late).toEqual([{ jobs: {} }]);
+    // Fix round 1, I2: exactly one inited ack, for the first init only.
+    expect(ofType("inited")).toEqual([{ type: "inited" }]);
+  });
+
+  test("the inited ack goes out before any onInit callback runs", () => {
+    const order = onPort.map((m) => (m && typeof m === "object" && "type" in m ? m.type : null));
+    const ack = order.indexOf("inited");
+    expect(ack).toBeGreaterThanOrEqual(0);
+    // Nothing a callback could post (an action or an error) comes before it.
+    expect(order.slice(0, ack).filter((t) => t === "action" || t === "error")).toEqual([]);
+  });
+
+  test("every ping on the port gets a pong with the same number (fix round 1, I2)", async () => {
+    port!.postMessage({ type: "ping", n: 4 });
+    port!.postMessage({ type: "ping", n: 5 });
+    port!.postMessage({ type: "ping", n: "x" });
+    await vi.waitFor(() => expect(ofType("pong")).toHaveLength(3));
+    expect(ofType("pong")).toEqual([{ type: "pong", n: 4 }, { type: "pong", n: 5 }, { type: "pong", n: 0 }]);
   });
 
   test("a jb-button press posts its action on the port and nothing else happens", async () => {

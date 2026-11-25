@@ -18,8 +18,10 @@ function intentOf(raw: unknown) {
 }
 
 describe("parseFrameMessage", () => {
-  test("accepts the four kinds", () => {
+  test("accepts the six kinds", () => {
     expect(parseFrameMessage({ type: "ready" })).toEqual({ type: "ready" });
+    expect(parseFrameMessage({ type: "inited" })).toEqual({ type: "inited" });
+    expect(parseFrameMessage({ type: "pong", n: 3 })).toEqual({ type: "pong", n: 3 });
     expect(parseFrameMessage({ type: "resize", height: 300 })).toEqual({ type: "resize", height: 300 });
     expect(parseFrameMessage({ type: "action", name: "open", args: { target: "shortlist" } })).toEqual({
       type: "action",
@@ -53,6 +55,13 @@ describe("parseFrameMessage", () => {
       { type: "action", name: "open", args: {}, label: "Shortlist" },
       { type: "error", message: "x".repeat(501) },
       { type: "error" },
+      { type: "inited", n: 1 },
+      { type: "pong" },
+      { type: "pong", n: -1 },
+      { type: "pong", n: 1.5 },
+      { type: "pong", n: "1" },
+      { type: "pong", n: 1, extra: 1 },
+      { type: "ping", n: 1 },
     ];
     for (const raw of bad) expect(parseFrameMessage(raw)).toBeNull();
 
@@ -93,12 +102,13 @@ describe("frameIntent", () => {
 });
 
 describe("client safety", () => {
-  test("bridge, document and kit import nothing a browser bundle cannot hold", () => {
-    for (const file of ["bridge.ts", "document.ts", "kit.ts", "kitTokens.ts", "sha256.ts"]) {
+  test("bridge, document, kit and mount import nothing a browser bundle cannot hold", () => {
+    const allowed = ["zod", "@/lib/agent/surfaces/v3/sha256", "@/lib/agent/surfaces/v3/kitTokens", "@/lib/agent/surfaces/v3/document"];
+    for (const file of ["bridge.ts", "document.ts", "kit.ts", "kitTokens.ts", "sha256.ts", "mount.ts"]) {
       const source = readFileSync(join(__dirname, file), "utf8");
       const imports = [...source.matchAll(/^import (type )?[^;]*from "([^"]+)";/gm)].filter((m) => !m[1]).map((m) => m[2]);
       for (const spec of imports) {
-        expect({ file, spec, ok: ["zod", "@/lib/agent/surfaces/v3/sha256", "@/lib/agent/surfaces/v3/kitTokens"].includes(spec) }).toEqual({ file, spec, ok: true });
+        expect({ file, spec, ok: allowed.includes(spec) }).toEqual({ file, spec, ok: true });
       }
     }
   });
@@ -116,5 +126,12 @@ describe("HostToFrameSchema", () => {
     expect(HostToFrameSchema.safeParse({ type: "init", data: { jobs: {} }, theme: "dark" }).success).toBe(true);
     expect(HostToFrameSchema.safeParse({ type: "init", data: {}, theme: "blue" }).success).toBe(false);
     expect(HostToFrameSchema.safeParse({ type: "init", data: {}, theme: "light", extra: 1 }).success).toBe(false);
+  });
+
+  test("or a strict ping with a whole number", () => {
+    expect(HostToFrameSchema.safeParse({ type: "ping", n: 1 }).success).toBe(true);
+    expect(HostToFrameSchema.safeParse({ type: "ping", n: 1.5 }).success).toBe(false);
+    expect(HostToFrameSchema.safeParse({ type: "ping" }).success).toBe(false);
+    expect(HostToFrameSchema.safeParse({ type: "ping", n: 1, extra: 1 }).success).toBe(false);
   });
 });

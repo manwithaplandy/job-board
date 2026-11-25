@@ -84,6 +84,21 @@ describe("checkV3Static", () => {
     }
   });
 
+  test("SVG animation that targets href or xlink:href is refused (fix round 1, M4)", () => {
+    const refusal = "html: SVG animation of href or xlink:href is not allowed";
+    for (const bad of [
+      '<svg><a><animate attributeName="href" to="x"/>x</a></svg>',
+      '<svg><a><set attributeName="xlink:href" to="x"/>x</a></svg>',
+      '<svg><a><animateTransform attributeName="HREF" to="x"/>x</a></svg>',
+      '<svg><a><animateMotion attributeName=" href " to="x"/>x</a></svg>',
+      '<svg><a><set attributeName="&#104;ref" to="x"/>x</a></svg>',
+      '<svg><a><set attributeName="xlink&#58;href" to="x"/>x</a></svg>',
+    ]) {
+      expect(checkV3Static(bad), bad).toContain(refusal);
+    }
+    expect(checkV3Static('<svg><rect><animate attributeName="opacity" from="0" to="1" dur="1s"/></rect></svg>')).toEqual([]);
+  });
+
   test("identifiers are matched as case-sensitive words, so prose like 'Location' and data keys like preferredLocations pass", () => {
     expect(checkV3Static("<p>Location: Remote</p><script>var l = host.data.profile.preferredLocations;</script>")).toEqual([]);
     expect(checkV3Static("<script>var x = document.location;</script>")).toEqual(["html: location is not allowed"]);
@@ -160,8 +175,11 @@ describe("buildSandboxDocument", () => {
     const salt = `/*${NONCE}*/`;
     const scripts = [KIT.kitJs, "a()", "b()"].map((s) => `'sha256-${sha(salt + s)}'`).join(" ");
     const styles = [KIT.kitCss, "p{}"].map((s) => `'sha256-${sha(salt + s)}'`).join(" ");
-    expect(policies[1]).toBe(`script-src ${scripts}; style-src ${styles}`);
-    expect(policies[1]).not.toMatch(/nonce|https?:|\*/);
+    // Fix round 1, I1: Trusted Types are required, and the only policy allowed is "default".
+    expect(policies[1]).toBe(
+      `script-src ${scripts}; style-src ${styles}; require-trusted-types-for 'script'; trusted-types default`,
+    );
+    expect(policies[1]).not.toMatch(/nonce|https?:|\*|allow-duplicates/);
     // The hashes are of the element text exactly as the document holds it.
     for (const m of doc.matchAll(/<script nonce="[^"]*">([\s\S]*?)<\/script>/g)) expect(policies[1]).toContain(sha(m[1]));
   });
@@ -252,5 +270,27 @@ describe("sandboxSnapshot", () => {
     // A copy: changing it leaves the gathered data alone.
     snap.metrics.length = 0;
     expect(g.metrics.length).toBe(2);
+  });
+
+  test("the memo is copied field by field and its free-text other field is left out (fix round 1, M2)", () => {
+    const g = richGathered();
+    const memo = {
+      role: "Staff engineer", locations: "Remote", compensation: "200k", mustHaves: "Go", dealBreakers: "On call",
+      companies: "Acme", other: "call me on 555 0100",
+    };
+    (memo as Record<string, unknown>).later = "a field added later";
+    g.memo = memo;
+    const snap = sandboxSnapshot(g);
+    expect(snap.memo).toEqual({
+      role: "Staff engineer", locations: "Remote", compensation: "200k", mustHaves: "Go", dealBreakers: "On call", companies: "Acme",
+    });
+    expect(JSON.stringify(snap)).not.toContain("555 0100");
+    expect(sandboxSnapshot({ ...g, memo: null }).memo).toBeNull();
+  });
+
+  test("metrics are copied field by field, so an added field does not reach the frame", () => {
+    const g = richGathered();
+    (g.metrics[0] as unknown as Record<string, unknown>).internal = "not for the frame";
+    expect(JSON.stringify(sandboxSnapshot(g))).not.toContain("not for the frame");
   });
 });

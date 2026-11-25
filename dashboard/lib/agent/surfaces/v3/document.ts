@@ -13,20 +13,43 @@
 //   2. a hash policy: script-src and style-src list the SHA-256 of every inline script and
 //      style element this builder emitted (kit and model), each salted with the per-build
 //      nonce so no hash is known ahead of the build.
+//      Policy 2 also requires Trusted Types and allows only a policy named "default",
+//      which the kit creates first: it passes HTML through unless it would create a
+//      script or a frame, and refuses every script text and script URL.
 // Policy 2 is stricter than the plan (PR J2). With policy 1 alone, model script can read
 // the nonce (document.currentScript.nonce, or the CSP meta's content) and give it to a
 // script element it creates with any src, and a nonce'd script's dynamic import() inherits
 // the nonce; either is a request to any URL. Policy 2 has no nonce and no URL source, so
-// such a script is refused. What it does not close, in browsers that let a matching
-// `integrity` hash admit an external script (CSP3), is script that hashes its own text at
-// run time and sets that integrity on a new script; Task 2.7 tests that case.
+// such a script is refused.
+//
+// What is left (fix round 1, I1). Browsers that apply CSP3's rule that a hash source also
+// admits an external script whose `integrity` matches it would let model script that
+// knows a listed hash load a script from any URL, as often as it likes, without a
+// navigation. The kit narrows that: as its first statement, before any model byte runs, it
+// removes both CSP meta elements (a policy stays in force once applied), so the hash list
+// cannot be copied from the DOM; and in browsers with Trusted Types every script URL
+// assignment throws (createElement('script') then src) and document.write is disabled.
+// Still open, all for Task 2.7 to measure per browser:
+//   - a browser with that CSP3 rule but no Trusted Types, where script computes the hash
+//     of its own salted text at run time (crypto.subtle) and sets src with integrity;
+//   - a child realm (a nested frame) made by a path the kit's guards miss: the kit refuses
+//     frame elements in createElement, createElementNS and its default policy's createHTML,
+//     but a browser without Trusted Types still parses frame markup from innerHTML, and any
+//     child realm has its own document.write and may register its own default policy;
+//   - self-navigation (spec 10's accepted one-request residual; SandboxFrame tears the
+//     frame down on a second load or a missed liveness reply).
+// Nonce hiding means getAttribute("nonce") reads empty, but the nonce IDL attribute and
+// document.currentScript.nonce still expose it to model script, so policy 1 alone is
+// never enough.
 //
 // Script elements with a src, href or integrity attribute, or a type other than classic
 // JavaScript, get no nonce and no hash, so both policies refuse them; checkV3Static
 // rejects them too.
 import { z } from "zod";
 import type { GatheredData } from "@/lib/agent/gathered";
-import type { DocumentMeta, MemoDoc, MetricResult, ReviewFacts, ShortlistRow, ApplicationRow, JobFacts } from "@/lib/workspaces/types";
+import type {
+  DocumentMeta, MemoDoc, MetricResult, MetricSpec, ReviewFacts, ShortlistRow, ApplicationRow, JobFacts,
+} from "@/lib/workspaces/types";
 import { sha256Base64 } from "@/lib/agent/surfaces/v3/sha256";
 
 export const V3_LIMITS = { maxBytes: 60_000, handshakeMs: 3000, maxHeightPx: 1200 } as const;
@@ -247,6 +270,17 @@ const IDENTIFIER_PATTERNS: Array<[RegExp, string]> = [
   [/\bintegrity\b/, "integrity"],
 ];
 
+// SVG animation elements can set an attribute after load, so <animate attributeName="href">
+// would make a link the href check never saw (fix round 1, M4).
+const SVG_ANIMATION_TAGS: ReadonlySet<string> = new Set(["animate", "set", "animatetransform", "animatemotion", "animatecolor"]);
+
+function animatesHref(tag: HtmlStartTag): boolean {
+  const attr = tag.attrs.find((a) => a.name === "attributename");
+  if (!attr || attr.value === null) return false;
+  const target = decodeRefs(attr.value).trim().toLowerCase();
+  return target === "href" || target === "xlink:href" || target.endsWith(":href");
+}
+
 const NAMED_REFS: Record<string, string> = { colon: ":", sol: "/", period: ".", tab: "", newline: "", lpar: "(", rpar: ")" };
 
 /** Character references decoded (numeric, and the few named ones a URL could hide behind). */
@@ -293,6 +327,10 @@ export function checkV3Static(html: string): string[] {
 
   const refusals = new Set<string>();
   for (const tag of scanStartTags(html)) {
+    if (SVG_ANIMATION_TAGS.has(tag.name) && animatesHref(tag)) {
+      refusals.add("html: SVG animation of href or xlink:href is not allowed");
+      continue;
+    }
     if (tag.name !== "script") continue;
     const why = scriptRefusal(tag);
     if (why) refusals.add(`html: ${why} is not allowed; write inline classic scripts only`);
@@ -377,7 +415,9 @@ export function buildSandboxDocument(a: { html: string; nonce: string; kitJs: st
   }
   body += a.html.slice(cursor);
 
-  const hashPolicy = `script-src ${hashSources(scriptHashes)}; style-src ${hashSources(styleHashes)}`;
+  const hashPolicy =
+    `script-src ${hashSources(scriptHashes)}; style-src ${hashSources(styleHashes)}; ` +
+    `require-trusted-types-for 'script'; trusted-types default`;
   return (
     "<!doctype html>" +
     `<meta http-equiv="Content-Security-Policy" content="${sandboxCsp(a.nonce)}">` +
@@ -411,6 +451,7 @@ export interface SandboxJob {
 }
 
 export type SandboxReview = ReviewFacts;
+export type SandboxMemo = Omit<MemoDoc, "other">;
 
 export interface SandboxSnapshot {
   profile: {
@@ -423,7 +464,7 @@ export interface SandboxSnapshot {
   } | null;
   jobs: Record<string, SandboxJob>;
   reviews: Record<string, SandboxReview>;
-  memo: MemoDoc | null;
+  memo: SandboxMemo | null;
   shortlist: Array<Pick<ShortlistRow, "jobId" | "state" | "reasonCode" | "briefWhy" | "briefRisk" | "setBy" | "updatedAt" | "fitScore"> & { job: SandboxJob }>;
   applications: Array<
     Pick<ApplicationRow, "jobId" | "stage" | "closedReason" | "nextStepOn" | "updatedAt" | "documents"> & {
@@ -440,11 +481,40 @@ function sandboxJob(j: JobFacts): SandboxJob {
 }
 
 /**
+ * The memo's six named preference fields, copied one by one. They are free text, but each
+ * is the user's own answer to a fixed question (role, places, pay, must-haves, deal
+ * breakers, companies), which is what a "what you're looking for" view draws, so they are
+ * kept. `other` is left out: it is the memo's catch-all free text, the field most likely
+ * to hold contact or personal details, and no view needs it (fix round 1, M2).
+ */
+function sandboxMemo(m: MemoDoc): SandboxMemo {
+  return {
+    role: m.role, locations: m.locations, compensation: m.compensation,
+    mustHaves: m.mustHaves, dealBreakers: m.dealBreakers, companies: m.companies,
+  };
+}
+
+function sandboxMetric(m: MetricResult): MetricResult {
+  const spec: MetricSpec = { metric: m.spec.metric, window: m.spec.window };
+  if (m.spec.groupBy !== undefined) spec.groupBy = m.spec.groupBy;
+  if (m.spec.filter !== undefined) spec.filter = m.spec.filter.stage === undefined ? {} : { stage: [...m.spec.filter.stage] };
+  switch (m.kind) {
+    case "value":
+      return { spec, n: m.n, kind: "value", value: m.value, ...(m.delta === undefined ? {} : { delta: m.delta }) };
+    case "series":
+      return { spec, n: m.n, kind: "series", points: m.points.map((p) => ({ x: p.x, y: p.y })) };
+    case "rows":
+      return { spec, n: m.n, kind: "rows", columns: [...m.columns], rows: m.rows.map((r) => [...r]) };
+  }
+}
+
+/**
  * The data the frame gets (plan Task 2.4, spec 10 mitigation (d)): built field by field
  * from the gathered data, so a field added to GatheredData later is left out until it is
  * added here. Left out: the profile's name; posting URLs; skip reason text and
- * application notes (the user's free text, which can hold contact details); application
- * and document ids; document filenames. EEO fields are never in gathered data.
+ * application notes (the user's free text, which can hold contact details); the memo's
+ * `other` field; application and document ids; document filenames. EEO fields are never
+ * in gathered data.
  */
 export function sandboxSnapshot(g: GatheredData): SandboxSnapshot {
   const jobs: Record<string, SandboxJob> = {};
@@ -466,17 +536,17 @@ export function sandboxSnapshot(g: GatheredData): SandboxSnapshot {
     },
     jobs,
     reviews,
-    memo: g.memo === null ? null : { ...g.memo },
+    memo: g.memo === null ? null : sandboxMemo(g.memo),
     shortlist: g.shortlist.map((s) => ({
       jobId: s.jobId, state: s.state, reasonCode: s.reasonCode, briefWhy: s.briefWhy, briefRisk: s.briefRisk,
       setBy: s.setBy, updatedAt: s.updatedAt, fitScore: s.fitScore, job: sandboxJob(s.job),
     })),
     applications: g.applications.map((a) => ({
       jobId: a.jobId, stage: a.stage, closedReason: a.closedReason, nextStepOn: a.nextStepOn, updatedAt: a.updatedAt,
-      documents: { ...a.documents }, job: sandboxJob(a.job),
+      documents: { resume: a.documents.resume, cover: a.documents.cover, outdated: a.documents.outdated }, job: sandboxJob(a.job),
       events: a.events.map((e) => ({ kind: e.kind, fromStage: e.fromStage, toStage: e.toStage, actor: e.actor, createdAt: e.createdAt })),
     })),
     documents: g.documents.map((d) => ({ kind: d.kind, mime: d.mime, bytes: d.bytes, extraction: d.extraction, createdAt: d.createdAt })),
-    metrics: g.metrics.map((m) => structuredClone(m)),
+    metrics: g.metrics.map(sandboxMetric),
   };
 }

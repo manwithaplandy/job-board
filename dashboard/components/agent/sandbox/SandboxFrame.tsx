@@ -12,6 +12,12 @@
 //     because it navigated, hung, or was replaced (fix round 1, I2);
 //   - an error message (frame_error);
 //   - a second load event, which is the frame navigating itself (self_navigation);
+//   - a navigating message from the kit (self_navigation, Task 2.7 CI run 2): the document
+//     fired beforeunload or a navigate event to another document. WebKit never commits a
+//     navigation whose response never finishes, so neither a second load nor a missed pong
+//     would come. The message is ignored within FRAME_LIVENESS.hostLeavingGraceMs of this
+//     page's own beforeunload or pagehide, because a page that unloads fires beforeunload
+//     in its frames too;
 //   - more than 10 action messages in a minute or 30 in all (action_rate_limit,
 //     action_total_limit).
 // Every fallback removes the frame first, so nothing in it keeps running.
@@ -155,12 +161,18 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
     let timer = 0;
     let pingTimer = 0;
     let pongTimer = 0;
+    let hostLeavingAt = Number.NEGATIVE_INFINITY;
+    const onHostLeaving = () => {
+      hostLeavingAt = Date.now();
+    };
 
     function teardown() {
       window.clearTimeout(timer);
       window.clearInterval(pingTimer);
       window.clearTimeout(pongTimer);
       window.removeEventListener("message", onWindowMessage);
+      window.removeEventListener("beforeunload", onHostLeaving, true);
+      window.removeEventListener("pagehide", onHostLeaving, true);
       iframe.removeEventListener("load", onLoad);
       if (live.port) {
         live.port.onmessage = null;
@@ -240,6 +252,10 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
         fail("frame_error");
       } else if (msg.type === "action") {
         onAction(msg);
+      } else if (msg.type === "navigating") {
+        // This page is unloading itself, so its frames were told to unload too: not a failure.
+        if (Date.now() - hostLeavingAt < FRAME_LIVENESS.hostLeavingGraceMs) return;
+        fail("self_navigation");
       }
       // A ready on the port is ignored: the handshake is over.
     }
@@ -287,6 +303,8 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
     iframe.srcdoc = srcdoc;
     iframe.addEventListener("load", onLoad);
     window.addEventListener("message", onWindowMessage);
+    window.addEventListener("beforeunload", onHostLeaving, true);
+    window.addEventListener("pagehide", onHostLeaving, true);
     timer = window.setTimeout(() => {
       if (!live.inited) fail("no_handshake");
     }, V3_LIMITS.handshakeMs);

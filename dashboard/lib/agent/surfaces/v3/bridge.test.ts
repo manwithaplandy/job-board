@@ -18,7 +18,8 @@ function intentOf(raw: unknown) {
 }
 
 describe("parseFrameMessage", () => {
-  test("accepts the six kinds", () => {
+  test("accepts the seven kinds", () => {
+    expect(parseFrameMessage({ type: "navigating" })).toEqual({ type: "navigating" });
     expect(parseFrameMessage({ type: "ready" })).toEqual({ type: "ready" });
     expect(parseFrameMessage({ type: "inited" })).toEqual({ type: "inited" });
     expect(parseFrameMessage({ type: "pong", n: 3 })).toEqual({ type: "pong", n: 3 });
@@ -62,6 +63,8 @@ describe("parseFrameMessage", () => {
       { type: "pong", n: "1" },
       { type: "pong", n: 1, extra: 1 },
       { type: "ping", n: 1 },
+      { type: "navigating", url: "x" },
+      { type: "navigating", via: "beforeunload" },
     ];
     for (const raw of bad) expect(parseFrameMessage(raw)).toBeNull();
 

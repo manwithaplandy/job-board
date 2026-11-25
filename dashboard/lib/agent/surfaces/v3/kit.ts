@@ -45,6 +45,14 @@
 // The kit now also replaces the WebRTC constructors and window.open with locked functions
 // that throw, and createElement and createElementNS refuse link, meta and base too.
 //
+// Task 2.7, CI run 2: WebKit opened a bare TCP connection in the old window-open case, and
+// kept a document alive whose navigation never finished. The kit now cancels any click on
+// an element with an href (capture phase, on the window, first), strips href from elements
+// as they are added, forces shadow roots open so neither check misses one, and posts
+// { type: "navigating" } on the port on beforeunload and on the Navigation API's navigate
+// event to another document; the host tears down on it. The natives these use, and the
+// port's postMessage, are taken before model code runs, so it cannot replace them.
+//
 // Model code must read data inside host.onInit and wire behaviour with classes and
 // addEventListener: there are no inline style attributes or on... handlers under the CSP.
 //
@@ -216,14 +224,113 @@ export const KIT_JS: string = `(function () {
   lock(window, "open", deny);
   if (globalProto && Object.prototype.hasOwnProperty.call(globalProto, "open")) lock(globalProto, "open", deny);
 
+  /* Task 2.7, CI run 2: links. The static check refuses href attributes in the markup, but
+     model script can still give an element one at run time and click it. So every click and
+     auxclick is seen first, in the capture phase on the window (before any listener the
+     model can add), and one whose path holds an element with an href is cancelled: no link
+     is followed, in any target. And an observer strips href from every element as it is
+     added or given one, so no link stays around to be hovered, pressed or preconnected.
+     Shadow roots are made open and observed too, so no link hides in one; declarative
+     shadow roots are refused by the static check, and the two parsers that make them at run
+     time throw. Every native used later is taken now, before model code can replace it. */
+  var uncurry = deny.bind.bind(deny.call);
+  function getterOf(proto, name) {
+    var d = proto ? Object.getOwnPropertyDescriptor(proto, name) : null;
+    return d && typeof d.get === "function" ? uncurry(d.get) : null;
+  }
+  var cancelEvent = uncurry(Event.prototype.preventDefault);
+  var eventPath = uncurry(Event.prototype.composedPath);
+  var nodeTypeOf = getterOf(Node.prototype, "nodeType");
+  var attributeNames = uncurry(Element.prototype.getAttributeNames);
+  var dropAttribute = uncurry(Element.prototype.removeAttribute);
+  var findAll = uncurry(Element.prototype.querySelectorAll);
+  var listLength = getterOf(NodeList.prototype, "length");
+  var lowerCase = uncurry("".toLowerCase);
+  var sliceText = uncurry("".slice);
+  function isElement(node) {
+    try { return nodeTypeOf(node) === 1; } catch (err) { return false; }
+  }
+  /* The names of an element's link attributes: href, and any prefixed href such as xlink:href. */
+  function linkAttributes(el) {
+    var names;
+    try { names = attributeNames(el); } catch (err) { return []; }
+    var out = [];
+    for (var i = 0; i < names.length; i++) {
+      var n = lowerCase(names[i]);
+      if (n === "href" || sliceText(n, -5) === ":href") out[out.length] = names[i];
+    }
+    return out;
+  }
+  function stripLinks(el) {
+    var names = linkAttributes(el);
+    for (var i = 0; i < names.length; i++) {
+      try { dropAttribute(el, names[i]); } catch (err) { /* nothing more to do */ }
+    }
+  }
+  function stripTree(el) {
+    stripLinks(el);
+    var found;
+    try { found = findAll(el, "[*|href]"); } catch (err) { return; }
+    var n = listLength(found);
+    for (var i = 0; i < n; i++) stripLinks(found[i]);
+  }
+  function guardLink(e) {
+    var path;
+    try { path = eventPath(e); } catch (err) { return; }
+    for (var i = 0; i < path.length; i++) {
+      if (isElement(path[i]) && linkAttributes(path[i]).length > 0) { cancelEvent(e); return; }
+    }
+  }
+  window.addEventListener("click", guardLink, true);
+  window.addEventListener("auxclick", guardLink, true);
+
+  var WATCH = { subtree: true, childList: true, attributes: true, attributeFilter: ["href"] };
+  var watcher = null;
+  var watch = null;
+  if (typeof MutationObserver === "function") {
+    var recordType = getterOf(MutationRecord.prototype, "type");
+    var recordTarget = getterOf(MutationRecord.prototype, "target");
+    var recordAdded = getterOf(MutationRecord.prototype, "addedNodes");
+    watcher = new MutationObserver(function (records) {
+      for (var i = 0; i < records.length; i++) {
+        var r = records[i];
+        if (recordType(r) === "attributes") { stripLinks(recordTarget(r)); continue; }
+        var added = recordAdded(r);
+        var n = listLength(added);
+        for (var j = 0; j < n; j++) if (isElement(added[j])) stripTree(added[j]);
+      }
+    });
+    watch = uncurry(MutationObserver.prototype.observe);
+    watch(watcher, document, WATCH);
+  }
+  var attachShadowNative = Element.prototype.attachShadow;
+  if (typeof attachShadowNative === "function") {
+    var attachShadowCall = uncurry(attachShadowNative);
+    lock(Element.prototype, "attachShadow", function (init) {
+      var options = { mode: "open" };
+      if (init && typeof init === "object") {
+        if (init.delegatesFocus) options.delegatesFocus = true;
+        if (init.slotAssignment === "manual") options.slotAssignment = "manual";
+      }
+      var root = attachShadowCall(this, options);
+      if (watcher) watch(watcher, root, WATCH);
+      return root;
+    });
+  }
+  lock(Element.prototype, "setHTMLUnsafe", deny);
+  if (typeof ShadowRoot === "function") lock(ShadowRoot.prototype, "setHTMLUnsafe", deny);
+  lock(Document, "parseHTMLUnsafe", deny);
+
   var state ={ data: null, theme: "light", inited: false, waiting: [], reported: false, height: -1 };
   var CHART_POINTS_MAX = 50;
   var LABEL_MAX = 40;
   var channel = new MessageChannel();
   var port = channel.port1;
+  /* Taken now, so model code that replaces MessagePort.prototype.postMessage cannot silence the kit. */
+  var portSend = uncurry(MessagePort.prototype.postMessage);
 
   function post(msg) {
-    try { port.postMessage(msg); } catch (err) { /* an uncloneable value: nothing is sent */ }
+    try { portSend(port, msg); } catch (err) { /* an uncloneable value: nothing is sent */ }
   }
   function clip(value, max) {
     var s = String(value == null ? "" : value);
@@ -241,6 +348,34 @@ export const KIT_JS: string = `(function () {
 
   window.addEventListener("error", function (e) { report(e && e.message ? e.message : "script error"); });
   window.addEventListener("unhandledrejection", function (e) { report(errorText(e ? e.reason : null)); });
+
+  /* Task 2.7, CI run 2: tell the host at once when this document starts to leave. WebKit does
+     not commit a navigation whose response never finishes, so the old document stays and
+     keeps answering pings; the host now tears down on this message instead. Both listeners
+     are registered here, before model code, in the capture phase, so a listener the model
+     adds later (capture or not, with stopImmediatePropagation or an on... handler) runs
+     after them. The Navigation API's navigate event is used where it exists, for
+     navigations to another document only. pagehide is not used: it fires only when the new
+     document commits (when the second load already tells the host), and it also fires
+     when the host page itself unloads, which must not be reported as a failure. */
+  var announced = false;
+  function leaving() {
+    if (announced) return;
+    announced = true;
+    post({ type: "navigating" });
+  }
+  window.addEventListener("beforeunload", leaving, true);
+  var navigationApi = window.navigation;
+  if (navigationApi && typeof navigationApi.addEventListener === "function") {
+    var destinationOf = typeof NavigateEvent === "function" ? getterOf(NavigateEvent.prototype, "destination") : null;
+    var sameDocumentOf = typeof NavigationDestination === "function" ? getterOf(NavigationDestination.prototype, "sameDocument") : null;
+    navigationApi.addEventListener("navigate", function (e) {
+      try {
+        if (destinationOf && sameDocumentOf && sameDocumentOf(destinationOf(e)) === true) return;
+      } catch (err) { /* unreadable: treat it as leaving */ }
+      leaving();
+    }, true);
+  }
 
   function run(cb) {
     try { cb(state.data, state.theme); } catch (err) { report(errorText(err)); }

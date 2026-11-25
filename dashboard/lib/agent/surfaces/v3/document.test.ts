@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import type { GatheredData } from "@/lib/agent/gathered";
 import { gatheredFixture, JOB_A, JOB_B } from "@/lib/agent/surfaces/v1/testFixtures";
+import { STATIC_MARKUP_VARIANTS, sandboxCase } from "@/app/ui-gallery/sandbox-harness/fixtures";
 import {
   V3_LIMITS,
   buildSandboxDocument,
@@ -82,6 +83,43 @@ describe("checkV3Static", () => {
     ]) {
       expect(checkV3Static(bad).length, bad).toBeGreaterThan(0);
     }
+  });
+
+  test("every markup variant of link, meta and base is refused by its tag (Task 2.7, CI run 2)", () => {
+    // A parser-inserted preconnect is not governed by CSP in WebKit, so for markup hints the
+    // static check is the layer that stops them; the variants are shared with the
+    // real-browser suite's link-hints-static row.
+    for (const { html, tag } of STATIC_MARKUP_VARIANTS) {
+      expect(checkV3Static(`<p>ok</p>${html}`), JSON.stringify(html)).toContain(`html: <${tag}> is not allowed`);
+      expect(checkV3Static(html), JSON.stringify(html)).toContain(`html: <${tag}> is not allowed`);
+    }
+    expect(checkV3Static(sandboxCase("link-hints-static").frames[0].html)).toContain("html: <link> is not allowed");
+  });
+
+  test("target attributes and declarative shadow roots are refused (Task 2.7, CI run 2)", () => {
+    for (const bad of [
+      "<a target=_top>x</a>",
+      '<a TARGET="_blank">x</a>',
+      "<area target=_parent>",
+      "<svg><a target=_top>x</a></svg>",
+      "<p><span\ntarget=_self>x</span></p>",
+    ]) {
+      expect(checkV3Static(bad), bad).toContain("html: target attributes are not allowed (no links or new windows)");
+    }
+    for (const bad of ['<div><template shadowrootmode="closed"><p>x</p></template></div>', "<div><template SHADOWROOT=open></template></div>"]) {
+      expect(checkV3Static(bad), bad).toContain("html: declarative shadow roots are not allowed");
+    }
+    // Script text that mentions target is not an attribute.
+    expect(checkV3Static("<script>host.onInit(function () { var target = 1; return target; });</script>")).toEqual([]);
+  });
+
+  test("comments end where the tokenizer ends them, so none can hide a tag from the attribute checks (Task 2.7, CI run 2)", () => {
+    expect(checkV3Static("<!--><a target=_top>x</a>-->")).toContain("html: target attributes are not allowed (no links or new windows)");
+    expect(checkV3Static("<!---><a target=_top>x</a>-->")).toContain("html: target attributes are not allowed (no links or new windows)");
+    expect(checkV3Static("<!-- x --!><div><template shadowrootmode=closed></template></div>-->")).toContain(
+      "html: declarative shadow roots are not allowed",
+    );
+    expect(checkV3Static("<!-- <a target=_top> -->")).toEqual([]);
   });
 
   test("SVG animation that targets href or xlink:href is refused (fix round 1, M4)", () => {

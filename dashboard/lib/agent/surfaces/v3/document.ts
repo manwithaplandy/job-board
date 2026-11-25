@@ -153,6 +153,24 @@ function findEndTag(html: string, name: string, from: number): number {
   return m ? m.index : -1;
 }
 
+/**
+ * Where a comment that opened just before `from` ends, as the tokenizer reads it (Task 2.7,
+ * CI run 2): "<!-->" and "<!--->" are empty comments, and "--!>" ends a comment as well as
+ * "-->". Reading only "-->" would let "<!--><a target=_top>-->" hide a real tag from the
+ * attribute checks.
+ */
+function commentEnd(html: string, from: number): number {
+  if (html.startsWith(">", from)) return from + 1;
+  if (html.startsWith("->", from)) return from + 2;
+  const ends = [
+    [html.indexOf("-->", from), 3],
+    [html.indexOf("--!>", from), 4],
+  ].filter(([at]) => at !== -1);
+  if (ends.length === 0) return html.length;
+  const [at, len] = ends.reduce((a, b) => (b[0] < a[0] ? b : a));
+  return at + len;
+}
+
 /** Every start tag outside comments and raw text, in document order. */
 export function scanStartTags(html: string): HtmlStartTag[] {
   const out: HtmlStartTag[] = [];
@@ -162,8 +180,7 @@ export function scanStartTags(html: string): HtmlStartTag[] {
     const lt = html.indexOf("<", i);
     if (lt === -1) break;
     if (html.startsWith("<!--", lt)) {
-      const close = html.indexOf("-->", lt + 4);
-      i = close === -1 ? n : close + 3;
+      i = commentEnd(html, lt + 4);
       continue;
     }
     const next = html[lt + 1];
@@ -327,6 +344,10 @@ export function checkV3Static(html: string): string[] {
 
   const refusals = new Set<string>();
   for (const tag of scanStartTags(html)) {
+    // Task 2.7, CI run 2: no link target (a target=_top or _blank anchor, area or base) and no
+    // declarative shadow root (the kit forces shadow roots open so its link checks see in).
+    if (has(tag, "target")) refusals.add("html: target attributes are not allowed (no links or new windows)");
+    if (has(tag, "shadowrootmode") || has(tag, "shadowroot")) refusals.add("html: declarative shadow roots are not allowed");
     if (SVG_ANIMATION_TAGS.has(tag.name) && animatesHref(tag)) {
       refusals.add("html: SVG animation of href or xlink:href is not allowed");
       continue;

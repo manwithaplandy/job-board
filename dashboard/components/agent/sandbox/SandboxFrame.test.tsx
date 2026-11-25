@@ -349,6 +349,50 @@ describe("SandboxFrame", () => {
     expect(screen.getByText(FALLBACK_TEXT)).toBeTruthy();
   });
 
+  test("a navigating message from the kit falls back at once, though the frame still answers pings (Task 2.7, CI run 2)", async () => {
+    const { iframe, onFallback } = mount();
+    const { port, frame } = ready(iframe);
+    await settle();
+    expect(frame.answerPings).toBe(true);
+    port.postMessage({ type: "navigating" });
+    await waitFor(() => expect(actions.reportSurfaceFailure).toHaveBeenCalledWith(ID, "self_navigation"));
+    expect(actions.reportSurfaceFailure).toHaveBeenCalledTimes(1);
+    expect(onFallback).toHaveBeenCalledWith("self_navigation");
+    expect(iframe.isConnected).toBe(false);
+    expect(screen.getByText(FALLBACK_TEXT)).toBeTruthy();
+  });
+
+  test("a navigating message right after this page's own beforeunload or pagehide is not a failure (Task 2.7, CI run 2)", async () => {
+    for (const event of ["beforeunload", "pagehide"]) {
+      const { iframe, onFallback, unmount } = mount();
+      const { port } = ready(iframe);
+      await settle();
+      act(() => {
+        window.dispatchEvent(new Event(event));
+      });
+      port.postMessage({ type: "navigating" });
+      await settle();
+      expect({ event, reported: actions.reportSurfaceFailure.mock.calls.length }).toEqual({ event, reported: 0 });
+      expect(onFallback).not.toHaveBeenCalled();
+      expect(iframe.isConnected).toBe(true);
+      unmount();
+    }
+  });
+
+  test("a navigating message after the grace period is a failure again (Task 2.7, CI run 2)", async () => {
+    const { iframe } = mount();
+    const { port } = ready(iframe);
+    await settle();
+    const leftAt = Date.now();
+    act(() => {
+      window.dispatchEvent(new Event("beforeunload"));
+    });
+    const spy = vi.spyOn(Date, "now").mockReturnValue(leftAt + 10_000);
+    port.postMessage({ type: "navigating" });
+    await waitFor(() => expect(actions.reportSurfaceFailure).toHaveBeenCalledWith(ID, "self_navigation"));
+    spy.mockRestore();
+  });
+
   test("resize above 1200 is clamped", async () => {
     const { iframe } = mount();
     expect(iframe.style.height).toBe("0px");

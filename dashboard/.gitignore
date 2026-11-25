@@ -7,5 +7,7 @@ next-env.d.ts
 playwright-report/
 test-results/
 test-results/visual-auth/
+# Live golden-scenario runs that failed their asserts (lib/agent/evals/live.eval.ts)
+lib/agent/evals/recordings-failed/
 # Local résumé-iteration fixtures (personal data — never commit)
 scripts/fixtures/

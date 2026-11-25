@@ -58,6 +58,15 @@ export const serviceSql = postgres(connectionString, {
 });
 
 /**
+ * Closes the pool so a one-off process can exit (the live eval lane,
+ * lib/agent/evals/live.eval.ts). It hands out no connection, so it is not a use of
+ * serviceSql for the allowlist; never call it from request code.
+ */
+export async function endServicePool(): Promise<void> {
+  await serviceSql.end({ timeout: 5 });
+}
+
+/**
  * Run `fn` inside a transaction dropped into the `authenticated` Postgres role and
  * scoped to `userId`, so RLS policies (T1) enforce per-user access even if a query
  * forgets its user_id predicate. The first statement sets request.jwt.claims (which

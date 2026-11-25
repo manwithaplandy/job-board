@@ -256,15 +256,43 @@ describe("the committed recordings and personas", () => {
   });
 
   test("no test imports the live harness (it never runs in CI)", () => {
+    const harness = path.join(DASHBOARD_DIR, "lib/agent/evals/harness");
+    // Every module specifier (static, dynamic, vi.mock or require), resolved from the
+    // file's folder or the @/ root, with the extension dropped.
+    const importsHarness = (file: string, text: string): boolean => {
+      const specs = [...text.matchAll(/(?:from|import|mock|require)\s*\(?\s*["']([^"']+)["']/g)].map((m) => m[1]);
+      return specs.some((spec) => {
+        const base = spec.startsWith("@/")
+          ? path.join(DASHBOARD_DIR, spec.slice(2))
+          : spec.startsWith(".")
+            ? path.resolve(path.dirname(file), spec)
+            : null;
+        return base !== null && base.replace(/\.(ts|tsx|js|mjs)$/, "") === harness;
+      });
+    };
     const offenders: string[] = [];
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {
         if (name === "node_modules" || name.startsWith(".")) continue;
         const full = path.join(dir, name);
         if (statSync(full).isDirectory()) walk(full);
-        else if (/\.test\.tsx?$/.test(name) && /evals\/harness["']/.test(readFileSync(full, "utf8"))) offenders.push(full);
+        else if (/\.test\.tsx?$/.test(name) && importsHarness(full, readFileSync(full, "utf8"))) offenders.push(full);
       }
     };
+    // The check itself catches every spelling, a relative one beside harness.ts included.
+    const beside = path.join(DASHBOARD_DIR, "lib/agent/evals/stray.test.ts");
+    const elsewhere = path.join(DASHBOARD_DIR, "lib/agent/stray.test.ts");
+    // Built at run time so this file's own text holds no harness specifier.
+    const fromLine = (spec: string) => ["import { runScenario } from", JSON.stringify(spec)].join(" ");
+    const dynamicLine = (spec: string) => `const h = await import('${spec}');`;
+    const mockLine = (spec: string) => `vi.mock(${JSON.stringify(spec)}, () => ({}));`;
+    const h = "harness";
+    expect(importsHarness(beside, fromLine(`./${h}`))).toBe(true);
+    expect(importsHarness(beside, dynamicLine(`./${h}.ts`))).toBe(true);
+    expect(importsHarness(elsewhere, fromLine(`./evals/${h}`))).toBe(true);
+    expect(importsHarness(elsewhere, mockLine(`@/lib/agent/evals/${h}`))).toBe(true);
+    expect(importsHarness(beside, fromLine("./asserts"))).toBe(false);
+    expect(importsHarness(elsewhere, fromLine(`./${h}`))).toBe(false);
     for (const top of ["lib", "app", "components", "tests"]) {
       const dir = path.join(DASHBOARD_DIR, top);
       try {

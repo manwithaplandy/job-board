@@ -21,8 +21,7 @@ import type { ApprovalToolName } from "@/lib/agent/tools/approval";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
 import { parseProfileText } from "@/lib/rolefit/parseProfile";
 import { resumeChecks } from "@/lib/rolefit/resumeChecks";
-import { RESPONSE_RATE_MIN_N } from "@/lib/workspaces/metrics/catalog";
-import { RATE_METRICS } from "@/components/agent/blocks/metricLabels";
+import { RATE_METRICS, RESPONSE_RATE_MIN_N } from "@/lib/workspaces/metrics/catalog";
 import type { MetricResult } from "@/lib/workspaces/types";
 import type { DbSnapshot, Recording } from "@/lib/agent/evals/recording";
 

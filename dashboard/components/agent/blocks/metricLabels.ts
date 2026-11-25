@@ -1,5 +1,6 @@
 // Fixed display text for the closed metric catalog (lib/workspaces/metrics/catalog.ts),
 // used by the StatRow and MetricChart blocks. Pure.
+import { RATE_METRICS } from "@/lib/workspaces/metrics/catalog";
 import type { MetricId, MetricResult, MetricSpec } from "@/lib/workspaces/types";
 
 export const METRIC_LABELS: Record<MetricId, string> = {
@@ -21,9 +22,6 @@ export const WINDOW_LABELS: Record<MetricSpec["window"], string> = {
   "90d": "Last 90 days",
   all: "All time",
 };
-
-/** Metrics whose value is a share from 0 to 1 (the golden-scenario asserts check each shows its n). */
-export const RATE_METRICS: ReadonlySet<MetricId> = new Set(["response_rate"]);
 
 export const NOT_ENOUGH_DATA = "Not enough data yet";
 /** A metric reference that no longer indexes the surface's gathered metrics. */

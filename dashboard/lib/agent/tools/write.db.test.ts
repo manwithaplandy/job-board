@@ -7,6 +7,7 @@ import { emptyGathered } from "@/lib/agent/gathered";
 import { undoAction } from "@/lib/agent/actions/audit";
 import type { ToolCtx } from "@/lib/agent/tools";
 import { proposeMemoChangeTool, setShortlistStateTool, updateDocumentDraftTool } from "@/lib/agent/tools/write";
+import { saveCoverLetterEditCore } from "@/lib/coverLetterEditCore";
 import { saveMemo } from "@/lib/workspaces/memo";
 import { emptyMemoDoc } from "@/lib/workspaces/memoSchema";
 import { setShortlistState } from "@/lib/workspaces/shortlist";
@@ -103,6 +104,23 @@ test("undo of the first agent edit deletes the overlay row; undo of a later one 
   await db.sql`UPDATE cover_letter_edits SET edited_text = 'The user rewrote it.' WHERE user_id = ${USER_A} AND job_id = ${JOB}`;
   expect(await undoAction(USER_A, third.actionId)).toEqual({ ok: false, reason: "changed_since" });
   expect(await edit()).toEqual({ edited_text: "The user rewrote it." });
+});
+
+test("an agent edit keeps the user's cover letter comment, and its undo restores the user's text with it", async () => {
+  await saveCoverLetterEditCore(USER_A, JOB, "The user's edit.", { comment: "Too formal before." });
+  const row = async () =>
+    (await db.sql`SELECT edited_text, comment FROM cover_letter_edits WHERE user_id = ${USER_A} AND job_id = ${JOB}`)[0];
+  expect(await row()).toEqual({ edited_text: "The user's edit.", comment: "Too formal before." });
+
+  const out = await updateDocumentDraftTool(ctx(), { jobId: JOB, text: "Agent's edited letter." });
+  if (out.status !== "done" || out.actionId === null) throw new Error("expected an audited edit");
+  expect(await row()).toEqual({ edited_text: "Agent's edited letter.", comment: "Too formal before." });
+
+  expect(await undoAction(USER_A, out.actionId)).toEqual({ ok: true });
+  expect(await row()).toEqual({ edited_text: "The user's edit.", comment: "Too formal before." });
+  // The user's own save still sets (or clears) the comment.
+  await saveCoverLetterEditCore(USER_A, JOB, "The user's edit.", { comment: null });
+  expect(await row()).toEqual({ edited_text: "The user's edit.", comment: null });
 });
 
 test("unattended set_shortlist_state on a row the user set returns user_owned", async () => {

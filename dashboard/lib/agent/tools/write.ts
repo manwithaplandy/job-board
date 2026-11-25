@@ -145,7 +145,7 @@ export async function setAnalyticsTilesTool(ctx: ToolCtx, input: z.infer<typeof 
  * Writes the user-edit overlay of the job's generated cover letter (never the letter
  * itself or any résumé column). Refused when no generated letter exists. Audited with
  * the previous edit (null when there was none) as `before`. An edit equal to the live
- * one writes nothing new to undo.
+ * one writes nothing new to undo. The user's comment on their edit is left as it is.
  */
 export async function updateDocumentDraftTool(ctx: ToolCtx, input: z.infer<typeof updateDraftInput>) {
   if (ctx.unattended) return { status: "refused", reason: "not_allowed" } satisfies WriteRefusal;

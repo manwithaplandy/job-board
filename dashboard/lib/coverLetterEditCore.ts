@@ -13,7 +13,9 @@
 //
 // The document.update_draft undoer (registered below) re-reads the live row and
 // restores only while it still holds the agent's text: it writes the previous text back
-// through writeCoverLetterEditTx, or deletes the row when there was none. It runs in
+// through writeCoverLetterEditTx, or deletes the row when there was none. Neither the
+// agent's edit nor its undo passes a comment, so the user's comment on their edit is
+// kept throughout. It runs in
 // undoAction's lifecycle-gated transaction, which takes no payload reservation, so under
 // an enforced lifecycle stage the row's trigger may refuse the restore; the whole undo
 // then rolls back and nothing changes.
@@ -125,7 +127,10 @@ export async function writeCoverLetterEditTx(
   }
 
   // Re-saving overwrites (last-write-wins) and REVIVES a superseded edit
-  // (superseded_at back to NULL) — the fresh edit is current again.
+  // (superseded_at back to NULL) — the fresh edit is current again. A caller that passes
+  // no comment (the agent's edit, its undo) leaves the stored comment as it is; the user's
+  // save passes its comment (null clears it).
+  const keepComment = opts.comment === undefined;
   await tx`
     INSERT INTO cover_letter_edits
       (user_id, job_id, job_version_id, description_snapshot, questions_snapshot, snapshot_captured_at, edited_text, original_text, cover_letter_trace_id,
@@ -136,7 +141,8 @@ export async function writeCoverLetterEditTx(
     ON CONFLICT (user_id, job_id) DO UPDATE SET
       edited_text = EXCLUDED.edited_text, original_text = EXCLUDED.original_text,
       cover_letter_trace_id = EXCLUDED.cover_letter_trace_id, model = EXCLUDED.model,
-      comment = EXCLUDED.comment, superseded_at = NULL, edited_at = now()
+      comment = CASE WHEN ${keepComment}::boolean THEN cover_letter_edits.comment ELSE EXCLUDED.comment END,
+      superseded_at = NULL, edited_at = now()
   `;
   const previousText =
     typeof s.previous_edited_text === "string" && s.previous_superseded !== true ? s.previous_edited_text : null;

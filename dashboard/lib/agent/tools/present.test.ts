@@ -6,10 +6,11 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
   saveSurface: vi.fn(async () => "99999999-9999-4999-8999-999999999999"),
+  setSurfaceFailure: vi.fn(async () => undefined),
   ownSurfaces: new Set<string>(),
   queries: [] as unknown[][],
 }));
-vi.mock("@/lib/agent/surfaces/store", () => ({ saveSurface: m.saveSurface }));
+vi.mock("@/lib/agent/surfaces/store", () => ({ saveSurface: m.saveSurface, setSurfaceFailure: m.setSurfaceFailure }));
 vi.mock("@/lib/db", () => ({
   withUserSql: vi.fn(async (_u: string, fn: (tx: unknown) => unknown) =>
     fn((_s: TemplateStringsArray, ...values: unknown[]) => {
@@ -73,14 +74,11 @@ describe("present", () => {
     expect(await runPresent(c, { payload: "just text" })).toMatchObject({ outcome: "fallback", payload: fallbackSurface(c.gathered) });
   });
 
-  test("a variant 2 thread judges the payload by the tree grammar; a variant 1 payload falls back", async () => {
-    const out = await runPresent(ctx({ variant: 2 }), { payload: { variant: 1, blocks: [{ type: "JobCard", jobId: JOB_A }] } });
-    expect(out).toMatchObject({ variant: 1, outcome: "fallback" });
-    expect(out.errors).toContain('payload: Unrecognized key: "blocks"');
+  test("a variant 3 thread still falls back to the variant 1 surface (no grammar until Task 2.4)", async () => {
+    const out = await runPresent(ctx({ variant: 3 }), { payload: { variant: 3, title: "x", html: "<p>x</p>" } });
+    expect(out).toMatchObject({ variant: 1, outcome: "fallback", errors: ["variant 3 has no grammar yet"] });
     expect(saved()).toMatchObject({ variant: 1, outcome: "fallback" });
-    const tree = { variant: 2, root: { type: "JobTitle", jobId: JOB_A } };
-    expect(await runPresent(ctx({ variant: 2 }), { payload: tree })).toMatchObject({ variant: 2, outcome: "valid", payload: tree });
-    expect(saved()).toMatchObject({ variant: 2, outcome: "valid", payload: tree });
+    expect(m.setSurfaceFailure).not.toHaveBeenCalled();
   });
 
   test("present with surfaceId stores a new row that supersedes the old one", async () => {
@@ -98,6 +96,7 @@ describe("present", () => {
   });
 
   test("a surface needs a thread", async () => {
+    await expect(runPresent(ctx({ threadId: null, variant: 2 }), { payload: {} })).rejects.toThrow(/thread/);
     await expect(runPresent(ctx({ threadId: null }), { payload: {} })).rejects.toThrow(/thread/);
     expect(m.saveSurface).not.toHaveBeenCalled();
   });
@@ -110,6 +109,10 @@ describe("present", () => {
     expect((await schema.validate!({ payload: { variant: 9 } })).success).toBe(true);
     expect((await schema.validate!("text")).success).toBe(false);
     await expect(assertNoUserIdInput({ present: t })).resolves.toBeUndefined();
+  });
+
+  test("the tool tells the model what to do with an invalid outcome", () => {
+    expect(presentTool(ctx()).description).toMatch(/outcome is invalid/);
   });
 
   test("L1: the input schema is draft 7, with no prefixItems and no other $schema", async () => {
@@ -127,5 +130,82 @@ describe("present", () => {
     };
     expect(Array.isArray(comparison.properties.jobIds.items)).toBe(true);
     expect(comparison.properties.jobIds.additionalItems).toBe(false);
+  });
+});
+
+// Variant 2 (plan Task 2.3): one repair attempt with the errors fed back, then the
+// variant 1 fallback (spec 7.1 "On failure").
+describe("present, variant 2", () => {
+  const tree = (title = "Side by side") => ({
+    variant: 2,
+    title,
+    root: { type: "Stack", gap: "2", children: [{ type: "JobTitle", jobId: JOB_A }, { type: "FitScore", jobId: JOB_A }] },
+  });
+  const broken = { variant: 2, root: { type: "Stack", gap: "2", children: [{ type: "JobTitle", jobId: "x:y:404" }, { type: "Html", html: "x" }] } };
+
+  test("first invalid payload returns the errors to the model and stores nothing", async () => {
+    const c = ctx({ variant: 2 });
+    const out = await runPresent(c, { payload: broken });
+    expect(out).toEqual({ variant: 2, outcome: "invalid", errors: expect.any(Array) });
+    expect(out.errors?.length).toBeGreaterThan(0);
+    expect(out.errors?.length).toBeLessThanOrEqual(10);
+    for (const e of out.errors ?? []) expect(e.length).toBeLessThan(200);
+    expect("surfaceId" in out).toBe(false);
+    expect(c.repairsLeft.n).toBe(0);
+    expect(m.saveSurface).not.toHaveBeenCalled();
+    expect(m.setSurfaceFailure).not.toHaveBeenCalled();
+    expect(m.queries).toEqual([]);
+    // A variant 1 payload in a variant 2 thread is invalid too, with the reason spelled out.
+    const v1 = await runPresent(ctx({ variant: 2 }), { payload: { variant: 1, blocks: [{ type: "JobCard", jobId: JOB_A }] } });
+    expect(v1).toMatchObject({ outcome: "invalid" });
+    expect(v1.errors).toContain('payload: Unrecognized key: "blocks"');
+  });
+
+  test("a valid second payload is stored with outcome repaired", async () => {
+    const c = ctx({ variant: 2 });
+    await runPresent(c, { payload: broken });
+    const payload = tree();
+    expect(await runPresent(c, { payload })).toEqual({ surfaceId: NEW, variant: 2, outcome: "repaired", payload });
+    expect(m.saveSurface).toHaveBeenCalledTimes(1);
+    expect(saved()).toMatchObject({
+      threadId: THREAD, runId: RUN, variant: 2, payload, outcome: "repaired", gathered: c.gathered,
+      fallbackPayload: fallbackSurface(c.gathered, "Side by side"), supersedes: null, rerenderOf: null,
+    });
+    expect(m.setSurfaceFailure).not.toHaveBeenCalled();
+    // The repair is spent: a later surface in the same turn is plain valid.
+    expect(await runPresent(c, { payload: tree("Again") })).toMatchObject({ outcome: "valid" });
+  });
+
+  test("a second invalid payload stores the variant 1 fallback with outcome fallback", async () => {
+    const c = ctx({ variant: 2 });
+    await runPresent(c, { payload: broken });
+    const out = await runPresent(c, { payload: { ...broken, title: "Matches" } });
+    const expected = fallbackSurface(c.gathered, "Matches");
+    expect(out).toMatchObject({ surfaceId: NEW, variant: 2, outcome: "fallback", payload: expected });
+    expect(out.errors?.length).toBeGreaterThan(0);
+    expect(saved()).toMatchObject({ variant: 2, payload: expected, fallbackPayload: expected, outcome: "fallback" });
+    // The reason is recorded as a short code in the same transaction (errors go to the model).
+    expect(m.setSurfaceFailure).toHaveBeenCalledTimes(1);
+    expect((m.setSurfaceFailure.mock.calls[0] as unknown[]).slice(1)).toEqual([NEW, "invalid_after_repair"]);
+    // With no repair left from the start, the first invalid payload falls back at once.
+    vi.clearAllMocks();
+    const none = await runPresent(ctx({ variant: 2, repairsLeft: { n: 0 } }), { payload: broken });
+    expect(none).toMatchObject({ outcome: "fallback", payload: fallbackSurface(c.gathered) });
+    expect(m.saveSurface).toHaveBeenCalledTimes(1);
+  });
+
+  test("a valid first payload stores fallback_payload alongside", async () => {
+    const c = ctx({ variant: 2 });
+    const payload = tree();
+    expect(await runPresent(c, { payload })).toEqual({ surfaceId: NEW, variant: 2, outcome: "valid", payload });
+    expect(saved()).toMatchObject({ variant: 2, payload, outcome: "valid", fallbackPayload: fallbackSurface(c.gathered, "Side by side") });
+    expect(c.repairsLeft.n).toBe(1);
+    expect(m.setSurfaceFailure).not.toHaveBeenCalled();
+  });
+
+  test("surfaceId supersedes one of the caller's own surfaces in variant 2 too", async () => {
+    m.ownSurfaces.add(OLD);
+    await runPresent(ctx({ variant: 2 }), { surfaceId: OLD, payload: tree() });
+    expect(saved()).toMatchObject({ supersedes: OLD, variant: 2 });
   });
 });

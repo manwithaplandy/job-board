@@ -70,9 +70,11 @@ async function lockProfileTx(tx: TransactionSql, userId: string): Promise<Locked
 
 /**
  * The one replacement core: keeps the live text as the next version (when there is
- * one and it differs), then writes `text` as the résumé. Returns the displaced
- * version's number, or null when nothing was displaced. Runs inside the caller's
- * lifecycle-gated transaction.
+ * one and it differs), then writes `text` as the résumé. Returns whether anything
+ * changed and the displaced version's number (null when nothing was displaced). When
+ * the live text already equals `text` it writes nothing and returns changed: false, so
+ * callers can skip the audit row (an undo of a no-op must never clear the résumé).
+ * Runs inside the caller's lifecycle-gated transaction.
  */
 async function replaceResumeTx(
   tx: TransactionSql,
@@ -80,9 +82,9 @@ async function replaceResumeTx(
   text: string | null,
   source: ResumeVersionSource,
   documentId: string | null,
-): Promise<number | null> {
+): Promise<{ changed: boolean; displaced: number | null }> {
   const live = await lockProfileTx(tx, userId);
-  if (live.resumeText === text) return null;
+  if (live.resumeText === text) return { changed: false, displaced: null };
   let displaced: number | null = null;
   if (live.resumeText !== null && live.resumeText.trim() !== "") {
     const rows = await tx`
@@ -95,7 +97,7 @@ async function replaceResumeTx(
     displaced = v.version;
   }
   await updateResumeSourceWith(tx, userId, { resumeText: text, resumeFilePath: live.resumeFilePath });
-  return displaced;
+  return { changed: true, displaced };
 }
 
 function checkText(text: string): string {
@@ -129,9 +131,13 @@ export async function setResumeFromDocument(
       throw new ResumeInputError("That file had no readable text, so it cannot be your résumé.");
     }
     const text = checkText(doc.extracted_text);
-    const displacedVersion = await replaceResumeTx(tx, userId, text, a.actor === "user" ? "upload" : "agent", a.documentId);
+    const { changed, displaced: displacedVersion } = await replaceResumeTx(
+      tx, userId, text, a.actor === "user" ? "upload" : "agent", a.documentId,
+    );
     let actionId: number | null = null;
-    if (a.audit) {
+    // Nothing changed (the résumé already is this text): no audit row, so there is
+    // nothing to undo. An undo of such a row would restore before.version = null.
+    if (a.audit && changed) {
       actionId = await logAction(tx, {
         ctx: a.audit,
         actor: a.actor === "user" ? "user_via_surface" : actorFor(a.audit),
@@ -151,7 +157,7 @@ export async function restoreResumeVersion(userId: string, version: number): Pro
   return withUserMutation(userId, async (tx) => {
     const text = await versionTextTx(tx, userId, version);
     if (text === null) throw new ResumeInputError("No such version.");
-    return { displacedVersion: await replaceResumeTx(tx, userId, checkText(text), "restore", null) };
+    return { displacedVersion: (await replaceResumeTx(tx, userId, checkText(text), "restore", null)).displaced };
   });
 }
 

@@ -109,6 +109,19 @@ test("undo of set_resume refuses with changed_since after the user edited the r�
   expect((await profile()).resume_text).toBe("Edited by hand");
 });
 
+test("set_resume with the text already live logs no action, so Undo can never clear the résumé", async () => {
+  const first = await setResumeFromDocument(USER_A, { documentId: DOC_OK, actor: "agent", audit: ctx() });
+  if (first.actionId === null) throw new Error("expected an action id");
+  const again = await setResumeFromDocument(USER_A, { documentId: DOC_OK, actor: "agent", audit: ctx() });
+  expect(again).toEqual({ displacedVersion: null, actionId: null });
+  expect(await db.sql`SELECT id FROM agent_actions WHERE kind = 'profile.set_resume'`).toHaveLength(1);
+  expect(await listResumeVersions(USER_A)).toHaveLength(1);
+
+  // Every set_resume row that exists undoes to a real earlier résumé, never to null.
+  expect(await undoAction(USER_A, first.actionId)).toEqual({ ok: true });
+  expect((await profile()).resume_text).toBe("Old résumé");
+});
+
 test("an unattended run may not replace the résumé", async () => {
   await expect(
     setResumeFromDocument(USER_A, { documentId: DOC_OK, actor: "agent", audit: { ...ctx(), unattended: true } }),

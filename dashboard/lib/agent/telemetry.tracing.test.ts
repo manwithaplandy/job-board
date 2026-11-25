@@ -149,7 +149,9 @@ const attrs = (s: ReadableSpan) => s.attributes;
 const everyAttribute = (spans: ReadableSpan[]) => spans.flatMap((s) => Object.entries(attrs(s)));
 
 describe("agent tracing", () => {
-  // First, before anything registers: the registry is process-global.
+  // This test must stay first in the file: the telemetry registry is process-global and
+  // a later test registers into it, so the "nothing registered" assertion holds only
+  // while it runs before them (vitest runs a file's tests in order unless shuffled).
   test("with tracing disabled the turn runs and nothing is registered", async () => {
     h.enabled = false;
     const spans = await turn();

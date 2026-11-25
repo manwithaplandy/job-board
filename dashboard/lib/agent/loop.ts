@@ -1,9 +1,10 @@
 // The agent loop (plan Task 0.11): one interactive turn, streamed to the client and
 // persisted on the server whatever the client does.
 //
-// Order: validate the input, load history, startRun (a TurnInProgressError propagates
-// before anything is written), save the user message `complete` and a placeholder
-// assistant row `pending`, then stream. Every step is charged in onStepEnd the moment
+// Order: validate the input, startRun (a TurnInProgressError propagates before anything
+// is written), load history (so it includes a turn that finished just before), save the
+// user message `complete` and a placeholder assistant row `pending`, then stream. Any
+// failure after startRun closes the run. Every step is charged in onStepEnd the moment
 // it ends, so spend is recorded whether or not the turn finishes.
 //
 // Persistence follows Spike B (lib/agent/spikes/persistOnDisconnect.test.ts), not the
@@ -36,6 +37,7 @@ import {
 import { catalogNow } from "@/lib/catalogClock";
 import { flushLangfuseTraces } from "@/lib/observability";
 import { AGENT_LIMITS, AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
+import { AGENT_TEXT_MAX } from "@/lib/agent/request";
 import { stepCostMicros } from "@/lib/agent/budget";
 import { buildInstructions } from "@/lib/agent/context";
 import { emptyGathered } from "@/lib/agent/gathered";
@@ -58,9 +60,14 @@ export type TurnInputErrorCode =
   | "documents_unsupported"
   | "bad_message_id"
   | "duplicate_message_id"
-  | "empty_text";
+  | "empty_text"
+  | "text_too_long";
 
-/** The input cannot start a turn. Thrown before startRun, so nothing is written. */
+/**
+ * The input cannot start a turn. Thrown before startRun, so nothing is written, except
+ * duplicate_message_id: history is read after the run opens (so it includes a turn that
+ * finished just before), and that run is then closed `failed` with `bad_input`.
+ */
 export class TurnInputError extends Error {
   constructor(readonly code: TurnInputErrorCode) {
     super(`agent: turn input rejected (${code})`);
@@ -98,23 +105,46 @@ function errorName(e: unknown): string {
   return e instanceof Error ? e.name : typeof e;
 }
 
-/** Checks the input and builds the user message from its text alone. */
-function userMessageFrom(input: TurnInput, history: AgentUIMessage[]): AgentUIMessage {
+/**
+ * Checks the input and builds the user message from its text alone. The text cap is the
+ * route's (AGENT_TEXT_MAX, 8,000 characters), enforced here too for any other caller.
+ */
+function userMessageFrom(input: TurnInput): AgentUIMessage {
   if (input.kind === "approval") throw new TurnInputError("approval_unsupported");
   // Phase 0 has no documents table; Task 1.x adds document attachments.
   if (input.documentIds.length > 0) throw new TurnInputError("documents_unsupported");
   if (!MESSAGE_ID_RE.test(input.id)) throw new TurnInputError("bad_message_id");
-  if (history.some((m) => m.id === input.id)) throw new TurnInputError("duplicate_message_id");
   if (input.text.trim() === "") throw new TurnInputError("empty_text");
+  if (input.text.length > AGENT_TEXT_MAX) throw new TurnInputError("text_too_long");
   return { id: input.id, role: "user", parts: [{ type: "text", text: input.text }] };
 }
 
+/**
+ * The history the model sees (AGENT_LIMITS.historyMaxMessages and historyMaxChars): the
+ * newest messages that fit both caps, then cut to start at a user message, so the
+ * window never opens on a reply to a question it no longer holds.
+ */
+export function historyWindow(history: AgentUIMessage[]): AgentUIMessage[] {
+  let chars = 0;
+  let start = history.length;
+  while (start > 0 && history.length - start < AGENT_LIMITS.historyMaxMessages) {
+    const size = JSON.stringify(history[start - 1].parts).length;
+    if (chars + size > AGENT_LIMITS.historyMaxChars) break;
+    chars += size;
+    start -= 1;
+  }
+  while (start < history.length && history[start].role !== "user") start += 1;
+  return history.slice(start);
+}
+
+/** The profile for the instructions; null when the read failed (getProfileSummary itself never returns null). */
 async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft">): Promise<ProfileSummary | null> {
   try {
     return await getProfileSummary({ ...base, gathered: emptyGathered(), repairsLeft: { n: 0 } });
   } catch (e) {
-    // A profile is context, not a requirement: the turn goes on without it.
-    console.warn("agent: profile read failed; instructions carry no profile", errorName(e));
+    // A profile is context, not a requirement: the turn goes on, and the instructions
+    // say the profile could not be read (not that there is none).
+    console.warn("agent: profile read failed; instructions say it could not be read", errorName(e));
     return null;
   }
 }
@@ -142,11 +172,25 @@ async function runTurn(a: TurnArgs): Promise<Response> {
   const model = a.model ?? agentModel();
   const modelId = typeof model === "string" ? model : (model.modelId ?? AGENT_MODEL_DEFAULT);
 
-  const history = await loadMessages(userId, thread.id);
-  const userMessage = userMessageFrom(a.input, history);
-  const originalMessages: AgentUIMessage[] = [...history, userMessage];
+  const userMessage = userMessageFrom(a.input);
 
   const runId = await startRun(userId, { threadId: thread.id, kind: "interactive", model: modelId, variant: thread.variant });
+
+  // History is read only once this turn holds the thread's one live run, so it includes
+  // a turn that finished just before (PR C batch 3 review M2).
+  let history: AgentUIMessage[];
+  try {
+    history = await loadMessages(userId, thread.id);
+  } catch (e) {
+    console.error("agent: history read failed", errorName(e));
+    await finishRun(userId, runId, { status: "failed", error: "setup_failed" }).catch(() => {});
+    throw e;
+  }
+  if (history.some((m) => m.id === userMessage.id)) {
+    await finishRun(userId, runId, { status: "failed", error: "bad_input" }).catch(() => {});
+    throw new TurnInputError("duplicate_message_id");
+  }
+  const originalMessages: AgentUIMessage[] = [...historyWindow(history), userMessage];
 
   // One id for the placeholder row, both UI streams and the final save: they are one row.
   const assistantId = createIdGenerator({ prefix: "msg", size: 16 })();
@@ -180,7 +224,11 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     });
     const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 } };
     tools = (a.tools ?? buildTools)(ctx);
-    modelMessages = await convertToModelMessages(originalMessages);
+    // A turn cut short (wall clock, provider drop) can be stored with a tool call that
+    // never got its result; replayed as is, the SDK refuses the whole prompt
+    // (MissingToolResultsError) and the thread could never answer again. Such calls are
+    // dropped; the text around them is kept (PR C batch 3 review I1).
+    modelMessages = await convertToModelMessages(originalMessages, { ignoreIncompleteToolCalls: true });
   } catch (e) {
     // Nothing reached the model: close the run and the placeholder, then let the route
     // answer 500.
@@ -197,59 +245,72 @@ async function runTurn(a: TurnArgs): Promise<Response> {
     if (stopReason === null) stopReason = reason;
     controller.abort(reason);
   };
-  const timer = setTimeout(() => stop("wall_clock"), AGENT_LIMITS.wallClockMs);
   const charges: Promise<void>[] = [];
+  const timer = setTimeout(() => stop("wall_clock"), AGENT_LIMITS.wallClockMs);
 
-  const result = streamText({
-    model,
-    instructions,
-    messages: modelMessages,
-    tools,
-    // The second condition: onStepEnd has stopped the turn (over budget, a failed
-    // charge, the wall clock), so no further step starts even before the abort lands.
-    stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null],
-    maxOutputTokens: AGENT_LIMITS.maxOutputTokens,
-    abortSignal: controller.signal,
-    telemetry: { functionId: "agent-turn" },
-    onEnd: async () => {
-      await flushLangfuseTraces();
-    },
-    onStepEnd: (step) => {
-      const charge = (async () => {
-        try {
-          const charged = await chargeStep(userId, runId, {
-            costMicros: stepCostMicros(step, modelId),
-            inputTokens: wholeTokens(step.usage.inputTokens),
-            outputTokens: wholeTokens(step.usage.outputTokens),
-          });
-          if (!charged.ok) stop("over_budget");
-        } catch (e) {
-          // chargeStep already retried once on a lock or statement timeout.
-          console.error("agent: chargeStep failed; stopping the turn", errorName(e));
-          stop("charge_failed");
-        }
-      })();
-      charges.push(charge);
-      return charge;
-    },
-    onError: ({ error }) => {
-      modelError = true;
-      console.warn("agent: model stream error", errorName(error));
-    },
-  });
-  void result.consumeStream({ onError: () => {} });
+  // Everything from here to the return runs with the run open. A synchronous throw
+  // (streamText, a UI stream) closes the run and the placeholder instead of leaving
+  // them live until the stale-turn rule (PR C batch 3 review M3). Persistence starts
+  // only once both streams exist, so it never races this cleanup.
+  try {
+    const result = streamText({
+      model,
+      instructions,
+      messages: modelMessages,
+      tools,
+      // The second condition: onStepEnd has stopped the turn (over budget, a failed
+      // charge, the wall clock), so no further step starts even before the abort lands.
+      stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null],
+      maxOutputTokens: AGENT_LIMITS.maxOutputTokens,
+      abortSignal: controller.signal,
+      telemetry: { functionId: "agent-turn" },
+      onEnd: async () => {
+        await flushLangfuseTraces();
+      },
+      onStepEnd: (step) => {
+        const charge = (async () => {
+          try {
+            const charged = await chargeStep(userId, runId, {
+              costMicros: stepCostMicros(step, modelId),
+              inputTokens: wholeTokens(step.usage.inputTokens),
+              outputTokens: wholeTokens(step.usage.outputTokens),
+            });
+            if (!charged.ok) stop("over_budget");
+          } catch (e) {
+            // chargeStep already retried once on a lock or statement timeout.
+            console.error("agent: chargeStep failed; stopping the turn", errorName(e));
+            stop("charge_failed");
+          }
+        })();
+        charges.push(charge);
+        return charge;
+      },
+      onError: ({ error }) => {
+        modelError = true;
+        console.warn("agent: model stream error", errorName(error));
+      },
+    });
+    void result.consumeStream({ onError: () => {} });
 
-  // Server-side copy of the UI stream, read only by persistence. Created now so the
-  // replayed model stream buffers for it from the first chunk.
-  const persistStream = toUIMessageStream({
-    stream: result.stream,
-    originalMessages,
-    generateMessageId: () => assistantId,
-    onError: () => "error",
-  });
+    // Server-side copy of the UI stream, read only by persistence. Created now so the
+    // replayed model stream buffers for it from the first chunk.
+    const persistStream = toUIMessageStream({
+      stream: result.stream,
+      originalMessages,
+      generateMessageId: () => assistantId,
+      onError: () => "error",
+    });
 
-  after(
-    persistTurn({
+    const response = createUIMessageStreamResponse({
+      stream: toUIMessageStream({
+        stream: result.stream,
+        originalMessages,
+        generateMessageId: () => assistantId,
+        onError: () => "The assistant hit an error.",
+      }),
+    });
+
+    const persisting = persistTurn({
       userId,
       threadId: thread.id,
       runId,
@@ -262,17 +323,23 @@ async function runTurn(a: TurnArgs): Promise<Response> {
       },
       charges,
       timer,
-    }),
-  );
-
-  return createUIMessageStreamResponse({
-    stream: toUIMessageStream({
-      stream: result.stream,
-      originalMessages,
-      generateMessageId: () => assistantId,
-      onError: () => "The assistant hit an error.",
-    }),
-  });
+    });
+    try {
+      after(persisting);
+    } catch (e) {
+      // after() throws outside a Next request scope (an eval harness, a script). The
+      // persistence promise is already running; it just is not tied to a request.
+      console.warn("agent: after() unavailable; persisting without it", errorName(e));
+    }
+    return response;
+  } catch (e) {
+    clearTimeout(timer);
+    controller.abort("setup_failed");
+    console.error("agent: starting the stream failed", errorName(e));
+    await saveMessages(userId, thread.id, [{ id: assistantId, role: "assistant", parts: [] }], "failed").catch(() => {});
+    await finishRun(userId, runId, { status: "failed", error: "setup_failed" }).catch(() => {});
+    throw e;
+  }
 }
 
 /** The assistant message the stream built: its last snapshot, with the turn's id. */
@@ -320,6 +387,16 @@ async function persistTurn(p: {
   } catch (e) {
     console.error("agent: saving the turn failed", errorName(e));
     final = { status: "failed", error: "persist_failed" };
+    // Keep what the user read and close the placeholder: the text parts alone, which
+    // always pass the stored-message schema, saved `failed` (PR C batch 3 review M4).
+    const textOnly: AgentUIMessage = {
+      id: p.assistantId,
+      role: "assistant",
+      parts: assistant.parts.flatMap((part) => (part.type === "text" ? [{ type: "text" as const, text: part.text }] : [])),
+    };
+    await saveMessages(p.userId, p.threadId, [textOnly], "failed").catch((err: unknown) =>
+      console.error("agent: the text-only fallback save failed too", errorName(err)),
+    );
   }
   await finishRun(p.userId, p.runId, final).catch((err: unknown) => console.error("agent: finishRun failed", errorName(err)));
   // Spans that ended after streamText's onEnd (an aborted turn, the outer spans).

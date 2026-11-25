@@ -580,7 +580,8 @@ export function readTools(ctx: ToolCtx) {
     search_jobs: tool({
       description:
         "Search the jobs the user's reviewer has scored, with the user's own corrections applied. Covers " +
-        "only what the user's board shows: open postings at companies the user has not excluded. " +
+        "open postings at companies the user has not excluded. It does not apply the board's location " +
+        "filter, so it can include jobs outside the user's current preferred locations. " +
         "Filter by verdict, minimum fit, remote only, or text in the title or company; sort by fit, " +
         "newest or pay. Pay sort ranks USD by yearly pay (hourly x2080, monthly x12), then other " +
         "currencies, which are not comparable with USD; each row gives payCurrency and payPeriod.",

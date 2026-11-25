@@ -20,6 +20,13 @@ export const AGENT_LIMITS = {
   wallClockMs: 240_000,
   backgroundMaxSteps: 6,
   staleTurnMs: 300_000,
+  // The history window sent to the model (PR C batch 3 review M5): the newest stored
+  // messages, at most 40 of them and at most 120,000 characters of serialized parts
+  // (roughly 30k tokens), cut so the window starts at a user message. Every step of a
+  // turn re-sends it, so this bounds one step's input. Older turns stay stored and
+  // shown; summarising them for the model is a later task.
+  historyMaxMessages: 40,
+  historyMaxChars: 120_000,
 } as const;
 
 // usage_counters.kind for agent spend; n is in micro-dollars.

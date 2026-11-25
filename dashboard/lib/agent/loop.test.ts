@@ -11,6 +11,9 @@ import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
 const h = vi.hoisted(() => ({
   calls: [] as string[],
   afterTasks: [] as Promise<unknown>[],
+  afterThrows: false,
+  uiStreamThrowsAt: 0,
+  uiStreamCalls: 0,
   profile: {
     name: "Pat",
     titles: ["Engineer"],
@@ -24,9 +27,24 @@ const h = vi.hoisted(() => ({
 
 vi.mock("next/server", () => ({
   after: (task: Promise<unknown> | (() => unknown)) => {
+    // after() throws outside a Next request scope (an eval harness, a script).
+    if (h.afterThrows) throw new Error("after() outside a request scope");
     h.afterTasks.push(typeof task === "function" ? Promise.resolve().then(task) : task);
   },
 }));
+vi.mock("ai", async (importOriginal) => {
+  const real = await importOriginal<typeof import("ai")>();
+  // uiStreamThrowsAt = n makes the n-th toUIMessageStream call throw synchronously, as
+  // a stand-in for any synchronous throw after the run is open.
+  return {
+    ...real,
+    toUIMessageStream: (...args: Parameters<typeof real.toUIMessageStream>) => {
+      h.uiStreamCalls += 1;
+      if (h.uiStreamCalls === h.uiStreamThrowsAt) throw new Error("ui stream broke");
+      return real.toUIMessageStream(...args);
+    },
+  };
+});
 vi.mock("@/lib/db", () => ({ withUserSql: vi.fn(), serviceSql: vi.fn() }));
 vi.mock("@/lib/agent/config", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/agent/config")>();
@@ -56,6 +74,8 @@ import { loadMessages } from "@/lib/agent/threads";
 import { TurnInProgressError, chargeStep, finishRun, saveMessages, startRun } from "@/lib/agent/runs";
 import type { AgentThread } from "@/lib/agent/threads";
 import { streamAgentTurn, TurnInputError, type TurnInput } from "@/lib/agent/loop";
+import { getProfileSummary } from "@/lib/agent/tools/read";
+import { AGENT_LIMITS } from "@/lib/agent/config";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const RUN = "11111111-1111-4111-8111-111111111111";
@@ -142,6 +162,9 @@ function textOf(m: UIMessage): string {
 beforeEach(() => {
   h.calls.length = 0;
   h.afterTasks.length = 0;
+  h.afterThrows = false;
+  h.uiStreamThrowsAt = 0;
+  h.uiStreamCalls = 0;
   vi.mocked(loadMessages).mockReset().mockResolvedValue([]);
   vi.mocked(startRun)
     .mockReset()
@@ -330,8 +353,8 @@ describe("streamAgentTurn: failure handling and input rules", () => {
   });
 
   test.each([
-    ["an id already in the thread", message("hi", "m-1"), "duplicate_message_id"],
     ["an id with bad characters", message("hi", "m 1/../x"), "bad_message_id"],
+    ["a text over 8000 characters", message("x".repeat(8001)), "text_too_long"],
     ["an empty message", message("   "), "empty_text"],
     ["document ids (no documents in phase 0)", { kind: "message", id: "m-9", text: "hi", documentIds: ["d"] }, "documents_unsupported"],
     ["an approval (Task 1.16)", { kind: "approval", approvalId: "a-1", approved: true }, "approval_unsupported"],
@@ -343,5 +366,147 @@ describe("streamAgentTurn: failure handling and input rules", () => {
     await expect(call).rejects.toMatchObject({ code });
     expect(startRun).not.toHaveBeenCalled();
     expect(saveMessages).not.toHaveBeenCalled();
+  });
+});
+
+describe("streamAgentTurn: PR C batch 3 review fixes", () => {
+  const failedTurn = (parts: UIMessage["parts"]): UIMessage[] => [
+    { id: "m-1", role: "user", parts: [{ type: "text", text: "earlier" }], metadata: { status: "complete" } },
+    { id: "msg-old", role: "assistant", parts, metadata: { status: "failed" } },
+  ];
+  const danglingCall = {
+    type: "tool-get_profile_summary",
+    toolCallId: "c-old",
+    state: "input-available",
+    input: {},
+  } as UIMessage["parts"][number];
+
+  test("I1: a stored failed turn with a tool call and no result does not block the next turn", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(failedTurn([danglingCall]));
+    const model = scripted([textStep(["fine"], 0.0008)]);
+    await turn(model, message("next", "m-2"));
+    expect(model.doStreamCalls).toHaveLength(1);
+    const prompt = JSON.stringify(model.doStreamCalls[0].prompt);
+    expect(prompt).not.toContain("tool-call");
+    expect(prompt).not.toContain("c-old");
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "done" });
+  });
+
+  test("I1: the text before a dangling tool call is kept", async () => {
+    vi.mocked(loadMessages).mockResolvedValue(failedTurn([{ type: "text", text: "Looking that up" }, danglingCall]));
+    const model = scripted([textStep(["fine"], 0.0008)]);
+    await turn(model, message("next", "m-2"));
+    const prompt = model.doStreamCalls[0].prompt;
+    expect(prompt.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(JSON.stringify(prompt[2])).toContain("Looking that up");
+    expect(JSON.stringify(prompt)).not.toContain("tool-call");
+  });
+
+  test("M7: persistence is handed to after() exactly once", async () => {
+    await turn(scripted([textStep(["ok"], 0.0008)]));
+    expect(h.afterTasks).toHaveLength(1);
+  });
+
+  test("M1: a failed profile read is not reported to the model as no profile", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(getProfileSummary).mockRejectedValueOnce(new Error("db down"));
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model);
+    const system = JSON.stringify(model.doStreamCalls[0].prompt[0].content);
+    expect(system).toContain("could not be read this turn");
+    expect(system).toContain("get_profile_summary");
+    expect(system).not.toContain("no profile yet");
+  });
+
+  test("M2: history is loaded after the run is open", async () => {
+    vi.mocked(loadMessages).mockImplementation(async () => {
+      h.calls.push("loadMessages");
+      return [];
+    });
+    await turn(scripted([textStep(["ok"], 0.0008)]));
+    expect(h.calls.indexOf("startRun")).toBeGreaterThanOrEqual(0);
+    expect(h.calls.indexOf("startRun")).toBeLessThan(h.calls.indexOf("loadMessages"));
+  });
+
+  test("M2: an id already in the thread is refused after startRun and the run is closed", async () => {
+    vi.mocked(loadMessages).mockResolvedValue([{ id: "m-1", role: "user", parts: [{ type: "text", text: "x" }] }]);
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    const call = streamAgentTurn({ userId: USER, email: null, thread, input: message("hi", "m-1"), model });
+    await expect(call).rejects.toMatchObject({ code: "duplicate_message_id" });
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "failed", error: "bad_input" });
+    expect(saveMessages).not.toHaveBeenCalled();
+    expect(model.doStreamCalls).toHaveLength(0);
+  });
+
+  test("M2: a history read that throws closes the run", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(loadMessages).mockRejectedValue(new Error("db down"));
+    const call = streamAgentTurn({ userId: USER, email: null, thread, input: message("hi"), model: scripted([textStep(["ok"], 0.0008)]) });
+    await expect(call).rejects.toThrow("db down");
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "failed", error: "setup_failed" });
+  });
+
+  test("M3: a synchronous throw after the run opens closes the run and the placeholder", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.uiStreamThrowsAt = 2; // the response stream, after the persistence stream was made
+    const call = streamAgentTurn({ userId: USER, email: null, thread, input: message("hi"), model: scripted([textStep(["ok"], 0.0008)]) });
+    await expect(call).rejects.toThrow("ui stream broke");
+    expect(lastAssistantSave()[3]).toBe("failed");
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "failed", error: "setup_failed" });
+    expect(h.afterTasks).toHaveLength(0);
+  });
+
+  test("M3: when after() itself throws, the turn is still persisted", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.afterThrows = true;
+    const res = await streamAgentTurn({ userId: USER, email: null, thread, input: message("hi"), model: scripted([textStep(["ok"], 0.0008)]) });
+    await drain(res);
+    await vi.waitFor(() => expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "done" }));
+    expect(lastAssistantSave()[3]).toBe("complete");
+  });
+
+  test("M4: a failed final save falls back to the text parts, saved failed", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(saveMessages).mockImplementation(async (_u, _t, msgs, status) => {
+      h.calls.push(`save:${msgs[0].role}:${status}`);
+      if (msgs[0].role === "assistant" && status === "complete") throw new Error("a part does not match the schema");
+    });
+    await turn(scripted([toolStep("c1", 0.0012), textStep(["Hello ", "Pat"], 0.0008)]));
+    const [, , [saved], status] = lastAssistantSave();
+    expect(status).toBe("failed");
+    expect(saved.parts).toEqual([{ type: "text", text: "Hello Pat" }]);
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "failed", error: "persist_failed" });
+  });
+
+  test("M5: only the newest history within the window reaches the model, starting at a user message", async () => {
+    const long: UIMessage[] = [];
+    for (let i = 0; i < 60; i += 1) {
+      long.push({ id: `m-${i}`, role: i % 2 === 0 ? "user" : "assistant", parts: [{ type: "text", text: `turn ${i}` }] });
+    }
+    vi.mocked(loadMessages).mockResolvedValue(long);
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model, message("now", "m-new"));
+    const prompt = model.doStreamCalls[0].prompt;
+    const history = prompt.slice(1);
+    expect(history.length).toBeLessThanOrEqual(AGENT_LIMITS.historyMaxMessages + 1);
+    expect(history[0]?.role).toBe("user");
+    expect(JSON.stringify(history)).toContain("turn 59");
+    expect(JSON.stringify(history)).not.toContain('"turn 0"');
+    expect(JSON.stringify(history.at(-1))).toContain("now");
+  });
+
+  test("M5: the history window also has a size cap", async () => {
+    const big = "y".repeat(AGENT_LIMITS.historyMaxChars / 2);
+    vi.mocked(loadMessages).mockResolvedValue([
+      { id: "m-1", role: "user", parts: [{ type: "text", text: `old ${big}` }] },
+      { id: "msg-1", role: "assistant", parts: [{ type: "text", text: `old reply ${big}` }] },
+      { id: "m-2", role: "user", parts: [{ type: "text", text: "recent" }] },
+      { id: "msg-2", role: "assistant", parts: [{ type: "text", text: "recent reply" }] },
+    ]);
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model, message("now", "m-3"));
+    const prompt = JSON.stringify(model.doStreamCalls[0].prompt);
+    expect(prompt).toContain("recent reply");
+    expect(prompt).not.toContain("old reply");
   });
 });

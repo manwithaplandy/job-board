@@ -25,7 +25,7 @@ const NOUN: Record<Exclude<UntrustedKind, "job_description">, string> = {
  * the tag name as a whole word, in any letter case. That covers "</tag>", "</tag foo>",
  * "</tag/>", "</ tag>" and "< /tag>"; a longer name such as "</tags>" is left alone.
  */
-function neutralizeClosingTag(text: string, tag: string): string {
+export function neutralizeClosingTag(text: string, tag: string): string {
   return text.replace(new RegExp(`<\\s*/\\s*(?=${tag}\\b)`, "gi"), "&lt;/");
 }
 

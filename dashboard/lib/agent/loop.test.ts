@@ -287,11 +287,11 @@ describe("streamAgentTurn", () => {
     warn.mockClear();
     const refused = new APICallError({
       message: "Payment Required",
-      url: "https://openrouter.example/api/v1/chat/completions?key=sk-or-v1-abcdefabcdef",
+      url: "https://openrouter.example/api/v1/chat/completions?key=sk-or-v1-xxxxxxxxxxxx",
       requestBodyValues: { messages: ["secret prompt"] },
       statusCode: 402,
-      responseHeaders: { authorization: "Bearer sk-or-v1-abcdefabcdef" },
-      responseBody: JSON.stringify({ error: { message: "Insufficient credits. Add more using sk-or-v1-abcdefabcdef", code: 402 } }),
+      responseHeaders: { authorization: "Bearer sk-or-v1-xxxxxxxxxxxx" },
+      responseBody: JSON.stringify({ error: { message: "Insufficient credits. Add more using sk-or-v1-xxxxxxxxxxxx", code: 402 } }),
       isRetryable: false,
     });
     const res = await streamAgentTurn({ userId: USER, email: "pat@example.com", thread, input: message("hi"), model: scripted([refused]) });

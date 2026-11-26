@@ -14,10 +14,11 @@ import { FIXTURE_GATHERED, JOBS_FIXTURE_PAYLOAD, JOBS_FIXTURE_ROWS } from "./blo
 
 // The gallery's agent page fixtures (ui-gallery/states/agent-page-*): the production agent
 // page layout and chat with fixed threads, messages and a surface, and no session or
-// database. They exist so the page can be rendered and screenshotted at every width
-// (scripts/agent-screens.ts); they are not in the committed visual-regression suite.
-// Sending from a fixture calls /api/agent like the real page, so the screenshot script
-// stubs that route to show the failed-turn path.
+// database. They are in the committed visual-regression suite (tests/visual/routes.ts at
+// 390 and 1440, tests/visual/agent-page-widths.spec.ts at 1024, 1280 and 2000), and
+// scripts/agent-screens.ts renders them at every width locally. Nothing is sent on load;
+// sending from a fixture calls /api/agent like the real page, which only the local script
+// stubs (its failed-live state), never the committed suite.
 
 const THREAD = "00000000-0000-4000-8000-0000000000a1";
 const SURFACE = "00000000-0000-4000-8000-0000000000b1";

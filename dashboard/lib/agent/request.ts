@@ -26,6 +26,14 @@ const ApprovalRequestSchema = z.strictObject({
   approved: z.boolean(),
 });
 
-export const AgentRequestSchema = z.discriminatedUnion("kind", [MessageRequestSchema, ApprovalRequestSchema]);
+// Retry: answer the stored question `id` again. No text: the server reads the question
+// from the thread, so a Retry can never change what was asked.
+const RetryRequestSchema = z.strictObject({
+  threadId: z.uuid(),
+  kind: z.literal("retry"),
+  id: z.string().min(1).max(AGENT_MESSAGE_ID_MAX),
+});
+
+export const AgentRequestSchema = z.discriminatedUnion("kind", [MessageRequestSchema, ApprovalRequestSchema, RetryRequestSchema]);
 
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;

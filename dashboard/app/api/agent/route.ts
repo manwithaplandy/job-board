@@ -61,6 +61,7 @@ async function readBody(req: Request): Promise<AgentRequest | null> {
 
 function toTurnInput(body: AgentRequest): TurnInput {
   if (body.kind === "approval") return { kind: "approval", approvalId: body.approvalId, approved: body.approved };
+  if (body.kind === "retry") return { kind: "retry", id: body.id };
   return { kind: "message", id: body.id, text: body.text, documentIds: body.documentIds ?? [] };
 }
 

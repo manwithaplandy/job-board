@@ -583,6 +583,12 @@ logged. The run's `agent_runs.error` holds `model_error:<status>` (for example
 inline error with Retry: 401, 402 and 403 read as "unavailable", 429 as "too many
 requests", 5xx as "service trouble", anything else as the generic message.
 
+Retry sends `{ kind: "retry", id }`, not the text again. The server answers the stored
+question `id` only when it is the thread's last question and is followed by at most one
+assistant row that did not complete (`failed`, or `pending` from an interrupted turn); the
+new answer is written into that row, so the question is stored once. Anything else is
+refused as `retry_not_found` (400) after the run opens.
+
 ## 12. Runbooks
 
 - [Backup and restore](runbooks/backup-restore.md)

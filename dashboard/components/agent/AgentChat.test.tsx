@@ -125,8 +125,9 @@ test("a pending assistant message older than 300 s shows the interrupted notice 
   expect(screen.getByText("This reply was interrupted")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-  expect(bodyOf(0)).toMatchObject({ kind: "message", text: "What did you review?" });
+  expect(bodyOf(0)).toEqual({ threadId: THREAD, kind: "retry", id: "u1" });
   await screen.findByText("Here are two roles.");
+  expect(screen.getAllByText("What did you review?")).toHaveLength(1);
   expect(screen.queryByText("This reply was interrupted")).toBeNull();
 });
 
@@ -284,7 +285,7 @@ function failedTurn(errorText: string): Response {
   });
 }
 
-test("a failed turn shows one inline error with Retry and no empty assistant bubble; Retry resends the question", async () => {
+test("a failed turn shows one inline error with Retry and no empty assistant bubble; Retry answers the same question again", async () => {
   fetchMock.mockImplementationOnce(async () => failedTurn("model_error:402"));
   const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
   fireEvent.change(composer(), { target: { value: "Which roles fit?" } });
@@ -296,9 +297,10 @@ test("a failed turn shows one inline error with Retry and no empty assistant bub
   fireEvent.change(composer(), { target: { value: "half-typed" } });
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-  expect(bodyOf(1)).toMatchObject({ kind: "message", text: "Which roles fit?" });
-  expect(bodyOf(1).id).not.toBe(bodyOf(0).id);
+  // The stored question is answered again by its id: no second copy, here or on the server.
+  expect(bodyOf(1)).toEqual({ threadId: THREAD, kind: "retry", id: bodyOf(0).id });
   await screen.findByText("Here are two roles.");
+  expect(screen.getAllByText("Which roles fit?")).toHaveLength(1);
   expect(screen.queryByText(UNAVAILABLE_PROBLEM)).toBeNull();
   expect(composer().value).toBe("half-typed");
 });
@@ -331,5 +333,19 @@ test("a stored failed turn (a reload after the failure) shows no empty bubble, o
   expect(screen.getByText("This reply was interrupted")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-  expect(bodyOf(0)).toMatchObject({ kind: "message", text: "Any remote roles?" });
+  expect(bodyOf(0)).toEqual({ threadId: THREAD, kind: "retry", id: "u1" });
+});
+
+test("a refused Retry keeps the question on screen and offers Retry again", async () => {
+  fetchMock.mockImplementationOnce(async () => failedTurn("model_error:503"));
+  fetchMock.mockImplementationOnce(async () => Response.json({ error: "turn_in_progress" }, { status: 409 }));
+  render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Which roles fit?" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(PROVIDER_DOWN_PROBLEM);
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByText(/A reply is still being written/);
+  expect(screen.getAllByText("Which roles fit?")).toHaveLength(1);
+  expect(composer().value).toBe("");
+  expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 });

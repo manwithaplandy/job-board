@@ -596,6 +596,67 @@ describe("streamAgentTurn: PR C batch 3 review fixes", () => {
   });
 });
 
+describe("streamAgentTurn: Retry resends the stored question (PR K2)", () => {
+  const retry = (id: string): TurnInput => ({ kind: "retry", id });
+  const asked = (id = "m-1", text = "Find me remote roles"): UIMessage => ({
+    id,
+    role: "user",
+    parts: [{ type: "text", text }],
+    metadata: { status: "complete" },
+  });
+
+  test("a failed answer is answered again under the same question, with no second copy of it", async () => {
+    vi.mocked(loadMessages).mockResolvedValue([asked(), { id: "msg-failed", role: "assistant", parts: [], metadata: { status: "failed" } }]);
+    const model = scripted([textStep(["Here are three"], 0.0008)]);
+    await turn(model, retry("m-1"));
+    // The question is not saved again; the failed row is reused as the new answer.
+    expect(saves().some(([, , [m]]) => m.role === "user")).toBe(false);
+    const [, , [pending], status] = saves()[0];
+    expect(status).toBe("pending");
+    expect(pending.id).toBe("msg-failed");
+    expect(lastAssistantSave()[2][0].id).toBe("msg-failed");
+    expect(textOf(lastAssistantSave()[2][0])).toBe("Here are three");
+    const prompt = model.doStreamCalls[0].prompt;
+    expect(prompt.map((m) => m.role)).toEqual(["system", "user"]);
+    expect(JSON.stringify(prompt)).toContain("Find me remote roles");
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "done" });
+  });
+
+  test("an interrupted answer (still pending) is answered again in its own row", async () => {
+    vi.mocked(loadMessages).mockResolvedValue([asked(), { id: "msg-stuck", role: "assistant", parts: [], metadata: { status: "pending" } }]);
+    await turn(scripted([textStep(["ok"], 0.0008)]), retry("m-1"));
+    expect(lastAssistantSave()[2][0].id).toBe("msg-stuck");
+  });
+
+  test("a question with no answer row gets a new one", async () => {
+    vi.mocked(loadMessages).mockResolvedValue([asked()]);
+    await turn(scripted([textStep(["ok"], 0.0008)]), retry("m-1"));
+    expect(lastAssistantSave()[2][0].id).toMatch(/^msg-/);
+    expect(saves().some(([, , [m]]) => m.role === "user")).toBe(false);
+  });
+
+  test.each([
+    ["the question was answered", [asked(), { id: "msg-ok", role: "assistant", parts: [{ type: "text", text: "done" }], metadata: { status: "complete" } }]],
+    ["the id is not the last question", [asked("m-0", "old"), { id: "msg-a", role: "assistant", parts: [], metadata: { status: "failed" } }, asked("m-1")]],
+    ["there is no such question", []],
+  ] as const)("refused after startRun when %s", async (_why, history) => {
+    vi.mocked(loadMessages).mockResolvedValue(history as unknown as UIMessage[]);
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    const id = history.length === 3 ? "m-0" : "m-1";
+    const call = streamAgentTurn({ userId: USER, email: null, thread, input: retry(id), model });
+    await expect(call).rejects.toMatchObject({ code: "retry_not_found" });
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "failed", error: "bad_input" });
+    expect(saveMessages).not.toHaveBeenCalled();
+    expect(model.doStreamCalls).toHaveLength(0);
+  });
+
+  test("a malformed id is refused before startRun", async () => {
+    const call = streamAgentTurn({ userId: USER, email: null, thread, input: retry("bad id!"), model: scripted([textStep(["ok"], 0.0008)]) });
+    await expect(call).rejects.toMatchObject({ code: "bad_message_id" });
+    expect(h.calls).not.toContain("startRun");
+  });
+});
+
 describe("streamAgentTurn: PR C batch 4 review M7 (finishRun retried once)", () => {
   test("a finishRun that fails once is retried and the run closes", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});

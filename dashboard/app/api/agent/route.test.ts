@@ -168,6 +168,8 @@ describe("POST /api/agent", () => {
     ["an array body", [valid]],
     ["an approval without approved", { threadId: THREAD, kind: "approval", approvalId: "a1" }],
     ["client-sent message parts", { ...valid, parts: [{ type: "text", text: "x" }] }],
+    ["a retry that carries text", { threadId: THREAD, kind: "retry", id: "m-1", text: "changed" }],
+    ["a retry without an id", { threadId: THREAD, kind: "retry" }],
   ])("%s is a 400", async (_name, body) => {
     const res = await POST(post(body));
     expect(res.status).toBe(400);
@@ -179,6 +181,11 @@ describe("POST /api/agent", () => {
     expect(m.streamAgentTurn).toHaveBeenCalledWith(
       expect.objectContaining({ input: { kind: "approval", approvalId: "a1", approved: true } }),
     );
+  });
+
+  test("a retry is parsed and passed on as a retry input (PR K2)", async () => {
+    await POST(post({ threadId: THREAD, kind: "retry", id: "m-1" }));
+    expect(m.streamAgentTurn).toHaveBeenCalledWith(expect.objectContaining({ input: { kind: "retry", id: "m-1" } }));
   });
 
   test("a turn input the loop rejects is a 400", async () => {

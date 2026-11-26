@@ -381,6 +381,8 @@ export function validateSurfaceV3(payload: unknown): SurfaceValidationV3 {
 // ---------------------------------------------------------------------------
 
 const NONCE_RE = /^[A-Za-z0-9+/]{16,128}={0,2}$/;
+/** The frame document's title: the host's own label for the frame (SandboxFrame). */
+export const SANDBOX_DOCUMENT_TITLE = "Generated view";
 const KIT_END_TAG_RE = /<\/(?:script|style)/i;
 
 /** A fresh nonce for one build: 18 random bytes, base64 (24 characters). */
@@ -411,8 +413,11 @@ function hashSources(hashes: readonly string[]): string {
 }
 
 /**
- * The srcdoc document (plan Task 2.4). Fixed order: doctype; the plan's CSP meta; the hash
- * CSP meta; x-dns-prefetch-control off; a no-referrer meta; the kit style and script; then
+ * The srcdoc document (plan Task 2.4). Fixed order: doctype; the html start tag with
+ * lang="en" (it carries no content, so the CSP metas still precede everything they govern);
+ * the plan's CSP meta; the hash CSP meta; x-dns-prefetch-control off; a no-referrer meta; a
+ * fixed title, "Generated view" (the host's label for the frame; axe's html-has-lang and
+ * document-title rules ask for both); the kit style and script; then
  * the model's HTML, its script and style tags given the nonce (placed first among their
  * attributes, so a nonce the model wrote is ignored as a duplicate). Every emitted script
  * and style element starts with the comment /*<nonce>*\/ and its hash is listed in the hash
@@ -446,10 +451,12 @@ export function buildSandboxDocument(a: { html: string; nonce: string; kitJs: st
     `require-trusted-types-for 'script'; trusted-types default`;
   return (
     "<!doctype html>" +
+    '<html lang="en">' +
     `<meta http-equiv="Content-Security-Policy" content="${sandboxCsp(a.nonce)}">` +
     `<meta http-equiv="Content-Security-Policy" content="${hashPolicy}">` +
     '<meta http-equiv="x-dns-prefetch-control" content="off">' +
     '<meta name="referrer" content="no-referrer">' +
+    `<title>${SANDBOX_DOCUMENT_TITLE}</title>` +
     `<style${nonceAttr}>${kitCss}</style>` +
     `<script${nonceAttr}>${kitJs}</script>` +
     "<body>" +

@@ -15,7 +15,7 @@ import {
   resolveBind,
   validateSurfaceV2,
 } from "@/lib/agent/surfaces/v2/tree";
-import { resolveRowBind } from "@/lib/agent/surfaces/v2/bind";
+import { resolveRowBind, resolveRowsBind } from "@/lib/agent/surfaces/v2/bind";
 
 const text = (t = "Hello") => ({ type: "Text", text: t });
 const stack = (...children: unknown[]) => ({ type: "Stack", gap: "2", children });
@@ -175,6 +175,42 @@ describe("validateSurfaceV2", () => {
     const table = (bind: string) => ({ type: "Table", rowsBind, columns: [{ header: "G", bind }] });
     expect(errorsOf(v2(table("/text")), g)).toEqual([]);
     expect(errorsOf(v2(table("/%65eo_gender")), g).length).toBeGreaterThan(0);
+  });
+
+  test("R14: a Table's rowsBind may be the whole /shortlist or /applications list; nothing else may", () => {
+    const g = gatheredFixture();
+    g.shortlist = [
+      {
+        jobId: JOB_A, state: "suggested", reasonCode: null, reasonText: null, briefWhy: null, briefRisk: null,
+        setBy: "agent", updatedAt: "2026-11-24T00:00:00.000Z", job: g.jobs[JOB_A], fitScore: 80,
+      },
+    ];
+    g.applications = [
+      {
+        id: "app-1", jobId: JOB_B, stage: "applied", closedReason: null, nextStepOn: null, updatedAt: "2026-11-24T00:00:00.000Z",
+        job: g.jobs[JOB_B], events: [], documents: { resume: true, cover: false, outdated: false },
+      },
+    ];
+    const table = (rowsBind: string, bind = "/job/title") => ({ type: "Table", rowsBind, columns: [{ header: "Job", bind }] });
+    expect(errorsOf(v2(table("/shortlist")), g)).toEqual([]);
+    expect(errorsOf(v2(table("/applications")), g)).toEqual([]);
+    expect(errorsOf(v2(table("/applications", "/stage")), g)).toEqual([]);
+    expect(resolveRowsBind(g, "/shortlist")).toBe(g.shortlist);
+    expect(resolveRowsBind(g, "/applications")).toBe(g.applications);
+    // The existing binds still work as rowsBind.
+    expect(errorsOf(v2(table(`/reviews/${JOB_A}/requirements`, "/text")), g)).toEqual([]);
+    // Only those two lists, and only as a Table's rows.
+    for (const pointer of ["/jobs", "/reviews", "/metrics", "/profile", "/memo", "/documents", "/shortlist/", "/Shortlist", "shortlist", "/shortlist/x/y/z/w/v"]) {
+      expect(errorsOf(v2(table(pointer)), g).length, pointer).toBeGreaterThan(0);
+    }
+    expect(resolveRowsBind(g, "/jobs")).toBeUndefined();
+    expect(resolveBind(g, "/shortlist")).toBeUndefined();
+    expect(errorsOf(v2({ type: "Stat", label: "Shortlist", bind: "/shortlist" }), g).length).toBeGreaterThan(0);
+    expect(errorsOf(v2({ type: "Chart", viz: "line", bind: "/applications", title: "Apps" }), g).length).toBeGreaterThan(0);
+    // A row bind into a whole-list row still refuses eeo and email keys.
+    expect(errorsOf(v2(table("/shortlist", "/job/email")), g).length).toBeGreaterThan(0);
+    // An empty list is a valid table (nothing to check its columns against).
+    expect(errorsOf(v2(table("/shortlist")), gatheredFixture())).toEqual([]);
   });
 
   test("resolveBind reads own keys and digit indexes only, and decodes a percent-encoded job id", () => {

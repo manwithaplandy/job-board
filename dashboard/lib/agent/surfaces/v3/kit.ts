@@ -94,16 +94,16 @@ jb-button {
   min-height: var(--target-size);
   min-width: var(--target-size);
   padding: 0 var(--space-4);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-solid);
   border-radius: var(--radius-control);
-  background: var(--accent);
+  background: var(--accent-solid);
   color: var(--text-on-accent);
   font-size: var(--font-size-control);
   font-weight: 600;
   cursor: pointer;
   user-select: none;
 }
-jb-button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+jb-button:hover { background: var(--accent-solid-hover); border-color: var(--accent-solid-hover); }
 jb-button[variant="secondary"] { background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-strong); }
 jb-button[variant="secondary"]:hover { background: var(--bg-muted); }
 jb-button[aria-disabled="true"] { opacity: 0.5; cursor: default; }

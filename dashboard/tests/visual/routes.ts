@@ -46,6 +46,9 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   // requests to a local canary, driven only by tests/sandbox/sandbox.spec.ts.
   { id: "agent-sandbox-harness", path: "/ui-gallery/sandbox-harness", access: "public", family: "agent", state: "sandbox-harness", shell: "none", source: "app/ui-gallery/sandbox-harness/page.tsx", harness: "tests/sandbox/sandbox.spec.ts" },
   { id: "agent-sandbox-harness-baseline-csp", path: "/ui-gallery/sandbox-harness/baseline-csp", access: "public", family: "agent", state: "sandbox-harness-baseline-csp", shell: "none", source: "app/ui-gallery/sandbox-harness/baseline-csp/page.tsx", harness: "tests/sandbox/sandbox.spec.ts" },
+  // The render smoke's replay page (plan Task 2.11): one recorded or hand-written agent
+  // surface by name, rendered only when the server sets SURFACE_REPLAY=1.
+  { id: "agent-surface-replay", path: "/ui-gallery/surface-replay", access: "public", family: "agent", state: "surface-replay", shell: "none", source: "app/ui-gallery/surface-replay/page.tsx", harness: "tests/sandbox/render-smoke.spec.ts" },
   { id: "board-default", path: "/", access: "authenticated", family: "board", state: "default", shell: "board", source: "components/rolefit/RolefitBoard.tsx",
     // Pipeline-health operator strip, the review-now panel and the list/detail workspace
     // all track live pipeline/review state; the role counts sit in fixed-width slots.

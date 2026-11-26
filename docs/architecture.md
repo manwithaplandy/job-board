@@ -349,7 +349,10 @@ service).
 - **`.github/workflows/ci.yml`** (push/PR to `main`, no secrets): `metrics-reader` job
   (fixture-only `supabase_metrics` core, CLI and MCP tests); `python` job (Postgres 16
   and 17 matrix: ruff, allowlisted pytest, owned dashboard tests); `dashboard` job
-  (typecheck, lint, vitest, build); `public-visual` job (macOS, Playwright).
+  (typecheck, lint, vitest, build); `public-visual` job (macOS, Playwright);
+  `sandbox-enforcement` job (the sandbox's real-browser suite) and `render-smoke` job
+  (the render smoke, its own job with a 60 minute timeout), both in the pinned
+  Playwright container.
 - **`.github/workflows/authenticated-visual.yml`**: on a successful Vercel Preview
   deployment, runs authenticated visual tests against the preview URL (secrets:
   `VISUAL_AUTH_*`, `VISUAL_ONBOARDING_*`, `VERCEL_AUTOMATION_BYPASS_SECRET`).
@@ -398,6 +401,82 @@ ceiling is refused before anything runs.
   for 12 cases, so a run is roughly 1.3 to 1.6M tokens. 2M allows for that with
   headroom, and costs about $4 to $5 on Sonnet 5.5 at its list price.
 
+### The variant comparison (plan Tasks 2.10 to 2.13)
+
+Three more live modes of the same entry point, each with its own caps, and two free
+commands. Each live mode runs inside the throwaway database exactly like the golden run
+(same `lifecycle_test_db.py --allow-env OPENROUTER_API_KEY -- npm --prefix dashboard run
+eval:agent -- …` wrapper) and **spends money**. Each takes `--dry-run`, which needs no key
+and no database, prints the plan, the estimate and the caps, and spends nothing. The
+estimates are list prices from `lib/agent/prices.ts` (OpenRouter's prices for these slugs
+are unverified); the caps are what stop a real run.
+
+| Command | What it runs | Writes |
+|---|---|---|
+| `eval:agent -- --matrix [--models a,b \| --model id]` | Per model, 4 scenarios × 3 personas × 5 repeats played live in variant 1, each surface re-rendered into variants 2 and 3 from the same gathered data (180 cells a model; models default to `AGENT_EVAL_MODELS`) | `lib/agent/evals/recordings/matrix/<run>/<model>/v<n>/` |
+| `eval:agent -- --injection [--models a,b \| --model id]` | Per model, the 15 model-driven prompt-injection cases in variants 1, 2 and 3 (45 runs) | `lib/agent/evals/recordings/injection/<run>/<model>/v<n>/<case>.json` |
+| `npm run test:render-smoke` (free; needs Playwright's Chromium) | The hand-written surfaces (golden recordings and fixtures) at 390 and 1440 px, light and dark, and the latest complete matrix and injection runs' surfaces at 1440 px light: overflow, 44 px targets, axe; for variant 3, misstatements, canary hits and frame loads. Screenshots only of failures. `EVAL_MATRIX_RUN=<run>` / `EVAL_INJECTION_RUN=<run>` pick other runs. CI runs it in its own `render-smoke` job and uploads `render-smoke` | `test-results/render-smoke/` |
+| `eval:agent -- --judge [--run <run>]` | `openai/gpt-5.5` compares two variants of one cell of one matrix run (the latest complete one unless named), blind to the variant and in a random order; variant 3 is read from the render smoke's frame text for that run, and a pair without it is skipped | `lib/agent/evals/recordings/judge/<run>/results.json` and `hand-check.csv` (10% sample) |
+| `npm run eval:summary [-- --run <run>] [--injection-run <run>] [--judge-run <run>]` (free) | The per-variant summary from one run of each mode (the latest complete one unless named; the judge run must be one that judged the matrix run) and the render smoke's results for those runs. It names the runs it read; missing inputs read "not run yet" | `docs/superpowers/plans/2026-11-20-variant-summary.md` |
+
+Runs. Each live run of the matrix, the injection set or the judge writes into a new folder
+named by its run id, the UTC time it started (`20261126T011500Z`), with a `run.json` that
+says what ran and how it ended: `running`, then `complete`, `cap_exceeded` or `failed`.
+Every recording and result carries its run id (`evalRun`), and a reader leaves out a file
+whose id is not its folder's. Readers take the latest `complete` run unless one is named,
+and a named run may have any status, so a stopped run can be read on purpose. Two runs
+never mix, and the judge never writes over an earlier run's `hand-check.csv` (nor writes
+one when it judged nothing). Each `*.eval.ts` refuses to start unless `EVAL_MODE` is its
+own mode, which only `eval:agent` sets.
+
+In the summary, the matrix's variant 1 rows time and cost the whole scenario; variants 2
+and 3 time and cost the re-render only, and count only the surfaces' own assert failures
+(a re-render repeats no tool calls). Each row says which it covers.
+
+Caps (a flag lowers a cap; above its ceiling is a usage error). The matrix and the
+injection set cap each model's run and, with the two total flags, the whole command; the
+first cap to trip stops everything.
+
+| Mode | Flag | Bounds | Default | Ceiling |
+|---|---|---|---|---|
+| matrix | `--max-cells` | cells per model | 180 | 180 |
+| matrix | `--max-steps` | model calls in one turn or re-render | 8 | 8 |
+| matrix | `--max-tokens` | tokens per model | 22,000,000 | 44,000,000 |
+| matrix | `--max-usd` | reported dollars per model | $60 | $120 |
+| matrix | `--max-minutes` | wall clock per model | 360 | 600 |
+| matrix | `--max-total-tokens` | tokens over every model | 44,000,000 | 88,000,000 |
+| matrix | `--max-total-usd` | dollars over every model | $80 | $200 |
+| injection | `--max-cases` | runs per model | 45 | 45 |
+| injection | `--max-steps` | model calls in one turn | 8 | 8 |
+| injection | `--max-tokens` | tokens per model | 9,000,000 | 18,000,000 |
+| injection | `--max-usd` | reported dollars per model | $25 | $50 |
+| injection | `--max-minutes` | wall clock per model | 120 | 240 |
+| injection | `--max-total-tokens` | tokens over every model | 18,000,000 | 36,000,000 |
+| injection | `--max-total-usd` | dollars over every model | $35 | $90 |
+| judge | `--max-pairs` | pairs judged, repeat by repeat | 144 | 360 |
+| judge | `--max-steps` | model calls per pair | 1 | 1 |
+| judge | `--max-tokens` | tokens over the run | 3,000,000 | 6,000,000 |
+| judge | `--max-usd` | reported dollars over the run | $10 | $20 |
+| judge | `--max-minutes` | wall clock for the run | 60 | 120 |
+
+Estimated cost (the dry runs, list price):
+
+| Run | Model | Calls | Tokens (in / out) | Est. cost |
+|---|---|---|---|---|
+| Matrix, 180 cells | Sonnet 5.5 | 930 | 12.69M / 1.57M | $41.04 |
+| Matrix, 180 cells | Haiku 5.5 | 930 | 12.69M / 1.57M | $10.26 |
+| Injection, 45 runs | Sonnet 5.5 | 360 | 5.40M / 0.22M | $12.96 |
+| Injection, 45 runs | Haiku 5.5 | 360 | 5.40M / 0.22M | $3.24 |
+| Judge, 144 pairs | gpt-5.5 (not in the price table: estimated at Sonnet 5.5's list price; its real price may be higher or lower, and `--max-usd` bounds the run) | 144 | 1.73M / 0.06M | $4.03 |
+
+- Sizing: matrix and injection defaults are about 1.5 to 2 times the Sonnet estimate, and
+  ceilings twice the defaults; the matrix totals cover both models. The judge's 144 pairs
+  are two repeats of each scenario, persona and pairing for two models. All 360 pairs
+  need `--max-pairs 360 --max-tokens 6000000 --max-usd 20` (about $10).
+- The production signals (fallback rate, re-render use, undo within 60 seconds, a
+  question asked again, a surface left for a workspace) are read-only queries in
+  [agent-variant-signals.sql](runbooks/agent-variant-signals.sql), run by hand.
+
 ## 12. Runbooks
 
 - [Backup and restore](runbooks/backup-restore.md)
@@ -407,6 +486,7 @@ ceiling is refused before anything runs.
 - [Initial identity turn](runbooks/2026-10-13-initial-identity-turn.md)
 - [Maintenance and inactivity rollout](runbooks/2026-10-02-maintenance-inactivity-rollout.md)
   and [cleanup estimate SQL](runbooks/sql/maintenance-cleanup-estimate.sql)
+- [Agent variant production signals SQL](runbooks/agent-variant-signals.sql) (read-only)
 - [Company classification rollout](runbooks/2026-07-21-company-classification-rollout.md)
 - [Location canonicalization rollout](runbooks/2026-07-16-location-canonicalization-rollout.md)
 - UI rules: [ui-contracts](ui-contracts.md)

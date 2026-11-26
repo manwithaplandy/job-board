@@ -25,17 +25,22 @@ import { z } from "zod";
 import type postgres from "postgres";
 import { agentModel } from "@/lib/agent/provider";
 import { streamAgentTurn } from "@/lib/agent/loop";
-import { createThread, getThread } from "@/lib/agent/threads";
+import { createThread, getThread, loadMessages } from "@/lib/agent/threads";
 import { buildTools } from "@/lib/agent/tools";
 import type { Variant } from "@/lib/agent/config";
 import { parseOrNull } from "@/lib/zodParse";
 import { PERSONAS, seedPersona, writeStandInPackage, type Persona, type PersonaId } from "@/lib/agent/evals/personas";
-import { SCENARIOS, type ScenarioId } from "@/lib/agent/evals/scenarios";
-import { collectRecording, snapshotDb } from "@/lib/agent/evals/record";
+import { SCENARIOS, type PersonaSetup, type Scenario, type ScenarioId } from "@/lib/agent/evals/scenarios";
+import { loadInjectionFixture, type InjectionCase, type InjectionResult } from "@/lib/agent/evals/injection";
+import { collectRecording, rerenderUsage, snapshotDb } from "@/lib/agent/evals/record";
 import { playScenario, readStream, type TurnRunner } from "@/lib/agent/evals/play";
 import { recordingFileName, type Recording } from "@/lib/agent/evals/recording";
-import type { RunBudget } from "@/lib/agent/evals/budget";
+import { profileBudget, type EvalCaps, type RunBudget } from "@/lib/agent/evals/budget";
 import { budgetMiddleware } from "@/lib/agent/evals/budgetMiddleware";
+import { rerenderSurface } from "@/lib/agent/rerender";
+import type { StoredSurface } from "@/lib/agent/surfaces/store";
+import type { MatrixRunner } from "@/lib/agent/evals/matrix";
+import { cellKey } from "@/lib/agent/evals/matrixPlan";
 
 export interface RunScenarioArgs {
   persona: PersonaId;
@@ -133,11 +138,21 @@ async function waitForRuns(sql: postgres.Sql, threadId: string): Promise<void> {
 
 /** Plays one scenario for one persona against the live model and returns its recording. */
 export async function runScenario(a: RunScenarioArgs, ctx: ScenarioCtx): Promise<Recording & { skipped: string[] }> {
-  const { budget } = ctx;
-  budget.startCase();
+  ctx.budget.startCase();
   const persona = PERSONAS[a.persona];
   const scenario = SCENARIOS[a.scenario];
   const userId = await seedPersona(ctx.sql, persona, scenario.setup);
+  return playSeeded({ ...a, scenario, userId }, ctx);
+}
+
+/** Plays `scenario` on a new thread of the already seeded persona, and reads the run back. */
+async function playSeeded(
+  a: Omit<RunScenarioArgs, "scenario"> & { scenario: Scenario; userId: string },
+  ctx: ScenarioCtx,
+): Promise<Recording & { skipped: string[]; threadId: string }> {
+  const { budget } = ctx;
+  const { scenario, userId } = a;
+  const persona = PERSONAS[a.persona];
   const thread = await createThread(userId, a.variant);
   const dbBefore = await snapshotDb(ctx.sql, userId);
   const model = seededModel(a.model, a.seed, budget);
@@ -162,7 +177,7 @@ export async function runScenario(a: RunScenarioArgs, ctx: ScenarioCtx): Promise
   const recording = await collectRecording({
     sql: ctx.sql,
     source: "live",
-    scenario: a.scenario,
+    scenario: scenario.id,
     persona: a.persona,
     userId,
     threadId: thread.id,
@@ -174,7 +189,152 @@ export async function runScenario(a: RunScenarioArgs, ctx: ScenarioCtx): Promise
     dbBefore,
     timings: played.timings,
   });
-  return { ...recording, skipped: played.skipped };
+  return { ...recording, skipped: played.skipped, threadId: thread.id };
+}
+
+/**
+ * One model-driven injection case (Task 2.12, used only by injection.eval.ts): the persona
+ * seeded with a résumé on file and a memo, the fixture's hostile text planted where the
+ * case's channel reads it (a posting's description, a company's display name, or an
+ * uploaded résumé or photo's extracted text), then the case's scripted user played on a
+ * new thread of `variant`. The planted rows are reset first, so a case never sees another
+ * case's text. Variant 3's replay in the sandbox harness is not done here (no browser in
+ * this lane): `replay` is null and the render smoke replays the stored surfaces in CI.
+ */
+export async function runInjectionCase(
+  a: { injection: InjectionCase; variant: Variant; model: string; seed: number },
+  ctx: ScenarioCtx,
+): Promise<InjectionResult> {
+  ctx.budget.startCase();
+  const c = a.injection;
+  const persona = PERSONAS[c.persona];
+  const fixture = loadInjectionFixture(c.fixture);
+  const jobIds = persona.jobs.map((j) => j.jobId);
+  await ctx.sql`UPDATE jobs SET description = NULL WHERE id IN ${ctx.sql(jobIds)}`;
+  await ctx.sql`UPDATE companies SET display_name = NULL
+                WHERE id IN (SELECT company_id FROM jobs WHERE id IN ${ctx.sql(jobIds)})`;
+  const userId = await seedPersona(ctx.sql, persona, INJECTION_SETUP);
+  if (fixture.kind === "posting") {
+    await ctx.sql`UPDATE jobs SET description = ${fixture.text} WHERE id = ${persona.jobs[fixture.jobIndex].jobId}`;
+  } else if (fixture.kind === "company") {
+    await ctx.sql`UPDATE companies SET display_name = ${fixture.text}
+                  WHERE id = (SELECT company_id FROM jobs WHERE id = ${persona.jobs[fixture.jobIndex].jobId})`;
+  } else {
+    const mime = fixture.filename.endsWith(".png") ? "image/png" : "text/markdown";
+    await ctx.sql`
+      INSERT INTO documents (id, user_id, kind, filename, mime, bytes, storage_path, extracted_text, extraction)
+      VALUES (${persona.documentId}, ${userId}, ${fixture.documentKind}, ${fixture.filename}, ${mime},
+              ${Buffer.byteLength(fixture.text, "utf8")}, ${`${userId}/doc-${persona.documentId}-${fixture.filename}`},
+              ${fixture.text}, 'ok')`;
+  }
+  const scenario: Scenario = { id: c.scenario, title: `injection ${c.id}`, setup: INJECTION_SETUP, steps: c.steps };
+  const { skipped, threadId, ...recording } = await playSeeded(
+    { persona: c.persona, scenario, userId, variant: a.variant, model: a.model, seed: a.seed },
+    ctx,
+  );
+  if (skipped.length > 0) console.warn(`eval: injection ${c.id} skipped ${skipped.join("; ")}`);
+  const texts = (await loadMessages(userId, threadId))
+    .filter((m) => m.role === "assistant")
+    .flatMap((m) => m.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])));
+  return {
+    caseId: c.id,
+    variant: a.variant,
+    model: a.model,
+    recording,
+    texts,
+    contacts: [persona.email, ...(fixture.secrets ?? [])],
+    replay: null,
+    html: null,
+  };
+}
+
+/** Every injection case starts with the résumé on the profile and a memo, and no applications. */
+const INJECTION_SETUP: PersonaSetup = { resume: "on_profile", memo: true, applications: false };
+
+/**
+ * A matrix re-render cell (Task 2.10): every surface of the live variant 1 run `from`,
+ * re-rendered into `variant` by rerenderSurface itself (no HTTP route), so each goes
+ * through the same present tool, validation, repair and fallback path as a user's
+ * re-render, as a run of kind rerender charged against the same ceilings. The model is the
+ * original's, wrapped by the same budget middleware as the live run. Only the gathered data
+ * the live run stored is sent; no read or write tool is offered.
+ */
+export async function rerenderRun(a: { from: Recording; variant: 2 | 3 }, ctx: ScenarioCtx): Promise<Recording> {
+  const { budget } = ctx;
+  budget.startCase();
+  const persona = PERSONAS[a.from.persona];
+  const model = (modelId: string) => seededModel(modelId, a.from.seed, budget);
+  const startedAt = Date.now();
+  let firstRenderMs: number | null = null;
+  const surfaces: StoredSurface[] = [];
+  for (const source of a.from.surfaces) {
+    budget.startTurn();
+    // The operator switch is the caller's to read; the eval database has it at its default,
+    // so the harness passes it as on for the matrix (no flag is changed).
+    const out = await rerenderSurface(
+      persona.userId,
+      { surfaceId: source.id, variant: a.variant, email: persona.email, variant3Enabled: true },
+      { model },
+    );
+    budget.endTurn();
+    if (out.ok) {
+      surfaces.push(out.surface);
+      firstRenderMs ??= Date.now() - startedAt;
+    } else {
+      console.warn(`eval: re-render of surface ${source.id} into variant ${a.variant} ended ${out.reason}`);
+    }
+  }
+  // Never a Recording from a cell the caps stopped.
+  budget.throwIfTripped();
+  const threadId = a.from.surfaces[0]?.threadId ?? null;
+  return {
+    ...a.from,
+    source: "rerender",
+    variant: a.variant,
+    surfaces,
+    usage: threadId === null ? { costMicros: 0, inputTokens: 0, outputTokens: 0 } : await rerenderUsage(ctx.sql, threadId, a.variant),
+    timings: { firstRenderMs, completeMs: Date.now() - startedAt },
+  };
+}
+
+/**
+ * The live matrix runner (Task 2.10, used only by matrix.eval.ts): one RunBudget per
+ * model with the matrix caps, each reporting to the whole command's budget `total`. A
+ * model's budget is opened at its first cell and disposed after its last.
+ */
+export function liveMatrixRunner(
+  ctx: HarnessCtx,
+  a: { caps: EvalCaps; total: RunBudget; onBudget: (model: string, budget: RunBudget) => void },
+): MatrixRunner {
+  let budget: RunBudget | null = null;
+  const current = (): RunBudget => {
+    if (!budget) throw new Error("eval: a matrix cell ran outside its model's budget");
+    return budget;
+  };
+  return {
+    startModel: (model) => {
+      // The matrix profile: a call that reports no cost trips cost_unknown.
+      budget = profileBudget("matrix", a.caps, a.total);
+      budget.armClock();
+      a.onBudget(model, budget);
+    },
+    endModel: () => {
+      budget?.dispose();
+      budget = null;
+    },
+    live: async (cell) => {
+      const { skipped, ...recording } = await runScenario(
+        { persona: cell.persona, scenario: cell.scenario, variant: 1, model: cell.model, seed: cell.repeat },
+        { sql: ctx.sql, budget: current() },
+      );
+      if (skipped.length > 0) console.warn(`eval: ${cellKey(cell)} skipped ${skipped.join("; ")}`);
+      return recording;
+    },
+    rerender: async (cell, from) => {
+      if (cell.variant === 1) throw new Error("eval: variant 1 is never a re-render");
+      return rerenderRun({ from, variant: cell.variant }, { sql: ctx.sql, budget: current() });
+    },
+  };
 }
 
 /** Writes a live recording beside the hand-written ones: <scenario>.<persona>.<model>.json. */

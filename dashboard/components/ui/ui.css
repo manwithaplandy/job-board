@@ -19,8 +19,8 @@
 .rf-button--compact { min-height: var(--target-size); padding-inline: var(--space-3); font-size: var(--font-size-caption); }
 .rf-button--sm { min-height: var(--target-size); padding-inline: var(--space-4); font-size: var(--font-size-caption); }
 .rf-button--lg { min-height: var(--control-height-lg); padding-inline: var(--space-6); }
-.rf-button--primary { color: var(--text-on-accent); background: var(--accent); box-shadow: var(--shadow-accent); }
-.rf-button--primary:hover:not(:disabled) { background: var(--accent-hover); }
+.rf-button--primary { color: var(--text-on-accent); background: var(--accent-solid); box-shadow: var(--shadow-accent); }
+.rf-button--primary:hover:not(:disabled) { background: var(--accent-solid-hover); }
 .rf-button--secondary { color: var(--text-primary); background: var(--bg-muted); }
 .rf-button--secondary:hover:not(:disabled) { background: var(--border); }
 .rf-button--outline { color: var(--text-secondary); background: var(--bg-surface); border-color: var(--border); }

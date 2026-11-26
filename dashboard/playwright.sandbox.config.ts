@@ -16,6 +16,8 @@ const baseURL = `http://127.0.0.1:${PORT}`;
 export default defineConfig({
   testDir: "./tests/sandbox",
   testMatch: /\.spec\.ts$/,
+  // The render smoke shares the folder and the canary but has its own config.
+  testIgnore: /render-smoke\.spec\.ts$/,
   globalSetup: "./tests/sandbox/global-setup.ts",
   fullyParallel: false,
   workers: 1,

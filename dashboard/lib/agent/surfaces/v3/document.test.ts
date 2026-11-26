@@ -7,6 +7,7 @@ import type { GatheredData } from "@/lib/agent/gathered";
 import { gatheredFixture, JOB_A, JOB_B } from "@/lib/agent/surfaces/v1/testFixtures";
 import { STATIC_MARKUP_VARIANTS, sandboxCase } from "@/app/ui-gallery/sandbox-harness/fixtures";
 import {
+  SANDBOX_DOCUMENT_TITLE,
   V3_LIMITS,
   buildSandboxDocument,
   checkV3Static,
@@ -175,9 +176,9 @@ describe("scanStartTags", () => {
 });
 
 describe("buildSandboxDocument", () => {
-  test("the CSP meta is the first element after the doctype", () => {
+  test("the CSP meta is the first element after the doctype and the html start tag", () => {
     const doc = buildSandboxDocument({ html: "<script>1</script>", nonce: NONCE, ...KIT });
-    expect(doc.startsWith(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${sandboxCsp(NONCE)}">`)).toBe(true);
+    expect(doc.startsWith(`<!doctype html><html lang="en"><meta http-equiv="Content-Security-Policy" content="${sandboxCsp(NONCE)}">`)).toBe(true);
     expect(sandboxCsp(NONCE)).toBe(
       `default-src 'none'; script-src 'nonce-${NONCE}'; style-src 'nonce-${NONCE}'; img-src data:; font-src 'none'; ` +
         "connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; webrtc 'block'",
@@ -188,6 +189,18 @@ describe("buildSandboxDocument", () => {
     expect(doc.lastIndexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(kitAt);
     expect(doc.indexOf("<body>")).toBeGreaterThan(doc.indexOf("var host = {};"));
     expect(doc.endsWith(`<body><script nonce="${NONCE}">/*${NONCE}*/1</script>`)).toBe(true);
+  });
+
+  test("the document names its language and has a title, after both policies and before the kit (axe html-has-lang, document-title)", () => {
+    const doc = buildSandboxDocument({ html: "<p>x</p>", nonce: NONCE, ...KIT });
+    const titleAt = doc.indexOf(`<title>${SANDBOX_DOCUMENT_TITLE}</title>`);
+    expect(SANDBOX_DOCUMENT_TITLE).toBe("Generated view");
+    expect(doc.indexOf('<html lang="en">')).toBe("<!doctype html>".length);
+    expect(titleAt).toBeGreaterThan(doc.lastIndexOf('http-equiv="Content-Security-Policy"'));
+    expect(titleAt).toBeGreaterThan(doc.indexOf('<meta name="referrer" content="no-referrer">'));
+    expect(titleAt).toBeLessThan(doc.indexOf("<style nonce="));
+    // The title is fixed text: nothing the model wrote reaches it.
+    expect(buildSandboxDocument({ html: "<title>x</title>", nonce: NONCE, ...KIT }).indexOf("<title>")).toBe(titleAt);
   });
 
   test("every model script and style tag carries the nonce; the nonce differs per build", () => {

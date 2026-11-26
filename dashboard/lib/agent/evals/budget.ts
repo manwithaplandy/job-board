@@ -8,8 +8,10 @@
 //   max_cases    scenario x persona runs played (the first n of the 12)
 //   max_steps    model calls in one turn of a case; at most the route's own AGENT_LIMITS.maxSteps
 //   max_tokens   input + output tokens summed over every model call in the run
-//   max_usd      spend summed from the provider's reported cost; enforced only when
-//                the provider reports it (OpenRouter usage.cost), never from a price table
+//   max_usd      spend summed from the provider's reported cost (OpenRouter usage.cost),
+//                never from a price table. Golden run: enforced only when the provider
+//                reports it. Matrix, injection and judge: a call without a reported
+//                cost trips the run (cost_unknown), so this cap never switches off
 //   max_minutes  wall clock from the start of the run
 //
 // Pure, with no runtime imports, so scripts/eval-agent.mjs can load it (Node strips the
@@ -20,8 +22,12 @@ export const CAP_KEYS = ["maxCases", "maxSteps", "maxTokens", "maxUsd", "maxMinu
 export type CapKey = (typeof CAP_KEYS)[number];
 export type EvalCaps = Record<CapKey, number>;
 
-/** What tripped: one of the caps, or a step whose usage could not be read. */
-export type CapName = "max_cases" | "max_steps" | "max_tokens" | "max_usd" | "max_minutes" | "usage_unknown";
+/**
+ * What tripped: one of the caps, a step whose usage could not be read, or (matrix,
+ * injection and judge runs only) a step that reported no OpenRouter cost, so the dollar
+ * caps could not be enforced.
+ */
+export type CapName = "max_cases" | "max_steps" | "max_tokens" | "max_usd" | "max_minutes" | "usage_unknown" | "cost_unknown";
 
 /** The route's per-turn step limit (AGENT_LIMITS.maxSteps); budget.test.ts holds them equal. */
 export const ROUTE_MAX_STEPS = 8;
@@ -31,7 +37,7 @@ export const ALL_CASES = 12;
 export const DEFAULT_OUTPUT_RESERVE = 4000;
 
 interface CapSpec {
-  name: Exclude<CapName, "usage_unknown">;
+  name: Exclude<CapName, "usage_unknown" | "cost_unknown">;
   flag: string;
   env: string;
   /** Whole numbers only (all but max_usd, which takes cents). */
@@ -63,9 +69,141 @@ export const CAP_SPECS: Record<CapKey, CapSpec> = {
 export const CAP_DEFAULTS: EvalCaps = mapCaps((s) => s.default);
 export const CAP_CEILINGS: EvalCaps = mapCaps((s) => s.ceiling);
 
-function mapCaps(f: (s: CapSpec) => number): EvalCaps {
+function mapCaps(f: (s: CapSpec) => number, specs: Record<CapKey, CapSpec> = CAP_SPECS): EvalCaps {
   const out = {} as EvalCaps;
-  for (const key of CAP_KEYS) out[key] = f(CAP_SPECS[key]);
+  for (const key of CAP_KEYS) out[key] = f(specs[key]);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Cap profiles (Tasks 2.10, 2.12, 2.13). The golden run keeps the A17 caps above,
+// unchanged. The matrix, the injection set and the judge are separate opt-in modes of the
+// same entry point, each with its own caps: defaults and hard ceilings here, enforced by
+// the same RunBudget and budgetMiddleware. The matrix and the injection set run once per
+// model; each model's run has its own RunBudget, and every model's budget also reports to
+// one whole-command budget with the TOTAL caps. The first cap to trip, a model's or the
+// total, stops the whole command.
+//
+// Sizing (matrixPlan.ts estimateMatrix / estimateInjection / estimateJudge make the
+// numbers, and budget.test.ts holds every default above its Sonnet 5.5 estimate):
+// - matrix, per model: one full run is 180 cells (60 live variant 1 scenario runs plus
+//   210 re-renders of their surfaces into variants 2 and 3). Estimated about 14.3M tokens
+//   and $41 on Sonnet 5.5 at its list price, about $10 on Haiku 5.5. Defaults are about
+//   1.5 times the Sonnet estimate (22M tokens, $60); ceilings are twice the defaults.
+//   The whole-command total defaults cover both AGENT_EVAL_MODELS (44M tokens, $80).
+//   Minutes: about 3 to 5 hours a model (60 scenario runs at the golden pace plus 210
+//   re-renders), so 360 by default and 600 at most.
+// - injection, per model: 15 model-driven cases by 3 variants (45 runs), estimated about
+//   5.6M tokens and $13 on Sonnet; defaults 9M tokens and $25, ceilings twice that.
+// - judge: one model (openai/gpt-5.5), 144 pairs by default (two repeats of each
+//   scenario, persona and variant pair, both models), estimated about 1.8M tokens and
+//   $4 at the fallback price (Sonnet 5.5's list price; gpt-5.5's own price is not in the
+//   table, so the estimate may be high or low); a small cap of 3M tokens and $10.
+//
+// Dollar caps never switch off in these three modes: a model call that reports no
+// OpenRouter cost trips the run as cost_unknown (PROFILE_REQUIRES_COST), where the golden
+// run (A17, unchanged) falls back to its token cap alone.
+// ---------------------------------------------------------------------------
+
+export const CAP_PROFILES = ["golden", "matrix", "injection", "judge"] as const;
+export type CapProfile = (typeof CAP_PROFILES)[number];
+
+/**
+ * The variable scripts/eval-agent.mjs sets to the mode it starts (golden, matrix,
+ * injection or judge), and nothing else sets. vitest.eval.config.ts includes every
+ * *.eval.ts, so a bare `vitest -c vitest.eval.config.ts` would load all four live files
+ * at once, each with its own default caps: each file calls assertEvalMode with its own
+ * mode first and refuses to start under any other value.
+ */
+export const EVAL_MODE_ENV = "EVAL_MODE";
+
+export function assertEvalMode(env: Readonly<Record<string, string | undefined>>, mode: CapProfile): void {
+  const got = env[EVAL_MODE_ENV];
+  if (got === mode) return;
+  const command = mode === "golden" ? "npm run eval:agent -- --variant <1|2|3>" : `npm run eval:agent -- --${mode}`;
+  throw new Error(`eval: this file runs only through \`${command}\` (${EVAL_MODE_ENV}=${mode}); ${EVAL_MODE_ENV} is ${got === undefined ? "unset" : JSON.stringify(got)}`);
+}
+
+/**
+ * Whether every model call of a profile must report its OpenRouter cost. True for the
+ * matrix, the injection set and the judge: a call without one trips cost_unknown, so
+ * max_usd and max_total_usd always hold. False for the golden run, whose A17 behaviour
+ * stays as approved (no cost on the first call: tokens only, and the report says so).
+ */
+export const PROFILE_REQUIRES_COST: Record<CapProfile, boolean> = {
+  golden: false,
+  matrix: true,
+  injection: true,
+  judge: true,
+};
+
+export const TOTAL_CAP_KEYS = ["maxTotalTokens", "maxTotalUsd"] as const;
+export type TotalCapKey = (typeof TOTAL_CAP_KEYS)[number];
+export type TotalCaps = Record<TotalCapKey, number>;
+
+const spec = (
+  base: CapSpec,
+  over: Partial<Pick<CapSpec, "flag" | "label">> & { default: number; ceiling: number },
+): CapSpec => ({ ...base, ...over });
+
+export const MATRIX_CELLS = 180;
+export const INJECTION_RUNS_PER_MODEL = 45;
+export const JUDGE_PAIRS_DEFAULT = 144;
+export const JUDGE_PAIRS_CEILING = 360;
+
+export const PROFILE_CAP_SPECS: Record<CapProfile, Record<CapKey, CapSpec>> = {
+  golden: CAP_SPECS,
+  matrix: {
+    maxCases: spec(CAP_SPECS.maxCases, { flag: "--max-cells", label: "matrix cells per model", default: MATRIX_CELLS, ceiling: MATRIX_CELLS }),
+    maxSteps: CAP_SPECS.maxSteps,
+    maxTokens: spec(CAP_SPECS.maxTokens, { label: "tokens per model (input + output)", default: 22_000_000, ceiling: 44_000_000 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 60, ceiling: 120 }),
+    maxMinutes: spec(CAP_SPECS.maxMinutes, { label: "minutes per model", default: 360, ceiling: 600 }),
+  },
+  injection: {
+    maxCases: spec(CAP_SPECS.maxCases, { label: "injection runs per model", default: INJECTION_RUNS_PER_MODEL, ceiling: INJECTION_RUNS_PER_MODEL }),
+    maxSteps: CAP_SPECS.maxSteps,
+    maxTokens: spec(CAP_SPECS.maxTokens, { label: "tokens per model (input + output)", default: 9_000_000, ceiling: 18_000_000 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 25, ceiling: 50 }),
+    maxMinutes: spec(CAP_SPECS.maxMinutes, { label: "minutes per model", default: 120, ceiling: 240 }),
+  },
+  judge: {
+    maxCases: spec(CAP_SPECS.maxCases, { flag: "--max-pairs", label: "judged pairs", default: JUDGE_PAIRS_DEFAULT, ceiling: JUDGE_PAIRS_CEILING }),
+    maxSteps: spec(CAP_SPECS.maxSteps, { label: "model calls per pair", default: 1, ceiling: 1 }),
+    maxTokens: spec(CAP_SPECS.maxTokens, { default: 3_000_000, ceiling: 6_000_000 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { default: 10, ceiling: 20 }),
+    maxMinutes: spec(CAP_SPECS.maxMinutes, { default: 60, ceiling: 120 }),
+  },
+};
+
+const TOTAL_BASE = { integer: true, env: "", flag: "", label: "", name: "max_tokens" } as const;
+
+/** The whole-command caps of the modes that run once per model. */
+export const TOTAL_CAP_SPECS: Partial<Record<CapProfile, Record<TotalCapKey, CapSpec>>> = {
+  matrix: {
+    maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over every model", default: 44_000_000, ceiling: 88_000_000 },
+    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 80, ceiling: 200 },
+  },
+  injection: {
+    maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over every model", default: 18_000_000, ceiling: 36_000_000 },
+    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 35, ceiling: 90 },
+  },
+};
+
+export function profileDefaults(profile: CapProfile): EvalCaps {
+  return mapCaps((s) => s.default, PROFILE_CAP_SPECS[profile]);
+}
+
+export function profileCeilings(profile: CapProfile): EvalCaps {
+  return mapCaps((s) => s.ceiling, PROFILE_CAP_SPECS[profile]);
+}
+
+/** The flag names a profile accepts: its own cap flags and, where it has them, the total flags. */
+export function profileFlags(profile: CapProfile): Map<string, { key: CapKey | TotalCapKey; total: boolean }> {
+  const out = new Map<string, { key: CapKey | TotalCapKey; total: boolean }>();
+  for (const key of CAP_KEYS) out.set(PROFILE_CAP_SPECS[profile][key].flag, { key, total: false });
+  const totals = TOTAL_CAP_SPECS[profile];
+  if (totals) for (const key of TOTAL_CAP_KEYS) out.set(totals[key].flag, { key, total: true });
   return out;
 }
 
@@ -96,8 +234,11 @@ const INTEGER_RE = /^\d{1,12}$/;
 const DECIMAL_RE = /^\d{1,6}(\.\d{1,2})?$/;
 
 /** One flag's value, checked against its spec. */
-export function parseCap(key: CapKey, raw: string): number {
-  const spec = CAP_SPECS[key];
+export function parseCap(key: CapKey, raw: string, profile: CapProfile = "golden"): number {
+  return parseSpec(PROFILE_CAP_SPECS[profile][key], raw);
+}
+
+function parseSpec(spec: CapSpec, raw: string): number {
   const text = raw.trim();
   const shape = spec.integer ? INTEGER_RE : DECIMAL_RE;
   const value = Number(text);
@@ -111,29 +252,90 @@ export function parseCap(key: CapKey, raw: string): number {
 }
 
 /** The caps from flag values; a missing one takes its default. */
-export function parseCaps(raw: Partial<Record<CapKey, string | undefined>>): EvalCaps {
-  const out = { ...CAP_DEFAULTS };
+export function parseCaps(raw: Partial<Record<CapKey, string | undefined>>, profile: CapProfile = "golden"): EvalCaps {
+  const out = profileDefaults(profile);
   for (const key of CAP_KEYS) {
     const value = raw[key];
-    if (value !== undefined) out[key] = parseCap(key, value);
+    if (value !== undefined) out[key] = parseCap(key, value, profile);
+  }
+  return out;
+}
+
+/** The whole-command caps from flag values; a missing one takes its default. A profile without them refuses any. */
+export function parseTotalCaps(raw: Partial<Record<TotalCapKey, string | undefined>>, profile: CapProfile): TotalCaps | null {
+  const specs = TOTAL_CAP_SPECS[profile];
+  if (!specs) {
+    if (TOTAL_CAP_KEYS.some((k) => raw[k] !== undefined)) throw new CapUsageError(`the ${profile} run has no whole-command caps`);
+    return null;
+  }
+  const out = {} as TotalCaps;
+  for (const key of TOTAL_CAP_KEYS) {
+    const value = raw[key];
+    out[key] = value === undefined ? specs[key].default : parseSpec(specs[key], value);
   }
   return out;
 }
 
 /** The caps eval-agent.mjs passed to vitest (EVAL_MAX_*), re-checked on this side. */
-export function capsFromEnv(env: Record<string, string | undefined>): EvalCaps {
+export function capsFromEnv(env: Record<string, string | undefined>, profile: CapProfile = "golden"): EvalCaps {
   const raw: Partial<Record<CapKey, string>> = {};
   for (const key of CAP_KEYS) {
-    const value = env[CAP_SPECS[key].env];
+    const value = env[PROFILE_CAP_SPECS[profile][key].env];
     if (value !== undefined && value !== "") raw[key] = value;
   }
-  return parseCaps(raw);
+  return parseCaps(raw, profile);
 }
 
-export function capsToEnv(caps: EvalCaps): Record<string, string> {
+/** The whole-command caps eval-agent.mjs passed (EVAL_MAX_TOTAL_*), re-checked on this side. */
+export function totalCapsFromEnv(env: Record<string, string | undefined>, profile: CapProfile): TotalCaps | null {
+  const specs = TOTAL_CAP_SPECS[profile];
+  const raw: Partial<Record<TotalCapKey, string>> = {};
+  if (specs) {
+    for (const key of TOTAL_CAP_KEYS) {
+      const value = env[specs[key].env];
+      if (value !== undefined && value !== "") raw[key] = value;
+    }
+  }
+  return parseTotalCaps(raw, profile);
+}
+
+export function capsToEnv(caps: EvalCaps, profile: CapProfile = "golden"): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const key of CAP_KEYS) out[CAP_SPECS[key].env] = String(caps[key]);
+  for (const key of CAP_KEYS) out[PROFILE_CAP_SPECS[profile][key].env] = String(caps[key]);
   return out;
+}
+
+export function totalCapsToEnv(caps: TotalCaps | null, profile: CapProfile): Record<string, string> {
+  const specs = TOTAL_CAP_SPECS[profile];
+  const out: Record<string, string> = {};
+  if (caps && specs) for (const key of TOTAL_CAP_KEYS) out[specs[key].env] = String(caps[key]);
+  return out;
+}
+
+/**
+ * The whole-command budget of a run over several models: only its token and dollar caps
+ * count (cases, steps and minutes are each model's own), and every model's RunBudget
+ * reports each call to it. Only the matrix and the injection set have one, and both
+ * require a reported cost on every call (PROFILE_REQUIRES_COST), so this one does too.
+ */
+export function totalBudget(caps: TotalCaps, now: () => number = Date.now): RunBudget {
+  return new RunBudget(
+    {
+      maxCases: Number.MAX_SAFE_INTEGER,
+      maxSteps: Number.MAX_SAFE_INTEGER,
+      maxTokens: caps.maxTotalTokens,
+      maxUsd: caps.maxTotalUsd,
+      maxMinutes: Number.MAX_SAFE_INTEGER / 120_000,
+    },
+    now,
+    null,
+    true,
+  );
+}
+
+/** One model's RunBudget for a profile: its caps, the cost rule of the profile, and an optional whole-command parent. */
+export function profileBudget(profile: CapProfile, caps: EvalCaps, parent: RunBudget | null = null, now: () => number = Date.now): RunBudget {
+  return new RunBudget(caps, now, parent, PROFILE_REQUIRES_COST[profile]);
 }
 
 /** One model call's usage: tokens, and the provider's reported cost in dollars when it gave one. */
@@ -202,10 +404,26 @@ export class RunBudget {
   private maxStepCostUsd = 0;
   private usd: UsdEnforcement = "pending";
 
-  constructor(caps: EvalCaps, now: () => number = Date.now) {
+  /** The whole-command budget every call also reports to (a run over several models), or null. */
+  private readonly parent: RunBudget | null;
+  /** A call that reports no cost trips cost_unknown (matrix, injection, judge), never "not enforced". */
+  readonly requireCost: boolean;
+
+  constructor(caps: EvalCaps, now: () => number = Date.now, parent: RunBudget | null = null, requireCost = false) {
     this.caps = caps;
     this.now = now;
     this.startedAt = now();
+    this.parent = parent;
+    this.requireCost = requireCost;
+    if (parent) {
+      // A trip of the whole command trips this run too (and aborts a call in flight).
+      const follow = () => {
+        const t = parent.tripped;
+        if (t) this.trip(t.cap, `whole command: ${t.detail}`);
+      };
+      if (parent.signal.aborted) follow();
+      else parent.signal.addEventListener("abort", follow, { once: true });
+    }
   }
 
   /** Aborted at the first breach; the budgeted model passes it to every call. */
@@ -322,6 +540,16 @@ export class RunBudget {
     if (this.usd === "enforced" && this.costUsd + this.maxStepCostUsd > this.caps.maxUsd) {
       throw this.trip("max_usd", `$${this.costUsd.toFixed(4)} spent; the next call (up to $${this.maxStepCostUsd.toFixed(4)}) could pass the cap of $${this.caps.maxUsd}`);
     }
+    if (this.parent) {
+      // The whole command's caps, checked last: a refusal there trips this run through the
+      // parent's abort (constructor), and the call never reaches the provider.
+      try {
+        this.parent.beforeStep(a);
+      } catch (error) {
+        const t = this.parent.tripped;
+        throw t ? this.trip(t.cap, `whole command: ${t.detail}`) : error;
+      }
+    }
     this.steps += 1;
     this.stepsThisTurn += 1;
     this.maxStepsInTurn = Math.max(this.maxStepsInTurn, this.stepsThisTurn);
@@ -331,12 +559,15 @@ export class RunBudget {
   /**
    * After a model call, with its usage, or null when it could not be read (a missing or
    * malformed finish part, a stream that ended without one): null trips usage_unknown.
-   * The first call decides the dollar cap: enforced when it reported a cost, not
-   * enforced (tokens only) when it did not. Once enforced, a call without a cost trips
+   * With requireCost (matrix, injection, judge), a call without a cost trips
+   * cost_unknown, so the dollar caps are always enforced. Otherwise (golden, A17) the
+   * first call decides the dollar cap: enforced when it reported a cost, not enforced
+   * (tokens only) when it did not; once enforced, a call without a cost trips
    * usage_unknown. Does not throw: the trip aborts `signal` and the next check throws.
    */
   recordStep(usage: StepUsage | null): void {
     this.inFlight = Math.max(0, this.inFlight - 1);
+    this.parent?.recordStep(usage);
     if (usage === null) {
       this.trip("usage_unknown", "a model call's token usage could not be read");
       return;
@@ -344,6 +575,10 @@ export class RunBudget {
     this.inputTokens += usage.inputTokens;
     this.outputTokens += usage.outputTokens;
     this.lastInputTokens = usage.inputTokens;
+    if (usage.costUsd === null && this.requireCost) {
+      this.trip("cost_unknown", "a model call reported no OpenRouter cost, so the dollar caps could not be enforced");
+      return;
+    }
     if (this.usd === "pending") this.usd = usage.costUsd === null ? "not_enforced" : "enforced";
     if (this.usd === "enforced") {
       if (usage.costUsd === null) {
@@ -365,7 +600,9 @@ export class RunBudget {
     const t = this.totals;
     const status = this.trippedAt ? `cap_exceeded (${this.trippedAt.cap}: ${this.trippedAt.detail})` : "within caps";
     const usd =
-      this.usd === "enforced"
+      this.trippedAt?.cap === "cost_unknown"
+        ? `$${t.costUsd.toFixed(4)} reported before a call came back without its cost (the run stopped there)`
+        : this.usd === "enforced"
         ? `$${t.costUsd.toFixed(4)}`
         : this.usd === "not_enforced"
           ? "not enforced: the provider reported no cost, so only the token cap applied"

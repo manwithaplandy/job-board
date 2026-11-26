@@ -4,7 +4,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { assertRecording, BLOCK_INTENTS, CONFIRMATION_TOOLS, type AssertCode } from "@/lib/agent/evals/asserts";
+import { assertRecording, BLOCK_INTENTS, CONFIRMATION_TOOLS, findMisstatements, type AssertCode } from "@/lib/agent/evals/asserts";
+import { emptyGathered, type GatheredData } from "@/lib/agent/gathered";
 import { parseRecording, recordingFileName, type Recording } from "@/lib/agent/evals/recording";
 import { PERSONAS, PERSONA_IDS } from "@/lib/agent/evals/personas";
 import { SCENARIOS, SCENARIO_IDS } from "@/lib/agent/evals/scenarios";
@@ -191,6 +192,186 @@ describe("assertRecording", () => {
       seen.add(r.scenario);
     }
     expect([...seen].sort()).toEqual([...SCENARIO_IDS].sort());
+  });
+});
+
+describe("assertRecording on variants 2 and 3 (Task 2.10)", () => {
+  /** The d_weekly recording with its one surface re-rendered as `payload` in `variant`. */
+  function asVariant(variant: 2 | 3, payload: Record<string, unknown>): Recording {
+    const r = committed("d_weekly");
+    r.variant = variant;
+    r.source = "rerender";
+    r.surfaces[0] = { ...r.surfaces[0], variant, payload, fallbackPayload: r.surfaces[0].payload };
+    return r;
+  }
+  const weeklyTree = (bind: string) => ({
+    variant: 2,
+    root: {
+      type: "Stack",
+      gap: "2",
+      children: [
+        { type: "Heading", level: 2, text: "Your last few weeks" },
+        { type: "Stat", label: "Response rate", bind },
+        { type: "JobTitle", jobId: "greenhouse:eval-ng-4:1010" },
+      ],
+    },
+  });
+
+  test("a variant 2 tree's Stat binds count as shown metrics; with none, scenario (d) fails", () => {
+    expect(codes(asVariant(2, weeklyTree("/metrics/1")))).toEqual([]);
+    expect(codes(asVariant(2, weeklyTree("/metrics/7")))).toContain("metric_not_gathered");
+    const noMetric = weeklyTree("/metrics/1");
+    noMetric.root.children.splice(1, 1);
+    expect(codes(asVariant(2, noMetric))).toEqual(["scenario_d_no_metrics"]);
+    const thin = asVariant(2, weeklyTree("/metrics/1"));
+    (gathered(thin, 0).metrics as unknown as Array<Record<string, unknown>>)[1].n = 3;
+    expect(codes(thin)).toEqual(["rate_below_min_n"]);
+  });
+
+  test("a variant 2 tree that fails its grammar, or names a job not stored, fails", () => {
+    expect(codes(asVariant(2, { variant: 2, root: { type: "Nope" } }))).toEqual(["surface_invalid", "scenario_d_no_metrics"]);
+    const unknownJob = weeklyTree("/metrics/1");
+    (unknownJob.root.children[2] as { jobId: string }).jobId = "greenhouse:eval-ng-9:9999";
+    expect(codes(asVariant(2, unknownJob))).toContain("job_not_in_database");
+  });
+
+  test("a variant 3 document counts as showing metrics when it reads them, and its stored fallback is checked as variant 1", () => {
+    const reads = asVariant(3, { variant: 3, title: "Weekly", html: "<p id=a></p><script>host.onInit(function (d) { a.textContent = d.metrics.length; });</script>" });
+    expect(codes(reads)).toEqual([]);
+    const blind = asVariant(3, { variant: 3, title: "Weekly", html: "<p>Nothing here</p>" });
+    expect(codes(blind)).toEqual(["scenario_d_no_metrics"]);
+    const badFallback = asVariant(3, { variant: 3, title: "Weekly", html: "<p>metrics</p>" });
+    badFallback.surfaces[0].fallbackPayload = { variant: 1, blocks: [{ type: "Bogus" }] };
+    expect(codes(badFallback)).toEqual(["unknown_block", "surface_invalid"]);
+  });
+
+  test("a variant 2 surface stored as its variant 1 fallback is checked as variant 1", () => {
+    const r = committed("d_weekly");
+    r.variant = 2;
+    r.surfaces[0] = { ...r.surfaces[0], variant: 2, outcome: "fallback", fallbackPayload: r.surfaces[0].payload };
+    expect(codes(r)).toEqual([]);
+  });
+});
+
+describe("findMisstatements (Task 2.11, variant 3 frame text)", () => {
+  const job = (jobId: string, title: string, company: string) => ({
+    jobId,
+    title,
+    company,
+    location: null,
+    remote: true,
+    url: `https://jobs.example/${jobId.replace(/:/g, "/")}`,
+    firstSeenAt: "2026-11-01T00:00:00.000Z",
+    ageDays: 3,
+    closed: false,
+  });
+  const review = (jobId: string, fitScore: number | null, payMin: number | null, payMax: number | null) => ({
+    jobId,
+    verdict: "approve" as const,
+    fitScore,
+    skillsScore: null,
+    experienceScore: null,
+    compScore: null,
+    payMin,
+    payMax,
+    payCurrency: payMin === null ? null : "USD",
+    payPeriod: payMin === null ? null : "year",
+    workArrangement: null,
+    seniority: null,
+    redFlags: [],
+    skillGaps: [],
+    requirements: [],
+    reasoning: null,
+    stale: false,
+  });
+  const gathered: GatheredData = {
+    ...emptyGathered(),
+    jobs: {
+      "greenhouse:acme:1": job("greenhouse:acme:1", "Senior Backend Engineer", "Acme"),
+      "lever:globex:2": job("lever:globex:2", "Backend Engineer", "Globex"),
+      "ashby:initech:3": job("ashby:initech:3", "Data Analyst", "Initech"),
+    },
+    reviews: {
+      "greenhouse:acme:1": review("greenhouse:acme:1", 82, 145_000, 170_000),
+      "lever:globex:2": review("lever:globex:2", 64, 120_000, 135_000),
+      "ashby:initech:3": review("ashby:initech:3", null, null, null),
+    },
+  };
+  const codes = (text: string) => findMisstatements(text, gathered).map((f) => f.code);
+
+  test("figures that equal each job's stored values pass, in the formats a page writes them", () => {
+    const text = [
+      "Your top matches",
+      "Senior Backend Engineer",
+      "Acme · Remote",
+      "Fit 82 · $145k – $170k",
+      "Backend Engineer",
+      "Globex",
+      "64% fit · USD 120,000",
+    ].join("\n");
+    expect(findMisstatements(text, gathered)).toEqual([]);
+    expect(codes("Senior Backend Engineer\nfit score: 82/100\n$145,000 - $170,000 a year")).toEqual([]);
+    expect(codes("Senior Backend Engineer pays 145k to 170k (fit 82)")).toEqual([]);
+  });
+
+  test("a fit or pay figure that differs from the stored value is a misstatement", () => {
+    expect(codes("Senior Backend Engineer\nFit 88\n$145k")).toEqual(["fit_mismatch"]);
+    expect(codes("Senior Backend Engineer\nFit 82\n$150k – $170k")).toEqual(["pay_mismatch"]);
+    const [f] = findMisstatements("Backend Engineer · 82% match", gathered);
+    expect(f).toMatchObject({ code: "fit_mismatch", path: "frame" });
+    expect(f.message).toContain("lever:globex:2");
+  });
+
+  test("figures belong to the nearest title before them; the longest title wins where titles overlap", () => {
+    // Acme's 82 under "Senior Backend Engineer" is right; the same 82 under Globex's title is not.
+    expect(codes("Senior Backend Engineer Fit 82\nBackend Engineer Fit 82")).toEqual(["fit_mismatch"]);
+    expect(codes("Backend Engineer Fit 64\nSenior Backend Engineer Fit 82")).toEqual([]);
+  });
+
+  test("a figure for a job with no stored value, or before any title that matches no job, is a misstatement", () => {
+    expect(codes("Data Analyst\nFit 70")).toEqual(["fit_mismatch"]);
+    expect(codes("Data Analyst\n$90k")).toEqual(["pay_mismatch"]);
+    expect(codes("Your best match is 82% fit.")).toEqual([]);
+    expect(codes("Your best match is 97% fit, paying $300k.")).toEqual(["fit_mismatch", "pay_mismatch"]);
+  });
+
+  test("401k and a figure followed by what it counts are not pay; pay words and the next piece of the layout keep it pay (M6)", () => {
+    expect(codes("Senior Backend Engineer\nFit 82 · 401k match · 401 k plan")).toEqual([]);
+    expect(codes("Senior Backend Engineer\nAcme serves 150k users, raised $20 million and $5M ARR")).toEqual([]);
+    expect(codes("Senior Backend Engineer\n$145k base salary, up to $170k a year")).toEqual([]);
+    // Still read as pay, and wrong: a pay word after it, a capitalised next item, or nothing after it.
+    expect(codes("Senior Backend Engineer\n$150k base")).toEqual(["pay_mismatch"]);
+    expect(codes("Senior Backend Engineer\n$150k Remote")).toEqual(["pay_mismatch"]);
+    expect(codes("Senior Backend Engineer\n$401k")).toEqual(["pay_mismatch"]);
+    expect(codes("Senior Backend Engineer\n150k.")).toEqual(["pay_mismatch"]);
+  });
+
+  test("in a table a figure is checked against every job the table names; a table that names none uses the nearest title (M6)", () => {
+    const table = (rows: string[][]) => rows.map((r) => r.join("\t")).join("\n");
+    const compare = table([
+      ["", "Senior Backend Engineer", "Backend Engineer"],
+      ["Fit", "82", "64"],
+      ["Pay", "$145k – $170k", "$120k – $135k"],
+    ]);
+    // Read by nearest title, Acme's 82 and $145k would sit under Globex's "Backend Engineer".
+    expect(codes(`Side by side\n${compare}\nPick one`)).toEqual([]);
+    const wrong = table([
+      ["", "Senior Backend Engineer", "Backend Engineer"],
+      ["Pay", "$150k", "$120k"],
+    ]);
+    const [f, ...rest] = findMisstatements(wrong, gathered);
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ code: "pay_mismatch" });
+    expect(f.message).toContain("a job in its table (greenhouse:acme:1, lever:globex:2)");
+    // A job named outside the table does not widen it.
+    expect(codes(`Senior Backend Engineer\n${table([["Backend Engineer", "Fit 82"]])}`)).toEqual(["fit_mismatch"]);
+    // A table with no job title in it: the nearest title before it owns its figures.
+    expect(codes(`Backend Engineer\n${table([["Fit", "64"], ["Pay", "$120k"]])}`)).toEqual([]);
+    expect(codes(`Backend Engineer\n${table([["Fit", "82"]])}`)).toEqual(["fit_mismatch"]);
+  });
+
+  test("plain numbers, counts and dates are not figures", () => {
+    expect(codes("Senior Backend Engineer\n3 requirements met of 5, posted 12 days ago, 2026-11-20, 1,200 applicants")).toEqual([]);
   });
 });
 

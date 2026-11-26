@@ -65,9 +65,10 @@ describe("deployment-triggered authenticated visual workflow", () => {
     const dashboardJob = workflowJob(ordinaryCi, "dashboard");
     const publicVisualJob = workflowJob(ordinaryCi, "public-visual");
     const sandboxJob = workflowJob(ordinaryCi, "sandbox-enforcement");
+    const renderSmokeJob = workflowJob(ordinaryCi, "render-smoke");
     const authenticatedWorkflow = readFileSync(authenticatedWorkflowPath, "utf8");
 
-    for (const job of [dashboardJob, publicVisualJob, sandboxJob]) {
+    for (const job of [dashboardJob, publicVisualJob, sandboxJob, renderSmokeJob]) {
       expect(job).toContain(
         "DATABASE_URL: postgresql://test:test@127.0.0.1:1/test",
       );
@@ -76,7 +77,7 @@ describe("deployment-triggered authenticated visual workflow", () => {
       );
       expect(job).toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY: test");
     }
-    expect(ordinaryCi.match(/^\s+DATABASE_URL:/gm)).toHaveLength(3);
+    expect(ordinaryCi.match(/^\s+DATABASE_URL:/gm)).toHaveLength(4);
     for (const variable of [
       "DATABASE_URL",
       "NEXT_PUBLIC_SUPABASE_URL",
@@ -138,6 +139,39 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(evidence).toContain("if: failure()");
     expect(evidence).toContain("dashboard/test-results/sandbox/**");
     expect(evidence).toContain("retention-days: 7");
+  });
+  test("runs the render smoke in its own job in the pinned container, with the replay page's opt-in only in its own config (plan Task 2.11)", () => {
+    const sandboxJob = workflowJob(ordinaryCi, "sandbox-enforcement");
+    const renderSmokeJob = workflowJob(ordinaryCi, "render-smoke");
+    const run = workflowStep(ordinaryCi, "Run render smoke");
+    const upload = workflowStep(ordinaryCi, "Upload render smoke results and screenshots");
+    expect(renderSmokeJob).toContain("name: Render smoke");
+    expectPinnedLinuxContainer(renderSmokeJob);
+    expect(renderSmokeJob).toContain("working-directory: dashboard");
+    expect(renderSmokeJob).toContain("run: npm ci");
+    // Its own timeout, sized in the workflow's comment from per-test times.
+    expect(renderSmokeJob).toMatch(/timeout-minutes: 60\n/);
+    // It runs on every push: no paths filter, no condition on the job.
+    expect(renderSmokeJob).not.toMatch(/^ {4}if:/m);
+    expect(ordinaryCi.slice(0, ordinaryCi.indexOf("\njobs:"))).not.toContain("paths");
+    // Not in the sandbox job any more, and without the harness opt-in.
+    expect(sandboxJob).not.toContain("- name: Run render smoke");
+    expect(sandboxJob).not.toContain("test-results/render-smoke");
+    expect(renderSmokeJob).not.toContain("SANDBOX_HARNESS");
+    expect(renderSmokeJob).toContain("- name: Run render smoke");
+    expect(run).toContain("run: npm run test:render-smoke");
+    expect(upload).toContain("if: ${{ !cancelled() }}");
+    expect(upload).toContain("uses: actions/upload-artifact@v4");
+    expect(upload).toContain("name: render-smoke");
+    expect(upload).toContain("dashboard/test-results/render-smoke/**");
+    expect(renderSmokeJob).toContain("- name: Upload render smoke results and screenshots");
+    // The opt-in lives in the render smoke's web server, never in a workflow's env.
+    expect(ordinaryCi).not.toContain("SURFACE_REPLAY");
+    const config = readFileSync("playwright.render-smoke.config.ts", "utf8");
+    expect(config).toContain('env: { SURFACE_REPLAY: "1" }');
+    // Screenshots only when a test fails.
+    expect(config).toContain('screenshot: { mode: "only-on-failure", fullPage: true }');
+    expect(dashboardPackage.scripts["test:render-smoke"]).toMatch(/^next build && .*playwright test --config playwright\.render-smoke\.config\.ts$/);
   });
   test("runs deployment visuals in the same pinned Playwright Linux container", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");

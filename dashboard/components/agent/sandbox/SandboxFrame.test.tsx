@@ -141,7 +141,9 @@ describe("SandboxFrame", () => {
     expect(iframe.getAttribute("referrerpolicy")).toBe("no-referrer");
     expect(iframe.hasAttribute("src")).toBe(false);
     // srcdoc set from JavaScript: the built document, CSP first, then the model's HTML.
-    expect(iframe.srcdoc.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\';')).toBe(true);
+    expect(iframe.srcdoc.startsWith('<!doctype html><html lang="en"><meta http-equiv="Content-Security-Policy" content="default-src \'none\';')).toBe(true);
+    // The frame document's title is the host's label for it.
+    expect(iframe.srcdoc).toContain(`<title>${GENERATED_VIEW_LABEL}</title>`);
     expect(iframe.srcdoc).toContain("<p>Hello from the view</p>");
     expect(screen.getByText(GENERATED_VIEW_LABEL)).toBeTruthy();
     expect(screen.getByText("Your matches")).toBeTruthy();

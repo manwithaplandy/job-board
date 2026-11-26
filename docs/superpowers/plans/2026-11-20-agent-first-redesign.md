@@ -1985,3 +1985,33 @@ R16. Task 2.9 as built (PR J4 review M7): the re-render sends the earlier surfac
 (for a variant 3 source, its stored variant 1 fallback, never its HTML) instead of the turn's
 text, because the payload is what the user saw and the turn's text adds untrusted content
 the model does not need, and a failed frame's HTML must never be handed back to the model.
+
+R17. R14 resolved before the Task 2.10 evals (PR J5): the scenarios need it. Scenario (a)
+ends on a shortlist and scenario (d) on the applications that went quiet, and a variant 2
+re-render of those surfaces (ShortlistQueue, StaleList) has no way to lay them out as a
+table without it. A Table's `rowsBind` may now also be exactly `/shortlist` or
+`/applications` (`WHOLE_LIST_BIND_RE`, `resolveRowsBind` in `surfaces/v2/bind.ts`). Nothing
+else changed: Stat and Chart binds still need one to four segments, no other root may be
+bound whole, row binds keep their zero-to-three segments and the eeo/email refusal, and
+the renderer reads rows through the same function.
+
+R18. Tasks 2.10 to 2.13 as built (PR J5, code only; Andrew runs every live step):
+- Each live mode (matrix, injection, judge) has its own fail-closed caps in `budget.ts`
+  and a `--dry-run`; the matrix and injection set also cap the whole command.
+- The surface-replay page is gated by `SURFACE_REPLAY=1` like the sandbox harness, not
+  public. The render smoke checks each surface, width and theme in one test, and
+  `findMisstatements` lives in `evals/misstatements.ts` (re-exported from `asserts.ts`) so
+  the browser spec does not load the asserts' imports.
+- Injection: the contact check also covers the agent's text replies (stricter than
+  "payloads"). Variant 3 results carry no replay from the live run; the render smoke
+  replays their surfaces and the summary fills the replay from its results.
+- Judge: a variant 3 document fills itself in only when it runs, so the judge reads its
+  words from the render smoke's frame text and skips a pair without it. Every variant is
+  rendered to the same plain words (controls as "[control: …]"), so the prompt never
+  names a variant.
+- The production-signal SQL's last two signals are proxies: no "opened a workspace"
+  event exists, and a re-asked question is matched on normalized text.
+- Fix round 1: each live run writes into its own run folder, and the judge, render smoke
+  and summary read one run (latest complete, or named); the render smoke runs recorded
+  surfaces at desktop light only, as its own CI job; and the sandbox document (Task 2.4)
+  now opens `<html lang="en">` and carries a fixed `<title>` after its CSP metas.

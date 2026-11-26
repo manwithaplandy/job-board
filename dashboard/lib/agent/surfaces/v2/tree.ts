@@ -18,7 +18,15 @@ import { ActionIntentSchema, type ActionIntent } from "@/lib/agent/actions/inten
 import { JOB_ID_RE } from "@/lib/jobIdValidator";
 import { VIZ, VIZ_FOR_KIND, type Viz } from "@/lib/workspaces/analyticsTiles";
 import type { MetricResult } from "@/lib/workspaces/types";
-import { BIND_RE, METRIC_BIND_RE, ROW_BIND_RE, resolveBind, resolveRowBind } from "@/lib/agent/surfaces/v2/bind";
+import {
+  BIND_RE,
+  METRIC_BIND_RE,
+  ROW_BIND_RE,
+  WHOLE_LIST_BIND_RE,
+  resolveBind,
+  resolveRowBind,
+  resolveRowsBind,
+} from "@/lib/agent/surfaces/v2/bind";
 import { checkA11y } from "@/lib/agent/surfaces/v2/a11y";
 
 export { BIND_RE, resolveBind } from "@/lib/agent/surfaces/v2/bind";
@@ -75,6 +83,13 @@ const jobId = z.string().regex(JOB_ID_RE, { message: "must be a job id your tool
 const bind = z.string().max(300).regex(BIND_RE, {
   message: "must be a pointer like /reviews/<jobId>/fitScore into jobs, reviews, metrics, applications, shortlist or profile",
 });
+// A Table's rows (R14): a bind, or the whole shortlist or applications list.
+const rowsBind = z
+  .string()
+  .max(300)
+  .refine((s) => BIND_RE.test(s) || WHOLE_LIST_BIND_RE.test(s), {
+    message: "must be a list pointer like /reviews/<jobId>/requirements, or /shortlist or /applications for the whole list",
+  });
 const rowBind = z.string().max(200).regex(ROW_BIND_RE, { message: "must be a pointer into one row, like /text, or empty for the row itself" });
 // The answer intent's question id (lib/agent/actions/intents.ts), so a field's value can be
 // sent as the answer to that id.
@@ -103,7 +118,7 @@ const NodeUnion = z.discriminatedUnion("type", [
     .object({
       type: z.literal("Table"),
       columns: z.array(z.object({ header: text(), bind: rowBind }).strict()).min(1).max(6),
-      rowsBind: bind,
+      rowsBind,
     })
     .strict(),
   z.object({ type: z.literal("Chart"), viz: z.enum(VIZ), bind, title: text() }).strict(),
@@ -240,7 +255,7 @@ function dataErrors(root: V2Node, g: GatheredData): string[] {
         return;
       }
       case "Table": {
-        const rows = resolveBind(g, n.rowsBind);
+        const rows = resolveRowsBind(g, n.rowsBind);
         if (rows === undefined) {
           unresolved(`${path}.rowsBind`, n.rowsBind);
           return;

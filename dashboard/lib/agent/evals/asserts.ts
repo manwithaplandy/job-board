@@ -14,6 +14,8 @@
 //
 // Pure: no database import. The database values come from the recording's snapshots.
 import { V1_BLOCK_TYPES, SurfacePayloadV1Schema, type V1Block, type V1BlockType } from "@/lib/agent/surfaces/v1/blocks";
+import { SurfacePayloadV2Schema, type V2Node } from "@/lib/agent/surfaces/v2/tree";
+import { SurfacePayloadV3Schema } from "@/lib/agent/surfaces/v3/document";
 import { parseGathered } from "@/lib/agent/gatheredSchema";
 import type { GatheredData } from "@/lib/agent/gathered";
 import { ActionIntentSchema, INTENT_NAMES, type IntentName } from "@/lib/agent/actions/intents";
@@ -249,6 +251,74 @@ function checkV1Payload(
   }
 }
 
+/** Every node of a variant 2 tree, in pre-order. */
+export function* treeNodes(n: V2Node): Generator<V2Node> {
+  yield n;
+  if ("children" in n) for (const c of n.children) yield* treeNodes(c);
+  if (n.type === "Tabs") for (const t of n.tabs) yield* treeNodes(t.child);
+}
+
+const METRIC_REF_RE = /^\/metrics\/(\d{1,6})(?:\/|$)/;
+
+/**
+ * A variant 2 tree (Task 2.10): the grammar, the jobs its atoms name, and the metrics its
+ * Stat and Chart nodes bind (shown, for scenario d). Values are drawn from the gathered
+ * data by the binds, so checkGathered covers what they show.
+ */
+function checkV2Payload(
+  raw: Record<string, unknown>,
+  g: GatheredData | null,
+  db: Db,
+  path: string,
+  out: AssertFailure[],
+  shownMetrics: MetricResult[],
+): void {
+  const parsed = SurfacePayloadV2Schema.safeParse(raw);
+  if (!parsed.success) {
+    out.push({ code: "surface_invalid", message: "the payload fails the variant 2 grammar", path });
+    return;
+  }
+  const seen = new Set<number>();
+  for (const n of treeNodes(parsed.data.root)) {
+    if (n.type === "JobTitle" || n.type === "FitScore" || n.type === "Pay" || n.type === "PostingLink") {
+      if (!db.jobs.has(n.jobId)) out.push({ code: "job_not_in_database", message: `${n.type} shows ${n.jobId}, which is not stored`, path });
+      else if (g && !g.jobs[n.jobId]) out.push({ code: "job_not_gathered", message: `${n.type} shows ${n.jobId}, which this turn did not read`, path });
+    }
+    if ((n.type === "Stat" || n.type === "Chart") && g) {
+      const m = METRIC_REF_RE.exec(n.bind);
+      if (!m) continue;
+      const ref = Number(m[1]);
+      const metric = g.metrics[ref];
+      if (!metric) out.push({ code: "metric_not_gathered", message: `${n.type} binds metric ${ref}, which was not read`, path });
+      else if (!seen.has(ref)) {
+        seen.add(ref);
+        shownMetrics.push(metric);
+      }
+    }
+  }
+}
+
+/**
+ * A variant 3 document (Task 2.10): the payload's shape only. Its figures are written by
+ * its own script, so what it shows is checked in the rendered frame (findMisstatements,
+ * render smoke). For scenario (d) a document that reads data.metrics counts as showing
+ * every gathered metric, so their n checks still apply.
+ */
+function checkV3Payload(
+  raw: Record<string, unknown>,
+  g: GatheredData | null,
+  path: string,
+  out: AssertFailure[],
+  shownMetrics: MetricResult[],
+): void {
+  const parsed = SurfacePayloadV3Schema.safeParse(raw);
+  if (!parsed.success) {
+    out.push({ code: "surface_invalid", message: "the payload fails the variant 3 shape", path });
+    return;
+  }
+  if (g && /\bmetrics\b/.test(parsed.data.html)) shownMetrics.push(...g.metrics);
+}
+
 function checkSurfaces(r: Recording, db: Db, out: AssertFailure[]): MetricResult[] {
   const shownMetrics: MetricResult[] = [];
   for (const [i, s] of r.surfaces.entries()) {
@@ -272,7 +342,11 @@ function checkSurfaces(r: Recording, db: Db, out: AssertFailure[]): MetricResult
       }
       // Only the payload counts as shown for scenario (d); the fallback is shown only if it fails to render.
       const metrics = at.endsWith(".payload") ? shownMetrics : [];
-      if (s.variant === 1) checkV1Payload(payload, g, db, at, out, metrics);
+      // A stored fallback (R13) is a variant 1 payload whatever the surface's variant.
+      const v1 = s.variant === 1 || at.endsWith(".fallbackPayload") || (s.outcome === "fallback" && Array.isArray(payload.blocks));
+      if (v1) checkV1Payload(payload, g, db, at, out, metrics);
+      else if (s.variant === 2) checkV2Payload(payload, g, db, at, out, metrics);
+      else checkV3Payload(payload, g, at, out, metrics);
     }
   }
   return shownMetrics;
@@ -368,6 +442,13 @@ function checkScenario(r: Recording, shownMetrics: MetricResult[], out: AssertFa
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Variant 3: what the frame's rendered text says (plan Task 2.11, spec 7.1)
+// ---------------------------------------------------------------------------
+
+/** In misstatements.ts (type-only imports, so the render smoke's browser spec can load it). */
+export { findMisstatements } from "@/lib/agent/evals/misstatements";
 
 /** Every deterministic failure in one recording; [] when it passes. */
 export function assertRecording(r: Recording): AssertFailure[] {

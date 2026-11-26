@@ -24,7 +24,7 @@ import { PERSONA_IDS } from "@/lib/agent/evals/personas";
 import { SCENARIO_IDS } from "@/lib/agent/evals/scenarios";
 import type { Recording } from "@/lib/agent/evals/recording";
 import { AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
-import { ALL_CASES, RunBudget, capsFromEnv } from "@/lib/agent/evals/budget";
+import { ALL_CASES, RunBudget, assertEvalMode, capsFromEnv } from "@/lib/agent/evals/budget";
 
 vi.mock("next/server", async (importOriginal) => {
   const real = await importOriginal<typeof import("next/server")>();
@@ -45,6 +45,8 @@ vi.mock("next/cache", async (importOriginal) => ({
 }));
 vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: vi.fn(async () => "standard") }));
 
+// Only eval-agent.mjs starts this file (it sets EVAL_MODE): refuse anything else first.
+assertEvalMode(process.env, "golden");
 const variant = Number(process.env.EVAL_VARIANT ?? "1");
 if (variant !== 1 && variant !== 2 && variant !== 3) throw new Error("eval: EVAL_VARIANT must be 1, 2 or 3");
 const model = process.env.EVAL_MODEL?.trim() || AGENT_MODEL_DEFAULT;

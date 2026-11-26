@@ -173,6 +173,22 @@ export async function threadUsage(sql: postgres.Sql, threadId: string): Promise<
   return { costMicros: row?.cost ?? 0, inputTokens: row?.input ?? 0, outputTokens: row?.output ?? 0 };
 }
 
+/**
+ * The billed usage of the thread's re-render runs into `variant` (a matrix re-render cell,
+ * Task 2.10): every such run, including one that stored nothing.
+ */
+export async function rerenderUsage(sql: postgres.Sql, threadId: string, variant: Variant): Promise<Recording["usage"]> {
+  const [row] = rowsOrThrow(
+    z.object({ cost: num, input: num, output: num }),
+    await sql`
+      SELECT COALESCE(sum(cost_micros), 0) AS cost, COALESCE(sum(input_tokens), 0) AS input,
+             COALESCE(sum(output_tokens), 0) AS output
+      FROM agent_runs WHERE thread_id = ${threadId}::uuid AND kind = 'rerender' AND variant = ${variant}`,
+    "rerender usage",
+  );
+  return { costMicros: row?.cost ?? 0, inputTokens: row?.input ?? 0, outputTokens: row?.output ?? 0 };
+}
+
 export interface CollectArgs {
   sql: postgres.Sql;
   source: Recording["source"];

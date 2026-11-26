@@ -48,12 +48,17 @@
   --border-strong: #d7dce5;
   --text-primary: #1f2430;
   --text-secondary: #5b6472;
-  --text-muted: #8b94a3;
-  --accent: #3b6fd4;
+  /* Text tokens meet WCAG AA (4.5:1) on --bg-surface, --bg-page and --bg-muted; --accent
+     and --success also on their own -bg tint. --accent-solid is the fill behind
+     --text-on-accent (4.5:1 with it). */
+  --text-muted: #676e7c;
+  --accent: #3a6bcc;
   --accent-hover: #2f57a8;
+  --accent-solid: #3a6bcc;
+  --accent-solid-hover: #2f57a8;
   --accent-bg: #eef3fc;
   --text-on-accent: #ffffff;
-  --success: #2f7d54;
+  --success: #2e7951;
   --success-bg: #e3f1e9;
   --warning: #8a5a12;
   --warning-bg: #fdf3e6;
@@ -186,9 +191,11 @@
   --border-strong: #3a4150;
   --text-primary: #e7eaf1;
   --text-secondary: #98a1b1;
-  --text-muted: #6b7585;
-  --accent: #5b8def;
+  --text-muted: #7e8795;
+  --accent: #6796f0;
   --accent-hover: #7aa4f2;
+  --accent-solid: #4c74c3;
+  --accent-solid-hover: #4468b0;
   --accent-bg: rgba(91,141,239,.15);
   --text-on-accent: #ffffff;
   --success: #46b17e;

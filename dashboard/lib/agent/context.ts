@@ -74,7 +74,8 @@ export function variantGrammar(variant: Variant): string[] {
         "size, link or image property. Bound atoms take a jobId your tools returned this turn. Stat, Table and Chart " +
         "take binds: pointers into the data read this turn that start with /jobs, /reviews, /metrics, /applications, " +
         "/shortlist or /profile, such as /reviews/<jobId>/fitScore or /metrics/0. A Chart binds one metric; a Table's " +
-        "rowsBind is a list and each column binds into one row, such as /text.",
+        "rowsBind is a list (or /shortlist or /applications for the whole list) and each column binds into one " +
+        "row, such as /text or /job/title.",
       "Every Button, Field and Select needs a label, every table column a header, tab labels must differ, and " +
         "headings never skip a level on the way down. A Button carries one action from the schema's closed set.",
     ];

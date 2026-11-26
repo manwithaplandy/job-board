@@ -23,7 +23,7 @@ const securityHeaders = [
 // Next sends the last matching value of a header key, so on these paths this entry
 // replaces the baseline CSP. A srcdoc frame loads no URL; frame-src 'none' is there to
 // stop the frame from navigating itself anywhere. Task 3.6 adds "/" when the agent page
-// moves there.
+// moves there. The render smoke's replay page (Task 2.11) mounts frames too.
 //
 // If the real-browser suite (tests/sandbox/sandbox.spec.ts, "the srcdoc frame still loads
 // and runs with the parent's frame-src 'none'") shows that frame-src 'none' blocks the
@@ -31,7 +31,7 @@ const securityHeaders = [
 // second-load and liveness teardown plus the static checks: set
 // SANDBOX_HOST_FRAME_SRC_NONE to false. lib/securityHeaders.test.ts covers both versions.
 const SANDBOX_HOST_FRAME_SRC_NONE = true;
-export const SANDBOX_HOST_PATHS = ["/agent/:path*", "/ui-gallery/sandbox-harness"];
+export const SANDBOX_HOST_PATHS = ["/agent/:path*", "/ui-gallery/sandbox-harness", "/ui-gallery/surface-replay"];
 const sandboxHostCsp = `${contentSecurityPolicy}; frame-src 'none'`;
 
 /** The header rules, with or without the sandbox host entry (exported for the test). */
@@ -63,6 +63,13 @@ const nextConfig = {
     "@ai-sdk/otel",
     "@grpc/grpc-js",
   ],
+  // The render smoke's replay page (Task 2.11) reads recordings and surface fixtures from
+  // disk by name. Next's file tracing would copy every one of them into the server output
+  // for that route; none is needed in production, where the page reads no file unless
+  // SURFACE_REPLAY=1 (fix round 1, M4). lib/agent/evals/replay.test.ts checks the globs.
+  outputFileTracingExcludes: {
+    "/ui-gallery/surface-replay": ["./lib/agent/evals/recordings/**", "./lib/agent/evals/fixtures/**"],
+  },
   async headers() {
     return headerRules(SANDBOX_HOST_FRAME_SRC_NONE);
   },

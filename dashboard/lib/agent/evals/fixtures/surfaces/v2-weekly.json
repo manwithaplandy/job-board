@@ -1,0 +1,27 @@
+{
+  "base": "d_weekly.new-grad.handwritten.json",
+  "surface": 0,
+  "payload": {
+    "variant": 2,
+    "title": "Your last few weeks",
+    "root": {
+      "type": "Stack",
+      "gap": "3",
+      "children": [
+        { "type": "Heading", "level": 1, "text": "Your last few weeks" },
+        {
+          "type": "Grid",
+          "columns": 2,
+          "children": [
+            { "type": "Stat", "label": "Response rate", "bind": "/metrics/1" },
+            { "type": "Stat", "label": "Applications by stage", "bind": "/metrics/0" }
+          ]
+        },
+        { "type": "Chart", "viz": "line", "bind": "/metrics/2", "title": "Applications per week" },
+        { "type": "Divider" },
+        { "type": "Text", "text": "Two applications reached interviews. Four are still waiting on a reply." },
+        { "type": "Button", "label": "Open the tracker", "variant": "secondary", "action": { "name": "open", "target": "applications" } }
+      ]
+    }
+  }
+}

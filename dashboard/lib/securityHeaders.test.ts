@@ -37,8 +37,9 @@ describe("security headers", () => {
     const rules = (await nextConfig.headers!()) as Rule[];
     const baseline = sentValue(rules, "/privacy", "Content-Security-Policy")!;
     expect(baseline).not.toContain("frame-src");
-    expect(SANDBOX_HOST_PATHS).toEqual(["/agent/:path*", SANDBOX_LANES["frame-src-none"]]);
-    for (const path of ["/agent", "/agent/threads/1", "/ui-gallery/sandbox-harness"]) {
+    // The render smoke's replay page (plan Task 2.11) mounts variant 3 frames too.
+    expect(SANDBOX_HOST_PATHS).toEqual(["/agent/:path*", SANDBOX_LANES["frame-src-none"], "/ui-gallery/surface-replay"]);
+    for (const path of ["/agent", "/agent/threads/1", "/ui-gallery/sandbox-harness", "/ui-gallery/surface-replay"]) {
       const csp = sentValue(rules, path, "Content-Security-Policy");
       expect(csp, path).toBe(`${baseline}; frame-src 'none'`);
       // Only the CSP is overridden; the other baseline headers still apply.

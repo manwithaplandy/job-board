@@ -527,6 +527,8 @@ Estimated cost (the dry runs, list price; uncached, and with the prompt cache at
 - The production signals (fallback rate, re-render use, undo within 60 seconds, a
   question asked again, a surface left for a workspace) are read-only queries in
   [agent-variant-signals.sql](runbooks/agent-variant-signals.sql), run by hand.
+- The demos on prod follow the [variant demo script](demo/README.md), with the synthetic
+  persona résumés in `demo/personas/` (`npm --prefix dashboard run demo:personas`).
 
 ## 12. Runbooks
 

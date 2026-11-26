@@ -10,6 +10,7 @@
     "test:db": "NODE_OPTIONS=--no-experimental-webstorage vitest run --config vitest.db.config.ts",
     "eval:agent": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/eval-agent.mjs",
     "eval:summary": "node scripts/eval-summary.mjs",
+    "demo:personas": "node --experimental-strip-types --no-warnings --import ./scripts/alias-loader.mjs scripts/demo-personas.ts",
     "test:ui-contract": "NODE_OPTIONS=--no-experimental-webstorage vitest run app/ui-contract.test.ts app/visual-regression-contract.test.ts",
     "test:visual:auth-harness": "playwright test --config playwright.auth-harness.config.ts",
     "test:visual": "VISUAL_DISABLE_TRACE=1 PLAYWRIGHT_NO_COPY_PROMPT=1 playwright test",

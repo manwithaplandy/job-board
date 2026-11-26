@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { VISUAL_ROUTES } from "@/tests/visual/routes";
+import { AGENT_PAGE_FIXTURE_STATES } from "@/components/agent/agentPageFixtureStates";
 import {
   ESTABLISHED_STATE_PATH,
   ONBOARDING_STATE_PATH,
@@ -30,6 +31,7 @@ describe("visual regression route inventory", () => {
     expect(statesFor("companies").has("empty")).toBe(true);
     expect(statesFor("analytics").has("data-viz")).toBe(true);
     for (const state of ["default", "empty", "budget", "disabled", "blocks-jobs", "blocks-prep", "tree-sample"]) expect(statesFor("agent").has(state)).toBe(true);
+    for (const state of ["page-empty", "page-conversation", "page-surface", "page-failed", "page-blocks", "page-layout", "page-code"]) expect(statesFor("agent").has(state)).toBe(true);
     for (const state of ["default", "applications", "looking-for", "documents", "empty", "agent-marker", "memo-diff"]) expect(statesFor("workspaces").has(state)).toBe(true);
   });
 
@@ -134,6 +136,24 @@ describe("visual regression route inventory", () => {
     }
     const spec = readFileSync("tests/visual/ui-cohesion.spec.ts", "utf8");
     expect(spec).toContain("test.skip(Boolean(route.harness)");
+  });
+
+  test("screenshots every agent page fixture state, and three of them at the extra agent widths", () => {
+    // Every gallery state AgentPageFixture renders is a public, screenshotted fixture route.
+    const paths = new Set(VISUAL_ROUTES.filter((route) => route.access === "public" && !route.harness).map((route) => route.path));
+    expect(AGENT_PAGE_FIXTURE_STATES.filter((state) => !paths.has(`/ui-gallery/states/${state}`))).toEqual([]);
+    // The extra widths live in their own spec, picked up by the visual project (testMatch
+    // /\.spec\.ts/) and so by test:visual:update; its snapshot names use -w<width>-, never
+    // ui-cohesion's -desktop-/-mobile-.
+    const spec = readFileSync("tests/visual/agent-page-widths.spec.ts", "utf8");
+    expect(spec).toContain("const WIDTHS = [1024, 1280, 2000] as const;");
+    for (const state of ["agent-page-conversation", "agent-page-surface", "agent-page-failed"]) expect(spec).toContain(`"${state}"`);
+    expect(spec).toContain("-w${width}-${theme}.png");
+    expect(spec).toContain("assertRuntimeContracts(page)");
+    expect(spec).toContain("test.skip(AUTHENTICATED_ONLY");
+    expect(spec).not.toContain("page.route(");
+    expect(readFileSync("tests/visual/ui-cohesion.spec.ts", "utf8")).toContain('from "./runtime-contracts"');
+    expect(readFileSync("playwright.config.ts", "utf8")).toContain("testMatch: /\\.spec\\.ts/");
   });
 
   test("has stable unique snapshot ids and explicit access policy", () => {

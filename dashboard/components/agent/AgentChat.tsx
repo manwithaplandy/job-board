@@ -17,6 +17,7 @@ import {
 } from "@/app/actions/agent";
 import { useGenerationTracker } from "@/components/generation/GenerationToastProvider";
 import { Alert } from "@/components/ui/SystemStates";
+import { Button } from "@/components/ui/Button";
 import { AGENT_LIMITS } from "@/lib/agent/config";
 import { CONFIRMATIONS_UNAVAILABLE } from "@/lib/agent/approvalSecret";
 import { compareMessage } from "@/lib/agent/actions/compareText";
@@ -37,6 +38,7 @@ import { mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
 import { RerenderTabs } from "./RerenderTabs";
 import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
+import { toolActivityLabel } from "@/lib/agent/toolLabel";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
 // carries only the thread id and either the new message's id, text and attached document
@@ -91,7 +93,26 @@ function isInterrupted(messages: UIMessage[], now: number): boolean {
  */
 type Rejection = ({ notice: AgentBlockingNotice } | { message: string }) & { rollback: boolean };
 
-const GENERIC_PROBLEM = "The assistant could not answer just now. Try again.";
+export const GENERIC_PROBLEM = "The assistant could not answer just now. Try again.";
+export const UNAVAILABLE_PROBLEM = "The assistant is unavailable right now. Try again later.";
+export const RATE_LIMITED_PROBLEM = "Too many requests right now. Try again in a minute.";
+export const PROVIDER_DOWN_PROBLEM = "The assistant's service is having trouble. Try again in a moment.";
+
+/**
+ * The sentence for a turn that failed mid-stream. The route sends only a fixed reason
+ * code as the stream's error text (lib/agent/modelError.ts: model_error:<status>), never
+ * the provider's own words; anything else reads as the generic line.
+ */
+export function problemFromStreamError(errorText: string): string {
+  const m = /^model_error:(\d{3})$/.exec(errorText.trim());
+  if (!m) return GENERIC_PROBLEM;
+  const status = Number(m[1]);
+  // A bad key, no credits, or no access to the model: nothing the user can fix.
+  if (status === 401 || status === 402 || status === 403) return UNAVAILABLE_PROBLEM;
+  if (status === 429) return RATE_LIMITED_PROBLEM;
+  if (status >= 500) return PROVIDER_DOWN_PROBLEM;
+  return GENERIC_PROBLEM;
+}
 const INTENT_DROPPED = "That action isn't available any more.";
 const INTENT_FAILED = "That action could not run. Try again.";
 const APPROVAL_INVALID = "This request can't be confirmed. Ask again.";
@@ -226,26 +247,60 @@ function ToolLine({ part }: { part: ToolPart }) {
     );
   }
   if (part.state === "approval-requested" || part.state === "approval-responded") return null;
-  return <p className="rf-agent-message__tool">Looked up {name.replace(/_/g, " ")}</p>;
+  return <p className="rf-agent-message__tool">{toolActivityLabel(name)}</p>;
+}
+
+/** Whether ToolLine draws anything for the part. */
+function toolLineShows(part: ToolPart): boolean {
+  if (getToolName(part) === "ask_user") return askUserInputSchema.safeParse(part.input).success;
+  return part.state !== "approval-requested" && part.state !== "approval-responded";
 }
 
 function MessageView({ message, renderSurface }: { message: UIMessage; renderSurface: (surfaceId: string) => ReactNode }) {
   const who = message.role === "user" ? "You" : "Assistant";
+  const shown = message.parts.flatMap((part, i): ReactNode[] => {
+    if (part.type === "text") return part.text.trim() === "" ? [] : [<p key={i} className="rf-agent-message__text">{part.text}</p>];
+    if (!isToolUIPart(part)) return [];
+    if (getToolName(part) === "present") {
+      const surfaceId = presentedSurfaceId(part);
+      const surface = surfaceId ? renderSurface(surfaceId) : null;
+      return surface ? [<div key={i}>{surface}</div>] : [];
+    }
+    return toolLineShows(part) ? [<ToolLine key={i} part={part} />] : [];
+  });
+  // A reply with nothing to show (a failed turn, or one still waiting for its first
+  // token) is not drawn as an empty bubble; the error or the waiting line stands in.
+  if (shown.length === 0) return null;
   return (
     <li className={`rf-agent-message rf-agent-message--${message.role}`}>
       <span className="rf-agent-message__role">{who}</span>
-      {message.parts.map((part, i) => {
-        if (part.type === "text") return <p key={i} className="rf-agent-message__text">{part.text}</p>;
-        if (!isToolUIPart(part)) return null;
-        if (getToolName(part) === "present") {
-          const surfaceId = presentedSurfaceId(part);
-          return surfaceId ? <div key={i}>{renderSurface(surfaceId)}</div> : null;
-        }
-        return <ToolLine key={i} part={part} />;
-      })}
+      {shown}
     </li>
   );
 }
+
+/**
+ * A failed or interrupted reply, shown once in the transcript where the answer would have
+ * been, with Retry when the question can be sent again.
+ */
+function TurnError({ title, text, onRetry }: { title?: string; text: string; onRetry: (() => void) | null }) {
+  return (
+    <div className="rf-agent-turn-error" role="alert">
+      <div className="rf-agent-turn-error__copy">
+        {title && <p className="rf-agent-turn-error__title">{title}</p>}
+        <p className="rf-agent-turn-error__text">{text}</p>
+      </div>
+      {onRetry && (
+        <Button size="sm" variant="outline" onClick={onRetry}>
+          Retry
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export const INTERRUPTED_TITLE = "This reply was interrupted";
+export const INTERRUPTED_TEXT = "The last reply did not finish. Retry to send your message again.";
 
 type ConfirmState =
   | { source: "intent"; descriptor: ConfirmDescriptor; token: string }
@@ -263,8 +318,11 @@ export function AgentChat({
   compare = null,
   hasProfile = true,
   variants = null,
+  title = null,
 }: {
   threadId: string;
+  /** The thread's title, shown in the toolbar above the conversation. */
+  title?: string | null;
   initialMessages: UIMessage[];
   notice: AgentBlockingNotice | null;
   autoTitle?: boolean;
@@ -281,8 +339,13 @@ export function AgentChat({
   const router = useRouter();
   const tracker = useGenerationTracker();
   const [draft, setDraft] = useState("");
+  // The toolbar's title: an untitled thread takes its first message's title at once (the
+  // server rename lands in the background).
+  const [shownTitle, setShownTitle] = useState(title);
   const [blocking, setBlocking] = useState<AgentBlockingNotice | null>(notice);
-  const [problem, setProblem] = useState<string | null>(null);
+  // A failed send: its sentence, and whether Retry can resend (the message stayed; a
+  // refusal took it back out and returned its text to the composer instead).
+  const [problem, setProblem] = useState<{ text: string; retry: boolean } | null>(null);
   const [attached, setAttached] = useState<AttachedDocument[]>([]);
   const [chains, setChains] = useState<HostChain[]>(surfaces);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -303,11 +366,13 @@ export function AgentChat({
     messages: initialMessages,
     transport,
     generateId,
-    onError: () => {
+    onError: (error) => {
       // A refusal or a network failure stored nothing; a 5xx or an error mid-stream may
       // come after the server saved the message, so it stays.
       const { rejected, sent } = book.take();
-      const r = rejected ?? rejectionFrom(0, null);
+      // No HTTP refusal: the turn failed mid-stream, and the stream's error text is the
+      // route's fixed reason code.
+      const r = rejected ?? { rollback: false, message: problemFromStreamError(error instanceof Error ? error.message : "") };
       if (sent && r.rollback) {
         setMessages((prev) => prev.filter((m) => m.id !== sent.id));
         setDraft((d) => (d === "" ? sent.text : d));
@@ -315,25 +380,40 @@ export function AgentChat({
       if ("notice" in r) {
         setBlocking(r.notice);
         setProblem(null);
-      } else setProblem(r.message);
+      } else {
+        // Retry resends a message; an approval's failure has none to resend.
+        setProblem({ text: r.message, retry: !r.rollback && sent !== null });
+      }
     },
   });
 
   const busy = status === "submitted" || status === "streaming";
   const interrupted = !busy && isInterrupted(messages, now);
   const lastUserText = [...messages].reverse().find((m) => m.role === "user");
+  const last = messages.at(-1);
+  const waitingForReply =
+    busy && (!last || last.role !== "assistant" || last.parts.every((p) => p.type === "step-start" || (p.type === "text" && p.text.trim() === "")));
 
   const send = (text: string) => {
     setProblem(null);
     setDraft("");
     if (!named.current) {
       named.current = true;
+      setShownTitle(titleFromFirstMessage(text));
       void renameThreadAction(threadId, titleFromFirstMessage(text)).catch(() => {});
     }
     const documentIds = attached.map((d) => d.id);
     setAttached([]);
     void sendMessage({ text }, documentIds.length > 0 ? { body: { documentIds } } : undefined);
   };
+  // Retry sends the last question's text again as a new message (the stored one keeps its
+  // id), leaving the composer's draft and attachments as they are.
+  const retry = lastUserText
+    ? () => {
+        setProblem(null);
+        void sendMessage({ text: ownTextOf(lastUserText) });
+      }
+    : null;
 
   // On mount, once: the first message handed over by the empty page (StartConversation),
   // or ?compare=a,b as one structured message, after which the query is cleared so a
@@ -347,7 +427,8 @@ export function AgentChat({
       // The composer is empty and nothing is attached on mount, so this is send() without
       // its state resets.
       named.current = true;
-      void renameThreadAction(threadId, titleFromFirstMessage(first.text)).catch(() => {});
+      const firstTitle = titleFromFirstMessage(first.text);
+      void renameThreadAction(threadId, firstTitle).then(() => setShownTitle(firstTitle), () => {});
       void sendMessage({ text: first.text }, first.documentIds.length > 0 ? { body: { documentIds: first.documentIds } } : undefined);
       return;
     }
@@ -357,7 +438,8 @@ export function AgentChat({
       // its state resets.
       const text = compareMessage(compare[0], compare[1]);
       named.current = true;
-      void renameThreadAction(threadId, titleFromFirstMessage(text)).catch(() => {});
+      const compareTitle = titleFromFirstMessage(text);
+      void renameThreadAction(threadId, compareTitle).then(() => setShownTitle(compareTitle), () => {});
       void sendMessage({ text });
     }
     router.replace(`/agent?t=${encodeURIComponent(threadId)}`);
@@ -574,7 +656,7 @@ export function AgentChat({
   const approvalProblem =
     waitingId === null ? null : !approvalsEnabled || approvalCard?.status === "unavailable" ? CONFIRMATIONS_UNAVAILABLE : approvalCard?.status === "invalid" ? APPROVAL_INVALID : null;
 
-  // Placement: each chain renders once. At 1024px and wider the latest chain takes the
+  // Placement: each chain renders once. At 1200px and wider the latest chain takes the
   // wide column; every other chain renders inline at the present call that produced its
   // latest row (an earlier row's call renders nothing), or at the end when no call in
   // the loaded history names it.
@@ -613,37 +695,59 @@ export function AgentChat({
   );
 
   return (
-    <div className={columnChain ? "rf-agent-workspace rf-agent-workspace--split" : "rf-agent-workspace"}>
-      <section className="rf-agent-chat" aria-label="Conversation">
-        {/* A change during a turn applies to the next one: the loop read the variant when the turn started. */}
-        {variants && <VariantSwitcher threadId={threadId} state={variants} />}
-        {messages.length > 0 && (
-          // aria-busy holds the live region's announcement while a reply streams, so a
-          // screen reader reads the finished reply once, not every token.
-          <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
-            {messages.map((m) => (
-              <MessageView key={m.id} message={m} renderSurface={renderSurface} />
-            ))}
-          </ol>
-        )}
-        {orphans.map((c) => (
-          <Fragment key={c.chainId}>{chainView(c)}</Fragment>
-        ))}
-        <ReviewProgress watch={reviewWatch} />
-        {interrupted && !blocking && (
-          <AgentNotice kind="interrupted" onRetry={lastUserText ? () => send(ownTextOf(lastUserText)) : undefined} />
-        )}
-        {blocking && <AgentNotice kind={blocking} />}
-        {problem && !blocking && <Alert tone="danger">{problem}</Alert>}
-        {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
-        {shownConfirm && <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />}
-        {messages.length === 0 ? <EmptyState hasProfile={hasProfile} composer={composer} /> : composer}
-      </section>
-      {columnChain && (
-        <aside className="rf-agent-surface-column" aria-label="Latest view">
-          {chainView(columnChain)}
-        </aside>
+    <div className="rf-agent-conversation">
+      {(shownTitle || variants) && (
+        // The fixed chrome above the conversation (spec 6.1): the thread's title and the
+        // switcher for how answers are drawn. It wraps; nothing in it overlaps.
+        <div className="rf-agent-toolbar">
+          {shownTitle && (
+            <h2 className="rf-agent-toolbar__title" title={shownTitle}>
+              {shownTitle}
+            </h2>
+          )}
+          {/* A change during a turn applies to the next one: the loop read the variant when the turn started. */}
+          {variants && <VariantSwitcher threadId={threadId} state={variants} />}
+        </div>
       )}
+      <div className={columnChain ? "rf-agent-workspace rf-agent-workspace--split" : "rf-agent-workspace"}>
+        <section className="rf-agent-chat" aria-label="Conversation">
+          {messages.length > 0 && (
+            // aria-busy holds the live region's announcement while a reply streams, so a
+            // screen reader reads the finished reply once, not every token.
+            <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
+              {messages.map((m) => (
+                <MessageView key={m.id} message={m} renderSurface={renderSurface} />
+              ))}
+            </ol>
+          )}
+          {/* The Send button's own status announces the wait; this line is for the eye. */}
+          {waitingForReply && (
+            <p className="rf-agent-waiting" aria-hidden="true">
+              Thinking…
+            </p>
+          )}
+          {/* One failure line, where the answer would have been: a failed send, or else a
+              stored reply that never finished. */}
+          {problem && !blocking ? (
+            <TurnError text={problem.text} onRetry={problem.retry ? retry : null} />
+          ) : (
+            interrupted && !blocking && <TurnError title={INTERRUPTED_TITLE} text={INTERRUPTED_TEXT} onRetry={retry} />
+          )}
+          {orphans.map((c) => (
+            <Fragment key={c.chainId}>{chainView(c)}</Fragment>
+          ))}
+          <ReviewProgress watch={reviewWatch} />
+          {blocking && <AgentNotice kind={blocking} />}
+          {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
+          {shownConfirm && <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />}
+          {messages.length === 0 ? <EmptyState hasProfile={hasProfile} composer={composer} /> : composer}
+        </section>
+        {columnChain && (
+          <aside className="rf-agent-surface-column" aria-label="Latest view">
+            {chainView(columnChain)}
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

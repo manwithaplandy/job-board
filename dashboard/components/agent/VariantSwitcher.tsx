@@ -22,7 +22,9 @@ export interface VariantsState {
   variant3Enabled: boolean;
 }
 
-export const SWITCHER_LABEL = "Layout for this conversation";
+// The switcher picks how the assistant's answers are drawn (Blocks, Layout or Code), so
+// its visible label says that, for someone who has never seen it.
+export const SWITCHER_LABEL = "Show answers as";
 export const SWITCHER_APPLIES = "Applies from your next message.";
 export const SWITCHER_FAILED = "The layout could not be changed. Try again.";
 export const USE_AS_DEFAULT = "Use for new conversations";
@@ -84,6 +86,10 @@ export function VariantSwitcher({ threadId, state, disabled = false }: { threadI
   return (
     <div className="rf-agent-variants">
       <div className="rf-agent-variants__row">
+        {/* The radio group carries the same name; this is the visible caption. */}
+        <span className="rf-agent-variants__label" aria-hidden="true">
+          {SWITCHER_LABEL}
+        </span>
         <SegmentedControl
           label={SWITCHER_LABEL}
           value={String(shown)}

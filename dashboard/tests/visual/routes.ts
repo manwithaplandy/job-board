@@ -95,6 +95,10 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   fixture("agent", "blocks-jobs"),
   fixture("agent", "blocks-prep"),
   fixture("agent", "tree-sample"),
+  // The agent page itself (PR K1): the production page layout and chat with fixed threads
+  // and messages (components/agent/AgentPageFixture.tsx). The same three of them also run
+  // at 1024, 1280 and 2000 wide in agent-page-widths.spec.ts.
+  ...["empty", "conversation", "surface", "failed", "blocks", "layout", "code"].map((state) => fixture("agent", `page-${state}`)),
   fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"), fixture("workspaces", "memo-diff"),
   fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

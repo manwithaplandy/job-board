@@ -1,62 +1,122 @@
-/* The minimal agent page (plan Task 0.14). Tokens only; every control is a shared primitive. */
-.rf-agent-layout { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: var(--space-6); align-items: start; min-width: 0; }
-.rf-agent-main { display: grid; gap: var(--space-4); min-width: 0; }
+/* The agent page (plan Tasks 0.14, 1.20; PR K1 layout). Tokens only; every control is a
+   shared primitive. Layout at a glance:
+   - below 900px: one column; the conversation list (short, scrolls) sits above the chat.
+   - 900px and up: the conversation list on the left (240px), the chat beside it.
+   - 1200px and up, with a surface: the chat and the latest surface side by side
+     (useWideLayout in SurfaceHost.tsx moves the surface into its column at the same width). */
 
-.rf-agent-threads { display: grid; gap: var(--space-3); min-width: 0; }
-.rf-agent-threads__list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
-.rf-agent-threads__item { width: 100%; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A chat page uses more width than the 1040px secondary wrap. */
+.rf-secondary-wrap.rf-agent-page { width: min(100%, 1440px); }
+
+/* A compact page header: the title and one line, the test-data badge at the right. */
+.rf-agent-header h1 { font-size: 24px; }
+.rf-agent-header p { margin-top: var(--space-1); font-size: var(--font-size-help); }
+
+.rf-agent-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); align-items: start; min-width: 0; }
+.rf-agent-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+@media (min-width: 900px) {
+  .rf-agent-layout { grid-template-columns: 240px minmax(0, 1fr); gap: var(--space-6); }
+}
+
+/* The conversation list. Every track is minmax(0, 1fr), so a long title can never widen
+   the column: it truncates inside its own link (the overflow came from auto-sized tracks
+   taking the nowrap title's full width). */
+.rf-agent-threads { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); align-content: start; min-width: 0; }
+.rf-agent-threads__new { justify-self: start; }
+.rf-agent-threads__heading { margin: var(--space-2) 0 0; color: var(--text-muted); font-size: var(--font-size-caption); font-weight: 700; }
+.rf-agent-threads__list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); min-width: 0; margin: 0; padding: 0; list-style: none; }
+.rf-agent-threads__list > li { min-width: 0; }
+.rf-agent-threads__item { display: flex; width: 100%; min-width: 0; justify-content: flex-start; padding-inline: var(--space-3); color: var(--text-secondary); font-weight: 600; }
 .rf-agent-threads__item[aria-current="page"] { color: var(--accent); background: var(--accent-bg); }
+.rf-agent-threads__title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; }
 .rf-agent-threads__error { margin: 0; color: var(--danger); font-size: var(--font-size-caption); }
+/* One column: keep the list short so the chat stays near the top. */
+@media (max-width: 899px) {
+  .rf-agent-threads__list { max-height: 148px; overflow-y: auto; }
+}
 
-.rf-agent-chat { display: grid; gap: var(--space-4); min-width: 0; }
-/* The per-thread variant switcher (plan Task 2.8). */
-.rf-agent-variants { display: grid; gap: var(--space-1); min-width: 0; }
+/* The conversation: a toolbar row, then the chat (and the latest surface beside it). */
+.rf-agent-conversation { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+.rf-agent-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); min-width: 0; padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+.rf-agent-toolbar__title { flex: 1 1 14rem; min-width: 0; margin: 0; overflow: hidden; color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The per-thread variant switcher (plan Task 2.8), captioned so a first-time user knows
+   it picks how answers are drawn. */
+.rf-agent-variants { display: grid; gap: var(--space-1); min-width: 0; max-width: 100%; }
 .rf-agent-variants__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.rf-agent-variants__label { color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 600; }
 .rf-agent-variants__note { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
 .rf-agent-variants__status { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
 .rf-agent-variants__status:empty { display: none; }
+
+.rf-agent-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); min-width: 0; }
+@media (min-width: 1200px) {
+  .rf-agent-workspace--split { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
+  .rf-agent-surface-column { position: sticky; top: var(--space-4); }
+}
+.rf-agent-surface-column { min-width: 0; }
+.rf-agent-surface { min-width: 0; }
+.rf-agent-surface__failed { margin: 0; color: var(--text-secondary); }
+
 /* A surface's versions and its "Re-render as" buttons (plan Task 2.9). */
 .rf-agent-versions { display: grid; gap: var(--space-2); min-width: 0; }
 .rf-agent-versions__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
 .rf-agent-versions__label { color: var(--text-muted); font-size: var(--font-size-caption); }
 .rf-agent-versions__status { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
 .rf-agent-versions__status:empty { display: none; }
+
+.rf-agent-chat { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
 .rf-agent-chat__empty { margin: 0; color: var(--text-secondary); }
-.rf-agent-transcript { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
-.rf-agent-message { display: grid; gap: var(--space-1); min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-3) var(--space-4); background: var(--bg-surface); }
-.rf-agent-message--user { background: var(--bg-muted); }
-.rf-agent-message__role { color: var(--text-muted); font-size: var(--font-size-small); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+
+/* The transcript: chat bubbles, the user's on the right, the assistant's on the left. The
+   role is read out from a visually hidden label. */
+.rf-agent-transcript { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.rf-agent-message { display: grid; gap: var(--space-2); min-width: 0; max-width: 100%; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); }
+.rf-agent-message--user { justify-self: end; max-width: min(85%, 640px); border-color: var(--accent-border); border-bottom-right-radius: var(--space-1); background: var(--accent-bg); }
+.rf-agent-message--assistant { justify-self: start; width: 100%; border-bottom-left-radius: var(--space-1); }
+.rf-agent-message__role { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 /* Plain text, as the model wrote it: line breaks kept, long words wrapped. */
-.rf-agent-message__text { margin: 0; color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
-.rf-agent-message__tool { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-agent-message__text { margin: 0; color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rf-agent-message__tool { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
+.rf-agent-message__questions { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-5); color: var(--text-primary); overflow-wrap: anywhere; }
+
+/* Where the next answer will appear, while it is on its way. */
+.rf-agent-waiting { justify-self: start; margin: 0; padding: var(--space-2) var(--space-4); border: 1px dashed var(--border-strong); border-radius: var(--radius-card); color: var(--text-muted); font-size: var(--font-size-caption); }
+
+/* A failed or interrupted reply: one line where the answer would have been, with Retry. */
+.rf-agent-turn-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--danger-border); border-radius: var(--radius-card); border-bottom-left-radius: var(--space-1); background: var(--danger-bg); }
+.rf-agent-turn-error__copy { display: grid; flex: 1 1 16rem; gap: var(--space-1); min-width: 0; }
+.rf-agent-turn-error__title { margin: 0; color: var(--text-primary); font-weight: 700; }
+.rf-agent-turn-error__text { margin: 0; color: var(--danger); overflow-wrap: anywhere; }
 
 .rf-agent-notice__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
 .rf-agent-notice p { margin: 0; }
 
-.rf-agent-composer { display: grid; gap: var(--space-2); min-width: 0; }
-.rf-agent-composer__actions { display: flex; justify-content: flex-end; }
+/* The composer: one bar (attach, a text box that grows to a few lines, Send), the attached
+   files under it, then a small key hint. The upload target's own wrapper takes no box
+   (display: contents), so its control sits in the bar and its list on the row below. */
+.rf-agent-composer { display: grid; gap: var(--space-1); min-width: 0; }
+.rf-agent-composer__bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-2); min-width: 0; padding: var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--radius-card); background: var(--bg-surface); }
+.rf-agent-composer__bar:focus-within { border-color: var(--accent); }
+.rf-agent-composer__bar--attach { grid-template-columns: auto minmax(0, 1fr) auto; }
+.rf-agent-composer__bar > .rf-field { grid-row: 1; min-width: 0; }
+.rf-agent-composer__bar--attach > .rf-field { grid-column: 2; }
+.rf-agent-composer__send { grid-row: 1; grid-column: -2; }
+.rf-agent-composer__input.rf-control--textarea { min-height: var(--target-size); max-height: 192px; padding-block: var(--space-2); border-color: transparent; background: transparent; resize: none; field-sizing: content; }
+.rf-agent-composer__input.rf-control--textarea:focus-visible { box-shadow: none; }
+.rf-agent-composer__hint { margin: 0; padding-inline: var(--space-2); color: var(--text-muted); font-size: var(--font-size-small); }
 
-.rf-agent-composer__actions { flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
-
-/* Agent page chrome (plan Task 1.20). */
-.rf-agent-workspace { display: grid; gap: var(--space-6); min-width: 0; }
-/* At 1024px and wider the latest surface takes the wide column, the conversation beside it. */
-@media (min-width: 1024px) {
-  .rf-agent-workspace--split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; }
-  .rf-agent-surface-column { position: sticky; top: var(--space-4); }
-}
-.rf-agent-surface-column { min-width: 0; }
-.rf-agent-surface { min-width: 0; }
-.rf-agent-surface__failed { margin: 0; color: var(--text-secondary); }
-.rf-agent-message__questions { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-5); color: var(--text-primary); overflow-wrap: anywhere; }
-
-.rf-agent-empty { display: grid; gap: var(--space-4); min-width: 0; }
-.rf-agent-empty__sentence { margin: 0; color: var(--text-secondary); }
-
-.rf-agent-attach { display: grid; gap: var(--space-2); flex: 1 1 auto; min-width: 0; }
+.rf-agent-attach { display: contents; }
+.rf-agent-attach > .rf-field { grid-row: 1; grid-column: 1; }
+/* The note, the attached files and any upload error each take a full-width row under the bar's controls. */
+.rf-agent-attach > :not(.rf-field) { grid-column: 1 / -1; }
+.rf-agent-attach__note { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
 .rf-agent-attach__list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .rf-agent-attach__item { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .rf-agent-attach__name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: var(--font-size-caption); }
+
+.rf-agent-empty { display: grid; gap: var(--space-4); min-width: 0; }
+.rf-agent-empty__sentence { margin: 0; color: var(--text-secondary); }
 
 .rf-agent-confirm { display: grid; gap: var(--space-3); min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-card); padding: var(--space-4); background: var(--bg-surface); }
 .rf-agent-confirm__title { margin: 0; color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; }
@@ -66,7 +126,3 @@
 .rf-agent-confirm__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 .rf-agent-review { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
-
-@media (max-width: 760px) {
-  .rf-agent-layout { grid-template-columns: minmax(0, 1fr); }
-}

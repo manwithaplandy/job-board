@@ -9,6 +9,8 @@ import { HBarCard } from "@/components/analytics/Chart";
 import { AgentChat } from "@/components/agent/AgentChat";
 import { AgentBlocksJobsFixture, AgentBlocksPrepFixture } from "@/components/agent/blocks/AgentBlocksFixture";
 import { AgentTreeFixture } from "@/components/agent/tree/AgentTreeFixture";
+import { AgentPageFixture } from "@/components/agent/AgentPageFixture";
+import { isAgentPageFixtureState } from "@/components/agent/agentPageFixtureStates";
 import { MemoDiffFixture } from "@/components/workspaces/MemoDiffFixture";
 import { ShortlistBoard } from "@/components/workspaces/ShortlistBoard";
 import type { ShortlistRow } from "@/lib/workspaces/types";
@@ -69,6 +71,9 @@ const COPY: Record<string, { eyebrow: string; title: string; description: string
 };
 
 export function VisualStateFixture({ state }: { state: string }) {
+  // The whole agent page with fixed data, for the agent page screenshots
+  // (scripts/agent-screens.ts). Not in the visual-regression inventory.
+  if (isAgentPageFixtureState(state)) return <AgentPageFixture state={state} />;
   const copy = COPY[state];
   if (!copy) return <ErrorState title="Unknown visual state" description={state} />;
   if (state.startsWith("board-")) {

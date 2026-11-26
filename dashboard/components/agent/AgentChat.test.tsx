@@ -18,7 +18,14 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: 
 // The review indicator polls its own route; these tests count only /api/agent requests.
 vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
 
-import { AgentChat } from "./AgentChat";
+import {
+  AgentChat,
+  GENERIC_PROBLEM,
+  PROVIDER_DOWN_PROBLEM,
+  RATE_LIMITED_PROBLEM,
+  UNAVAILABLE_PROBLEM,
+  problemFromStreamError,
+} from "./AgentChat";
 
 const THREAD = "22222222-2222-4222-8222-222222222222";
 
@@ -263,4 +270,66 @@ test("the first message of an untitled thread names the thread from its text", a
   fireEvent.change(composer(), { target: { value: "  Find   remote ML roles  " } });
   fireEvent.click(sendButton());
   await waitFor(() => expect(actions.renameThreadAction).toHaveBeenCalledWith(THREAD, "Find remote ML roles"));
+});
+
+function failedTurn(errorText: string): Response {
+  return createUIMessageStreamResponse({
+    stream: new ReadableStream<UIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "msg-failed" });
+        controller.enqueue({ type: "error", errorText });
+        controller.close();
+      },
+    }),
+  });
+}
+
+test("a failed turn shows one inline error with Retry and no empty assistant bubble; Retry resends the question", async () => {
+  fetchMock.mockImplementationOnce(async () => failedTurn("model_error:402"));
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Which roles fit?" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(UNAVAILABLE_PROBLEM);
+  expect(container.querySelectorAll(".rf-agent-message--assistant")).toHaveLength(0);
+  expect(screen.getAllByRole("alert")).toHaveLength(1);
+  // The draft typed meanwhile is kept by Retry.
+  fireEvent.change(composer(), { target: { value: "half-typed" } });
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(bodyOf(1)).toMatchObject({ kind: "message", text: "Which roles fit?" });
+  expect(bodyOf(1).id).not.toBe(bodyOf(0).id);
+  await screen.findByText("Here are two roles.");
+  expect(screen.queryByText(UNAVAILABLE_PROBLEM)).toBeNull();
+  expect(composer().value).toBe("half-typed");
+});
+
+test("a 429 from the provider reads as too many requests", async () => {
+  fetchMock.mockImplementationOnce(async () => failedTurn("model_error:429"));
+  render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Again?" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(RATE_LIMITED_PROBLEM);
+});
+
+test("the stream's error text maps to a fixed sentence; provider text is never shown", () => {
+  expect(problemFromStreamError("model_error:401")).toBe(UNAVAILABLE_PROBLEM);
+  expect(problemFromStreamError("model_error:403")).toBe(UNAVAILABLE_PROBLEM);
+  expect(problemFromStreamError("model_error:503")).toBe(PROVIDER_DOWN_PROBLEM);
+  expect(problemFromStreamError("model_error:400")).toBe(GENERIC_PROBLEM);
+  expect(problemFromStreamError("model_error")).toBe(GENERIC_PROBLEM);
+  expect(problemFromStreamError("Insufficient credits on key sk-or-v1-x")).toBe(GENERIC_PROBLEM);
+});
+
+test("a stored failed turn (a reload after the failure) shows no empty bubble, one interrupted line and Retry", async () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Any remote roles?" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [], metadata: { status: "failed" } },
+  ];
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  expect(container.querySelectorAll(".rf-agent-message")).toHaveLength(1);
+  expect(container.querySelectorAll(".rf-agent-message--assistant")).toHaveLength(0);
+  expect(screen.getByText("This reply was interrupted")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(bodyOf(0)).toMatchObject({ kind: "message", text: "Any remote roles?" });
 });

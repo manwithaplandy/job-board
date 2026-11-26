@@ -28,6 +28,7 @@ export function ThreadList({ threads, currentId }: { threads: ThreadSummary[]; c
         New conversation
       </Button>
       {failed && <p role="alert" className="rf-agent-threads__error">A new conversation could not be started. Try again.</p>}
+      {threads.length > 0 && <h2 className="rf-agent-threads__heading">Conversations</h2>}
       {threads.length > 0 && (
         <ul className="rf-agent-threads__list">
           {threads.map((t) => (
@@ -37,8 +38,10 @@ export function ThreadList({ threads, currentId }: { threads: ThreadSummary[]; c
                 variant="ghost"
                 className="rf-agent-threads__item"
                 aria-current={t.id === currentId ? "page" : undefined}
+                title={t.title}
               >
-                {t.title}
+                {/* The title truncates inside the column (agent.css); the link keeps its full name. */}
+                <span className="rf-agent-threads__title">{t.title}</span>
               </ButtonLink>
             </li>
           ))}

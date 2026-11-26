@@ -91,6 +91,8 @@
 .rf-file-upload__input { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .rf-file-upload { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .rf-file-upload__name { color: var(--text-secondary); font-size: var(--font-size-help); overflow-wrap: anywhere; }
+/* An icon-only upload target (iconOnly): a square button the size of a touch target. */
+.rf-file-upload--icon label.rf-button { inline-size: var(--target-size); padding-inline: 0; }
 .rf-file-upload__input:focus-visible + label { outline: none; box-shadow: 0 0 0 1px var(--focus-ring), 0 0 0 4px var(--focus-halo); }
 
 .rf-tabs { overflow-x: auto; }

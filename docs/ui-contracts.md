@@ -42,6 +42,15 @@ provenance. Committed comparisons use a 0.5% maximum differing-pixel ratio and a
 per-pixel threshold; dynamic regions must use an explicit, reviewed mask instead of a
 broader global tolerance. Baselines in `tests/visual/__screenshots__` are committed.
 Traces, diff output, and HTML reports are disposable and ignored through `.gitignore`.
+
+The agent page has seven fixture states (`/ui-gallery/states/agent-page-*`: empty,
+conversation, surface, failed, blocks, layout, code) that render the production page
+layout and chat with fixed data. They run in the shared matrix above. Three of them
+(conversation, surface, failed) also run at 1024, 1280 and 2000 wide in
+`tests/visual/agent-page-widths.spec.ts`, which adds a check that the conversation list,
+toolbar, transcript, composer and surface column never overlap; its baselines are named
+`<route id>-w<width>-<theme>.png`. Both specs share the runtime checks in
+`tests/visual/runtime-contracts.ts`.
 The canonical screenshot baseline platform is the pinned Playwright Linux container
 (`mcr.microsoft.com/playwright:v<version>-noble` on `ubuntu-24.04`, where `<version>` is the
 exact `@playwright/test` pin in `dashboard/package.json`). Both public and authenticated CI

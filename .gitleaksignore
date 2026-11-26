@@ -46,3 +46,6 @@ eca7f6c438a29cc3ae93b615b7cad236453a2ad9:.superpowers/sdd/2026-10-07-job-lifecyc
 80f47a30403581afa5fd4c9ec25ebc45dca5637b:dashboard/lib/agent/actions/confirm.test.ts:generic-api-key:32
 c7ef8743b2b6434316b7fb30885865fa370a0044:dashboard/lib/agent/loop.test.ts:generic-api-key:551
 c7ef8743b2b6434316b7fb30885865fa370a0044:dashboard/lib/agent/tools/approval.test.ts:generic-api-key:44
+# - dashboard/lib/agent/loop.test.ts (2026-11-26): a placeholder OpenRouter-shaped key
+#   in a redaction test; the line now uses a low-entropy placeholder.
+1ee6b7a53b32a8714f40e63f9d9f7dca9cab16ba:dashboard/lib/agent/loop.test.ts:generic-api-key:290

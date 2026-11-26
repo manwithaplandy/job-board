@@ -13,7 +13,11 @@
 .rf-ws-section__refresh { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 .rf-ws-disclosure { display: grid; gap: var(--space-3); min-width: 0; }
-.rf-ws-disclosure__summary { min-height: var(--target-size); display: flex; align-items: center; cursor: pointer; }
+.rf-ws-disclosure__summary { min-height: var(--target-size); display: flex; align-items: center; gap: var(--space-2); cursor: pointer; list-style: none; }
+.rf-ws-disclosure__summary::-webkit-details-marker { display: none; }
+/* display:flex drops the browser's own marker, so draw one: it shows the row opens. */
+.rf-ws-disclosure__summary::before { content: ""; width: 0.45em; height: 0.45em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform var(--motion-fast) var(--ease-standard); flex: none; }
+.rf-ws-disclosure[open] > .rf-ws-disclosure__summary::before { transform: rotate(45deg); }
 
 .rf-ws-list { display: grid; gap: var(--space-3); min-width: 0; }
 .rf-ws-row { display: grid; gap: var(--space-3); min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-4); background: var(--bg-surface); }

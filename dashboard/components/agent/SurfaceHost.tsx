@@ -53,7 +53,10 @@ export function mergeSurface(chains: readonly HostChain[], surface: HostSurface)
   return [...chains.slice(0, parent), ...chains.slice(parent + 1), updated];
 }
 
-const WIDE_QUERY = "(min-width: 1024px)";
+// From here the page has room for the conversation list, the conversation and the latest
+// surface side by side (PR K1: at 1024px the three columns were too narrow to read).
+// Kept in step with the split rule in agent.css.
+const WIDE_QUERY = "(min-width: 1200px)";
 
 function subscribeWide(onChange: () => void): () => void {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
@@ -66,7 +69,7 @@ function wideNow(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(WIDE_QUERY).matches;
 }
 
-/** Whether the latest surface takes the wide column (1024px and wider). Narrow on the server. */
+/** Whether the latest surface takes the wide column (1200px and wider). Narrow on the server. */
 export function useWideLayout(): boolean {
   return useSyncExternalStore(subscribeWide, wideNow, () => false);
 }

@@ -4,7 +4,7 @@
 // chargeStep receives. next/server's after() is captured so each test can wait for the
 // persistence it schedules.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { simulateReadableStream, type UIMessage } from "ai";
+import { APICallError, simulateReadableStream, type UIMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
 
@@ -279,6 +279,38 @@ describe("streamAgentTurn", () => {
     expect(lastAssistantSave()[3]).toBe("failed");
     expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "failed", error: "model_error" });
     expect(chargeStep).not.toHaveBeenCalled();
+  });
+
+  test("a provider error with a status: one log line with status and provider message, the status on the run, the code to the browser", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // An earlier test's spy may still hold its calls.
+    warn.mockClear();
+    const refused = new APICallError({
+      message: "Payment Required",
+      url: "https://openrouter.example/api/v1/chat/completions?key=sk-or-v1-xxxxxxxxxxxx",
+      requestBodyValues: { messages: ["secret prompt"] },
+      statusCode: 402,
+      responseHeaders: { authorization: "Bearer sk-or-v1-xxxxxxxxxxxx" },
+      responseBody: JSON.stringify({ error: { message: "Insufficient credits. Add more using sk-or-v1-xxxxxxxxxxxx", code: 402 } }),
+      isRetryable: false,
+    });
+    const res = await streamAgentTurn({ userId: USER, email: "pat@example.com", thread, input: message("hi"), model: scripted([refused]) });
+    const body = await res.text();
+    await Promise.all(h.afterTasks);
+    expect(finishRun).toHaveBeenCalledWith(USER, RUN, { status: "failed", error: "model_error:402" });
+    expect(lastAssistantSave()[3]).toBe("failed");
+    // The browser gets the code, never the provider's text.
+    expect(body).toContain('"errorText":"model_error:402"');
+    expect(body).not.toContain("Insufficient credits");
+    const lines = warn.mock.calls.map((c) => c.join(" "));
+    const line = lines.find((l) => l.startsWith("agent: model stream error"));
+    expect(line).toBe('agent: model stream error name=AI_APICallError status=402 retryable=false code=402 provider="Insufficient credits. Add more using [redacted]"');
+    // Nothing from the request, the URL or the headers is logged.
+    for (const l of lines) {
+      expect(l).not.toContain("sk-or-v1");
+      expect(l).not.toContain("secret prompt");
+      expect(l).not.toContain("openrouter.example");
+    }
   });
 
   test("cancelling the response body does not stop persistence", async () => {

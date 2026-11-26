@@ -70,13 +70,18 @@ export function AttachButton({
         key={inputKey}
         label="Attach a file"
         visuallyHideLabel
+        iconOnly
         actionLabel={busy ? "Uploading" : "Attach a file"}
-        emptyLabel={full ? `Up to ${AGENT_DOCUMENTS_MAX} files per message` : "No file attached"}
         announceFilename={false}
         accept={UPLOAD_ACCEPT}
         disabled={disabled || busy || full}
         onChange={(e) => void upload(e.currentTarget.files?.[0] ?? null)}
       />
+      {(busy || full) && (
+        <p className="rf-agent-attach__note" role="status">
+          {busy ? "Uploading the file." : `Up to ${AGENT_DOCUMENTS_MAX} files per message.`}
+        </p>
+      )}
       {attached.length > 0 && (
         <ul className="rf-agent-attach__list" aria-label="Attached files">
           {attached.map((d) => (

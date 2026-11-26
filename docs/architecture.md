@@ -572,6 +572,17 @@ Estimated cost (the dry runs, list price; uncached, and with the prompt cache at
 - The demos on prod follow the [variant demo script](demo/README.md), with the synthetic
   persona résumés in `demo/personas/` (`npm --prefix dashboard run demo:personas`).
 
+### Diagnosing a failed agent answer
+
+When a model call fails, `/api/agent` writes one Vercel runtime log line:
+`agent: <where> name=<error> status=<http status|none> retryable=<true|false|unknown> [code=…] [provider="…"]`.
+The provider message is cut to 300 characters with key-shaped text, bearer tokens and
+long tokens replaced by `[redacted]`; headers, the request body and the URL are never
+logged. The run's `agent_runs.error` holds `model_error:<status>` (for example
+`model_error:402`), or `model_error` when there was no status. The browser shows one
+inline error with Retry: 401, 402 and 403 read as "unavailable", 429 as "too many
+requests", 5xx as "service trouble", anything else as the generic message.
+
 ## 12. Runbooks
 
 - [Backup and restore](runbooks/backup-restore.md)

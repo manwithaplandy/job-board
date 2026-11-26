@@ -10,14 +10,15 @@
 // a model's or the total, stops the whole command: the cell in progress writes nothing,
 // no later cell or model runs, and the report says cap_exceeded with the usage so far.
 //
-// Every finished cell is written to recordings/matrix/<model>/v<variant>/ (assert
-// failures are data here, counted by the measures) and, when Langfuse keys are set, to the
-// dataset agent-freedom-matrix. The throwaway database forwards only the OpenRouter key,
-// so in that run the dataset write is a no-op.
+// The run gets its own folder, recordings/matrix/<run id>/ (evalRuns.ts; the id comes from
+// eval-agent.mjs as EVAL_RUN_ID), with run.json saying how it ended. Every finished cell
+// is written there under <model>/v<variant>/, carrying the run id (assert failures are
+// data here, counted by the measures) and, when Langfuse keys are set, to the dataset
+// agent-freedom-matrix. The throwaway database forwards only the OpenRouter key, so in
+// that run the dataset write is a no-op.
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { openTestDb, type TestDb } from "@/lib/testing/dbHarness";
 import { endServicePool } from "@/lib/db";
 import { upsertDatasetRecord } from "@/lib/langfuseDataset";
@@ -26,8 +27,9 @@ import { matrixDatasetItem, matrixRecordingPath, matrixTable, runMatrix, usageOf
 import { measure, recordingSignature } from "@/lib/agent/evals/measures";
 import type { Recording } from "@/lib/agent/evals/recording";
 import { AGENT_EVAL_MODELS } from "@/lib/agent/config";
-import { capsFromEnv, totalBudget, totalCapsFromEnv, type RunBudget } from "@/lib/agent/evals/budget";
+import { assertEvalMode, capsFromEnv, totalBudget, totalCapsFromEnv, type RunBudget } from "@/lib/agent/evals/budget";
 import { assertPricedModels } from "@/lib/agent/evals/matrixPlan";
+import { finishRun, newRunId, runRoot, startRun } from "@/lib/agent/evals/evalRuns";
 
 vi.mock("next/server", async (importOriginal) => {
   const real = await importOriginal<typeof import("next/server")>();
@@ -45,6 +47,9 @@ vi.mock("next/cache", async (importOriginal) => ({
 }));
 vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: vi.fn(async () => "standard") }));
 
+// Only eval-agent.mjs starts this file (it sets EVAL_MODE): refuse anything else first.
+assertEvalMode(process.env, "matrix");
+
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
 const models = (process.env.EVAL_MODELS ?? "")
   .split(",")
@@ -54,7 +59,9 @@ const runModels = models.length > 0 ? models : [...AGENT_EVAL_MODELS];
 if (!runModels.every((m) => MODEL_RE.test(m))) throw new Error("eval: EVAL_MODELS holds something that is not a model id");
 // Re-checked here as eval-agent.mjs does: only models with a row in the price table run.
 assertPricedModels(runModels);
-const outDir = fileURLToPath(new URL("./recordings/matrix/", import.meta.url));
+const evalRun = process.env.EVAL_RUN_ID || newRunId();
+let runDir: string | null = null;
+let ranToEnd = false;
 
 vi.stubEnv("AGENT_TOOL_APPROVAL_SECRET", process.env.AGENT_TOOL_APPROVAL_SECRET || "e".repeat(40));
 
@@ -98,12 +105,14 @@ beforeAll(async () => {
   if (!process.env.OPENROUTER_API_KEY?.trim() && !process.env.AGENT_OPENROUTER_API_KEY?.trim()) {
     throw new Error("eval: OPENROUTER_API_KEY is not set (tools/lifecycle_test_db.py --allow-env OPENROUTER_API_KEY)");
   }
+  runDir = startRun(runRoot("matrix"), { runId: evalRun, mode: "matrix", models: runModels, matrixRun: null });
   db = await openTestDb([]);
   await prepareHarness({ sql: db.sql });
 });
 
 afterAll(async () => {
   for (const b of budgets.values()) b.dispose();
+  if (runDir) finishRun(runDir, tripped() ? "cap_exceeded" : ranToEnd ? "complete" : "failed");
   // On a cap the matrix threw before it returned: measure what finished.
   const finished: MatrixResult = result ?? {
     recordings,
@@ -115,6 +124,7 @@ afterAll(async () => {
   writeRunReport(
     [
       `Variant matrix over ${runModels.join(", ")}: ${recordings.length} cells recorded`,
+      `Run ${evalRun}: ${runDir ? path.relative(process.cwd(), runDir) : "no folder (the run did not start)"}`,
       "",
       matrixTable(finished),
       ...[...budgets.entries()].flatMap(([model, b]) => [`${model}:`, b.report(), ""]),
@@ -136,11 +146,12 @@ describe("variant matrix", () => {
         models: runModels,
         maxCells: caps.maxCases,
         runner: liveMatrixRunner({ sql: db.sql }, { caps, total, onBudget: (model, b) => budgets.set(model, b) }),
-        onRecording: async (_cell, r) => {
+        onRecording: async (_cell, cell) => {
+          const r: Recording = { ...cell, evalRun };
           recordings.push(r);
-          const file = path.join(outDir, matrixRecordingPath(r));
+          const file = path.join(runDir!, matrixRecordingPath(r));
           mkdirSync(path.dirname(file), { recursive: true });
-          writeFileSync(file, `${JSON.stringify(r, null, 2)}\n`);
+          writeFileSync(file, `${JSON.stringify(r, null, 2)}\n`, { flag: "wx" });
           try {
             await upsertDatasetRecord(matrixDatasetItem(r, recordingSignature(r)));
           } catch (e) {
@@ -149,6 +160,7 @@ describe("variant matrix", () => {
         },
       });
       expect(tripped()).toBeNull();
+      ranToEnd = true;
     },
     timeout,
   );

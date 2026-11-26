@@ -28,11 +28,20 @@ export interface Spread {
   p90: number | null;
 }
 
+/**
+ * What a group's timings, tokens and cost cover: a live variant 1 run is the whole
+ * scenario (every turn and tool call); a variant 2 or 3 matrix cell re-renders that run's
+ * surfaces and records only the re-render.
+ */
+export type MeasureScope = "whole scenario" | "re-render only" | "mixed";
+
 export interface VariantMeasures {
   model: string;
   variant: Variant;
   /** Recordings measured (matrix cells that finished). */
   runs: number;
+  /** What the timings, tokens and cost below cover. */
+  scope: MeasureScope;
   /** Surfaces over every run. */
   surfaces: number;
   /** Surfaces whose first payload failed validation: repaired or fell back. */
@@ -44,7 +53,11 @@ export interface VariantMeasures {
   firstRenderMs: Spread;
   completeMs: Spread;
   meanOutputTokens: number | null;
-  /** Assert failures over every run, and the runs with any. */
+  /**
+   * Assert failures over every run, and the runs with any. A re-render recording counts
+   * only its surfaces' failures (isSurfaceFailure): its tool calls, presses and database
+   * are variant 1's, copied, and were counted there.
+   */
   assertFailures: number;
   runsFailingAsserts: number;
   /**
@@ -141,6 +154,17 @@ export function quantile(values: number[], q: number): number | null {
   return sorted[rank - 1];
 }
 
+/** A failure about the surfaces themselves (path under "surfaces"), not the run's tools, presses or database. */
+export function isSurfaceFailure(f: { path?: string }): boolean {
+  const p = f.path ?? "";
+  return p === "surfaces" || p.startsWith("surfaces[") || p.startsWith("surfaces.");
+}
+
+function scopeOf(rs: readonly Recording[]): MeasureScope {
+  const rerenders = rs.filter((r) => r.source === "rerender").length;
+  return rerenders === 0 ? "whole scenario" : rerenders === rs.length ? "re-render only" : "mixed";
+}
+
 const spread = (values: number[]): Spread => ({ median: quantile(values, 0.5), p90: quantile(values, 0.9) });
 const rate = (n: number, of: number) => (of === 0 ? null : n / of);
 
@@ -153,7 +177,8 @@ function measureGroup(model: string, variant: Variant, rs: Recording[], v3Missta
   let runsFailingAsserts = 0;
   let misstated = 0;
   for (const r of rs) {
-    const failures = assertRecording(r);
+    const all = assertRecording(r);
+    const failures = r.source === "rerender" ? all.filter(isSurfaceFailure) : all;
     assertFailures += failures.length;
     if (failures.length > 0) runsFailingAsserts += 1;
     misstated += failures.filter((f) => MISSTATEMENT_CODES.has(f.code)).length;
@@ -168,6 +193,7 @@ function measureGroup(model: string, variant: Variant, rs: Recording[], v3Missta
     model,
     variant,
     runs: rs.length,
+    scope: scopeOf(rs),
     surfaces: surfaces.length,
     validationFailureRate: rate(repaired + fallback, surfaces.length),
     repairRate: rate(repaired, surfaces.length),

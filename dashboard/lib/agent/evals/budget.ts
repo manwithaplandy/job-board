@@ -109,6 +109,22 @@ export const CAP_PROFILES = ["golden", "matrix", "injection", "judge"] as const;
 export type CapProfile = (typeof CAP_PROFILES)[number];
 
 /**
+ * The variable scripts/eval-agent.mjs sets to the mode it starts (golden, matrix,
+ * injection or judge), and nothing else sets. vitest.eval.config.ts includes every
+ * *.eval.ts, so a bare `vitest -c vitest.eval.config.ts` would load all four live files
+ * at once, each with its own default caps: each file calls assertEvalMode with its own
+ * mode first and refuses to start under any other value.
+ */
+export const EVAL_MODE_ENV = "EVAL_MODE";
+
+export function assertEvalMode(env: Readonly<Record<string, string | undefined>>, mode: CapProfile): void {
+  const got = env[EVAL_MODE_ENV];
+  if (got === mode) return;
+  const command = mode === "golden" ? "npm run eval:agent -- --variant <1|2|3>" : `npm run eval:agent -- --${mode}`;
+  throw new Error(`eval: this file runs only through \`${command}\` (${EVAL_MODE_ENV}=${mode}); ${EVAL_MODE_ENV} is ${got === undefined ? "unset" : JSON.stringify(got)}`);
+}
+
+/**
  * Whether every model call of a profile must report its OpenRouter cost. True for the
  * matrix, the injection set and the judge: a call without one trips cost_unknown, so
  * max_usd and max_total_usd always hold. False for the golden run, whose A17 behaviour

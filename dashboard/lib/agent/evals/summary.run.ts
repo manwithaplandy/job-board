@@ -1,6 +1,8 @@
 // `npm run eval:summary` (scripts/eval-summary.mjs) runs this one file through
-// vitest.summary.config.ts: it reads what the live runs and the render smoke left on disk
-// and writes the per-variant summary (summary.ts) to
+// vitest.summary.config.ts: it reads one matrix run, one injection run and one judge run
+// (evalRuns.ts; the latest complete ones unless the script was given --run,
+// --injection-run or --judge-run) and the render smoke's results for those runs, and
+// writes the per-variant summary (summary.ts), run ids included, to
 // docs/superpowers/plans/2026-11-20-variant-summary.md. No model, no database, no spend;
 // an input that is not there reads "not run yet".
 //
@@ -10,37 +12,53 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { measure } from "@/lib/agent/evals/measures";
-import { HAND_CHECK_FILE, readInjectionResults, readJudgeResults, readMatrixRecordings } from "@/lib/agent/evals/evalFiles";
-import { readRenderResults, renderCounts, v3MisstatementsByModel } from "@/lib/agent/evals/renderResults";
+import { judgeFiles, readInjectionResults, readJudgeResults, readMatrixRecordings, type Read } from "@/lib/agent/evals/evalFiles";
+import { describeRun, runRoot, selectRun } from "@/lib/agent/evals/evalRuns";
+import type { Recording } from "@/lib/agent/evals/recording";
+import { forRuns, readRenderResults, renderCounts, v3MisstatementsByModel } from "@/lib/agent/evals/renderResults";
 import { variantSummary, withReplays } from "@/lib/agent/evals/summary";
 
 const REPO_ROOT = path.resolve(process.cwd(), "..");
 const OUT = process.env.EVAL_SUMMARY_OUT || path.join(REPO_ROOT, "docs", "superpowers", "plans", "2026-11-20-variant-summary.md");
+const EMPTY = { items: [], unreadable: [] as string[] };
 
 test("write the per-variant summary", () => {
-  const matrix = readMatrixRecordings();
-  const injection = readInjectionResults();
-  const judge = readJudgeResults();
-  const render = readRenderResults();
+  // One run of each (evalRuns.ts): the one eval-summary.mjs was given, else the latest complete.
+  const matrixRun = selectRun(runRoot("matrix"), process.env.EVAL_MATRIX_RUN || null);
+  const injectionRun = selectRun(runRoot("injection"), process.env.EVAL_INJECTION_RUN || null);
+  // The judge run: the one given, else the latest complete one that judged this matrix run.
+  const judgeRun = matrixRun ? selectRun(runRoot("judge"), process.env.EVAL_JUDGE_RUN || null, (r) => r.matrixRun === matrixRun.runId) : null;
+  const matrix: Read<Recording> = matrixRun
+    ? readMatrixRecordings(path.join(runRoot("matrix"), matrixRun.runId), matrixRun.runId)
+    : EMPTY;
+  const injection = injectionRun ? readInjectionResults(path.join(runRoot("injection"), injectionRun.runId), injectionRun.runId) : EMPTY;
+  const judgeDir = judgeRun ? path.join(runRoot("judge"), judgeRun.runId) : null;
+  const judge = judgeRun && judgeDir ? readJudgeResults(judgeDir, judgeRun.runId, matrixRun?.runId ?? null) : EMPTY;
+  const render = forRuns(readRenderResults(), { matrix: matrixRun?.runId ?? null, injection: injectionRun?.runId ?? null });
   const models = [...new Set(matrix.items.map((r) => r.model))];
+  const handCheck = judgeDir ? judgeFiles(judgeDir).handCheck : null;
 
   const md = variantSummary({
     generatedAt: new Date().toISOString().slice(0, 10),
-    measures: matrix.items.length > 0 ? measure(matrix.items, v3MisstatementsByModel(render, models)) : null,
+    measures: matrix.items.length > 0 && matrixRun ? measure(matrix.items, v3MisstatementsByModel(render, models, matrixRun.runId)) : null,
     injection: injection.items.length > 0 ? withReplays(injection.items, render) : null,
     render: render.length > 0 ? { results: render, counts: renderCounts(render) } : null,
     judge: judge.items.length > 0 ? judge.items : null,
-    handCheckFile: existsSync(HAND_CHECK_FILE) ? path.relative(REPO_ROOT, HAND_CHECK_FILE) : null,
+    handCheckFile: handCheck && existsSync(handCheck) ? path.relative(REPO_ROOT, handCheck) : null,
+    runs: { matrix: describeRun(matrixRun), injection: describeRun(injectionRun), judge: describeRun(judgeRun) },
   });
   const unreadable = [
-    ...matrix.unreadable.map((f) => `recordings/matrix/${f}`),
-    ...injection.unreadable.map((f) => `recordings/injection/${f}`),
-    ...judge.unreadable.map((f) => `recordings/judge/${f}`),
+    ...matrix.unreadable.map((f) => `recordings/matrix/${matrixRun?.runId}/${f}`),
+    ...injection.unreadable.map((f) => `recordings/injection/${injectionRun?.runId}/${f}`),
+    ...judge.unreadable.map((f) => `recordings/judge/${judgeRun?.runId}/${f}`),
   ];
-  const note = unreadable.length > 0 ? `\n## Files left out\n\nThese did not parse: ${unreadable.map((f) => `\`${f}\``).join(", ")}.\n` : "";
+  const note =
+    unreadable.length > 0 ? `\n## Files left out\n\nThese did not parse or carry another run's id: ${unreadable.map((f) => `\`${f}\``).join(", ")}.\n` : "";
 
   mkdirSync(path.dirname(OUT), { recursive: true });
   writeFileSync(OUT, `${md}${note}`);
-  console.log(`eval:summary: wrote ${path.relative(REPO_ROOT, OUT)}`);
+  console.log(
+    `eval:summary: wrote ${path.relative(REPO_ROOT, OUT)} (matrix run ${describeRun(matrixRun)}, injection run ${describeRun(injectionRun)}, judge run ${describeRun(judgeRun)})`,
+  );
   expect(md).toContain("Supporting information, not a gate.");
 });

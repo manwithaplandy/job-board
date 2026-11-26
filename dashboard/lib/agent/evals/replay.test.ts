@@ -3,7 +3,7 @@
 // renderer (not a fallback) by the host's own parse rules, and a name that is not on the
 // list resolves to nothing. Pure; runs in CI. The browsers are the render smoke's.
 import { describe, expect, test } from "vitest";
-import { listReplaySurfaces, loadReplaySurface } from "@/lib/agent/evals/replay";
+import { listReplaySurfaces, loadReplaySurface, replayRuns } from "@/lib/agent/evals/replay";
 import { parseStoredSurface } from "@/lib/agent/surfaces/host";
 import { checkV3Static } from "@/lib/agent/surfaces/v3/document";
 import { validateSurfaceV2 } from "@/lib/agent/surfaces/v2/tree";
@@ -65,5 +65,14 @@ describe("the replay list", () => {
     ]) {
       expect(loadReplaySurface(bad), JSON.stringify(bad)).toBeNull();
     }
+  });
+});
+
+describe("which runs the replay lists (fix round 1, I3)", () => {
+  test("with no run committed and none named it lists none; a named run that is missing or malformed is refused", () => {
+    expect(replayRuns({})).toEqual({ matrix: null, injection: null });
+    expect(() => replayRuns({ EVAL_MATRIX_RUN: "20261126T010000Z" })).toThrow(/no run 20261126T010000Z/);
+    expect(() => replayRuns({ EVAL_INJECTION_RUN: "latest" })).toThrow(/not a run id/);
+    expect(entries.filter((e) => e.source === "v1" || e.source === "fixture").every((e) => e.evalRun === null)).toBe(true);
   });
 });

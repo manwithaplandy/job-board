@@ -1,18 +1,20 @@
 // The live runs' files read back (plan Task 2.13): the matrix recordings, the injection
 // results and the judge's results, as matrix.eval.ts, injection.eval.ts and judge.eval.ts
-// write them under lib/agent/evals/recordings/. For the judge and the summary. Reads
-// files only; a file that does not parse is counted, not used. No database, no model.
+// write them, one folder per run (evalRuns.ts). For the judge and the summary. Each reader
+// reads one run: a file that does not parse, or carries another run's id, is counted, not
+// used. Reads files only; no database, no model.
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { InjectionResult } from "@/lib/agent/evals/injection";
 import type { JudgeResult } from "@/lib/agent/evals/judge";
 import { parseRecording, type Recording } from "@/lib/agent/evals/recording";
+import { RUN_FILE, RUN_ID_RE } from "@/lib/agent/evals/evalRuns";
 
-export const RECORDINGS_DIR = path.join(process.cwd(), "lib", "agent", "evals", "recordings");
-export const JUDGE_DIR = path.join(RECORDINGS_DIR, "judge");
-export const JUDGE_RESULTS_FILE = path.join(JUDGE_DIR, "results.json");
-export const HAND_CHECK_FILE = path.join(JUDGE_DIR, "hand-check.csv");
+/** The judge's two files inside its run folder. */
+export function judgeFiles(runDir: string): { results: string; handCheck: string } {
+  return { results: path.join(runDir, "results.json"), handCheck: path.join(runDir, "hand-check.csv") };
+}
 
 export interface Read<T> {
   items: T[];
@@ -25,6 +27,8 @@ function jsonFiles(dir: string, prefix = ""): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir).sort()) {
     if (name.startsWith(".")) continue;
+    // The run's own record, not a result.
+    if (prefix === "" && name === RUN_FILE) continue;
     const full = path.join(dir, name);
     if (statSync(full).isDirectory()) out.push(...jsonFiles(full, `${prefix}${name}/`));
     else if (name.endsWith(".json")) out.push(`${prefix}${name}`);
@@ -40,12 +44,12 @@ function readJson(file: string): unknown {
   }
 }
 
-/** Every matrix recording under recordings/matrix/. */
-export function readMatrixRecordings(dir: string = path.join(RECORDINGS_DIR, "matrix")): Read<Recording> {
+/** Every matrix recording of the run in `runDir` (run id `runId`). */
+export function readMatrixRecordings(runDir: string, runId: string): Read<Recording> {
   const out: Read<Recording> = { items: [], unreadable: [] };
-  for (const rel of jsonFiles(dir)) {
-    const r = parseRecording(readJson(path.join(dir, rel)));
-    if (r) out.items.push(r);
+  for (const rel of jsonFiles(runDir)) {
+    const r = parseRecording(readJson(path.join(runDir, rel)));
+    if (r && r.evalRun === runId) out.items.push(r);
     else out.unreadable.push(rel);
   }
   return out;
@@ -61,15 +65,16 @@ const InjectionFileSchema = z.object({
   contacts: z.array(z.string()),
   replay: z.object({ canaryHits: z.number(), loads: z.number() }).nullable(),
   html: z.null(),
+  evalRun: z.string().regex(RUN_ID_RE),
 });
 
-/** Every injection result under recordings/injection/ (the live, model-driven cases). */
-export function readInjectionResults(dir: string = path.join(RECORDINGS_DIR, "injection")): Read<InjectionResult> {
+/** Every injection result of the run in `runDir` (the live, model-driven cases). */
+export function readInjectionResults(runDir: string, runId: string): Read<InjectionResult> {
   const out: Read<InjectionResult> = { items: [], unreadable: [] };
-  for (const rel of jsonFiles(dir)) {
-    const parsed = InjectionFileSchema.safeParse(readJson(path.join(dir, rel)));
+  for (const rel of jsonFiles(runDir)) {
+    const parsed = InjectionFileSchema.safeParse(readJson(path.join(runDir, rel)));
     const recording = parsed.success && parsed.data.recording !== null ? parseRecording(parsed.data.recording) : null;
-    if (!parsed.success || (parsed.data.recording !== null && !recording)) {
+    if (!parsed.success || parsed.data.evalRun !== runId || (parsed.data.recording !== null && !recording)) {
       out.unreadable.push(rel);
       continue;
     }
@@ -90,12 +95,20 @@ export const JudgeResultSchema = z
     winner: z.enum(["a", "b", "tie"]),
     reason: z.string(),
     parsed: z.boolean(),
+    evalRun: z.string().regex(RUN_ID_RE),
+    matrixRun: z.string().regex(RUN_ID_RE),
   })
   .strict() satisfies z.ZodType<JudgeResult>;
 
-/** The judge's results (recordings/judge/results.json); empty when it has not run. */
-export function readJudgeResults(file: string = JUDGE_RESULTS_FILE): Read<JudgeResult> {
+/**
+ * The judge's results in the run folder `runDir` (run id `runId`); empty when it wrote
+ * none. A result from another judge run, or for a matrix run other than `matrixRun` when
+ * one is given, makes the file unreadable.
+ */
+export function readJudgeResults(runDir: string, runId: string, matrixRun: string | null = null): Read<JudgeResult> {
+  const file = judgeFiles(runDir).results;
   if (!existsSync(file)) return { items: [], unreadable: [] };
   const parsed = z.array(JudgeResultSchema).safeParse(readJson(file));
-  return parsed.success ? { items: parsed.data, unreadable: [] } : { items: [], unreadable: [path.basename(file)] };
+  const ok = parsed.success && parsed.data.every((r) => r.evalRun === runId && (matrixRun === null || r.matrixRun === matrixRun));
+  return ok && parsed.success ? { items: parsed.data, unreadable: [] } : { items: [], unreadable: [path.basename(file)] };
 }

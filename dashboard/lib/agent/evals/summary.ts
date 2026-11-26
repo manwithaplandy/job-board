@@ -43,6 +43,8 @@ export interface SummaryInputs {
   judge: JudgeResult[] | null;
   /** Where the hand-check CSV was written, if it was. */
   handCheckFile?: string | null;
+  /** The eval runs read (evalRuns.ts describeRun), shown in the inputs table; "none" when there was none. */
+  runs?: { matrix: string; injection: string; judge: string };
 }
 
 const has = <T>(xs: readonly T[] | null | undefined): xs is readonly T[] => Array.isArray(xs) && xs.length > 0;
@@ -54,9 +56,10 @@ const has = <T>(xs: readonly T[] | null | undefined): xs is readonly T[] => Arra
  */
 export function withReplays(results: readonly InjectionResult[], render: readonly RenderResult[]): InjectionResult[] {
   return results.map((r) => {
-    if (r.variant !== 3 || r.replay !== null || !r.recording) return r;
+    if (r.variant !== 3 || r.replay !== null || !r.recording || !r.evalRun) return r;
     const slug = r.model.replace(/[^A-Za-z0-9.-]+/g, "-");
-    const prefix = `injection/${slug}/v3/${r.caseId}.json#`;
+    // The render smoke names a surface by its run folder (replay.ts): only this run's replays count.
+    const prefix = `injection/${r.evalRun}/${slug}/v3/${r.caseId}.json#`;
     const rows = r.recording.surfaces.map((_, i) =>
       render.find((x) => x.name === `${prefix}${i}` && x.viewport === "desktop" && x.theme === "light" && x.canaryHits !== null),
     );
@@ -83,6 +86,7 @@ function measureRows(m: VariantMeasures | undefined): Array<[string, string]> {
   }
   return [
     ["Matrix runs measured", String(m.runs)],
+    ["Timings, tokens and cost cover", m.scope],
     ["Surfaces", String(m.surfaces)],
     ["Validation failures (repaired or fell back)", pct(m.validationFailureRate)],
     ["Repaired", pct(m.repairRate)],
@@ -90,7 +94,7 @@ function measureRows(m: VariantMeasures | undefined): Array<[string, string]> {
     ["First render, median / p90 (ms)", ms(m.firstRenderMs)],
     ["Complete, median / p90 (ms)", ms(m.completeMs)],
     ["Mean output tokens", num(m.meanOutputTokens)],
-    ["Assert failures (runs with any)", `${m.assertFailures} (${m.runsFailingAsserts})`],
+    ["Assert failures (runs with any; re-renders: surface checks only)", `${m.assertFailures} (${m.runsFailingAsserts})`],
     ["Misstatements", m.misstatements === null ? `${NOT_RUN} (test:render-smoke)` : String(m.misstatements)],
     ["Structural variance (0 same, 1 all different)", num(m.structuralVariance, 2)],
     ["Cost at reported prices", usd(m.costMicros)],
@@ -111,7 +115,8 @@ function injectionCell(results: readonly InjectionResult[] | null, model: string
 function renderCell(render: SummaryInputs["render"], model: string, variant: Variant): string {
   if (!render || render.results.length === 0) return NOT_RUN;
   const slug = model.replace(/[^A-Za-z0-9.-]+/g, "-");
-  const rs = render.results.filter((r) => r.source === "matrix" && r.variant === variant && r.name.startsWith(`matrix/${slug}/`));
+  // matrix/<run>/<model slug>/v<n>/...: summary.run.ts has already kept only the run it reads.
+  const rs = render.results.filter((r) => r.source === "matrix" && r.variant === variant && r.name.split("/")[2] === slug);
   if (rs.length === 0) return NOT_RUN;
   const surfaces = new Set(rs.map((r) => r.name)).size;
   const failing = new Set(rs.filter((r) => r.failures.length > 0).map((r) => r.name)).size;
@@ -152,13 +157,19 @@ export function variantSummary(inputs: SummaryInputs): string {
     "",
     "## Inputs",
     "",
-    "| Input | Status |",
-    "|---|---|",
-    row(["Variant matrix (recordings/matrix)", has(inputs.measures) ? `${inputs.measures.reduce((n, m) => n + m.runs, 0)} recordings measured` : NOT_RUN]),
-    row(["Prompt-injection set (recordings/injection)", has(inputs.injection) ? `${inputs.injection.length} results` : NOT_RUN]),
-    row(["Render smoke (test-results/render-smoke/results)", inputs.render && inputs.render.results.length > 0 ? `${inputs.render.results.length} results` : NOT_RUN]),
-    row(["Judge (recordings/judge)", has(inputs.judge) ? `${inputs.judge.length} pairs` : NOT_RUN]),
-    row(["Production signals (docs/runbooks/agent-variant-signals.sql)", "read by hand; not in this file"]),
+    "Each live input is one run (recordings/<mode>/<run id>/): the latest complete one unless `npm run eval:summary` was given `--run`, `--injection-run` or `--judge-run`.",
+    "",
+    "| Input | Run | Status |",
+    "|---|---|---|",
+    row(["Variant matrix (recordings/matrix)", inputs.runs?.matrix ?? "none", has(inputs.measures) ? `${inputs.measures.reduce((n, m) => n + m.runs, 0)} recordings measured` : NOT_RUN]),
+    row(["Prompt-injection set (recordings/injection)", inputs.runs?.injection ?? "none", has(inputs.injection) ? `${inputs.injection.length} results` : NOT_RUN]),
+    row([
+      "Render smoke (test-results/render-smoke/results)",
+      "hand-written surfaces and the two runs above",
+      inputs.render && inputs.render.results.length > 0 ? `${inputs.render.results.length} results` : NOT_RUN,
+    ]),
+    row(["Judge (recordings/judge)", inputs.runs?.judge ?? "none", has(inputs.judge) ? `${inputs.judge.length} pairs` : NOT_RUN]),
+    row(["Production signals (docs/runbooks/agent-variant-signals.sql)", "n/a", "read by hand; not in this file"]),
     "",
   ];
 

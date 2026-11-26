@@ -114,6 +114,18 @@ describe("eval-agent.mjs", () => {
     expect(r.out).toMatch(/real price may be\nhigher or lower/);
   });
 
+  test("the judge reads one matrix run: --run must be a run id that exists, and the dry run names the run or says none", () => {
+    // No matrix run is committed, so the judge's dry run has none to name.
+    expect(run("--judge", "--dry-run").out).toContain("Matrix run judged: none yet");
+    const bad = run("--judge", "--dry-run", "--run", "latest");
+    expect(bad.status).toBe(2);
+    expect(bad.err).toMatch(/--run must be a run id/);
+    const missing = run("--judge", "--dry-run", "--run", "20261126T010000Z");
+    expect(missing.status).toBe(2);
+    expect(missing.err).toMatch(/no run 20261126T010000Z/);
+    expect(run("--matrix", "--dry-run", "--run", "20261126T010000Z").err).toMatch(/unknown argument --run for --matrix/);
+  });
+
   test("a real run without OPENROUTER_API_KEY is refused before vitest starts", () => {
     const matrix = run("--matrix");
     expect(matrix.status).toBe(2);
@@ -122,5 +134,19 @@ describe("eval-agent.mjs", () => {
     const golden = run("--variant", "1");
     expect(golden.status).toBe(2);
     expect(golden.err).toMatch(/OPENROUTER_API_KEY is not set/);
+  });
+});
+
+function summary(...args: string[]) {
+  const r = spawnSync(process.execPath, ["scripts/eval-summary.mjs", ...args], { cwd: DASHBOARD_DIR, encoding: "utf8", timeout: 30_000 });
+  return { status: r.status, err: r.stderr };
+}
+
+describe("eval-summary.mjs", () => {
+  test("takes run ids only, each flag once, and refuses anything else before vitest starts", () => {
+    expect(summary("--run", "latest")).toMatchObject({ status: 2, err: expect.stringMatching(/--run needs a run id/) });
+    expect(summary("--judge-run")).toMatchObject({ status: 2, err: expect.stringMatching(/--judge-run needs a run id/) });
+    expect(summary("--run", "20261126T010000Z", "--run=20261126T020000Z")).toMatchObject({ status: 2, err: expect.stringMatching(/--run given twice/) });
+    expect(summary("--matrix-run", "20261126T010000Z")).toMatchObject({ status: 2, err: expect.stringMatching(/unknown argument --matrix-run/) });
   });
 });

@@ -176,6 +176,13 @@ describe("pairs and the hand check", () => {
     ]);
   });
 
+  test("never pairs a cell with the same cell from another run", () => {
+    const A = "20261126T010000Z";
+    const B = "20261126T020000Z";
+    const pairs = judgePairs([cell(1, { evalRun: A }), cell(2, { evalRun: B }), cell(3, { evalRun: A })]);
+    expect(pairs.map((p) => [p.a.evalRun, p.a.variant, p.b.evalRun, p.b.variant])).toEqual([[A, 1, A, 3]]);
+  });
+
   test("the queue takes repeats in turn: the default 144 is the first two repeats of the full matrix of two models", () => {
     const rs: Recording[] = [];
     for (const model of ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5"]) {

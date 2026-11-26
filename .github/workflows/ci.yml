@@ -186,20 +186,6 @@ jobs:
         run: npm ci
       - name: Run sandbox enforcement tests
         run: npm run test:sandbox
-      # Plan Task 2.11: the render smoke over every surface on the replay list, reusing the
-      # build the step above made (`npm run test:render-smoke` builds first when run alone).
-      # Its config starts the app with the replay page's opt-in; no workflow env sets it.
-      - name: Run render smoke
-        if: ${{ !cancelled() }}
-        run: PLAYWRIGHT_NO_COPY_PROMPT=1 npx playwright test --config playwright.render-smoke.config.ts
-      - name: Upload render smoke results and screenshots
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: render-smoke
-          path: dashboard/test-results/render-smoke/**
-          if-no-files-found: warn
-          retention-days: 7
       - name: Upload sandbox per-case results
         if: always()
         uses: actions/upload-artifact@v4
@@ -217,6 +203,50 @@ jobs:
             dashboard/test-results/sandbox/**
             !dashboard/test-results/sandbox/results/**
           if-no-files-found: ignore
+          retention-days: 7
+
+  # Plan Task 2.11: the render smoke over every surface on the replay list, in its own job
+  # so its length never holds up the sandbox suite. Same pinned container and inert
+  # placeholders as the sandbox job; no harness opt-in (the replay page has its own, set
+  # only in playwright.render-smoke.config.ts). No paths filter: it runs on every push.
+  # Timeout, from CI run 45731499517's per-test times: about 0.7 s a v1 or v2 surface and
+  # 2.8 s a v3 one (its frame waits), each recorded surface at one viewport. A full matrix
+  # run (630 surfaces over two models, 210 of them v3) plus an injection run (about 150)
+  # is about 780 tests, near 18 minutes; the 44 hand-written tests add about 1; install,
+  # build and server start about 7. About 26 minutes in all, so 60 leaves twice that.
+  render-smoke:
+    name: Render smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --user 1001 --ipc=host
+    env:
+      DATABASE_URL: postgresql://test:test@127.0.0.1:1/test
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:1
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      # Builds, then runs the render smoke (playwright.render-smoke.config.ts).
+      - name: Run render smoke
+        run: npm run test:render-smoke
+      - name: Upload render smoke results and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-smoke
+          path: dashboard/test-results/render-smoke/**
+          if-no-files-found: warn
           retention-days: 7
 
   migrations:

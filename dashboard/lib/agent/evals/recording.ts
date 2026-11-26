@@ -12,6 +12,7 @@ import type { StoredSurface } from "@/lib/agent/surfaces/store";
 import { parseOrNull } from "@/lib/zodParse";
 import { PERSONA_IDS } from "@/lib/agent/evals/personas";
 import { SCENARIO_IDS } from "@/lib/agent/evals/scenarios";
+import { RUN_ID_RE } from "@/lib/agent/evals/evalRuns";
 
 export const RECORDING_FORMAT = 1;
 
@@ -126,6 +127,8 @@ export const RecordingSchema = z
       .object({ costMicros: z.number().int().min(0), inputTokens: z.number().int().min(0), outputTokens: z.number().int().min(0) })
       .strict(),
     timings: z.object({ firstRenderMs: z.number().min(0).nullable(), completeMs: z.number().min(0) }).strict(),
+    /** The eval run (evalRuns.ts) that wrote it: every matrix and injection recording has one; the golden recordings do not. */
+    evalRun: z.string().regex(RUN_ID_RE).optional(),
   })
   .strict();
 export type Recording = z.infer<typeof RecordingSchema>;

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { assertRecording } from "@/lib/agent/evals/asserts";
 import {
+  isSurfaceFailure,
   measure,
   normalizedDistance,
   quantile,
@@ -126,6 +127,27 @@ describe("measure", () => {
     expect(v3.misstatements).toBe(2);
     expect(measure([other])[0].misstatements).toBeNull();
     expect(v3.structuralVariance).toBeNull();
+  });
+
+  test("a re-render counts only its surfaces' assert failures, and each row says what its timings cover", () => {
+    const live = committed("c_prep");
+    // One run-level failure (a press with no handler), one surface failure (a fit the database does not hold).
+    live.intents = [{ intent: { name: "no_such_action" } } as unknown as Recording["intents"][number]];
+    const g = live.surfaces[0].gathered as { reviews: Record<string, { fitScore: number }> };
+    g.reviews[Object.keys(g.reviews)[0]].fitScore = 1;
+    const codes = assertRecording(live).map((f) => f.code).sort();
+    expect(codes).toEqual(["fit_mismatch", "unhandled_action"]);
+    const rerender = { ...structuredClone(live), source: "rerender" as const, model: "m/re" };
+    const out = measure([live, rerender]);
+    const row = (model: string) => out.find((m) => m.model === model)!;
+    expect(row(live.model)).toMatchObject({ scope: "whole scenario", assertFailures: 2, runsFailingAsserts: 1, misstatements: 1 });
+    expect(row("m/re")).toMatchObject({ scope: "re-render only", assertFailures: 1, runsFailingAsserts: 1, misstatements: 1 });
+    expect(measure([live, { ...structuredClone(live), source: "rerender" as const, seed: 9 }])[0].scope).toBe("mixed");
+    expect(isSurfaceFailure({ path: "surfaces" })).toBe(true);
+    expect(isSurfaceFailure({ path: "surfaces[0].payload" })).toBe(true);
+    expect(isSurfaceFailure({ path: "surfacesExtra" })).toBe(false);
+    expect(isSurfaceFailure({ path: "intents[0]" })).toBe(false);
+    expect(isSurfaceFailure({})).toBe(false);
   });
 
   test("quantile is nearest-rank and null for no values", () => {

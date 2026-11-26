@@ -166,6 +166,8 @@ export interface InjectionResult {
   replay: { canaryHits: number; loads: number } | null;
   /** The three HTML cases: what the replay did. */
   html: HtmlEffects | null;
+  /** The eval run (evalRuns.ts) that wrote it; injection.eval.ts always sets it. */
+  evalRun?: string;
 }
 
 function* strings(v: unknown): Generator<string> {

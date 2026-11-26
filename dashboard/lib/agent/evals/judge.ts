@@ -58,6 +58,9 @@ export interface JudgeResult {
   reason: string;
   /** False when the judge's reply did not parse (counted as a tie, and listed). */
   parsed: boolean;
+  /** The judge run (evalRuns.ts) and the matrix run it judged; judge.eval.ts always sets both. */
+  evalRun?: string;
+  matrixRun?: string;
 }
 
 /** The judge's output budget: a short JSON verdict; low reasoning effort keeps it small. */
@@ -83,22 +86,23 @@ const PAIRINGS: ReadonlyArray<readonly [Variant, Variant]> = [
 ];
 
 /**
- * Every pair to judge: per model, scenario, persona and repeat (seed), each two variants
- * that both finished (1-2, 1-3, 2-3). Ordered by model, scenario, persona, seed, pairing,
- * so --max-pairs takes a stable prefix.
+ * Every pair to judge: per eval run, model, scenario, persona and repeat (seed), each two
+ * variants that both finished (1-2, 1-3, 2-3). Ordered by run, model, scenario, persona,
+ * seed, pairing, so --max-pairs takes a stable prefix. judge.eval.ts reads one run.
  */
 export function judgePairs(recordings: readonly Recording[]): JudgePairInput[] {
   const cells = new Map<string, Map<Variant, Recording>>();
   for (const r of recordings) {
-    const key = JSON.stringify([r.model, r.scenario, r.persona, r.seed]);
+    // The eval run is part of the cell: two runs' recordings are never paired.
+    const key = JSON.stringify([r.evalRun ?? "", r.model, r.scenario, r.persona, r.seed]);
     const cell = cells.get(key) ?? new Map<Variant, Recording>();
     if (!cell.has(r.variant)) cell.set(r.variant, r);
     cells.set(key, cell);
   }
   const keys = [...cells.keys()].sort((x, y) => {
-    const [mx, sx, px, nx] = JSON.parse(x) as [string, string, string, number];
-    const [my, sy, py, ny] = JSON.parse(y) as [string, string, string, number];
-    return mx.localeCompare(my) || sx.localeCompare(sy) || px.localeCompare(py) || nx - ny;
+    const [ex, mx, sx, px, nx] = JSON.parse(x) as [string, string, string, string, number];
+    const [ey, my, sy, py, ny] = JSON.parse(y) as [string, string, string, string, number];
+    return ex.localeCompare(ey) || mx.localeCompare(my) || sx.localeCompare(sy) || px.localeCompare(py) || nx - ny;
   });
   const out: JudgePairInput[] = [];
   for (const key of keys) {

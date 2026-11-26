@@ -8,22 +8,32 @@
 //       The variant matrix (lib/agent/evals/matrix.eval.ts): per model, 180 cells (4
 //       scenarios by 3 personas by 5 repeats live in variant 1, each re-rendered into
 //       variants 2 and 3). Models default to AGENT_EVAL_MODELS, Sonnet 5.5 first.
-//       Recordings go under lib/agent/evals/recordings/matrix/<model>/v<variant>/.
+//       Recordings go under lib/agent/evals/recordings/matrix/<run id>/<model>/v<variant>/.
 //   npm run eval:agent -- --injection [--models a,b | --model <id>] [injection caps] [--dry-run]
 //       The prompt-injection set (lib/agent/evals/injection.eval.ts): per model, 15
 //       model-driven cases in variants 1, 2 and 3 (45 runs). Results go under
-//       lib/agent/evals/recordings/injection/<model>/v<variant>/<case>.json.
-//   npm run eval:agent -- --judge [judge caps] [--dry-run]
+//       lib/agent/evals/recordings/injection/<run id>/<model>/v<variant>/<case>.json.
+//   npm run eval:agent -- --judge [--run <matrix run id>] [judge caps] [--dry-run]
 //       The judge (lib/agent/evals/judge.eval.ts): openai/gpt-5.5 compares pairs of matrix
 //       recordings (same model, scenario, persona and repeat; variants 1-2, 1-3, 2-3),
-//       blind to the variant. Needs the matrix recordings and, for variant 3, the render
-//       smoke's results (npm run test:render-smoke). Results go under
-//       lib/agent/evals/recordings/judge/ with a 10% hand-check CSV. One model only: it
-//       takes no --model or --models.
+//       blind to the variant, from one matrix run: --run, else the latest complete one.
+//       Needs, for variant 3, the render smoke's results over that run
+//       (EVAL_MATRIX_RUN=<id> npm run test:render-smoke). Results go under
+//       lib/agent/evals/recordings/judge/<run id>/ with a 10% hand-check CSV. One model
+//       only: it takes no --model or --models.
+//
+// Run ids (lib/agent/evals/evalRuns.ts): every matrix, injection and judge run gets a new
+// id from the clock (UTC, YYYYMMDDTHHMMSSZ), a folder of its own named by it, and a
+// run.json that ends as complete, cap_exceeded or failed. Every recording and result
+// carries the id. The script prints it before and after the run.
 //
 // --dry-run (matrix, injection and judge) prints the plan and the estimated tokens and list-price dollars per model
-// (lib/agent/evals/matrixPlan.ts, PRICE_PER_MTOK_MICROS) and the caps the run would have,
-// then exits 0. It needs no key and no database, and spends nothing.
+// (lib/agent/evals/matrixPlan.ts, PRICE_PER_MTOK_MICROS), whether that estimate stays
+// within the caps, and the caps the run would have (the judge's also names the matrix run
+// it would read), then exits 0. It needs no key and no database, and spends nothing.
+//
+// The script sets EVAL_MODE to the mode it starts; each *.eval.ts refuses to start under
+// any other value, so the live files run only through here.
 //
 // Every other run SPENDS MONEY on the OpenRouter key it is given. Use a dedicated
 // OpenRouter key with its own credit limit, as an outer guard beyond the caps below. Run it
@@ -75,8 +85,9 @@
 // --models and --model (matrix, injection) take only models with a row in
 // lib/agent/prices.ts; any other is a usage error (exit 2), dry run included.
 //
-// Needs Node 22.18 or later: it loads budget.ts and matrixPlan.ts directly (type
-// stripping), so a bad flag is refused here before vitest or the database starts any work.
+// Needs Node 22.18 or later: it loads budget.ts, matrixPlan.ts, judgeModel.ts and
+// evalRuns.ts directly (type stripping), so a bad flag is refused here before vitest or
+// the database starts any work.
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -95,7 +106,7 @@ const USAGE =
   "   or: npm run eval:agent -- --injection [--models <id,id> | --model <id>] [--dry-run]\n" +
   "       [--max-cases <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
   "       [--max-total-tokens <n>] [--max-total-usd <n>]\n" +
-  "   or: npm run eval:agent -- --judge [--dry-run]\n" +
+  "   or: npm run eval:agent -- --judge [--run <matrix run id>] [--dry-run]\n" +
   "       [--max-pairs <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]";
 
 /** Each mode: its cap profile and the eval file vitest runs (vitest.eval.config.ts includes every *.eval.ts). */
@@ -118,12 +129,14 @@ function usage(message) {
 let budget;
 let plan;
 let judgeModel;
+let runs;
 try {
   budget = await import("../lib/agent/evals/budget.ts");
   plan = await import("../lib/agent/evals/matrixPlan.ts");
   judgeModel = await import("../lib/agent/evals/judgeModel.ts");
+  runs = await import("../lib/agent/evals/evalRuns.ts");
 } catch (error) {
-  console.error(`eval:agent: could not load lib/agent/evals/budget.ts, matrixPlan.ts or judgeModel.ts (${error?.message ?? error}); this script needs Node 22.18 or later`);
+  console.error(`eval:agent: could not load lib/agent/evals/budget.ts, matrixPlan.ts, judgeModel.ts or evalRuns.ts (${error?.message ?? error}); this script needs Node 22.18 or later`);
   process.exit(2);
 }
 const { CapUsageError, capsToEnv, parseCaps, parseTotalCaps, profileFlags, totalCapsToEnv } = budget;
@@ -143,7 +156,7 @@ function parseArgs(argv) {
   const mode = modeFlags.length === 0 ? "golden" : modeFlags[0].slice(2);
   const { profile } = MODES[mode];
   const flags = profileFlags(profile);
-  const out = { mode, profile, variant: null, model: null, models: null, seed: "1", dryRun: false, caps: {}, totals: {} };
+  const out = { mode, profile, variant: null, model: null, models: null, seed: "1", run: null, dryRun: false, caps: {}, totals: {} };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const [flag, inline] = arg.startsWith("--") && arg.includes("=") ? arg.split(/=(.*)/s, 2) : [arg, undefined];
@@ -158,6 +171,7 @@ function parseArgs(argv) {
     else if (flag === "--model" && mode !== "judge") out.model = value();
     else if (flag === "--models" && mode !== "golden" && mode !== "judge") out.models = parseModels(value());
     else if (flag === "--seed" && mode === "golden") out.seed = value();
+    else if (flag === "--run" && mode === "judge") out.run = value();
     else if (flag === "--dry-run" && mode !== "golden" && inline === undefined) out.dryRun = true;
     else if (flags.has(flag)) {
       const { key, total } = flags.get(flag);
@@ -168,6 +182,7 @@ function parseArgs(argv) {
   if (out.model !== null && !MODEL_RE.test(out.model)) usage("--model is not a model id");
   if (out.model !== null && out.models !== null) usage("give --model or --models, not both");
   if (!/^-?\d{1,9}$/.test(out.seed)) usage("--seed must be an integer");
+  if (out.run !== null && !runs.RUN_ID_RE.test(out.run)) usage("--run must be a run id (YYYYMMDDTHHMMSSZ, a folder under lib/agent/evals/recordings/matrix/)");
   try {
     out.caps = parseCaps(out.caps, profile);
     out.totals = parseTotalCaps(out.totals, profile);
@@ -192,12 +207,30 @@ if (args.mode === "matrix" || args.mode === "injection") {
   if (unpriced.length > 0) usage(plan.unpricedMessage(unpriced));
 }
 
+// The judge reads one matrix run: the one named, else the latest complete one.
+let matrixRun = null;
+if (args.mode === "judge") {
+  try {
+    matrixRun = runs.selectRun(runs.runRoot("matrix", path.join(DASHBOARD_DIR, "lib", "agent", "evals", "recordings")), args.run);
+  } catch (error) {
+    if (error instanceof runs.RunSelectionError) usage(error.message.replace(/^eval: /, ""));
+    throw error;
+  }
+}
+
 if (args.dryRun) {
   if (args.mode === "matrix") console.log(plan.formatMatrixDryRun({ models, caps: args.caps, totals: args.totals }));
   else {
     // The judge's estimate is for --max-pairs pairs; fewer run when the matrix has fewer.
-    const runs = args.mode === "judge" ? args.caps.maxCases : Math.min(args.caps.maxCases, budget.INJECTION_RUNS_PER_MODEL);
-    console.log(plan.formatSimpleDryRun({ profile: args.profile, models, runs, caps: args.caps, totals: args.totals }));
+    const count = args.mode === "judge" ? args.caps.maxCases : Math.min(args.caps.maxCases, budget.INJECTION_RUNS_PER_MODEL);
+    console.log(plan.formatSimpleDryRun({ profile: args.profile, models, runs: count, caps: args.caps, totals: args.totals }));
+    if (args.mode === "judge") {
+      console.log(
+        matrixRun
+          ? `\nMatrix run judged: ${runs.describeRun(matrixRun)}${args.run ? "" : " (the latest complete one)"}.`
+          : "\nMatrix run judged: none yet (no complete run under lib/agent/evals/recordings/matrix/); a real run would stop here.",
+      );
+    }
   }
   process.exit(0);
 }
@@ -212,12 +245,24 @@ if (!process.env.OPENROUTER_API_KEY?.trim()) {
   process.exit(2);
 }
 
+if (args.mode === "judge" && !matrixRun) usage("no complete matrix run to judge under lib/agent/evals/recordings/matrix/; run --matrix first, or name one with --run");
+
+// A new run id for every matrix, injection and judge run: its folder is created by the eval file.
+const runId = args.mode === "golden" ? null : runs.newRunId();
+if (runId) console.log(`eval:agent: ${args.mode} run ${runId}${matrixRun ? ` over matrix run ${runs.describeRun(matrixRun)}` : ""}`);
+
 const reportDir = mkdtempSync(path.join(os.tmpdir(), "eval-agent-"));
 const reportFile = path.join(reportDir, "run.json");
+const inherited = { ...process.env };
+// Only this script picks the mode and the runs.
+for (const name of ["EVAL_MODE", "EVAL_RUN_ID", "EVAL_MATRIX_RUN"]) delete inherited[name];
 const env = {
-  ...process.env,
+  ...inherited,
   NODE_OPTIONS: [process.env.NODE_OPTIONS, "--no-experimental-webstorage"].filter(Boolean).join(" "),
   EVAL_RUN_REPORT: reportFile,
+  [budget.EVAL_MODE_ENV]: args.mode,
+  ...(runId ? { EVAL_RUN_ID: runId } : {}),
+  ...(matrixRun ? { EVAL_MATRIX_RUN: matrixRun.runId } : {}),
   ...capsToEnv(args.caps, args.profile),
   ...totalCapsToEnv(args.totals, args.profile),
   ...(args.mode === "golden"
@@ -246,6 +291,7 @@ try {
 rmSync(reportDir, { recursive: true, force: true });
 
 if (report) console.log(`\n${report.text}\n`);
+if (runId) console.log(`eval:agent: run ${runId}: lib/agent/evals/recordings/${args.mode}/${runId}/`);
 const vitestStatus = result.status ?? 1;
 if (report?.status === "cap_exceeded") {
   console.error(`eval:agent: run stopped: cap_exceeded (${report.cap})`);

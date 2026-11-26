@@ -1,11 +1,14 @@
 // The render smoke (plan Task 2.11, spec 11 layer 4): every surface on the replay list
-// (lib/agent/evals/replay.ts) rendered by app/ui-gallery/surface-replay at 390 and 1440 px
-// wide, light and dark, against a production build (playwright.render-smoke.config.ts).
+// (lib/agent/evals/replay.ts) rendered by app/ui-gallery/surface-replay against a
+// production build (playwright.render-smoke.config.ts). Hand-written surfaces render at
+// 390 and 1440 px wide, light and dark; recorded ones (matrix, injection: hundreds of
+// surfaces from one run each) at 1440 px light only, which keeps the job short.
 //
 // Per surface, viewport and theme: no horizontal overflow (inside the frame too, for
 // variant 3); every interactive element at least 44 by 44 px (inside the frame too); axe
-// reports no serious or critical violation; one screenshot to test-results/render-smoke,
-// not compared. Once per surface (1440, light): for variant 3, every fit score and pay
+// reports no serious or critical violation, each named with its nodes. A screenshot is
+// kept only when a test fails (the config's only-on-failure). Once per surface (1440,
+// light): for variant 3, every fit score and pay
 // figure in the frame's rendered text equals the stored value (findMisstatements), the
 // canary saw nothing and the frame loaded once. The frame's rendered words go into the
 // result as frameText: the judge (Task 2.13) reads a variant 3 surface from there, since
@@ -14,7 +17,10 @@
 // Hand-written surfaces (the golden recordings and fixtures/surfaces) must pass every
 // check. Recorded ones (matrix, injection) are data for the decision: their failures are
 // written to test-results/render-smoke/results/ and annotated, not asserted, except that no
-// variant 3 document may reach the canary or load twice, whoever wrote it.
+// variant 3 document may reach the canary or load twice, whoever wrote it. Each result
+// carries its surface's eval run (evalRun): the replay list holds one matrix run and one
+// injection run, the latest complete ones unless EVAL_MATRIX_RUN / EVAL_INJECTION_RUN name
+// others (the app server inherits them), and readers keep only the run they read.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -24,14 +30,16 @@ import { findMisstatements } from "../../lib/agent/evals/misstatements";
 import { parseGathered } from "../../lib/agent/gatheredSchema";
 import type { CanaryHits } from "./results";
 
-const OUT_DIR = path.join("test-results", "render-smoke");
-const RESULTS_DIR = path.join(OUT_DIR, "results");
+const RESULTS_DIR = path.join("test-results", "render-smoke", "results");
 const CONTROL = "http://127.0.0.1:4598";
 const THEMES = ["light", "dark"] as const;
 const VIEWPORTS = [
   { id: "mobile", width: 390, height: 844 },
   { id: "desktop", width: 1440, height: 1000 },
 ] as const;
+/** What a recorded surface is rendered at: the one combination the per-surface checks use. */
+const RECORDED_COMBOS = [{ viewport: VIEWPORTS[1], theme: "light" as const }];
+const HANDWRITTEN_COMBOS = VIEWPORTS.flatMap((viewport) => THEMES.map((theme) => ({ viewport, theme })));
 // Playwright loads specs as CommonJS (no import.meta); resolve from the dashboard folder.
 const AXE_SOURCE = readFileSync(createRequire(path.join(process.cwd(), "package.json")).resolve("axe-core/axe.min.js"), "utf8");
 /** The selector ui-cohesion.spec.ts checks for 44 px targets, plus the kit's own elements. */
@@ -203,88 +211,84 @@ function writeResult(entry: ReplayEntry, viewport: string, theme: string, checke
 
 for (const entry of ENTRIES) {
   test.describe(entry.name, () => {
-    for (const viewport of VIEWPORTS) {
-      for (const theme of THEMES) {
-        test(`${viewport.id} ${theme}`, async ({ page, request }, testInfo) => {
-          const once = viewport.id === "desktop" && theme === "light";
-          await page.setViewportSize({ width: viewport.width, height: viewport.height });
-          await page.emulateMedia({ colorScheme: theme });
-          await page.addInitScript((t) => {
-            localStorage.setItem("rolefit-theme", t);
-            document.documentElement.dataset.theme = t;
-          }, theme);
-          let frameLoads = 0;
-          page.on("framenavigated", (f) => {
-            if (f !== page.mainFrame()) frameLoads += 1;
-          });
-          if (entry.variant === 3 && once) expect((await request.post(`${CONTROL}/reset`)).ok(), "the canary reset").toBe(true);
-
-          const response = await page.goto(`/ui-gallery/surface-replay?surface=${encodeURIComponent(entry.name)}`, { waitUntil: "load" });
-          expect(response?.status()).toBe(200);
-          const main = page.locator("main[data-surface-replay]");
-          const rendered = await main.getAttribute("data-surface-replay");
-          if (rendered === "index") throw new Error("the replay page rendered its index: the server needs SURFACE_REPLAY=1");
-          expect(rendered).toBe(entry.name);
-          await expect(page.locator("[data-replay-surface]")).toBeVisible();
-
-          let frame: Frame | null = null;
-          if (entry.variant === 3 && (await main.getAttribute("data-replay-view")) === "sandbox") {
-            frame = await frameOf(page);
-            if (frame) {
-              const f = frame;
-              await expect.poll(async () => (await f.locator("body").innerText().catch(() => "")).trim().length, { timeout: 8_000 }).toBeGreaterThan(0);
-            }
-            await page.waitForTimeout(1_000);
-          }
-
-          const outer = await layout(page);
-          const inner = frame ? await layout(frame).catch(() => null) : null;
-          let frameAxe: string[] | "not run" = "not run";
-          if (frame) {
-            try {
-              frameAxe = await axeViolations(frame, null);
-            } catch (e) {
-              testInfo.annotations.push({ type: "frame-axe", description: `axe could not run inside the frame: ${e instanceof Error ? e.message.slice(0, 160) : "error"}` });
-            }
-          }
-          const checked: Checked = {
-            overflow: outer.scrollWidth > outer.viewport ? { scrollWidth: outer.scrollWidth, viewport: outer.viewport } : null,
-            frameOverflow: inner && inner.scrollWidth > inner.viewport ? { scrollWidth: inner.scrollWidth, viewport: inner.viewport } : null,
-            undersized: [...outer.undersized, ...(inner?.undersized ?? []).map((u) => `in frame: ${u}`)],
-            axe: await axeViolations(page, "[data-replay-surface]"),
-            frameAxe,
-            fallbacks: await readLog(page, "fallbacks"),
-            misstatements: null,
-            canaryHits: null,
-            frameLoads: null,
-            frameText: null,
-          };
-          if (entry.variant === 3 && once) {
-            const gathered = parseGathered(entry.gathered);
-            const text = frame ? await frame.locator("body").innerText().catch(() => "") : "";
-            checked.misstatements = gathered ? findMisstatements(text, gathered).map((f) => f.message) : ["the stored gathered data does not parse"];
-            checked.frameText = frame ? (await judgeText(frame).catch(() => text)).slice(0, FRAME_TEXT_MAX) : null;
-            await page.waitForTimeout(500);
-            const hits = (await (await request.get(`${CONTROL}/hits`)).json()) as CanaryHits;
-            checked.canaryHits = hits.total;
-            checked.frameLoads = frameLoads;
-          }
-
-          mkdirSync(OUT_DIR, { recursive: true });
-          await page.screenshot({ path: path.join(OUT_DIR, `${slug(entry.name)}.${viewport.id}.${theme}.png`), fullPage: true });
-          const failures = writeResult(entry, viewport.id, theme, checked);
-
-          // Containment holds for every document, recorded or not.
-          if (checked.canaryHits !== null) expect(checked.canaryHits, `${entry.name}: the canary saw requests`).toBe(0);
-          if (checked.frameLoads !== null) expect(checked.frameLoads, `${entry.name}: the frame loaded more than once`).toBeLessThanOrEqual(1);
-          if (entry.handwritten) {
-            expect(await main.getAttribute("data-replay-degraded"), `${entry.name}: rendered its fallback`).toBe("no");
-            expect(failures, `${entry.name} at ${viewport.id} ${theme}`).toEqual([]);
-          } else if (failures.length > 0) {
-            testInfo.annotations.push({ type: "render-smoke-data", description: `${entry.name} at ${viewport.id} ${theme}: ${failures.join("; ").slice(0, 600)}` });
-          }
+    for (const { viewport, theme } of entry.handwritten ? HANDWRITTEN_COMBOS : RECORDED_COMBOS) {
+      test(`${viewport.id} ${theme}`, async ({ page, request }, testInfo) => {
+        const once = viewport.id === "desktop" && theme === "light";
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.emulateMedia({ colorScheme: theme });
+        await page.addInitScript((t) => {
+          localStorage.setItem("rolefit-theme", t);
+          document.documentElement.dataset.theme = t;
+        }, theme);
+        let frameLoads = 0;
+        page.on("framenavigated", (f) => {
+          if (f !== page.mainFrame()) frameLoads += 1;
         });
-      }
+        if (entry.variant === 3 && once) expect((await request.post(`${CONTROL}/reset`)).ok(), "the canary reset").toBe(true);
+
+        const response = await page.goto(`/ui-gallery/surface-replay?surface=${encodeURIComponent(entry.name)}`, { waitUntil: "load" });
+        expect(response?.status()).toBe(200);
+        const main = page.locator("main[data-surface-replay]");
+        const rendered = await main.getAttribute("data-surface-replay");
+        if (rendered === "index") throw new Error("the replay page rendered its index: the server needs SURFACE_REPLAY=1");
+        expect(rendered).toBe(entry.name);
+        await expect(page.locator("[data-replay-surface]")).toBeVisible();
+
+        let frame: Frame | null = null;
+        if (entry.variant === 3 && (await main.getAttribute("data-replay-view")) === "sandbox") {
+          frame = await frameOf(page);
+          if (frame) {
+            const f = frame;
+            await expect.poll(async () => (await f.locator("body").innerText().catch(() => "")).trim().length, { timeout: 8_000 }).toBeGreaterThan(0);
+          }
+          await page.waitForTimeout(1_000);
+        }
+
+        const outer = await layout(page);
+        const inner = frame ? await layout(frame).catch(() => null) : null;
+        let frameAxe: string[] | "not run" = "not run";
+        if (frame) {
+          try {
+            frameAxe = await axeViolations(frame, null);
+          } catch (e) {
+            testInfo.annotations.push({ type: "frame-axe", description: `axe could not run inside the frame: ${e instanceof Error ? e.message.slice(0, 160) : "error"}` });
+          }
+        }
+        const checked: Checked = {
+          overflow: outer.scrollWidth > outer.viewport ? { scrollWidth: outer.scrollWidth, viewport: outer.viewport } : null,
+          frameOverflow: inner && inner.scrollWidth > inner.viewport ? { scrollWidth: inner.scrollWidth, viewport: inner.viewport } : null,
+          undersized: [...outer.undersized, ...(inner?.undersized ?? []).map((u) => `in frame: ${u}`)],
+          axe: await axeViolations(page, "[data-replay-surface]"),
+          frameAxe,
+          fallbacks: await readLog(page, "fallbacks"),
+          misstatements: null,
+          canaryHits: null,
+          frameLoads: null,
+          frameText: null,
+        };
+        if (entry.variant === 3 && once) {
+          const gathered = parseGathered(entry.gathered);
+          const text = frame ? await frame.locator("body").innerText().catch(() => "") : "";
+          checked.misstatements = gathered ? findMisstatements(text, gathered).map((f) => f.message) : ["the stored gathered data does not parse"];
+          checked.frameText = frame ? (await judgeText(frame).catch(() => text)).slice(0, FRAME_TEXT_MAX) : null;
+          await page.waitForTimeout(500);
+          const hits = (await (await request.get(`${CONTROL}/hits`)).json()) as CanaryHits;
+          checked.canaryHits = hits.total;
+          checked.frameLoads = frameLoads;
+        }
+
+        const failures = writeResult(entry, viewport.id, theme, checked);
+
+        // Containment holds for every document, recorded or not.
+        if (checked.canaryHits !== null) expect(checked.canaryHits, `${entry.name}: the canary saw requests`).toBe(0);
+        if (checked.frameLoads !== null) expect(checked.frameLoads, `${entry.name}: the frame loaded more than once`).toBeLessThanOrEqual(1);
+        if (entry.handwritten) {
+          expect(await main.getAttribute("data-replay-degraded"), `${entry.name}: rendered its fallback`).toBe("no");
+          expect(failures, `${entry.name} at ${viewport.id} ${theme}`).toEqual([]);
+        } else if (failures.length > 0) {
+          testInfo.annotations.push({ type: "render-smoke-data", description: `${entry.name} at ${viewport.id} ${theme}: ${failures.join("; ").slice(0, 600)}` });
+        }
+      });
     }
   });
 }

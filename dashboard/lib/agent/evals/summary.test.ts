@@ -10,6 +10,7 @@ import type { RenderResult } from "@/lib/agent/evals/renderResults";
 import { emptySnapshot, type Recording } from "@/lib/agent/evals/recording";
 
 const SONNET = "anthropic/claude-sonnet-5.5";
+const RUN = "20261126T010000Z";
 const HAIKU = "anthropic/claude-haiku-5.5";
 
 function measures(model: string, variant: 1 | 2 | 3, over: Partial<VariantMeasures> = {}): VariantMeasures {
@@ -17,6 +18,7 @@ function measures(model: string, variant: 1 | 2 | 3, over: Partial<VariantMeasur
     model,
     variant,
     runs: 60,
+    scope: variant === 1 ? "whole scenario" : "re-render only",
     surfaces: 105,
     validationFailureRate: 0.05,
     repairRate: 0.04,
@@ -109,6 +111,11 @@ describe("variantSummary", () => {
       expect(s).toContain("| Matrix runs measured | 60 | 60 |");
     }
     expect(md).toContain("| Fell back | 1.0% | 1.0% |");
+    // What the timings and cost cover: the whole scenario in variant 1, the re-render only in 2 and 3.
+    const section = (v: number) => md.split(/^## /m).find((x) => x.startsWith(`Variant ${v}`))!;
+    expect(section(1)).toContain("| Timings, tokens and cost cover | whole scenario | whole scenario |");
+    expect(section(2)).toContain("| Timings, tokens and cost cover | re-render only | re-render only |");
+    expect(section(3)).toContain("| Timings, tokens and cost cover | re-render only | re-render only |");
     expect(md).toContain("| Misstatements | not run yet (test:render-smoke) | not run yet (test:render-smoke) |");
   });
 
@@ -116,12 +123,19 @@ describe("variantSummary", () => {
     const md = variantSummary(empty());
     expect(md).toContain(`| Measure | ${SONNET} | ${HAIKU} |`);
     expect(md).toContain(`| Matrix runs measured | ${NOT_RUN} | ${NOT_RUN} |`);
-    expect(md).toContain(`| Variant matrix (recordings/matrix) | ${NOT_RUN} |`);
-    expect(md).toContain(`| Judge (recordings/judge) | ${NOT_RUN} |`);
+    expect(md).toContain(`| Variant matrix (recordings/matrix) | none | ${NOT_RUN} |`);
+    expect(md).toContain(`| Judge (recordings/judge) | none | ${NOT_RUN} |`);
     expect(md).toContain(SUMMARY_LABEL);
     for (const item of DEMO_CHECKLIST) expect(md).toContain(`| ${item} |  |  |  |`);
     expect(md).toContain("docs/runbooks/agent-variant-signals.sql");
     expect(md).toContain("fails the injection set is fixed before it is demoed further");
+  });
+
+  test("the inputs table names the runs it read", () => {
+    const md = variantSummary(empty({ runs: { matrix: "20261126T010000Z", injection: "20261125T090000Z (cap_exceeded)", judge: "none" } }));
+    expect(md).toContain(`| Variant matrix (recordings/matrix) | 20261126T010000Z | ${NOT_RUN} |`);
+    expect(md).toContain(`| Prompt-injection set (recordings/injection) | 20261125T090000Z (cap_exceeded) | ${NOT_RUN} |`);
+    expect(md).toContain(`| Judge (recordings/judge) | none | ${NOT_RUN} |`);
   });
 
   test("the judge's record reads from each variant's side", () => {
@@ -156,9 +170,14 @@ describe("variantSummary", () => {
       contacts: [],
       replay: null,
       html: null,
+      evalRun: RUN,
     };
-    const name = (i: number) => `injection/anthropic-claude-sonnet-5.5/v3/jd_write_skip.json#${i}`;
+    const name = (i: number, run = RUN) => `injection/${run}/anthropic-claude-sonnet-5.5/v3/jd_write_skip.json#${i}`;
     expect(withReplays([base], [render(name(0))])[0].replay).toBeNull();
+    // Another run's replay of the same case never fills this run's result.
+    expect(withReplays([base], [render(name(0)), render(name(1, "20261120T010000Z"))])[0].replay).toBeNull();
+    // A result with no run id waits for its replay.
+    expect(withReplays([{ ...base, evalRun: undefined }], [render(name(0)), render(name(1))])[0].replay).toBeNull();
     expect(withReplays([base], [render(name(0)), render(name(1), { canaryHits: 2, frameLoads: 3 })])[0].replay).toEqual({ canaryHits: 2, loads: 3 });
     expect(withReplays([base], [render(name(0)), render(name(1), { viewport: "mobile" })])[0].replay).toBeNull();
     const v1 = { ...base, variant: 1 as const };

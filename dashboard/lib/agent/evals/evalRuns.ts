@@ -39,9 +39,14 @@ export interface EvalRun {
 /** recordings/ (every caller runs with dashboard/ as its working directory). */
 export const EVAL_RECORDINGS_DIR = path.join(process.cwd(), "lib", "agent", "evals", "recordings");
 
-/** The folder that holds a mode's runs. */
+/**
+ * The folder that holds a mode's runs. The replay page imports this file, and a path built
+ * from a parameter would make Next's file tracing copy the whole project into that route's
+ * server output; the runs are read from the working directory at run time and never ship
+ * (next.config.mjs also excludes recordings/ from the route), so tracing skips this call.
+ */
 export function runRoot(mode: EvalRunMode, recordingsDir: string = EVAL_RECORDINGS_DIR): string {
-  return path.join(recordingsDir, mode);
+  return path.join(/*turbopackIgnore: true*/ recordingsDir, mode);
 }
 
 export class RunSelectionError extends Error {

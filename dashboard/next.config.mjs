@@ -63,6 +63,13 @@ const nextConfig = {
     "@ai-sdk/otel",
     "@grpc/grpc-js",
   ],
+  // The render smoke's replay page (Task 2.11) reads recordings and surface fixtures from
+  // disk by name. Next's file tracing would copy every one of them into the server output
+  // for that route; none is needed in production, where the page reads no file unless
+  // SURFACE_REPLAY=1 (fix round 1, M4). lib/agent/evals/replay.test.ts checks the globs.
+  outputFileTracingExcludes: {
+    "/ui-gallery/surface-replay": ["./lib/agent/evals/recordings/**", "./lib/agent/evals/fixtures/**"],
+  },
   async headers() {
     return headerRules(SANDBOX_HOST_FRAME_SRC_NONE);
   },

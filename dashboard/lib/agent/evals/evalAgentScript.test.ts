@@ -70,6 +70,29 @@ describe("eval-agent.mjs", () => {
     expect(noKey.err).toMatch(/eval:agent -- --injection/);
   });
 
+  test("--judge --dry-run prints 144 pairs for the judge model and the judge caps, and exits 0", () => {
+    const r = run("--judge", "--dry-run");
+    expect(r.err).toBe("");
+    expect(r.status).toBe(0);
+    expect(r.out).toContain("Judge dry run: nothing is run and nothing is spent.");
+    expect(r.out).toContain("| openai/gpt-5.5 | 144 | 144 | 1.73M | 0.06M | $4.03 |");
+    expect(r.out).toContain("| --max-pairs | judged pairs | 144 | 144 | 360 |");
+    expect(r.out).toContain("| --max-steps | model calls per pair | 1 | 1 | 1 |");
+    expect(run("--judge", "--dry-run", "--max-pairs", "20").out).toContain("| openai/gpt-5.5 | 20 | 20 |");
+  });
+
+  test("the judge takes no model choice, no total caps and nothing above its ceilings", () => {
+    expect(run("--judge", "--dry-run", "--model", "a/b").err).toMatch(/unknown argument --model for --judge/);
+    expect(run("--judge", "--dry-run", "--models", "a/b").err).toMatch(/unknown argument --models for --judge/);
+    expect(run("--judge", "--dry-run", "--max-pairs", "361").err).toMatch(/ceiling of 360/);
+    expect(run("--judge", "--dry-run", "--max-steps", "2").err).toMatch(/ceiling of 1/);
+    expect(run("--judge", "--dry-run", "--max-total-usd", "5").err).toMatch(/unknown argument --max-total-usd for --judge/);
+    expect(run("--judge", "--injection", "--dry-run").err).toMatch(/give one of --matrix, --injection, --judge, once/);
+    const noKey = run("--judge");
+    expect(noKey.status).toBe(2);
+    expect(noKey.err).toMatch(/eval:agent -- --judge/);
+  });
+
   test("a real run without OPENROUTER_API_KEY is refused before vitest starts", () => {
     const matrix = run("--matrix");
     expect(matrix.status).toBe(2);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The only entry point of the live agent eval (plan Tasks 1.22 and 2.10, gate A17).
+// The only entry point of the live agent eval (plan Tasks 1.22, 2.10, 2.12 and 2.13, gate A17).
 //
 //   npm run eval:agent -- --variant <1|2|3> [--model <id>] [--seed <n>] [golden caps]
 //       The golden scenarios (lib/agent/evals/live.eval.ts: 4 scenarios by 3 personas).
@@ -13,8 +13,15 @@
 //       The prompt-injection set (lib/agent/evals/injection.eval.ts): per model, 15
 //       model-driven cases in variants 1, 2 and 3 (45 runs). Results go under
 //       lib/agent/evals/recordings/injection/<model>/v<variant>/<case>.json.
+//   npm run eval:agent -- --judge [judge caps] [--dry-run]
+//       The judge (lib/agent/evals/judge.eval.ts): openai/gpt-5.5 compares pairs of matrix
+//       recordings (same model, scenario, persona and repeat; variants 1-2, 1-3, 2-3),
+//       blind to the variant. Needs the matrix recordings and, for variant 3, the render
+//       smoke's results (npm run test:render-smoke). Results go under
+//       lib/agent/evals/recordings/judge/ with a 10% hand-check CSV. One model only: it
+//       takes no --model or --models.
 //
-// --dry-run (matrix and injection) prints the cell plan and the estimated tokens and list-price dollars per model
+// --dry-run (matrix, injection and judge) prints the plan and the estimated tokens and list-price dollars per model
 // (lib/agent/evals/matrixPlan.ts, PRICE_PER_MTOK_MICROS) and the caps the run would have,
 // then exits 0. It needs no key and no database, and spends nothing.
 //
@@ -53,6 +60,12 @@
 //   --max-minutes <n>       wall clock per model                      default 120, ceiling 240
 //   --max-total-tokens <n>  tokens over every model                   default 18,000,000, ceiling 36,000,000
 //   --max-total-usd <n>     reported dollars over every model         default 35,  ceiling 90
+// Judge (one model, one budget):
+//   --max-pairs <n>         pairs judged (repeat by repeat)           default 144, ceiling 360
+//   --max-steps <n>         model calls per pair                      default 1,   ceiling 1
+//   --max-tokens <n>        tokens over the whole run                 default 3,000,000, ceiling 6,000,000
+//   --max-usd <n>           reported dollars over the whole run       default 10,  ceiling 20
+//   --max-minutes <n>       wall clock for the whole run              default 60,  ceiling 120
 // --max-usd and --max-total-usd are enforced only when OpenRouter reports each call's cost;
 // if it does not, only the token caps apply and the report says so. No price table stands
 // in for them.
@@ -76,13 +89,16 @@ const USAGE =
   "       [--max-total-tokens <n>] [--max-total-usd <n>]\n" +
   "   or: npm run eval:agent -- --injection [--models <id,id> | --model <id>] [--dry-run]\n" +
   "       [--max-cases <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
-  "       [--max-total-tokens <n>] [--max-total-usd <n>]";
+  "       [--max-total-tokens <n>] [--max-total-usd <n>]\n" +
+  "   or: npm run eval:agent -- --judge [--dry-run]\n" +
+  "       [--max-pairs <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]";
 
 /** Each mode: its cap profile and the eval file vitest runs (vitest.eval.config.ts includes every *.eval.ts). */
 const MODES = {
   golden: { profile: "golden", file: "lib/agent/evals/live.eval.ts" },
   matrix: { profile: "matrix", file: "lib/agent/evals/matrix.eval.ts" },
   injection: { profile: "injection", file: "lib/agent/evals/injection.eval.ts" },
+  judge: { profile: "judge", file: "lib/agent/evals/judge.eval.ts" },
 };
 const MODE_FLAGS = Object.keys(MODES)
   .filter((m) => m !== "golden")
@@ -96,11 +112,13 @@ function usage(message) {
 
 let budget;
 let plan;
+let judgeModel;
 try {
   budget = await import("../lib/agent/evals/budget.ts");
   plan = await import("../lib/agent/evals/matrixPlan.ts");
+  judgeModel = await import("../lib/agent/evals/judgeModel.ts");
 } catch (error) {
-  console.error(`eval:agent: could not load lib/agent/evals/budget.ts or matrixPlan.ts (${error?.message ?? error}); this script needs Node 22.18 or later`);
+  console.error(`eval:agent: could not load lib/agent/evals/budget.ts, matrixPlan.ts or judgeModel.ts (${error?.message ?? error}); this script needs Node 22.18 or later`);
   process.exit(2);
 }
 const { CapUsageError, capsToEnv, parseCaps, parseTotalCaps, profileFlags, totalCapsToEnv } = budget;
@@ -132,8 +150,8 @@ function parseArgs(argv) {
     };
     if (MODE_FLAGS.includes(flag) && inline === undefined) continue;
     if (flag === "--variant" && mode === "golden") out.variant = value();
-    else if (flag === "--model") out.model = value();
-    else if (flag === "--models" && mode !== "golden") out.models = parseModels(value());
+    else if (flag === "--model" && mode !== "judge") out.model = value();
+    else if (flag === "--models" && mode !== "golden" && mode !== "judge") out.models = parseModels(value());
     else if (flag === "--seed" && mode === "golden") out.seed = value();
     else if (flag === "--dry-run" && mode !== "golden" && inline === undefined) out.dryRun = true;
     else if (flags.has(flag)) {
@@ -156,12 +174,18 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-const models = args.mode === "golden" ? null : plan.runModels({ models: args.models, model: args.model });
+const models =
+  args.mode === "golden"
+    ? null
+    : args.mode === "judge"
+      ? [judgeModel.AGENT_JUDGE_MODEL]
+      : plan.runModels({ models: args.models, model: args.model });
 
 if (args.dryRun) {
   if (args.mode === "matrix") console.log(plan.formatMatrixDryRun({ models, caps: args.caps, totals: args.totals }));
   else {
-    const runs = Math.min(args.caps.maxCases, budget.INJECTION_RUNS_PER_MODEL);
+    // The judge's estimate is for --max-pairs pairs; fewer run when the matrix has fewer.
+    const runs = args.mode === "judge" ? args.caps.maxCases : Math.min(args.caps.maxCases, budget.INJECTION_RUNS_PER_MODEL);
     console.log(plan.formatSimpleDryRun({ profile: args.profile, models, runs, caps: args.caps, totals: args.totals }));
   }
   process.exit(0);

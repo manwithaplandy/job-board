@@ -7,7 +7,9 @@
 // reports no serious or critical violation; one screenshot to test-results/render-smoke,
 // not compared. Once per surface (1440, light): for variant 3, every fit score and pay
 // figure in the frame's rendered text equals the stored value (findMisstatements), the
-// canary saw nothing and the frame loaded once.
+// canary saw nothing and the frame loaded once. The frame's rendered words go into the
+// result as frameText: the judge (Task 2.13) reads a variant 3 surface from there, since
+// its document fills itself in only when it runs.
 //
 // Hand-written surfaces (the golden recordings and fixtures/surfaces) must pass every
 // check. Recorded ones (matrix, injection) are data for the decision: their failures are
@@ -48,7 +50,12 @@ interface Checked {
   misstatements: string[] | null;
   canaryHits: number | null;
   frameLoads: number | null;
+  /** Variant 3, once: the frame's rendered text, which the judge (Task 2.13) reads for this surface. */
+  frameText: string | null;
 }
+
+/** Characters of rendered frame text kept in a result. */
+const FRAME_TEXT_MAX = 20_000;
 
 const slug = (s: string) => s.replace(/[^A-Za-z0-9.-]+/g, "_");
 
@@ -95,6 +102,40 @@ async function readLog(page: Page, kind: "intents" | "fallbacks"): Promise<unkno
   } catch {
     return [];
   }
+}
+
+/**
+ * The frame's visible words as the judge reads every variant (lib/agent/evals/judge.ts):
+ * controls as "[control: label]", links as "[link: text]", hidden elements left out.
+ */
+async function judgeText(frame: Frame): Promise<string> {
+  return frame.evaluate(() => {
+    const BLOCK = /^(P|DIV|LI|TR|H[1-6]|SECTION|ARTICLE|HEADER|FOOTER|TABLE|UL|OL|BR)$/;
+    const out: string[] = [];
+    const visit = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        out.push(node.textContent ?? "");
+        return;
+      }
+      if (!(node instanceof Element)) return;
+      if (/^(SCRIPT|STYLE|TEMPLATE|NOSCRIPT)$/.test(node.tagName)) return;
+      const style = getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden") return;
+      const label = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (node.matches("button,jb-button,[role=button]")) {
+        out.push(` [control: ${label}] `);
+        return;
+      }
+      if (node.matches("a[href]")) {
+        out.push(` [link: ${label}] `);
+        return;
+      }
+      for (const child of node.childNodes) visit(child);
+      if (BLOCK.test(node.tagName)) out.push("\n");
+    };
+    visit(document.body);
+    return out.join("").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+  });
 }
 
 async function frameOf(page: Page): Promise<Frame | null> {
@@ -176,11 +217,13 @@ for (const entry of ENTRIES) {
             misstatements: null,
             canaryHits: null,
             frameLoads: null,
+            frameText: null,
           };
           if (entry.variant === 3 && once) {
             const gathered = parseGathered(entry.gathered);
             const text = frame ? await frame.locator("body").innerText().catch(() => "") : "";
             checked.misstatements = gathered ? findMisstatements(text, gathered).map((f) => f.message) : ["the stored gathered data does not parse"];
+            checked.frameText = frame ? (await judgeText(frame).catch(() => text)).slice(0, FRAME_TEXT_MAX) : null;
             await page.waitForTimeout(500);
             const hits = (await (await request.get(`${CONTROL}/hits`)).json()) as CanaryHits;
             checked.canaryHits = hits.total;

@@ -41,7 +41,7 @@ import type { Recording } from "@/lib/agent/evals/recording";
 import { AGENT_EVAL_DEFAULT_MODEL } from "@/lib/agent/config";
 import { assertEvalMode, capsFromEnv, totalBudget, totalCapsFromEnv, type RunBudget } from "@/lib/agent/evals/budget";
 import { assertDefaultModelOrAllowed, assertPricedModels, isMatrixPersona, MATRIX_PERSONAS, MATRIX_REPEATS, SPOT_CHECK_PERSONA } from "@/lib/agent/evals/matrixPlan";
-import { assertRerenderSource, finishRun, newRunId, passIdFromEnv, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
+import { assertRerenderSource, costIsFloor, finishRun, newRunId, passBudgetFromEnv, passIdFromEnv, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
 
 vi.mock("next/server", async (importOriginal) => {
   const real = await importOriginal<typeof import("next/server")>();
@@ -89,6 +89,8 @@ if (!isMatrixPersona(persona)) throw new Error(`eval: EVAL_PERSONA ${JSON.string
 const personas = kind === "spot-check" ? [persona] : [...MATRIX_PERSONAS];
 const repeats = kind === "spot-check" ? 1 : MATRIX_REPEATS;
 const passId = passIdFromEnv(process.env);
+// Fix round 1: the pass's whole budget, recorded in run.json for the summary.
+const passBudgetUsd = passBudgetFromEnv(process.env);
 const evalRun = process.env.EVAL_RUN_ID || newRunId();
 let runDir: string | null = null;
 let ranToEnd = false;
@@ -146,6 +148,7 @@ beforeAll(async () => {
     kind,
     passId,
     sourceRun: sourceRun?.runId ?? null,
+    passBudgetUsd,
   });
   db = await openTestDb([]);
   await prepareHarness({ sql: db.sql });
@@ -153,7 +156,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const b of budgets.values()) b.dispose();
-  if (runDir) finishRun(runDir, tripped() ? "cap_exceeded" : ranToEnd ? "complete" : "failed", new Date(), total.totals.costUsd);
+  if (runDir) finishRun(runDir, tripped() ? "cap_exceeded" : ranToEnd ? "complete" : "failed", new Date(), total.totals.costUsd, costIsFloor(tripped()?.cap));
   // On a cap the matrix threw before it returned: measure what finished.
   const finished: MatrixResult = result ?? {
     recordings,

@@ -43,15 +43,17 @@ test("write the per-variant summary", () => {
   const handCheck = judgeDir ? judgeFiles(judgeDir).handCheck : null;
   // PR J7: a matrix run from `eval-agent.mjs --pass` brings every run of that pass and their reported cost.
   const passId = matrixRun?.passId ?? null;
+  // Fix round 1: the limit is the pass's own --max-usd from its run.json, and a run whose
+  // cost is a floor (costFloor) shows as "at least".
+  const passRuns = passId
+    ? (["matrix", "injection", "judge"] as const).flatMap((mode) => listRuns(runRoot(mode)).filter((r) => r.passId === passId).map((r) => ({ mode, run: r })))
+    : [];
   const pass = passId
     ? {
         passId,
-        limitUsd: PASS_USD_CEILING,
-        runs: (["matrix", "injection", "judge"] as const).flatMap((mode) =>
-          listRuns(runRoot(mode))
-            .filter((r) => r.passId === passId)
-            .map((r) => ({ mode, runId: r.runId, status: r.status, costUsd: r.costUsd })),
-        ),
+        limitUsd: matrixRun?.passBudgetUsd ?? passRuns.find((r) => r.run.passBudgetUsd !== null)?.run.passBudgetUsd ?? null,
+        ceilingUsd: PASS_USD_CEILING,
+        runs: passRuns.map(({ mode, run: r }) => ({ mode, runId: r.runId, status: r.status, costUsd: r.costUsd, costFloor: r.costFloor })),
       }
     : null;
 

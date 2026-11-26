@@ -32,7 +32,7 @@ import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 import { awaitsRender, handCheckCsv, judgePair, judgePairs, judgeQueue, judgeTable, sampleForHandCheck, type JudgeResult, type RenderedText } from "@/lib/agent/evals/judge";
 import { matrixRecordingPath } from "@/lib/agent/evals/matrix";
 import { judgeFiles, matrixPairRunKey, readMatrixRun } from "@/lib/agent/evals/evalFiles";
-import { describeRun, finishRun, newRunId, passIdFromEnv, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
+import { costIsFloor, describeRun, finishRun, newRunId, passBudgetFromEnv, passIdFromEnv, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
 import { readRenderResults, renderedTextIndex } from "@/lib/agent/evals/renderResults";
 
 // Only eval-agent.mjs starts this file (it sets EVAL_MODE): refuse anything else first.
@@ -49,6 +49,8 @@ const notes: string[] = [];
 const matrixRun = selectRun(runRoot("matrix"), process.env.EVAL_MATRIX_RUN || null);
 const evalRun = process.env.EVAL_RUN_ID || newRunId();
 const passId = passIdFromEnv(process.env);
+// Fix round 1: the pass's whole budget, recorded in run.json for the summary.
+const passBudgetUsd = passBudgetFromEnv(process.env);
 let runDir: string | null = null;
 let ranToEnd = false;
 
@@ -74,7 +76,7 @@ beforeAll(() => {
     throw new Error("eval: OPENROUTER_API_KEY is not set (tools/lifecycle_test_db.py --allow-env OPENROUTER_API_KEY)");
   }
   if (!matrixRun) throw new Error("eval: no complete matrix run to judge; run `npm run eval:agent -- --matrix` first, or name one with --run");
-  runDir = startRun(runRoot("judge"), { runId: evalRun, mode: "judge", models: [AGENT_JUDGE_MODEL], matrixRun: matrixRun.runId, passId });
+  runDir = startRun(runRoot("judge"), { runId: evalRun, mode: "judge", models: [AGENT_JUDGE_MODEL], matrixRun: matrixRun.runId, passId, passBudgetUsd });
 });
 
 afterAll(() => {
@@ -85,7 +87,7 @@ afterAll(() => {
     writeFileSync(files.results, `${JSON.stringify(results, null, 2)}\n`, { flag: "wx" });
     writeFileSync(files.handCheck, handCheckCsv(sampleForHandCheck(results)), { flag: "wx" });
   }
-  if (runDir) finishRun(runDir, budget.tripped ? "cap_exceeded" : ranToEnd ? "complete" : "failed", new Date(), budget.totals.costUsd);
+  if (runDir) finishRun(runDir, budget.tripped ? "cap_exceeded" : ranToEnd ? "complete" : "failed", new Date(), budget.totals.costUsd, costIsFloor(budget.tripped?.cap));
   writeRunReport(
     [
       `Judge ${AGENT_JUDGE_MODEL}: ${results.length} pairs judged`,

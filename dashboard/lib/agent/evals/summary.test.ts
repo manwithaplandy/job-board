@@ -143,6 +143,7 @@ describe("variantSummary", () => {
     const pass = {
       passId: RUN,
       limitUsd: 3,
+      ceilingUsd: 3,
       runs: [
         { mode: "matrix", runId: "20261126T010001Z", status: "complete", costUsd: 1.5 },
         { mode: "injection", runId: "20261126T030000Z", status: "complete", costUsd: 0.3125 },
@@ -156,6 +157,26 @@ describe("variantSummary", () => {
     const stopped = variantSummary(empty({ pass: { ...pass, runs: [{ ...pass.runs[0], status: "failed", costUsd: null }] } }));
     expect(stopped).toContain("reported spend at least $0.0000 against the $3.00 limit");
     expect(stopped).toContain("| matrix | 20261126T010001Z | failed | unknown |");
+  });
+
+  test("fix round 1: the pass's own --max-usd is the limit, and a stage that stopped on an unknown cost makes the spend a floor", () => {
+    const pass = {
+      passId: RUN,
+      limitUsd: 2,
+      ceilingUsd: 3,
+      runs: [
+        { mode: "matrix", runId: "20261126T010001Z", status: "complete", costUsd: 1.5, costFloor: false },
+        { mode: "injection", runId: "20261126T030000Z", status: "cap_exceeded", costUsd: 0.25, costFloor: true },
+      ],
+    };
+    const md = variantSummary(empty({ pass }));
+    expect(md).toContain(`Pass ${RUN} (\`npm run eval:agent -- --pass\`): reported spend at least $1.7500 against the $2.00 limit.`);
+    expect(md).toContain("| injection | 20261126T030000Z | cap_exceeded | at least $0.2500 |");
+    expect(md).toContain("| matrix | 20261126T010001Z | complete | $1.5000 |");
+    expect(md).toContain("| pass total |  |  | at least $1.7500 of $2.00 |");
+    // A pass recorded before fix round 1 has no budget: the ceiling is shown, and says so.
+    const old = variantSummary(empty({ pass: { ...pass, limitUsd: null, runs: [pass.runs[0]] } }));
+    expect(old).toContain("reported spend $1.5000 against the $3.00 ceiling (this pass recorded no --max-usd).");
   });
 
   test("the judge's section names the judge model, Haiku 5.5 since PR J7", () => {

@@ -52,11 +52,22 @@ export interface EvalRun {
   sourceRun: string | null;
   /** The OpenRouter cost the run's calls reported, in dollars, written when it ends; null while running or when unknown. */
   costUsd: number | null;
+  /**
+   * PR J7 fix round 1: the --max-usd of the pass this run was a stage of (its whole
+   * budget, not the stage's share), or null (not a pass, or a run.json from before).
+   */
+  passBudgetUsd: number | null;
+  /**
+   * PR J7 fix round 1: true when costUsd is only a floor, because the run stopped on a call
+   * whose cost or usage it could not read (cost_unknown, usage_unknown). False otherwise,
+   * and for a run.json from before.
+   */
+  costFloor: boolean;
 }
 
-/** What startRun takes: the run's identity; kind, passId and sourceRun default to full, null and null. */
+/** What startRun takes: the run's identity; kind, passId, sourceRun and passBudgetUsd default to full and null. */
 export type NewEvalRun = Pick<EvalRun, "runId" | "mode" | "models" | "matrixRun"> &
-  Partial<Pick<EvalRun, "kind" | "passId" | "sourceRun">> & { startedAt?: string };
+  Partial<Pick<EvalRun, "kind" | "passId" | "sourceRun" | "passBudgetUsd">> & { startedAt?: string };
 
 /** recordings/ (every caller runs with dashboard/ as its working directory). */
 export const EVAL_RECORDINGS_DIR = path.join(process.cwd(), "lib", "agent", "evals", "recordings");
@@ -89,6 +100,27 @@ export function passIdFromEnv(env: Readonly<Record<string, string | undefined>>)
   return raw;
 }
 
+/** The variable eval-agent.mjs --pass sets to the pass's whole budget, in dollars, for each of its stages (fix round 1). */
+export const EVAL_PASS_BUDGET_ENV = "EVAL_PASS_BUDGET_USD";
+
+const isBudget = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
+
+/** The pass budget an eval file was started with, or null; anything set that is not a positive number of dollars is refused. */
+export function passBudgetFromEnv(env: Readonly<Record<string, string | undefined>>): number | null {
+  const raw = env[EVAL_PASS_BUDGET_ENV];
+  if (raw === undefined || raw === "") return null;
+  const value = Number(raw);
+  if (!/^\d{1,6}(\.\d{1,2})?$/.test(raw) || !isBudget(value)) {
+    throw new RunSelectionError(`eval: ${EVAL_PASS_BUDGET_ENV} ${JSON.stringify(raw)} is not a number of dollars`);
+  }
+  return value;
+}
+
+/** Whether a run's tripped cap leaves its reported cost a floor: a call's cost or usage went unread. */
+export function costIsFloor(cap: string | null | undefined): boolean {
+  return cap === "cost_unknown" || cap === "usage_unknown";
+}
+
 /** The run id for a run starting at `at`. */
 export function newRunId(at: Date = new Date()): string {
   return at.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
@@ -118,7 +150,9 @@ function readRun(file: string): EvalRun | null {
     (r.kind === undefined || KINDS.includes(r.kind as EvalRunKind)) &&
     optionalRunId(r.passId) &&
     optionalRunId(r.sourceRun) &&
-    (r.costUsd === undefined || r.costUsd === null || (typeof r.costUsd === "number" && Number.isFinite(r.costUsd) && r.costUsd >= 0));
+    (r.costUsd === undefined || r.costUsd === null || (typeof r.costUsd === "number" && Number.isFinite(r.costUsd) && r.costUsd >= 0)) &&
+    (r.passBudgetUsd === undefined || r.passBudgetUsd === null || isBudget(r.passBudgetUsd)) &&
+    (r.costFloor === undefined || typeof r.costFloor === "boolean");
   if (!ok) return null;
   const kind = (r.kind as EvalRunKind | undefined) ?? "full";
   const sourceRun = (r.sourceRun as string | null | undefined) ?? null;
@@ -136,6 +170,8 @@ function readRun(file: string): EvalRun | null {
     passId: (r.passId as string | null | undefined) ?? null,
     sourceRun,
     costUsd: (r.costUsd as number | null | undefined) ?? null,
+    passBudgetUsd: (r.passBudgetUsd as number | null | undefined) ?? null,
+    costFloor: (r.costFloor as boolean | undefined) ?? false,
   };
 }
 
@@ -147,6 +183,9 @@ export function startRun(root: string, run: NewEvalRun): string {
   if (!RUN_ID_RE.test(run.runId)) throw new RunSelectionError(`eval: ${run.runId} is not a run id (expected YYYYMMDDTHHMMSSZ)`);
   for (const [name, id] of [["passId", run.passId], ["sourceRun", run.sourceRun]] as const) {
     if (id !== undefined && id !== null && !RUN_ID_RE.test(id)) throw new RunSelectionError(`eval: ${name} ${id} is not a run id`);
+  }
+  if (run.passBudgetUsd !== undefined && run.passBudgetUsd !== null && !isBudget(run.passBudgetUsd)) {
+    throw new RunSelectionError(`eval: passBudgetUsd ${run.passBudgetUsd} is not a positive number of dollars`);
   }
   mkdirSync(root, { recursive: true });
   const dir = path.join(root, run.runId);
@@ -168,6 +207,8 @@ export function startRun(root: string, run: NewEvalRun): string {
     passId: run.passId ?? null,
     sourceRun: run.sourceRun ?? null,
     costUsd: null,
+    passBudgetUsd: run.passBudgetUsd ?? null,
+    costFloor: false,
   };
   writeFileSync(path.join(dir, RUN_FILE), `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
   return dir;
@@ -175,13 +216,20 @@ export function startRun(root: string, run: NewEvalRun): string {
 
 /**
  * Marks the run in `dir` as ended with `status` and, when known, the cost its calls
- * reported (a non-finite or negative cost is recorded as null, never as zero).
+ * reported (a non-finite or negative cost is recorded as null, never as zero). `costFloor`
+ * (fix round 1) records that the cost is only a floor (costIsFloor of the tripped cap).
  */
-export function finishRun(dir: string, status: Exclude<EvalRunStatus, "running">, at: Date = new Date(), costUsd: number | null = null): void {
+export function finishRun(
+  dir: string,
+  status: Exclude<EvalRunStatus, "running">,
+  at: Date = new Date(),
+  costUsd: number | null = null,
+  costFloor = false,
+): void {
   const run = readRun(path.join(dir, RUN_FILE));
   if (!run) throw new RunSelectionError(`eval: ${path.join(dir, RUN_FILE)} is missing or does not parse`);
   const cost = costUsd !== null && Number.isFinite(costUsd) && costUsd >= 0 ? costUsd : null;
-  writeFileSync(path.join(dir, RUN_FILE), `${JSON.stringify({ ...run, status, finishedAt: at.toISOString(), costUsd: cost }, null, 2)}\n`);
+  writeFileSync(path.join(dir, RUN_FILE), `${JSON.stringify({ ...run, status, finishedAt: at.toISOString(), costUsd: cost, costFloor }, null, 2)}\n`);
 }
 
 /** Every run under `root` with a readable run.json, oldest first. */

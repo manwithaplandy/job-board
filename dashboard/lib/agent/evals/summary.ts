@@ -50,26 +50,35 @@ export interface SummaryInputs {
   pass?: PassSpend | null;
 }
 
-/** One pass's runs and what each reported (evalRuns.ts run.json costUsd). */
+/** One pass's runs and what each reported (evalRuns.ts run.json costUsd, costFloor). */
 export interface PassSpend {
   passId: string;
-  limitUsd: number;
-  runs: { mode: string; runId: string; status: string; costUsd: number | null }[];
+  /** The pass's own --max-usd from its run.json (fix round 1), or null for a pass recorded before. */
+  limitUsd: number | null;
+  /** What to show when limitUsd is null: the most any pass may spend (budget.ts PASS_USD_CEILING). */
+  ceilingUsd: number;
+  runs: { mode: string; runId: string; status: string; costUsd: number | null; costFloor?: boolean }[];
 }
 
-/** The pass's reported spend against its limit, as Markdown. A run with no recorded cost makes the total a floor. */
+/**
+ * The pass's reported spend against its limit, as Markdown. A run with no recorded cost,
+ * or one that stopped on a call whose cost or usage it could not read (costFloor), makes
+ * the total a floor ("at least").
+ */
 export function passSpendSection(pass: PassSpend): string[] {
   const total = pass.runs.reduce((s, r) => s + (r.costUsd ?? 0), 0);
-  const unknown = pass.runs.some((r) => r.costUsd === null);
+  const floor = pass.runs.some((r) => r.costUsd === null || r.costFloor === true);
+  const limit = pass.limitUsd === null ? `$${pass.ceilingUsd.toFixed(2)} ceiling (this pass recorded no --max-usd)` : `$${pass.limitUsd.toFixed(2)} limit`;
+  const cost = (r: PassSpend["runs"][number]) => (r.costUsd === null ? "unknown" : `${r.costFloor ? "at least " : ""}$${r.costUsd.toFixed(4)}`);
   return [
     "## Pass spend",
     "",
-    `Pass ${pass.passId} (\`npm run eval:agent -- --pass\`): reported spend ${unknown ? "at least " : ""}$${total.toFixed(4)} against the $${pass.limitUsd.toFixed(2)} limit.`,
+    `Pass ${pass.passId} (\`npm run eval:agent -- --pass\`): reported spend ${floor ? "at least " : ""}$${total.toFixed(4)} against the ${limit}.`,
     "",
     "| Stage | Run | Status | Reported cost |",
     "|---|---|---|---|",
-    ...pass.runs.map((r) => row([r.mode, r.runId, r.status, r.costUsd === null ? "unknown" : `$${r.costUsd.toFixed(4)}`])),
-    row(["pass total", "", "", `${unknown ? "at least " : ""}$${total.toFixed(4)} of $${pass.limitUsd.toFixed(2)}`]),
+    ...pass.runs.map((r) => row([r.mode, r.runId, r.status, cost(r)])),
+    row(["pass total", "", "", `${floor ? "at least " : ""}$${total.toFixed(4)} of $${(pass.limitUsd ?? pass.ceilingUsd).toFixed(2)}`]),
     "",
   ];
 }

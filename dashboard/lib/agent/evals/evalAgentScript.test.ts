@@ -3,7 +3,7 @@
 // unknown flag and a missing key are refused before vitest starts. Pure; runs in CI (it
 // only spawns node on the script, which never reaches vitest in these cases).
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -286,6 +286,18 @@ function summary(...args: string[]) {
   const r = spawnSync(process.execPath, ["scripts/eval-summary.mjs", ...args], { cwd: DASHBOARD_DIR, encoding: "utf8", timeout: 30_000 });
   return { status: r.status, err: r.stderr };
 }
+
+describe("eval-agent.mjs runStage's environment (PR J7 fix round 1)", () => {
+  // A real stage needs a key and spends money, so this reads the script: every per-mode
+  // variable the script sets for a stage is first cleared from what the caller passed in.
+  test("clears the inherited per-mode model, variant, seed and pass budget before setting its own", () => {
+    const src = readFileSync(path.join(DASHBOARD_DIR, "scripts", "eval-agent.mjs"), "utf8");
+    const list = src.slice(src.indexOf("function runStage"), src.indexOf("delete inherited[name]"));
+    for (const name of ["EVAL_MODE", "EVAL_MODEL", "EVAL_MODELS", "EVAL_VARIANT", "EVAL_SEED", "runs.EVAL_PASS_BUDGET_ENV", "EVAL_ALLOW_NON_HAIKU", "EVAL_MATRIX_KIND"]) {
+      expect(list).toContain(name.startsWith("runs.") ? name : `"${name}"`);
+    }
+  });
+});
 
 describe("eval-summary.mjs", () => {
   test("takes run ids only, each flag once, and refuses anything else before vitest starts", () => {

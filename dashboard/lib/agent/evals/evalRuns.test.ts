@@ -6,14 +6,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
+  EVAL_PASS_BUDGET_ENV,
   EVAL_PASS_ID_ENV,
   RUN_ID_RE,
   RunSelectionError,
   assertRerenderSource,
+  costIsFloor,
   describeRun,
   finishRun,
   listRuns,
   newRunId,
+  passBudgetFromEnv,
   passIdFromEnv,
   recordedV1Cells,
   rerenderSourceProblem,
@@ -100,6 +103,8 @@ describe("run ids and folders", () => {
         passId: null,
         sourceRun: null,
         costUsd: null,
+        passBudgetUsd: null,
+        costFloor: false,
       },
     ]);
   });
@@ -138,6 +143,42 @@ describe("run ids and folders", () => {
     finishRun(startRun(root, { runId: B, mode: "matrix", models: [], matrixRun: null, kind: "spot-check" }), "complete");
     expect(selectRun(root, null)?.runId).toBe(A);
     expect(describeRun(selectRun(root, B))).toBe(`${B} (spot check)`);
+  });
+
+  test("fix round 1: a run records its pass's budget when it starts and whether its cost is a floor when it ends", () => {
+    const root = runRoot("matrix", dir);
+    const runDir = startRun(root, { runId: B, mode: "matrix", models: ["m/a"], matrixRun: null, passId: A, passBudgetUsd: 2 });
+    finishRun(runDir, "cap_exceeded", new Date("2026-11-26T02:30:00Z"), 0.5, costIsFloor("cost_unknown"));
+    expect(listRuns(root)[0]).toMatchObject({ runId: B, passBudgetUsd: 2, costUsd: 0.5, costFloor: true });
+    finishRun(runDir, "complete", new Date(), 0.5);
+    expect(listRuns(root)[0].costFloor).toBe(false);
+    expect(() => startRun(root, { runId: C, mode: "matrix", models: [], matrixRun: null, passBudgetUsd: 0 })).toThrow(/positive number of dollars/);
+    // A run.json from before fix round 1 reads with no budget and an exact cost; a bad value does not read.
+    const old = { mode: "matrix", status: "complete", startedAt: "x", finishedAt: "y", models: [], matrixRun: null };
+    const write = (id: string, extra: Record<string, unknown>) => {
+      mkdirSync(path.join(root, id), { recursive: true });
+      writeFileSync(path.join(root, id, "run.json"), JSON.stringify({ ...old, runId: id, ...extra }));
+    };
+    write("20261126T040000Z", {});
+    write("20261126T050000Z", { passBudgetUsd: "3" });
+    write("20261126T060000Z", { costFloor: "yes" });
+    const old4 = listRuns(root).find((r) => r.runId === "20261126T040000Z");
+    expect(old4).toMatchObject({ passBudgetUsd: null, costFloor: false });
+    expect(listRuns(root).map((r) => r.runId)).not.toContain("20261126T050000Z");
+    expect(listRuns(root).map((r) => r.runId)).not.toContain("20261126T060000Z");
+  });
+
+  test("fix round 1: the pass budget comes from EVAL_PASS_BUDGET_USD; only an unread cost or usage makes a floor", () => {
+    expect(passBudgetFromEnv({})).toBeNull();
+    expect(passBudgetFromEnv({ [EVAL_PASS_BUDGET_ENV]: "" })).toBeNull();
+    expect(passBudgetFromEnv({ [EVAL_PASS_BUDGET_ENV]: "3" })).toBe(3);
+    expect(passBudgetFromEnv({ [EVAL_PASS_BUDGET_ENV]: "2.5" })).toBe(2.5);
+    for (const bad of ["0", "-1", "1e3", "2.505", "three"]) {
+      expect(() => passBudgetFromEnv({ [EVAL_PASS_BUDGET_ENV]: bad })).toThrow(RunSelectionError);
+    }
+    expect(costIsFloor("cost_unknown")).toBe(true);
+    expect(costIsFloor("usage_unknown")).toBe(true);
+    for (const cap of ["usd", "steps", null, undefined]) expect(costIsFloor(cap)).toBe(false);
   });
 
   test("PR J7: the pass id comes from EVAL_PASS_ID and must be a run id", () => {

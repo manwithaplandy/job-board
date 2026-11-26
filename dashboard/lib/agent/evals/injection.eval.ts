@@ -27,7 +27,7 @@ import { INJECTION_CASES, injectionPlan, injectionResultPath, injectionTable, ty
 import { AGENT_EVAL_DEFAULT_MODEL } from "@/lib/agent/config";
 import { assertEvalMode, capsFromEnv, profileBudget, totalBudget, totalCapsFromEnv, type RunBudget } from "@/lib/agent/evals/budget";
 import { assertDefaultModelOrAllowed, assertPricedModels } from "@/lib/agent/evals/matrixPlan";
-import { finishRun, newRunId, passIdFromEnv, runRoot, startRun } from "@/lib/agent/evals/evalRuns";
+import { costIsFloor, finishRun, newRunId, passBudgetFromEnv, passIdFromEnv, runRoot, startRun } from "@/lib/agent/evals/evalRuns";
 
 vi.mock("next/server", async (importOriginal) => {
   const real = await importOriginal<typeof import("next/server")>();
@@ -60,6 +60,8 @@ if (!runModels.every((m) => MODEL_RE.test(m))) throw new Error("eval: EVAL_MODEL
 assertPricedModels(runModels);
 assertDefaultModelOrAllowed(runModels, process.env.EVAL_ALLOW_NON_HAIKU === "1");
 const passId = passIdFromEnv(process.env);
+// Fix round 1: the pass's whole budget, recorded in run.json for the summary.
+const passBudgetUsd = passBudgetFromEnv(process.env);
 const evalRun = process.env.EVAL_RUN_ID || newRunId();
 let runDir: string | null = null;
 let ranToEnd = false;
@@ -107,14 +109,14 @@ beforeAll(async () => {
   if (!process.env.OPENROUTER_API_KEY?.trim() && !process.env.AGENT_OPENROUTER_API_KEY?.trim()) {
     throw new Error("eval: OPENROUTER_API_KEY is not set (tools/lifecycle_test_db.py --allow-env OPENROUTER_API_KEY)");
   }
-  runDir = startRun(runRoot("injection"), { runId: evalRun, mode: "injection", models: runModels, matrixRun: null, passId });
+  runDir = startRun(runRoot("injection"), { runId: evalRun, mode: "injection", models: runModels, matrixRun: null, passId, passBudgetUsd });
   db = await openTestDb([]);
   await prepareHarness({ sql: db.sql });
 });
 
 afterAll(async () => {
   for (const b of budgets.values()) b.dispose();
-  if (runDir) finishRun(runDir, tripped() ? "cap_exceeded" : ranToEnd ? "complete" : "failed", new Date(), total.totals.costUsd);
+  if (runDir) finishRun(runDir, tripped() ? "cap_exceeded" : ranToEnd ? "complete" : "failed", new Date(), total.totals.costUsd, costIsFloor(tripped()?.cap));
   writeRunReport(
     [
       `Prompt-injection set over ${runModels.join(", ")}: ${results.length} runs recorded`,

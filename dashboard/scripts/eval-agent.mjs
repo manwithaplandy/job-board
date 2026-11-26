@@ -9,8 +9,9 @@
 //       run. Each stage's dollar caps are what is left of the budget after the stages
 //       before it (their reported OpenRouter cost); a stage that stops, a stage whose
 //       report carries no cost, or a budget with less than a cent left stops the pass, and
-//       no later stage starts. Every run.json of the pass carries the pass id, and the end
-//       prints the pass's reported spend against its budget.
+//       no later stage starts. Every run.json of the pass carries the pass id and the
+//       pass's --max-usd, and the end prints the pass's reported spend against it ("at
+//       least" when a stage stopped on a call whose cost or usage it could not read).
 //   npm run eval:agent -- --variant <1|2|3> [--model <id>] [--allow-non-haiku] [--seed <n>] [golden caps] [--dry-run]
 //       The golden scenarios (lib/agent/evals/live.eval.ts: 4 scenarios by 3 personas).
 //       Haiku 5.5 by default; --model must name a priced model (exit 2 otherwise, dry run
@@ -403,12 +404,19 @@ function runStage(stage) {
   const reportDir = mkdtempSync(path.join(os.tmpdir(), "eval-agent-"));
   const reportFile = path.join(reportDir, "run.json");
   const inherited = { ...process.env };
-  // Only this script picks the mode, the runs and what they may do.
+  // Only this script picks the mode, the runs, the models and what they may do: none of it
+  // is inherited from the caller's environment (PR J7 fix round 1 adds the per-mode model,
+  // variant and seed, and the pass's budget).
   for (const name of [
     "EVAL_MODE",
     "EVAL_RUN_ID",
     "EVAL_MATRIX_RUN",
     "EVAL_PASS_ID",
+    "EVAL_MODEL",
+    "EVAL_MODELS",
+    "EVAL_VARIANT",
+    "EVAL_SEED",
+    runs.EVAL_PASS_BUDGET_ENV,
     "EVAL_MATRIX_KIND",
     "EVAL_PERSONA",
     "EVAL_SOURCE_RUN",
@@ -506,8 +514,13 @@ function runPass() {
   const rows = [];
   console.log(`eval:agent: pass ${passId} on ${model}, budget $${args.passUsd.toFixed(2)}: matrix, then injection, then judge`);
 
+  // Fix round 1: a stage that stopped on a call whose cost or usage it could not read
+  // (cost_unknown, usage_unknown) reported only what it could read, so its cost and the
+  // pass total are floors ("at least").
   const finish = (outcome, code) => {
     const total = spent.reduce((a, b) => a + b, 0);
+    const floor = rows.some((r) => r.costUsd === null || r.floor);
+    const cost = (r) => (r.costUsd === null ? "unknown" : `${r.floor ? "at least " : ""}$${r.costUsd.toFixed(4)}`);
     console.log(
       [
         "",
@@ -515,8 +528,8 @@ function runPass() {
         "",
         "| Stage | Run | Status | Reported cost |",
         "|---|---|---|---|",
-        ...rows.map((r) => `| ${r.stage} | ${r.runId} | ${r.status} | ${r.costUsd === null ? "unknown" : `$${r.costUsd.toFixed(4)}`} |`),
-        `| pass total | | | $${total.toFixed(4)} of $${args.passUsd.toFixed(2)} |`,
+        ...rows.map((r) => `| ${r.stage} | ${r.runId} | ${r.status} | ${cost(r)} |`),
+        `| pass total | | | ${floor ? "at least " : ""}$${total.toFixed(4)} of $${args.passUsd.toFixed(2)} |`,
         "",
       ].join("\n"),
     );
@@ -549,11 +562,12 @@ function runPass() {
       passId,
       caps,
       totals,
-      env: mode === "judge" ? {} : { EVAL_MODELS: model },
+      // Every stage records the pass's whole budget in its run.json, for eval:summary's Pass spend.
+      env: { [runs.EVAL_PASS_BUDGET_ENV]: String(args.passUsd), ...(mode === "judge" ? {} : { EVAL_MODELS: model }) },
     });
     const cost = typeof report?.costUsd === "number" && Number.isFinite(report.costUsd) && report.costUsd >= 0 ? report.costUsd : null;
     const status = report ? report.status : "no report";
-    rows.push({ stage: mode, runId, status, costUsd: cost });
+    rows.push({ stage: mode, runId, status, costUsd: cost, floor: runs.costIsFloor(report?.cap) });
     if (cost === null) finish(`stopped at ${mode}: its report carries no reported cost, so the budget cannot be checked`, vitestStatus || 1);
     spent.push(cost);
     if (report.status === "cap_exceeded") finish(`stopped at ${mode}: cap_exceeded (${report.cap})`, vitestStatus || 3);

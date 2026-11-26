@@ -66,12 +66,6 @@ function textOf(m: UIMessage): string {
   return m.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
 }
 
-/** The user's own text of a message: its first text part (later parts are the server's attachment note). */
-function ownTextOf(m: UIMessage): string {
-  const first = m.parts.find((p) => p.type === "text");
-  return first && first.type === "text" ? first.text : "";
-}
-
 /**
  * The last reply never finished: a failed assistant row, or one still pending after the
  * stale-turn window (the server aborts such a run on the next turn, AGENT_LIMITS.staleTurnMs).
@@ -150,11 +144,12 @@ const requestExtraSchema = z.object({
  * to take back.
  */
 function chatTransport(threadId: string) {
-  let sent: { id: string; text: string } | null = null;
+  // `retry`: the request answered a stored question again, so a refusal keeps it on screen.
+  let sent: { id: string; text: string; retry: boolean } | null = null;
   let rejected: Rejection | null = null;
   const transport = new DefaultChatTransport<UIMessage>({
     api: "/api/agent",
-    prepareSendMessagesRequest: ({ messages, body: extraRaw }) => {
+    prepareSendMessagesRequest: ({ messages, body: extraRaw, trigger }) => {
       const extra = requestExtraSchema.safeParse(extraRaw ?? {});
       const approval = extra.success ? extra.data.approval : undefined;
       rejected = null;
@@ -165,6 +160,12 @@ function chatTransport(threadId: string) {
       }
       const last = messages.at(-1);
       const text = last ? textOf(last) : "";
+      // Retry (regenerate): the server reads the stored question by id; nothing is resent.
+      if (trigger === "regenerate-message" && last?.role === "user") {
+        const body: AgentRequest = { threadId, kind: "retry", id: last.id };
+        sent = { id: last.id, text, retry: true };
+        return { body };
+      }
       const documentIds = extra.success ? (extra.data.documentIds ?? []) : [];
       const body: AgentRequest = {
         threadId,
@@ -173,7 +174,7 @@ function chatTransport(threadId: string) {
         text,
         ...(documentIds.length > 0 ? { documentIds } : {}),
       };
-      sent = { id: body.id, text };
+      sent = { id: body.id, text, retry: false };
       return { body };
     },
     fetch: async (input, init) => {
@@ -361,7 +362,7 @@ export function AgentChat({
   const [{ transport, book }] = useState(() => chatTransport(threadId));
   const wide = useWideLayout();
 
-  const { messages, sendMessage, setMessages, status, addToolApprovalResponse } = useChat<UIMessage>({
+  const { messages, sendMessage, regenerate, setMessages, status, addToolApprovalResponse } = useChat<UIMessage>({
     id: threadId,
     messages: initialMessages,
     transport,
@@ -373,7 +374,7 @@ export function AgentChat({
       // No HTTP refusal: the turn failed mid-stream, and the stream's error text is the
       // route's fixed reason code.
       const r = rejected ?? { rollback: false, message: problemFromStreamError(error instanceof Error ? error.message : "") };
-      if (sent && r.rollback) {
+      if (sent && r.rollback && !sent.retry) {
         setMessages((prev) => prev.filter((m) => m.id !== sent.id));
         setDraft((d) => (d === "" ? sent.text : d));
       }
@@ -382,7 +383,8 @@ export function AgentChat({
         setProblem(null);
       } else {
         // Retry resends a message; an approval's failure has none to resend.
-        setProblem({ text: r.message, retry: !r.rollback && sent !== null });
+        // A failed Retry left the stored question in place, so it can be retried again.
+        setProblem({ text: r.message, retry: sent !== null && (sent.retry || !r.rollback) });
       }
     },
   });
@@ -406,12 +408,13 @@ export function AgentChat({
     setAttached([]);
     void sendMessage({ text }, documentIds.length > 0 ? { body: { documentIds } } : undefined);
   };
-  // Retry sends the last question's text again as a new message (the stored one keeps its
-  // id), leaving the composer's draft and attachments as they are.
+  // Retry answers the last question again: everything after it is dropped from the screen
+  // and the server reuses the stored question (kind "retry"), so it is never stored twice.
+  // The composer's draft and attachments stay as they are.
   const retry = lastUserText
     ? () => {
         setProblem(null);
-        void sendMessage({ text: ownTextOf(lastUserText) });
+        void regenerate({ messageId: lastUserText.id });
       }
     : null;
 

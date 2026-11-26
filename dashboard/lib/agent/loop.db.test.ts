@@ -112,3 +112,28 @@ test("a repeated message id is refused and its run is closed failed, with nothin
   const count = await db.sql`SELECT count(*)::int AS n FROM agent_messages`;
   expect(count[0]?.n).toBe(1);
 });
+
+test("Retry answers a failed question again in the failed row, with the question stored once (PR K2)", async () => {
+  await db.sql`INSERT INTO agent_messages (thread_id, id, user_id, role, parts, status) VALUES
+    (${threadId}, 'm-1', ${USER_A}, 'user', ${JSON.stringify([{ type: "text", text: "any remote roles?" }])}::text::jsonb, 'complete'),
+    (${threadId}, 'msg-failed', ${USER_A}, 'assistant', '[]'::jsonb, 'failed')`;
+  const thread = await getThread(USER_A, threadId);
+  const res = await streamAgentTurn({
+    userId: USER_A,
+    email: null,
+    thread: thread!,
+    input: { kind: "retry", id: "m-1" },
+    model: textModel("Two remote roles."),
+  });
+  expect(await res.text()).toContain("Two remote roles.");
+  await Promise.all(h.afterTasks);
+
+  const messages = await db.sql`SELECT id, role, status, parts FROM agent_messages WHERE thread_id = ${threadId} ORDER BY seq`;
+  expect(messages.map((m) => [m.id, m.role, m.status])).toEqual([
+    ["m-1", "user", "complete"],
+    ["msg-failed", "assistant", "complete"],
+  ]);
+  expect(JSON.stringify(messages[1]?.parts)).toContain("Two remote roles.");
+  const runs = await db.sql`SELECT status, error FROM agent_runs`;
+  expect(runs).toEqual([{ status: "done", error: null }]);
+});

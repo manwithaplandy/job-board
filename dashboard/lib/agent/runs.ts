@@ -223,14 +223,21 @@ async function chargeTx(
 type FinalStatus = Exclude<RunStatus, "pending" | "running">;
 const FINAL_STATUSES: ReadonlySet<string> = new Set<FinalStatus>(["done", "failed", "aborted", "over_budget"]);
 
-// agent_runs.error is exported to the user, so it holds a short code only (migration 17).
-const ERROR_CODE_RE = /^[a-z][a-z0-9_]{0,63}$/;
+// agent_runs.error is exported to the user, so it holds a short code only (migration 17):
+// snake_case, optionally with an HTTP status (model_error:401), at most 64 characters.
+const ERROR_CODE_RE = /^[a-z][a-z0-9_]*(?::\d{3})?$/;
+const ERROR_CODE_MAX = 64;
+
+/** The code finishRun stores: `error` when it is a short code, else `unknown_error`. */
+export function runErrorCode(error: string): string {
+  return error.length <= ERROR_CODE_MAX && ERROR_CODE_RE.test(error) ? error : "unknown_error";
+}
 
 /**
  * Moves a running run to a final status. Status change only (and finished_at, and a
  * short error code); it moves no money. A run that is not `running`, or not this
  * user's, is left unchanged, so a second call is a no-op. An error that is not a short
- * snake_case code is stored as `unknown_error`, never as free text.
+ * code (runErrorCode) is stored as `unknown_error`, never as free text.
  */
 export async function finishRun(
   userId: string,
@@ -239,7 +246,7 @@ export async function finishRun(
 ): Promise<void> {
   if (!FINAL_STATUSES.has(o.status)) throw new Error("agent: finishRun needs a final status");
   if (!UUID_RE.test(runId)) return;
-  const error = o.error === undefined ? null : ERROR_CODE_RE.test(o.error) ? o.error : "unknown_error";
+  const error = o.error === undefined ? null : runErrorCode(o.error);
   await serviceSql`
     UPDATE agent_runs SET status = ${o.status}, error = ${error}, finished_at = now()
     WHERE id = ${runId}::uuid AND user_id = ${userId}::uuid AND status = 'running'

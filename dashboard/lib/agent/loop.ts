@@ -81,7 +81,9 @@ const STREAM_ERROR_TEXT = "The assistant hit an error.";
 
 export type TurnInput =
   | { kind: "message"; id: string; text: string; documentIds: string[] }
-  | { kind: "approval"; approvalId: string; approved: boolean };
+  | { kind: "approval"; approvalId: string; approved: boolean }
+  // Retry: answer the stored question `id` again (it is not sent or saved a second time).
+  | { kind: "retry"; id: string };
 
 export type TurnInputErrorCode =
   | "approval_unavailable"
@@ -90,12 +92,13 @@ export type TurnInputErrorCode =
   | "too_many_documents"
   | "bad_message_id"
   | "duplicate_message_id"
+  | "retry_not_found"
   | "empty_text"
   | "text_too_long";
 
 /**
  * The input cannot start a turn. Thrown before startRun, so nothing is written, except
- * duplicate_message_id and approval_not_found: history is read after the run opens (so
+ * duplicate_message_id, retry_not_found and approval_not_found: history is read after the run opens (so
  * it includes a turn that finished just before), and that run is then closed `failed`
  * with `bad_input`.
  */
@@ -180,6 +183,27 @@ async function userMessageFrom(userId: string, input: Extract<TurnInput, { kind:
     parts.push({ type: "text", text: attachmentNote(attached.filter((d): d is DocumentMeta => d !== undefined)) });
   }
   return { id: input.id, role: "user", parts };
+}
+
+/**
+ * Where a Retry starts: the thread's last question must be `id`, followed by at most one
+ * assistant row that did not complete (failed, or pending from an interrupted turn).
+ * Returns the history up to and including that question, and the unfinished row's id so
+ * the new answer replaces it in place. Null for anything else (an answered question, an
+ * older question, an unknown id), so a Retry never forks or rewrites a finished turn.
+ */
+export function retryPoint(history: AgentUIMessage[], id: string): { history: AgentUIMessage[]; assistantId: string | null } | null {
+  let i = history.length - 1;
+  while (i >= 0 && history[i].role !== "user") i -= 1;
+  if (i < 0 || history[i].id !== id) return null;
+  const tail = history.slice(i + 1);
+  if (tail.length > 1) return null;
+  const after = tail[0];
+  if (after) {
+    const status = z.object({ status: z.enum(MESSAGE_STATUSES) }).safeParse(after.metadata);
+    if (after.role !== "assistant" || !status.success || status.data.status === "complete") return null;
+  }
+  return { history: history.slice(0, i + 1), assistantId: after?.id ?? null };
 }
 
 /** What the model reads for a denied approval (the SDK passes it as the tool result). */
@@ -327,10 +351,16 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
   const modelId = typeof model === "string" ? model : (model.modelId ?? AGENT_MODEL_DEFAULT);
 
   // Checked before startRun, so a refused input writes nothing.
-  let start: { kind: "message"; message: AgentUIMessage } | { kind: "approval"; approvalId: string; approved: boolean };
+  let start:
+    | { kind: "message"; message: AgentUIMessage }
+    | { kind: "approval"; approvalId: string; approved: boolean }
+    | { kind: "retry"; id: string };
   if (a.input.kind === "approval") {
     if (approvalSecret() === null) throw new TurnInputError("approval_unavailable");
     start = { kind: "approval", approvalId: a.input.approvalId, approved: a.input.approved };
+  } else if (a.input.kind === "retry") {
+    if (!MESSAGE_ID_RE.test(a.input.id)) throw new TurnInputError("bad_message_id");
+    start = { kind: "retry", id: a.input.id };
   } else {
     start = { kind: "message", message: await userMessageFrom(userId, a.input) };
   }
@@ -364,6 +394,15 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
     originalMessages = window.at(-1)?.id === patched.assistant.id ? window : [patched.assistant];
     placeholder = patched.assistant;
     fullHistory = patched.history;
+  } else if (start.kind === "retry") {
+    const point = retryPoint(history, start.id);
+    if (!point) {
+      await closeRun(userId, runId, { status: "failed", error: "bad_input" });
+      throw new TurnInputError("retry_not_found");
+    }
+    originalMessages = historyWindow(point.history);
+    fullHistory = point.history;
+    placeholder = { id: point.assistantId ?? createIdGenerator({ prefix: "msg", size: 16 })(), role: "assistant", parts: [] };
   } else {
     const userMessage = start.message;
     if (history.some((m) => m.id === userMessage.id)) {

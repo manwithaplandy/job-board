@@ -81,16 +81,56 @@ async function layout(target: Page | Frame) {
   }, INTERACTIVE);
 }
 
+/** Nodes named per violation in a failure string; the rest are counted. */
+const AXE_NODES_SHOWN = 6;
+
+interface AxeNodeSummary {
+  target: string;
+  /** color-contrast only: what axe measured. */
+  contrast: { ratio: number; expected: string; fg: string; bg: string } | null;
+}
+
+/**
+ * axe's serious and critical violations, one string each: impact, rule, node count, then
+ * each node's target selector and, for color-contrast, the measured ratio, the ratio the
+ * rule wanted and the two colours, so a failure in the CI log says what to fix.
+ */
 async function axeViolations(target: Page | Frame, scope: string | null): Promise<string[]> {
   // evaluate runs through the devtools protocol, so the page's CSP does not block it.
   await target.evaluate(AXE_SOURCE);
   const violations = await target.evaluate(async (sel) => {
-    const axe = (window as unknown as { axe: { run: (ctx: unknown, opts: unknown) => Promise<{ violations: Array<{ id: string; impact: string | null; nodes: unknown[] }> }> } }).axe;
+    type Check = { id: string; data?: { contrastRatio?: number; expectedContrastRatio?: string; fgColor?: string; bgColor?: string } | null };
+    type Node = { target: unknown[]; any?: Check[] };
+    const axe = (window as unknown as { axe: { run: (ctx: unknown, opts: unknown) => Promise<{ violations: Array<{ id: string; impact: string | null; nodes: Node[] }> }> } }).axe;
     const context = sel ? (document.querySelector(sel) ?? document) : document;
     const result = await axe.run(context, { resultTypes: ["violations"] });
-    return result.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }));
+    return result.violations.map((v) => ({
+      id: v.id,
+      impact: v.impact,
+      nodes: v.nodes.map((n) => {
+        const d = (n.any ?? []).find((c) => c.id === "color-contrast")?.data;
+        return {
+          target: n.target.map((t) => (Array.isArray(t) ? t.join(" ") : String(t))).join(" >>> "),
+          contrast:
+            d && typeof d.contrastRatio === "number"
+              ? { ratio: d.contrastRatio, expected: String(d.expectedContrastRatio ?? ""), fg: String(d.fgColor ?? ""), bg: String(d.bgColor ?? "") }
+              : null,
+        };
+      }),
+    }));
   }, scope);
-  return violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.impact} ${v.id} (${v.nodes})`);
+  return violations
+    .filter((v) => v.impact === "serious" || v.impact === "critical")
+    .map((v) => `${v.impact} ${v.id} (${v.nodes.length}): ${describeAxeNodes(v.nodes)}`);
+}
+
+function describeAxeNodes(nodes: readonly AxeNodeSummary[]): string {
+  const shown = nodes.slice(0, AXE_NODES_SHOWN).map((n) => {
+    const c = n.contrast;
+    return c ? `${n.target} ${c.ratio}:1 (${c.fg} on ${c.bg}, needs ${c.expected})` : n.target;
+  });
+  if (nodes.length > AXE_NODES_SHOWN) shown.push(`${nodes.length - AXE_NODES_SHOWN} more`);
+  return shown.join("; ");
 }
 
 async function readLog(page: Page, kind: "intents" | "fallbacks"): Promise<unknown[]> {

@@ -68,7 +68,8 @@ describe("eval-agent.mjs", () => {
     expect(r.err).toBe("");
     expect(r.status).toBe(0);
     expect(r.out).toContain("Spot check dry run (persona senior-backend, one repeat): nothing is run and nothing is spent. 12 cells over 1 model(s).");
-    expect(r.out).toContain("| anthropic/claude-sonnet-5.5 | 4 / 4 / 4 | 62 | 0.85M | 0.10M | $2.74 | $1.98 | yes |");
+    // Fix round 1: uncached, the look-ahead's reserve ($0.1951 for a Sonnet step) stops it short of $2.90.
+    expect(r.out).toContain("| anthropic/claude-sonnet-5.5 | 4 / 4 / 4 | 62 | 0.85M | 0.10M | $2.74 | $1.98 | NO: the run would stop at a cap |");
     expect(r.out).toContain("| --max-usd | US dollars (reported cost) | 2.9 | 2.9 | 2.9 |");
     expect(run("--matrix", "--spot-check", "--dry-run", "--persona", "new-grad").out).toContain("(persona new-grad, one repeat)");
     expect(run("--matrix", "--spot-check", "--dry-run", "--persona", "intern").err).toMatch(/--persona must be one of/);

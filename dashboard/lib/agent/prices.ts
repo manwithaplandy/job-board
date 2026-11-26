@@ -81,6 +81,94 @@ export function isPriced(modelId: string): boolean {
   return Object.hasOwn(MODEL_PRICE_TIERS, modelId);
 }
 
+// ---------------------------------------------------------------------------
+// One call's worst case (PR J7 fix round 1). The eval budget (evals/budget.ts beforeStep)
+// lets a call start only when the spend so far plus this worst case fits under the dollar
+// cap, so no capped run can pass its cap on list prices.
+// ---------------------------------------------------------------------------
+
+/**
+ * The output bound of a call that names no maxOutputTokens: the most any priced model may
+ * return in one call (claude-api reference, cached 2026-11-03: Haiku 5.5 and Sonnet 5.5
+ * both allow up to 128K output tokens). Every eval call names its own (AGENT_LIMITS 4,000;
+ * the judge 2,000), so this is the fallback only.
+ */
+export const MODEL_MAX_OUTPUT_TOKENS = 128_000;
+
+/**
+ * Tokens added to a prompt's serialized size for what the provider wraps around it (the
+ * role and turn markers, the tool-use system prompt the provider adds when tools are sent).
+ */
+export const PROMPT_TOKEN_OVERHEAD = 2_048;
+
+/** A file the prompt names by URL or by provider reference: its size is unknown here. */
+function hasUnboundedPart(value: unknown, seen: Set<object> = new Set()): boolean {
+  if (value instanceof URL) return true;
+  if (typeof value !== "object" || value === null || ArrayBuffer.isView(value)) return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  const o = value as Record<string, unknown>;
+  if ((o.type === "url" && "url" in o) || (o.type === "reference" && "reference" in o)) return true;
+  for (const v of Array.isArray(value) ? value : Object.values(o)) if (hasUnboundedPart(v, seen)) return true;
+  return false;
+}
+
+/**
+ * An upper bound on the input tokens of a call that sends `prompt` and `tools`: the UTF-8
+ * size of their JSON (every token stands for at least one byte of what it encodes; raw
+ * bytes are counted as their base64 length) plus PROMPT_TOKEN_OVERHEAD. Infinity when it
+ * cannot be bounded: a file given by URL or provider reference, or a prompt that does not
+ * serialize. Far above the real count (about 4 bytes a token), which is the point: it never
+ * prices a call low.
+ */
+export function inputTokenBound(prompt: unknown, tools?: unknown): number {
+  if (hasUnboundedPart(prompt) || hasUnboundedPart(tools)) return Number.POSITIVE_INFINITY;
+  let raw = 0;
+  let json: string | undefined;
+  try {
+    json = JSON.stringify([prompt, tools ?? null], (_key, v: unknown) => {
+      if (v instanceof Uint8Array) {
+        raw += Math.ceil(v.byteLength / 3) * 4;
+        return "";
+      }
+      return v;
+    });
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (typeof json !== "string") return Number.POSITIVE_INFINITY;
+  return new TextEncoder().encode(json).length + raw + PROMPT_TOKEN_OVERHEAD;
+}
+
+/**
+ * The most one call of `modelId` can cost at list price, in micro-dollars: every input
+ * token (up to `inputTokensBound`) at the dearest input price of any tier that could apply
+ * (a tier applies when its band starts at or below the bound), and written to the cache
+ * (CACHE_WRITE_MULTIPLIER, dearer than a plain or read token), plus `maxOutputTokens`
+ * (MODEL_MAX_OUTPUT_TOKENS when the call names none) at the dearest output price of those
+ * tiers. Infinity for an unbounded or malformed bound. An unknown model takes `default`;
+ * the eval modes run only priced models.
+ */
+export function worstCaseCallMicros(modelId: string, a: { inputTokensBound: number; maxOutputTokens?: number }): number {
+  const bound = a.inputTokensBound;
+  const output = a.maxOutputTokens ?? MODEL_MAX_OUTPUT_TOKENS;
+  if (!(bound >= 0) || !Number.isFinite(bound) || !(output >= 0) || !Number.isFinite(output)) return Number.POSITIVE_INFINITY;
+  const tiers: readonly PriceTier[] = isPriced(modelId)
+    ? MODEL_PRICE_TIERS[modelId as keyof typeof MODEL_PRICE_TIERS]
+    : [{ upToInputTokens: null, ...PRICE_PER_MTOK_MICROS.default }];
+  let inputPrice = 0;
+  let outputPrice = 0;
+  let bandStart = 0;
+  for (const t of tiers) {
+    if (bandStart > bound) break;
+    inputPrice = Math.max(inputPrice, t.input);
+    outputPrice = Math.max(outputPrice, t.output);
+    if (t.upToInputTokens === null) break;
+    bandStart = t.upToInputTokens + 1;
+  }
+  return (bound * inputPrice * CACHE_WRITE_MULTIPLIER + output * outputPrice) / 1_000_000;
+}
+
 /** One call's tokens. `inputTokens` counts every input token, cache reads and writes included. */
 export interface CallTokens {
   inputTokens: number;

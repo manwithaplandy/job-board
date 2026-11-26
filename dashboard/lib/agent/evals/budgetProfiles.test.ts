@@ -22,6 +22,7 @@ import {
   TOTAL_CAP_SPECS,
   capsFromEnv,
   capsToEnv,
+  dollarReserve,
   parseCaps,
   parseTotalCaps,
   profileCeilings,
@@ -316,5 +317,97 @@ describe("dollar caps never switch off in the paid modes (cost_unknown)", () => 
     expect(() => playCase("third", [0.01])).toThrow(CapExceededError);
     expect(b.report()).toMatch(/cap_exceeded \(cost_unknown/);
     expect(b.report()).toMatch(/\| max_usd \| \$0\.0300 reported before a call came back without its cost/);
+  });
+});
+
+describe("the worst-case look-ahead (PR J7 fix round 1)", () => {
+  const caps = { maxCases: 10, maxSteps: 8, maxTokens: 10_000_000, maxUsd: 1, maxMinutes: 60 };
+
+  test("the reserve is the call's worst case, never less than the dearest call so far; a bad worst case is Infinity", () => {
+    expect(dollarReserve(undefined, 0.2)).toBe(0.2);
+    expect(dollarReserve(0.05, 0.2)).toBe(0.2);
+    expect(dollarReserve(0.3, 0.2)).toBe(0.3);
+    expect(dollarReserve(Number.POSITIVE_INFINITY, 0)).toBe(Number.POSITIVE_INFINITY);
+    expect(dollarReserve(Number.NaN, 0)).toBe(Number.POSITIVE_INFINITY);
+    expect(dollarReserve(-1, 0)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  for (const profile of CAP_PROFILES) {
+    test(`${profile}: a call whose worst case could pass the cap is refused before it is sent, from the first call on`, () => {
+      const b = profileBudget(profile, caps);
+      b.startCase();
+      b.startTurn();
+      // Nothing spent yet, but the worst case alone is above $1.
+      expect(() => b.beforeStep({ worstCaseUsd: 1.01 })).toThrow(/max_usd.*worst case \$1\.0100/);
+      expect(b.tripped?.cap).toBe("max_usd");
+      expect(b.totals.steps).toBe(0);
+    });
+  }
+
+  test("spend plus the worst case must fit: exactly at the cap goes, a cent over does not", () => {
+    const b = profileBudget("matrix", caps);
+    b.startCase();
+    b.startTurn();
+    b.beforeStep({ worstCaseUsd: 0.5 });
+    b.recordStep(usage(1_000, 100, 0.5));
+    b.beforeStep({ worstCaseUsd: 0.25 });
+    b.recordStep(usage(1_000, 100, 0.25));
+    // $0.75 spent; the dearest call so far ($0.50) is the floor of the reserve, so a $0.10 worst case reserves $0.50.
+    expect(() => b.beforeStep({ worstCaseUsd: 0.1 })).toThrow(/max_usd/);
+    const c = profileBudget("matrix", caps);
+    c.startCase();
+    c.startTurn();
+    c.beforeStep({ worstCaseUsd: 0.25 });
+    c.recordStep(usage(1_000, 100, 0.25));
+    c.beforeStep({ worstCaseUsd: 0.75 });
+    c.recordStep(usage(1_000, 100, 0.2));
+    expect(c.tripped).toBeNull();
+    // $0.45 spent + $0.56 > $1.
+    expect(() => c.beforeStep({ worstCaseUsd: 0.56 })).toThrow(/max_usd/);
+  });
+
+  test("an unbounded worst case (Infinity) refuses the call", () => {
+    const b = profileBudget("judge", caps);
+    b.startCase();
+    b.startTurn();
+    expect(() => b.beforeStep({ worstCaseUsd: Number.POSITIVE_INFINITY })).toThrow(/max_usd/);
+  });
+
+  test("the whole-command total holds the same look-ahead, so the second model stops before passing the total", () => {
+    const total = totalBudget({ maxTotalTokens: 10_000_000, maxTotalUsd: 1 });
+    const first = profileBudget("matrix", { ...caps, maxUsd: 3 }, total);
+    first.startCase();
+    first.startTurn();
+    first.beforeStep({ worstCaseUsd: 0.7 });
+    first.recordStep(usage(1_000, 100, 0.7));
+    const second = profileBudget("matrix", { ...caps, maxUsd: 3 }, total);
+    second.startCase();
+    second.startTurn();
+    // Its own cap ($3) has room; the total ($0.70 + $0.31 > $1) does not.
+    expect(() => second.beforeStep({ worstCaseUsd: 0.31 })).toThrow(/whole command: .*worst case/);
+    expect(total.tripped?.cap).toBe("max_usd");
+    expect(total.totals.costUsd).toBeLessThanOrEqual(1);
+  });
+
+  test("a pass's stages, each capped at what is left, can never spend more than the budget together", () => {
+    // Three stages at the pass's caps (passRemaining), each spending until its look-ahead stops it.
+    const spent: number[] = [];
+    for (const call of [0.4, 0.3, 0.2]) {
+      const left = passRemaining(1, spent);
+      if (left <= 0) break;
+      const stage = profileBudget("matrix", { ...caps, maxUsd: left });
+      stage.startCase();
+      stage.startTurn();
+      for (;;) {
+        try {
+          stage.beforeStep({ worstCaseUsd: call });
+        } catch {
+          break;
+        }
+        stage.recordStep(usage(1_000, 100, call));
+      }
+      spent.push(stage.totals.costUsd);
+    }
+    expect(spent.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1);
   });
 });

@@ -5,6 +5,7 @@ import { PERSONA_IDS } from "@/lib/agent/evals/personas";
 import { SCENARIO_IDS } from "@/lib/agent/evals/scenarios";
 import { PRICE_PER_MTOK_MICROS } from "@/lib/agent/budget";
 import { profileDefaults, TOTAL_CAP_SPECS, parseTotalCaps } from "@/lib/agent/evals/budget";
+import { JUDGE_MAX_OUTPUT_TOKENS } from "@/lib/agent/evals/judge";
 import {
   MATRIX_PERSONAS,
   MATRIX_SCENARIOS,
@@ -14,8 +15,14 @@ import {
   UnpricedModelError,
   assertDefaultModelOrAllowed,
   assertPricedModels,
+  JUDGE_OUTPUT_LIMIT,
+  callReserveMicros,
   estimateJudge,
+  estimatePass,
   formatPassDryRun,
+  fullWindowReserveMicros,
+  passStageFits,
+  runReserveMicros,
   isMatrixPersona,
   nonDefaultModels,
   spotCheckPlan,
@@ -177,7 +184,7 @@ describe("the dry run", () => {
     expect(out).toMatch(/NO: the run would stop at the total cap/);
   });
 
-  test("the spot check's dry run: 12 Sonnet cells within its own $2.90 cap", () => {
+  test("the spot check's dry run: 12 Sonnet cells; uncached, the look-ahead stops it short of its $2.90 cap (fix round 1)", () => {
     const out = formatMatrixDryRun({
       models: ["anthropic/claude-sonnet-5.5"],
       caps: profileDefaults("spot-check"),
@@ -187,8 +194,39 @@ describe("the dry run", () => {
       title: "Spot check dry run",
     });
     expect(out).toMatch(/^Spot check dry run: nothing is run and nothing is spent\. 12 cells over 1 model\(s\)/);
-    expect(out).toContain("| anthropic/claude-sonnet-5.5 | 4 / 4 / 4 | 62 | 0.85M | 0.10M | $2.74 | $1.98 | yes |");
+    // $2.74 uncached plus a $0.1951 reserve (a 15k-token Sonnet step) is above $2.90: the last cell or so would not run.
+    expect(out).toContain("| anthropic/claude-sonnet-5.5 | 4 / 4 / 4 | 62 | 0.85M | 0.10M | $2.74 | $1.98 | NO: the run would stop at a cap |");
+    expect(out).toContain("the dearest call reserves $0.1951, so the run may stop once it has spent");
+    expect(out).toContain("more than $2.7049 of its $2.90 cap: $0.1951 (6.5% of $3) of headroom");
     expect(out).toContain("| --max-usd | US dollars (reported cost) | 2.9 | 2.9 | 2.9 |");
+  });
+
+  test("fix round 1: the look-ahead's reserve at the plan's call sizes, and when it would stop a run", () => {
+    expect(JUDGE_OUTPUT_LIMIT).toBe(JUDGE_MAX_OUTPUT_TOKENS);
+    const haiku = AGENT_EVAL_DEFAULT_MODEL;
+    // A 15k-token agent step serializes to about 62K bytes: Haiku's short tier, 4,000 output tokens.
+    expect(callReserveMicros(haiku, "agent")).toBeCloseTo(((15_000 * 4 + 2_048) * 100_000 * 1.25 + 4_000 * 500_000) / 1e6, 6);
+    expect(callReserveMicros(haiku, "judge")).toBeCloseTo(((12_000 * 4 + 2_048) * 100_000 * 1.25 + 2_000 * 500_000) / 1e6, 6);
+    expect(runReserveMicros(haiku, ["agent", "rerender"])).toBe(callReserveMicros(haiku, "agent"));
+    // A full history window takes Haiku's long tier.
+    expect(fullWindowReserveMicros(haiku)).toBeCloseTo(((160_000 + 2_048) * 500_000 * 1.25 + 4_000 * 2_500_000) / 1e6, 6);
+    const out = formatMatrixDryRun({ models: [haiku], caps: profileDefaults("matrix"), totals: parseTotalCaps({}, "matrix") });
+    expect(out).toContain("the dearest call reserves $0.0098");
+    expect(out).toContain("reserves $0.1113 (3.7% of $3)");
+    // $2.05 fits $2.50 with its reserve; at $2.06 it does not.
+    expect(formatMatrixDryRun({ models: [haiku], caps: { ...profileDefaults("matrix"), maxUsd: 2.06 }, totals: null })).toMatch(
+      /\| anthropic\/claude-haiku-5\.5 \| 60 \/ 60 \/ 60 \| .* NO: the run would stop at a cap \|/,
+    );
+  });
+
+  test("fix round 1: each pass stage fits its cap (what is left) with its reserve, uncached and cached", () => {
+    const stages = estimatePass();
+    const uncached = passStageFits(stages, 3, (c) => c.costMicros);
+    expect(uncached.map((f) => f.capUsd)).toEqual([3, 0.94, 0.3]);
+    expect(uncached.every((f) => f.fits)).toBe(true);
+    expect(passStageFits(stages, 3, (c) => c.cachedCostMicros).map((f) => f.capUsd)).toEqual([3, 1.5, 1]);
+    // At $2.50 the matrix still fits its cap; the injection, with $0.44 left, does not.
+    expect(passStageFits(stages, 2.5, (c) => c.costMicros).map((f) => f.fits)).toEqual([true, false, false]);
   });
 
   test("the pass's dry run prints each stage and the total against the $3 budget", () => {
@@ -198,11 +236,18 @@ describe("the dry run", () => {
     expect(out).toContain("| judge | anthropic/claude-haiku-5.5 | up to 144 pairs | 144 | 1.73M | 0.06M | $0.20 | $0.20 |");
     expect(out).toContain("| pass total | | | 1434 | 19.82M | 1.84M | $2.90 | $2.00 |");
     expect(out).toContain("Pass total against the budget: $2.90 uncached (within $3.00: yes), $2.00 cached (within: yes).");
-    expect(out).not.toMatch(/uncached estimate is above the budget/);
+    // Fix round 1: every stage, with its look-ahead reserve, within what is left when it starts.
+    expect(out).toContain("| matrix | $0.0098 | $2.0618 vs $3.00: fits | $1.4924 vs $3.00: fits |");
+    expect(out).toContain("| injection | $0.0098 | $0.6578 vs $0.94: fits | $0.3270 vs $1.50: fits |");
+    expect(out).toContain("| judge | $0.0073 | $0.2089 vs $0.30: fits | $0.2089 vs $1.00: fits |");
+    expect(out).toContain("Every stage completes within the budget: uncached yes, cached yes.");
+    expect(out).toContain("a reserve of $0.1113), every stage would complete uncached: yes.");
+    expect(out).not.toMatch(/Uncached, a stage would reach its cap/);
     // A lowered budget the uncached pass does not fit: it says so, and how the cap still holds.
     const low = formatPassDryRun({ budgetUsd: 2.5 });
     expect(low).toContain("$2.90 uncached (within $2.50: NO), $2.00 cached (within: yes)");
-    expect(low).toMatch(/The cap still holds: each stage's dollar caps are what is left/);
+    expect(low).toContain("Every stage completes within the budget: uncached NO, cached yes.");
+    expect(low).toMatch(/The cap still holds: the stage stops \(cap_exceeded\) before a call that could/);
   });
 
   test("PR J7: the re-render-only dry run prices only re-render cells, at the source run's recorded surface counts", () => {

@@ -111,7 +111,15 @@ function mapCaps(f: (s: CapSpec) => number, specs: Record<CapKey, CapSpec> = CAP
 // - spot-check (--matrix --spot-check): Sonnet 5.5, one persona and one repeat, all 4
 //   scenarios in all 3 variants (12 cells, 34 live calls and 28 re-render calls), about
 //   0.95M tokens and $2.74 uncached ($1.75 with the prompt cache): $2.90 by default and
-//   at most, so even the uncached estimate fits under $3 with a little room.
+//   at most. Since fix round 1's look-ahead reserves a Sonnet step's worst case (about
+//   $0.20 at the plan's call size) before each call, an uncached spot check may stop about
+//   one cell short of the end; with the prompt cache working it completes.
+//
+// The look-ahead (PR J7 fix round 1, RunBudget.beforeStep): every capped mode, and each
+// stage of a pass, starts a call only when the spend so far plus that call's worst case at
+// list price (prices.ts worstCaseCallMicros, from budgetMiddleware.ts) fits under the
+// dollar cap, never reserving less than the dearest call so far. So no run passes its cap,
+// and no pass its budget, at list prices (OpenRouter's are unverified).
 //
 // Dollar caps never switch off in any mode: a model call that reports no OpenRouter cost
 // trips the run as cost_unknown (PROFILE_REQUIRES_COST). The golden run used to fall back
@@ -442,6 +450,17 @@ export function readStepUsage(usage: unknown, providerMetadata: unknown): StepUs
   };
 }
 
+/**
+ * A call's dollar reserve (RunBudget.beforeStep): its worst case when given, never less
+ * than the dearest call so far; a worst case that is given but not a finite, non-negative
+ * number is Infinity, so the call is refused rather than priced low.
+ */
+export function dollarReserve(worstCaseUsd: number | undefined, dearestSoFarUsd: number): number {
+  if (worstCaseUsd === undefined) return dearestSoFarUsd;
+  if (!Number.isFinite(worstCaseUsd) || worstCaseUsd < 0) return Number.POSITIVE_INFINITY;
+  return Math.max(worstCaseUsd, dearestSoFarUsd);
+}
+
 /** How the dollar cap stands: undecided until the first step, then fixed for the run. */
 export type UsdEnforcement = "pending" | "enforced" | "not_enforced";
 
@@ -606,9 +625,17 @@ export class RunBudget {
    * Before every model call. Refuses (and trips the run) when it is tripped, when a call's
    * usage is still unread, past the clock, past max_steps for the turn, or when the next
    * call could pass a cap: tokens used plus the last call's input plus this call's output
-   * reserve, or dollars spent plus the dearest call so far.
+   * reserve, or dollars spent plus this call's dollar reserve.
+   *
+   * The dollar reserve (PR J7 fix round 1) is `worstCaseUsd`, this call's worst case at
+   * list price (budgetMiddleware.ts, from prices.ts worstCaseCallMicros), and never less
+   * than the dearest call so far; a worstCaseUsd that is given but not a finite,
+   * non-negative number reserves Infinity (the call is refused). Without one (a direct
+   * caller) the reserve is the dearest call so far, as before. It applies unless the run
+   * found the dollar cap not enforced (a bare RunBudget whose first call reported no cost);
+   * every profile requires a cost, so it applies from the first call on.
    */
-  beforeStep(a: { maxOutputTokens?: number } = {}): void {
+  beforeStep(a: { maxOutputTokens?: number; worstCaseUsd?: number } = {}): void {
     this.throwIfTripped();
     if (this.inFlight > 0) throw this.trip("usage_unknown", "a model call started before the previous call's usage was read");
     this.checkClock();
@@ -620,8 +647,10 @@ export class RunBudget {
     if (used + reserve > this.caps.maxTokens) {
       throw this.trip("max_tokens", `${used} tokens used; the next call (up to ${reserve}) could pass the cap of ${this.caps.maxTokens}`);
     }
-    if (this.usd === "enforced" && this.costUsd + this.maxStepCostUsd > this.caps.maxUsd) {
-      throw this.trip("max_usd", `$${this.costUsd.toFixed(4)} spent; the next call (up to $${this.maxStepCostUsd.toFixed(4)}) could pass the cap of $${this.caps.maxUsd}`);
+    const usdReserve = dollarReserve(a.worstCaseUsd, this.maxStepCostUsd);
+    if (this.usd !== "not_enforced" && this.costUsd + usdReserve > this.caps.maxUsd) {
+      const what = a.worstCaseUsd === undefined ? "up to" : "worst case";
+      throw this.trip("max_usd", `$${this.costUsd.toFixed(4)} spent; the next call (${what} $${usdReserve.toFixed(4)}) could pass the cap of $${this.caps.maxUsd}`);
     }
     if (this.parent) {
       // The whole command's caps, checked last: a refusal there trips this run through the

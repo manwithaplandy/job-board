@@ -338,16 +338,27 @@ export function profileBudget(profile: CapProfile, caps: EvalCaps, parent: RunBu
   return new RunBudget(caps, now, parent, PROFILE_REQUIRES_COST[profile]);
 }
 
-/** One model call's usage: tokens, and the provider's reported cost in dollars when it gave one. */
+/**
+ * One model call's usage: tokens, and the provider's reported cost in dollars when it gave
+ * one. The cache counts (PR J7) are part of inputTokens; 0 when the provider reported none.
+ */
 export interface StepUsage {
   inputTokens: number;
   outputTokens: number;
   costUsd: number | null;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 function tokenTotal(v: unknown): number | null {
   const n = typeof v === "object" && v !== null && "total" in v ? (v as { total: unknown }).total : v;
   return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
+/** A cache count from the provider's input-token detail (cacheRead, cacheWrite); 0 when missing or malformed. */
+function cacheCount(v: unknown, key: "cacheRead" | "cacheWrite"): number {
+  const n = typeof v === "object" && v !== null && key in v ? (v as Record<string, unknown>)[key] : undefined;
+  return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : 0;
 }
 
 /**
@@ -363,7 +374,13 @@ export function readStepUsage(usage: unknown, providerMetadata: unknown): StepUs
   if (inputTokens === null || outputTokens === null) return null;
   const cost = (providerMetadata as { openrouter?: { usage?: { cost?: unknown } } } | undefined)?.openrouter?.usage?.cost;
   const costUsd = typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null;
-  return { inputTokens, outputTokens, costUsd };
+  return {
+    inputTokens,
+    outputTokens,
+    costUsd,
+    cacheReadTokens: Math.min(inputTokens, cacheCount(u.inputTokens, "cacheRead")),
+    cacheWriteTokens: Math.min(inputTokens, cacheCount(u.inputTokens, "cacheWrite")),
+  };
 }
 
 /** How the dollar cap stands: undecided until the first step, then fixed for the run. */
@@ -375,6 +392,9 @@ export interface BudgetTotals {
   maxStepsInTurn: number;
   inputTokens: number;
   outputTokens: number;
+  /** Of inputTokens: read from and written to the prompt cache (PR J7), as the provider reported them. */
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   costUsd: number;
   elapsedMs: number;
 }
@@ -399,6 +419,8 @@ export class RunBudget {
   private inFlight = 0;
   private inputTokens = 0;
   private outputTokens = 0;
+  private cacheReadTokens = 0;
+  private cacheWriteTokens = 0;
   private costUsd = 0;
   private lastInputTokens = 0;
   private maxStepCostUsd = 0;
@@ -446,6 +468,8 @@ export class RunBudget {
       maxStepsInTurn: this.maxStepsInTurn,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
+      cacheReadTokens: this.cacheReadTokens,
+      cacheWriteTokens: this.cacheWriteTokens,
       costUsd: this.costUsd,
       elapsedMs: this.now() - this.startedAt,
     };
@@ -574,6 +598,8 @@ export class RunBudget {
     }
     this.inputTokens += usage.inputTokens;
     this.outputTokens += usage.outputTokens;
+    this.cacheReadTokens += usage.cacheReadTokens ?? 0;
+    this.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
     this.lastInputTokens = usage.inputTokens;
     if (usage.costUsd === null && this.requireCost) {
       this.trip("cost_unknown", "a model call reported no OpenRouter cost, so the dollar caps could not be enforced");
@@ -614,7 +640,7 @@ export class RunBudget {
       "|---|---|---|",
       `| max_cases | ${t.cases} | ${this.caps.maxCases} |`,
       `| max_steps (most in one turn; ${t.steps} in all) | ${t.maxStepsInTurn} | ${this.caps.maxSteps} |`,
-      `| max_tokens (in ${t.inputTokens} / out ${t.outputTokens}) | ${t.inputTokens + t.outputTokens} | ${this.caps.maxTokens} |`,
+      `| max_tokens (in ${t.inputTokens} / out ${t.outputTokens}; of the input, cache read ${t.cacheReadTokens} / written ${t.cacheWriteTokens}) | ${t.inputTokens + t.outputTokens} | ${this.caps.maxTokens} |`,
       `| max_usd | ${usd} | $${this.caps.maxUsd} |`,
       `| max_minutes | ${(t.elapsedMs / 60_000).toFixed(1)} | ${this.caps.maxMinutes} |`,
     ].join("\n");

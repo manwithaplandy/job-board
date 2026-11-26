@@ -32,6 +32,7 @@ import { variantGrammar } from "@/lib/agent/context";
 import type { GatheredData } from "@/lib/agent/gathered";
 import { parseGathered } from "@/lib/agent/gatheredSchema";
 import { agentModel } from "@/lib/agent/provider";
+import { withPromptCaching } from "@/lib/agent/cache";
 import { chargeStep, finishRun, RerenderInProgressError, startRun } from "@/lib/agent/runs";
 import { getSurface, type StoredSurface } from "@/lib/agent/surfaces/store";
 import { SurfacePayloadV1Schema } from "@/lib/agent/surfaces/v1/blocks";
@@ -211,7 +212,10 @@ export async function rerenderSurface(userId: string, a: RerenderArgs, deps: Rer
     const settled: StopCondition<ToolSet> = () => stored.id !== null || stopReason !== null;
     try {
       await generateText({
-        model: (deps.model ?? agentModel)(modelId),
+        // Prompt caching (PR J7, lib/agent/cache.ts): one breakpoint on the instructions,
+        // so the present tool's schema and the fixed instructions (the same for every
+        // re-render in this variant) are cached. The data block differs per surface: no tail.
+        model: withPromptCaching((deps.model ?? agentModel)(modelId), { tail: false }),
         instructions: rerenderInstructions(a.variant),
         messages: [
           {

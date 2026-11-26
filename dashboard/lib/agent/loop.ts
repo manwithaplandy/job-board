@@ -59,6 +59,7 @@ import { buildInstructions } from "@/lib/agent/context";
 import { emptyGathered } from "@/lib/agent/gathered";
 import { MESSAGE_STATUSES, type AgentUIMessage, type MessageStatus } from "@/lib/agent/messageCodec";
 import { agentModel } from "@/lib/agent/provider";
+import { withPromptCaching } from "@/lib/agent/cache";
 import { chargeStep, finishRun, saveMessages, startRun } from "@/lib/agent/runs";
 import type { AgentThread } from "@/lib/agent/threads";
 import { loadMessages } from "@/lib/agent/threads";
@@ -466,7 +467,10 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
   // only once both streams exist, so it never races this cleanup.
   try {
     const result = streamText({
-      model,
+      // Prompt caching (PR J7, lib/agent/cache.ts): a breakpoint on the instructions (so
+      // tools + instructions are cached) and one on each call's last message (so each step
+      // reads the turn so far). Cost only: what the model is told does not change.
+      model: withPromptCaching(model, { tail: true }),
       instructions,
       messages: modelMessages,
       tools,

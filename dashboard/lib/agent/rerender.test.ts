@@ -136,6 +136,18 @@ describe("rerenderSurface", () => {
     expect(JSON.stringify(call.prompt)).toContain("Layout variant: 2.");
   });
 
+  test("prompt caching: one breakpoint on the instructions, none on the per-surface data (PR J7)", async () => {
+    const model = scripted([[presentCall(V2_BROKEN)], [presentCall(V2)]]);
+    await run(model, 2).out;
+    // The repair step too: the same system message, breakpoint and all, on both calls.
+    expect(model.doGenerateCalls).toHaveLength(2);
+    const [first, second] = model.doGenerateCalls;
+    expect(first.prompt[0]).toMatchObject({ role: "system", providerOptions: { openrouter: { cacheControl: { type: "ephemeral" } } } });
+    expect(JSON.stringify(second.prompt[0])).toBe(JSON.stringify(first.prompt[0]));
+    expect(JSON.stringify(second.tools)).toBe(JSON.stringify(first.tools));
+    for (const call of model.doGenerateCalls) expect(JSON.stringify(call.prompt.slice(1))).not.toContain("cacheControl");
+  });
+
   test("the stored row's gathered data deep-equals the original's, and it is a re-render, not an update", async () => {
     const model = scripted([[presentCall(V2, { surfaceId: SOURCE })]]);
     await run(model, 2).out;

@@ -1,9 +1,10 @@
 // The judge (plan Task 2.13): the prompt is blind to the variant, the order is random and
 // mapped back, a bad reply is a tie, pairs come from matching matrix cells, and the hand
 // check samples ceil(n * 0.1). A mock model stands in; no network.
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import {
@@ -20,8 +21,12 @@ import {
   surfaceText,
   tallyJudge,
   type JudgeResult,
+  type RenderedText,
 } from "@/lib/agent/evals/judge";
 import { parseRecording, type Recording } from "@/lib/agent/evals/recording";
+import { matrixPairRunKey, readMatrixRun } from "@/lib/agent/evals/evalFiles";
+import { finishRun, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
+import { matrixRecordingPath } from "@/lib/agent/evals/matrix";
 
 const EVALS = path.join(process.cwd(), "lib", "agent", "evals");
 const readJson = (...p: string[]) => JSON.parse(readFileSync(path.join(EVALS, ...p), "utf8")) as unknown;
@@ -181,6 +186,64 @@ describe("pairs and the hand check", () => {
     const B = "20261126T020000Z";
     const pairs = judgePairs([cell(1, { evalRun: A }), cell(2, { evalRun: B }), cell(3, { evalRun: A })]);
     expect(pairs.map((p) => [p.a.evalRun, p.a.variant, p.b.evalRun, p.b.variant])).toEqual([[A, 1, A, 3]]);
+  });
+
+  describe("PR J7 fix round 1: a rerender-only run pairs with its source run's variant 1", () => {
+    const A = "20261126T010000Z";
+    const B = "20261126T020000Z";
+    let dir: string;
+    beforeEach(() => {
+      dir = mkdtempSync(path.join(os.tmpdir(), "judge-rerender-"));
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    /** A full run A with variant 1 only, and a rerender-only run B of it with variants 2 and 3, read as the judge reads B. */
+    function readB() {
+      const root = runRoot("matrix", dir);
+      const put = (run: string, r: Recording) => {
+        const file = path.join(root, run, matrixRecordingPath(r));
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, JSON.stringify(r));
+      };
+      finishRun(startRun(root, { runId: A, mode: "matrix", models: [cell(1).model], matrixRun: null }), "complete");
+      put(A, cell(1, { evalRun: A, source: "live" }));
+      finishRun(startRun(root, { runId: B, mode: "matrix", models: [cell(1).model], matrixRun: null, kind: "rerender-only", sourceRun: A }), "complete");
+      put(B, cell(2, { evalRun: B }));
+      put(B, cell(3, { evalRun: B }));
+      const run = selectRun(root, B)!;
+      return { run, read: readMatrixRun(root, run) };
+    }
+
+    test("with the render smoke's words, all three pairs (1-2, 1-3, 2-3) are judged", () => {
+      const { run, read } = readB();
+      expect(read.unreadable).toEqual([]);
+      const pairs = judgePairs(read.items, matrixPairRunKey(run));
+      expect(pairs.map((p) => [p.a.evalRun, p.a.variant, p.b.evalRun, p.b.variant])).toEqual([
+        [A, 1, B, 2],
+        [A, 1, B, 3],
+        [B, 2, B, 3],
+      ]);
+      const rendered: RenderedText = (r, i) => (r.variant === 3 && i === 0 ? "Fit 94" : null);
+      expect(pairs.filter((p) => !awaitsRender(p.a, rendered) && !awaitsRender(p.b, rendered))).toHaveLength(3);
+      // Without the key, as before the fix: only 2-3, and variant 1 is never compared.
+      expect(judgePairs(read.items).map((p) => [p.a.variant, p.b.variant])).toEqual([[2, 3]]);
+    });
+
+    test("without the render smoke, the variant 1 / 2 pair is still judged", () => {
+      const { run, read } = readB();
+      const ready = judgePairs(read.items, matrixPairRunKey(run)).filter((p) => !awaitsRender(p.a, null) && !awaitsRender(p.b, null));
+      expect(ready.map((p) => [p.a.evalRun, p.a.variant, p.b.evalRun, p.b.variant])).toEqual([[A, 1, B, 2]]);
+    });
+
+    test("the key changes nothing for a full run", () => {
+      const key = matrixPairRunKey({ runId: A, kind: "full", sourceRun: null });
+      expect(key(cell(1, { evalRun: A }))).toBe(A);
+      expect(key(cell(1, { evalRun: B }))).toBe(B);
+      // A rerender-only run maps only its own source's id.
+      const rerender = matrixPairRunKey({ runId: B, kind: "rerender-only", sourceRun: A });
+      expect(rerender(cell(1, { evalRun: A }))).toBe(B);
+      expect(rerender(cell(1, { evalRun: "20261126T030000Z" }))).toBe("20261126T030000Z");
+    });
   });
 
   test("the queue takes repeats in turn: the default 144 is the first two repeats of the full matrix of two models", () => {

@@ -78,6 +78,17 @@ export function readMatrixRun(root: string, run: Pick<EvalRun, "runId" | "kind" 
 }
 
 /**
+ * The run each recording of readMatrixRun(`run`) pairs under, for the judge (judge.ts
+ * judgePairs; PR J7 fix round 1). A rerender-only run's variant 1 recordings carry its
+ * source run's id: they pair under the rerender-only run's id, with its variants 2 and 3,
+ * so the judge builds 1-2, 1-3 and 2-3. Any other recording pairs under its own run. The
+ * files on disk keep their own ids, so the readers still refuse a file from another run.
+ */
+export function matrixPairRunKey(run: Pick<EvalRun, "runId" | "kind" | "sourceRun">): (r: Recording) => string {
+  return (r) => (run.kind === "rerender-only" && run.sourceRun !== null && r.evalRun === run.sourceRun ? run.runId : (r.evalRun ?? ""));
+}
+
+/**
  * The variant 1 recordings of the matrix run `sourceRun` (under `root`) that a
  * rerender-only run re-renders and pairs with (PR J7): only the <model>/v1/ folders.
  */

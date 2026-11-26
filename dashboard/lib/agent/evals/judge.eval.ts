@@ -31,7 +31,7 @@ import { assertEvalMode, capsFromEnv, profileBudget } from "@/lib/agent/evals/bu
 import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 import { awaitsRender, handCheckCsv, judgePair, judgePairs, judgeQueue, judgeTable, sampleForHandCheck, type JudgeResult, type RenderedText } from "@/lib/agent/evals/judge";
 import { matrixRecordingPath } from "@/lib/agent/evals/matrix";
-import { judgeFiles, readMatrixRun } from "@/lib/agent/evals/evalFiles";
+import { judgeFiles, matrixPairRunKey, readMatrixRun } from "@/lib/agent/evals/evalFiles";
 import { describeRun, finishRun, newRunId, passIdFromEnv, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
 import { readRenderResults, renderedTextIndex } from "@/lib/agent/evals/renderResults";
 
@@ -112,7 +112,7 @@ describe("judge", () => {
       // A rerender-only run pairs its variants 2 and 3 with its source run's variant 1 (PR J7).
       const read = readMatrixRun(runRoot("matrix"), run);
       if (read.unreadable.length > 0) notes.push(`${read.unreadable.length} matrix file(s) did not parse or carry another run's id, and were left out`);
-      const all = judgePairs(read.items);
+      const all = judgePairs(read.items, matrixPairRunKey(run));
       if (all.length === 0) throw new Error(`eval: matrix run ${run.runId} has no pairs to judge`);
       const ready = all.filter((p) => !awaitsRender(p.a, rendered) && !awaitsRender(p.b, rendered));
       if (ready.length < all.length) {

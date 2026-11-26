@@ -367,8 +367,11 @@ its own credit limit set in OpenRouter, as an outer guard beyond the caps below.
 Since PR J7 the eval is sized to Andrew's limit, "max $2-3 per pass total, ideally without
 compromising quality": Haiku 5.5 (`AGENT_EVAL_DEFAULT_MODEL`) is the default model of
 every mode, the judge included; the agent loop and the re-render use the prompt cache; and
-no mode can spend more than $3 on its own. Production's model (`AGENT_MODEL_DEFAULT`,
-Sonnet 5.5) is unchanged.
+no mode can spend more than $3 on its own. That holds because every mode, the golden run
+included (PR J7 fix round 1), stops at the first call that reports no cost, runs only
+models with a row in the price table, and before each call reserves that call's worst
+case, so a call that could pass a dollar cap never starts (at list prices; see the caps
+below). Production's model (`AGENT_MODEL_DEFAULT`, Sonnet 5.5) is unchanged.
 
 ```
 python tools/lifecycle_test_db.py --postgres-major 17 --allow-env OPENROUTER_API_KEY -- \
@@ -388,12 +391,12 @@ uncached and cached, and the caps, and spends nothing):
 
 | Command | What it does |
 |---|---|
-| `eval:agent -- --pass [--max-usd <n>]` | One full pass on Haiku 5.5 under one budget, $3 by default and at most: the matrix, then the injection set, then the judge over that matrix run. Each stage's dollar caps are what is left after the reported cost of the stages before it; a stage that stops, reports no cost, or a budget with less than a cent left stops the pass. Every `run.json` of the pass carries the pass id, and the end prints the pass's reported spend against its budget. |
+| `eval:agent -- --pass [--max-usd <n>]` | One full pass on Haiku 5.5 under one budget, $3 by default and at most: the matrix, then the injection set, then the judge over that matrix run. Each stage's dollar caps are what is left after the reported cost of the stages before it; a stage that stops, reports no cost, or a budget with less than a cent left stops the pass. Every `run.json` of the pass carries the pass id and the pass's `--max-usd`, and the end prints the pass's reported spend against it ("at least" when a stage stopped on a call whose cost or usage it could not read). |
 | `npm run test:render-smoke` (free) | The render smoke over the latest complete matrix and injection runs, before the judge reads variant 3 (below). In a pass, the judge runs without it and judges the variant 1 and 2 pairs only (60 for a one-model matrix). |
-| `npm run eval:summary` (free) | The per-variant summary; for a matrix run from a pass it adds the pass's spend against $3. |
-| `eval:agent -- --matrix --spot-check [--persona <id>]` | The opt-in Sonnet 5.5 spot check, never part of a pass: one persona (`senior-backend` unless named), one repeat, all 4 scenarios in all 3 variants (12 cells), $2.90 at most. Its run (`run.json` kind `spot-check`) is read only when named with `--run`. |
+| `npm run eval:summary` (free) | The per-variant summary; for a matrix run from a pass it adds the pass's spend against that pass's `--max-usd` ("at least" as above; a pass recorded before fix round 1 shows the $3 ceiling, labelled as such). |
+| `eval:agent -- --matrix --spot-check [--persona <id>]` | The opt-in Sonnet 5.5 spot check, never part of a pass: one persona (`senior-backend` unless named), one repeat, all 4 scenarios in all 3 variants (12 cells), $2.90 at most. Its run (`run.json` kind `spot-check`) is read only when named with `--run`. Uncached, its estimate plus the look-ahead's reserve ($2.74 + $0.20) is over $2.90, so it may stop about one cell short; with the cache working it fits ($1.98). |
 | `eval:agent -- --matrix --rerender-only --run <matrix run id>` | Variants 2 and 3 again without replaying variant 1: every recorded variant 1 surface of that complete full matrix run is written into the throwaway database and re-rendered from its stored gathered data, on that run's models, into a new matrix run (`run.json` kind `rerender-only`, `sourceRun` the run re-rendered). Only re-render calls are spent; readers pair its variants 2 and 3 with the source's variant 1. A non-Haiku source needs `--allow-non-haiku`. |
-| `eval:agent -- --variant <1\|2\|3> [--model <id>]` | The golden scenarios alone (12 cases), Haiku 5.5 unless `--model` names another. |
+| `eval:agent -- --variant <1\|2\|3> [--model <id>] [--allow-non-haiku]` | The golden scenarios alone (12 cases), Haiku 5.5 unless `--model` names another. `--model` must name a priced model, and any model but Haiku 5.5 also needs `--allow-non-haiku` (exit 2 otherwise, dry run included). A Sonnet 5.5 golden run is estimated at $3.67 uncached, so it fits its $2 default (or the $3 ceiling) only with the cache working ($1.80). |
 | `eval:agent -- --matrix`, `--injection`, `--judge [--run <id>]` | Each stage of the pass on its own, under its own caps. A matrix or injection run on any model but Haiku 5.5 needs `--allow-non-haiku` (exit 2 otherwise, dry run included); a full Sonnet matrix does not fit the $3 ceiling. |
 
 Every run is capped, and the caps fail closed. A flag may lower a cap; a value above its
@@ -411,17 +414,30 @@ ceiling is refused before anything runs. The golden run's caps:
   token or dollar cap. The first cap reached stops the whole run: the case in progress
   writes no recording, later cases are skipped, the run is reported as `cap_exceeded`
   with the cap, the usage table so far is printed, and the command exits non-zero.
+- The dollar look-ahead (PR J7 fix round 1): before each call the budget reserves that
+  call's worst case, and the call starts only if the spend so far plus the reserve fits
+  under the cap (and under a pass's or a command's whole budget). The worst case
+  (`worstCaseCallMicros` in `lib/agent/prices.ts`) takes the prompt's serialized size in
+  bytes, plus 2,048, as its input tokens, priced at the dearest tier that could apply
+  and all as cache writes (1.25×), plus the call's whole output limit (128K if it sets
+  none) at the dearest output price; a prompt with a file given by URL has no bound and
+  never starts under a dollar cap. The reserve is never less than the dearest call the
+  run has made so far. A run may therefore stop up to one reserve short of its cap: on
+  Haiku 5.5 about $0.01 at the plan's call sizes (0.3% of $3), $0.11 for a step whose
+  history fills the window (about 160K bytes, the long tier); on Sonnet 5.5 about $0.20
+  ($0.45 at the full window). Each dry run prints its reserve and counts it in "Within
+  caps".
 - A call whose token usage cannot be read stops the run too (`usage_unknown`). It is
   never counted as zero.
-- Golden run: `--max-usd` is enforced only when OpenRouter reports each call's cost. If
-  it does not, only the token cap applies, and the report says USD was not enforced. The
-  pass, matrix, spot check, injection set and judge instead stop at the first call that
-  reports no cost (`cost_unknown`), so their dollar caps never switch off.
+- Every mode, the golden run included since fix round 1, stops at the first call that
+  reports no cost (`cost_unknown`), so no dollar cap ever switches off. A run that stops
+  on `cost_unknown` or `usage_unknown` records its reported cost as a floor
+  (`costFloor` in `run.json`), and the pass and the summary print it as "at least".
 - Sizing: one call sends about 7k tokens of fixed prefix (tool schemas, instructions,
   profile, memo) plus the thread so far. The scripted gate turns make about 100 calls
-  for 12 cases, so a run is roughly 1.3 to 1.6M tokens: about $0.18 on Haiku 5.5 at list
-  price, and about $3.60 on Sonnet 5.5 uncached, so a Sonnet golden run fits the $3
-  ceiling only with the prompt cache working (about $1.40 cached).
+  for 12 cases, so a run is roughly 1.5M tokens: $0.18 on Haiku 5.5 at list price ($0.09
+  cached), and $3.67 on Sonnet 5.5 uncached, so a Sonnet golden run fits only with the
+  prompt cache working ($1.80 cached). `--variant <n> --dry-run` prints this estimate.
 
 Prices and the prompt cache (PR J7). Haiku 5.5 is priced per call by prompt size: $0.10 /
 $0.50 per million tokens up to 100K input tokens, $0.50 / $2.50 above (`lib/agent/prices.ts`).
@@ -434,6 +450,24 @@ from the cache and writes 25%; a re-render reads 25% and writes 10%; the judge c
 nothing). The caps are sized against the uncached figures. The eval's budget report
 shows the cache read and write tokens each call reported; `agent_runs` has no column for
 them.
+
+- How the provider sends a breakpoint (`@openrouter/ai-sdk-provider` 3.1.0, cited by
+  line in `lib/agent/cache.ts`): on the system message and a user message it becomes
+  `cache_control` on the last text block; on a tool message it becomes a `cache_control`
+  field on each tool result's own `role: "tool"` message, so a tool message carrying two
+  results sends two. `countCacheBreakpoints` counts the same way, alias spellings and the
+  call-level option included, and the history test counts 5 for the prompt that sends 5.
+  Whether OpenRouter passes a tool message's `cache_control` on to Anthropic is
+  unverified; if it does not, that tail breakpoint is simply not cached and the estimate
+  is high, never low.
+- When a call reports no billed cost, the budget prices it from its tokens and takes its
+  input as the larger of the reported input tokens and the cache read plus write tokens,
+  so a route whose input count leaves out cached tokens is not priced low (fix round 1).
+- Production cost (left as it is, review M-4): with the tail breakpoint, the first call
+  of a turn that starts more than 5 minutes after the last writes its prompt to the
+  cache at 1.25×; a turn with no tool call never reads it back, so a one-step answer
+  costs about 25% more input than before. Multi-step turns, the common case, cost less.
+  This is a cost-only change.
 
 ### The variant comparison (plan Tasks 2.10 to 2.13)
 
@@ -456,7 +490,8 @@ named by its run id, the UTC time it started (`20261126T011500Z`), with a `run.j
 says what ran and how it ended: `running`, then `complete`, `cap_exceeded` or `failed`,
 with the cost its calls reported. A matrix run's `run.json` also says its kind (`full`,
 `spot-check` or `rerender-only`, with `sourceRun`), and a stage of a pass carries the pass
-id. Every recording and result carries its run id (`evalRun`), and a reader leaves out a
+id and the pass's `--max-usd` (`passBudgetUsd`). `costFloor` says the cost is only a floor
+(the run stopped on `cost_unknown` or `usage_unknown`). Every recording and result carries its run id (`evalRun`), and a reader leaves out a
 file whose id is not its folder's. Readers take the latest `complete` run that is not a
 spot check unless one is named, and a named run may have any status or kind, so a stopped
 run or the spot check can be read on purpose. A rerender-only run is read as a matrix run,
@@ -515,7 +550,8 @@ Estimated cost (the dry runs, list price; uncached, and with the prompt cache at
 | Injection, 45 runs | Haiku 5.5 | 360 | 5.40M / 0.22M | $0.65 | $0.32 |
 | Injection, 45 runs | Sonnet 5.5 | 360 | 5.40M / 0.22M | $12.96 | $6.34 |
 | Judge, 144 pairs | Haiku 5.5 | 144 | 1.73M / 0.06M | $0.20 | $0.20 |
-| Golden, 12 cases | Haiku 5.5 / Sonnet 5.5 | about 100 | about 1.5M | about $0.18 / $3.60 | about $0.18 / $1.40 |
+| Golden, 12 cases | Haiku 5.5 | 102 | 1.53M / 0.06M | $0.18 | $0.09 |
+| Golden, 12 cases | Sonnet 5.5 (`--allow-non-haiku`) | 102 | 1.53M / 0.06M | $3.67 | $1.80 |
 
 - Sizing: the $3 pass is the matrix ($2.05), the injection set ($0.65) and the judge
   ($0.20 for 144 pairs; about $0.08 for the 60 pairs a pass judges without the render
@@ -524,6 +560,12 @@ Estimated cost (the dry runs, list price; uncached, and with the prompt cache at
   by repeat, 36 a repeat for one model (4 scenarios × 3 personas × 3 pairings), so its
   144 are four of the five repeats; all 180 of a one-model matrix need `--max-pairs 180`
   (about $0.25, inside the other defaults).
+- With the look-ahead, `--pass --dry-run` checks each stage's estimate plus its reserve
+  against what is left when it starts: matrix $2.0618 against $3.00, injection $0.6578
+  against $0.94, judge $0.2089 against $0.30, all fitting uncached and cached, and still
+  fitting if an agent step's history filled the window. The Sonnet spot check is the one
+  plan that no longer fits uncached ($2.74 + $0.20 against $2.90): it may stop about one
+  cell short unless the cache works. Its cap stays at $2.90, under Andrew's limit.
 - The production signals (fallback rate, re-render use, undo within 60 seconds, a
   question asked again, a surface left for a workspace) are read-only queries in
   [agent-variant-signals.sql](runbooks/agent-variant-signals.sql), run by hand.

@@ -2055,3 +2055,35 @@ changed from R17 and R18:
   / $1.48; the Sonnet spot check $2.74 / $1.98; a full Sonnet matrix $41.04 / $29.65, so
   it no longer fits any cap. OpenRouter's prices for these slugs, and what it bills for
   cache reads, are unverified; the caps act on the cost OpenRouter reports.
+- Fix round 1 (review of PR J7), so that "no mode can spend more than $3" holds:
+  - Golden (`--variant`) now runs under the same rules as the other modes: it stops at
+    the first call that reports no cost (`cost_unknown`; the case in progress records
+    nothing, the usage table prints, the exit is non-zero), refuses an unpriced
+    `--model` (exit 2), defaults to Haiku 5.5 and needs `--allow-non-haiku` for any
+    other model. Its caps stay $2 / $3. `--variant <n> --dry-run` prints its estimate:
+    Haiku $0.18 / $0.09, Sonnet $3.67 / $1.80 (Sonnet fits only with the cache working).
+  - Look-ahead: before every call the budget reserves that call's worst case (the
+    prompt's serialized bytes plus 2,048 as input tokens, at the dearest tier that could
+    apply, all as cache writes, plus the whole output limit at the dearest output price;
+    never less than the dearest call so far) and refuses a call that could pass a cap,
+    in every mode and across a pass's stages. Headroom against $3: about $0.01 a run on
+    Haiku at the plan's call sizes (0.3%), $0.11 if a step's history fills the window;
+    about $0.20 on Sonnet. `--pass --dry-run` still fits every stage, uncached and
+    cached. The Sonnet spot check may stop about one cell short uncached ($2.74 + $0.20
+    against $2.90); its cap is unchanged.
+  - A rerender-only run's variants 2 and 3 are judged against its source run's variant 1
+    (1-2, 1-3, 2-3; 1-2 alone without the render smoke).
+  - `countCacheBreakpoints` counts as the provider sends (a tool message's option once
+    per tool result, the alias spellings, the call-level option); whether OpenRouter
+    carries a tool message's `cache_control` through is unverified. The no-cost fallback
+    prices input as the larger of the input tokens and cache read plus write.
+  - Each stage of a pass records the pass's `--max-usd` and whether its cost is only a
+    floor; the pass's end table and the summary's Pass spend show that limit and "at
+    least" for a floor. `eval-agent.mjs` clears inherited per-mode variables
+    (`EVAL_MODEL`, `EVAL_MODELS`, `EVAL_VARIANT`, `EVAL_SEED`, the pass budget) before
+    starting a stage.
+  - Left as they are: rerender-only seeding drops `supersedes` links in two edge cases
+    and leaves `rerenderOf` pointing at throwaway ids (no reader uses either); and in
+    production a one-step turn that starts after the 5-minute cache window writes its
+    prompt at 1.25× and never reads it back (about 25% more input for that turn; a
+    multi-step turn costs less). Both are cost or provenance only.

@@ -251,13 +251,13 @@ describe("dollar caps never switch off in the paid modes (cost_unknown)", () => 
     b.recordStep(u);
   };
 
-  test("the matrix, injection and judge require a reported cost; the golden run keeps A17's rule", () => {
-    expect(PROFILE_REQUIRES_COST).toEqual({ golden: false, matrix: true, injection: true, judge: true, "spot-check": true });
-    expect(profileBudget("golden", caps).requireCost).toBe(false);
+  test("every profile requires a reported cost, the golden run too since PR J7 fix round 1", () => {
+    expect(PROFILE_REQUIRES_COST).toEqual({ golden: true, matrix: true, injection: true, judge: true, "spot-check": true });
+    expect(profileBudget("golden", caps).requireCost).toBe(true);
     expect(totalBudget({ maxTotalTokens: 1_000, maxTotalUsd: 1 }).requireCost).toBe(true);
   });
 
-  for (const profile of ["matrix", "injection", "judge"] as const) {
+  for (const profile of ["golden", "matrix", "injection", "judge", "spot-check"] as const) {
     test(`${profile}: a first call without a cost trips cost_unknown, counts its tokens and refuses the next call`, () => {
       const b = profileBudget(profile, caps);
       b.startCase();
@@ -293,12 +293,28 @@ describe("dollar caps never switch off in the paid modes (cost_unknown)", () => 
     expect(b.tripped?.cap).toBe("max_usd");
   });
 
-  test("the golden run is unchanged: no cost on the first call means tokens only, reported as not enforced", () => {
+  test("the golden run fails closed (fix round 1): a call without a cost mid-case stops the run, and the case is never recorded", () => {
     const b = profileBudget("golden", caps);
-    b.startCase();
-    b.startTurn();
-    step(b, usage(1_000, 100, null));
-    expect(b.tripped).toBeNull();
-    expect(b.usdEnforcement).toBe("not_enforced");
+    const recorded: string[] = [];
+    // As live.eval.ts plays a case: turns of steps, then throwIfTripped before it records.
+    const playCase = (name: string, costs: Array<number | null>) => {
+      b.startCase();
+      b.startTurn();
+      for (const c of costs) {
+        b.beforeStep();
+        b.recordStep(usage(1_000, 100, c));
+        if (b.tripped) break;
+      }
+      b.endTurn();
+      b.throwIfTripped();
+      recorded.push(name);
+    };
+    playCase("first", [0.01, 0.01]);
+    expect(() => playCase("second", [0.01, null, 0.01])).toThrow(/cost_unknown/);
+    expect(recorded).toEqual(["first"]);
+    expect(b.usdEnforcement).toBe("enforced");
+    expect(() => playCase("third", [0.01])).toThrow(CapExceededError);
+    expect(b.report()).toMatch(/cap_exceeded \(cost_unknown/);
+    expect(b.report()).toMatch(/\| max_usd \| \$0\.0300 reported before a call came back without its cost/);
   });
 });

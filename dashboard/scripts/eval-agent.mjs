@@ -11,10 +11,11 @@
 //       report carries no cost, or a budget with less than a cent left stops the pass, and
 //       no later stage starts. Every run.json of the pass carries the pass id, and the end
 //       prints the pass's reported spend against its budget.
-//   npm run eval:agent -- --variant <1|2|3> [--model <id>] [--seed <n>] [golden caps]
+//   npm run eval:agent -- --variant <1|2|3> [--model <id>] [--allow-non-haiku] [--seed <n>] [golden caps] [--dry-run]
 //       The golden scenarios (lib/agent/evals/live.eval.ts: 4 scenarios by 3 personas).
-//       Haiku 5.5 unless --model names another. Recordings go under
-//       lib/agent/evals/recordings/v<variant>/.
+//       Haiku 5.5 by default; --model must name a priced model (exit 2 otherwise, dry run
+//       included), and any model but Haiku 5.5 also needs --allow-non-haiku (PR J7 fix
+//       round 1). Recordings go under lib/agent/evals/recordings/v<variant>/.
 //   npm run eval:agent -- --matrix [--models a,b | --model <id>] [--allow-non-haiku] [matrix caps] [--dry-run]
 //       The variant matrix (lib/agent/evals/matrix.eval.ts): per model, 180 cells (4
 //       scenarios by 3 personas by 5 repeats live in variant 1, each re-rendered into
@@ -55,7 +56,7 @@
 // run.json that ends as complete, cap_exceeded or failed with the cost its calls reported.
 // Every recording and result carries the id. The script prints it before and after the run.
 //
-// --dry-run (pass, matrix, injection and judge) prints the plan and the estimated tokens
+// --dry-run (every mode) prints the plan and the estimated tokens
 // and list-price dollars, uncached and with the prompt cache (lib/agent/evals/matrixPlan.ts),
 // whether that estimate stays within the caps, and the caps the run would have (the judge's
 // also names the matrix run it would read), then exits 0. It needs no key and no database,
@@ -121,12 +122,11 @@
 // is left of the pass budget (never above the mode's own ceiling).
 //
 // Dollar caps come from the cost OpenRouter reports for each call; no price table stands in
-// for them. Pass, matrix, injection and judge: a call that reports no cost stops the run
-// (cost_unknown), so --max-usd and --max-total-usd never switch off. Golden run (A17,
-// unchanged): --max-usd is enforced only when OpenRouter reports the cost; if the first
-// call carries none, only the token cap applies and the report says so.
+// for them. In every mode (the golden run too, since PR J7 fix round 1) a call that
+// reports no cost stops the run (cost_unknown), so --max-usd and --max-total-usd never
+// switch off.
 //
-// --models and --model (matrix, injection) take only models with a row in
+// --models and --model (golden, matrix, injection) take only models with a row in
 // lib/agent/prices.ts; any other is a usage error (exit 2), dry run included.
 //
 // Needs Node 22.18 or later: it loads config.ts, budget.ts, matrixPlan.ts, judgeModel.ts
@@ -143,7 +143,7 @@ const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
 const MAX_MODELS = 8;
 const USAGE =
   "usage: npm run eval:agent -- --pass [--max-usd <n>] [--dry-run]\n" +
-  "   or: npm run eval:agent -- --variant <1|2|3> [--model <openrouter model id>] [--seed <integer>]\n" +
+  "   or: npm run eval:agent -- --variant <1|2|3> [--model <openrouter model id>] [--allow-non-haiku] [--seed <integer>] [--dry-run]\n" +
   "       [--max-cases <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
   "   or: npm run eval:agent -- --matrix [--models <id,id> | --model <id>] [--allow-non-haiku] [--dry-run]\n" +
   "       [--max-cells <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
@@ -245,12 +245,12 @@ function parseArgs(argv) {
     if (flag === "--variant" && mode === "golden") out.variant = value();
     else if (flag === "--model" && (mode === "golden" || ownModels)) out.model = value();
     else if (flag === "--models" && ownModels) out.models = parseModels(value());
-    else if (flag === "--allow-non-haiku" && (mode === "matrix" || mode === "injection") && !spotCheck && inline === undefined) out.allowNonHaiku = true;
+    else if (flag === "--allow-non-haiku" && (mode === "golden" || mode === "matrix" || mode === "injection") && !spotCheck && inline === undefined) out.allowNonHaiku = true;
     else if (flag === "--persona" && spotCheck) out.persona = value();
     else if (flag === "--seed" && mode === "golden") out.seed = value();
     else if (flag === "--run" && (mode === "judge" || rerenderOnly)) out.run = value();
     else if (flag === "--max-usd" && mode === "pass") out.passUsd = value();
-    else if (flag === "--dry-run" && mode !== "golden" && inline === undefined) out.dryRun = true;
+    else if (flag === "--dry-run" && inline === undefined) out.dryRun = true;
     else if (flags.has(flag)) {
       const { key, total } = flags.get(flag);
       (total ? out.totals : out.caps)[key] = value();
@@ -299,19 +299,22 @@ if (args.rerenderOnly) {
 }
 
 const models =
-  args.mode === "golden" || args.mode === "pass"
+  args.mode === "pass"
     ? null
-    : args.mode === "judge"
+    : args.mode === "golden"
+      ? [args.model ?? config.AGENT_EVAL_DEFAULT_MODEL]
+      : args.mode === "judge"
       ? [judgeModel.AGENT_JUDGE_MODEL]
       : args.spotCheck
         ? [config.AGENT_SPOT_CHECK_MODEL]
         : sourceRun
           ? [...sourceRun.models]
           : plan.runModels({ models: args.models, model: args.model });
-// The matrix and the injection set run only models in the price table, so neither the dry
-// run nor the caps' sizing ever prices a model at another model's rate (dry run included),
-// and only Haiku 5.5 unless --allow-non-haiku (or the spot check) says otherwise (PR J7).
-if (args.mode === "matrix" || args.mode === "injection") {
+// The golden run, the matrix and the injection set run only models in the price table, so
+// neither the dry run, the caps' sizing nor the per-call worst case ever prices a model at
+// another model's rate (dry run included), and only Haiku 5.5 unless --allow-non-haiku (or
+// the spot check) says otherwise (PR J7; the golden run since fix round 1).
+if (args.mode === "golden" || args.mode === "matrix" || args.mode === "injection") {
   const unpriced = plan.unpricedModels(models);
   if (unpriced.length > 0) usage(plan.unpricedMessage(unpriced));
   const others = plan.nonDefaultModels(models);
@@ -331,7 +334,9 @@ if (args.mode === "judge") {
 
 if (args.dryRun) {
   if (args.mode === "pass") console.log(plan.formatPassDryRun({ budgetUsd: args.passUsd }));
-  else if (args.mode === "matrix" && sourceRun) {
+  else if (args.mode === "golden") {
+    console.log(plan.formatGoldenDryRun({ variant: Number(args.variant), model: models[0], seed: Number(args.seed), caps: args.caps }));
+  } else if (args.mode === "matrix" && sourceRun) {
     console.log(
       plan.formatRerenderOnlyDryRun({
         sourceRun: sourceRun.runId,
@@ -383,7 +388,7 @@ if (!process.env.OPENROUTER_API_KEY?.trim()) {
     "eval:agent: OPENROUTER_API_KEY is not set. Run this inside the throwaway database with the key forwarded:\n" +
       "  python tools/lifecycle_test_db.py --postgres-major 17 --allow-env OPENROUTER_API_KEY -- \\\n" +
       `    npm --prefix dashboard run eval:agent -- ${command}\n` +
-      (args.mode === "golden" ? "" : `Add --dry-run to see the plan and the estimated cost without a key.\n`),
+      `Add --dry-run to see the plan and the estimated cost without a key.\n`,
   );
   process.exit(2);
 }
@@ -479,7 +484,7 @@ exitFor(
     totals: args.totals,
     env:
       args.mode === "golden"
-        ? { EVAL_VARIANT: args.variant, EVAL_SEED: args.seed, ...(args.model ? { EVAL_MODEL: args.model } : {}) }
+        ? { EVAL_VARIANT: args.variant, EVAL_SEED: args.seed, EVAL_MODEL: models[0], ...(args.allowNonHaiku ? { EVAL_ALLOW_NON_HAIKU: "1" } : {}) }
         : {
             EVAL_MODELS: models.join(","),
             ...(args.allowNonHaiku ? { EVAL_ALLOW_NON_HAIKU: "1" } : {}),

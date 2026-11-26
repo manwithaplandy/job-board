@@ -105,8 +105,41 @@ describe("eval-agent.mjs", () => {
     expect(run("--matrix", "--dry-run", "--max-usd", "3.01").err).toMatch(/ceiling of 3/);
     expect(run("--matrix", "--dry-run", "--seed", "3").err).toMatch(/unknown argument --seed for --matrix/);
     expect(run("--matrix", "--dry-run", "--models", "a/b,a/b").err).toMatch(/names a model twice/);
-    expect(run("--variant", "1", "--dry-run").err).toMatch(/unknown argument --dry-run/);
     expect(run("--variant", "1", "--max-cells", "3").err).toMatch(/unknown argument --max-cells/);
+  });
+
+  test("PR J7 fix round 1: --variant <n> --dry-run prices the golden run on Haiku 5.5 with no key, and exits 0", () => {
+    const r = run("--variant", "1", "--dry-run");
+    expect(r.err).toBe("");
+    expect(r.status).toBe(0);
+    expect(r.out).toContain("Golden dry run (variant 1, seed 1): nothing is run and nothing is spent. 12 scenario x persona case(s) on anthropic/claude-haiku-5.5.");
+    expect(r.out).toContain("| anthropic/claude-haiku-5.5 | 12 | 102 | 1.53M | 0.06M | $0.18 | $0.09 | yes |");
+    expect(r.out).toContain("| --max-usd | US dollars (reported cost) | 2 | 2 | 3 |");
+    expect(run("--variant", "3", "--dry-run", "--max-cases", "2").out).toContain("| anthropic/claude-haiku-5.5 | 2 | 26 |");
+    expect(run("--variant", "1", "--dry-run", "--max-usd", "3.01").err).toMatch(/ceiling of 3/);
+    const noKey = run("--variant", "1");
+    expect(noKey.status).toBe(2);
+    expect(noKey.err).toMatch(/OPENROUTER_API_KEY is not set/);
+    expect(noKey.err).toMatch(/Add --dry-run/);
+  });
+
+  test("PR J7 fix round 1: the golden run refuses an unpriced --model, and any other model without --allow-non-haiku (exit 2)", () => {
+    const unpriced = run("--variant", "1", "--dry-run", "--model", "x/unpriced", "--allow-non-haiku");
+    expect(unpriced.status).toBe(2);
+    expect(unpriced.err).toMatch(/no price for x\/unpriced in lib\/agent\/prices\.ts/);
+    expect(unpriced.out).toBe("");
+    // A real run is refused the same way, before the key is checked.
+    expect(run("--variant", "1", "--model", "x/unpriced")).toMatchObject({ status: 2 });
+    expect(run("--variant", "1", "--model", "x/unpriced").err).toMatch(/no price for x\/unpriced/);
+    const sonnet = run("--variant", "2", "--dry-run", "--model", "anthropic/claude-sonnet-5.5");
+    expect(sonnet.status).toBe(2);
+    expect(sonnet.err).toMatch(/is not anthropic\/claude-haiku-5\.5, the eval default\. The golden run/);
+    expect(run("--variant", "2", "--model", "anthropic/claude-sonnet-5.5").err).toMatch(/--allow-non-haiku/);
+    const allowed = run("--variant", "2", "--dry-run", "--model", "anthropic/claude-sonnet-5.5", "--allow-non-haiku");
+    expect(allowed.status).toBe(0);
+    // Allowed, an uncached Sonnet golden run does not fit the $2 default: the cap would stop it.
+    expect(allowed.out).toMatch(/\| anthropic\/claude-sonnet-5\.5 \| 12 \| 102 \| .* \$3\.67 \| \$1\.80 \| NO: the run would stop at a cap \|/);
+    expect(run("--variant", "1", "--dry-run", "--model", "anthropic/claude-haiku-5.5").status).toBe(0);
   });
 
   test("--injection --dry-run prints 45 runs a model and the injection caps, and exits 0", () => {

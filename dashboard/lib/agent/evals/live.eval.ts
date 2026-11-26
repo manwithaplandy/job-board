@@ -12,6 +12,11 @@
 // values eval-agent.mjs passes (re-checked here against the same ceilings). The first
 // cap to trip fails that case (no recording is written for it), skips every case after
 // it, and marks the run cap_exceeded in the report eval-agent.mjs prints.
+//
+// PR J7 fix round 1: the golden profile requires a reported cost on every call (a call
+// without one trips cost_unknown, like the other paid modes), the model must have a row in
+// lib/agent/prices.ts, and any model but Haiku 5.5 needs EVAL_ALLOW_NON_HAIKU=1
+// (eval-agent.mjs --allow-non-haiku). eval-agent.mjs checks the same before it starts.
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -24,7 +29,8 @@ import { PERSONA_IDS } from "@/lib/agent/evals/personas";
 import { SCENARIO_IDS } from "@/lib/agent/evals/scenarios";
 import type { Recording } from "@/lib/agent/evals/recording";
 import { AGENT_EVAL_DEFAULT_MODEL } from "@/lib/agent/config";
-import { ALL_CASES, RunBudget, assertEvalMode, capsFromEnv } from "@/lib/agent/evals/budget";
+import { ALL_CASES, assertEvalMode, capsFromEnv, profileBudget } from "@/lib/agent/evals/budget";
+import { assertDefaultModelOrAllowed, assertPricedModels } from "@/lib/agent/evals/matrixPlan";
 
 vi.mock("next/server", async (importOriginal) => {
   const real = await importOriginal<typeof import("next/server")>();
@@ -51,6 +57,9 @@ const variant = Number(process.env.EVAL_VARIANT ?? "1");
 if (variant !== 1 && variant !== 2 && variant !== 3) throw new Error("eval: EVAL_VARIANT must be 1, 2 or 3");
 // PR J7: Haiku 5.5 unless --model names another (the production model is unchanged).
 const model = process.env.EVAL_MODEL?.trim() || AGENT_EVAL_DEFAULT_MODEL;
+// Fix round 1: a priced model only, and Haiku 5.5 unless the command allowed another.
+assertPricedModels([model]);
+assertDefaultModelOrAllowed([model], process.env.EVAL_ALLOW_NON_HAIKU === "1");
 const seed = Number(process.env.EVAL_SEED ?? "1");
 if (!Number.isSafeInteger(seed)) throw new Error("eval: EVAL_SEED must be an integer");
 // A run that passes its asserts goes beside the committed recordings; a failing one goes
@@ -67,8 +76,9 @@ let db: TestDb;
 const recordings: Recording[] = [];
 // A cap value above its ceiling throws CapUsageError here, before any database or model work.
 const caps = capsFromEnv(process.env);
-// The wall clock (max_minutes) runs from here: the start of the run.
-const budget = new RunBudget(caps);
+// The wall clock (max_minutes) runs from here: the start of the run. The golden profile:
+// a call that reports no cost trips cost_unknown (fix round 1).
+const budget = profileBudget("golden", caps);
 
 /** The run's outcome for eval-agent.mjs, which prints it and sets the exit code. */
 function writeRunReport(text: string): void {
@@ -82,6 +92,7 @@ function writeRunReport(text: string): void {
     status: budget.tripped ? "cap_exceeded" : "complete",
     cap: budget.tripped?.cap ?? null,
     usd: budget.usdEnforcement,
+    costUsd: budget.totals.costUsd,
     text,
   };
   writeFileSync(file, `${JSON.stringify(report)}\n`);

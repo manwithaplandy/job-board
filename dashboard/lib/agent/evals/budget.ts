@@ -9,9 +9,11 @@
 //   max_steps    model calls in one turn of a case; at most the route's own AGENT_LIMITS.maxSteps
 //   max_tokens   input + output tokens summed over every model call in the run
 //   max_usd      spend summed from the provider's reported cost (OpenRouter usage.cost),
-//                never from a price table. Golden run: enforced only when the provider
-//                reports it. Matrix, injection and judge: a call without a reported
-//                cost trips the run (cost_unknown), so this cap never switches off
+//                never from a price table. In every mode (the golden run too, since PR J7
+//                fix round 1) a call without a reported cost trips the run
+//                (cost_unknown), so this cap never switches off. Before each call, the
+//                spend so far plus that call's worst-case price (prices.ts
+//                worstCaseCallMicros) must fit under it
 //   max_minutes  wall clock from the start of the run
 //
 // Pure, with no runtime imports, so scripts/eval-agent.mjs can load it (Node strips the
@@ -59,7 +61,9 @@ interface CapSpec {
 //   the golden run's default is $2 and its ceiling $3 (it was $5 / $20). A 12-case run
 //   on Haiku 5.5, now its default model, is about $0.18 at list price; on Sonnet 5.5
 //   about $3.60 uncached, so a Sonnet golden run fits only with the prompt cache working
-//   (about $1.40 cached) and otherwise stops at the cap.
+//   (about $1.40 cached) and otherwise stops at the cap. Since fix round 1 the golden run
+//   needs --allow-non-haiku for any model but Haiku 5.5, refuses an unpriced model, and
+//   stops on a call that reports no cost, so its $3 ceiling always holds.
 // - max_minutes: 12 cases at a few minutes each fit in 30; the ceiling is 60.
 export const CAP_SPECS: Record<CapKey, CapSpec> = {
   maxCases: { name: "max_cases", flag: "--max-cases", env: "EVAL_MAX_CASES", integer: true, default: ALL_CASES, ceiling: ALL_CASES, label: "cases" },
@@ -109,9 +113,10 @@ function mapCaps(f: (s: CapSpec) => number, specs: Record<CapKey, CapSpec> = CAP
 //   0.95M tokens and $2.74 uncached ($1.75 with the prompt cache): $2.90 by default and
 //   at most, so even the uncached estimate fits under $3 with a little room.
 //
-// Dollar caps never switch off in these three modes: a model call that reports no
-// OpenRouter cost trips the run as cost_unknown (PROFILE_REQUIRES_COST), where the golden
-// run (A17, unchanged) falls back to its token cap alone.
+// Dollar caps never switch off in any mode: a model call that reports no OpenRouter cost
+// trips the run as cost_unknown (PROFILE_REQUIRES_COST). The golden run used to fall back
+// to its token cap alone (A17); PR J7 fix round 1 holds it to the same rule, so "no mode
+// can spend more than $3" holds for it too.
 // ---------------------------------------------------------------------------
 
 /**
@@ -163,13 +168,13 @@ export function assertEvalMode(env: Readonly<Record<string, string | undefined>>
 }
 
 /**
- * Whether every model call of a profile must report its OpenRouter cost. True for the
- * matrix, the injection set and the judge: a call without one trips cost_unknown, so
- * max_usd and max_total_usd always hold. False for the golden run, whose A17 behaviour
- * stays as approved (no cost on the first call: tokens only, and the report says so).
+ * Whether every model call of a profile must report its OpenRouter cost: true for every
+ * profile. A call without one trips cost_unknown, so max_usd and max_total_usd always
+ * hold. The golden run was false (A17: no cost on the first call meant tokens only);
+ * PR J7 fix round 1 made it fail closed too, so its $3 ceiling is a real bound.
  */
 export const PROFILE_REQUIRES_COST: Record<CapProfile, boolean> = {
-  golden: false,
+  golden: true,
   matrix: true,
   injection: true,
   judge: true,
@@ -637,9 +642,9 @@ export class RunBudget {
   /**
    * After a model call, with its usage, or null when it could not be read (a missing or
    * malformed finish part, a stream that ended without one): null trips usage_unknown.
-   * With requireCost (matrix, injection, judge), a call without a cost trips
-   * cost_unknown, so the dollar caps are always enforced. Otherwise (golden, A17) the
-   * first call decides the dollar cap: enforced when it reported a cost, not enforced
+   * With requireCost (every profile since PR J7 fix round 1), a call without a cost trips
+   * cost_unknown, so the dollar caps are always enforced. Otherwise (a bare RunBudget, as
+   * the golden run had under A17) the first call decides the dollar cap: enforced when it reported a cost, not enforced
    * (tokens only) when it did not; once enforced, a call without a cost trips
    * usage_unknown. Does not throw: the trip aborts `signal` and the next check throws.
    */

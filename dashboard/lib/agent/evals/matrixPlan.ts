@@ -117,10 +117,10 @@ export function nonDefaultModels(models: readonly string[]): string[] {
   return models.filter((m) => m !== AGENT_EVAL_DEFAULT_MODEL);
 }
 
-/** Why a matrix or injection run on another model is refused without --allow-non-haiku. */
+/** Why a golden, matrix or injection run on another model is refused without --allow-non-haiku. */
 export function nonDefaultMessage(models: readonly string[]): string {
   return (
-    `${models.join(", ")} is not ${AGENT_EVAL_DEFAULT_MODEL}, the eval default. The matrix and the injection set run on ` +
+    `${models.join(", ")} is not ${AGENT_EVAL_DEFAULT_MODEL}, the eval default. The golden run, the matrix and the injection set run on ` +
     "Haiku unless you pass --allow-non-haiku, so a dearer model is never run by accident (its cap still stops the run at " +
     "$3); for a Sonnet 5.5 comparison use --matrix --spot-check"
   );
@@ -214,8 +214,9 @@ export function unpricedModels(models: readonly string[]): string[] {
 /** Why a run over unpriced models is refused, for the script's usage error and the eval files. */
 export function unpricedMessage(models: readonly string[]): string {
   return (
-    `no price for ${models.join(", ")} in lib/agent/prices.ts (PRICE_PER_MTOK_MICROS). The matrix and the injection set ` +
-    "run only priced models, so the dry run's estimate and the caps' sizing hold; add its list price there first"
+    `no price for ${models.join(", ")} in lib/agent/prices.ts (PRICE_PER_MTOK_MICROS). The golden run, the matrix and the ` +
+    "injection set run only priced models, so the dry run's estimate, the caps' sizing and the per-call worst case hold; " +
+    "add its list price there first"
   );
 }
 
@@ -283,6 +284,27 @@ export function estimateMatrix(plan: readonly MatrixCell[], model: string): Mode
 /** The injection set's estimate for one model: `runs` runs of about INJECTION_CALLS_PER_RUN calls. */
 export function estimateInjection(model: string, runs: number): TokenCost {
   return cost(model, runs * INJECTION_CALLS_PER_RUN, V1_CALL_TOKENS.input, V1_CALL_TOKENS.output, CACHE_SHARES.agent);
+}
+
+/**
+ * The golden cases a `--variant` run plays (live.eval.ts): scenario by persona, scenario
+ * first, the first `maxCases` (budget.ts ALL_CASES at most).
+ */
+export function goldenCases(maxCases: number): { scenario: MatrixScenario; persona: MatrixPersona }[] {
+  return MATRIX_SCENARIOS.flatMap((scenario) => MATRIX_PERSONAS.map((persona) => ({ scenario, persona }))).slice(0, Math.max(0, maxCases));
+}
+
+/**
+ * The golden run's estimate (PR J7 fix round 1): each case is one scenario played live, as
+ * a matrix variant 1 cell (V1_CALLS calls of V1_CALL_TOKENS, the agent's cache shares).
+ * Variants 2 and 3 are played live too and are priced the same: their present calls carry
+ * more output, which the estimate does not model; the caps stop a real run.
+ */
+export function estimateGolden(model: string, maxCases: number): TokenCost {
+  return goldenCases(maxCases).reduce(
+    (sum, c) => add(sum, cost(model, V1_CALLS[c.scenario], V1_CALL_TOKENS.input, V1_CALL_TOKENS.output, CACHE_SHARES.agent)),
+    ZERO,
+  );
 }
 
 /** The judge's estimate: one call per pair, at the judge model's own list price (it must be priced). */
@@ -507,6 +529,28 @@ export function formatSimpleDryRun(a: {
   }
   lines.push("", ...CACHE_NOTE, "", ...capLines(a.profile, a.caps, a.totals));
   return lines.join("\n");
+}
+
+/** What `--variant <n> --dry-run` prints (PR J7 fix round 1): the golden cases, their estimate and the golden caps. */
+export function formatGoldenDryRun(a: { variant: Variant; model: string; seed: number; caps: EvalCaps }): string {
+  assertPricedModels([a.model]);
+  const cases = goldenCases(a.caps.maxCases);
+  const e = estimateGolden(a.model, a.caps.maxCases);
+  return [
+    `Golden dry run (variant ${a.variant}, seed ${a.seed}): nothing is run and nothing is spent. ${cases.length} scenario x persona case(s) on ${a.model}.`,
+    "",
+    "| Model | Cases | Calls | Input tokens | Output tokens | Est. cost uncached | Est. cost cached | Within caps |",
+    "|---|---|---|---|---|---|---|---|",
+    `| ${a.model} | ${cases.length} | ${e.calls} | ${millions(e.inputTokens)} | ${millions(e.outputTokens)} | ${dollars(e.costMicros)} | ` +
+      `${dollars(e.cachedCostMicros)} | ${within(e, a.caps.maxTokens, a.caps.maxUsd) ? "yes" : "NO: the run would stop at a cap"} |`,
+    "",
+    "Each case is priced as a matrix variant 1 cell (lib/agent/evals/matrixPlan.ts V1_CALLS, V1_CALL_TOKENS), at list prices",
+    "(OpenRouter's prices for these slugs are unverified); variants 2 and 3 are priced the same. A call that reports no cost",
+    "stops the run (cost_unknown), so --max-usd always holds. The caps below are what stops a real run.",
+    ...CACHE_NOTE,
+    "",
+    ...capLines("golden", a.caps, null),
+  ].join("\n");
 }
 
 /** One stage of a pass in its dry run. */

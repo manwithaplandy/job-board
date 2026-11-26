@@ -16,13 +16,10 @@ import { DEFAULT_THREAD_TITLE } from "@/lib/agent/titles";
 import { readActivity } from "@/lib/workspaces/activity";
 import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
-import { PageHeader } from "@/components/ui/Navigation";
-import { Alert } from "@/components/ui/SystemStates";
 import { AgentChat, CompareStarter, StartConversation } from "@/components/agent/AgentChat";
 import { AgentNotice, type AgentBlockingNotice } from "@/components/agent/AgentNotice";
+import { AgentPageView } from "@/components/agent/AgentPageView";
 import { TestDataBadge } from "@/components/agent/TestDataBadge";
-import { ThreadList } from "@/components/agent/ThreadList";
-import { ActivityPanel } from "@/components/workspaces/ActivityPanel";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Agent · Rolefit" };
@@ -104,49 +101,43 @@ export default async function AgentPage({
     : [[], []];
   const notice: AgentBlockingNotice | null = !plan ? "no_plan" : budget.ok ? null : budget.reason;
 
+  const content = thread ? (
+    <AgentChat
+      key={thread.id}
+      threadId={thread.id}
+      initialMessages={messages}
+      notice={notice}
+      autoTitle={messages.length === 0 && thread.title === DEFAULT_THREAD_TITLE}
+      surfaces={surfaces}
+      approvalsEnabled={approvalSecret() !== null}
+      compare={compare}
+      hasProfile={profile !== null}
+      variants={plan ? { thread: thread.variant, default: defaultVariant, variant3Enabled } : null}
+    />
+  ) : compare && notice === null ? (
+    <CompareStarter compare={compare} />
+  ) : notice === null ? (
+    // No conversation open: the empty state with the composer and the upload
+    // target; the first Send starts the thread (PR I3b review I4).
+    <StartConversation hasProfile={profile !== null} />
+  ) : (
+    <>
+      <AgentNotice kind={notice} />
+      <p className="rf-agent-chat__empty">Start a new conversation, or pick one from the list.</p>
+    </>
+  );
+
   return (
     <AppShell header={<AppHeader current="agent" email={claims?.email ?? null} isAdmin={admin} />}>
-      <main className="rf-secondary-page">
-        <div className="rf-secondary-wrap rf-secondary-wrap--wide rf-secondary-stack">
-          <PageHeader
-            title="Agent"
-            description="Ask about your reviewed jobs, companies and profile."
-            actions={<TestDataBadge admin={admin} clock={clock} />}
-          />
-          <div className="rf-agent-layout">
-            <ThreadList threads={threads.map((t) => ({ id: t.id, title: t.title }))} currentId={thread?.id ?? null} />
-            <div className="rf-agent-main">
-              {requested && !thread && <Alert tone="warning">This conversation was not found. Pick one from the list or start a new one.</Alert>}
-              {thread ? (
-                <AgentChat
-                  key={thread.id}
-                  threadId={thread.id}
-                  initialMessages={messages}
-                  notice={notice}
-                  autoTitle={messages.length === 0 && thread.title === DEFAULT_THREAD_TITLE}
-                  surfaces={surfaces}
-                  approvalsEnabled={approvalSecret() !== null}
-                  compare={compare}
-                  hasProfile={profile !== null}
-                  variants={plan ? { thread: thread.variant, default: defaultVariant, variant3Enabled } : null}
-                />
-              ) : compare && notice === null ? (
-                <CompareStarter compare={compare} />
-              ) : notice === null ? (
-                // No conversation open: the empty state with the composer and the upload
-                // target; the first Send starts the thread (PR I3b review I4).
-                <StartConversation hasProfile={profile !== null} />
-              ) : (
-                <>
-                  <AgentNotice kind={notice} />
-                  <p className="rf-agent-chat__empty">Start a new conversation, or pick one from the list.</p>
-                </>
-              )}
-            </div>
-          </div>
-          <ActivityPanel items={activity} />
-        </div>
-      </main>
+      <AgentPageView
+        badge={<TestDataBadge admin={admin} clock={clock} />}
+        threads={threads.map((t) => ({ id: t.id, title: t.title }))}
+        currentId={thread?.id ?? null}
+        notFound={Boolean(requested) && !thread}
+        activity={activity}
+      >
+        {content}
+      </AgentPageView>
     </AppShell>
   );
 }

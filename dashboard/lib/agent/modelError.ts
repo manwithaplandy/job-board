@@ -23,6 +23,14 @@ export interface ModelErrorDetails {
   providerMessage: string | null;
   /** The provider's own error code (OpenRouter's error.code), when it is short and plain. */
   providerCode: string | null;
+  /** Which upstream provider OpenRouter routed to (error.metadata.provider_name), when short and plain. */
+  upstreamProvider: string | null;
+  /**
+   * The upstream provider's own message (error.metadata.raw), cleaned and cut, or null.
+   * OpenRouter answers a refused upstream call with the bare "Provider returned error" and
+   * puts the provider's real reason here (a low credit balance, a request shape it refuses).
+   */
+  upstreamMessage: string | null;
 }
 
 /** The last API call error inside a retry, or the error itself. */
@@ -68,35 +76,75 @@ function bodyRecord(body: string | undefined): Record<string, unknown> | null {
   }
 }
 
+/** An object field of `record`, or null. */
+function objectField(record: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const v = record[key];
+  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+/** A body's message: `{ "error": { "message" } }`, `{ "error": "..." }` or `{ "message" }`. */
+function messageOf(record: Record<string, unknown>): string | null {
+  const inner = record.error;
+  const source = objectField(record, "error") ?? record;
+  if (typeof source.message === "string") return cleanProviderMessage(source.message);
+  if (typeof inner === "string") return cleanProviderMessage(inner);
+  return null;
+}
+
+/**
+ * The upstream message in OpenRouter's error.metadata.raw: the provider's body as a string
+ * (Anthropic's is `{"type":"error","error":{"type":"...","message":"..."}}`) or, rarely, as
+ * an object. A raw string that is not JSON is cleaned and cut like any provider message.
+ */
+function upstreamMessageOf(raw: unknown): string | null {
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) return messageOf(raw as Record<string, unknown>);
+  if (typeof raw !== "string") return null;
+  const record = bodyRecord(raw);
+  return record ? messageOf(record) : cleanProviderMessage(raw);
+}
+
 /**
  * The provider's message and code from an error body. OpenRouter (and OpenAI-style APIs)
  * answer `{ "error": { "message": "...", "code": 402 } }`; a plain `{ "message": "..." }`
  * is read too. A body that is not JSON gives nothing: its raw text is not logged.
+ * OpenRouter's `error.metadata` adds which provider it routed to and that provider's own
+ * error (`provider_name`, `raw`).
  */
-function providerError(body: string | undefined): { message: string | null; code: string | null } {
+function providerError(body: string | undefined): Pick<ModelErrorDetails, "providerCode" | "upstreamProvider" | "upstreamMessage"> & { message: string | null } {
+  const none = { message: null, providerCode: null, upstreamProvider: null, upstreamMessage: null };
   const record = bodyRecord(body);
-  if (!record) return { message: null, code: null };
-  const inner = record.error;
-  const source = inner !== null && typeof inner === "object" && !Array.isArray(inner) ? (inner as Record<string, unknown>) : record;
-  const message = typeof source.message === "string" ? cleanProviderMessage(source.message) : typeof inner === "string" ? cleanProviderMessage(inner) : null;
+  if (!record) return none;
+  const source = objectField(record, "error") ?? record;
   const rawCode = source.code;
-  const code =
+  const providerCode =
     typeof rawCode === "number" && Number.isInteger(rawCode)
       ? String(rawCode)
       : typeof rawCode === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(rawCode)
         ? rawCode
         : null;
-  return { message, code };
+  const metadata = objectField(source, "metadata");
+  const name = metadata?.provider_name;
+  const upstreamProvider = typeof name === "string" && /^[A-Za-z0-9 _.()-]{1,40}$/.test(name) ? name : null;
+  const upstreamMessage = metadata ? upstreamMessageOf(metadata.raw) : null;
+  return { message: messageOf(record), providerCode, upstreamProvider, upstreamMessage };
 }
 
 /** What a model error says, read without touching anything that could hold a secret. */
 export function describeModelError(error: unknown): ModelErrorDetails {
   const e = unwrap(error);
   const name = e instanceof Error ? e.name : typeof e;
-  if (!APICallError.isInstance(e)) return { name, status: null, retryable: null, providerMessage: null, providerCode: null };
+  if (!APICallError.isInstance(e)) return { name, status: null, retryable: null, providerMessage: null, providerCode: null, upstreamProvider: null, upstreamMessage: null };
   const status = typeof e.statusCode === "number" && Number.isInteger(e.statusCode) && e.statusCode >= 100 && e.statusCode <= 599 ? e.statusCode : null;
   const parsed = providerError(e.responseBody);
-  return { name, status, retryable: e.isRetryable, providerMessage: parsed.message, providerCode: parsed.code };
+  return {
+    name,
+    status,
+    retryable: e.isRetryable,
+    providerMessage: parsed.message,
+    providerCode: parsed.providerCode,
+    upstreamProvider: parsed.upstreamProvider,
+    upstreamMessage: parsed.upstreamMessage,
+  };
 }
 
 /**
@@ -117,5 +165,7 @@ export function modelErrorLogLine(where: string, details: ModelErrorDetails): st
   ];
   if (details.providerCode !== null) parts.push(`code=${details.providerCode}`);
   if (details.providerMessage !== null) parts.push(`provider=${JSON.stringify(details.providerMessage)}`);
+  if (details.upstreamProvider !== null) parts.push(`upstream_provider=${JSON.stringify(details.upstreamProvider)}`);
+  if (details.upstreamMessage !== null) parts.push(`upstream=${JSON.stringify(details.upstreamMessage)}`);
   return parts.join(" ");
 }

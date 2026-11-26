@@ -19,7 +19,7 @@ function callError(statusCode: number | undefined, responseBody: string | undefi
 describe("describeModelError", () => {
   test("reads the status, retryable and OpenRouter's error message and code", () => {
     const d = describeModelError(callError(401, JSON.stringify({ error: { message: "User not found.", code: 401 } })));
-    expect(d).toEqual({ name: "AI_APICallError", status: 401, retryable: false, providerMessage: "User not found.", providerCode: "401" });
+    expect(d).toEqual({ name: "AI_APICallError", status: 401, retryable: false, providerMessage: "User not found.", providerCode: "401", upstreamProvider: null, upstreamMessage: null });
   });
 
   test("a top-level message and a string code are read too", () => {
@@ -30,7 +30,31 @@ describe("describeModelError", () => {
 
   test("a body that is not JSON gives no provider message (its raw text is not logged)", () => {
     const d = describeModelError(callError(502, "<html>Bad gateway from upstream</html>", true));
-    expect(d).toEqual({ name: "AI_APICallError", status: 502, retryable: true, providerMessage: null, providerCode: null });
+    expect(d).toEqual({ name: "AI_APICallError", status: 502, retryable: true, providerMessage: null, providerCode: null, upstreamProvider: null, upstreamMessage: null });
+  });
+
+  test("OpenRouter's upstream provider and its raw error are read (Provider returned error)", () => {
+    const raw = JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API." } });
+    const body = JSON.stringify({ error: { message: "Provider returned error", code: 400, metadata: { raw, provider_name: "Anthropic" } } });
+    const d = describeModelError(callError(400, body));
+    expect(d.providerMessage).toBe("Provider returned error");
+    expect(d.upstreamProvider).toBe("Anthropic");
+    expect(d.upstreamMessage).toBe("Your credit balance is too low to access the Anthropic API.");
+    expect(modelErrorLogLine("model stream error", d)).toBe(
+      'agent: model stream error name=AI_APICallError status=400 retryable=false code=400 provider="Provider returned error" upstream_provider="Anthropic" upstream="Your credit balance is too low to access the Anthropic API."',
+    );
+  });
+
+  test("a raw upstream error that is not JSON is cleaned, and a key in it redacted", () => {
+    const body = JSON.stringify({ error: { message: "Provider returned error", code: 400, metadata: { raw: "bad key sk-ant-abcdef1234567890\nline two", provider_name: "Anthropic" } } });
+    expect(describeModelError(callError(400, body)).upstreamMessage).toBe("bad key [redacted] line two");
+  });
+
+  test("a raw upstream error given as an object, and an odd provider name dropped", () => {
+    const body = JSON.stringify({ error: { message: "Provider returned error", metadata: { raw: { error: { message: "tools: invalid schema" } }, provider_name: "Evil\nName; rm" } } });
+    const d = describeModelError(callError(400, body));
+    expect(d.upstreamMessage).toBe("tools: invalid schema");
+    expect(d.upstreamProvider).toBeNull();
   });
 
   test("an odd code is dropped", () => {
@@ -51,7 +75,7 @@ describe("describeModelError", () => {
   });
 
   test("anything else gives its name only", () => {
-    expect(describeModelError(new Error("provider down"))).toEqual({ name: "Error", status: null, retryable: null, providerMessage: null, providerCode: null });
+    expect(describeModelError(new Error("provider down"))).toEqual({ name: "Error", status: null, retryable: null, providerMessage: null, providerCode: null, upstreamProvider: null, upstreamMessage: null });
     expect(describeModelError("weird")).toMatchObject({ name: "string", status: null });
   });
 });

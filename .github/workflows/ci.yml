@@ -186,6 +186,20 @@ jobs:
         run: npm ci
       - name: Run sandbox enforcement tests
         run: npm run test:sandbox
+      # Plan Task 2.11: the render smoke over every surface on the replay list, reusing the
+      # build the step above made (`npm run test:render-smoke` builds first when run alone).
+      # Its config starts the app with the replay page's opt-in; no workflow env sets it.
+      - name: Run render smoke
+        if: ${{ !cancelled() }}
+        run: PLAYWRIGHT_NO_COPY_PROMPT=1 npx playwright test --config playwright.render-smoke.config.ts
+      - name: Upload render smoke results and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-smoke
+          path: dashboard/test-results/render-smoke/**
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload sandbox per-case results
         if: always()
         uses: actions/upload-artifact@v4

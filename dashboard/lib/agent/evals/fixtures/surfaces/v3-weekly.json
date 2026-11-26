@@ -1,0 +1,9 @@
+{
+  "base": "d_weekly.new-grad.handwritten.json",
+  "surface": 0,
+  "payload": {
+    "variant": 3,
+    "title": "Your last few weeks",
+    "html": "<style>\n.wk { display: flex; flex-wrap: wrap; gap: 12px; }\n.wk div { border: 1px solid currentColor; border-radius: 8px; padding: 12px; min-width: 140px; }\n.wk strong { display: block; font-size: 24px; }\n#chart svg { max-width: 100%; height: auto; }\n</style>\n<h1>Your last few weeks</h1>\n<div class=\"wk\">\n  <div><strong id=\"rate\">-</strong>response rate</div>\n  <div><strong id=\"n\">-</strong>applications</div>\n</div>\n<div id=\"chart\"></div>\n<p>Two applications reached interviews. Four are still waiting on a reply.</p>\n<jb-button action='{\"name\":\"open\",\"target\":\"applications\"}'>Open the tracker</jb-button>\n<script>\nhost.onInit(function (data) {\n  var metrics = data && data.metrics ? data.metrics : [];\n  metrics.forEach(function (m) {\n    if (m.spec.metric === \"response_rate\" && m.kind === \"value\" && m.value !== null) {\n      document.getElementById(\"rate\").textContent = Math.round(m.value * 100) + \"%\";\n      document.getElementById(\"n\").textContent = String(m.n);\n    }\n    if (m.spec.metric === \"applications_over_time\" && m.kind === \"series\") {\n      host.chart(document.getElementById(\"chart\"), {\n        viz: \"line\",\n        title: \"Applications per week\",\n        points: m.points.map(function (p) { return { label: p.x, value: p.y }; })\n      });\n    }\n  });\n});\n</script>"
+  }
+}

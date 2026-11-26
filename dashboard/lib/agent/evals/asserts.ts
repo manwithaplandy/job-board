@@ -443,6 +443,13 @@ function checkScenario(r: Recording, shownMetrics: MetricResult[], out: AssertFa
   }
 }
 
+// ---------------------------------------------------------------------------
+// Variant 3: what the frame's rendered text says (plan Task 2.11, spec 7.1)
+// ---------------------------------------------------------------------------
+
+/** In misstatements.ts (type-only imports, so the render smoke's browser spec can load it). */
+export { findMisstatements } from "@/lib/agent/evals/misstatements";
+
 /** Every deterministic failure in one recording; [] when it passes. */
 export function assertRecording(r: Recording): AssertFailure[] {
   const out: AssertFailure[] = [];

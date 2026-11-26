@@ -126,7 +126,7 @@ describe("visual regression route inventory", () => {
 
   test("skips test-driver routes in the screenshot matrix, so they need no baseline", () => {
     const harnesses = VISUAL_ROUTES.filter((route) => route.harness);
-    expect(harnesses.map((route) => route.id)).toEqual(["agent-sandbox-harness", "agent-sandbox-harness-baseline-csp"]);
+    expect(harnesses.map((route) => route.id)).toEqual(["agent-sandbox-harness", "agent-sandbox-harness-baseline-csp", "agent-surface-replay"]);
     for (const route of harnesses) {
       expect(route.access).toBe("public");
       expect(route.path.startsWith("/ui-gallery/")).toBe(true);

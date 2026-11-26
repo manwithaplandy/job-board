@@ -139,6 +139,20 @@ describe("deployment-triggered authenticated visual workflow", () => {
     expect(evidence).toContain("dashboard/test-results/sandbox/**");
     expect(evidence).toContain("retention-days: 7");
   });
+  test("runs the render smoke in the sandbox job, with the replay page's opt-in only in its own config (plan Task 2.11)", () => {
+    const sandboxJob = workflowJob(ordinaryCi, "sandbox-enforcement");
+    const run = workflowStep(ordinaryCi, "Run render smoke");
+    const upload = workflowStep(ordinaryCi, "Upload render smoke results and screenshots");
+    expect(sandboxJob).toContain("- name: Run render smoke");
+    expect(run).toContain("playwright test --config playwright.render-smoke.config.ts");
+    expect(upload).toContain("uses: actions/upload-artifact@v4");
+    expect(upload).toContain("dashboard/test-results/render-smoke/**");
+    // The opt-in lives in the render smoke's web server, never in a workflow's env.
+    expect(ordinaryCi).not.toContain("SURFACE_REPLAY");
+    const config = readFileSync("playwright.render-smoke.config.ts", "utf8");
+    expect(config).toContain('env: { SURFACE_REPLAY: "1" }');
+    expect(dashboardPackage.scripts["test:render-smoke"]).toMatch(/^next build && .*playwright test --config playwright\.render-smoke\.config\.ts$/);
+  });
   test("runs deployment visuals in the same pinned Playwright Linux container", () => {
     const workflow = readFileSync(authenticatedWorkflowPath, "utf8");
     expectPinnedLinuxContainer(workflowJob(workflow, "authenticated-visual"));

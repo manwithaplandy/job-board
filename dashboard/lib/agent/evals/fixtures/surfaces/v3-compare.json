@@ -1,0 +1,9 @@
+{
+  "base": "b_compare.senior-backend.handwritten.json",
+  "surface": 0,
+  "payload": {
+    "variant": 3,
+    "title": "Two backend roles side by side",
+    "html": "<style>\n.cmp { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }\n.cmp section { border: 1px solid currentColor; border-radius: 8px; padding: 12px; }\n.cmp h2 { font-size: 16px; margin: 0 0 4px; overflow-wrap: anywhere; }\n.cmp p { margin: 4px 0; }\n</style>\n<h1>Two backend roles side by side</h1>\n<p>The platform role is remote and meets the Go requirement; the first role pays about the same but is hybrid.</p>\n<div id=\"cards\" class=\"cmp\"></div>\n<script>\nhost.onInit(function (data) {\n  var ids = [\"greenhouse:eval-sb-0:1000\", \"greenhouse:eval-sb-1:1001\"];\n  var box = document.getElementById(\"cards\");\n  ids.forEach(function (id) {\n    var j = data && data.jobs ? data.jobs[id] : null;\n    var r = data && data.reviews ? data.reviews[id] : null;\n    if (!j) return;\n    var card = document.createElement(\"section\");\n    var h = document.createElement(\"h2\");\n    h.textContent = j.title;\n    card.appendChild(h);\n    var c = document.createElement(\"p\");\n    c.textContent = j.company;\n    card.appendChild(c);\n    if (r && r.fitScore !== null) {\n      var f = document.createElement(\"p\");\n      f.textContent = \"Fit \" + r.fitScore;\n      card.appendChild(f);\n    }\n    if (r && r.payMin !== null && r.payMax !== null) {\n      var p = document.createElement(\"p\");\n      p.textContent = \"$\" + Math.round(r.payMin / 1000) + \"k to $\" + Math.round(r.payMax / 1000) + \"k\";\n      card.appendChild(p);\n    }\n    var b = document.createElement(\"jb-button\");\n    b.setAttribute(\"action\", JSON.stringify({ name: \"shortlist.set\", jobId: id, state: \"shortlisted\" }));\n    b.textContent = \"Shortlist\";\n    card.appendChild(b);\n    box.appendChild(card);\n  });\n});\n</script>"
+  }
+}

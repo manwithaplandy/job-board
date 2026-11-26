@@ -1,0 +1,95 @@
+{
+  "base": "b_compare.senior-backend.handwritten.json",
+  "surface": 0,
+  "payload": {
+    "variant": 2,
+    "title": "Two backend roles side by side",
+    "root": {
+      "type": "Stack",
+      "gap": "3",
+      "children": [
+        { "type": "Heading", "level": 1, "text": "Two backend roles side by side" },
+        { "type": "Text", "text": "The platform role is remote and meets the Go requirement; the first role pays about the same but is hybrid." },
+        {
+          "type": "Grid",
+          "columns": 2,
+          "children": [
+            {
+              "type": "Card",
+              "tone": "neutral",
+              "children": [
+                { "type": "JobTitle", "jobId": "greenhouse:eval-sb-0:1000" },
+                {
+                  "type": "Stack",
+                  "gap": "1",
+                  "children": [
+                    { "type": "FitScore", "jobId": "greenhouse:eval-sb-0:1000" },
+                    { "type": "Pay", "jobId": "greenhouse:eval-sb-0:1000" },
+                    { "type": "Badge", "text": "Hybrid", "tone": "warning" }
+                  ]
+                },
+                { "type": "PostingLink", "jobId": "greenhouse:eval-sb-0:1000" },
+                {
+                  "type": "Button",
+                  "label": "Shortlist",
+                  "variant": "secondary",
+                  "action": { "name": "shortlist.set", "jobId": "greenhouse:eval-sb-0:1000", "state": "shortlisted" }
+                }
+              ]
+            },
+            {
+              "type": "Card",
+              "tone": "accent",
+              "children": [
+                { "type": "JobTitle", "jobId": "greenhouse:eval-sb-1:1001" },
+                {
+                  "type": "Stack",
+                  "gap": "1",
+                  "children": [
+                    { "type": "FitScore", "jobId": "greenhouse:eval-sb-1:1001" },
+                    { "type": "Pay", "jobId": "greenhouse:eval-sb-1:1001" },
+                    { "type": "Badge", "text": "Remote", "tone": "success" }
+                  ]
+                },
+                { "type": "PostingLink", "jobId": "greenhouse:eval-sb-1:1001" },
+                {
+                  "type": "Button",
+                  "label": "Shortlist",
+                  "variant": "primary",
+                  "action": { "name": "shortlist.set", "jobId": "greenhouse:eval-sb-1:1001", "state": "shortlisted" }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Tabs",
+          "tabs": [
+            {
+              "label": "First role",
+              "child": {
+                "type": "Table",
+                "columns": [
+                  { "header": "Requirement", "bind": "/text" },
+                  { "header": "Met", "bind": "/met" }
+                ],
+                "rowsBind": "/reviews/greenhouse:eval-sb-0:1000/requirements"
+              }
+            },
+            {
+              "label": "Platform role",
+              "child": {
+                "type": "Table",
+                "columns": [
+                  { "header": "Requirement", "bind": "/text" },
+                  { "header": "Met", "bind": "/met" }
+                ],
+                "rowsBind": "/reviews/greenhouse:eval-sb-1:1001/requirements"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

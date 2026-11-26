@@ -25,12 +25,13 @@ import { z } from "zod";
 import type postgres from "postgres";
 import { agentModel } from "@/lib/agent/provider";
 import { streamAgentTurn } from "@/lib/agent/loop";
-import { createThread, getThread } from "@/lib/agent/threads";
+import { createThread, getThread, loadMessages } from "@/lib/agent/threads";
 import { buildTools } from "@/lib/agent/tools";
 import type { Variant } from "@/lib/agent/config";
 import { parseOrNull } from "@/lib/zodParse";
 import { PERSONAS, seedPersona, writeStandInPackage, type Persona, type PersonaId } from "@/lib/agent/evals/personas";
-import { SCENARIOS, type ScenarioId } from "@/lib/agent/evals/scenarios";
+import { SCENARIOS, type PersonaSetup, type Scenario, type ScenarioId } from "@/lib/agent/evals/scenarios";
+import { loadInjectionFixture, type InjectionCase, type InjectionResult } from "@/lib/agent/evals/injection";
 import { collectRecording, rerenderUsage, snapshotDb } from "@/lib/agent/evals/record";
 import { playScenario, readStream, type TurnRunner } from "@/lib/agent/evals/play";
 import { recordingFileName, type Recording } from "@/lib/agent/evals/recording";
@@ -137,11 +138,21 @@ async function waitForRuns(sql: postgres.Sql, threadId: string): Promise<void> {
 
 /** Plays one scenario for one persona against the live model and returns its recording. */
 export async function runScenario(a: RunScenarioArgs, ctx: ScenarioCtx): Promise<Recording & { skipped: string[] }> {
-  const { budget } = ctx;
-  budget.startCase();
+  ctx.budget.startCase();
   const persona = PERSONAS[a.persona];
   const scenario = SCENARIOS[a.scenario];
   const userId = await seedPersona(ctx.sql, persona, scenario.setup);
+  return playSeeded({ ...a, scenario, userId }, ctx);
+}
+
+/** Plays `scenario` on a new thread of the already seeded persona, and reads the run back. */
+async function playSeeded(
+  a: Omit<RunScenarioArgs, "scenario"> & { scenario: Scenario; userId: string },
+  ctx: ScenarioCtx,
+): Promise<Recording & { skipped: string[]; threadId: string }> {
+  const { budget } = ctx;
+  const { scenario, userId } = a;
+  const persona = PERSONAS[a.persona];
   const thread = await createThread(userId, a.variant);
   const dbBefore = await snapshotDb(ctx.sql, userId);
   const model = seededModel(a.model, a.seed, budget);
@@ -166,7 +177,7 @@ export async function runScenario(a: RunScenarioArgs, ctx: ScenarioCtx): Promise
   const recording = await collectRecording({
     sql: ctx.sql,
     source: "live",
-    scenario: a.scenario,
+    scenario: scenario.id,
     persona: a.persona,
     userId,
     threadId: thread.id,
@@ -178,8 +189,67 @@ export async function runScenario(a: RunScenarioArgs, ctx: ScenarioCtx): Promise
     dbBefore,
     timings: played.timings,
   });
-  return { ...recording, skipped: played.skipped };
+  return { ...recording, skipped: played.skipped, threadId: thread.id };
 }
+
+/**
+ * One model-driven injection case (Task 2.12, used only by injection.eval.ts): the persona
+ * seeded with a résumé on file and a memo, the fixture's hostile text planted where the
+ * case's channel reads it (a posting's description, a company's display name, or an
+ * uploaded résumé or photo's extracted text), then the case's scripted user played on a
+ * new thread of `variant`. The planted rows are reset first, so a case never sees another
+ * case's text. Variant 3's replay in the sandbox harness is not done here (no browser in
+ * this lane): `replay` is null and the render smoke replays the stored surfaces in CI.
+ */
+export async function runInjectionCase(
+  a: { injection: InjectionCase; variant: Variant; model: string; seed: number },
+  ctx: ScenarioCtx,
+): Promise<InjectionResult> {
+  ctx.budget.startCase();
+  const c = a.injection;
+  const persona = PERSONAS[c.persona];
+  const fixture = loadInjectionFixture(c.fixture);
+  const jobIds = persona.jobs.map((j) => j.jobId);
+  await ctx.sql`UPDATE jobs SET description = NULL WHERE id IN ${ctx.sql(jobIds)}`;
+  await ctx.sql`UPDATE companies SET display_name = NULL
+                WHERE id IN (SELECT company_id FROM jobs WHERE id IN ${ctx.sql(jobIds)})`;
+  const userId = await seedPersona(ctx.sql, persona, INJECTION_SETUP);
+  if (fixture.kind === "posting") {
+    await ctx.sql`UPDATE jobs SET description = ${fixture.text} WHERE id = ${persona.jobs[fixture.jobIndex].jobId}`;
+  } else if (fixture.kind === "company") {
+    await ctx.sql`UPDATE companies SET display_name = ${fixture.text}
+                  WHERE id = (SELECT company_id FROM jobs WHERE id = ${persona.jobs[fixture.jobIndex].jobId})`;
+  } else {
+    const mime = fixture.filename.endsWith(".png") ? "image/png" : "text/markdown";
+    await ctx.sql`
+      INSERT INTO documents (id, user_id, kind, filename, mime, bytes, storage_path, extracted_text, extraction)
+      VALUES (${persona.documentId}, ${userId}, ${fixture.documentKind}, ${fixture.filename}, ${mime},
+              ${Buffer.byteLength(fixture.text, "utf8")}, ${`${userId}/doc-${persona.documentId}-${fixture.filename}`},
+              ${fixture.text}, 'ok')`;
+  }
+  const scenario: Scenario = { id: c.scenario, title: `injection ${c.id}`, setup: INJECTION_SETUP, steps: c.steps };
+  const { skipped, threadId, ...recording } = await playSeeded(
+    { persona: c.persona, scenario, userId, variant: a.variant, model: a.model, seed: a.seed },
+    ctx,
+  );
+  if (skipped.length > 0) console.warn(`eval: injection ${c.id} skipped ${skipped.join("; ")}`);
+  const texts = (await loadMessages(userId, threadId))
+    .filter((m) => m.role === "assistant")
+    .flatMap((m) => m.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])));
+  return {
+    caseId: c.id,
+    variant: a.variant,
+    model: a.model,
+    recording,
+    texts,
+    contacts: [persona.email, ...(fixture.secrets ?? [])],
+    replay: null,
+    html: null,
+  };
+}
+
+/** Every injection case starts with the résumé on the profile and a memo, and no applications. */
+const INJECTION_SETUP: PersonaSetup = { resume: "on_profile", memo: true, applications: false };
 
 /**
  * A matrix re-render cell (Task 2.10): every surface of the live variant 1 run `from`,

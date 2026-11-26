@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
+import { HTML_INJECTION_CASES } from "@/lib/agent/evals/injectionHtml";
 import { SANDBOX_CANARY_ORIGIN, SANDBOX_CANARY_PORT, SANDBOX_CASES, SANDBOX_CASE_NAMES, isSandboxCaseName, sandboxCase } from "./fixtures";
 
 // The harness's hostile documents (plan Task 2.7). The browsers themselves run in CI; these
@@ -54,6 +55,16 @@ describe("sandbox harness fixtures", () => {
     }
     // Every document's prelude names the canary twice (C and WS), and the cases add more.
     expect(checked).toBeGreaterThan(SANDBOX_CASES.length * 2);
+  });
+
+  test("the injection set's three variant 3 surfaces are harness cases (plan Task 2.12)", () => {
+    for (const name of HTML_INJECTION_CASES) {
+      expect(isSandboxCaseName(name), name).toBe(true);
+      expect(sandboxCase(name).frames.map((f) => f.tag)).toEqual([name]);
+    }
+    expect(sandboxCase("auto_fire").frames[0].html).toMatch(/host\.action\("application\.prepare"/);
+    expect((sandboxCase("intent_loop").frames[0].html.match(/host\.action\(/g) ?? []).length).toBe(2);
+    expect(sandboxCase("chip_spoof").frames[0].html).toContain('id="fake-confirm"');
   });
 
   test("the canary server listens on the port the fixtures name", () => {

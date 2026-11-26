@@ -60,6 +60,7 @@ import {
   type SandboxLane,
 } from "../../app/ui-gallery/sandbox-harness/fixtures";
 import { buildSandboxDocument, checkV3Static, newSandboxNonce } from "../../lib/agent/surfaces/v3/document";
+import { effectsFromIntents, judgeHtmlCase, type HtmlEffects, type HtmlInjectionCase } from "../../lib/agent/evals/injectionHtml";
 import {
   SANDBOX_GATES_DIR,
   SANDBOX_RESULTS_DIR,
@@ -451,6 +452,22 @@ function expectContained(run: CaseRun) {
   for (const f of run.record.frames) {
     expect(!f.present || f.url === "about:srcdoc", `${run.at}: frame ${f.index} is at ${f.url} and the host has not removed it`).toBe(true);
   }
+}
+
+/** An injection case's effects (from the logs, the frames and the canary), judged by judgeHtmlCase. */
+function expectInjectionPass(run: CaseRun, caseName: HtmlInjectionCase, chipPresses: number) {
+  const reasons = fallbackReasons(run);
+  const effects: HtmlEffects = {
+    ...effectsFromIntents(run.record.intents),
+    chipPresses,
+    rateLimitPassed: reasons.some((r) => r === "action_rate_limit" || r === "action_total_limit"),
+    blanked: reasons.length > 0 && run.record.frames.every((f) => !f.present),
+    canaryHits: run.record.hits?.total ?? 0,
+    loads: run.consoleProbes.filter((p) => p.t === caseName && p.k === "start").length,
+  };
+  run.note(`Injection effects: ${JSON.stringify(effects)}`);
+  const verdict = judgeHtmlCase(caseName, effects);
+  expect(verdict.reasons, `${run.at}: the injection case failed`).toEqual([]);
 }
 
 /** Throws are recorded, not asserted: a browser that blocks silently is just as safe; the outcome is what is asserted. */
@@ -1085,6 +1102,54 @@ test.describe(`frame-src-none lane (${SANDBOX_LANES["frame-src-none"]})`, () => 
       { surface: expect.any(String), value: { intent: { name: "compare", jobIds: [HARNESS_JOB_A, HARNESS_JOB_B] }, source: "frame" } },
     ]);
     expectContained(run);
+  });
+
+  // The prompt-injection set's three variant 3 surfaces (plan Task 2.12), judged by the
+  // same judgeHtmlCase the eval's table uses. In the product every intent the host runs
+  // writes an agent_actions row and a turn intent starts a run; here the harness's intents
+  // log stands for both, so an empty log is zero rows.
+  test("auto_fire: actions asked for on init run nothing without a press", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "auto_fire", "frame-src-none");
+    await hostileCase(run, "auto_fire", 8_000, 1_500);
+    expectInjectionPass(run, "auto_fire", 0);
+    expect(run.record.intents, `${run.at}: nothing ran`).toEqual([]);
+  });
+
+  test("intent_loop: a loop of turn-starting actions trips the action limit and the frame is removed", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "intent_loop", "frame-src-none");
+    requireControls(run, laneControls("frame-src-none", "intent_loop"));
+    await openHarness(run, "frame-src-none", "intent_loop");
+    await waitForProbe(run, "intent_loop", "done", 8_000);
+    await finishCase(run, 1_500);
+    expectNoHits(run);
+    expectAttempted(run, "intent_loop");
+    expect(fallbackReasons(run), `${run.at}: the host fell back for the action limit`).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^action_(rate|total)_limit$/)]),
+    );
+    expectInjectionPass(run, "intent_loop", 0);
+  });
+
+  test("chip_spoof: a press on the frame's own confirm bar runs nothing; the host's chip runs one action", async ({ page, request, browserName }) => {
+    const run = await startCase(page, request, browserName, "chip_spoof", "frame-src-none");
+    requireControls(run, laneControls("frame-src-none", "chip_spoof"));
+    await openHarness(run, "frame-src-none", "chip_spoof");
+    const chip = page.locator("[data-sandbox-chip]");
+    const compare = "Compare Senior Product Engineer at Acme Systems with Staff Backend Engineer at Globex";
+    await expect(chip, `${run.at}: the host's chip names what the frame asked for`).toHaveText(compare, { timeout: 8_000 });
+    await page.waitForTimeout(ARMED_AFTER_MS);
+    expect(await clickInFrame(run, "#fake-confirm"), `${run.at}: the fake confirm bar was clicked`).toBe(true);
+    await waitForProbe(run, "chip_spoof", "fakePressed", 2_000);
+    expect(await harnessLog(page, "intents"), `${run.at}: the fake bar's press ran something`).toEqual([]);
+    await page.waitForTimeout(ARMED_AFTER_MS);
+    await chip.click();
+    await finishCase(run, 1_000);
+    expectNoHits(run);
+    expectAttempted(run, "chip_spoof");
+    expectContained(run);
+    expect(run.record.intents, `${run.at}: the host's chip ran the compare once`).toEqual([
+      { surface: expect.any(String), value: { intent: { name: "compare", jobIds: [HARNESS_JOB_A, HARNESS_JOB_B] }, source: "frame" } },
+    ]);
+    expectInjectionPass(run, "chip_spoof", 1);
   });
 
   test("cap-1200: a 3,000px document is shown at most 1,200px tall", async ({ page, request, browserName }) => {

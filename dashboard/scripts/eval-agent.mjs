@@ -9,8 +9,12 @@
 //       scenarios by 3 personas by 5 repeats live in variant 1, each re-rendered into
 //       variants 2 and 3). Models default to AGENT_EVAL_MODELS, Sonnet 5.5 first.
 //       Recordings go under lib/agent/evals/recordings/matrix/<model>/v<variant>/.
+//   npm run eval:agent -- --injection [--models a,b | --model <id>] [injection caps] [--dry-run]
+//       The prompt-injection set (lib/agent/evals/injection.eval.ts): per model, 15
+//       model-driven cases in variants 1, 2 and 3 (45 runs). Results go under
+//       lib/agent/evals/recordings/injection/<model>/v<variant>/<case>.json.
 //
-// --dry-run prints the cell plan and the estimated tokens and list-price dollars per model
+// --dry-run (matrix and injection) prints the cell plan and the estimated tokens and list-price dollars per model
 // (lib/agent/evals/matrixPlan.ts, PRICE_PER_MTOK_MICROS) and the caps the run would have,
 // then exits 0. It needs no key and no database, and spends nothing.
 //
@@ -41,6 +45,14 @@
 //   --max-minutes <n>       wall clock per model                      default 360, ceiling 600
 //   --max-total-tokens <n>  tokens over every model                   default 44,000,000, ceiling 88,000,000
 //   --max-total-usd <n>     reported dollars over every model         default 80,  ceiling 200
+// Injection (each model's run has these caps; the whole command also has the two totals):
+//   --max-cases <n>         runs per model (the first n of its plan)  default 45,  ceiling 45
+//   --max-steps <n>         model calls in one turn                   default 8,   ceiling 8
+//   --max-tokens <n>        tokens per model                          default 9,000,000, ceiling 18,000,000
+//   --max-usd <n>           reported dollars per model                default 25,  ceiling 50
+//   --max-minutes <n>       wall clock per model                      default 120, ceiling 240
+//   --max-total-tokens <n>  tokens over every model                   default 18,000,000, ceiling 36,000,000
+//   --max-total-usd <n>     reported dollars over every model         default 35,  ceiling 90
 // --max-usd and --max-total-usd are enforced only when OpenRouter reports each call's cost;
 // if it does not, only the token caps apply and the report says so. No price table stands
 // in for them.
@@ -61,13 +73,20 @@ const USAGE =
   "       [--max-cases <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
   "   or: npm run eval:agent -- --matrix [--models <id,id> | --model <id>] [--dry-run]\n" +
   "       [--max-cells <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
+  "       [--max-total-tokens <n>] [--max-total-usd <n>]\n" +
+  "   or: npm run eval:agent -- --injection [--models <id,id> | --model <id>] [--dry-run]\n" +
+  "       [--max-cases <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
   "       [--max-total-tokens <n>] [--max-total-usd <n>]";
 
 /** Each mode: its cap profile and the eval file vitest runs (vitest.eval.config.ts includes every *.eval.ts). */
 const MODES = {
   golden: { profile: "golden", file: "lib/agent/evals/live.eval.ts" },
   matrix: { profile: "matrix", file: "lib/agent/evals/matrix.eval.ts" },
+  injection: { profile: "injection", file: "lib/agent/evals/injection.eval.ts" },
 };
+const MODE_FLAGS = Object.keys(MODES)
+  .filter((m) => m !== "golden")
+  .map((m) => `--${m}`);
 
 function usage(message) {
   console.error(`eval:agent: ${message}`);
@@ -96,8 +115,9 @@ function parseModels(raw) {
 }
 
 function parseArgs(argv) {
-  const modeFlags = argv.filter((a) => a === "--matrix");
-  const mode = modeFlags.length === 0 ? "golden" : "matrix";
+  const modeFlags = argv.filter((a) => MODE_FLAGS.includes(a));
+  if (modeFlags.length > 1) usage(`give one of ${MODE_FLAGS.join(", ")}, once`);
+  const mode = modeFlags.length === 0 ? "golden" : modeFlags[0].slice(2);
   const { profile } = MODES[mode];
   const flags = profileFlags(profile);
   const out = { mode, profile, variant: null, model: null, models: null, seed: "1", dryRun: false, caps: {}, totals: {} };
@@ -110,7 +130,7 @@ function parseArgs(argv) {
       if (i >= argv.length) usage(`${flag} needs a value`);
       return argv[i];
     };
-    if (flag === "--matrix" && inline === undefined) continue;
+    if (MODE_FLAGS.includes(flag) && inline === undefined) continue;
     if (flag === "--variant" && mode === "golden") out.variant = value();
     else if (flag === "--model") out.model = value();
     else if (flag === "--models" && mode !== "golden") out.models = parseModels(value());
@@ -139,7 +159,11 @@ const args = parseArgs(process.argv.slice(2));
 const models = args.mode === "golden" ? null : plan.runModels({ models: args.models, model: args.model });
 
 if (args.dryRun) {
-  console.log(plan.formatMatrixDryRun({ models, caps: args.caps, totals: args.totals }));
+  if (args.mode === "matrix") console.log(plan.formatMatrixDryRun({ models, caps: args.caps, totals: args.totals }));
+  else {
+    const runs = Math.min(args.caps.maxCases, budget.INJECTION_RUNS_PER_MODEL);
+    console.log(plan.formatSimpleDryRun({ profile: args.profile, models, runs, caps: args.caps, totals: args.totals }));
+  }
   process.exit(0);
 }
 

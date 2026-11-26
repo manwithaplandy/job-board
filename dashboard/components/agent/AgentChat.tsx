@@ -38,6 +38,7 @@ import { mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
 import { RerenderTabs } from "./RerenderTabs";
 import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
+import { toolActivityLabel } from "@/lib/agent/toolLabel";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
 // carries only the thread id and either the new message's id, text and attached document
@@ -246,7 +247,7 @@ function ToolLine({ part }: { part: ToolPart }) {
     );
   }
   if (part.state === "approval-requested" || part.state === "approval-responded") return null;
-  return <p className="rf-agent-message__tool">Looked up {name.replace(/_/g, " ")}</p>;
+  return <p className="rf-agent-message__tool">{toolActivityLabel(name)}</p>;
 }
 
 /** Whether ToolLine draws anything for the part. */

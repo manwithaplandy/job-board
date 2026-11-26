@@ -64,7 +64,7 @@ const CONVERSATION: UIMessage[] = [
   ]),
   user("u2", "Which of my reviewed jobs fit the first one?"),
   assistant("a2", [
-    lookup("c2", "search_reviewed_jobs"),
+    lookup("c2", "search_jobs"),
     { type: "text", text: "Two of your reviewed jobs fit developer tooling well. Acme Systems is remote and lists pay; Globex is on-site in Austin." },
   ]),
 ];
@@ -72,7 +72,7 @@ const CONVERSATION: UIMessage[] = [
 const WITH_SURFACE: UIMessage[] = [
   ...CONVERSATION.slice(0, 3),
   assistant("a2", [
-    lookup("c2", "search_reviewed_jobs"),
+    lookup("c2", "search_jobs"),
     present("c3"),
     { type: "text", text: "Here are the two closest matches side by side." },
   ]),

@@ -7,19 +7,33 @@
 // Every call also carries the budget's abort signal, so a trip (the wall clock) stops a
 // call in flight.
 //
+// PR J7 fix round 1: before a call, its worst-case list price (prices.ts
+// worstCaseCallMicros: the prompt's serialized size as an upper bound on its input tokens,
+// at the dearest tier that could apply, written to the cache, plus its whole output limit)
+// is the dollar reserve beforeStep holds it to, so a run never starts a call that could
+// take it past its dollar cap.
+//
 // The harness (harness.ts) is its one user; the route never sees it.
 import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
 import { readStepUsage, type RunBudget } from "@/lib/agent/evals/budget";
+import { inputTokenBound, worstCaseCallMicros } from "@/lib/agent/prices";
+
+/** The worst-case dollars of one call of `modelId` with these params (Infinity when the prompt cannot be bounded). */
+export function callWorstCaseUsd(modelId: string, params: { prompt: unknown; tools?: unknown; maxOutputTokens?: number }): number {
+  return worstCaseCallMicros(modelId, { inputTokensBound: inputTokenBound(params.prompt, params.tools), maxOutputTokens: params.maxOutputTokens }) / 1_000_000;
+}
 
 export function budgetMiddleware(budget: RunBudget): LanguageModelMiddleware {
+  const before = (modelId: string, params: { prompt: unknown; tools?: unknown; maxOutputTokens?: number }) =>
+    budget.beforeStep({ maxOutputTokens: params.maxOutputTokens, worstCaseUsd: callWorstCaseUsd(modelId, params) });
   return {
     // The call's own signal and the budget's: whichever aborts first stops the call.
     transformParams: async ({ params }) => ({
       ...params,
       abortSignal: params.abortSignal ? AbortSignal.any([params.abortSignal, budget.signal]) : budget.signal,
     }),
-    wrapGenerate: async ({ doGenerate, params }) => {
-      budget.beforeStep({ maxOutputTokens: params.maxOutputTokens });
+    wrapGenerate: async ({ doGenerate, params, model }) => {
+      before(model.modelId, params);
       let result: Awaited<ReturnType<typeof doGenerate>>;
       try {
         result = await doGenerate();
@@ -30,8 +44,8 @@ export function budgetMiddleware(budget: RunBudget): LanguageModelMiddleware {
       budget.recordStep(readStepUsage(result.usage, result.providerMetadata));
       return result;
     },
-    wrapStream: async ({ doStream, params }) => {
-      budget.beforeStep({ maxOutputTokens: params.maxOutputTokens });
+    wrapStream: async ({ doStream, params, model }) => {
+      before(model.modelId, params);
       let result: Awaited<ReturnType<typeof doStream>>;
       try {
         result = await doStream();

@@ -79,6 +79,20 @@ describe("render smoke results", () => {
     expect(forRuns(rs, { matrix: null, injection: null }).map((r) => r.source)).toEqual(["v1", "fixture"]);
   });
 
+  test("PR J7: a rerender-only matrix run also keeps its source run's variant 1 results, and nothing else of that run", () => {
+    const rs = [
+      result(`matrix/${RUN}/m/v3/a.json#0`),
+      result(`matrix/${OLD}/m/v1/a.json#0`, { variant: 1, evalRun: OLD }),
+      result(`matrix/${OLD}/m/v3/a.json#0`, { evalRun: OLD }),
+      result(`matrix/${OLD}/m/v2/a.json#0`, { variant: 1, evalRun: OLD }),
+      result(`injection/${OLD}/m/v1/x.json#0`, { source: "injection", variant: 1, evalRun: OLD }),
+    ];
+    expect(forRuns(rs, { matrix: RUN, matrixSource: OLD, injection: null }).map((r) => r.name)).toEqual([`matrix/${RUN}/m/v3/a.json#0`, `matrix/${OLD}/m/v1/a.json#0`]);
+    expect(forRuns(rs, { matrix: RUN, injection: null }).map((r) => r.name)).toEqual([`matrix/${RUN}/m/v3/a.json#0`]);
+    // The source's variant 3 words never stand in for this run's.
+    expect([...renderedTextIndex(rs.map((r) => ({ ...r, frameText: "x" })), RUN).keys()]).toEqual([`matrix/${RUN}/m/v3/a.json#0`]);
+  });
+
   test("counts per source and variant, and variant 3 misstatements per model in one matrix run", () => {
     const rs = [
       result(`matrix/${RUN}/anthropic-claude-sonnet-5.5/v3/b.json#0`, { misstatements: ["fit 90 is 94"], failures: ["misstatement: fit"] }),

@@ -120,9 +120,29 @@ describe("flags", () => {
 describe("readStepUsage", () => {
   test("reads the token totals and OpenRouter's reported cost", () => {
     const u = { inputTokens: { total: 1200, noCache: 1200 }, outputTokens: { total: 80, text: 80 } };
-    expect(readStepUsage(u, { openrouter: { usage: { cost: 0.0042 } } })).toEqual(usage(1200, 80, 0.0042));
-    expect(readStepUsage(u, undefined)).toEqual(usage(1200, 80, null));
-    expect(readStepUsage(u, { openrouter: { usage: { cost: -1 } } })).toEqual(usage(1200, 80, null));
+    const none = { cacheReadTokens: 0, cacheWriteTokens: 0 };
+    expect(readStepUsage(u, { openrouter: { usage: { cost: 0.0042 } } })).toEqual({ ...usage(1200, 80, 0.0042), ...none });
+    expect(readStepUsage(u, undefined)).toEqual({ ...usage(1200, 80, null), ...none });
+    expect(readStepUsage(u, { openrouter: { usage: { cost: -1 } } })).toEqual({ ...usage(1200, 80, null), ...none });
+  });
+
+  test("reads the prompt cache's read and write counts, which a run's totals and report carry (PR J7)", () => {
+    const u = { inputTokens: { total: 1200, noCache: 200, cacheRead: 900, cacheWrite: 100 }, outputTokens: { total: 80 } };
+    expect(readStepUsage(u, { openrouter: { usage: { cost: 0.001 } } })).toEqual({
+      ...usage(1200, 80, 0.001),
+      cacheReadTokens: 900,
+      cacheWriteTokens: 100,
+    });
+    // Malformed or larger than the input: never more than the input, never negative.
+    const bad = { inputTokens: { total: 50, cacheRead: 900, cacheWrite: -3 }, outputTokens: { total: 1 } };
+    expect(readStepUsage(bad, undefined)).toMatchObject({ cacheReadTokens: 50, cacheWriteTokens: 0 });
+    const b = new RunBudget(caps());
+    b.startCase();
+    b.startTurn();
+    b.beforeStep();
+    b.recordStep(readStepUsage(u, { openrouter: { usage: { cost: 0.001 } } }));
+    expect(b.totals).toMatchObject({ inputTokens: 1200, cacheReadTokens: 900, cacheWriteTokens: 100 });
+    expect(b.report()).toContain("cache read 900 / written 100");
   });
 
   test.each([

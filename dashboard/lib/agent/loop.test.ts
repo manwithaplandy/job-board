@@ -1170,3 +1170,149 @@ describe("streamAgentTurn: stable prefix, memo and thread summaries (Task 1.21)"
     expect(lastAssistantSave()[3]).toBe("complete");
   });
 });
+
+describe("streamAgentTurn: prompt caching on the wire (PR J7)", () => {
+  // The real OpenRouter provider (the pinned @openrouter/ai-sdk-provider) over a fetch that
+  // records each request body and answers with a canned stream: no network, no key.
+  type Body = { tools?: unknown[]; messages: Array<Record<string, unknown>> };
+
+  function sse(chunks: unknown[]): Response {
+    const text = [...chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`), "data: [DONE]\n\n"].join("");
+    return new Response(text, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+  const chunk = (delta: unknown, finish: string | null = null, usage?: unknown) => ({
+    id: "gen-1",
+    object: "chat.completion.chunk",
+    created: 1,
+    model: "anthropic/claude-haiku-5.5",
+    choices: [{ index: 0, delta, finish_reason: finish }],
+    ...(usage ? { usage } : {}),
+  });
+  const usageOf = { prompt_tokens: 30, completion_tokens: 5, total_tokens: 35, cost: 0.0001, prompt_tokens_details: { cached_tokens: 0 } };
+  const toolCallReply = (id: string) =>
+    sse([
+      chunk({ role: "assistant", content: null, tool_calls: [{ index: 0, id, type: "function", function: { name: "get_profile_summary", arguments: "{}" } }] }),
+      chunk({}, "tool_calls", usageOf),
+    ]);
+  const textReply = (text: string) => sse([chunk({ role: "assistant", content: text }), chunk({}, "stop", usageOf)]);
+
+  async function openRouterModel(replies: Array<() => Response>) {
+    const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
+    const bodies: Body[] = [];
+    let i = 0;
+    const fetch = (async (_url: unknown, init?: { body?: unknown }) => {
+      bodies.push(JSON.parse(String(init?.body)) as Body);
+      const reply = replies[Math.min(i, replies.length - 1)];
+      i += 1;
+      return reply();
+    }) as typeof globalThis.fetch;
+    const model = createOpenRouter({ apiKey: "test-key", compatibility: "strict", fetch }).chat("anthropic/claude-haiku-5.5", {
+      usage: { include: true },
+    });
+    return { model, bodies };
+  }
+
+  /** Every cache_control in a request, as "messages[i]" or "messages[i].content[j]". */
+  function breakpoints(body: Body): string[] {
+    const out: string[] = [];
+    body.messages.forEach((m, i) => {
+      if (m.cache_control) out.push(`messages[${i}]`);
+      if (Array.isArray(m.content)) {
+        (m.content as Array<Record<string, unknown>>).forEach((p, j) => {
+          if (p.cache_control) out.push(`messages[${i}].content[${j}]`);
+        });
+      }
+    });
+    return out;
+  }
+
+  /**
+   * A message without its breakpoint. OpenRouter takes a single-text user message either as
+   * a string or as one text block; both are the same Anthropic content block, so the
+   * comparison reads them alike.
+   */
+  function bare(m: Record<string, unknown>): string {
+    const { cache_control: _drop, ...rest } = m;
+    let content = rest.content;
+    if (Array.isArray(content)) {
+      const parts = (content as Array<Record<string, unknown>>).map(({ cache_control: _c, ...p }) => p);
+      content = parts.length === 1 && parts[0].type === "text" ? parts[0].text : parts;
+    }
+    return JSON.stringify({ ...rest, content });
+  }
+
+  async function runTurn(model: Awaited<ReturnType<typeof openRouterModel>>["model"], input: TurnInput) {
+    const res = await streamAgentTurn({ userId: USER, email: "pat@example.com", thread, input, model });
+    await drain(res);
+    await Promise.all(h.afterTasks);
+  }
+
+  test("each call caches tools + instructions and its last message, two breakpoints in all", async () => {
+    const { model, bodies } = await openRouterModel([() => toolCallReply("call_1"), () => textReply("Hello Pat")]);
+    await runTurn(model, message("hi"));
+    expect(bodies).toHaveLength(2);
+    const [first, second] = bodies;
+    // Tools carry no cache_control (the provider drops it); the system breakpoint covers them.
+    expect(JSON.stringify(first.tools)).not.toContain("cache_control");
+    expect(first.messages[0]).toMatchObject({ role: "system", content: [{ type: "text", cache_control: { type: "ephemeral" } }] });
+    expect(breakpoints(first)).toEqual(["messages[0].content[0]", "messages[1].content[0]"]);
+    expect(first.messages.map((m) => m.role)).toEqual(["system", "user"]);
+    // Step 2: the breakpoint moved to the tool result; the user message has none now.
+    expect(second.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool"]);
+    expect(breakpoints(second)).toEqual(["messages[0].content[0]", "messages[3]"]);
+    for (const b of bodies) expect(breakpoints(b).length).toBeLessThanOrEqual(4);
+  });
+
+  test("the prefix is byte-stable across the steps of one turn", async () => {
+    const { model, bodies } = await openRouterModel([() => toolCallReply("call_1"), () => toolCallReply("call_2"), () => textReply("done")]);
+    await runTurn(model, message("hi"));
+    expect(bodies).toHaveLength(3);
+    // Tools and the system message (breakpoint included) are identical bytes on every step.
+    for (const b of bodies.slice(1)) {
+      expect(JSON.stringify(b.tools)).toBe(JSON.stringify(bodies[0].tools));
+      expect(JSON.stringify(b.messages[0])).toBe(JSON.stringify(bodies[0].messages[0]));
+    }
+    // Every step's messages start with the previous step's messages, unchanged.
+    for (let i = 1; i < bodies.length; i++) {
+      const before = bodies[i - 1].messages.map(bare);
+      expect(bodies[i].messages.slice(0, before.length).map(bare)).toEqual(before);
+    }
+  });
+
+  test("a tool result goes in jsonb key order, so the next turn's history is the same bytes", async () => {
+    const { model, bodies } = await openRouterModel([() => toolCallReply("call_1"), () => textReply("Hello Pat")]);
+    await runTurn(model, message("hi", "m-a"));
+    const tool = bodies[1].messages[3];
+    // h.profile's keys in jsonb order: shorter first, then bytewise.
+    expect(Object.keys(JSON.parse(String(tool.content)) as object)).toEqual([
+      "name",
+      "titles",
+      "education",
+      "workAuthorized",
+      "needsSponsorship",
+      "yearsOfExperience",
+      "preferredLocations",
+    ]);
+
+    // The next turn reads the thread back as Postgres returns jsonb: keys in jsonb order.
+    const { jsonbKeyOrder } = await import("@/lib/agent/cache");
+    const asJsonb = (v: unknown): unknown =>
+      Array.isArray(v)
+        ? v.map(asJsonb)
+        : v !== null && typeof v === "object"
+          ? Object.fromEntries(
+              Object.keys(v)
+                .sort(jsonbKeyOrder)
+                .map((k) => [k, asJsonb((v as Record<string, unknown>)[k])]),
+            )
+          : v;
+    const stored = saves()
+      .filter(([, , , status]) => status === "complete")
+      .flatMap(([, , msgs]) => msgs.map((m) => asJsonb(JSON.parse(JSON.stringify(m))) as UIMessage));
+    vi.mocked(loadMessages).mockResolvedValue(stored as Awaited<ReturnType<typeof loadMessages>>);
+    const next = await openRouterModel([() => textReply("again")]);
+    await runTurn(next.model, message("and now?", "m-b"));
+    const replayed = next.bodies[0].messages.slice(0, 4).map(bare);
+    expect(replayed).toEqual(bodies[1].messages.map(bare));
+  });
+});

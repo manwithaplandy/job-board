@@ -9,7 +9,7 @@ import { z } from "zod";
 import type { InjectionResult } from "@/lib/agent/evals/injection";
 import type { JudgeResult } from "@/lib/agent/evals/judge";
 import { parseRecording, type Recording } from "@/lib/agent/evals/recording";
-import { RUN_FILE, RUN_ID_RE } from "@/lib/agent/evals/evalRuns";
+import { RUN_FILE, RUN_ID_RE, type EvalRun } from "@/lib/agent/evals/evalRuns";
 
 /** The judge's two files inside its run folder. */
 export function judgeFiles(runDir: string): { results: string; handCheck: string } {
@@ -44,16 +44,61 @@ function readJson(file: string): unknown {
   }
 }
 
-/** Every matrix recording of the run in `runDir` (run id `runId`). */
-export function readMatrixRecordings(runDir: string, runId: string): Read<Recording> {
+/**
+ * Every matrix recording of the run in `runDir` (run id `runId`); with `variants`, only
+ * the recordings of the variants it accepts (a file of another variant, in the folder of
+ * that variant or not, is unreadable).
+ */
+export function readMatrixRecordings(runDir: string, runId: string, variants: (variant: 1 | 2 | 3) => boolean = () => true): Read<Recording> {
   const out: Read<Recording> = { items: [], unreadable: [] };
   for (const rel of jsonFiles(runDir)) {
     const r = parseRecording(readJson(path.join(runDir, rel)));
-    if (r && r.evalRun === runId) out.items.push(r);
+    if (r && r.evalRun === runId && variants(r.variant)) out.items.push(r);
     else out.unreadable.push(rel);
   }
   return out;
 }
+
+/**
+ * Every recording a reader of the matrix run `run` (under the matrix root `root`) works
+ * from (PR J7). A full or spot-check run: its own recordings. A rerender-only run: its own
+ * variant 2 and 3 recordings, with variant 1 taken from its source run, so the judge, the
+ * summary and the render smoke pair them as one matrix run. A variant 1 file in a
+ * rerender-only run's own folder, or a variant 2 or 3 file read from the source, is
+ * counted as unreadable, not used; the source's files are named ../<source run>/<path>.
+ */
+export function readMatrixRun(root: string, run: Pick<EvalRun, "runId" | "kind" | "sourceRun">): Read<Recording> {
+  if (run.kind !== "rerender-only" || run.sourceRun === null) return readMatrixRecordings(path.join(root, run.runId), run.runId);
+  const own = readMatrixRecordings(path.join(root, run.runId), run.runId, (variant) => variant !== 1);
+  const source = readRerenderSources(root, run.sourceRun);
+  return {
+    items: [...source.items, ...own.items],
+    unreadable: [...source.unreadable.map((f) => `../${run.sourceRun}/${f}`), ...own.unreadable],
+  };
+}
+
+/**
+ * The run each recording of readMatrixRun(`run`) pairs under, for the judge (judge.ts
+ * judgePairs; PR J7 fix round 1). A rerender-only run's variant 1 recordings carry its
+ * source run's id: they pair under the rerender-only run's id, with its variants 2 and 3,
+ * so the judge builds 1-2, 1-3 and 2-3. Any other recording pairs under its own run. The
+ * files on disk keep their own ids, so the readers still refuse a file from another run.
+ */
+export function matrixPairRunKey(run: Pick<EvalRun, "runId" | "kind" | "sourceRun">): (r: Recording) => string {
+  return (r) => (run.kind === "rerender-only" && run.sourceRun !== null && r.evalRun === run.sourceRun ? run.runId : (r.evalRun ?? ""));
+}
+
+/**
+ * The variant 1 recordings of the matrix run `sourceRun` (under `root`) that a
+ * rerender-only run re-renders and pairs with (PR J7): only the <model>/v1/ folders.
+ */
+export function readRerenderSources(root: string, sourceRun: string): Read<Recording> {
+  const runDir = path.join(root, sourceRun);
+  const read = readMatrixRecordings(runDir, sourceRun, (variant) => variant === 1);
+  return { items: read.items, unreadable: read.unreadable.filter((f) => V1_FILE_RE.test(f)) };
+}
+
+const V1_FILE_RE = /^[^/]+\/v1\//;
 
 const VariantSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 const InjectionFileSchema = z.object({

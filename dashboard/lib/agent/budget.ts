@@ -11,7 +11,7 @@ import { loadAppSettings, type AppSettings } from "@/lib/appSettings";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
 import { USAGE_KIND_AGENT } from "@/lib/agent/config";
-import { priceFor } from "@/lib/agent/prices";
+import { callCostMicros } from "@/lib/agent/prices";
 
 export type BudgetState =
   | { ok: true; remainingMicros: number }
@@ -38,11 +38,21 @@ function ceilMicros(micros: number): number {
 /**
  * What one model step cost, in micro-dollars. Prefers OpenRouter's billed cost
  * (providerMetadata.openrouter.usage.cost, in dollars); falls back to a token estimate
- * at the model's price, or the default price for an unknown model. A step that used any
- * tokens costs at least 1 micro.
+ * at the model's price for this call's prompt size (Haiku 5.5's tier is per call), or the
+ * default price for an unknown model. The fallback never prices a step low: cache writes
+ * cost 1.25x the input price and cache reads are charged at the full input price, not
+ * discounted (what OpenRouter bills for a read is unverified). A step that used any tokens
+ * costs at least 1 micro.
  */
 export function stepCostMicros(
-  step: { providerMetadata?: unknown; usage: { inputTokens?: number; outputTokens?: number } },
+  step: {
+    providerMetadata?: unknown;
+    usage: {
+      inputTokens?: number;
+      outputTokens?: number;
+      inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number };
+    };
+  },
   modelId: string,
 ): number {
   const inputTokens = tokenCount(step.usage.inputTokens);
@@ -52,8 +62,18 @@ export function stepCostMicros(
   if (billed) {
     micros = ceilMicros(billed.openrouter.usage.cost * 1_000_000);
   } else {
-    const price = priceFor(modelId);
-    micros = ceilMicros((inputTokens * price.input + outputTokens * price.output) / 1_000_000);
+    micros = ceilMicros(
+      callCostMicros(
+        {
+          inputTokens,
+          outputTokens,
+          cacheReadTokens: tokenCount(step.usage.inputTokenDetails?.cacheReadTokens),
+          cacheWriteTokens: tokenCount(step.usage.inputTokenDetails?.cacheWriteTokens),
+        },
+        modelId,
+        { discountReads: false },
+      ),
+    );
   }
   const charged = inputTokens + outputTokens > 0 ? Math.max(1, micros) : micros;
   return Math.min(charged, STEP_COST_MAX_MICROS);

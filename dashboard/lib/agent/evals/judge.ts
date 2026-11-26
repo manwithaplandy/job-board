@@ -1,5 +1,5 @@
-// The judge (plan Task 2.13, spec 11): a model from another family (AGENT_JUDGE_MODEL)
-// compares two variants' surfaces for the same matrix cell (same model, scenario, persona
+// The judge (plan Task 2.13, spec 11): AGENT_JUDGE_MODEL (Haiku 5.5 since PR J7; it was
+// openai/gpt-5.5, a model from another family, before Andrew's $3 limit) compares two variants' surfaces for the same matrix cell (same model, scenario, persona
 // and repeat) and says which serves the user better, or that they tie. It informs the
 // variant decision and never decides it: Andrew hand-checks a 10% sample
 // (sampleForHandCheck) and the summary labels the judge's counts as supporting
@@ -89,12 +89,17 @@ const PAIRINGS: ReadonlyArray<readonly [Variant, Variant]> = [
  * Every pair to judge: per eval run, model, scenario, persona and repeat (seed), each two
  * variants that both finished (1-2, 1-3, 2-3). Ordered by run, model, scenario, persona,
  * seed, pairing, so --max-pairs takes a stable prefix. judge.eval.ts reads one run.
+ *
+ * `runKey` names the run a recording pairs under; by default its own eval run, so two
+ * runs' recordings are never paired. A rerender-only matrix run (PR J7 fix round 1) reads
+ * its variant 1 from its source run: evalFiles.ts matrixPairRunKey maps the source run's id
+ * to the rerender-only run's, so that variant 1 pairs with the run's variants 2 and 3.
  */
-export function judgePairs(recordings: readonly Recording[]): JudgePairInput[] {
+export function judgePairs(recordings: readonly Recording[], runKey: (r: Recording) => string = (r) => r.evalRun ?? ""): JudgePairInput[] {
   const cells = new Map<string, Map<Variant, Recording>>();
   for (const r of recordings) {
-    // The eval run is part of the cell: two runs' recordings are never paired.
-    const key = JSON.stringify([r.evalRun ?? "", r.model, r.scenario, r.persona, r.seed]);
+    // The eval run (or the run it pairs under) is part of the cell.
+    const key = JSON.stringify([runKey(r), r.model, r.scenario, r.persona, r.seed]);
     const cell = cells.get(key) ?? new Map<Variant, Recording>();
     if (!cell.has(r.variant)) cell.set(r.variant, r);
     cells.set(key, cell);

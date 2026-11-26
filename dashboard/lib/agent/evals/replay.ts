@@ -15,8 +15,9 @@
 //
 // One matrix run and one injection run are on the list (evalRuns.ts): the latest complete
 // one of each, or the run named by EVAL_MATRIX_RUN / EVAL_INJECTION_RUN in the environment
-// (the render smoke's webServer passes its own environment through). The list is built
-// once per process and those two variables.
+// (the render smoke's webServer passes its own environment through). A rerender-only
+// matrix run (PR J7) brings its source run's variant 1 surfaces, named under the source
+// run. The list is built once per process and those two variables.
 //
 // Pure apart from reading files under lib/agent/evals; no database, no model. A name is
 // looked up in the list, never joined into a path.
@@ -104,8 +105,8 @@ function readJson(file: string): unknown {
   }
 }
 
-function recordedSurfaces(source: "v1" | "matrix" | "injection", rel: string): StoredSurface[] {
-  const raw = readJson(path.join(EVALS_DIR, "recordings", source, rel));
+function recordedSurfaces(source: "v1" | "matrix" | "injection", rel: string, dir: string = EVALS_DIR): StoredSurface[] {
+  const raw = readJson(path.join(dir, "recordings", source, rel));
   if (source === "injection") {
     const parsed = InjectionFileSchema.safeParse(raw);
     return parsed.success && parsed.data.recording ? (parsed.data.recording.surfaces as StoredSurface[]) : [];
@@ -114,10 +115,10 @@ function recordedSurfaces(source: "v1" | "matrix" | "injection", rel: string): S
   return parsed.success ? (parsed.data.surfaces as StoredSurface[]) : [];
 }
 
-function fixtureSurface(rel: string): StoredSurface | null {
-  const fixture = ReplayFixtureSchema.safeParse(readJson(path.join(EVALS_DIR, "fixtures", "surfaces", rel)));
+function fixtureSurface(rel: string, dir: string = EVALS_DIR): StoredSurface | null {
+  const fixture = ReplayFixtureSchema.safeParse(readJson(path.join(dir, "fixtures", "surfaces", rel)));
   if (!fixture.success) return null;
-  const base = recordedSurfaces("v1", fixture.data.base)[fixture.data.surface];
+  const base = recordedSurfaces("v1", fixture.data.base, dir)[fixture.data.surface];
   if (!base) return null;
   const id = `fixture-${rel.replace(/\.json$/, "")}`;
   return {
@@ -135,37 +136,58 @@ function fixtureSurface(rel: string): StoredSurface | null {
   };
 }
 
-type ListedSurface = ReplayEntry & { surface: StoredSurface };
+export type ListedSurface = ReplayEntry & { surface: StoredSurface };
 let cached: { key: string; list: ListedSurface[] } | null = null;
 
+/** The runs a replay list holds: one matrix run (and, for a rerender-only one, its source run) and one injection run. */
+export interface ReplayRuns {
+  matrix: string | null;
+  /** PR J7: the source of a rerender-only matrix run, whose variant 1 surfaces are listed with it; else null. */
+  matrixSource: string | null;
+  injection: string | null;
+}
+
 /** The runs on the list: the named ones, else the latest complete ones (null when none). */
-export function replayRuns(env: Readonly<Record<string, string | undefined>> = process.env): { matrix: string | null; injection: string | null } {
-  const recordings = path.join(EVALS_DIR, "recordings");
+export function replayRuns(env: Readonly<Record<string, string | undefined>> = process.env, dir: string = EVALS_DIR): ReplayRuns {
+  const recordings = path.join(dir, "recordings");
+  const matrix = selectRun(runRoot("matrix", recordings), env[REPLAY_MATRIX_RUN_ENV] || null);
   return {
-    matrix: selectRun(runRoot("matrix", recordings), env[REPLAY_MATRIX_RUN_ENV] || null)?.runId ?? null,
+    matrix: matrix?.runId ?? null,
+    matrixSource: matrix?.kind === "rerender-only" ? matrix.sourceRun : null,
     injection: selectRun(runRoot("injection", recordings), env[REPLAY_INJECTION_RUN_ENV] || null)?.runId ?? null,
   };
 }
 
-function buildList(runs: { matrix: string | null; injection: string | null }): ListedSurface[] {
+/**
+ * The list for `runs`, read from the evals folder `dir` (tests pass a temporary one). A
+ * rerender-only matrix run's own surfaces are listed after its source run's variant 1
+ * surfaces, each under its own run's name, so a render result names the run its surface is in.
+ */
+export function buildReplayList(runs: ReplayRuns, dir: string = EVALS_DIR): ListedSurface[] {
   const out: ListedSurface[] = [];
-  for (const rel of jsonFiles(path.join(EVALS_DIR, "recordings", "v1"))) {
-    recordedSurfaces("v1", rel).forEach((surface, i) => {
+  for (const rel of jsonFiles(path.join(dir, "recordings", "v1"))) {
+    recordedSurfaces("v1", rel, dir).forEach((surface, i) => {
       out.push({ name: `v1/${rel}#${i}`, source: "v1", variant: surface.variant, handwritten: rel.endsWith(".handwritten.json"), evalRun: null, surface });
     });
   }
-  for (const source of ["matrix", "injection"] as const) {
-    const run = runs[source];
-    if (!run) continue;
-    for (const file of jsonFiles(path.join(EVALS_DIR, "recordings", source, run))) {
+  const recorded: { source: "matrix" | "injection"; run: string; only?: RegExp }[] = [
+    ...(runs.matrix && runs.matrixSource ? [{ source: "matrix" as const, run: runs.matrixSource, only: /^[^/]+\/v1\// }] : []),
+    ...(runs.matrix ? [{ source: "matrix" as const, run: runs.matrix }] : []),
+    ...(runs.injection ? [{ source: "injection" as const, run: runs.injection }] : []),
+  ];
+  for (const { source, run, only } of recorded) {
+    for (const file of jsonFiles(path.join(dir, "recordings", source, run))) {
+      if (only && !only.test(file)) continue;
       const rel = `${run}/${file}`;
-      recordedSurfaces(source, rel).forEach((surface, i) => {
+      recordedSurfaces(source, rel, dir).forEach((surface, i) => {
+        // The source run's files hold only variant 1 surfaces; anything else there is not listed.
+        if (only && surface.variant !== 1) return;
         out.push({ name: `${source}/${rel}#${i}`, source, variant: surface.variant, handwritten: false, evalRun: run, surface });
       });
     }
   }
-  for (const rel of jsonFiles(path.join(EVALS_DIR, "fixtures", "surfaces"))) {
-    const surface = fixtureSurface(rel);
+  for (const rel of jsonFiles(path.join(dir, "fixtures", "surfaces"))) {
+    const surface = fixtureSurface(rel, dir);
     if (surface) out.push({ name: `fixture/${rel}`, source: "fixture", variant: surface.variant, handwritten: true, evalRun: null, surface });
   }
   return out;
@@ -175,7 +197,7 @@ function buildList(runs: { matrix: string | null; injection: string | null }): L
 export function listReplaySurfaces(): ListedSurface[] {
   const runs = replayRuns();
   const key = JSON.stringify(runs);
-  if (cached?.key !== key) cached = { key, list: buildList(runs) };
+  if (cached?.key !== key) cached = { key, list: buildReplayList(runs) };
   return cached.list;
 }
 

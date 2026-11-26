@@ -6,8 +6,9 @@ import { generateText, isStepCount, simulateReadableStream, streamText, tool, wr
 import { MockLanguageModelV4 } from "ai/test";
 import type { LanguageModelV4CallOptions, LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { z } from "zod";
-import { CAP_DEFAULTS, CapExceededError, RunBudget, type EvalCaps } from "@/lib/agent/evals/budget";
-import { budgetMiddleware, budgetedModel } from "@/lib/agent/evals/budgetMiddleware";
+import { CAP_DEFAULTS, CapExceededError, RunBudget, profileBudget, type EvalCaps } from "@/lib/agent/evals/budget";
+import { budgetMiddleware, budgetedModel, callWorstCaseUsd } from "@/lib/agent/evals/budgetMiddleware";
+import { inputTokenBound, worstCaseCallMicros } from "@/lib/agent/prices";
 
 const usage = (input: number | undefined, output: number | undefined) => ({
   inputTokens: { total: input, noCache: input, cacheRead: undefined, cacheWrite: undefined },
@@ -188,5 +189,64 @@ describe("budgetMiddleware", () => {
 
   test("a model given only by id is refused", () => {
     expect(() => budgetedModel("anthropic/claude-sonnet-5.5", budgetWith())).toThrow("model instance");
+  });
+});
+
+describe("budgetMiddleware: the worst-case look-ahead (PR J7 fix round 1)", () => {
+  const HAIKU = "anthropic/claude-haiku-5.5";
+  const haikuModel = (steps: LanguageModelV4StreamPart[][]) => {
+    const calls: LanguageModelV4CallOptions[] = [];
+    const model = new MockLanguageModelV4({
+      modelId: HAIKU,
+      doStream: async (options) => {
+        calls.push(options);
+        return { stream: simulateReadableStream({ chunks: steps[calls.length - 1] ?? reply("extra") }) };
+      },
+    });
+    return { model, calls };
+  };
+  const capped = (maxUsd: number) => profileBudget("matrix", { ...CAP_DEFAULTS, maxUsd });
+
+  test("prices the call from the model's id, its prompt and tools and its output limit", () => {
+    const params = { ...callOptions, maxOutputTokens: 4_000 };
+    expect(callWorstCaseUsd(HAIKU, params)).toBe(
+      worstCaseCallMicros(HAIKU, { inputTokensBound: inputTokenBound(params.prompt, undefined), maxOutputTokens: 4_000 }) / 1_000_000,
+    );
+    // A tiny prompt with a 4,000-token limit on Haiku: about $0.0023.
+    expect(callWorstCaseUsd(HAIKU, params)).toBeGreaterThan(0.002);
+    expect(callWorstCaseUsd(HAIKU, params)).toBeLessThan(0.003);
+  });
+
+  test("a call whose worst case fits goes; one with no output limit (128K at the output price) is refused unsent", async () => {
+    const budget = capped(0.01);
+    const { model, calls } = haikuModel([reply("ok", usage(100, 5), billed(0.0001))]);
+    const wrapped = wrapLanguageModel({ model, middleware: budgetMiddleware(budget) });
+    budget.startCase();
+    budget.startTurn();
+    await drain((await wrapped.doStream({ ...callOptions, maxOutputTokens: 4_000 })).stream);
+    expect(calls).toHaveLength(1);
+    expect(budget.tripped).toBeNull();
+    await expect(wrapped.doStream(callOptions)).rejects.toThrow(/max_usd.*worst case \$0\.06/);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a prompt it cannot bound (a file by URL) is refused unsent, through generate too", async () => {
+    const budget = capped(3);
+    let reached = 0;
+    const model = new MockLanguageModelV4({
+      modelId: HAIKU,
+      doGenerate: async () => {
+        reached += 1;
+        throw new Error("never");
+      },
+    });
+    const wrapped = wrapLanguageModel({ model, middleware: budgetMiddleware(budget) });
+    budget.startCase();
+    budget.startTurn();
+    const prompt: LanguageModelV4CallOptions["prompt"] = [
+      { role: "user", content: [{ type: "file", mediaType: "application/pdf", data: { type: "url", url: new URL("https://example.com/a.pdf") } }] },
+    ];
+    await expect(wrapped.doGenerate({ prompt, maxOutputTokens: 100 })).rejects.toThrow(/max_usd.*worst case \$Infinity/);
+    expect(reached).toBe(0);
   });
 });

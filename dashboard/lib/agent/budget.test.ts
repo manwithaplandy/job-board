@@ -114,8 +114,83 @@ describe("stepCostMicros", () => {
 
   test("rounds up to at least 1 micro for any step with tokens", () => {
     expect(stepCostMicros({ usage: { inputTokens: 1, outputTokens: 0 } }, "anthropic/claude-haiku-5.5")).toBe(1);
-    expect(stepCostMicros({ usage: { inputTokens: 0, outputTokens: 1 } }, "anthropic/claude-haiku-5.5")).toBe(3);
+    // Haiku 5.5's short-prompt tier: $0.50 per million output tokens is half a micro, rounded up.
+    expect(stepCostMicros({ usage: { inputTokens: 0, outputTokens: 1 } }, "anthropic/claude-haiku-5.5")).toBe(1);
     expect(stepCostMicros({ providerMetadata: { openrouter: { usage: { cost: 1e-9 } } }, usage: { inputTokens: 5 } }, "x")).toBe(1);
     expect(stepCostMicros({ usage: {} }, AGENT_MODEL_DEFAULT)).toBe(0);
+  });
+});
+
+describe("stepCostMicros fallback: tiers and prompt caching (PR J7)", () => {
+  const haiku = "anthropic/claude-haiku-5.5";
+  const sonnet = "anthropic/claude-sonnet-5.5";
+
+  test("Haiku 5.5 is priced per call: $0.10/$0.50 up to 100K input tokens, $0.50/$2.50 above", () => {
+    // 15k in, 600 out: 15,000 x 0.1 + 600 x 0.5 = 1,800 micros.
+    expect(stepCostMicros({ usage: { inputTokens: 15_000, outputTokens: 600 } }, haiku)).toBe(1_800);
+    expect(stepCostMicros({ usage: { inputTokens: 100_000, outputTokens: 0 } }, haiku)).toBe(10_000);
+    // One token past the tier: the whole call is at the long-prompt price.
+    expect(stepCostMicros({ usage: { inputTokens: 100_001, outputTokens: 0 } }, haiku)).toBe(50_001);
+    expect(stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 1_000 } }, sonnet)).toBe(12_000);
+  });
+
+  test("cache writes cost 1.25x the input price; cache reads are never discounted in the fallback", () => {
+    const base = stepCostMicros({ usage: { inputTokens: 10_000, outputTokens: 0 } }, sonnet);
+    expect(base).toBe(20_000);
+    const written = stepCostMicros(
+      { usage: { inputTokens: 10_000, outputTokens: 0, inputTokenDetails: { cacheWriteTokens: 8_000 } } },
+      sonnet,
+    );
+    // 2,000 plain at $2 plus 8,000 written at $2.50.
+    expect(written).toBe(24_000);
+    const read = stepCostMicros(
+      { usage: { inputTokens: 10_000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 8_000 } } },
+      sonnet,
+    );
+    expect(read).toBe(base);
+  });
+
+  test("the fallback never prices a cached step below the uncached price", () => {
+    for (const model of [haiku, sonnet, "someone/unpriced-model"]) {
+      for (const details of [{}, { cacheReadTokens: 9_000 }, { cacheWriteTokens: 9_000 }, { cacheReadTokens: 4_000, cacheWriteTokens: 5_000 }]) {
+        const plain = stepCostMicros({ usage: { inputTokens: 10_000, outputTokens: 300 } }, model);
+        const cached = stepCostMicros({ usage: { inputTokens: 10_000, outputTokens: 300, inputTokenDetails: details } }, model);
+        expect(cached, `${model} ${JSON.stringify(details)}`).toBeGreaterThanOrEqual(plain);
+      }
+    }
+  });
+
+  test("PR J7 fix round 1: the input is at least the cache reads plus writes, so no write is priced away; bad counts are zero", () => {
+    // A route that reports 1,000 input tokens but 5,000 written: the input is 5,000, all written at $2.50.
+    expect(
+      stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 0, inputTokenDetails: { cacheWriteTokens: 5_000 } } }, sonnet),
+    ).toBe(12_500);
+    // 1,000 reported, 3,000 read and 2,000 written: input 5,000; reads at the full price in the fallback.
+    expect(
+      stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 3_000, cacheWriteTokens: 2_000 } } }, sonnet),
+    ).toBe(3_000 * 2 + 2_000 * 2.5);
+    // The tier comes from that input: 60K read plus 50K written passes Haiku's 100K short tier.
+    expect(
+      stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 60_000, cacheWriteTokens: 50_000 } } }, haiku),
+    ).toBe(60_000 * 0.5 + 50_000 * 0.5 * 1.25);
+    // A reported input above the cache counts is kept: the rest is plain input.
+    expect(
+      stepCostMicros({ usage: { inputTokens: 10_000, outputTokens: 0, inputTokenDetails: { cacheWriteTokens: 4_000 } } }, sonnet),
+    ).toBe(6_000 * 2 + 4_000 * 2.5);
+    expect(
+      stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 0, inputTokenDetails: { cacheWriteTokens: Number.NaN } } }, sonnet),
+    ).toBe(2_000);
+  });
+
+  test("a billed cost still wins over every estimate", () => {
+    expect(
+      stepCostMicros(
+        {
+          providerMetadata: { openrouter: { usage: { cost: 0.0001 } } },
+          usage: { inputTokens: 10_000, outputTokens: 0, inputTokenDetails: { cacheWriteTokens: 10_000 } },
+        },
+        sonnet,
+      ),
+    ).toBe(100);
   });
 });

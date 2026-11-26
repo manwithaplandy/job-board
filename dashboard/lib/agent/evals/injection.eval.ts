@@ -24,10 +24,10 @@ import { openTestDb, type TestDb } from "@/lib/testing/dbHarness";
 import { endServicePool } from "@/lib/db";
 import { prepareHarness, runInjectionCase } from "@/lib/agent/evals/harness";
 import { INJECTION_CASES, injectionPlan, injectionResultPath, injectionTable, type InjectionResult } from "@/lib/agent/evals/injection";
-import { AGENT_EVAL_MODELS } from "@/lib/agent/config";
+import { AGENT_EVAL_DEFAULT_MODEL } from "@/lib/agent/config";
 import { assertEvalMode, capsFromEnv, profileBudget, totalBudget, totalCapsFromEnv, type RunBudget } from "@/lib/agent/evals/budget";
-import { assertPricedModels } from "@/lib/agent/evals/matrixPlan";
-import { finishRun, newRunId, runRoot, startRun } from "@/lib/agent/evals/evalRuns";
+import { assertDefaultModelOrAllowed, assertPricedModels } from "@/lib/agent/evals/matrixPlan";
+import { costIsFloor, finishRun, newRunId, passBudgetFromEnv, passIdFromEnv, runRoot, startRun } from "@/lib/agent/evals/evalRuns";
 
 vi.mock("next/server", async (importOriginal) => {
   const real = await importOriginal<typeof import("next/server")>();
@@ -53,10 +53,15 @@ const models = (process.env.EVAL_MODELS ?? "")
   .split(",")
   .map((m) => m.trim())
   .filter((m) => m.length > 0);
-const runModels = models.length > 0 ? models : [...AGENT_EVAL_MODELS];
+const runModels = models.length > 0 ? models : [AGENT_EVAL_DEFAULT_MODEL];
 if (!runModels.every((m) => MODEL_RE.test(m))) throw new Error("eval: EVAL_MODELS holds something that is not a model id");
-// Re-checked here as eval-agent.mjs does: only models with a row in the price table run.
+// Re-checked here as eval-agent.mjs does: only models with a row in the price table run,
+// and only Haiku 5.5 unless the command passed --allow-non-haiku (PR J7).
 assertPricedModels(runModels);
+assertDefaultModelOrAllowed(runModels, process.env.EVAL_ALLOW_NON_HAIKU === "1");
+const passId = passIdFromEnv(process.env);
+// Fix round 1: the pass's whole budget, recorded in run.json for the summary.
+const passBudgetUsd = passBudgetFromEnv(process.env);
 const evalRun = process.env.EVAL_RUN_ID || newRunId();
 let runDir: string | null = null;
 let ranToEnd = false;
@@ -93,6 +98,8 @@ function writeRunReport(text: string): void {
       status: t ? "cap_exceeded" : "complete",
       cap: t?.cap ?? null,
       usd: usd.includes("not_enforced") ? "not_enforced" : usd.includes("enforced") ? "enforced" : "pending",
+      // The whole command's reported spend: eval-agent.mjs --pass takes it from what is left.
+      costUsd: total.totals.costUsd,
       text,
     })}\n`,
   );
@@ -102,17 +109,18 @@ beforeAll(async () => {
   if (!process.env.OPENROUTER_API_KEY?.trim() && !process.env.AGENT_OPENROUTER_API_KEY?.trim()) {
     throw new Error("eval: OPENROUTER_API_KEY is not set (tools/lifecycle_test_db.py --allow-env OPENROUTER_API_KEY)");
   }
-  runDir = startRun(runRoot("injection"), { runId: evalRun, mode: "injection", models: runModels, matrixRun: null });
+  runDir = startRun(runRoot("injection"), { runId: evalRun, mode: "injection", models: runModels, matrixRun: null, passId, passBudgetUsd });
   db = await openTestDb([]);
   await prepareHarness({ sql: db.sql });
 });
 
 afterAll(async () => {
   for (const b of budgets.values()) b.dispose();
-  if (runDir) finishRun(runDir, tripped() ? "cap_exceeded" : ranToEnd ? "complete" : "failed");
+  if (runDir) finishRun(runDir, tripped() ? "cap_exceeded" : ranToEnd ? "complete" : "failed", new Date(), total.totals.costUsd, costIsFloor(tripped()?.cap));
   writeRunReport(
     [
       `Prompt-injection set over ${runModels.join(", ")}: ${results.length} runs recorded`,
+      ...(passId ? [`Pass ${passId}`] : []),
       `Run ${evalRun}: ${runDir ? path.relative(process.cwd(), runDir) : "no folder (the run did not start)"}`,
       "",
       injectionTable(results),

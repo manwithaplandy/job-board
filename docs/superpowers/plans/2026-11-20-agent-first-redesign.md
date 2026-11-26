@@ -2015,3 +2015,75 @@ R18. Tasks 2.10 to 2.13 as built (PR J5, code only; Andrew runs every live step)
   and summary read one run (latest complete, or named); the render smoke runs recorded
   surfaces at desktop light only, as its own CI job; and the sandbox document (Task 2.4)
   now opens `<html lang="en">` and carries a fixed `<title>` after its CSP metas.
+
+R19. The eval's cost (PR J7, code only; Andrew runs every live step). Andrew's limit
+(2026-11-26): "max $2-3 per pass total, ideally without compromising quality". What
+changed from R17 and R18:
+- R17 is unchanged: the whole-list Table binds stay as they are.
+- Model: Haiku 5.5 (`AGENT_EVAL_DEFAULT_MODEL`) is the default of the golden run, the
+  matrix and the injection set, and the judge (`AGENT_JUDGE_MODEL`) replaces
+  `openai/gpt-5.5`. R18's judge rules hold: it reads variant 3 from the render smoke,
+  renders every variant to the same plain words, never names a variant, sees each pair in
+  a random order, and the 10% hand-check stays. It is now the same family as the eval
+  model; the blind order and the hand-check are what keep it fair. Any other model needs
+  `--allow-non-haiku` (exit 2 otherwise). Production's model is unchanged.
+- Prices: Haiku 5.5 is priced per call by prompt size ($0.10 / $0.50 per million tokens
+  up to 100K input tokens, $0.50 / $2.50 above), so a ~15k prompt is no longer priced at
+  the long tier. Cache writes are estimated at 1.25x and reads at 0.1x the input price;
+  the budget's fallback for a step with no billed cost never prices a step low.
+- Prompt caching: the agent loop and the re-render mark cache breakpoints through
+  OpenRouter (`lib/agent/cache.ts`; two at most: the system message, and in the loop each
+  call's last user or tool message). Tool results are written in jsonb key order so a
+  later turn's history matches the bytes the model saw. This changes production requests
+  in cost only.
+- Caps: R18's per-mode caps drop so no mode can spend more than $3 on its own (golden $2
+  / $3, matrix $2.50 / $3 per model and in total, injection $1 / $1.50, judge $0.50 / $1,
+  spot check $2.90). Token caps are unchanged.
+- `--pass`: matrix, injection, then judge over that matrix run on Haiku under one budget
+  ($3 by default and at most). Each stage's dollar caps are what is left after the
+  reported cost of the stages before it; a stage that stops, or reports no cost, stops the
+  pass. Every `run.json` of a pass carries the pass id and its reported cost, and the
+  summary shows the pass's spend against $3. The judge in a pass runs without the render
+  smoke, so it judges the variant 1 and 2 pairs only.
+- `--matrix --spot-check`: the opt-in Sonnet 5.5 check (one persona, one repeat, 12
+  cells, $2.90 at most); readers take it only by `--run`.
+- `--matrix --rerender-only --run <id>`: variants 2 and 3 re-rendered from the recorded
+  variant 1 surfaces of a complete full matrix run into a new run linked to it
+  (`sourceRun`), spending only re-render calls; readers pair it with the source's
+  variant 1.
+- Estimates (list price, uncached / cached): a pass $2.90 / $2.00; the Haiku matrix $2.05
+  / $1.48; the Sonnet spot check $2.74 / $1.98; a full Sonnet matrix $41.04 / $29.65, so
+  it no longer fits any cap. OpenRouter's prices for these slugs, and what it bills for
+  cache reads, are unverified; the caps act on the cost OpenRouter reports.
+- Fix round 1 (review of PR J7), so that "no mode can spend more than $3" holds:
+  - Golden (`--variant`) now runs under the same rules as the other modes: it stops at
+    the first call that reports no cost (`cost_unknown`; the case in progress records
+    nothing, the usage table prints, the exit is non-zero), refuses an unpriced
+    `--model` (exit 2), defaults to Haiku 5.5 and needs `--allow-non-haiku` for any
+    other model. Its caps stay $2 / $3. `--variant <n> --dry-run` prints its estimate:
+    Haiku $0.18 / $0.09, Sonnet $3.67 / $1.80 (Sonnet fits only with the cache working).
+  - Look-ahead: before every call the budget reserves that call's worst case (the
+    prompt's serialized bytes plus 2,048 as input tokens, at the dearest tier that could
+    apply, all as cache writes, plus the whole output limit at the dearest output price;
+    never less than the dearest call so far) and refuses a call that could pass a cap,
+    in every mode and across a pass's stages. Headroom against $3: about $0.01 a run on
+    Haiku at the plan's call sizes (0.3%), $0.11 if a step's history fills the window;
+    about $0.20 on Sonnet. `--pass --dry-run` still fits every stage, uncached and
+    cached. The Sonnet spot check may stop about one cell short uncached ($2.74 + $0.20
+    against $2.90); its cap is unchanged.
+  - A rerender-only run's variants 2 and 3 are judged against its source run's variant 1
+    (1-2, 1-3, 2-3; 1-2 alone without the render smoke).
+  - `countCacheBreakpoints` counts as the provider sends (a tool message's option once
+    per tool result, the alias spellings, the call-level option); whether OpenRouter
+    carries a tool message's `cache_control` through is unverified. The no-cost fallback
+    prices input as the larger of the input tokens and cache read plus write.
+  - Each stage of a pass records the pass's `--max-usd` and whether its cost is only a
+    floor; the pass's end table and the summary's Pass spend show that limit and "at
+    least" for a floor. `eval-agent.mjs` clears inherited per-mode variables
+    (`EVAL_MODEL`, `EVAL_MODELS`, `EVAL_VARIANT`, `EVAL_SEED`, the pass budget) before
+    starting a stage.
+  - Left as they are: rerender-only seeding drops `supersedes` links in two edge cases
+    and leaves `rerenderOf` pointing at throwaway ids (no reader uses either); and in
+    production a one-step turn that starts after the 5-minute cache window writes its
+    prompt at 1.25× and never reads it back (about 25% more input for that turn; a
+    multi-step turn costs less). Both are cost or provenance only.

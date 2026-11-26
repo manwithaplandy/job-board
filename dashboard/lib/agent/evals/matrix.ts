@@ -6,10 +6,11 @@
 // 3 cells re-render that run's surfaces from the same gathered data. A model's first
 // `maxCells` cells run (the plan keeps a re-render after its live cell, so a prefix never
 // orphans one). Any error, a cap above all, stops the whole matrix at once: nothing is
-// caught here, and only finished cells reach `onRecording`.
+// caught here, and only finished cells reach `onRecording`. PR J7: given `sources` (the
+// variant 1 recordings of an earlier run), only the re-render cells run.
 import type { Recording } from "@/lib/agent/evals/recording";
 import { measure, type VariantMeasures } from "@/lib/agent/evals/measures";
-import { cellKey, matrixPlan, MATRIX_REPEATS, type MatrixCell } from "@/lib/agent/evals/matrixPlan";
+import { cellKey, matrixPlan, MATRIX_REPEATS, type MatrixCell, type MatrixPersona } from "@/lib/agent/evals/matrixPlan";
 
 export interface MatrixRunner {
   /** Before a model's first cell (the live runner opens that model's RunBudget here). */
@@ -46,8 +47,28 @@ export interface RunMatrixArgs {
   /** At most this many cells per model (--max-cells). */
   maxCells?: number;
   repeats?: number;
+  /** The personas to play (the spot check plays one); every persona when not given. */
+  personas?: readonly MatrixPersona[];
   /** Each finished cell, as soon as it finishes (the live run writes its file here). */
   onRecording?: (cell: MatrixCell, r: Recording) => void | Promise<void>;
+  /**
+   * PR J7, rerender-only: the variant 1 recordings of an earlier run, by cellKey. When
+   * given, no cell is played live: only the plan's re-render cells whose variant 1 run is
+   * here are run (`maxCells` counts those), and only they reach `onRecording` and the result.
+   */
+  sources?: ReadonlyMap<string, Recording>;
+}
+
+/** The variant 1 recordings `rs` keyed as runMatrix's `sources` takes them (variant 1 only; a key seen twice is an error). */
+export function sourcesByCell(rs: readonly Recording[]): Map<string, Recording> {
+  const out = new Map<string, Recording>();
+  for (const r of rs) {
+    if (r.variant !== 1) continue;
+    const key = cellKey({ model: r.model, scenario: r.scenario as MatrixCell["scenario"], persona: r.persona as MatrixCell["persona"], repeat: r.seed, variant: 1 });
+    if (out.has(key)) throw new Error(`eval: two variant 1 recordings for ${key}`);
+    out.set(key, r);
+  }
+  return out;
 }
 
 /** Sums a set of recordings' usage. */
@@ -67,14 +88,20 @@ export async function runMatrix(a: RunMatrixArgs): Promise<MatrixResult> {
   const recordings: Recording[] = [];
   const models: MatrixModelResult[] = [];
   for (const model of a.models) {
-    const cells = matrixPlan([model], a.repeats ?? MATRIX_REPEATS).slice(0, a.maxCells ?? Number.MAX_SAFE_INTEGER);
-    const live = new Map<string, Recording>();
+    const sources = a.sources;
+    const planned = matrixPlan([model], a.repeats ?? MATRIX_REPEATS, a.personas);
+    const cells = (sources ? planned.filter((c) => c.kind === "rerender" && c.from !== null && sources.has(c.from)) : planned).slice(
+      0,
+      a.maxCells ?? Number.MAX_SAFE_INTEGER,
+    );
+    const live = new Map<string, Recording>(sources ?? []);
     const mine: Recording[] = [];
     await a.runner.startModel?.(model);
     try {
       for (const cell of cells) {
         let r: Recording;
         if (cell.kind === "live") {
+          if (sources) throw new Error(`eval: matrix cell ${cellKey(cell)} would play live in a rerender-only run`);
           r = await a.runner.live(cell);
           live.set(cellKey(cell), r);
         } else {

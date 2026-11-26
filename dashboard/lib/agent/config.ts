@@ -14,6 +14,13 @@ export const AGENT_MODEL_DEFAULT = "anthropic/claude-sonnet-5.5";
 // needs a PRICE_PER_MTOK_MICROS row in lib/agent/budget.ts.
 export const AGENT_EVAL_MODELS = ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5"] as const;
 
+// PR J7 (Andrew 2026-11-26: "max $2-3 per pass total, ideally without compromising
+// quality"): the evals default to Haiku 5.5. A matrix or injection run on any other model
+// needs an explicit flag (eval-agent.mjs --allow-non-haiku), and Sonnet 5.5 runs only as
+// the opt-in spot check (--matrix --spot-check). Production's model stays AGENT_MODEL_DEFAULT.
+export const AGENT_EVAL_DEFAULT_MODEL = "anthropic/claude-haiku-5.5";
+export const AGENT_SPOT_CHECK_MODEL = "anthropic/claude-sonnet-5.5";
+
 export const AGENT_LIMITS = {
   maxSteps: 8,
   maxOutputTokens: 4000,

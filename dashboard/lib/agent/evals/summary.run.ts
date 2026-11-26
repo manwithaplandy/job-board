@@ -12,8 +12,9 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { measure } from "@/lib/agent/evals/measures";
-import { judgeFiles, readInjectionResults, readJudgeResults, readMatrixRecordings, type Read } from "@/lib/agent/evals/evalFiles";
-import { describeRun, runRoot, selectRun } from "@/lib/agent/evals/evalRuns";
+import { judgeFiles, readInjectionResults, readJudgeResults, readMatrixRun, type Read } from "@/lib/agent/evals/evalFiles";
+import { describeRun, listRuns, runRoot, selectRun } from "@/lib/agent/evals/evalRuns";
+import { PASS_USD_CEILING } from "@/lib/agent/evals/budget";
 import type { Recording } from "@/lib/agent/evals/recording";
 import { forRuns, readRenderResults, renderCounts, v3MisstatementsByModel } from "@/lib/agent/evals/renderResults";
 import { variantSummary, withReplays } from "@/lib/agent/evals/summary";
@@ -28,15 +29,33 @@ test("write the per-variant summary", () => {
   const injectionRun = selectRun(runRoot("injection"), process.env.EVAL_INJECTION_RUN || null);
   // The judge run: the one given, else the latest complete one that judged this matrix run.
   const judgeRun = matrixRun ? selectRun(runRoot("judge"), process.env.EVAL_JUDGE_RUN || null, (r) => r.matrixRun === matrixRun.runId) : null;
-  const matrix: Read<Recording> = matrixRun
-    ? readMatrixRecordings(path.join(runRoot("matrix"), matrixRun.runId), matrixRun.runId)
-    : EMPTY;
+  // A rerender-only run (PR J7) reads with variant 1 from its source run.
+  const matrix: Read<Recording> = matrixRun ? readMatrixRun(runRoot("matrix"), matrixRun) : EMPTY;
   const injection = injectionRun ? readInjectionResults(path.join(runRoot("injection"), injectionRun.runId), injectionRun.runId) : EMPTY;
   const judgeDir = judgeRun ? path.join(runRoot("judge"), judgeRun.runId) : null;
   const judge = judgeRun && judgeDir ? readJudgeResults(judgeDir, judgeRun.runId, matrixRun?.runId ?? null) : EMPTY;
-  const render = forRuns(readRenderResults(), { matrix: matrixRun?.runId ?? null, injection: injectionRun?.runId ?? null });
+  const render = forRuns(readRenderResults(), {
+    matrix: matrixRun?.runId ?? null,
+    matrixSource: matrixRun?.kind === "rerender-only" ? matrixRun.sourceRun : null,
+    injection: injectionRun?.runId ?? null,
+  });
   const models = [...new Set(matrix.items.map((r) => r.model))];
   const handCheck = judgeDir ? judgeFiles(judgeDir).handCheck : null;
+  // PR J7: a matrix run from `eval-agent.mjs --pass` brings every run of that pass and their reported cost.
+  const passId = matrixRun?.passId ?? null;
+  // Fix round 1: the limit is the pass's own --max-usd from its run.json, and a run whose
+  // cost is a floor (costFloor) shows as "at least".
+  const passRuns = passId
+    ? (["matrix", "injection", "judge"] as const).flatMap((mode) => listRuns(runRoot(mode)).filter((r) => r.passId === passId).map((r) => ({ mode, run: r })))
+    : [];
+  const pass = passId
+    ? {
+        passId,
+        limitUsd: matrixRun?.passBudgetUsd ?? passRuns.find((r) => r.run.passBudgetUsd !== null)?.run.passBudgetUsd ?? null,
+        ceilingUsd: PASS_USD_CEILING,
+        runs: passRuns.map(({ mode, run: r }) => ({ mode, runId: r.runId, status: r.status, costUsd: r.costUsd, costFloor: r.costFloor })),
+      }
+    : null;
 
   const md = variantSummary({
     generatedAt: new Date().toISOString().slice(0, 10),
@@ -46,6 +65,7 @@ test("write the per-variant summary", () => {
     judge: judge.items.length > 0 ? judge.items : null,
     handCheckFile: handCheck && existsSync(handCheck) ? path.relative(REPO_ROOT, handCheck) : null,
     runs: { matrix: describeRun(matrixRun), injection: describeRun(injectionRun), judge: describeRun(judgeRun) },
+    pass,
   });
   const unreadable = [
     ...matrix.unreadable.map((f) => `recordings/matrix/${matrixRun?.runId}/${f}`),

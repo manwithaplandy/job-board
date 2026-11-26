@@ -194,6 +194,64 @@ describe("assertRecording", () => {
   });
 });
 
+describe("assertRecording on variants 2 and 3 (Task 2.10)", () => {
+  /** The d_weekly recording with its one surface re-rendered as `payload` in `variant`. */
+  function asVariant(variant: 2 | 3, payload: Record<string, unknown>): Recording {
+    const r = committed("d_weekly");
+    r.variant = variant;
+    r.source = "rerender";
+    r.surfaces[0] = { ...r.surfaces[0], variant, payload, fallbackPayload: r.surfaces[0].payload };
+    return r;
+  }
+  const weeklyTree = (bind: string) => ({
+    variant: 2,
+    root: {
+      type: "Stack",
+      gap: "2",
+      children: [
+        { type: "Heading", level: 2, text: "Your last few weeks" },
+        { type: "Stat", label: "Response rate", bind },
+        { type: "JobTitle", jobId: "greenhouse:eval-ng-4:1010" },
+      ],
+    },
+  });
+
+  test("a variant 2 tree's Stat binds count as shown metrics; with none, scenario (d) fails", () => {
+    expect(codes(asVariant(2, weeklyTree("/metrics/1")))).toEqual([]);
+    expect(codes(asVariant(2, weeklyTree("/metrics/7")))).toContain("metric_not_gathered");
+    const noMetric = weeklyTree("/metrics/1");
+    noMetric.root.children.splice(1, 1);
+    expect(codes(asVariant(2, noMetric))).toEqual(["scenario_d_no_metrics"]);
+    const thin = asVariant(2, weeklyTree("/metrics/1"));
+    (gathered(thin, 0).metrics as unknown as Array<Record<string, unknown>>)[1].n = 3;
+    expect(codes(thin)).toEqual(["rate_below_min_n"]);
+  });
+
+  test("a variant 2 tree that fails its grammar, or names a job not stored, fails", () => {
+    expect(codes(asVariant(2, { variant: 2, root: { type: "Nope" } }))).toEqual(["surface_invalid", "scenario_d_no_metrics"]);
+    const unknownJob = weeklyTree("/metrics/1");
+    (unknownJob.root.children[2] as { jobId: string }).jobId = "greenhouse:eval-ng-9:9999";
+    expect(codes(asVariant(2, unknownJob))).toContain("job_not_in_database");
+  });
+
+  test("a variant 3 document counts as showing metrics when it reads them, and its stored fallback is checked as variant 1", () => {
+    const reads = asVariant(3, { variant: 3, title: "Weekly", html: "<p id=a></p><script>host.onInit(function (d) { a.textContent = d.metrics.length; });</script>" });
+    expect(codes(reads)).toEqual([]);
+    const blind = asVariant(3, { variant: 3, title: "Weekly", html: "<p>Nothing here</p>" });
+    expect(codes(blind)).toEqual(["scenario_d_no_metrics"]);
+    const badFallback = asVariant(3, { variant: 3, title: "Weekly", html: "<p>metrics</p>" });
+    badFallback.surfaces[0].fallbackPayload = { variant: 1, blocks: [{ type: "Bogus" }] };
+    expect(codes(badFallback)).toEqual(["unknown_block", "surface_invalid"]);
+  });
+
+  test("a variant 2 surface stored as its variant 1 fallback is checked as variant 1", () => {
+    const r = committed("d_weekly");
+    r.variant = 2;
+    r.surfaces[0] = { ...r.surfaces[0], variant: 2, outcome: "fallback", fallbackPayload: r.surfaces[0].payload };
+    expect(codes(r)).toEqual([]);
+  });
+});
+
 describe("the committed recordings and personas", () => {
   test("every recording file is named for its scenario, persona and source", () => {
     for (const file of recordingFiles()) expect(recordingFileName(load(file)), file).toBe(file);

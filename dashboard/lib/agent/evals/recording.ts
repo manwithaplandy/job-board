@@ -15,8 +15,13 @@ import { SCENARIO_IDS } from "@/lib/agent/evals/scenarios";
 
 export const RECORDING_FORMAT = 1;
 
-/** hand-written: committed by a person; live: eval:agent with a real model; scripted: the phase 1 gate. */
-export const RECORDING_SOURCES = ["hand-written", "live", "scripted"] as const;
+/**
+ * hand-written: committed by a person; live: eval:agent with a real model; scripted: the
+ * phase 1 gate; rerender: a matrix cell of variant 2 or 3 (Task 2.10), the surfaces of a
+ * live variant 1 run re-rendered from the same gathered data (its tool calls, approvals,
+ * presses and snapshots are that run's; its surfaces, usage and timings are the re-renders').
+ */
+export const RECORDING_SOURCES = ["hand-written", "live", "scripted", "rerender"] as const;
 
 /**
  * How a tool call ended, from its stored part: executed (output-available), error

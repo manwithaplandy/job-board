@@ -31,11 +31,15 @@ import type { Variant } from "@/lib/agent/config";
 import { parseOrNull } from "@/lib/zodParse";
 import { PERSONAS, seedPersona, writeStandInPackage, type Persona, type PersonaId } from "@/lib/agent/evals/personas";
 import { SCENARIOS, type ScenarioId } from "@/lib/agent/evals/scenarios";
-import { collectRecording, snapshotDb } from "@/lib/agent/evals/record";
+import { collectRecording, rerenderUsage, snapshotDb } from "@/lib/agent/evals/record";
 import { playScenario, readStream, type TurnRunner } from "@/lib/agent/evals/play";
 import { recordingFileName, type Recording } from "@/lib/agent/evals/recording";
-import type { RunBudget } from "@/lib/agent/evals/budget";
+import { RunBudget, type EvalCaps } from "@/lib/agent/evals/budget";
 import { budgetMiddleware } from "@/lib/agent/evals/budgetMiddleware";
+import { rerenderSurface } from "@/lib/agent/rerender";
+import type { StoredSurface } from "@/lib/agent/surfaces/store";
+import type { MatrixRunner } from "@/lib/agent/evals/matrix";
+import { cellKey } from "@/lib/agent/evals/matrixPlan";
 
 export interface RunScenarioArgs {
   persona: PersonaId;
@@ -175,6 +179,91 @@ export async function runScenario(a: RunScenarioArgs, ctx: ScenarioCtx): Promise
     timings: played.timings,
   });
   return { ...recording, skipped: played.skipped };
+}
+
+/**
+ * A matrix re-render cell (Task 2.10): every surface of the live variant 1 run `from`,
+ * re-rendered into `variant` by rerenderSurface itself (no HTTP route), so each goes
+ * through the same present tool, validation, repair and fallback path as a user's
+ * re-render, as a run of kind rerender charged against the same ceilings. The model is the
+ * original's, wrapped by the same budget middleware as the live run. Only the gathered data
+ * the live run stored is sent; no read or write tool is offered.
+ */
+export async function rerenderRun(a: { from: Recording; variant: 2 | 3 }, ctx: ScenarioCtx): Promise<Recording> {
+  const { budget } = ctx;
+  budget.startCase();
+  const persona = PERSONAS[a.from.persona];
+  const model = (modelId: string) => seededModel(modelId, a.from.seed, budget);
+  const startedAt = Date.now();
+  let firstRenderMs: number | null = null;
+  const surfaces: StoredSurface[] = [];
+  for (const source of a.from.surfaces) {
+    budget.startTurn();
+    // The operator switch is the caller's to read; the eval database has it at its default,
+    // so the harness passes it as on for the matrix (no flag is changed).
+    const out = await rerenderSurface(
+      persona.userId,
+      { surfaceId: source.id, variant: a.variant, email: persona.email, variant3Enabled: true },
+      { model },
+    );
+    budget.endTurn();
+    if (out.ok) {
+      surfaces.push(out.surface);
+      firstRenderMs ??= Date.now() - startedAt;
+    } else {
+      console.warn(`eval: re-render of surface ${source.id} into variant ${a.variant} ended ${out.reason}`);
+    }
+  }
+  // Never a Recording from a cell the caps stopped.
+  budget.throwIfTripped();
+  const threadId = a.from.surfaces[0]?.threadId ?? null;
+  return {
+    ...a.from,
+    source: "rerender",
+    variant: a.variant,
+    surfaces,
+    usage: threadId === null ? { costMicros: 0, inputTokens: 0, outputTokens: 0 } : await rerenderUsage(ctx.sql, threadId, a.variant),
+    timings: { firstRenderMs, completeMs: Date.now() - startedAt },
+  };
+}
+
+/**
+ * The live matrix runner (Task 2.10, used only by matrix.eval.ts): one RunBudget per
+ * model with the matrix caps, each reporting to the whole command's budget `total`. A
+ * model's budget is opened at its first cell and disposed after its last.
+ */
+export function liveMatrixRunner(
+  ctx: HarnessCtx,
+  a: { caps: EvalCaps; total: RunBudget; onBudget: (model: string, budget: RunBudget) => void },
+): MatrixRunner {
+  let budget: RunBudget | null = null;
+  const current = (): RunBudget => {
+    if (!budget) throw new Error("eval: a matrix cell ran outside its model's budget");
+    return budget;
+  };
+  return {
+    startModel: (model) => {
+      budget = new RunBudget(a.caps, Date.now, a.total);
+      budget.armClock();
+      a.onBudget(model, budget);
+    },
+    endModel: () => {
+      budget?.dispose();
+      budget = null;
+    },
+    live: async (cell) => {
+      const { skipped, ...recording } = await runScenario(
+        { persona: cell.persona, scenario: cell.scenario, variant: 1, model: cell.model, seed: cell.repeat },
+        { sql: ctx.sql, budget: current() },
+      );
+      if (skipped.length > 0) console.warn(`eval: ${cellKey(cell)} skipped ${skipped.join("; ")}`);
+      return recording;
+    },
+    rerender: async (cell, from) => {
+      if (cell.variant === 1) throw new Error("eval: variant 1 is never a re-render");
+      return rerenderRun({ from, variant: cell.variant }, { sql: ctx.sql, budget: current() });
+    },
+  };
 }
 
 /** Writes a live recording beside the hand-written ones: <scenario>.<persona>.<model>.json. */

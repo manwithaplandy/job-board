@@ -10,7 +10,8 @@ import { z } from "zod";
 import { loadAppSettings, type AppSettings } from "@/lib/appSettings";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
-import { AGENT_EVAL_MODELS, USAGE_KIND_AGENT } from "@/lib/agent/config";
+import { USAGE_KIND_AGENT } from "@/lib/agent/config";
+import { priceFor } from "@/lib/agent/prices";
 
 export type BudgetState =
   | { ok: true; remainingMicros: number }
@@ -20,28 +21,9 @@ export type AgentSpend = { dayMicros: number; monthMicros: number };
 
 type BudgetSettings = Pick<AppSettings, "agentEnabled" | "agentDailyCeilingMicros" | "agentMonthlyCeilingMicros">;
 
-type Price = { input: number; output: number };
-
-// Micro-dollars per million tokens, used only when a step carries no billed cost.
-// Anthropic first-party list prices (claude-api reference, cached 2026-11-03); the
-// OpenRouter prices for these slugs are [Unverified] (Spike A did not run). Haiku 5.5
-// is priced at its long-prompt tier ($0.50 / $2.50 above 100K input tokens), because an
-// estimate that runs high only stops a user early, while one that runs low lets spend
-// pass the ceiling.
-const MODEL_PRICES: Record<(typeof AGENT_EVAL_MODELS)[number], Price> = {
-  "anthropic/claude-sonnet-5.5": { input: 2_000_000, output: 10_000_000 },
-  "anthropic/claude-haiku-5.5": { input: 500_000, output: 2_500_000 },
-};
-
-function mostExpensive(prices: Price[]): Price {
-  return prices.reduce((a, b) => (b.input + b.output > a.input + a.output ? b : a));
-}
-
-/** Every AGENT_EVAL_MODELS entry, plus `default` (the most expensive of them) for anything else. */
-export const PRICE_PER_MTOK_MICROS: Record<string, Price> & { default: Price } = {
-  ...MODEL_PRICES,
-  default: mostExpensive(Object.values(MODEL_PRICES)),
-};
+// Micro-dollars per million tokens, used only when a step carries no billed cost. The
+// table lives in lib/agent/prices.ts (pure, so the eval's dry run can load it in Node).
+export { PRICE_PER_MTOK_MICROS } from "@/lib/agent/prices";
 
 const openRouterCostSchema = z.object({
   openrouter: z.object({ usage: z.object({ cost: z.number().finite().nonnegative() }) }),
@@ -88,11 +70,6 @@ export const STEP_COST_MAX_MICROS = 100_000_000;
 /** A token count from provider usage: a non-finite or negative value counts as 0. */
 function tokenCount(n: number | undefined): number {
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-/** Own-property lookup, so "constructor" or "__proto__" is an unknown model, not a price. */
-function priceFor(modelId: string): Price {
-  return Object.hasOwn(PRICE_PER_MTOK_MICROS, modelId) ? PRICE_PER_MTOK_MICROS[modelId] : PRICE_PER_MTOK_MICROS.default;
 }
 
 /** Remaining headroom under both ceilings; the kill switch wins over any spend. */

@@ -2,8 +2,12 @@
 // hard ceilings, the whole-command total over several models, and the golden A17 caps
 // left exactly as they were. Pure; runs in CI.
 import { describe, expect, test } from "vitest";
-import { AGENT_EVAL_MODELS } from "@/lib/agent/config";
+import { AGENT_EVAL_DEFAULT_MODEL, AGENT_SPOT_CHECK_MODEL } from "@/lib/agent/config";
 import {
+  PASS_USD_CEILING,
+  PASS_USD_DEFAULT,
+  parsePassUsd,
+  passRemaining,
   CAP_DEFAULTS,
   CAP_KEYS,
   CAP_PROFILES,
@@ -28,17 +32,45 @@ import {
   totalCapsFromEnv,
   totalCapsToEnv,
 } from "@/lib/agent/evals/budget";
-import { estimateInjection, estimateJudge, estimateMatrix, matrixPlan } from "@/lib/agent/evals/matrixPlan";
+import { estimateInjection, estimateJudge, estimateMatrix, matrixPlan, spotCheckPlan } from "@/lib/agent/evals/matrixPlan";
 import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 
 // A reported cost by default: the paid modes require one on every call (PROFILE_REQUIRES_COST).
 const usage = (inputTokens: number, outputTokens: number, costUsd: number | null = 0.01) => ({ inputTokens, outputTokens, costUsd });
 
 describe("cap profiles", () => {
-  test("the golden profile is the A17 caps, unchanged", () => {
+  test("the golden profile is the A17 caps, with its dollar cap under $3 (PR J7)", () => {
     expect(PROFILE_CAP_SPECS.golden).toBe(CAP_SPECS);
     expect(profileDefaults("golden")).toEqual(CAP_DEFAULTS);
-    expect(CAP_DEFAULTS).toEqual({ maxCases: 12, maxSteps: 8, maxTokens: 2_000_000, maxUsd: 5, maxMinutes: 30 });
+    expect(CAP_DEFAULTS).toEqual({ maxCases: 12, maxSteps: 8, maxTokens: 2_000_000, maxUsd: 2, maxMinutes: 30 });
+    expect(profileCeilings("golden").maxUsd).toBe(3);
+  });
+
+  test("no mode can spend more than $3 on its own: every dollar ceiling is at most the pass's", () => {
+    expect(PASS_USD_DEFAULT).toBe(3);
+    expect(PASS_USD_CEILING).toBe(3);
+    for (const profile of CAP_PROFILES) {
+      expect(profileCeilings(profile).maxUsd, profile).toBeLessThanOrEqual(PASS_USD_CEILING);
+      const t = TOTAL_CAP_SPECS[profile];
+      if (t) expect(t.maxTotalUsd.ceiling, profile).toBeLessThanOrEqual(PASS_USD_CEILING);
+    }
+    expect(profileCeilings("spot-check").maxUsd).toBeLessThan(3);
+    expect(profileDefaults("spot-check").maxCases).toBe(spotCheckPlan(AGENT_SPOT_CHECK_MODEL).length);
+  });
+
+  test("the pass budget: $3 by default, lowered by a flag and never raised; what is left goes down to the cent", () => {
+    expect(parsePassUsd(undefined)).toBe(3);
+    expect(parsePassUsd("2.5")).toBe(2.5);
+    expect(() => parsePassUsd("3.01")).toThrow(/ceiling of 3/);
+    expect(() => parsePassUsd("0")).toThrow(CapUsageError);
+    expect(passRemaining(3, [])).toBe(3);
+    expect(passRemaining(3, [1.2345])).toBe(1.76);
+    expect(passRemaining(3, [2.71])).toBe(0.29);
+    expect(passRemaining(3, [2.995])).toBe(0);
+    expect(passRemaining(3, [3.2])).toBe(0);
+    // A spend that is not a number leaves nothing: the pass fails closed.
+    expect(passRemaining(3, [0.5, Number.NaN])).toBe(0);
+    expect(passRemaining(3, [-1])).toBe(0);
   });
 
   test("every profile's defaults sit within its ceilings, and no step cap passes the route's", () => {
@@ -60,40 +92,47 @@ describe("cap profiles", () => {
     expect(TOTAL_CAP_SPECS.judge).toBeUndefined();
   });
 
-  test("each default holds the full run's Sonnet estimate with headroom, and the total holds every model's", () => {
-    const plan = matrixPlan(AGENT_EVAL_MODELS);
+  test("each default holds the full run's uncached Haiku 5.5 estimate with headroom (PR J7)", () => {
+    const model = AGENT_EVAL_DEFAULT_MODEL;
     const m = profileDefaults("matrix");
     expect(m.maxCases).toBe(MATRIX_CELLS);
-    let tokens = 0;
-    let micros = 0;
-    for (const model of AGENT_EVAL_MODELS) {
-      const e = estimateMatrix(plan, model).total;
-      expect(e.inputTokens + e.outputTokens, model).toBeLessThanOrEqual(m.maxTokens / 1.2);
-      expect(e.costMicros, model).toBeLessThanOrEqual((m.maxUsd * 1_000_000) / 1.2);
-      tokens += e.inputTokens + e.outputTokens;
-      micros += e.costMicros;
-    }
-    expect(tokens).toBeLessThanOrEqual(TOTAL_CAP_SPECS.matrix!.maxTotalTokens.default);
-    expect(micros).toBeLessThanOrEqual(TOTAL_CAP_SPECS.matrix!.maxTotalUsd.default * 1_000_000);
+    const e = estimateMatrix(matrixPlan([model]), model).total;
+    expect(e.inputTokens + e.outputTokens).toBeLessThanOrEqual(m.maxTokens / 1.2);
+    expect(e.costMicros).toBeLessThanOrEqual((m.maxUsd * 1_000_000) / 1.2);
+    expect(e.inputTokens + e.outputTokens).toBeLessThanOrEqual(TOTAL_CAP_SPECS.matrix!.maxTotalTokens.default);
+    expect(e.costMicros).toBeLessThanOrEqual((TOTAL_CAP_SPECS.matrix!.maxTotalUsd.default * 1_000_000) / 1.2);
 
     const i = profileDefaults("injection");
-    const inj = estimateInjection(AGENT_EVAL_MODELS[0], i.maxCases);
+    const inj = estimateInjection(model, i.maxCases);
     expect(inj.inputTokens + inj.outputTokens).toBeLessThanOrEqual(i.maxTokens / 1.2);
     expect(inj.costMicros).toBeLessThanOrEqual((i.maxUsd * 1_000_000) / 1.2);
 
     const j = profileDefaults("judge");
+    expect(AGENT_JUDGE_MODEL).toBe(AGENT_EVAL_DEFAULT_MODEL);
     const judge = estimateJudge(AGENT_JUDGE_MODEL, j.maxCases);
     expect(judge.inputTokens + judge.outputTokens).toBeLessThanOrEqual(j.maxTokens / 1.2);
     expect(judge.costMicros).toBeLessThanOrEqual((j.maxUsd * 1_000_000) / 1.2);
+
+    // The spot check's cap holds its uncached Sonnet estimate, under $3.
+    const s = profileDefaults("spot-check");
+    const spot = estimateMatrix(spotCheckPlan(AGENT_SPOT_CHECK_MODEL), AGENT_SPOT_CHECK_MODEL).total;
+    expect(spot.costMicros).toBeLessThanOrEqual(s.maxUsd * 1_000_000);
+    expect(spot.inputTokens + spot.outputTokens).toBeLessThanOrEqual(s.maxTokens / 1.2);
+
+    // A full Sonnet matrix no longer fits any cap: it would stop at $3.
+    const sonnet = estimateMatrix(matrixPlan([AGENT_SPOT_CHECK_MODEL]), AGENT_SPOT_CHECK_MODEL).total;
+    expect(sonnet.costMicros).toBeGreaterThan(profileCeilings("matrix").maxUsd * 1_000_000);
   });
 
   test("a profile's flags are refused above their ceilings, and lowered values pass", () => {
     expect(() => parseCaps({ maxCases: "181" }, "matrix")).toThrow(CapUsageError);
-    expect(() => parseCaps({ maxUsd: "120.01" }, "matrix")).toThrow(/ceiling of 120/);
+    expect(() => parseCaps({ maxUsd: "3.01" }, "matrix")).toThrow(/ceiling of 3/);
     expect(() => parseCaps({ maxSteps: "2" }, "judge")).toThrow(CapUsageError);
-    expect(parseCaps({ maxCases: "6", maxUsd: "12.5" }, "matrix")).toMatchObject({ maxCases: 6, maxUsd: 12.5 });
-    expect(() => parseTotalCaps({ maxTotalUsd: "201" }, "matrix")).toThrow(CapUsageError);
-    expect(parseTotalCaps({ maxTotalUsd: "40" }, "matrix")).toEqual({ maxTotalTokens: 44_000_000, maxTotalUsd: 40 });
+    expect(parseCaps({ maxCases: "6", maxUsd: "1.25" }, "matrix")).toMatchObject({ maxCases: 6, maxUsd: 1.25 });
+    expect(() => parseTotalCaps({ maxTotalUsd: "3.5" }, "matrix")).toThrow(CapUsageError);
+    expect(parseTotalCaps({ maxTotalUsd: "2" }, "matrix")).toEqual({ maxTotalTokens: 44_000_000, maxTotalUsd: 2 });
+    expect(() => parseCaps({ maxUsd: "2.95" }, "spot-check")).toThrow(/ceiling of 2.9/);
+    expect(() => parseCaps({ maxCases: "13" }, "spot-check")).toThrow(CapUsageError);
     expect(() => parseTotalCaps({ maxTotalUsd: "1" }, "golden")).toThrow(/no whole-command caps/);
     expect(parseTotalCaps({}, "judge")).toBeNull();
   });
@@ -213,7 +252,7 @@ describe("dollar caps never switch off in the paid modes (cost_unknown)", () => 
   };
 
   test("the matrix, injection and judge require a reported cost; the golden run keeps A17's rule", () => {
-    expect(PROFILE_REQUIRES_COST).toEqual({ golden: false, matrix: true, injection: true, judge: true });
+    expect(PROFILE_REQUIRES_COST).toEqual({ golden: false, matrix: true, injection: true, judge: true, "spot-check": true });
     expect(profileBudget("golden", caps).requireCost).toBe(false);
     expect(totalBudget({ maxTotalTokens: 1_000, maxTotalUsd: 1 }).requireCost).toBe(true);
   });

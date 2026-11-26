@@ -1,6 +1,6 @@
 // The variant matrix's plan and the dry run's estimate (plan Task 2.10). Pure; runs in CI.
 import { describe, expect, test } from "vitest";
-import { AGENT_EVAL_MODELS } from "@/lib/agent/config";
+import { AGENT_EVAL_DEFAULT_MODEL, AGENT_EVAL_MODELS, AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
 import { PERSONA_IDS } from "@/lib/agent/evals/personas";
 import { SCENARIO_IDS } from "@/lib/agent/evals/scenarios";
 import { PRICE_PER_MTOK_MICROS } from "@/lib/agent/budget";
@@ -8,8 +8,17 @@ import { profileDefaults, TOTAL_CAP_SPECS, parseTotalCaps } from "@/lib/agent/ev
 import {
   MATRIX_PERSONAS,
   MATRIX_SCENARIOS,
+  CACHE_SHARES,
+  NonDefaultModelError,
+  SPOT_CHECK_PERSONA,
   UnpricedModelError,
+  assertDefaultModelOrAllowed,
   assertPricedModels,
+  estimateJudge,
+  formatPassDryRun,
+  isMatrixPersona,
+  nonDefaultModels,
+  spotCheckPlan,
   cellKey,
   estimateInjection,
   estimateMatrix,
@@ -52,10 +61,34 @@ describe("matrixPlan", () => {
     expect(AGENT_EVAL_MODELS[0]).toMatch(/sonnet/);
   });
 
-  test("runModels: --models wins, then --model, then every AGENT_EVAL_MODELS entry", () => {
+  test("runModels: --models wins, then --model, then the eval default, Haiku 5.5 (PR J7)", () => {
     expect(runModels({ models: ["a", "b"], model: "c" })).toEqual(["a", "b"]);
     expect(runModels({ model: "c" })).toEqual(["c"]);
-    expect(runModels({})).toEqual([...AGENT_EVAL_MODELS]);
+    expect(runModels({})).toEqual([AGENT_EVAL_DEFAULT_MODEL]);
+    expect(AGENT_EVAL_DEFAULT_MODEL).toBe("anthropic/claude-haiku-5.5");
+    // Production's own model is not the eval's: it stays Sonnet 5.5.
+    expect(AGENT_MODEL_DEFAULT).toBe("anthropic/claude-sonnet-5.5");
+  });
+
+  test("any model but Haiku 5.5 needs an explicit allowance", () => {
+    expect(nonDefaultModels([AGENT_EVAL_DEFAULT_MODEL])).toEqual([]);
+    expect(nonDefaultModels([...AGENT_EVAL_MODELS])).toEqual(["anthropic/claude-sonnet-5.5"]);
+    expect(() => assertDefaultModelOrAllowed([...AGENT_EVAL_MODELS], false)).toThrow(NonDefaultModelError);
+    expect(() => assertDefaultModelOrAllowed([...AGENT_EVAL_MODELS], false)).toThrow(/--allow-non-haiku/);
+    expect(() => assertDefaultModelOrAllowed([...AGENT_EVAL_MODELS], true)).not.toThrow();
+    expect(() => assertDefaultModelOrAllowed([AGENT_EVAL_DEFAULT_MODEL], false)).not.toThrow();
+  });
+
+  test("the spot check: one persona, one repeat, every scenario and variant, in plan order", () => {
+    const plan = spotCheckPlan("m");
+    expect(plan).toHaveLength(12);
+    expect(new Set(plan.map((c) => c.persona))).toEqual(new Set([SPOT_CHECK_PERSONA]));
+    expect(new Set(plan.map((c) => c.repeat))).toEqual(new Set([1]));
+    expect(new Set(plan.map((c) => c.scenario))).toEqual(new Set(MATRIX_SCENARIOS));
+    expect(plan.filter((c) => c.variant === 1)).toHaveLength(4);
+    expect(spotCheckPlan("m", "new-grad").every((c) => c.persona === "new-grad")).toBe(true);
+    expect(isMatrixPersona("new-grad")).toBe(true);
+    expect(isMatrixPersona("intern")).toBe(false);
   });
 });
 
@@ -85,6 +118,20 @@ describe("the estimate", () => {
     expect(haiku.inputTokens).toBe(sonnet.inputTokens);
   });
 
+  test("the cached estimate uses CACHE_SHARES: reads at 0.1x and writes at 1.25x the input price, never above uncached", () => {
+    expect(CACHE_SHARES).toEqual({ agent: { read: 0.75, write: 0.25 }, rerender: { read: 0.25, write: 0.1 }, judge: { read: 0, write: 0 } });
+    const model = "anthropic/claude-haiku-5.5";
+    const e = estimateMatrix(matrixPlan([model]), model);
+    // A variant 1 call: 15,000 in at $0.10 x (0.75 x 0.1 + 0.25 x 1.25) plus 600 out at $0.50 = 881.25 micros;
+    // rounded up per cell (13 calls in a, 7 in b, c and d), 15 cells of each.
+    expect(e.byVariant[1].cachedCostMicros).toBe(449_460);
+    // A variant 2 call: 12,000 in at $0.10 x (0.65 + 0.25 x 0.1 + 0.1 x 1.25) plus 2,000 out at $0.50 = 1,960 micros; 210 calls.
+    expect(e.byVariant[2].cachedCostMicros).toBe(411_600);
+    for (const v of [1, 2, 3] as const) expect(e.byVariant[v].cachedCostMicros).toBeLessThanOrEqual(e.byVariant[v].costMicros);
+    expect(e.total.cachedCostMicros).toBe(1_482_660);
+    expect(estimateInjection(model, 45).cachedCostMicros).toBe(317_250);
+  });
+
   test("an unpriced model is refused for the matrix and the injection set, never priced at Sonnet's rate", () => {
     expect(unpricedModels(["anthropic/claude-sonnet-5.5", "x/unknown", "default", "constructor"])).toEqual(["x/unknown", "default", "constructor"]);
     expect(() => assertPricedModels(AGENT_EVAL_MODELS)).not.toThrow();
@@ -106,49 +153,86 @@ describe("the dry run", () => {
       totals: parseTotalCaps({}, "matrix"),
     });
     expect(out).toMatch(/nothing is run and nothing is spent\. 360 cells over 2 model\(s\)/);
-    expect(out).toContain("| anthropic/claude-sonnet-5.5 | 60 / 60 / 60 | 930 | 12.69M | 1.57M | $41.04 | yes |");
-    expect(out).toContain("| (variant 3) | 60 | 210 | 2.52M | 0.84M | $13.44 | |");
-    expect(out).toContain("| anthropic/claude-haiku-5.5 | 60 / 60 / 60 | 930 | 12.69M | 1.57M | $2.05 | yes |");
-    expect(out).toContain("| all models | 360 | 1860 | 25.38M | 3.13M | $43.09 | yes |");
+    // Uncached, then cached (CACHE_SHARES); a full Sonnet matrix no longer fits the $2.50 default.
+    expect(out).toContain("| anthropic/claude-sonnet-5.5 | 60 / 60 / 60 | 930 | 12.69M | 1.57M | $41.04 | $29.65 | NO: the run would stop at a cap |");
+    expect(out).toContain("| (variant 3) | 60 | 210 | 2.52M | 0.84M | $13.44 | $12.43 | |");
+    expect(out).toContain("| anthropic/claude-haiku-5.5 | 60 / 60 / 60 | 930 | 12.69M | 1.57M | $2.05 | $1.48 | yes |");
+    expect(out).toContain("| (variant 1) | 60 | 510 | 7.65M | 0.31M | $0.92 | $0.45 | |");
+    expect(out).toContain("| all models | 360 | 1860 | 25.38M | 3.13M | $43.09 | $31.14 | NO: the run would stop at the total cap |");
     expect(out).toContain("| --max-cells | matrix cells per model | 180 | 180 | 180 |");
-    expect(out).toContain(`| --max-total-usd | US dollars over every model | 80 | ${TOTAL_CAP_SPECS.matrix!.maxTotalUsd.default} | 200 |`);
+    expect(out).toContain(`| --max-total-usd | US dollars over every model | 2.5 | ${TOTAL_CAP_SPECS.matrix!.maxTotalUsd.default} | 3 |`);
+    expect(out).toMatch(/an agent step reads 75% of its input from the prompt cache and writes 25%/);
   });
 
   test("says when a lowered cap would stop the run", () => {
     const out = formatMatrixDryRun({
-      models: ["anthropic/claude-sonnet-5.5"],
-      caps: { ...profileDefaults("matrix"), maxUsd: 10 },
-      totals: { maxTotalTokens: 1_000_000, maxTotalUsd: 80 },
+      models: ["anthropic/claude-haiku-5.5"],
+      caps: { ...profileDefaults("matrix"), maxUsd: 1 },
+      totals: { maxTotalTokens: 1_000_000, maxTotalUsd: 2.5 },
     });
-    expect(out).toMatch(/\$41\.04 \| NO: the run would stop at a cap \|/);
+    expect(out).toMatch(/\$2\.05 \| \$1\.48 \| NO: the run would stop at a cap \|/);
     expect(out).toMatch(/NO: the run would stop at the total cap/);
+  });
+
+  test("the spot check's dry run: 12 Sonnet cells within its own $2.90 cap", () => {
+    const out = formatMatrixDryRun({
+      models: ["anthropic/claude-sonnet-5.5"],
+      caps: profileDefaults("spot-check"),
+      totals: parseTotalCaps({}, "spot-check"),
+      plan: spotCheckPlan("anthropic/claude-sonnet-5.5"),
+      profile: "spot-check",
+      title: "Spot check dry run",
+    });
+    expect(out).toMatch(/^Spot check dry run: nothing is run and nothing is spent\. 12 cells over 1 model\(s\)/);
+    expect(out).toContain("| anthropic/claude-sonnet-5.5 | 4 / 4 / 4 | 62 | 0.85M | 0.10M | $2.74 | $1.98 | yes |");
+    expect(out).toContain("| --max-usd | US dollars (reported cost) | 2.9 | 2.9 | 2.9 |");
+  });
+
+  test("the pass's dry run prints each stage and the total against the $3 budget", () => {
+    const out = formatPassDryRun({ budgetUsd: 3 });
+    expect(out).toContain("| matrix | anthropic/claude-haiku-5.5 | 180 cells | 930 | 12.69M | 1.57M | $2.05 | $1.48 |");
+    expect(out).toContain("| injection | anthropic/claude-haiku-5.5 | 45 runs | 360 | 5.40M | 0.22M | $0.65 | $0.32 |");
+    expect(out).toContain("| judge | anthropic/claude-haiku-5.5 | up to 144 pairs | 144 | 1.73M | 0.06M | $0.20 | $0.20 |");
+    expect(out).toContain("| pass total | | | 1434 | 19.82M | 1.84M | $2.90 | $2.00 |");
+    expect(out).toContain("Pass total against the budget: $2.90 uncached (within $3.00: yes), $2.00 cached (within: yes).");
+    expect(out).not.toMatch(/uncached estimate is above the budget/);
+    // A lowered budget the uncached pass does not fit: it says so, and how the cap still holds.
+    const low = formatPassDryRun({ budgetUsd: 2.5 });
+    expect(low).toContain("$2.90 uncached (within $2.50: NO), $2.00 cached (within: yes)");
+    expect(low).toMatch(/The cap still holds: each stage's dollar caps are what is left/);
+  });
+
+  test("the judge is priced at Haiku 5.5's own row", () => {
+    // 144 calls of 12,000 in and 400 out at $0.10 / $0.50 per million.
+    expect(estimateJudge(AGENT_EVAL_DEFAULT_MODEL, 144).costMicros).toBe(201_600);
+    expect(() => estimateJudge("openai/gpt-5.5", 144)).toThrow(UnpricedModelError);
   });
 
   test("the injection and judge dry runs print their own estimate and caps", () => {
     const inj = formatSimpleDryRun({ profile: "injection", models: ["anthropic/claude-sonnet-5.5"], runs: 45, caps: profileDefaults("injection"), totals: parseTotalCaps({}, "injection") });
-    expect(inj).toContain("| anthropic/claude-sonnet-5.5 | 45 | 360 | 5.40M | 0.22M | $12.96 |");
+    expect(inj).toContain("| anthropic/claude-sonnet-5.5 | 45 | 360 | 5.40M | 0.22M | $12.96 | $6.34 |");
     expect(inj).toContain("--max-total-tokens");
-    const judge = formatSimpleDryRun({ profile: "judge", models: ["openai/gpt-5.5"], runs: 144, caps: profileDefaults("judge"), totals: null });
-    expect(judge).toContain("| openai/gpt-5.5 | 144 | 144 | 1.73M | 0.06M | $4.03 | yes |");
+    const judge = formatSimpleDryRun({ profile: "judge", models: [AGENT_EVAL_DEFAULT_MODEL], runs: 144, caps: profileDefaults("judge"), totals: null });
+    expect(judge).toContain("| anthropic/claude-haiku-5.5 | 144 | 144 | 1.73M | 0.06M | $0.20 | $0.20 | yes |");
     expect(judge).toContain("| --max-pairs | judged pairs | 144 | 144 | 360 |");
-    // The judge model is unpriced: the estimate says so and claims nothing about its direction.
-    expect(judge).toMatch(/estimated at Sonnet 5\.5's list price: its real price may be\nhigher or lower/);
-    expect(judge).not.toMatch(/probably high|dearest/);
+    expect(judge).toMatch(/without it only the variant 1 and 2 pairs are judged\n\(60 for a full one-model matrix\)/);
+    // The judge is priced now: no more "estimated at Sonnet's price".
+    expect(judge).not.toMatch(/Sonnet 5\.5's list price/);
   });
 
   test("the injection and judge dry runs warn when the estimate would pass a cap, like the matrix's", () => {
-    const judge = formatSimpleDryRun({ profile: "judge", models: ["openai/gpt-5.5"], runs: 360, caps: profileDefaults("judge"), totals: null });
-    // 360 pairs: 4.46M tokens and $10.08 against the 3M and $10 defaults.
-    expect(judge).toMatch(/\| \$10\.08 \| NO: the run would stop at a cap \|/);
+    const judge = formatSimpleDryRun({ profile: "judge", models: [AGENT_EVAL_DEFAULT_MODEL], runs: 360, caps: profileDefaults("judge"), totals: null });
+    // 360 pairs: 4.46M tokens and $0.50 against the 3M and $0.50 defaults.
+    expect(judge).toMatch(/\| \$0\.50 \| \$0\.50 \| NO: the run would stop at a cap \|/);
     const inj = formatSimpleDryRun({
       profile: "injection",
       models: [...AGENT_EVAL_MODELS],
       runs: 45,
-      caps: { ...profileDefaults("injection"), maxUsd: 5 },
-      totals: { maxTotalTokens: 18_000_000, maxTotalUsd: 10 },
+      caps: { ...profileDefaults("injection"), maxUsd: 1 },
+      totals: { maxTotalTokens: 18_000_000, maxTotalUsd: 1.5 },
     });
-    expect(inj).toMatch(/\| anthropic\/claude-sonnet-5\.5 \| 45 \| .* \$12\.96 \| NO: the run would stop at a cap \|/);
-    expect(inj).toMatch(/\| anthropic\/claude-haiku-5\.5 \| 45 \| .* \$0\.65 \| yes \|/);
-    expect(inj).toMatch(/\| all models \| 90 \| 720 \| .* \$13\.61 \| NO: the run would stop at the total cap \|/);
+    expect(inj).toMatch(/\| anthropic\/claude-sonnet-5\.5 \| 45 \| .* \$12\.96 \| \$6\.34 \| NO: the run would stop at a cap \|/);
+    expect(inj).toMatch(/\| anthropic\/claude-haiku-5\.5 \| 45 \| .* \$0\.65 \| \$0\.32 \| yes \|/);
+    expect(inj).toMatch(/\| all models \| 90 \| 720 \| .* \$13\.61 \| \$6\.66 \| NO: the run would stop at the total cap \|/);
   });
 });

@@ -40,8 +40,10 @@ describe("EVAL_MODE", () => {
 
   test("eval-agent.mjs is the one place that sets EVAL_MODE, to the mode it starts", () => {
     const script = readFileSync(path.join(process.cwd(), "scripts", "eval-agent.mjs"), "utf8");
-    expect(script).toContain("[budget.EVAL_MODE_ENV]: args.mode,");
-    expect(script).toMatch(/for \(const name of \["EVAL_MODE", "EVAL_RUN_ID", "EVAL_MATRIX_RUN"\]\) delete inherited\[name\];/);
+    // One spawn site (runStage) sets it, to the mode of the stage: the mode run alone, or each stage of --pass.
+    expect(script).toContain("[budget.EVAL_MODE_ENV]: stage.mode,");
+    expect(script.match(/EVAL_MODE_ENV\]/g)).toHaveLength(1);
+    expect(script).toMatch(/for \(const name of \[\s*"EVAL_MODE",\s*"EVAL_RUN_ID",\s*"EVAL_MATRIX_RUN",\s*"EVAL_PASS_ID",[^\]]*\]\) \{\s*delete inherited\[name\];/);
     expect(script).toMatch(/golden: \{ profile: "golden", file: "lib\/agent\/evals\/live\.eval\.ts" \}/);
     const setters = readdirSync(EVALS)
       .filter((f) => /\.(ts|mjs)$/.test(f) && f !== "budget.ts" && !f.endsWith(".test.ts"))

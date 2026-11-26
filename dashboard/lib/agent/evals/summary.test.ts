@@ -136,6 +136,30 @@ describe("variantSummary", () => {
     expect(md).toContain(`| Variant matrix (recordings/matrix) | 20261126T010000Z | ${NOT_RUN} |`);
     expect(md).toContain(`| Prompt-injection set (recordings/injection) | 20261125T090000Z (cap_exceeded) | ${NOT_RUN} |`);
     expect(md).toContain(`| Judge (recordings/judge) | none | ${NOT_RUN} |`);
+    expect(md).not.toContain("## Pass spend");
+  });
+
+  test("PR J7: a matrix run from --pass shows the pass's reported spend against $3; an unknown cost makes it a floor", () => {
+    const pass = {
+      passId: RUN,
+      limitUsd: 3,
+      runs: [
+        { mode: "matrix", runId: "20261126T010001Z", status: "complete", costUsd: 1.5 },
+        { mode: "injection", runId: "20261126T030000Z", status: "complete", costUsd: 0.3125 },
+        { mode: "judge", runId: "20261126T040000Z", status: "complete", costUsd: 0.08 },
+      ],
+    };
+    const md = variantSummary(empty({ pass }));
+    expect(md).toContain(`Pass ${RUN} (\`npm run eval:agent -- --pass\`): reported spend $1.8925 against the $3.00 limit.`);
+    expect(md).toContain("| injection | 20261126T030000Z | complete | $0.3125 |");
+    expect(md).toContain("| pass total |  |  | $1.8925 of $3.00 |");
+    const stopped = variantSummary(empty({ pass: { ...pass, runs: [{ ...pass.runs[0], status: "failed", costUsd: null }] } }));
+    expect(stopped).toContain("reported spend at least $0.0000 against the $3.00 limit");
+    expect(stopped).toContain("| matrix | 20261126T010001Z | failed | unknown |");
+  });
+
+  test("the judge's section names the judge model, Haiku 5.5 since PR J7", () => {
+    expect(variantSummary(empty())).toContain(`The judge (${HAIKU}) informs and never decides.`);
   });
 
   test("the judge's record reads from each variant's side", () => {

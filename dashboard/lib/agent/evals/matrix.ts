@@ -9,7 +9,7 @@
 // caught here, and only finished cells reach `onRecording`.
 import type { Recording } from "@/lib/agent/evals/recording";
 import { measure, type VariantMeasures } from "@/lib/agent/evals/measures";
-import { cellKey, matrixPlan, MATRIX_REPEATS, type MatrixCell } from "@/lib/agent/evals/matrixPlan";
+import { cellKey, matrixPlan, MATRIX_REPEATS, type MatrixCell, type MatrixPersona } from "@/lib/agent/evals/matrixPlan";
 
 export interface MatrixRunner {
   /** Before a model's first cell (the live runner opens that model's RunBudget here). */
@@ -46,6 +46,8 @@ export interface RunMatrixArgs {
   /** At most this many cells per model (--max-cells). */
   maxCells?: number;
   repeats?: number;
+  /** The personas to play (the spot check plays one); every persona when not given. */
+  personas?: readonly MatrixPersona[];
   /** Each finished cell, as soon as it finishes (the live run writes its file here). */
   onRecording?: (cell: MatrixCell, r: Recording) => void | Promise<void>;
 }
@@ -67,7 +69,7 @@ export async function runMatrix(a: RunMatrixArgs): Promise<MatrixResult> {
   const recordings: Recording[] = [];
   const models: MatrixModelResult[] = [];
   for (const model of a.models) {
-    const cells = matrixPlan([model], a.repeats ?? MATRIX_REPEATS).slice(0, a.maxCells ?? Number.MAX_SAFE_INTEGER);
+    const cells = matrixPlan([model], a.repeats ?? MATRIX_REPEATS, a.personas).slice(0, a.maxCells ?? Number.MAX_SAFE_INTEGER);
     const live = new Map<string, Recording>();
     const mine: Recording[] = [];
     await a.runner.startModel?.(model);

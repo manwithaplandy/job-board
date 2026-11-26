@@ -1,5 +1,5 @@
-// The judge (plan Task 2.13, spec 11): a model from another family (AGENT_JUDGE_MODEL)
-// compares two variants' surfaces for the same matrix cell (same model, scenario, persona
+// The judge (plan Task 2.13, spec 11): AGENT_JUDGE_MODEL (Haiku 5.5 since PR J7; it was
+// openai/gpt-5.5, a model from another family, before Andrew's $3 limit) compares two variants' surfaces for the same matrix cell (same model, scenario, persona
 // and repeat) and says which serves the user better, or that they tie. It informs the
 // variant decision and never decides it: Andrew hand-checks a 10% sample
 // (sampleForHandCheck) and the summary labels the judge's counts as supporting

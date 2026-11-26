@@ -1,4 +1,4 @@
-// The judge, live (plan Task 2.13): AGENT_JUDGE_MODEL (openai/gpt-5.5) compares pairs of
+// The judge, live (plan Task 2.13): AGENT_JUDGE_MODEL (Haiku 5.5, PR J7) compares pairs of
 // matrix recordings, the same model, scenario, persona and repeat in two variants. NEVER
 // part of `npm test` or the db lane: only `npm run eval:agent -- --judge`
 // (scripts/eval-agent.mjs) runs it, inside tools/lifecycle_test_db.py with the OpenRouter
@@ -31,7 +31,7 @@ import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 import { awaitsRender, handCheckCsv, judgePair, judgePairs, judgeQueue, judgeTable, sampleForHandCheck, type JudgeResult, type RenderedText } from "@/lib/agent/evals/judge";
 import { matrixRecordingPath } from "@/lib/agent/evals/matrix";
 import { judgeFiles, readMatrixRecordings } from "@/lib/agent/evals/evalFiles";
-import { describeRun, finishRun, newRunId, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
+import { describeRun, finishRun, newRunId, passIdFromEnv, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
 import { readRenderResults, renderedTextIndex } from "@/lib/agent/evals/renderResults";
 
 // Only eval-agent.mjs starts this file (it sets EVAL_MODE): refuse anything else first.
@@ -47,6 +47,7 @@ const notes: string[] = [];
 // The matrix run to judge. A --run that names no run throws here.
 const matrixRun = selectRun(runRoot("matrix"), process.env.EVAL_MATRIX_RUN || null);
 const evalRun = process.env.EVAL_RUN_ID || newRunId();
+const passId = passIdFromEnv(process.env);
 let runDir: string | null = null;
 let ranToEnd = false;
 
@@ -61,7 +62,10 @@ function writeRunReport(text: string): void {
   }
   mkdirSync(path.dirname(file), { recursive: true });
   const t = budget.tripped;
-  writeFileSync(file, `${JSON.stringify({ status: t ? "cap_exceeded" : "complete", cap: t?.cap ?? null, usd: budget.usdEnforcement, text })}\n`);
+  writeFileSync(
+    file,
+    `${JSON.stringify({ status: t ? "cap_exceeded" : "complete", cap: t?.cap ?? null, usd: budget.usdEnforcement, costUsd: budget.totals.costUsd, text })}\n`,
+  );
 }
 
 beforeAll(() => {
@@ -69,7 +73,7 @@ beforeAll(() => {
     throw new Error("eval: OPENROUTER_API_KEY is not set (tools/lifecycle_test_db.py --allow-env OPENROUTER_API_KEY)");
   }
   if (!matrixRun) throw new Error("eval: no complete matrix run to judge; run `npm run eval:agent -- --matrix` first, or name one with --run");
-  runDir = startRun(runRoot("judge"), { runId: evalRun, mode: "judge", models: [AGENT_JUDGE_MODEL], matrixRun: matrixRun.runId });
+  runDir = startRun(runRoot("judge"), { runId: evalRun, mode: "judge", models: [AGENT_JUDGE_MODEL], matrixRun: matrixRun.runId, passId });
 });
 
 afterAll(() => {
@@ -80,11 +84,12 @@ afterAll(() => {
     writeFileSync(files.results, `${JSON.stringify(results, null, 2)}\n`, { flag: "wx" });
     writeFileSync(files.handCheck, handCheckCsv(sampleForHandCheck(results)), { flag: "wx" });
   }
-  if (runDir) finishRun(runDir, budget.tripped ? "cap_exceeded" : ranToEnd ? "complete" : "failed");
+  if (runDir) finishRun(runDir, budget.tripped ? "cap_exceeded" : ranToEnd ? "complete" : "failed", new Date(), budget.totals.costUsd);
   writeRunReport(
     [
       `Judge ${AGENT_JUDGE_MODEL}: ${results.length} pairs judged`,
       `Judge run ${evalRun} over matrix run ${describeRun(matrixRun)}`,
+      ...(passId ? [`Pass ${passId}`] : []),
       ...notes,
       "",
       judgeTable(results),

@@ -5,7 +5,19 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { RUN_ID_RE, RunSelectionError, describeRun, finishRun, listRuns, newRunId, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
+import {
+  EVAL_PASS_ID_ENV,
+  RUN_ID_RE,
+  RunSelectionError,
+  describeRun,
+  finishRun,
+  listRuns,
+  newRunId,
+  passIdFromEnv,
+  runRoot,
+  selectRun,
+  startRun,
+} from "@/lib/agent/evals/evalRuns";
 import { judgeFiles, readInjectionResults, readJudgeResults, readMatrixRecordings } from "@/lib/agent/evals/evalFiles";
 import { emptySnapshot, type Recording } from "@/lib/agent/evals/recording";
 import type { JudgeResult } from "@/lib/agent/evals/judge";
@@ -73,8 +85,63 @@ describe("run ids and folders", () => {
     expect(() => startRun(root, { runId: "latest", mode: "matrix", models: [], matrixRun: null })).toThrow(/not a run id/);
     finishRun(runDir, "cap_exceeded", new Date("2026-11-26T01:30:00Z"));
     expect(listRuns(root)).toEqual([
-      { runId: A, mode: "matrix", status: "cap_exceeded", startedAt: "2026-11-26T01:00:00.000Z", finishedAt: "2026-11-26T01:30:00.000Z", models: ["m/a"], matrixRun: null },
+      {
+        runId: A,
+        mode: "matrix",
+        status: "cap_exceeded",
+        startedAt: "2026-11-26T01:00:00.000Z",
+        finishedAt: "2026-11-26T01:30:00.000Z",
+        models: ["m/a"],
+        matrixRun: null,
+        kind: "full",
+        passId: null,
+        sourceRun: null,
+        costUsd: null,
+      },
     ]);
+  });
+
+  test("PR J7: a run records its pass id and kind when it starts and its reported cost when it ends", () => {
+    const root = runRoot("matrix", dir);
+    const runDir = startRun(root, { runId: B, mode: "matrix", models: ["m/a"], matrixRun: null, passId: A });
+    finishRun(runDir, "complete", new Date("2026-11-26T02:30:00Z"), 1.25);
+    expect(listRuns(root)[0]).toMatchObject({ runId: B, kind: "full", passId: A, sourceRun: null, costUsd: 1.25 });
+    // A cost that is not a finite, non-negative number is recorded as unknown, never as zero.
+    finishRun(runDir, "complete", new Date(), Number.NaN);
+    expect(listRuns(root)[0].costUsd).toBeNull();
+    expect(() => startRun(root, { runId: C, mode: "matrix", models: [], matrixRun: null, passId: "pass-1" })).toThrow(/not a run id/);
+  });
+
+  test("PR J7: a run.json from before J7 reads as full; one with a bad kind, pass id or cost does not read", () => {
+    const root = runRoot("matrix", dir);
+    const old = { runId: A, mode: "matrix", status: "complete", startedAt: "x", finishedAt: "y", models: [], matrixRun: null };
+    const write = (id: string, extra: Record<string, unknown>) => {
+      mkdirSync(path.join(root, id), { recursive: true });
+      writeFileSync(path.join(root, id, "run.json"), JSON.stringify({ ...old, runId: id, ...extra }));
+    };
+    write(A, {});
+    write(B, { kind: "everything" });
+    write(C, { passId: "../x" });
+    write("20261126T040000Z", { costUsd: -1 });
+    // A rerender-only run names its source, and no other kind does.
+    write("20261126T050000Z", { kind: "rerender-only", sourceRun: null });
+    write("20261126T060000Z", { kind: "full", sourceRun: A });
+    expect(listRuns(root).map((r) => [r.runId, r.kind, r.passId, r.costUsd])).toEqual([[A, "full", null, null]]);
+  });
+
+  test("PR J7: the spot check is never the latest complete matrix run, but reads by name", () => {
+    const root = runRoot("matrix", dir);
+    finishRun(startRun(root, { runId: A, mode: "matrix", models: [], matrixRun: null }), "complete");
+    finishRun(startRun(root, { runId: B, mode: "matrix", models: [], matrixRun: null, kind: "spot-check" }), "complete");
+    expect(selectRun(root, null)?.runId).toBe(A);
+    expect(describeRun(selectRun(root, B))).toBe(`${B} (spot check)`);
+  });
+
+  test("PR J7: the pass id comes from EVAL_PASS_ID and must be a run id", () => {
+    expect(passIdFromEnv({})).toBeNull();
+    expect(passIdFromEnv({ [EVAL_PASS_ID_ENV]: "" })).toBeNull();
+    expect(passIdFromEnv({ [EVAL_PASS_ID_ENV]: A })).toBe(A);
+    expect(() => passIdFromEnv({ [EVAL_PASS_ID_ENV]: "latest" })).toThrow(RunSelectionError);
   });
 
   test("selectRun takes the latest complete run by default, any named run, and refuses a bad or missing name", () => {

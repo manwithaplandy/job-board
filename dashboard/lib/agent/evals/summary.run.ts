@@ -13,7 +13,8 @@ import path from "node:path";
 import { expect, test } from "vitest";
 import { measure } from "@/lib/agent/evals/measures";
 import { judgeFiles, readInjectionResults, readJudgeResults, readMatrixRecordings, type Read } from "@/lib/agent/evals/evalFiles";
-import { describeRun, runRoot, selectRun } from "@/lib/agent/evals/evalRuns";
+import { describeRun, listRuns, runRoot, selectRun } from "@/lib/agent/evals/evalRuns";
+import { PASS_USD_CEILING } from "@/lib/agent/evals/budget";
 import type { Recording } from "@/lib/agent/evals/recording";
 import { forRuns, readRenderResults, renderCounts, v3MisstatementsByModel } from "@/lib/agent/evals/renderResults";
 import { variantSummary, withReplays } from "@/lib/agent/evals/summary";
@@ -37,6 +38,19 @@ test("write the per-variant summary", () => {
   const render = forRuns(readRenderResults(), { matrix: matrixRun?.runId ?? null, injection: injectionRun?.runId ?? null });
   const models = [...new Set(matrix.items.map((r) => r.model))];
   const handCheck = judgeDir ? judgeFiles(judgeDir).handCheck : null;
+  // PR J7: a matrix run from `eval-agent.mjs --pass` brings every run of that pass and their reported cost.
+  const passId = matrixRun?.passId ?? null;
+  const pass = passId
+    ? {
+        passId,
+        limitUsd: PASS_USD_CEILING,
+        runs: (["matrix", "injection", "judge"] as const).flatMap((mode) =>
+          listRuns(runRoot(mode))
+            .filter((r) => r.passId === passId)
+            .map((r) => ({ mode, runId: r.runId, status: r.status, costUsd: r.costUsd })),
+        ),
+      }
+    : null;
 
   const md = variantSummary({
     generatedAt: new Date().toISOString().slice(0, 10),
@@ -46,6 +60,7 @@ test("write the per-variant summary", () => {
     judge: judge.items.length > 0 ? judge.items : null,
     handCheckFile: handCheck && existsSync(handCheck) ? path.relative(REPO_ROOT, handCheck) : null,
     runs: { matrix: describeRun(matrixRun), injection: describeRun(injectionRun), judge: describeRun(judgeRun) },
+    pass,
   });
   const unreadable = [
     ...matrix.unreadable.map((f) => `recordings/matrix/${matrixRun?.runId}/${f}`),

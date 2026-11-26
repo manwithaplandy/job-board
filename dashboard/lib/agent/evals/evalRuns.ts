@@ -25,6 +25,16 @@ export type EvalRunMode = "matrix" | "injection" | "judge";
 export type EvalRunStatus = "running" | "complete" | "cap_exceeded" | "failed";
 const STATUSES: readonly EvalRunStatus[] = ["running", "complete", "cap_exceeded", "failed"];
 
+/**
+ * What a matrix run holds (PR J7): full, the plan's cells (every persona and repeat);
+ * spot-check, the opt-in Sonnet spot check (one persona, one repeat, every scenario and
+ * variant); rerender-only, variants 2 and 3 re-rendered from the variant 1 recordings of
+ * an earlier complete matrix run (sourceRun), with no variant 1 cells of its own. The
+ * injection set and the judge are always full.
+ */
+export type EvalRunKind = "full" | "spot-check" | "rerender-only";
+const KINDS: readonly EvalRunKind[] = ["full", "spot-check", "rerender-only"];
+
 export interface EvalRun {
   runId: string;
   mode: EvalRunMode;
@@ -34,7 +44,19 @@ export interface EvalRun {
   models: string[];
   /** The judge only: the matrix run it judged. */
   matrixRun: string | null;
+  /** PR J7; a run.json written before it reads as full. */
+  kind: EvalRunKind;
+  /** The `eval-agent.mjs --pass` this run was a stage of (the pass id), or null. */
+  passId: string | null;
+  /** A rerender-only matrix run: the matrix run whose variant 1 recordings it re-rendered. */
+  sourceRun: string | null;
+  /** The OpenRouter cost the run's calls reported, in dollars, written when it ends; null while running or when unknown. */
+  costUsd: number | null;
 }
+
+/** What startRun takes: the run's identity; kind, passId and sourceRun default to full, null and null. */
+export type NewEvalRun = Pick<EvalRun, "runId" | "mode" | "models" | "matrixRun"> &
+  Partial<Pick<EvalRun, "kind" | "passId" | "sourceRun">> & { startedAt?: string };
 
 /** recordings/ (every caller runs with dashboard/ as its working directory). */
 export const EVAL_RECORDINGS_DIR = path.join(process.cwd(), "lib", "agent", "evals", "recordings");
@@ -56,10 +78,23 @@ export class RunSelectionError extends Error {
   }
 }
 
+/** The variable eval-agent.mjs --pass sets to the pass id for each of its stages (PR J7). */
+export const EVAL_PASS_ID_ENV = "EVAL_PASS_ID";
+
+/** The pass id an eval file was started with, or null; anything set that is not a run id is refused. */
+export function passIdFromEnv(env: Readonly<Record<string, string | undefined>>): string | null {
+  const raw = env[EVAL_PASS_ID_ENV];
+  if (raw === undefined || raw === "") return null;
+  if (!RUN_ID_RE.test(raw)) throw new RunSelectionError(`eval: ${EVAL_PASS_ID_ENV} ${JSON.stringify(raw)} is not a pass id (YYYYMMDDTHHMMSSZ)`);
+  return raw;
+}
+
 /** The run id for a run starting at `at`. */
 export function newRunId(at: Date = new Date()): string {
   return at.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
+
+const optionalRunId = (v: unknown) => v === undefined || v === null || (typeof v === "string" && RUN_ID_RE.test(v));
 
 function readRun(file: string): EvalRun | null {
   let raw: unknown;
@@ -79,16 +114,40 @@ function readRun(file: string): EvalRun | null {
     (r.finishedAt === null || typeof r.finishedAt === "string") &&
     Array.isArray(r.models) &&
     r.models.every((m) => typeof m === "string") &&
-    (r.matrixRun === null || (typeof r.matrixRun === "string" && RUN_ID_RE.test(r.matrixRun)));
-  return ok ? (r as unknown as EvalRun) : null;
+    (r.matrixRun === null || (typeof r.matrixRun === "string" && RUN_ID_RE.test(r.matrixRun))) &&
+    (r.kind === undefined || KINDS.includes(r.kind as EvalRunKind)) &&
+    optionalRunId(r.passId) &&
+    optionalRunId(r.sourceRun) &&
+    (r.costUsd === undefined || r.costUsd === null || (typeof r.costUsd === "number" && Number.isFinite(r.costUsd) && r.costUsd >= 0));
+  if (!ok) return null;
+  const kind = (r.kind as EvalRunKind | undefined) ?? "full";
+  const sourceRun = (r.sourceRun as string | null | undefined) ?? null;
+  // A rerender-only run names its source, and only it does.
+  if ((kind === "rerender-only") !== (sourceRun !== null) || (kind !== "full" && r.mode !== "matrix")) return null;
+  return {
+    runId: r.runId as string,
+    mode: r.mode as EvalRunMode,
+    status: r.status as EvalRunStatus,
+    startedAt: r.startedAt as string,
+    finishedAt: r.finishedAt as string | null,
+    models: r.models as string[],
+    matrixRun: r.matrixRun as string | null,
+    kind,
+    passId: (r.passId as string | null | undefined) ?? null,
+    sourceRun,
+    costUsd: (r.costUsd as number | null | undefined) ?? null,
+  };
 }
 
 /**
  * Creates `<root>/<runId>/` and its run.json ("running"). The folder must be new: a second
  * run in the same second, or a reused id, is refused rather than mixed into the first.
  */
-export function startRun(root: string, run: Omit<EvalRun, "status" | "startedAt" | "finishedAt"> & { startedAt?: string }): string {
+export function startRun(root: string, run: NewEvalRun): string {
   if (!RUN_ID_RE.test(run.runId)) throw new RunSelectionError(`eval: ${run.runId} is not a run id (expected YYYYMMDDTHHMMSSZ)`);
+  for (const [name, id] of [["passId", run.passId], ["sourceRun", run.sourceRun]] as const) {
+    if (id !== undefined && id !== null && !RUN_ID_RE.test(id)) throw new RunSelectionError(`eval: ${name} ${id} is not a run id`);
+  }
   mkdirSync(root, { recursive: true });
   const dir = path.join(root, run.runId);
   try {
@@ -97,16 +156,32 @@ export function startRun(root: string, run: Omit<EvalRun, "status" | "startedAt"
     if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new RunSelectionError(`eval: run folder ${run.runId} already exists; start the run again`);
     throw e;
   }
-  const record: EvalRun = { ...run, status: "running", startedAt: run.startedAt ?? new Date().toISOString(), finishedAt: null };
+  const record: EvalRun = {
+    runId: run.runId,
+    mode: run.mode,
+    status: "running",
+    startedAt: run.startedAt ?? new Date().toISOString(),
+    finishedAt: null,
+    models: run.models,
+    matrixRun: run.matrixRun,
+    kind: run.kind ?? "full",
+    passId: run.passId ?? null,
+    sourceRun: run.sourceRun ?? null,
+    costUsd: null,
+  };
   writeFileSync(path.join(dir, RUN_FILE), `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
   return dir;
 }
 
-/** Marks the run in `dir` as ended with `status`. */
-export function finishRun(dir: string, status: Exclude<EvalRunStatus, "running">, at: Date = new Date()): void {
+/**
+ * Marks the run in `dir` as ended with `status` and, when known, the cost its calls
+ * reported (a non-finite or negative cost is recorded as null, never as zero).
+ */
+export function finishRun(dir: string, status: Exclude<EvalRunStatus, "running">, at: Date = new Date(), costUsd: number | null = null): void {
   const run = readRun(path.join(dir, RUN_FILE));
   if (!run) throw new RunSelectionError(`eval: ${path.join(dir, RUN_FILE)} is missing or does not parse`);
-  writeFileSync(path.join(dir, RUN_FILE), `${JSON.stringify({ ...run, status, finishedAt: at.toISOString() }, null, 2)}\n`);
+  const cost = costUsd !== null && Number.isFinite(costUsd) && costUsd >= 0 ? costUsd : null;
+  writeFileSync(path.join(dir, RUN_FILE), `${JSON.stringify({ ...run, status, finishedAt: at.toISOString(), costUsd: cost }, null, 2)}\n`);
 }
 
 /** Every run under `root` with a readable run.json, oldest first. */
@@ -122,9 +197,10 @@ export function listRuns(root: string): EvalRun[] {
 }
 
 /**
- * The run to read under `root`: `explicit` when given (any status, so a stopped run can be
- * read on purpose), else the latest complete one, else null. An explicit id that is not a
- * run id, or names no run, is a RunSelectionError.
+ * The run to read under `root`: `explicit` when given (any status and kind, so a stopped
+ * run or a spot check can be read on purpose), else the latest complete one that is not a
+ * spot check (PR J7: the Sonnet spot check is a side run that readers take only by name),
+ * else null. An explicit id that is not a run id, or names no run, is a RunSelectionError.
  */
 export function selectRun(root: string, explicit: string | null | undefined, filter: (run: EvalRun) => boolean = () => true): EvalRun | null {
   const runs = listRuns(root);
@@ -134,11 +210,16 @@ export function selectRun(root: string, explicit: string | null | undefined, fil
     if (!run) throw new RunSelectionError(`eval: no run ${explicit} under ${root}`);
     return run;
   }
-  return [...runs].reverse().find((r) => r.status === "complete" && filter(r)) ?? null;
+  return [...runs].reverse().find((r) => r.status === "complete" && r.kind !== "spot-check" && filter(r)) ?? null;
 }
 
-/** How a selected run reads in a report: its id, and its status when it did not complete. */
+/** How a selected run reads in a report: its id, its kind when not full, and its status when it did not complete. */
 export function describeRun(run: EvalRun | null): string {
   if (!run) return "none";
-  return run.status === "complete" ? run.runId : `${run.runId} (${run.status})`;
+  const notes = [
+    ...(run.kind === "spot-check" ? ["spot check"] : []),
+    ...(run.kind === "rerender-only" ? [`re-render of ${run.sourceRun}`] : []),
+    ...(run.status === "complete" ? [] : [run.status]),
+  ];
+  return notes.length === 0 ? run.runId : `${run.runId} (${notes.join(", ")})`;
 }

@@ -55,14 +55,17 @@ interface CapSpec {
 //   turns make 32 calls per persona, about 100 for a 12-case run; at an average of
 //   12-15k input tokens a call plus a few hundred output tokens that is about 1.3-1.6M
 //   tokens. 2M is that with headroom; the ceiling is 4x.
-// - max_usd: 2M tokens of a mid-size model (Sonnet 5.5 at its $2/$10 per million list
-//   price) is about $4-5, so $5 agrees with the token default; the ceiling is $20.
+// - max_usd (PR J7, Andrew's $3 per pass): no mode may spend more than $3 on its own, so
+//   the golden run's default is $2 and its ceiling $3 (it was $5 / $20). A 12-case run
+//   on Haiku 5.5, now its default model, is about $0.18 at list price; on Sonnet 5.5
+//   about $3.60 uncached, so a Sonnet golden run fits only with the prompt cache working
+//   (about $1.40 cached) and otherwise stops at the cap.
 // - max_minutes: 12 cases at a few minutes each fit in 30; the ceiling is 60.
 export const CAP_SPECS: Record<CapKey, CapSpec> = {
   maxCases: { name: "max_cases", flag: "--max-cases", env: "EVAL_MAX_CASES", integer: true, default: ALL_CASES, ceiling: ALL_CASES, label: "cases" },
   maxSteps: { name: "max_steps", flag: "--max-steps", env: "EVAL_MAX_STEPS", integer: true, default: ROUTE_MAX_STEPS, ceiling: ROUTE_MAX_STEPS, label: "model steps in one turn" },
   maxTokens: { name: "max_tokens", flag: "--max-tokens", env: "EVAL_MAX_TOKENS", integer: true, default: 2_000_000, ceiling: 8_000_000, label: "tokens (input + output)" },
-  maxUsd: { name: "max_usd", flag: "--max-usd", env: "EVAL_MAX_USD", integer: false, default: 5, ceiling: 20, label: "US dollars (reported cost)" },
+  maxUsd: { name: "max_usd", flag: "--max-usd", env: "EVAL_MAX_USD", integer: false, default: 2, ceiling: 3, label: "US dollars (reported cost)" },
   maxMinutes: { name: "max_minutes", flag: "--max-minutes", env: "EVAL_MAX_MINUTES", integer: true, default: 30, ceiling: 60, label: "minutes" },
 };
 
@@ -84,29 +87,64 @@ function mapCaps(f: (s: CapSpec) => number, specs: Record<CapKey, CapSpec> = CAP
 // one whole-command budget with the TOTAL caps. The first cap to trip, a model's or the
 // total, stops the whole command.
 //
-// Sizing (matrixPlan.ts estimateMatrix / estimateInjection / estimateJudge make the
-// numbers, and budget.test.ts holds every default above its Sonnet 5.5 estimate):
+// Sizing (PR J7, Andrew 2026-11-26: "max $2-3 per pass total, ideally without
+// compromising quality"). No mode can spend more than $3 on its own: every dollar
+// ceiling is at most PASS_USD_CEILING. matrixPlan.ts estimateMatrix / estimateInjection /
+// estimateJudge make the numbers (uncached list prices, the conservative figure), and
+// budgetProfiles.test.ts holds every dollar default at least 1.2 times its Haiku 5.5
+// estimate:
 // - matrix, per model: one full run is 180 cells (60 live variant 1 scenario runs plus
-//   210 re-renders of their surfaces into variants 2 and 3). Estimated about 14.3M tokens
-//   and $41 on Sonnet 5.5 at its list price, about $10 on Haiku 5.5. Defaults are about
-//   1.5 times the Sonnet estimate (22M tokens, $60); ceilings are twice the defaults.
-//   The whole-command total defaults cover both AGENT_EVAL_MODELS (44M tokens, $80).
-//   Minutes: about 3 to 5 hours a model (60 scenario runs at the golden pace plus 210
-//   re-renders), so 360 by default and 600 at most.
-// - injection, per model: 15 model-driven cases by 3 variants (45 runs), estimated about
-//   5.6M tokens and $13 on Sonnet; defaults 9M tokens and $25, ceilings twice that.
-// - judge: one model (openai/gpt-5.5), 144 pairs by default (two repeats of each
-//   scenario, persona and variant pair, both models), estimated about 1.8M tokens and
-//   $4 at the fallback price (Sonnet 5.5's list price; gpt-5.5's own price is not in the
-//   table, so the estimate may be high or low); a small cap of 3M tokens and $10.
+//   their 120 re-render cells, 420 re-render calls). On Haiku 5.5, the default model,
+//   about 14.3M tokens and $2.05 uncached; $2.50 by default, $3 at most, per model and
+//   for the whole command. A full Sonnet 5.5 matrix (about $41) no longer fits any cap:
+//   Sonnet runs as the spot check below, or with --allow-non-haiku and a run the cap
+//   stops. Tokens and minutes keep their earlier sizes (a token is a token on either
+//   model; Haiku is not slower).
+// - injection, per model: 15 model-driven cases by 3 variants (45 runs), about 5.6M
+//   tokens and $0.65 uncached on Haiku; $1 by default, $1.50 at most.
+// - judge: Haiku 5.5 (judgeModel.ts), 144 pairs by default, about 1.8M tokens and $0.20;
+//   $0.50 by default, $1 at most (360 pairs would be about $0.50).
+// - spot-check (--matrix --spot-check): Sonnet 5.5, one persona and one repeat, all 4
+//   scenarios in all 3 variants (12 cells, 34 live calls and 28 re-render calls), about
+//   0.95M tokens and $2.74 uncached ($1.75 with the prompt cache): $2.90 by default and
+//   at most, so even the uncached estimate fits under $3 with a little room.
 //
 // Dollar caps never switch off in these three modes: a model call that reports no
 // OpenRouter cost trips the run as cost_unknown (PROFILE_REQUIRES_COST), where the golden
 // run (A17, unchanged) falls back to its token cap alone.
 // ---------------------------------------------------------------------------
 
-export const CAP_PROFILES = ["golden", "matrix", "injection", "judge"] as const;
+/**
+ * golden, matrix, injection and judge are the four modes (EVAL_MODE); spot-check is the
+ * matrix mode's opt-in Sonnet spot check, which runs matrix.eval.ts under its own caps.
+ */
+export const CAP_PROFILES = ["golden", "matrix", "injection", "judge", "spot-check"] as const;
 export type CapProfile = (typeof CAP_PROFILES)[number];
+
+/**
+ * One `eval-agent.mjs --pass` (matrix, then injection, then judge, all on Haiku 5.5) has
+ * one dollar budget shared by its three stages: $3 by default and at most (Andrew
+ * 2026-11-26); --max-usd may lower it. Each stage's dollar caps are what is left of it.
+ */
+export const PASS_USD_DEFAULT = 3;
+export const PASS_USD_CEILING = 3;
+
+/** The pass's --max-usd: a positive number of dollars with at most two decimals, never above PASS_USD_CEILING. */
+export function parsePassUsd(raw: string | undefined): number {
+  if (raw === undefined) return PASS_USD_DEFAULT;
+  return parseSpec({ ...CAP_SPECS.maxUsd, label: "US dollars over the whole pass", default: PASS_USD_DEFAULT, ceiling: PASS_USD_CEILING }, raw);
+}
+
+/**
+ * What is left of a pass's budget for its next stage, in whole cents rounded down (a cap
+ * takes at most two decimals), or 0 when less than a cent is left. A spend that is not a
+ * finite, non-negative number leaves nothing: the pass fails closed.
+ */
+export function passRemaining(budgetUsd: number, spentUsd: readonly number[]): number {
+  if (spentUsd.some((s) => !Number.isFinite(s) || s < 0)) return 0;
+  const left = budgetUsd - spentUsd.reduce((a, b) => a + b, 0);
+  return left < 0.01 ? 0 : Math.floor(left * 100 + 1e-9) / 100;
+}
 
 /**
  * The variable scripts/eval-agent.mjs sets to the mode it starts (golden, matrix,
@@ -135,6 +173,7 @@ export const PROFILE_REQUIRES_COST: Record<CapProfile, boolean> = {
   matrix: true,
   injection: true,
   judge: true,
+  "spot-check": true,
 };
 
 export const TOTAL_CAP_KEYS = ["maxTotalTokens", "maxTotalUsd"] as const;
@@ -150,6 +189,9 @@ export const MATRIX_CELLS = 180;
 export const INJECTION_RUNS_PER_MODEL = 45;
 export const JUDGE_PAIRS_DEFAULT = 144;
 export const JUDGE_PAIRS_CEILING = 360;
+/** The spot check: 4 scenarios, one persona, one repeat, 3 variants. */
+export const SPOT_CHECK_CELLS = 12;
+export const SPOT_CHECK_USD = 2.9;
 
 export const PROFILE_CAP_SPECS: Record<CapProfile, Record<CapKey, CapSpec>> = {
   golden: CAP_SPECS,
@@ -157,22 +199,29 @@ export const PROFILE_CAP_SPECS: Record<CapProfile, Record<CapKey, CapSpec>> = {
     maxCases: spec(CAP_SPECS.maxCases, { flag: "--max-cells", label: "matrix cells per model", default: MATRIX_CELLS, ceiling: MATRIX_CELLS }),
     maxSteps: CAP_SPECS.maxSteps,
     maxTokens: spec(CAP_SPECS.maxTokens, { label: "tokens per model (input + output)", default: 22_000_000, ceiling: 44_000_000 }),
-    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 60, ceiling: 120 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 2.5, ceiling: 3 }),
     maxMinutes: spec(CAP_SPECS.maxMinutes, { label: "minutes per model", default: 360, ceiling: 600 }),
   },
   injection: {
     maxCases: spec(CAP_SPECS.maxCases, { label: "injection runs per model", default: INJECTION_RUNS_PER_MODEL, ceiling: INJECTION_RUNS_PER_MODEL }),
     maxSteps: CAP_SPECS.maxSteps,
     maxTokens: spec(CAP_SPECS.maxTokens, { label: "tokens per model (input + output)", default: 9_000_000, ceiling: 18_000_000 }),
-    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 25, ceiling: 50 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 1, ceiling: 1.5 }),
     maxMinutes: spec(CAP_SPECS.maxMinutes, { label: "minutes per model", default: 120, ceiling: 240 }),
   },
   judge: {
     maxCases: spec(CAP_SPECS.maxCases, { flag: "--max-pairs", label: "judged pairs", default: JUDGE_PAIRS_DEFAULT, ceiling: JUDGE_PAIRS_CEILING }),
     maxSteps: spec(CAP_SPECS.maxSteps, { label: "model calls per pair", default: 1, ceiling: 1 }),
     maxTokens: spec(CAP_SPECS.maxTokens, { default: 3_000_000, ceiling: 6_000_000 }),
-    maxUsd: spec(CAP_SPECS.maxUsd, { default: 10, ceiling: 20 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { default: 0.5, ceiling: 1 }),
     maxMinutes: spec(CAP_SPECS.maxMinutes, { default: 60, ceiling: 120 }),
+  },
+  "spot-check": {
+    maxCases: spec(CAP_SPECS.maxCases, { flag: "--max-cells", label: "spot-check cells", default: SPOT_CHECK_CELLS, ceiling: SPOT_CHECK_CELLS }),
+    maxSteps: CAP_SPECS.maxSteps,
+    maxTokens: spec(CAP_SPECS.maxTokens, { label: "tokens (input + output)", default: 2_000_000, ceiling: 4_000_000 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars (reported cost)", default: SPOT_CHECK_USD, ceiling: SPOT_CHECK_USD }),
+    maxMinutes: spec(CAP_SPECS.maxMinutes, { label: "minutes", default: 60, ceiling: 120 }),
   },
 };
 
@@ -182,11 +231,16 @@ const TOTAL_BASE = { integer: true, env: "", flag: "", label: "", name: "max_tok
 export const TOTAL_CAP_SPECS: Partial<Record<CapProfile, Record<TotalCapKey, CapSpec>>> = {
   matrix: {
     maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over every model", default: 44_000_000, ceiling: 88_000_000 },
-    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 80, ceiling: 200 },
+    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 2.5, ceiling: 3 },
   },
   injection: {
     maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over every model", default: 18_000_000, ceiling: 36_000_000 },
-    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 35, ceiling: 90 },
+    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 1, ceiling: 1.5 },
+  },
+  // One model (Sonnet 5.5), so the totals equal its own caps; matrix.eval.ts needs them.
+  "spot-check": {
+    maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over the run", default: 2_000_000, ceiling: 4_000_000 },
+    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over the run", default: SPOT_CHECK_USD, ceiling: SPOT_CHECK_USD },
   },
 };
 

@@ -23,7 +23,7 @@ import { costTable, prepareHarness, runScenario, writeRecording } from "@/lib/ag
 import { PERSONA_IDS } from "@/lib/agent/evals/personas";
 import { SCENARIO_IDS } from "@/lib/agent/evals/scenarios";
 import type { Recording } from "@/lib/agent/evals/recording";
-import { AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
+import { AGENT_EVAL_DEFAULT_MODEL } from "@/lib/agent/config";
 import { ALL_CASES, RunBudget, assertEvalMode, capsFromEnv } from "@/lib/agent/evals/budget";
 
 vi.mock("next/server", async (importOriginal) => {
@@ -49,7 +49,8 @@ vi.mock("@/lib/subscriptions", () => ({ getViewerPlan: vi.fn(async () => "standa
 assertEvalMode(process.env, "golden");
 const variant = Number(process.env.EVAL_VARIANT ?? "1");
 if (variant !== 1 && variant !== 2 && variant !== 3) throw new Error("eval: EVAL_VARIANT must be 1, 2 or 3");
-const model = process.env.EVAL_MODEL?.trim() || AGENT_MODEL_DEFAULT;
+// PR J7: Haiku 5.5 unless --model names another (the production model is unchanged).
+const model = process.env.EVAL_MODEL?.trim() || AGENT_EVAL_DEFAULT_MODEL;
 const seed = Number(process.env.EVAL_SEED ?? "1");
 if (!Number.isSafeInteger(seed)) throw new Error("eval: EVAL_SEED must be an integer");
 // A run that passes its asserts goes beside the committed recordings; a failing one goes

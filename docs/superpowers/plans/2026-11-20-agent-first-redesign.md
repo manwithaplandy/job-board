@@ -2011,3 +2011,7 @@ R18. Tasks 2.10 to 2.13 as built (PR J5, code only; Andrew runs every live step)
   names a variant.
 - The production-signal SQL's last two signals are proxies: no "opened a workspace"
   event exists, and a re-asked question is matched on normalized text.
+- Fix round 1: each live run writes into its own run folder, and the judge, render smoke
+  and summary read one run (latest complete, or named); the render smoke runs recorded
+  surfaces at desktop light only, as its own CI job; and the sandbox document (Task 2.4)
+  now opens `<html lang="en">` and carries a fixed `<title>` after its CSP metas.

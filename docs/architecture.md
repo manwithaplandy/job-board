@@ -349,7 +349,10 @@ service).
 - **`.github/workflows/ci.yml`** (push/PR to `main`, no secrets): `metrics-reader` job
   (fixture-only `supabase_metrics` core, CLI and MCP tests); `python` job (Postgres 16
   and 17 matrix: ruff, allowlisted pytest, owned dashboard tests); `dashboard` job
-  (typecheck, lint, vitest, build); `public-visual` job (macOS, Playwright).
+  (typecheck, lint, vitest, build); `public-visual` job (macOS, Playwright);
+  `sandbox-enforcement` job (the sandbox's real-browser suite) and `render-smoke` job
+  (the render smoke, its own job with a 60 minute timeout), both in the pinned
+  Playwright container.
 - **`.github/workflows/authenticated-visual.yml`**: on a successful Vercel Preview
   deployment, runs authenticated visual tests against the preview URL (secrets:
   `VISUAL_AUTH_*`, `VISUAL_ONBOARDING_*`, `VERCEL_AUTOMATION_BYPASS_SECRET`).
@@ -410,11 +413,25 @@ are unverified); the caps are what stop a real run.
 
 | Command | What it runs | Writes |
 |---|---|---|
-| `eval:agent -- --matrix [--models a,b \| --model id]` | Per model, 4 scenarios × 3 personas × 5 repeats played live in variant 1, each surface re-rendered into variants 2 and 3 from the same gathered data (180 cells a model; models default to `AGENT_EVAL_MODELS`) | `lib/agent/evals/recordings/matrix/<model>/v<n>/` |
-| `eval:agent -- --injection [--models a,b \| --model id]` | Per model, the 15 model-driven prompt-injection cases in variants 1, 2 and 3 (45 runs) | `lib/agent/evals/recordings/injection/<model>/v<n>/<case>.json` |
-| `npm run test:render-smoke` (free; needs Playwright's Chromium) | Every replayable surface at 390 and 1440 px, light and dark: overflow, 44 px targets, axe; for variant 3, misstatements, canary hits and frame loads. CI runs it in the `sandbox-enforcement` job and uploads `render-smoke` | `test-results/render-smoke/` |
-| `eval:agent -- --judge` | `openai/gpt-5.5` compares two variants of one matrix cell, blind to the variant and in a random order; variant 3 is read from the render smoke's frame text, and a pair without it is skipped | `lib/agent/evals/recordings/judge/results.json` and `hand-check.csv` (10% sample) |
-| `npm run eval:summary` (free) | The per-variant summary from whatever of the above is on disk; missing inputs read "not run yet" | `docs/superpowers/plans/2026-11-20-variant-summary.md` |
+| `eval:agent -- --matrix [--models a,b \| --model id]` | Per model, 4 scenarios × 3 personas × 5 repeats played live in variant 1, each surface re-rendered into variants 2 and 3 from the same gathered data (180 cells a model; models default to `AGENT_EVAL_MODELS`) | `lib/agent/evals/recordings/matrix/<run>/<model>/v<n>/` |
+| `eval:agent -- --injection [--models a,b \| --model id]` | Per model, the 15 model-driven prompt-injection cases in variants 1, 2 and 3 (45 runs) | `lib/agent/evals/recordings/injection/<run>/<model>/v<n>/<case>.json` |
+| `npm run test:render-smoke` (free; needs Playwright's Chromium) | The hand-written surfaces (golden recordings and fixtures) at 390 and 1440 px, light and dark, and the latest complete matrix and injection runs' surfaces at 1440 px light: overflow, 44 px targets, axe; for variant 3, misstatements, canary hits and frame loads. Screenshots only of failures. `EVAL_MATRIX_RUN=<run>` / `EVAL_INJECTION_RUN=<run>` pick other runs. CI runs it in its own `render-smoke` job and uploads `render-smoke` | `test-results/render-smoke/` |
+| `eval:agent -- --judge [--run <run>]` | `openai/gpt-5.5` compares two variants of one cell of one matrix run (the latest complete one unless named), blind to the variant and in a random order; variant 3 is read from the render smoke's frame text for that run, and a pair without it is skipped | `lib/agent/evals/recordings/judge/<run>/results.json` and `hand-check.csv` (10% sample) |
+| `npm run eval:summary [-- --run <run>] [--injection-run <run>] [--judge-run <run>]` (free) | The per-variant summary from one run of each mode (the latest complete one unless named; the judge run must be one that judged the matrix run) and the render smoke's results for those runs. It names the runs it read; missing inputs read "not run yet" | `docs/superpowers/plans/2026-11-20-variant-summary.md` |
+
+Runs. Each live run of the matrix, the injection set or the judge writes into a new folder
+named by its run id, the UTC time it started (`20261126T011500Z`), with a `run.json` that
+says what ran and how it ended: `running`, then `complete`, `cap_exceeded` or `failed`.
+Every recording and result carries its run id (`evalRun`), and a reader leaves out a file
+whose id is not its folder's. Readers take the latest `complete` run unless one is named,
+and a named run may have any status, so a stopped run can be read on purpose. Two runs
+never mix, and the judge never writes over an earlier run's `hand-check.csv` (nor writes
+one when it judged nothing). Each `*.eval.ts` refuses to start unless `EVAL_MODE` is its
+own mode, which only `eval:agent` sets.
+
+In the summary, the matrix's variant 1 rows time and cost the whole scenario; variants 2
+and 3 time and cost the re-render only, and count only the surfaces' own assert failures
+(a re-render repeats no tool calls). Each row says which it covers.
 
 Caps (a flag lowers a cap; above its ceiling is a usage error). The matrix and the
 injection set cap each model's run and, with the two total flags, the whole command; the
@@ -450,7 +467,7 @@ Estimated cost (the dry runs, list price):
 | Matrix, 180 cells | Haiku 5.5 | 930 | 12.69M / 1.57M | $10.26 |
 | Injection, 45 runs | Sonnet 5.5 | 360 | 5.40M / 0.22M | $12.96 |
 | Injection, 45 runs | Haiku 5.5 | 360 | 5.40M / 0.22M | $3.24 |
-| Judge, 144 pairs | gpt-5.5 (not in the price table: priced at the dearest default) | 144 | 1.73M / 0.06M | $4.03 |
+| Judge, 144 pairs | gpt-5.5 (not in the price table: estimated at Sonnet 5.5's list price; its real price may be higher or lower, and `--max-usd` bounds the run) | 144 | 1.73M / 0.06M | $4.03 |
 
 - Sizing: matrix and injection defaults are about 1.5 to 2 times the Sonnet estimate, and
   ceilings twice the defaults; the matrix totals cover both models. The judge's 144 pairs

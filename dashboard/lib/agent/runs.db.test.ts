@@ -200,6 +200,12 @@ describe("finishRun", () => {
     await finishRun(USER_A, id, { status: "failed", error: "Provider said: 401 Unauthorized at /v1/chat (stack...)" });
     expect(await run(id)).toMatchObject({ status: "failed", error: "unknown_error" });
   });
+
+  test("a provider status code is stored as is (model_error:401)", async () => {
+    const id = await startRun(USER_A, interactive);
+    await finishRun(USER_A, id, { status: "failed", error: "model_error:401" });
+    expect(await run(id)).toMatchObject({ status: "failed", error: "model_error:401" });
+  });
 });
 
 describe("startRun", () => {

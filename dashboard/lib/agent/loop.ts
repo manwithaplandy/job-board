@@ -73,7 +73,11 @@ import { listDocuments } from "@/lib/workspaces/documents";
 import { getMemo } from "@/lib/workspaces/memo";
 import { compileMemo } from "@/lib/workspaces/memoCompile";
 import { summarizeIfLong } from "@/lib/agent/summary";
+import { describeModelError, modelErrorCode, modelErrorLogLine, type ModelErrorDetails } from "@/lib/agent/modelError";
 import type { DocumentMeta, ProfileSummary } from "@/lib/workspaces/types";
+
+/** The fixed error line the browser gets for a failure that is not a provider error. */
+const STREAM_ERROR_TEXT = "The assistant hit an error.";
 
 export type TurnInput =
   | { kind: "message"; id: string; text: string; documentIds: string[] }
@@ -111,14 +115,22 @@ type StopReason = "over_budget" | "charge_failed" | "wall_clock";
 type FinalStatus = "done" | "failed" | "aborted" | "over_budget";
 
 /** The run's final status and short error code (agent_runs.error, 64 characters or fewer). */
-export function turnOutcome(o: { stopReason: StopReason | null; modelError: boolean }): {
+export function turnOutcome(o: {
+  stopReason: StopReason | null;
+  modelError: boolean;
+  /** The model error's reason code (modelErrorCode: model_error or model_error:<status>), when one was read. */
+  modelErrorCode?: string | null;
+}): {
   run: { status: FinalStatus; error?: string };
   message: MessageStatus;
 } {
   if (o.stopReason === "over_budget") return { run: { status: "over_budget", error: "over_budget" }, message: "failed" };
   if (o.stopReason === "charge_failed") return { run: { status: "failed", error: "charge_failed" }, message: "failed" };
   if (o.stopReason === "wall_clock") return { run: { status: "aborted", error: "wall_clock" }, message: "failed" };
-  if (o.modelError) return { run: { status: "failed", error: "model_error" }, message: "failed" };
+  if (o.modelError) {
+    const code = o.modelErrorCode && /^model_error(?::\d{3})?$/.test(o.modelErrorCode) ? o.modelErrorCode : "model_error";
+    return { run: { status: "failed", error: code }, message: "failed" };
+  }
   return { run: { status: "done" }, message: "complete" };
 }
 
@@ -398,6 +410,16 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
 
   let stopReason: StopReason | null = null;
   let modelError = false;
+  // The first model error's details (status, provider message): its reason code goes on
+  // the run and to the browser.
+  let modelFailure: ModelErrorDetails | null = null;
+  const noteFailure = (error: unknown, where: string) => {
+    const details = describeModelError(error);
+    // A later error with a status (the API call inside a NoOutputGeneratedError) refines one without.
+    if (modelFailure === null || (modelFailure.status === null && details.status !== null)) modelFailure = details;
+    console.warn(modelErrorLogLine(where, details));
+  };
+  const failureCode = () => (modelFailure ? modelErrorCode(modelFailure) : null);
   const controller = new AbortController();
   const stop = (reason: StopReason) => {
     if (stopReason === null) stopReason = reason;
@@ -506,7 +528,7 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
       },
       onError: ({ error }) => {
         modelError = true;
-        console.warn("agent: model stream error", errorName(error));
+        noteFailure(error, "model stream error");
       },
     });
     void result.consumeStream({ onError: () => {} });
@@ -525,7 +547,13 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
         stream: result.stream,
         originalMessages,
         generateMessageId: () => assistantId,
-        onError: () => "The assistant hit an error.",
+        // A provider error reaches the browser only as its fixed reason code
+        // (model_error:<status>), never the provider's text; the browser maps the code to
+        // its own sentence (AgentChat). Anything else keeps the fixed line.
+        onError: (error) => {
+          const details = describeModelError(error);
+          return details.status === null ? STREAM_ERROR_TEXT : modelErrorCode(details);
+        },
       }),
     });
 
@@ -536,9 +564,10 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
       placeholder,
       steps: result.steps,
       persistStream,
-      outcome: () => turnOutcome({ stopReason, modelError }),
-      noteModelError: () => {
+      outcome: () => turnOutcome({ stopReason, modelError, modelErrorCode: failureCode() }),
+      noteModelError: (error?: unknown, where?: string) => {
         modelError = true;
+        if (error !== undefined && where !== undefined) noteFailure(error, where);
       },
       charges,
       timer,
@@ -571,7 +600,7 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
 function errorOnlyStream(): ReadableStream<UIMessageChunk> {
   return new ReadableStream<UIMessageChunk>({
     start(controller) {
-      controller.enqueue({ type: "error", errorText: "The assistant hit an error." });
+      controller.enqueue({ type: "error", errorText: STREAM_ERROR_TEXT });
       controller.close();
     },
   });
@@ -591,7 +620,8 @@ async function persistTurn(p: {
   steps: PromiseLike<ReadonlyArray<{ finishReason: string }>>;
   persistStream: ReadableStream<UIMessageChunk>;
   outcome: () => ReturnType<typeof turnOutcome>;
-  noteModelError: () => void;
+  /** Marks the turn failed; with an error, also logs and keeps its details (noteFailure). */
+  noteModelError: (error?: unknown, where?: string) => void;
   charges: Promise<void>[];
   timer: ReturnType<typeof setTimeout>;
   /** Stores the variant 1 fallback for a variant 2 or 3 repair the turn never made. */
@@ -603,8 +633,8 @@ async function persistTurn(p: {
       const steps = await p.steps;
       if (steps.at(-1)?.finishReason === "error") p.noteModelError();
     } catch (e) {
-      p.noteModelError();
-      console.warn("agent: the turn ended without its steps", errorName(e));
+      // Usually AI_NoOutputGeneratedError, whose cause can be the provider's API error.
+      p.noteModelError(e, "the turn ended without its steps");
     }
     assistant = await finalAssistantMessage(p.persistStream, p.placeholder);
   } catch (e) {

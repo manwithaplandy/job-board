@@ -335,6 +335,41 @@ describe("findMisstatements (Task 2.11, variant 3 frame text)", () => {
     expect(codes("Your best match is 97% fit, paying $300k.")).toEqual(["fit_mismatch", "pay_mismatch"]);
   });
 
+  test("401k and a figure followed by what it counts are not pay; pay words and the next piece of the layout keep it pay (M6)", () => {
+    expect(codes("Senior Backend Engineer\nFit 82 · 401k match · 401 k plan")).toEqual([]);
+    expect(codes("Senior Backend Engineer\nAcme serves 150k users, raised $20 million and $5M ARR")).toEqual([]);
+    expect(codes("Senior Backend Engineer\n$145k base salary, up to $170k a year")).toEqual([]);
+    // Still read as pay, and wrong: a pay word after it, a capitalised next item, or nothing after it.
+    expect(codes("Senior Backend Engineer\n$150k base")).toEqual(["pay_mismatch"]);
+    expect(codes("Senior Backend Engineer\n$150k Remote")).toEqual(["pay_mismatch"]);
+    expect(codes("Senior Backend Engineer\n$401k")).toEqual(["pay_mismatch"]);
+    expect(codes("Senior Backend Engineer\n150k.")).toEqual(["pay_mismatch"]);
+  });
+
+  test("in a table a figure is checked against every job the table names; a table that names none uses the nearest title (M6)", () => {
+    const table = (rows: string[][]) => rows.map((r) => r.join("\t")).join("\n");
+    const compare = table([
+      ["", "Senior Backend Engineer", "Backend Engineer"],
+      ["Fit", "82", "64"],
+      ["Pay", "$145k – $170k", "$120k – $135k"],
+    ]);
+    // Read by nearest title, Acme's 82 and $145k would sit under Globex's "Backend Engineer".
+    expect(codes(`Side by side\n${compare}\nPick one`)).toEqual([]);
+    const wrong = table([
+      ["", "Senior Backend Engineer", "Backend Engineer"],
+      ["Pay", "$150k", "$120k"],
+    ]);
+    const [f, ...rest] = findMisstatements(wrong, gathered);
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ code: "pay_mismatch" });
+    expect(f.message).toContain("a job in its table (greenhouse:acme:1, lever:globex:2)");
+    // A job named outside the table does not widen it.
+    expect(codes(`Senior Backend Engineer\n${table([["Backend Engineer", "Fit 82"]])}`)).toEqual(["fit_mismatch"]);
+    // A table with no job title in it: the nearest title before it owns its figures.
+    expect(codes(`Backend Engineer\n${table([["Fit", "64"], ["Pay", "$120k"]])}`)).toEqual([]);
+    expect(codes(`Backend Engineer\n${table([["Fit", "82"]])}`)).toEqual(["fit_mismatch"]);
+  });
+
   test("plain numbers, counts and dates are not figures", () => {
     expect(codes("Senior Backend Engineer\n3 requirements met of 5, posted 12 days ago, 2026-11-20, 1,200 applicants")).toEqual([]);
   });

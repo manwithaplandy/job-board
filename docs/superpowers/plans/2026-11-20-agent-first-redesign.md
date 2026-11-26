@@ -1994,3 +1994,20 @@ table without it. A Table's `rowsBind` may now also be exactly `/shortlist` or
 else changed: Stat and Chart binds still need one to four segments, no other root may be
 bound whole, row binds keep their zero-to-three segments and the eeo/email refusal, and
 the renderer reads rows through the same function.
+
+R18. Tasks 2.10 to 2.13 as built (PR J5, code only; Andrew runs every live step):
+- Each live mode (matrix, injection, judge) has its own fail-closed caps in `budget.ts`
+  and a `--dry-run`; the matrix and injection set also cap the whole command.
+- The surface-replay page is gated by `SURFACE_REPLAY=1` like the sandbox harness, not
+  public. The render smoke checks each surface, width and theme in one test, and
+  `findMisstatements` lives in `evals/misstatements.ts` (re-exported from `asserts.ts`) so
+  the browser spec does not load the asserts' imports.
+- Injection: the contact check also covers the agent's text replies (stricter than
+  "payloads"). Variant 3 results carry no replay from the live run; the render smoke
+  replays their surfaces and the summary fills the replay from its results.
+- Judge: a variant 3 document fills itself in only when it runs, so the judge reads its
+  words from the render smoke's frame text and skips a pair without it. Every variant is
+  rendered to the same plain words (controls as "[control: …]"), so the prompt never
+  names a variant.
+- The production-signal SQL's last two signals are proxies: no "opened a workspace"
+  event exists, and a re-asked question is matched on normalized text.

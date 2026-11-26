@@ -25,6 +25,9 @@ import {
   unpricedModels,
   formatMatrixDryRun,
   formatSimpleDryRun,
+  formatRerenderOnlyDryRun,
+  rerenderOnlyCells,
+  V1_SURFACES,
   matrixPlan,
   runModels,
 } from "@/lib/agent/evals/matrixPlan";
@@ -200,6 +203,38 @@ describe("the dry run", () => {
     const low = formatPassDryRun({ budgetUsd: 2.5 });
     expect(low).toContain("$2.90 uncached (within $2.50: NO), $2.00 cached (within: yes)");
     expect(low).toMatch(/The cap still holds: each stage's dollar caps are what is left/);
+  });
+
+  test("PR J7: the re-render-only dry run prices only re-render cells, at the source run's recorded surface counts", () => {
+    const model = AGENT_EVAL_DEFAULT_MODEL;
+    // A full one-model source recorded with the plan's own surface counts costs what the plan's variants 2 and 3 cost.
+    const full = matrixPlan([model])
+      .filter((c) => c.variant === 1)
+      .map((c) => ({ model, scenario: c.scenario, persona: c.persona, seed: c.repeat, surfaces: V1_SURFACES[c.scenario] }));
+    const e = estimateMatrix(matrixPlan([model]), model);
+    expect(rerenderOnlyCells(model, full, 180)).toHaveLength(120);
+    const out = formatRerenderOnlyDryRun({ sourceRun: "20261126T010000Z", sources: full, unreadable: 0, models: [model], caps: profileDefaults("matrix"), totals: parseTotalCaps({}, "matrix") });
+    const v23 = e.byVariant[2].costMicros + e.byVariant[3].costMicros;
+    expect(out).toMatch(/^Re-render-only dry run over matrix run 20261126T010000Z: nothing is run and nothing is spent\. 120 re-render cells over 1 model\(s\); no variant 1 cell is played\./);
+    expect(out).toContain(`| ${model} | 60 / 60 | 210 | 420 | 5.04M | 1.26M | $1.13 | $1.03 | yes |`);
+    expect(v23).toBe(1_134_000);
+    expect(out).toContain("| --max-cells | matrix cells per model | 180 | 180 | 180 |");
+
+    // Only the recordings there, in plan order, --max-cells of them; another model's recordings are not this model's.
+    const few = [
+      { model, scenario: "d_weekly", persona: "new-grad", seed: 2, surfaces: 4 },
+      { model, scenario: "a_resume_upload", persona: "senior-backend", seed: 1, surfaces: 1 },
+      { model: "anthropic/claude-sonnet-5.5", scenario: "b_compare", persona: "senior-backend", seed: 1, surfaces: 9 },
+    ];
+    expect(rerenderOnlyCells(model, few, 3).map(({ cell, surfaces }) => [cell.scenario, cell.variant, surfaces])).toEqual([
+      ["a_resume_upload", 2, 1],
+      ["a_resume_upload", 3, 1],
+      ["d_weekly", 2, 4],
+    ]);
+    const small = formatRerenderOnlyDryRun({ sourceRun: "20261126T010000Z", sources: few, unreadable: 2, models: [model], caps: { ...profileDefaults("matrix"), maxCases: 3 }, totals: null });
+    expect(small).toContain(`| ${model} | 2 / 1 | 6 | 12 |`);
+    expect(small).toContain("(2 file(s) did not parse and are left out)");
+    expect(() => formatRerenderOnlyDryRun({ sourceRun: "x", sources: few, unreadable: 0, models: ["openai/gpt-5.5"], caps: profileDefaults("matrix"), totals: null })).toThrow(UnpricedModelError);
   });
 
   test("the judge is priced at Haiku 5.5's own row", () => {

@@ -3,14 +3,21 @@
 // unknown flag and a missing key are refused before vitest starts. Pure; runs in CI (it
 // only spawns node on the script, which never reaches vitest in these cases).
 import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { AGENT_EVAL_MODELS } from "@/lib/agent/config";
+import { finishRun, runRoot, startRun } from "@/lib/agent/evals/evalRuns";
 
 const DASHBOARD_DIR = fileURLToPath(new URL("../../../", import.meta.url));
 
-function run(...args: string[]) {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+function run(...argv: Array<string | Record<string, string>>) {
+  // An object first sets extra environment (EVAL_RECORDINGS_ROOT for a fixture folder).
+  const extra = typeof argv[0] === "object" ? (argv.shift() as Record<string, string>) : {};
+  const args = argv as string[];
+  const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
   delete env.OPENROUTER_API_KEY;
   delete env.AGENT_OPENROUTER_API_KEY;
   // A missing vitest binary would make a wrongly started run fail loudly rather than run.
@@ -177,6 +184,57 @@ describe("eval-agent.mjs", () => {
     expect(missing.status).toBe(2);
     expect(missing.err).toMatch(/no run 20261126T010000Z/);
     expect(run("--matrix", "--dry-run", "--run", "20261126T010000Z").err).toMatch(/unknown argument --run for --matrix/);
+  });
+
+  test("PR J7: --matrix --rerender-only --run <id> --dry-run prices only the re-renders of that run's recorded surfaces", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "eval-agent-rr-"));
+    try {
+      const matrix = runRoot("matrix", root);
+      const HAIKU = "anthropic/claude-haiku-5.5";
+      const SONNET = "anthropic/claude-sonnet-5.5";
+      const source = (runId: string, models: string[], extra: { kind?: "spot-check"; status?: "complete" | "failed" } = {}) => {
+        finishRun(startRun(matrix, { runId, mode: "matrix", models, matrixRun: null, ...(extra.kind ? { kind: extra.kind } : {}) }), extra.status ?? "complete");
+        const dir = path.join(matrix, runId, models[0].replace(/[^A-Za-z0-9.-]+/g, "-"), "v1");
+        mkdirSync(dir, { recursive: true });
+        for (const [scenario, surfaces] of [["a_resume_upload", 3], ["b_compare", 2]] as const) {
+          const r = { evalRun: runId, variant: 1, model: models[0], scenario, persona: "senior-backend", seed: 1, surfaces: Array.from({ length: surfaces }, () => ({})) };
+          writeFileSync(path.join(dir, `${scenario}.senior-backend.r1.json`), JSON.stringify(r));
+        }
+      };
+      source("20261126T010000Z", [HAIKU]);
+      source("20261126T020000Z", [HAIKU], { kind: "spot-check" });
+      source("20261126T030000Z", [HAIKU], { status: "failed" });
+      source("20261126T040000Z", [SONNET]);
+      const dry = (...args: string[]) => run({ EVAL_RECORDINGS_ROOT: root }, "--matrix", "--rerender-only", "--dry-run", ...args);
+
+      const r = dry("--run", "20261126T010000Z");
+      expect(r.err).toBe("");
+      expect(r.status).toBe(0);
+      expect(r.out).toContain("Re-render-only dry run over matrix run 20261126T010000Z: nothing is run and nothing is spent. 4 re-render cells over 1 model(s)");
+      // 5 recorded surfaces, each into variants 2 and 3, two calls each.
+      expect(r.out).toContain(`| ${HAIKU} | 2 / 2 | 10 | 20 |`);
+      expect(r.out).toContain("| --max-usd | US dollars per model (reported cost) | 2.5 | 2.5 | 3 |");
+
+      expect(dry().err).toMatch(/--rerender-only needs --run <matrix run id>/);
+      expect(dry("--run", "20261126T020000Z").err).toMatch(/is a spot-check run; only a full matrix run can be re-rendered/);
+      expect(dry("--run", "20261126T030000Z").err).toMatch(/ended failed; only a complete matrix run can be re-rendered/);
+      expect(dry("--run", "20261126T050000Z").err).toMatch(/no run 20261126T050000Z/);
+      // The source's models are the run's: Sonnet needs --allow-non-haiku, and no --model or --models is taken.
+      const sonnet = dry("--run", "20261126T040000Z");
+      expect(sonnet.status).toBe(2);
+      expect(sonnet.err).toMatch(/--allow-non-haiku/);
+      expect(dry("--run", "20261126T040000Z", "--allow-non-haiku").out).toContain(`| ${SONNET} | 2 / 2 | 10 | 20 |`);
+      expect(dry("--run", "20261126T010000Z", "--models", HAIKU).err).toMatch(/unknown argument --models for --matrix --rerender-only/);
+      expect(dry("--run", "20261126T010000Z", "--spot-check").err).toMatch(/give --spot-check or --rerender-only, not both/);
+      expect(dry("--run", "20261126T010000Z", "--max-usd", "3.01").status).toBe(2);
+      for (const bad of [dry(), dry("--run", "20261126T020000Z"), dry("--run", "20261126T050000Z")]) expect(bad.status).toBe(2);
+      // Without --dry-run, EVAL_RECORDINGS_ROOT is ignored: the real folder has no such run, refused before the key check.
+      const real = run({ EVAL_RECORDINGS_ROOT: root }, "--matrix", "--rerender-only", "--run", "20261126T010000Z");
+      expect(real.status).toBe(2);
+      expect(real.err).toMatch(/no run 20261126T010000Z/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("a real run without OPENROUTER_API_KEY is refused before vitest starts", () => {

@@ -38,7 +38,9 @@ import { recordingFileName, type Recording } from "@/lib/agent/evals/recording";
 import { profileBudget, type EvalCaps, type RunBudget } from "@/lib/agent/evals/budget";
 import { budgetMiddleware } from "@/lib/agent/evals/budgetMiddleware";
 import { rerenderSurface } from "@/lib/agent/rerender";
-import type { StoredSurface } from "@/lib/agent/surfaces/store";
+import { saveSurface, setSurfaceFailure, type StoredSurface } from "@/lib/agent/surfaces/store";
+import { parseGathered } from "@/lib/agent/gatheredSchema";
+import { withUserSql } from "@/lib/db";
 import type { MatrixRunner } from "@/lib/agent/evals/matrix";
 import { cellKey } from "@/lib/agent/evals/matrixPlan";
 
@@ -298,15 +300,68 @@ export async function rerenderRun(a: { from: Recording; variant: 2 | 3 }, ctx: S
 }
 
 /**
+ * PR J7, rerender-only: writes the surfaces of the variant 1 recording `from` (an earlier
+ * run's, read from its file) into this run's throwaway database, so rerenderSurface reads
+ * them as it reads a live run's: the persona seeded as for the scenario (which clears the
+ * persona's earlier rows), a new variant 1 thread, and each surface saved as the user with
+ * its recorded payload, fallback, gathered data, outcome, failure and model, a superseded
+ * surface pointing at the new id of the one it superseded. Returns `from` with the new ids.
+ * No model call; a surface whose gathered data no longer parses is left out with a warning
+ * (its re-render could not run either).
+ */
+export async function seedRecordedSurfaces(ctx: HarnessCtx, from: Recording): Promise<Recording> {
+  if (from.variant !== 1) throw new Error("eval: only a variant 1 recording is re-rendered");
+  const persona = PERSONAS[from.persona];
+  const userId = await seedPersona(ctx.sql, persona, SCENARIOS[from.scenario].setup);
+  const thread = await createThread(userId, 1);
+  const ids = new Map<string, string>();
+  const surfaces: StoredSurface[] = [];
+  for (const s of from.surfaces) {
+    const gathered = parseGathered(s.gathered);
+    if (!gathered) {
+      console.warn(`eval: recorded surface ${s.id} has gathered data that does not parse; it is not re-rendered`);
+      continue;
+    }
+    const supersedes = s.supersedes === null ? null : (ids.get(s.supersedes) ?? null);
+    const id = await withUserSql(userId, async (tx) => {
+      const saved = await saveSurface(tx, {
+        threadId: thread.id,
+        runId: null,
+        variant: s.variant,
+        payload: s.payload,
+        fallbackPayload: s.fallbackPayload,
+        gathered,
+        outcome: s.outcome,
+        supersedes,
+        rerenderOf: null,
+        model: s.model,
+        latencyMs: s.latencyMs,
+        outputTokens: null,
+      });
+      if (s.failure !== null) await setSurfaceFailure(tx, saved, s.failure);
+      return saved;
+    });
+    ids.set(s.id, id);
+    surfaces.push({ ...s, id, threadId: thread.id, runId: null, supersedes, rerenderOf: null });
+  }
+  return { ...from, surfaces };
+}
+
+/**
  * The live matrix runner (Task 2.10, used only by matrix.eval.ts): one RunBudget per
  * model with the matrix caps, each reporting to the whole command's budget `total`. A
- * model's budget is opened at its first cell and disposed after its last.
+ * model's budget is opened at its first cell and disposed after its last. With
+ * `seedSources` (PR J7, rerender-only), each variant 1 recording is an earlier run's: it is
+ * written into this database (seedRecordedSurfaces) before its first re-render, and its
+ * variant 2 and 3 cells re-render the written surfaces.
  */
 export function liveMatrixRunner(
   ctx: HarnessCtx,
-  a: { caps: EvalCaps; total: RunBudget; onBudget: (model: string, budget: RunBudget) => void },
+  a: { caps: EvalCaps; total: RunBudget; onBudget: (model: string, budget: RunBudget) => void; seedSources?: boolean },
 ): MatrixRunner {
   let budget: RunBudget | null = null;
+  // The plan keeps a live cell's two re-renders together, so one seeded recording at a time is enough.
+  let seeded: { from: Recording; recording: Recording } | null = null;
   const current = (): RunBudget => {
     if (!budget) throw new Error("eval: a matrix cell ran outside its model's budget");
     return budget;
@@ -332,7 +387,12 @@ export function liveMatrixRunner(
     },
     rerender: async (cell, from) => {
       if (cell.variant === 1) throw new Error("eval: variant 1 is never a re-render");
-      return rerenderRun({ from, variant: cell.variant }, { sql: ctx.sql, budget: current() });
+      let source = from;
+      if (a.seedSources) {
+        if (seeded?.from !== from) seeded = { from, recording: await seedRecordedSurfaces(ctx, from) };
+        source = seeded.recording;
+      }
+      return rerenderRun({ from: source, variant: cell.variant }, { sql: ctx.sql, budget: current() });
     },
   };
 }

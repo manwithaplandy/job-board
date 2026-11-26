@@ -6,7 +6,8 @@
 // money: one model call per pair.
 //
 // Inputs: one matrix run (evalRuns.ts): the run eval-agent.mjs was given with --run
-// (EVAL_MATRIX_RUN), else the latest complete one under recordings/matrix/. For every
+// (EVAL_MATRIX_RUN), else the latest complete one under recordings/matrix/; a rerender-only
+// run (PR J7) is judged with variant 1 from its source run (evalFiles.ts readMatrixRun). For every
 // variant 3 surface, its rendered words from the render smoke over that same run
 // (test-results/render-smoke/results/, from `npm run test:render-smoke` or CI's
 // render-smoke artifact; results from any other run are ignored). A pair with a variant 3
@@ -30,7 +31,7 @@ import { assertEvalMode, capsFromEnv, profileBudget } from "@/lib/agent/evals/bu
 import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 import { awaitsRender, handCheckCsv, judgePair, judgePairs, judgeQueue, judgeTable, sampleForHandCheck, type JudgeResult, type RenderedText } from "@/lib/agent/evals/judge";
 import { matrixRecordingPath } from "@/lib/agent/evals/matrix";
-import { judgeFiles, readMatrixRecordings } from "@/lib/agent/evals/evalFiles";
+import { judgeFiles, readMatrixRun } from "@/lib/agent/evals/evalFiles";
 import { describeRun, finishRun, newRunId, passIdFromEnv, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
 import { readRenderResults, renderedTextIndex } from "@/lib/agent/evals/renderResults";
 
@@ -108,7 +109,8 @@ describe("judge", () => {
     `up to ${caps.maxCases} pairs`,
     async () => {
       const run = matrixRun!;
-      const read = readMatrixRecordings(path.join(runRoot("matrix"), run.runId), run.runId);
+      // A rerender-only run pairs its variants 2 and 3 with its source run's variant 1 (PR J7).
+      const read = readMatrixRun(runRoot("matrix"), run);
       if (read.unreadable.length > 0) notes.push(`${read.unreadable.length} matrix file(s) did not parse or carry another run's id, and were left out`);
       const all = judgePairs(read.items);
       if (all.length === 0) throw new Error(`eval: matrix run ${run.runId} has no pairs to judge`);

@@ -223,3 +223,74 @@ export function describeRun(run: EvalRun | null): string {
   ];
   return notes.length === 0 ? run.runId : `${run.runId} (${notes.join(", ")})`;
 }
+
+/**
+ * Why `run` cannot be the source of a rerender-only matrix run (PR J7), or null when it
+ * can: it must be a complete matrix run of kind full, so its variant 1 cells are the plan's
+ * and none of them was cut short by a cap.
+ */
+export function rerenderSourceProblem(run: EvalRun | null): string | null {
+  if (!run) return "no matrix run to re-render";
+  if (run.mode !== "matrix") return `run ${run.runId} is not a matrix run`;
+  if (run.kind !== "full") return `matrix run ${run.runId} is a ${run.kind} run; only a full matrix run can be re-rendered`;
+  if (run.status !== "complete") return `matrix run ${run.runId} ended ${run.status}; only a complete matrix run can be re-rendered`;
+  return null;
+}
+
+/** As rerenderSourceProblem, as a RunSelectionError. */
+export function assertRerenderSource(run: EvalRun | null): EvalRun {
+  const problem = rerenderSourceProblem(run);
+  if (problem !== null || !run) throw new RunSelectionError(`eval: ${problem ?? "no matrix run to re-render"}`);
+  return run;
+}
+
+/** One variant 1 recording of a matrix run, as far as the rerender-only dry run needs it. */
+export interface RecordedV1Cell {
+  /** Under the run folder: <model>/v1/<scenario>.<persona>.r<seed>.json. */
+  file: string;
+  model: string;
+  scenario: string;
+  persona: string;
+  seed: number;
+  surfaces: number;
+}
+
+/**
+ * The variant 1 recordings of the matrix run in `runDir` (run id `runId`), read with
+ * plain JSON (no schema, so eval-agent.mjs can load it): a file that does not parse, is not
+ * variant 1 or carries another run's id is counted in `unreadable`, not used. The live
+ * rerender-only run reads the same files through evalFiles.ts with the full schema.
+ */
+export function recordedV1Cells(runDir: string, runId: string): { cells: RecordedV1Cell[]; unreadable: string[] } {
+  const out: { cells: RecordedV1Cell[]; unreadable: string[] } = { cells: [], unreadable: [] };
+  if (!existsSync(runDir)) return out;
+  for (const model of readdirSync(runDir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith(".")).map((d) => d.name).sort()) {
+    const v1 = path.join(runDir, model, "v1");
+    if (!existsSync(v1)) continue;
+    for (const name of readdirSync(v1).filter((n) => n.endsWith(".json") && !n.startsWith(".")).sort()) {
+      const file = `${model}/v1/${name}`;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(path.join(v1, name), "utf8"));
+      } catch {
+        out.unreadable.push(file);
+        continue;
+      }
+      const r = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+      if (
+        r.evalRun !== runId ||
+        r.variant !== 1 ||
+        typeof r.model !== "string" ||
+        typeof r.scenario !== "string" ||
+        typeof r.persona !== "string" ||
+        !Number.isInteger(r.seed) ||
+        !Array.isArray(r.surfaces)
+      ) {
+        out.unreadable.push(file);
+        continue;
+      }
+      out.cells.push({ file, model: r.model, scenario: r.scenario, persona: r.persona, seed: r.seed as number, surfaces: r.surfaces.length });
+    }
+  }
+  return out;
+}

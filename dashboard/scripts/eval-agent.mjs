@@ -27,6 +27,16 @@
 //       all 3 variants (12 cells), its own caps ($2.90 at most) and its own run folder
 //       under recordings/matrix/ (run.json kind "spot-check"; readers take it only by
 //       --run, never as "the latest complete" matrix run).
+//   npm run eval:agent -- --matrix --rerender-only --run <matrix run id> [--allow-non-haiku] [matrix caps] [--dry-run]
+//       Variants 2 and 3 again, without replaying variant 1: every recorded variant 1
+//       surface of that complete full matrix run is written into the throwaway database
+//       and re-rendered from its stored gathered data, on that run's models, under the
+//       matrix caps (--max-cells counts re-render cells), into a new matrix run (run.json
+//       kind "rerender-only", sourceRun the run re-rendered). Only re-render calls are
+//       spent. Readers (the render smoke, the judge, the summary) read it as a matrix run,
+//       pairing its variants 2 and 3 with the source run's variant 1. A source on another
+//       model than Haiku 5.5 needs --allow-non-haiku. The dry run counts the source's
+//       recorded surfaces.
 //   npm run eval:agent -- --injection [--models a,b | --model <id>] [--allow-non-haiku] [injection caps] [--dry-run]
 //       The prompt-injection set (lib/agent/evals/injection.eval.ts): per model, 15
 //       model-driven cases in variants 1, 2 and 3 (45 runs). Haiku 5.5 by default, as the
@@ -139,6 +149,7 @@ const USAGE =
   "       [--max-cells <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
   "       [--max-total-tokens <n>] [--max-total-usd <n>]\n" +
   "   or: npm run eval:agent -- --matrix --spot-check [--persona <id>] [--dry-run] [spot-check caps as the matrix's]\n" +
+  "   or: npm run eval:agent -- --matrix --rerender-only --run <matrix run id> [--allow-non-haiku] [--dry-run] [matrix caps]\n" +
   "   or: npm run eval:agent -- --injection [--models <id,id> | --model <id>] [--allow-non-haiku] [--dry-run]\n" +
   "       [--max-cases <n>] [--max-steps <n>] [--max-tokens <n>] [--max-usd <n>] [--max-minutes <n>]\n" +
   "       [--max-total-tokens <n>] [--max-total-usd <n>]\n" +
@@ -195,12 +206,16 @@ function parseArgs(argv) {
   const mode = modeFlags.length === 0 ? "golden" : modeFlags[0].slice(2);
   // The spot check is the matrix mode with its own profile (one persona, one repeat, Sonnet).
   const spotCheck = mode === "matrix" && argv.includes("--spot-check");
+  // A rerender-only run is the matrix mode, with the matrix profile, over an earlier run.
+  const rerenderOnly = mode === "matrix" && argv.includes("--rerender-only");
+  if (spotCheck && rerenderOnly) usage("give --spot-check or --rerender-only, not both");
   const profile = spotCheck ? "spot-check" : MODES[mode].profile;
   const flags = profile ? profileFlags(profile) : new Map();
   const out = {
     mode,
     profile,
     spotCheck,
+    rerenderOnly,
     variant: null,
     model: null,
     models: null,
@@ -224,20 +239,24 @@ function parseArgs(argv) {
     };
     if (MODE_FLAGS.includes(flag) && inline === undefined) continue;
     if (flag === "--spot-check" && spotCheck && inline === undefined) continue;
+    if (flag === "--rerender-only" && rerenderOnly && inline === undefined) continue;
+    // A rerender-only run takes its models from the run it re-renders.
+    const ownModels = (mode === "matrix" || mode === "injection") && !spotCheck && !rerenderOnly;
     if (flag === "--variant" && mode === "golden") out.variant = value();
-    else if (flag === "--model" && (mode === "golden" || ((mode === "matrix" || mode === "injection") && !spotCheck))) out.model = value();
-    else if (flag === "--models" && (mode === "matrix" || mode === "injection") && !spotCheck) out.models = parseModels(value());
+    else if (flag === "--model" && (mode === "golden" || ownModels)) out.model = value();
+    else if (flag === "--models" && ownModels) out.models = parseModels(value());
     else if (flag === "--allow-non-haiku" && (mode === "matrix" || mode === "injection") && !spotCheck && inline === undefined) out.allowNonHaiku = true;
     else if (flag === "--persona" && spotCheck) out.persona = value();
     else if (flag === "--seed" && mode === "golden") out.seed = value();
-    else if (flag === "--run" && mode === "judge") out.run = value();
+    else if (flag === "--run" && (mode === "judge" || rerenderOnly)) out.run = value();
     else if (flag === "--max-usd" && mode === "pass") out.passUsd = value();
     else if (flag === "--dry-run" && mode !== "golden" && inline === undefined) out.dryRun = true;
     else if (flags.has(flag)) {
       const { key, total } = flags.get(flag);
       (total ? out.totals : out.caps)[key] = value();
-    } else usage(`unknown argument ${arg}${mode === "golden" ? "" : ` for --${mode}${spotCheck ? " --spot-check" : ""}`}`);
+    } else usage(`unknown argument ${arg}${mode === "golden" ? "" : ` for --${mode}${spotCheck ? " --spot-check" : rerenderOnly ? " --rerender-only" : ""}`}`);
   }
+  if (rerenderOnly && out.run === null) usage("--rerender-only needs --run <matrix run id>, the complete matrix run to re-render");
   if (mode === "golden" && !["1", "2", "3"].includes(out.variant ?? "")) usage("--variant must be 1, 2 or 3");
   if (out.model !== null && !MODEL_RE.test(out.model)) usage("--model is not a model id");
   if (out.model !== null && out.models !== null) usage("give --model or --models, not both");
@@ -262,6 +281,23 @@ const args = parseArgs(process.argv.slice(2));
 const RECORDINGS_DIR =
   args.dryRun && process.env.EVAL_RECORDINGS_ROOT ? path.resolve(process.env.EVAL_RECORDINGS_ROOT) : path.join(DASHBOARD_DIR, "lib", "agent", "evals", "recordings");
 
+// --matrix --rerender-only: the run it re-renders, a complete full matrix run, and its variant 1 recordings.
+let sourceRun = null;
+let sourceCells = null;
+if (args.rerenderOnly) {
+  try {
+    sourceRun = runs.selectRun(runs.runRoot("matrix", RECORDINGS_DIR), args.run);
+  } catch (error) {
+    if (error instanceof runs.RunSelectionError) usage(error.message.replace(/^eval: /, ""));
+    throw error;
+  }
+  const problem = runs.rerenderSourceProblem(sourceRun);
+  if (problem) usage(problem);
+  sourceCells = runs.recordedV1Cells(path.join(runs.runRoot("matrix", RECORDINGS_DIR), sourceRun.runId), sourceRun.runId);
+  if (sourceRun.models.length === 0) usage(`matrix run ${sourceRun.runId} names no model to re-render with`);
+  if (sourceCells.cells.length === 0) usage(`matrix run ${sourceRun.runId} has no variant 1 recording to re-render`);
+}
+
 const models =
   args.mode === "golden" || args.mode === "pass"
     ? null
@@ -269,7 +305,9 @@ const models =
       ? [judgeModel.AGENT_JUDGE_MODEL]
       : args.spotCheck
         ? [config.AGENT_SPOT_CHECK_MODEL]
-        : plan.runModels({ models: args.models, model: args.model });
+        : sourceRun
+          ? [...sourceRun.models]
+          : plan.runModels({ models: args.models, model: args.model });
 // The matrix and the injection set run only models in the price table, so neither the dry
 // run nor the caps' sizing ever prices a model at another model's rate (dry run included),
 // and only Haiku 5.5 unless --allow-non-haiku (or the spot check) says otherwise (PR J7).
@@ -293,7 +331,18 @@ if (args.mode === "judge") {
 
 if (args.dryRun) {
   if (args.mode === "pass") console.log(plan.formatPassDryRun({ budgetUsd: args.passUsd }));
-  else if (args.mode === "matrix") {
+  else if (args.mode === "matrix" && sourceRun) {
+    console.log(
+      plan.formatRerenderOnlyDryRun({
+        sourceRun: sourceRun.runId,
+        sources: sourceCells.cells,
+        unreadable: sourceCells.unreadable.length,
+        models,
+        caps: args.caps,
+        totals: args.totals,
+      }),
+    );
+  } else if (args.mode === "matrix") {
     console.log(
       args.spotCheck
         ? plan.formatMatrixDryRun({
@@ -322,7 +371,14 @@ if (args.dryRun) {
 }
 
 if (!process.env.OPENROUTER_API_KEY?.trim()) {
-  const command = args.mode === "golden" ? "--variant 1" : args.spotCheck ? "--matrix --spot-check" : `--${args.mode}`;
+  const command =
+    args.mode === "golden"
+      ? "--variant 1"
+      : args.spotCheck
+        ? "--matrix --spot-check"
+        : args.rerenderOnly
+          ? `--matrix --rerender-only --run ${args.run}`
+          : `--${args.mode}`;
   console.error(
     "eval:agent: OPENROUTER_API_KEY is not set. Run this inside the throwaway database with the key forwarded:\n" +
       "  python tools/lifecycle_test_db.py --postgres-major 17 --allow-env OPENROUTER_API_KEY -- \\\n" +
@@ -350,6 +406,7 @@ function runStage(stage) {
     "EVAL_PASS_ID",
     "EVAL_MATRIX_KIND",
     "EVAL_PERSONA",
+    "EVAL_SOURCE_RUN",
     "EVAL_ALLOW_NON_HAIKU",
     "EVAL_RECORDINGS_ROOT",
   ]) {
@@ -407,7 +464,10 @@ if (args.mode === "pass") runPass();
 
 // One mode on its own. A new run id for every matrix, injection and judge run: its folder is created by the eval file.
 const runId = args.mode === "golden" ? null : runs.newRunId();
-if (runId) console.log(`eval:agent: ${args.mode}${args.spotCheck ? " spot check" : ""} run ${runId}${matrixRun ? ` over matrix run ${runs.describeRun(matrixRun)}` : ""}`);
+if (runId) {
+  const what = args.spotCheck ? " spot check" : sourceRun ? ` re-render of run ${sourceRun.runId}` : "";
+  console.log(`eval:agent: ${args.mode}${what} run ${runId}${matrixRun ? ` over matrix run ${runs.describeRun(matrixRun)}` : ""}`);
+}
 exitFor(
   runStage({
     mode: args.mode,
@@ -424,6 +484,7 @@ exitFor(
             EVAL_MODELS: models.join(","),
             ...(args.allowNonHaiku ? { EVAL_ALLOW_NON_HAIKU: "1" } : {}),
             ...(args.spotCheck ? { EVAL_MATRIX_KIND: "spot-check", EVAL_PERSONA: args.persona ?? plan.SPOT_CHECK_PERSONA } : {}),
+            ...(sourceRun ? { EVAL_MATRIX_KIND: "rerender-only", EVAL_SOURCE_RUN: sourceRun.runId } : {}),
           },
   }),
 );

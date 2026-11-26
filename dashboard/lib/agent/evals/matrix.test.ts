@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { AGENT_EVAL_MODELS } from "@/lib/agent/config";
 import { CapExceededError } from "@/lib/agent/evals/budget";
-import { matrixDatasetItem, matrixRecordingPath, matrixTable, runMatrix, type MatrixRunner } from "@/lib/agent/evals/matrix";
+import { matrixDatasetItem, matrixRecordingPath, matrixTable, runMatrix, sourcesByCell, type MatrixRunner } from "@/lib/agent/evals/matrix";
 import { cellKey, type MatrixCell } from "@/lib/agent/evals/matrixPlan";
 import { parseRecording, type Recording } from "@/lib/agent/evals/recording";
 
@@ -107,6 +107,51 @@ describe("runMatrix", () => {
     expect(seen).toHaveLength(4);
     expect(log).toContain("end m/one");
     expect(log).not.toContain("start m/two");
+  });
+});
+
+describe("runMatrix over an earlier run's variant 1 (PR J7, rerender-only)", () => {
+  const v1 = (scenario: string, seed: number, model = "m/one"): Recording => ({ ...structuredClone(BASE[scenario]), model, persona: "senior-backend", seed, variant: 1 });
+
+  test("no cell plays live: only the re-render cells whose variant 1 recording is given run, from that recording", async () => {
+    const log: string[] = [];
+    const runner = fakeRunner(log);
+    const sources = sourcesByCell([v1("b_compare", 1), v1("d_weekly", 3)]);
+    const recorded: string[] = [];
+    const result = await runMatrix({ models: ["m/one"], runner, sources, onRecording: (cell) => void recorded.push(cellKey(cell)) });
+    expect(result.recordings.map((r) => [r.scenario, r.seed, r.variant])).toEqual([
+      ["b_compare", 1, 2],
+      ["b_compare", 1, 3],
+      ["d_weekly", 3, 2],
+      ["d_weekly", 3, 3],
+    ]);
+    expect(log.filter((l) => l.endsWith("|v1"))).toEqual([]);
+    expect(recorded).toHaveLength(4);
+    expect(runner.rerenderedFrom.get(cellKey({ model: "m/one", scenario: "b_compare", persona: "senior-backend", repeat: 1, variant: 3 }))).toBe(
+      sources.get(cellKey({ model: "m/one", scenario: "b_compare", persona: "senior-backend", repeat: 1, variant: 1 })),
+    );
+    expect(result.models[0].measures.map((m) => m.variant)).toEqual([2, 3]);
+  });
+
+  test("--max-cells counts re-render cells; a model with no recording runs nothing", async () => {
+    const log: string[] = [];
+    const sources = sourcesByCell([v1("b_compare", 1), v1("b_compare", 2)]);
+    const result = await runMatrix({ models: ["m/one", "m/two"], runner: fakeRunner(log), sources, maxCells: 3 });
+    expect(result.recordings.map((r) => [r.model, r.seed, r.variant])).toEqual([
+      ["m/one", 1, 2],
+      ["m/one", 1, 3],
+      ["m/one", 2, 2],
+    ]);
+    expect(result.models.map((m) => [m.model, m.cells])).toEqual([
+      ["m/one", 3],
+      ["m/two", 0],
+    ]);
+  });
+
+  test("sourcesByCell keys variant 1 recordings only, and refuses two for one cell", () => {
+    const sources = sourcesByCell([v1("b_compare", 1), { ...v1("b_compare", 1), variant: 2 }]);
+    expect([...sources.keys()]).toEqual([cellKey({ model: "m/one", scenario: "b_compare", persona: "senior-backend", repeat: 1, variant: 1 })]);
+    expect(() => sourcesByCell([v1("b_compare", 1), v1("b_compare", 1)])).toThrow(/two variant 1 recordings/);
   });
 });
 

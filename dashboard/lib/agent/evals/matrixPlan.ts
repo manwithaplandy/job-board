@@ -388,6 +388,85 @@ export function formatMatrixDryRun(a: {
   return lines.join("\n");
 }
 
+/** One variant 1 recording a rerender-only run would re-render (evalRuns.ts recordedV1Cells). */
+export interface RerenderSourceCell {
+  model: string;
+  scenario: string;
+  persona: string;
+  seed: number;
+  /** The recording's surfaces: each is re-rendered once into variant 2 and once into 3. */
+  surfaces: number;
+}
+
+/**
+ * The re-render cells a rerender-only run plays for `model` (PR J7): the plan's variant 2
+ * and 3 cells whose variant 1 recording is in `sources`, in plan order, the first
+ * `maxCells`, each with the surface count of its recording.
+ */
+export function rerenderOnlyCells(model: string, sources: readonly RerenderSourceCell[], maxCells: number): { cell: MatrixCell; surfaces: number }[] {
+  const key = (s: RerenderSourceCell) => cellKey({ model: s.model, scenario: s.scenario as MatrixScenario, persona: s.persona as MatrixPersona, repeat: s.seed, variant: 1 });
+  const byKey = new Map(sources.filter((s) => s.model === model).map((s) => [key(s), s.surfaces]));
+  return matrixPlan([model])
+    .filter((c) => c.kind === "rerender" && c.from !== null && byKey.has(c.from))
+    .slice(0, maxCells)
+    .map((cell) => ({ cell, surfaces: byKey.get(cell.from as string) ?? 0 }));
+}
+
+/**
+ * What `--matrix --rerender-only --run <id> --dry-run` prints (PR J7): per model of the
+ * source run, the variant 2 and 3 cells it would re-render from that run's recorded variant
+ * 1 surfaces, their estimate at those surface counts, and the matrix caps. Spends nothing.
+ */
+export function formatRerenderOnlyDryRun(a: {
+  sourceRun: string;
+  sources: readonly RerenderSourceCell[];
+  unreadable: number;
+  models: readonly string[];
+  caps: EvalCaps;
+  totals: TotalCaps | null;
+}): string {
+  assertPricedModels(a.models);
+  let all = ZERO;
+  let cells = 0;
+  const rows: string[] = [];
+  for (const model of a.models) {
+    const planned = rerenderOnlyCells(model, a.sources, a.caps.maxCases);
+    const byVariant: Record<2 | 3, TokenCost> = { 2: ZERO, 3: ZERO };
+    const count: Record<2 | 3, number> = { 2: 0, 3: 0 };
+    let surfaces = 0;
+    for (const { cell, surfaces: n } of planned) {
+      const v = cell.variant as 2 | 3;
+      byVariant[v] = add(byVariant[v], estimateRerenderCell(model, v, n));
+      count[v] += 1;
+      surfaces += n;
+    }
+    const total = add(byVariant[2], byVariant[3]);
+    all = add(all, total);
+    cells += planned.length;
+    rows.push(
+      `| ${model} | ${count[2]} / ${count[3]} | ${surfaces} | ${total.calls} | ${millions(total.inputTokens)} | ${millions(total.outputTokens)} | ` +
+        `${dollars(total.costMicros)} | ${dollars(total.cachedCostMicros)} | ${within(total, a.caps.maxTokens, a.caps.maxUsd) ? "yes" : "NO: the run would stop at a cap"} |`,
+    );
+  }
+  const totalWithin = a.totals === null || within(all, a.totals.maxTotalTokens, a.totals.maxTotalUsd);
+  return [
+    `Re-render-only dry run over matrix run ${a.sourceRun}: nothing is run and nothing is spent. ${cells} re-render cells over ${a.models.length} model(s); no variant 1 cell is played.`,
+    "",
+    "| Model | Cells (v2 / v3) | Surfaces re-rendered | Calls | Input tokens | Output tokens | Est. cost uncached | Est. cost cached | Within caps |",
+    "|---|---|---|---|---|---|---|---|---|",
+    ...rows,
+    `| all models | ${cells} | | ${all.calls} | ${millions(all.inputTokens)} | ${millions(all.outputTokens)} | ${dollars(all.costMicros)} | ` +
+      `${dollars(all.cachedCostMicros)} | ${totalWithin ? "yes" : "NO: the run would stop at the total cap"} |`,
+    "",
+    `The surface counts are the source run's recorded variant 1 surfaces${a.unreadable > 0 ? ` (${a.unreadable} file(s) did not parse and are left out)` : ""};`,
+    "the calls and tokens per surface are the model in lib/agent/evals/matrixPlan.ts, at list prices (OpenRouter's prices for these",
+    "slugs are unverified). The caps below are what stops a real run; --max-cells counts re-render cells.",
+    ...CACHE_NOTE,
+    "",
+    ...capLines("matrix", a.caps, a.totals),
+  ].join("\n");
+}
+
 /** What `--injection --dry-run` and `--judge --dry-run` print. */
 export function formatSimpleDryRun(a: {
   profile: "injection" | "judge";

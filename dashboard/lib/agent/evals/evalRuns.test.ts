@@ -9,16 +9,19 @@ import {
   EVAL_PASS_ID_ENV,
   RUN_ID_RE,
   RunSelectionError,
+  assertRerenderSource,
   describeRun,
   finishRun,
   listRuns,
   newRunId,
   passIdFromEnv,
+  recordedV1Cells,
+  rerenderSourceProblem,
   runRoot,
   selectRun,
   startRun,
 } from "@/lib/agent/evals/evalRuns";
-import { judgeFiles, readInjectionResults, readJudgeResults, readMatrixRecordings } from "@/lib/agent/evals/evalFiles";
+import { judgeFiles, readInjectionResults, readJudgeResults, readMatrixRecordings, readMatrixRun, readRerenderSources } from "@/lib/agent/evals/evalFiles";
 import { emptySnapshot, type Recording } from "@/lib/agent/evals/recording";
 import type { JudgeResult } from "@/lib/agent/evals/judge";
 
@@ -188,6 +191,67 @@ describe("reading one run", () => {
     const read = readInjectionResults(runDir, A);
     expect(read.items.map((r) => r.caseId)).toEqual(["c"]);
     expect(read.unreadable).toEqual(["m-a/v1/d.json"]);
+  });
+
+  test("PR J7: a rerender-only run reads its own variants 2 and 3 with its source run's variant 1; strays are counted", () => {
+    const root = runRoot("matrix", dir);
+    const put = (run: string, rel: string, r: Recording) => {
+      mkdirSync(path.dirname(path.join(root, run, rel)), { recursive: true });
+      writeFileSync(path.join(root, run, rel), JSON.stringify(r));
+    };
+    finishRun(startRun(root, { runId: A, mode: "matrix", models: ["m/a"], matrixRun: null }), "complete");
+    put(A, "m-a/v1/b.json", recording(A, 1));
+    put(A, "m-a/v2/b.json", recording(A, 2));
+    writeFileSync(path.join(root, A, "m-a", "v1", "bad.json"), "{");
+    finishRun(startRun(root, { runId: B, mode: "matrix", models: ["m/a"], matrixRun: null, kind: "rerender-only", sourceRun: A }), "complete");
+    put(B, "m-a/v2/b.json", recording(B, 2));
+    put(B, "m-a/v3/b.json", recording(B, 3));
+    put(B, "m-a/v1/stray.json", recording(B, 1));
+    const run = selectRun(root, null)!;
+    expect(run).toMatchObject({ runId: B, kind: "rerender-only", sourceRun: A });
+    expect(describeRun(run)).toBe(`${B} (re-render of ${A})`);
+    const read = readMatrixRun(root, run);
+    // The source's variant 2 is its own re-render, not this run's, and is not read.
+    expect(read.items.map((r) => [r.evalRun, r.variant])).toEqual([
+      [A, 1],
+      [B, 2],
+      [B, 3],
+    ]);
+    expect(read.unreadable).toEqual([`../${A}/m-a/v1/bad.json`, "m-a/v1/stray.json"]);
+    expect(readRerenderSources(root, A).items.map((r) => r.variant)).toEqual([1]);
+    // A full run reads as before.
+    expect(readMatrixRun(root, selectRun(root, A)!).items.map((r) => r.variant)).toEqual([1, 2]);
+  });
+
+  test("PR J7: only a complete full matrix run can be re-rendered, and its variant 1 cells read without the schema", () => {
+    const root = runRoot("matrix", dir);
+    finishRun(startRun(root, { runId: A, mode: "matrix", models: ["m/a"], matrixRun: null }), "complete");
+    finishRun(startRun(root, { runId: B, mode: "matrix", models: ["m/a"], matrixRun: null, kind: "spot-check" }), "complete");
+    finishRun(startRun(root, { runId: C, mode: "matrix", models: ["m/a"], matrixRun: null }), "cap_exceeded");
+    expect(rerenderSourceProblem(selectRun(root, A))).toBeNull();
+    expect(assertRerenderSource(selectRun(root, A)).runId).toBe(A);
+    expect(rerenderSourceProblem(selectRun(root, B))).toMatch(/spot-check run; only a full matrix run/);
+    expect(rerenderSourceProblem(selectRun(root, C))).toMatch(/ended cap_exceeded; only a complete matrix run/);
+    expect(rerenderSourceProblem(null)).toMatch(/no matrix run/);
+    expect(() => assertRerenderSource(selectRun(root, C))).toThrow(RunSelectionError);
+    const judgeRoot = runRoot("judge", dir);
+    finishRun(startRun(judgeRoot, { runId: A, mode: "judge", models: [], matrixRun: A }), "complete");
+    expect(rerenderSourceProblem(selectRun(judgeRoot, A))).toMatch(/not a matrix run/);
+
+    const v1 = path.join(root, A, "m-a", "v1");
+    mkdirSync(v1, { recursive: true });
+    mkdirSync(path.join(root, A, "m-a", "v2"), { recursive: true });
+    const withSurfaces = { ...recording(A, 1), surfaces: [{}, {}] };
+    writeFileSync(path.join(v1, "b_compare.senior-backend.r1.json"), JSON.stringify(withSurfaces));
+    writeFileSync(path.join(v1, "other.json"), JSON.stringify({ ...withSurfaces, evalRun: B }));
+    writeFileSync(path.join(v1, "v2.json"), JSON.stringify({ ...withSurfaces, variant: 2 }));
+    writeFileSync(path.join(v1, "junk.json"), "nope");
+    writeFileSync(path.join(root, A, "m-a", "v2", "ignored.json"), JSON.stringify({ ...withSurfaces, variant: 2 }));
+    expect(recordedV1Cells(path.join(root, A), A)).toEqual({
+      cells: [{ file: "m-a/v1/b_compare.senior-backend.r1.json", model: "m/a", scenario: "b_compare", persona: "senior-backend", seed: 1, surfaces: 2 }],
+      unreadable: ["m-a/v1/junk.json", "m-a/v1/other.json", "m-a/v1/v2.json"],
+    });
+    expect(recordedV1Cells(path.join(root, "20261126T090000Z"), "20261126T090000Z")).toEqual({ cells: [], unreadable: [] });
   });
 
   test("judge results: none when the run wrote none; a result from another run or matrix run makes the file unreadable", () => {

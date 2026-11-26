@@ -49,12 +49,19 @@ export function readRenderResults(dir: string = RENDER_RESULTS_DIR): RenderResul
 /**
  * The results of the hand-written surfaces (v1, fixture) and of the given matrix and
  * injection runs only; a recorded result from any other run, or with no run, is left out.
+ * A rerender-only matrix run (PR J7) also keeps its source run's variant 1 results
+ * (`matrixSource`), the surfaces its own variants 2 and 3 were re-rendered from.
  */
-export function forRuns(results: readonly RenderResult[], runs: { matrix: string | null; injection: string | null }): RenderResult[] {
+export function forRuns(
+  results: readonly RenderResult[],
+  runs: { matrix: string | null; injection: string | null; matrixSource?: string | null },
+): RenderResult[] {
+  const source = runs.matrixSource ?? null;
   return results.filter((r) => {
     if (r.source === "v1" || r.source === "fixture") return true;
     const run = runs[r.source];
-    return run !== null && r.evalRun === run && r.name.startsWith(`${r.source}/${run}/`);
+    if (run !== null && r.evalRun === run && r.name.startsWith(`${r.source}/${run}/`)) return true;
+    return r.source === "matrix" && source !== null && r.variant === 1 && r.evalRun === source && /^matrix\/[^/]+\/[^/]+\/v1\//.test(r.name) && r.name.startsWith(`matrix/${source}/`);
   });
 }
 

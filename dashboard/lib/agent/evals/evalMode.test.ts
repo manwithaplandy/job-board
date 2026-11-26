@@ -44,6 +44,10 @@ describe("EVAL_MODE", () => {
     expect(script).toContain("[budget.EVAL_MODE_ENV]: stage.mode,");
     expect(script.match(/EVAL_MODE_ENV\]/g)).toHaveLength(1);
     expect(script).toMatch(/for \(const name of \[\s*"EVAL_MODE",\s*"EVAL_RUN_ID",\s*"EVAL_MATRIX_RUN",\s*"EVAL_PASS_ID",[^\]]*\]\) \{\s*delete inherited\[name\];/);
+    // PR J7: what kind of matrix run, and which run a rerender-only run reads, come only from the script too.
+    for (const name of ["EVAL_MATRIX_KIND", "EVAL_SOURCE_RUN", "EVAL_ALLOW_NON_HAIKU"]) {
+      expect(script).toMatch(new RegExp(`for \\(const name of \\[[^\\]]*"${name}",[^\\]]*\\]\\) \\{\\s*delete inherited\\[name\\];`));
+    }
     expect(script).toMatch(/golden: \{ profile: "golden", file: "lib\/agent\/evals\/live\.eval\.ts" \}/);
     const setters = readdirSync(EVALS)
       .filter((f) => /\.(ts|mjs)$/.test(f) && f !== "budget.ts" && !f.endsWith(".test.ts"))

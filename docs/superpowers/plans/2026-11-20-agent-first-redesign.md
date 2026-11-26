@@ -2015,3 +2015,43 @@ R18. Tasks 2.10 to 2.13 as built (PR J5, code only; Andrew runs every live step)
   and summary read one run (latest complete, or named); the render smoke runs recorded
   surfaces at desktop light only, as its own CI job; and the sandbox document (Task 2.4)
   now opens `<html lang="en">` and carries a fixed `<title>` after its CSP metas.
+
+R19. The eval's cost (PR J7, code only; Andrew runs every live step). Andrew's limit
+(2026-11-26): "max $2-3 per pass total, ideally without compromising quality". What
+changed from R17 and R18:
+- R17 is unchanged: the whole-list Table binds stay as they are.
+- Model: Haiku 5.5 (`AGENT_EVAL_DEFAULT_MODEL`) is the default of the golden run, the
+  matrix and the injection set, and the judge (`AGENT_JUDGE_MODEL`) replaces
+  `openai/gpt-5.5`. R18's judge rules hold: it reads variant 3 from the render smoke,
+  renders every variant to the same plain words, never names a variant, sees each pair in
+  a random order, and the 10% hand-check stays. It is now the same family as the eval
+  model; the blind order and the hand-check are what keep it fair. Any other model needs
+  `--allow-non-haiku` (exit 2 otherwise). Production's model is unchanged.
+- Prices: Haiku 5.5 is priced per call by prompt size ($0.10 / $0.50 per million tokens
+  up to 100K input tokens, $0.50 / $2.50 above), so a ~15k prompt is no longer priced at
+  the long tier. Cache writes are estimated at 1.25x and reads at 0.1x the input price;
+  the budget's fallback for a step with no billed cost never prices a step low.
+- Prompt caching: the agent loop and the re-render mark cache breakpoints through
+  OpenRouter (`lib/agent/cache.ts`; two at most: the system message, and in the loop each
+  call's last user or tool message). Tool results are written in jsonb key order so a
+  later turn's history matches the bytes the model saw. This changes production requests
+  in cost only.
+- Caps: R18's per-mode caps drop so no mode can spend more than $3 on its own (golden $2
+  / $3, matrix $2.50 / $3 per model and in total, injection $1 / $1.50, judge $0.50 / $1,
+  spot check $2.90). Token caps are unchanged.
+- `--pass`: matrix, injection, then judge over that matrix run on Haiku under one budget
+  ($3 by default and at most). Each stage's dollar caps are what is left after the
+  reported cost of the stages before it; a stage that stops, or reports no cost, stops the
+  pass. Every `run.json` of a pass carries the pass id and its reported cost, and the
+  summary shows the pass's spend against $3. The judge in a pass runs without the render
+  smoke, so it judges the variant 1 and 2 pairs only.
+- `--matrix --spot-check`: the opt-in Sonnet 5.5 check (one persona, one repeat, 12
+  cells, $2.90 at most); readers take it only by `--run`.
+- `--matrix --rerender-only --run <id>`: variants 2 and 3 re-rendered from the recorded
+  variant 1 surfaces of a complete full matrix run into a new run linked to it
+  (`sourceRun`), spending only re-render calls; readers pair it with the source's
+  variant 1.
+- Estimates (list price, uncached / cached): a pass $2.90 / $2.00; the Haiku matrix $2.05
+  / $1.48; the Sonnet spot check $2.74 / $1.98; a full Sonnet matrix $41.04 / $29.65, so
+  it no longer fits any cap. OpenRouter's prices for these slugs, and what it bills for
+  cache reads, are unverified; the caps act on the cost OpenRouter reports.

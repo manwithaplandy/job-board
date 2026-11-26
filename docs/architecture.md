@@ -360,14 +360,19 @@ service).
 
 ### Running the live agent eval
 
-The live golden-scenario eval (plan Task 1.22) plays 4 scenarios for 3 personas (12
-cases per variant) against a real model. It is never part of CI. **It spends money on
-Andrew's OpenRouter key.** Use a dedicated OpenRouter key with its own credit limit set
-in OpenRouter, as an outer guard beyond the caps below.
+The live agent eval plays scripted scenarios against a real model. It is never part of
+CI. **It spends money on Andrew's OpenRouter key.** Use a dedicated OpenRouter key with
+its own credit limit set in OpenRouter, as an outer guard beyond the caps below.
+
+Since PR J7 the eval is sized to Andrew's limit, "max $2-3 per pass total, ideally without
+compromising quality": Haiku 5.5 (`AGENT_EVAL_DEFAULT_MODEL`) is the default model of
+every mode, the judge included; the agent loop and the re-render use the prompt cache; and
+no mode can spend more than $3 on its own. Production's model (`AGENT_MODEL_DEFAULT`,
+Sonnet 5.5) is unchanged.
 
 ```
 python tools/lifecycle_test_db.py --postgres-major 17 --allow-env OPENROUTER_API_KEY -- \
-  npm --prefix dashboard run eval:agent -- --variant 1 --model anthropic/claude-sonnet-5.5
+  npm --prefix dashboard run eval:agent -- --pass
 ```
 
 - `tools/lifecycle_test_db.py` forwards a variable only when it is named with
@@ -377,15 +382,29 @@ python tools/lifecycle_test_db.py --postgres-major 17 --allow-env OPENROUTER_API
 - `npm run eval:agent` (`dashboard/scripts/eval-agent.mjs`) is the only entry point. It
   needs Node 22.18 or later.
 
+Andrew's commands (every one but the free ones runs inside the wrapper above; each live
+mode takes `--dry-run`, which needs no key and no database, prints the plan, the estimate
+uncached and cached, and the caps, and spends nothing):
+
+| Command | What it does |
+|---|---|
+| `eval:agent -- --pass [--max-usd <n>]` | One full pass on Haiku 5.5 under one budget, $3 by default and at most: the matrix, then the injection set, then the judge over that matrix run. Each stage's dollar caps are what is left after the reported cost of the stages before it; a stage that stops, reports no cost, or a budget with less than a cent left stops the pass. Every `run.json` of the pass carries the pass id, and the end prints the pass's reported spend against its budget. |
+| `npm run test:render-smoke` (free) | The render smoke over the latest complete matrix and injection runs, before the judge reads variant 3 (below). In a pass, the judge runs without it and judges the variant 1 and 2 pairs only (60 for a one-model matrix). |
+| `npm run eval:summary` (free) | The per-variant summary; for a matrix run from a pass it adds the pass's spend against $3. |
+| `eval:agent -- --matrix --spot-check [--persona <id>]` | The opt-in Sonnet 5.5 spot check, never part of a pass: one persona (`senior-backend` unless named), one repeat, all 4 scenarios in all 3 variants (12 cells), $2.90 at most. Its run (`run.json` kind `spot-check`) is read only when named with `--run`. |
+| `eval:agent -- --matrix --rerender-only --run <matrix run id>` | Variants 2 and 3 again without replaying variant 1: every recorded variant 1 surface of that complete full matrix run is written into the throwaway database and re-rendered from its stored gathered data, on that run's models, into a new matrix run (`run.json` kind `rerender-only`, `sourceRun` the run re-rendered). Only re-render calls are spent; readers pair its variants 2 and 3 with the source's variant 1. A non-Haiku source needs `--allow-non-haiku`. |
+| `eval:agent -- --variant <1\|2\|3> [--model <id>]` | The golden scenarios alone (12 cases), Haiku 5.5 unless `--model` names another. |
+| `eval:agent -- --matrix`, `--injection`, `--judge [--run <id>]` | Each stage of the pass on its own, under its own caps. A matrix or injection run on any model but Haiku 5.5 needs `--allow-non-haiku` (exit 2 otherwise, dry run included); a full Sonnet matrix does not fit the $3 ceiling. |
+
 Every run is capped, and the caps fail closed. A flag may lower a cap; a value above its
-ceiling is refused before anything runs.
+ceiling is refused before anything runs. The golden run's caps:
 
 | Flag | Bounds | Default | Ceiling |
 |---|---|---|---|
 | `--max-cases <n>` | scenario × persona cases played (the first n) | 12 | 12 |
 | `--max-steps <n>` | model calls in one turn of a case | 8 | 8 (the route's own step limit) |
 | `--max-tokens <n>` | input + output tokens over the whole run | 2,000,000 | 8,000,000 |
-| `--max-usd <n>` | cost OpenRouter reports, over the whole run | $5 | $20 |
+| `--max-usd <n>` | cost OpenRouter reports, over the whole run | $2 | $3 |
 | `--max-minutes <n>` | wall clock for the whole run | 30 | 60 |
 
 - Every model call is checked before it is sent, including whether it could pass the
@@ -394,40 +413,56 @@ ceiling is refused before anything runs.
   with the cap, the usage table so far is printed, and the command exits non-zero.
 - A call whose token usage cannot be read stops the run too (`usage_unknown`). It is
   never counted as zero.
-- `--max-usd` is enforced only when OpenRouter reports each call's cost. If it does not,
-  only the token cap applies, and the report says USD was not enforced.
+- Golden run: `--max-usd` is enforced only when OpenRouter reports each call's cost. If
+  it does not, only the token cap applies, and the report says USD was not enforced. The
+  pass, matrix, spot check, injection set and judge instead stop at the first call that
+  reports no cost (`cost_unknown`), so their dollar caps never switch off.
 - Sizing: one call sends about 7k tokens of fixed prefix (tool schemas, instructions,
   profile, memo) plus the thread so far. The scripted gate turns make about 100 calls
-  for 12 cases, so a run is roughly 1.3 to 1.6M tokens. 2M allows for that with
-  headroom, and costs about $4 to $5 on Sonnet 5.5 at its list price.
+  for 12 cases, so a run is roughly 1.3 to 1.6M tokens: about $0.18 on Haiku 5.5 at list
+  price, and about $3.60 on Sonnet 5.5 uncached, so a Sonnet golden run fits the $3
+  ceiling only with the prompt cache working (about $1.40 cached).
+
+Prices and the prompt cache (PR J7). Haiku 5.5 is priced per call by prompt size: $0.10 /
+$0.50 per million tokens up to 100K input tokens, $0.50 / $2.50 above (`lib/agent/prices.ts`).
+The agent loop and the re-render mark Anthropic cache breakpoints through OpenRouter
+(`lib/agent/cache.ts`): one on the system message, which caches tools and instructions,
+and, in the loop, one on each call's last user or tool message. Estimates price cache
+writes at 1.25× and reads at 0.1× the input price; the cached column assumes
+`CACHE_SHARES` in `lib/agent/evals/matrixPlan.ts` (an agent step reads 75% of its input
+from the cache and writes 25%; a re-render reads 25% and writes 10%; the judge caches
+nothing). The caps are sized against the uncached figures. The eval's budget report
+shows the cache read and write tokens each call reported; `agent_runs` has no column for
+them.
 
 ### The variant comparison (plan Tasks 2.10 to 2.13)
 
-Three more live modes of the same entry point, each with its own caps, and two free
-commands. Each live mode runs inside the throwaway database exactly like the golden run
-(same `lifecycle_test_db.py --allow-env OPENROUTER_API_KEY -- npm --prefix dashboard run
-eval:agent -- …` wrapper) and **spends money**. Each takes `--dry-run`, which needs no key
-and no database, prints the plan, the estimate and the caps, and spends nothing. The
-estimates are list prices from `lib/agent/prices.ts` (OpenRouter's prices for these slugs
-are unverified); the caps are what stop a real run.
+The matrix, the injection set and the judge, the stages of a pass, and two free commands.
+The estimates are list prices from `lib/agent/prices.ts` (OpenRouter's prices for these
+slugs are unverified); the caps are what stop a real run.
 
 | Command | What it runs | Writes |
 |---|---|---|
-| `eval:agent -- --matrix [--models a,b \| --model id]` | Per model, 4 scenarios × 3 personas × 5 repeats played live in variant 1, each surface re-rendered into variants 2 and 3 from the same gathered data (180 cells a model; models default to `AGENT_EVAL_MODELS`) | `lib/agent/evals/recordings/matrix/<run>/<model>/v<n>/` |
-| `eval:agent -- --injection [--models a,b \| --model id]` | Per model, the 15 model-driven prompt-injection cases in variants 1, 2 and 3 (45 runs) | `lib/agent/evals/recordings/injection/<run>/<model>/v<n>/<case>.json` |
-| `npm run test:render-smoke` (free; needs Playwright's Chromium) | The hand-written surfaces (golden recordings and fixtures) at 390 and 1440 px, light and dark, and the latest complete matrix and injection runs' surfaces at 1440 px light: overflow, 44 px targets, axe; for variant 3, misstatements, canary hits and frame loads. Screenshots only of failures. `EVAL_MATRIX_RUN=<run>` / `EVAL_INJECTION_RUN=<run>` pick other runs. CI runs it in its own `render-smoke` job and uploads `render-smoke` | `test-results/render-smoke/` |
-| `eval:agent -- --judge [--run <run>]` | `openai/gpt-5.5` compares two variants of one cell of one matrix run (the latest complete one unless named), blind to the variant and in a random order; variant 3 is read from the render smoke's frame text for that run, and a pair without it is skipped | `lib/agent/evals/recordings/judge/<run>/results.json` and `hand-check.csv` (10% sample) |
-| `npm run eval:summary [-- --run <run>] [--injection-run <run>] [--judge-run <run>]` (free) | The per-variant summary from one run of each mode (the latest complete one unless named; the judge run must be one that judged the matrix run) and the render smoke's results for those runs. It names the runs it read; missing inputs read "not run yet" | `docs/superpowers/plans/2026-11-20-variant-summary.md` |
+| `eval:agent -- --matrix [--models a,b \| --model id] [--allow-non-haiku]` | Per model, 4 scenarios × 3 personas × 5 repeats played live in variant 1, each surface re-rendered into variants 2 and 3 from the same gathered data (180 cells a model; Haiku 5.5 by default) | `lib/agent/evals/recordings/matrix/<run>/<model>/v<n>/` |
+| `eval:agent -- --matrix --spot-check [--persona <id>]` | Sonnet 5.5, one persona, one repeat: 12 cells | the same, `run.json` kind `spot-check` |
+| `eval:agent -- --matrix --rerender-only --run <run>` | The plan's variant 2 and 3 cells from the recorded variant 1 surfaces of that complete full matrix run (`--max-cells` counts re-render cells) | the same, `run.json` kind `rerender-only` with `sourceRun`; no `v1/` folder of its own |
+| `eval:agent -- --injection [--models a,b \| --model id] [--allow-non-haiku]` | Per model, the 15 model-driven prompt-injection cases in variants 1, 2 and 3 (45 runs) | `lib/agent/evals/recordings/injection/<run>/<model>/v<n>/<case>.json` |
+| `npm run test:render-smoke` (free; needs Playwright's Chromium) | The hand-written surfaces (golden recordings and fixtures) at 390 and 1440 px, light and dark, and the latest complete matrix and injection runs' surfaces at 1440 px light (a rerender-only run brings its source's variant 1 surfaces): overflow, 44 px targets, axe; for variant 3, misstatements, canary hits and frame loads. Screenshots only of failures. `EVAL_MATRIX_RUN=<run>` / `EVAL_INJECTION_RUN=<run>` pick other runs. CI runs it in its own `render-smoke` job and uploads `render-smoke` | `test-results/render-smoke/` |
+| `eval:agent -- --judge [--run <run>]` | Haiku 5.5 (`AGENT_JUDGE_MODEL`) compares two variants of one cell of one matrix run (the latest complete one unless named), blind to the variant and in a random order; variant 3 is read from the render smoke's frame text for that run, and a pair without it is skipped. The judge is now the same family as the eval model: what keeps the grading fair is that it never sees the variant, sees each pair in a random order, informs and never decides, and the 10% hand-check stays | `lib/agent/evals/recordings/judge/<run>/results.json` and `hand-check.csv` (10% sample) |
+| `npm run eval:summary [-- --run <run>] [--injection-run <run>] [--judge-run <run>]` (free) | The per-variant summary from one run of each mode (the latest complete one unless named; the judge run must be one that judged the matrix run) and the render smoke's results for those runs. It names the runs it read; missing inputs read "not run yet"; a matrix run from a pass adds a "Pass spend" table | `docs/superpowers/plans/2026-11-20-variant-summary.md` |
 
 Runs. Each live run of the matrix, the injection set or the judge writes into a new folder
 named by its run id, the UTC time it started (`20261126T011500Z`), with a `run.json` that
-says what ran and how it ended: `running`, then `complete`, `cap_exceeded` or `failed`.
-Every recording and result carries its run id (`evalRun`), and a reader leaves out a file
-whose id is not its folder's. Readers take the latest `complete` run unless one is named,
-and a named run may have any status, so a stopped run can be read on purpose. Two runs
-never mix, and the judge never writes over an earlier run's `hand-check.csv` (nor writes
-one when it judged nothing). Each `*.eval.ts` refuses to start unless `EVAL_MODE` is its
-own mode, which only `eval:agent` sets.
+says what ran and how it ended: `running`, then `complete`, `cap_exceeded` or `failed`,
+with the cost its calls reported. A matrix run's `run.json` also says its kind (`full`,
+`spot-check` or `rerender-only`, with `sourceRun`), and a stage of a pass carries the pass
+id. Every recording and result carries its run id (`evalRun`), and a reader leaves out a
+file whose id is not its folder's. Readers take the latest `complete` run that is not a
+spot check unless one is named, and a named run may have any status or kind, so a stopped
+run or the spot check can be read on purpose. A rerender-only run is read as a matrix run,
+with its variant 1 from its source run. Two runs never mix, and the judge never writes over
+an earlier run's `hand-check.csv` (nor writes one when it judged nothing). Each `*.eval.ts`
+refuses to start unless `EVAL_MODE` is its own mode, which only `eval:agent` sets.
 
 In the summary, the matrix's variant 1 rows time and cost the whole scenario; variants 2
 and 3 time and cost the re-render only, and count only the surfaces' own assert failures
@@ -435,44 +470,60 @@ and 3 time and cost the re-render only, and count only the surfaces' own assert 
 
 Caps (a flag lowers a cap; above its ceiling is a usage error). The matrix and the
 injection set cap each model's run and, with the two total flags, the whole command; the
-first cap to trip stops everything.
+first cap to trip stops everything. No mode's dollar ceiling is above $3, and in a pass
+each stage's dollar caps are what is left of the pass budget (never above the mode's own
+ceiling). A rerender-only run has the matrix caps.
 
 | Mode | Flag | Bounds | Default | Ceiling |
 |---|---|---|---|---|
+| pass | `--max-usd` | reported dollars over all three stages | $3 | $3 |
 | matrix | `--max-cells` | cells per model | 180 | 180 |
 | matrix | `--max-steps` | model calls in one turn or re-render | 8 | 8 |
 | matrix | `--max-tokens` | tokens per model | 22,000,000 | 44,000,000 |
-| matrix | `--max-usd` | reported dollars per model | $60 | $120 |
+| matrix | `--max-usd` | reported dollars per model | $2.50 | $3 |
 | matrix | `--max-minutes` | wall clock per model | 360 | 600 |
 | matrix | `--max-total-tokens` | tokens over every model | 44,000,000 | 88,000,000 |
-| matrix | `--max-total-usd` | dollars over every model | $80 | $200 |
+| matrix | `--max-total-usd` | dollars over every model | $2.50 | $3 |
+| spot check | `--max-cells` | cells | 12 | 12 |
+| spot check | `--max-steps` | model calls in one turn or re-render | 8 | 8 |
+| spot check | `--max-tokens`, `--max-total-tokens` | tokens | 2,000,000 | 4,000,000 |
+| spot check | `--max-usd`, `--max-total-usd` | reported dollars | $2.90 | $2.90 |
+| spot check | `--max-minutes` | wall clock | 60 | 120 |
 | injection | `--max-cases` | runs per model | 45 | 45 |
 | injection | `--max-steps` | model calls in one turn | 8 | 8 |
 | injection | `--max-tokens` | tokens per model | 9,000,000 | 18,000,000 |
-| injection | `--max-usd` | reported dollars per model | $25 | $50 |
+| injection | `--max-usd` | reported dollars per model | $1 | $1.50 |
 | injection | `--max-minutes` | wall clock per model | 120 | 240 |
 | injection | `--max-total-tokens` | tokens over every model | 18,000,000 | 36,000,000 |
-| injection | `--max-total-usd` | dollars over every model | $35 | $90 |
+| injection | `--max-total-usd` | dollars over every model | $1 | $1.50 |
 | judge | `--max-pairs` | pairs judged, repeat by repeat | 144 | 360 |
 | judge | `--max-steps` | model calls per pair | 1 | 1 |
 | judge | `--max-tokens` | tokens over the run | 3,000,000 | 6,000,000 |
-| judge | `--max-usd` | reported dollars over the run | $10 | $20 |
+| judge | `--max-usd` | reported dollars over the run | $0.50 | $1 |
 | judge | `--max-minutes` | wall clock for the run | 60 | 120 |
 
-Estimated cost (the dry runs, list price):
+Estimated cost (the dry runs, list price; uncached, and with the prompt cache at
+`CACHE_SHARES`):
 
-| Run | Model | Calls | Tokens (in / out) | Est. cost |
-|---|---|---|---|---|
-| Matrix, 180 cells | Sonnet 5.5 | 930 | 12.69M / 1.57M | $41.04 |
-| Matrix, 180 cells | Haiku 5.5 | 930 | 12.69M / 1.57M | $10.26 |
-| Injection, 45 runs | Sonnet 5.5 | 360 | 5.40M / 0.22M | $12.96 |
-| Injection, 45 runs | Haiku 5.5 | 360 | 5.40M / 0.22M | $3.24 |
-| Judge, 144 pairs | gpt-5.5 (not in the price table: estimated at Sonnet 5.5's list price; its real price may be higher or lower, and `--max-usd` bounds the run) | 144 | 1.73M / 0.06M | $4.03 |
+| Run | Model | Calls | Tokens (in / out) | Uncached | Cached |
+|---|---|---|---|---|---|
+| Pass (matrix, injection, judge up to 144 pairs) | Haiku 5.5 | 1,434 | 19.82M / 1.84M | $2.90 | $2.00 |
+| Matrix, 180 cells | Haiku 5.5 | 930 | 12.69M / 1.57M | $2.05 | $1.48 |
+| Matrix, 180 cells | Sonnet 5.5 | 930 | 12.69M / 1.57M | $41.04 | $29.65 |
+| Spot check, 12 cells | Sonnet 5.5 | 62 | 0.85M / 0.10M | $2.74 | $1.98 |
+| Re-render only, of a full one-model run (120 cells) | Haiku 5.5 | 420 | 5.04M / 1.26M | $1.13 | $1.03 |
+| Injection, 45 runs | Haiku 5.5 | 360 | 5.40M / 0.22M | $0.65 | $0.32 |
+| Injection, 45 runs | Sonnet 5.5 | 360 | 5.40M / 0.22M | $12.96 | $6.34 |
+| Judge, 144 pairs | Haiku 5.5 | 144 | 1.73M / 0.06M | $0.20 | $0.20 |
+| Golden, 12 cases | Haiku 5.5 / Sonnet 5.5 | about 100 | about 1.5M | about $0.18 / $3.60 | about $0.18 / $1.40 |
 
-- Sizing: matrix and injection defaults are about 1.5 to 2 times the Sonnet estimate, and
-  ceilings twice the defaults; the matrix totals cover both models. The judge's 144 pairs
-  are two repeats of each scenario, persona and pairing for two models. All 360 pairs
-  need `--max-pairs 360 --max-tokens 6000000 --max-usd 20` (about $10).
+- Sizing: the $3 pass is the matrix ($2.05), the injection set ($0.65) and the judge
+  ($0.20 for 144 pairs; about $0.08 for the 60 pairs a pass judges without the render
+  smoke), $2.90 uncached. Each mode's default leaves room under its ceiling for the Haiku
+  estimate; the ceilings are what a single mode may spend. The judge takes pairs repeat
+  by repeat, 36 a repeat for one model (4 scenarios × 3 personas × 3 pairings), so its
+  144 are four of the five repeats; all 180 of a one-model matrix need `--max-pairs 180`
+  (about $0.25, inside the other defaults).
 - The production signals (fallback rate, re-render use, undo within 60 seconds, a
   question asked again, a surface left for a workspace) are read-only queries in
   [agent-variant-signals.sql](runbooks/agent-variant-signals.sql), run by hand.

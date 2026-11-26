@@ -77,11 +77,11 @@ describe("the estimate", () => {
     expect(e.total.costMicros).toBe(41_040_000);
   });
 
-  test("Haiku costs a quarter of Sonnet for the same work", () => {
+  test("Haiku 5.5 is priced at its short-prompt tier per call: a twentieth of Sonnet's input price", () => {
     const plan = matrixPlan(["anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5"]);
     const haiku = estimateMatrix(plan, "anthropic/claude-haiku-5.5").total;
     const sonnet = estimateMatrix(plan, "anthropic/claude-sonnet-5.5").total;
-    expect(haiku.costMicros).toBe(10_260_000);
+    expect(haiku.costMicros).toBe(2_052_000);
     expect(haiku.inputTokens).toBe(sonnet.inputTokens);
   });
 
@@ -108,8 +108,8 @@ describe("the dry run", () => {
     expect(out).toMatch(/nothing is run and nothing is spent\. 360 cells over 2 model\(s\)/);
     expect(out).toContain("| anthropic/claude-sonnet-5.5 | 60 / 60 / 60 | 930 | 12.69M | 1.57M | $41.04 | yes |");
     expect(out).toContain("| (variant 3) | 60 | 210 | 2.52M | 0.84M | $13.44 | |");
-    expect(out).toContain("| anthropic/claude-haiku-5.5 | 60 / 60 / 60 | 930 | 12.69M | 1.57M | $10.26 | yes |");
-    expect(out).toContain("| all models | 360 | 1860 | 25.38M | 3.13M | $51.30 | yes |");
+    expect(out).toContain("| anthropic/claude-haiku-5.5 | 60 / 60 / 60 | 930 | 12.69M | 1.57M | $2.05 | yes |");
+    expect(out).toContain("| all models | 360 | 1860 | 25.38M | 3.13M | $43.09 | yes |");
     expect(out).toContain("| --max-cells | matrix cells per model | 180 | 180 | 180 |");
     expect(out).toContain(`| --max-total-usd | US dollars over every model | 80 | ${TOTAL_CAP_SPECS.matrix!.maxTotalUsd.default} | 200 |`);
   });
@@ -148,7 +148,7 @@ describe("the dry run", () => {
       totals: { maxTotalTokens: 18_000_000, maxTotalUsd: 10 },
     });
     expect(inj).toMatch(/\| anthropic\/claude-sonnet-5\.5 \| 45 \| .* \$12\.96 \| NO: the run would stop at a cap \|/);
-    expect(inj).toMatch(/\| anthropic\/claude-haiku-5\.5 \| 45 \| .* \$3\.24 \| yes \|/);
-    expect(inj).toMatch(/\| all models \| 90 \| 720 \| .* \$16\.20 \| NO: the run would stop at the total cap \|/);
+    expect(inj).toMatch(/\| anthropic\/claude-haiku-5\.5 \| 45 \| .* \$0\.65 \| yes \|/);
+    expect(inj).toMatch(/\| all models \| 90 \| 720 \| .* \$13\.61 \| NO: the run would stop at the total cap \|/);
   });
 });

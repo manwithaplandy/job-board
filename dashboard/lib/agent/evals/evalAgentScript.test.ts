@@ -34,11 +34,11 @@ describe("eval-agent.mjs", () => {
   });
 
   test("--dry-run takes --models and lowered caps, and says when a cap would stop the run", () => {
-    const r = run("--matrix", "--dry-run", "--models", "anthropic/claude-haiku-5.5", "--max-usd=5");
+    const r = run("--matrix", "--dry-run", "--models", "anthropic/claude-haiku-5.5", "--max-usd=1");
     expect(r.status).toBe(0);
     expect(r.out).toContain("180 cells over 1 model(s)");
-    expect(r.out).toMatch(/\$10\.26 \| NO: the run would stop at a cap/);
-    expect(r.out).toContain("| --max-usd | US dollars per model (reported cost) | 5 | 60 | 120 |");
+    expect(r.out).toMatch(/\$2\.05 \| NO: the run would stop at a cap/);
+    expect(r.out).toContain("| --max-usd | US dollars per model (reported cost) | 1 | 60 | 120 |");
   });
 
   test("a matrix cap above its ceiling, an unknown flag or a golden-only flag is a usage error", () => {

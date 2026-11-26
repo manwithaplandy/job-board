@@ -26,7 +26,7 @@
 //     estimate prices an unknown model at another model's rate. The judge's fixed model
 //     has no row and is estimated at the default (Sonnet 5.5's list price), labelled so.
 import { AGENT_EVAL_MODELS, type Variant } from "../config.ts";
-import { isPriced, priceFor } from "../prices.ts";
+import { callCostMicros, isPriced } from "../prices.ts";
 import {
   JUDGE_PAIRS_DEFAULT,
   PROFILE_CAP_SPECS,
@@ -143,15 +143,11 @@ export function assertPricedModels(models: readonly string[]): void {
 
 function cost(modelId: string, calls: number, input: number, output: number, opts: { allowDefault?: boolean } = {}): TokenCost {
   if (!opts.allowDefault) assertPricedModels([modelId]);
-  const price = priceFor(modelId);
   const inputTokens = calls * input;
   const outputTokens = calls * output;
-  return {
-    calls,
-    inputTokens,
-    outputTokens,
-    costMicros: Math.ceil((inputTokens * price.input + outputTokens * price.output) / 1_000_000),
-  };
+  // Priced per call, so a tiered model (Haiku 5.5) is priced at the tier of one call's prompt.
+  const perCall = callCostMicros({ inputTokens: input, outputTokens: output }, modelId, { discountReads: true });
+  return { calls, inputTokens, outputTokens, costMicros: Math.ceil(calls * perCall) };
 }
 
 function add(a: TokenCost, b: TokenCost): TokenCost {

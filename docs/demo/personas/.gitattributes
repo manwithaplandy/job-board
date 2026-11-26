@@ -1,0 +1,4 @@
+# jsPDF writes mostly ASCII, so git could take these for text and convert line endings
+# on checkout (core.autocrlf), which would break the byte comparison in
+# dashboard/lib/agent/evals/demoPersonas.test.ts.
+*.pdf binary

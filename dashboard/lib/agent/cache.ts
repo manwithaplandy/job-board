@@ -3,9 +3,23 @@
 // results, and changes nothing the model is told.
 //
 // How a breakpoint reaches Anthropic: @openrouter/ai-sdk-provider 3.1.0 (the pinned
-// version) turns `providerOptions.openrouter.cacheControl` on a system message, on a user
-// message's part or on a tool-result part into `cache_control` on that content block of
-// the OpenRouter request, and OpenRouter passes it to Anthropic. The provider sends tools
+// version; node_modules/@openrouter/ai-sdk-provider/dist/index.js,
+// convertToOpenRouterChatMessages) turns `providerOptions.openrouter.cacheControl` (or
+// cache_control, or the same two under `anthropic`: getCacheControl, index.js:3679-3684)
+// into `cache_control` on the OpenRouter request:
+//   - a system message: on its one text block (index.js:3690-3701);
+//   - a user message: on its text block when it has one text part (the message's own
+//     option, else the part's: index.js:3705-3716), else on each part that carries one,
+//     with the message's own option on its last text part (index.js:3720-3733);
+//   - a tool message: each tool result becomes its own OpenRouter `role: "tool"` message,
+//     whose content is a plain string, with `cache_control` as a field of that message,
+//     from the tool message's own option, else the result's (index.js:3892-3902; line 3901).
+//     There is no content block to carry it, so whether OpenRouter moves that field onto
+//     Anthropic's tool_result block is [Unverified]; if it does not, the tail breakpoint
+//     on a tool result is simply not cached, at no extra cost;
+//   - an assistant message: as a field of the message (index.js:3886);
+// and OpenRouter passes it to Anthropic. A call-level providerOptions.openrouter.cacheControl
+// becomes a top-level cache_control (index.js:4357-4358). The provider sends tools
 // without cache_control (its getArgs maps only name, description and parameters), but
 // Anthropic renders tools, then system, then messages, so a breakpoint on the system
 // message caches the tool schemas and the instructions together.
@@ -67,9 +81,13 @@ export function jsonbKeyOrder(a: string, b: string): number {
 function sortJsonb(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortJsonb);
   if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort(jsonbKeyOrder)) out[key] = sortJsonb((value as Record<string, unknown>)[key]);
-    return out;
+    // Object.fromEntries defines each key as an own property, so a "__proto__" key from
+    // JSON.parse stays a key (an assignment would set the prototype and drop it).
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort(jsonbKeyOrder)
+        .map((key) => [key, sortJsonb((value as Record<string, unknown>)[key])]),
+    );
   }
   return value;
 }
@@ -107,7 +125,9 @@ function markTail(m: LanguageModelV4Message): LanguageModelV4Message | null {
     return { ...m, content: m.content.map((p, i) => (i === last ? { ...p, providerOptions: withBreakpoint(p.providerOptions) } : p)) };
   }
   if (m.role === "tool") {
-    // Only a tool result becomes a content block; an approval response is not sent.
+    // Each tool result is sent as its own OpenRouter tool message, with the breakpoint as a
+    // field of that message (index.js:3892-3902, the header above); an approval response
+    // is not sent. So the last result's message carries the one tail breakpoint.
     let last = -1;
     m.content.forEach((p, i) => {
       if (p.type === "tool-result") last = i;
@@ -146,14 +166,73 @@ export function withCacheBreakpoints(prompt: LanguageModelV4Prompt, opts: CacheO
   return out;
 }
 
-/** Counts the breakpoints in a prompt (tests, and a guard in the middleware). */
-export function countCacheBreakpoints(prompt: LanguageModelV4Prompt): number {
-  const marked = (o: SharedV4ProviderOptions | undefined) => (o?.openrouter && "cacheControl" in o.openrouter ? 1 : 0);
+/** The spellings the provider reads a breakpoint from, in its order (getCacheControl, index.js:3679-3684). */
+const CACHE_CONTROL_KEYS = [
+  ["openrouter", "cacheControl"],
+  ["openrouter", "cache_control"],
+  ["anthropic", "cacheControl"],
+  ["anthropic", "cache_control"],
+] as const;
+
+/** The provider's getCacheControl: the first spelling whose value is not null or undefined. */
+function cacheControlOf(o: SharedV4ProviderOptions | undefined): unknown {
+  for (const [ns, key] of CACHE_CONTROL_KEYS) {
+    const v = o?.[ns]?.[key];
+    if (v !== null && v !== undefined) return v;
+  }
+  return undefined;
+}
+
+/** A user file part the provider sends by http(s) URL, as a file block without cache_control (index.js:3778-3789). */
+function dropsCacheControl(p: Extract<LanguageModelV4Message, { role: "user" }>["content"][number]): boolean {
+  if (p.type !== "file" || /^(image|video|audio)\//.test(p.mediaType)) return false;
+  return p.data.type === "url" && (p.data.url.protocol === "http:" || p.data.url.protocol === "https:");
+}
+
+/**
+ * Counts the breakpoints the provider would send for `prompt` (and the call-level
+ * `providerOptions`, when given), the way @openrouter/ai-sdk-provider 3.1.0 builds them
+ * (the header above): every alias spelling counts; a tool message's own option counts once
+ * per tool result it holds; a user message's own option counts on its last text part
+ * unless that part has its own. Tests, and the guard in the middleware.
+ */
+export function countCacheBreakpoints(prompt: LanguageModelV4Prompt, callProviderOptions?: SharedV4ProviderOptions): number {
   let n = 0;
   for (const m of prompt) {
-    n += marked(m.providerOptions);
-    if (m.role !== "system") for (const p of m.content) n += marked(p.providerOptions);
+    switch (m.role) {
+      case "system":
+        if (cacheControlOf(m.providerOptions)) n += 1;
+        break;
+      case "user": {
+        if (m.content.length === 1 && m.content[0].type === "text") {
+          if (cacheControlOf(m.providerOptions) ?? cacheControlOf(m.content[0].providerOptions)) n += 1;
+          break;
+        }
+        const own = cacheControlOf(m.providerOptions);
+        let lastText = -1;
+        m.content.forEach((p, i) => {
+          if (p.type === "text") lastText = i;
+        });
+        m.content.forEach((p, i) => {
+          const part = cacheControlOf(p.providerOptions);
+          const cc = p.type === "text" ? (part ?? (i === lastText ? own : undefined)) : part;
+          if (cc && !dropsCacheControl(p)) n += 1;
+        });
+        break;
+      }
+      case "assistant":
+        if (cacheControlOf(m.providerOptions) !== undefined) n += 1;
+        break;
+      case "tool":
+        for (const p of m.content) {
+          if (p.type === "tool-approval-response") continue;
+          if ((cacheControlOf(m.providerOptions) ?? cacheControlOf(p.providerOptions)) !== undefined) n += 1;
+        }
+        break;
+    }
   }
+  const call = callProviderOptions?.openrouter;
+  if (call && ((call.cacheControl !== null && call.cacheControl !== undefined) || (call.cache_control !== null && call.cache_control !== undefined))) n += 1;
   return n;
 }
 
@@ -162,7 +241,7 @@ export function cacheBreakpointMiddleware(opts: CacheOptions): LanguageModelMidd
     transformParams: async ({ params }) => {
       const prompt = withCacheBreakpoints(params.prompt, opts);
       // Never more breakpoints than Anthropic takes: send the prompt as it came instead.
-      return { ...params, prompt: countCacheBreakpoints(prompt) <= MAX_CACHE_BREAKPOINTS ? prompt : params.prompt };
+      return { ...params, prompt: countCacheBreakpoints(prompt, params.providerOptions) <= MAX_CACHE_BREAKPOINTS ? prompt : params.prompt };
     },
   };
 }

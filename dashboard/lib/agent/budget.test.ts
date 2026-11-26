@@ -160,10 +160,23 @@ describe("stepCostMicros fallback: tiers and prompt caching (PR J7)", () => {
     }
   });
 
-  test("cache counts above the input count are clamped, and bad counts are zero", () => {
+  test("PR J7 fix round 1: the input is at least the cache reads plus writes, so no write is priced away; bad counts are zero", () => {
+    // A route that reports 1,000 input tokens but 5,000 written: the input is 5,000, all written at $2.50.
     expect(
       stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 0, inputTokenDetails: { cacheWriteTokens: 5_000 } } }, sonnet),
-    ).toBe(2_500);
+    ).toBe(12_500);
+    // 1,000 reported, 3,000 read and 2,000 written: input 5,000; reads at the full price in the fallback.
+    expect(
+      stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 3_000, cacheWriteTokens: 2_000 } } }, sonnet),
+    ).toBe(3_000 * 2 + 2_000 * 2.5);
+    // The tier comes from that input: 60K read plus 50K written passes Haiku's 100K short tier.
+    expect(
+      stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 60_000, cacheWriteTokens: 50_000 } } }, haiku),
+    ).toBe(60_000 * 0.5 + 50_000 * 0.5 * 1.25);
+    // A reported input above the cache counts is kept: the rest is plain input.
+    expect(
+      stepCostMicros({ usage: { inputTokens: 10_000, outputTokens: 0, inputTokenDetails: { cacheWriteTokens: 4_000 } } }, sonnet),
+    ).toBe(6_000 * 2 + 4_000 * 2.5);
     expect(
       stepCostMicros({ usage: { inputTokens: 1_000, outputTokens: 0, inputTokenDetails: { cacheWriteTokens: Number.NaN } } }, sonnet),
     ).toBe(2_000);

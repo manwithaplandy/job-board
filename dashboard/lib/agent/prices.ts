@@ -182,12 +182,20 @@ export interface CallTokens {
  * CACHE_WRITE_MULTIPLIER times the input price. Cache reads cost CACHE_READ_MULTIPLIER times
  * it only with `discountReads` (the dry runs' estimates); without it (budget.ts's fallback
  * for a step with no billed cost, which must never price a step low) a read costs the full
- * input price. Counts are clamped so reads plus writes never exceed the input.
+ * input price.
+ *
+ * The input is never taken as less than the cache reads plus writes (PR J7 fix round 1): a
+ * route that reports its input without the cached tokens would otherwise have its writes
+ * clamped down and the call priced low. So input = max(inputTokens, reads + writes), every
+ * write is priced, reads are what is left of the input after the writes, and the tier is
+ * chosen from that input.
  */
 export function callCostMicros(t: CallTokens, modelId: string, opts: { discountReads: boolean }): number {
-  const input = Math.max(0, t.inputTokens);
-  const write = Math.min(input, Math.max(0, t.cacheWriteTokens ?? 0));
-  const read = Math.min(input - write, Math.max(0, t.cacheReadTokens ?? 0));
+  const writeIn = Math.max(0, t.cacheWriteTokens ?? 0);
+  const readIn = Math.max(0, t.cacheReadTokens ?? 0);
+  const input = Math.max(0, t.inputTokens, readIn + writeIn);
+  const write = writeIn;
+  const read = Math.min(input - write, readIn);
   const plain = input - write - read;
   const price = priceFor(modelId, input);
   const readRate = opts.discountReads ? CACHE_READ_MULTIPLIER : 1;

@@ -27,7 +27,16 @@ export const PRICE_PER_MTOK_MICROS: Record<string, Price> & { default: Price } =
   default: mostExpensive(Object.values(MODEL_PRICES)),
 };
 
-/** Own-property lookup, so "constructor" or "__proto__" is an unknown model, not a price. */
+/**
+ * Own-property lookup, so "constructor" or "__proto__" is an unknown model, not a price.
+ * An unknown model takes `default`: the dearer of the two eval models, not a worst case
+ * (a model dearer than Sonnet 5.5 is priced low here).
+ */
 export function priceFor(modelId: string): Price {
   return Object.hasOwn(PRICE_PER_MTOK_MICROS, modelId) ? PRICE_PER_MTOK_MICROS[modelId] : PRICE_PER_MTOK_MICROS.default;
+}
+
+/** Whether the table has the model's own row (`default` is not a model). The paid eval modes run only priced models. */
+export function isPriced(modelId: string): boolean {
+  return Object.hasOwn(MODEL_PRICES, modelId);
 }

@@ -12,6 +12,7 @@ import {
   CapUsageError,
   MATRIX_CELLS,
   PROFILE_CAP_SPECS,
+  PROFILE_REQUIRES_COST,
   RunBudget,
   TOTAL_CAP_KEYS,
   TOTAL_CAP_SPECS,
@@ -21,6 +22,7 @@ import {
   parseTotalCaps,
   profileCeilings,
   profileDefaults,
+  profileBudget,
   profileFlags,
   totalBudget,
   totalCapsFromEnv,
@@ -29,7 +31,8 @@ import {
 import { estimateInjection, estimateJudge, estimateMatrix, matrixPlan } from "@/lib/agent/evals/matrixPlan";
 import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 
-const usage = (inputTokens: number, outputTokens: number, costUsd: number | null = null) => ({ inputTokens, outputTokens, costUsd });
+// A reported cost by default: the paid modes require one on every call (PROFILE_REQUIRES_COST).
+const usage = (inputTokens: number, outputTokens: number, costUsd: number | null = 0.01) => ({ inputTokens, outputTokens, costUsd });
 
 describe("cap profiles", () => {
   test("the golden profile is the A17 caps, unchanged", () => {
@@ -172,6 +175,21 @@ describe("the whole-command budget", () => {
     expect(() => next.startCase()).toThrow(CapExceededError);
   });
 
+  test("a call with no reported cost trips the total as cost_unknown, so the whole command stops", () => {
+    const total = totalBudget({ maxTotalTokens: 1_000_000, maxTotalUsd: 100 });
+    const run = profileBudget("matrix", modelCaps, total);
+    run.startCase();
+    run.startTurn();
+    run.beforeStep();
+    run.recordStep(usage(1_000, 100, null));
+    expect(total.tripped?.cap).toBe("cost_unknown");
+    expect(run.tripped?.cap).toBe("cost_unknown");
+    expect(run.signal.aborted).toBe(true);
+    expect(() => run.beforeStep()).toThrow(/cost_unknown/);
+    const later = profileBudget("matrix", modelCaps, total);
+    expect(() => later.startCase()).toThrow(/cost_unknown/);
+  });
+
   test("unknown usage in any model trips the total, so the whole command stops", () => {
     const total = totalBudget({ maxTotalTokens: 1_000_000, maxTotalUsd: 100 });
     const run = new RunBudget(modelCaps, Date.now, total);
@@ -184,5 +202,64 @@ describe("the whole-command budget", () => {
     const later = new RunBudget(modelCaps, Date.now, total);
     expect(later.signal.aborted).toBe(true);
     expect(() => later.startCase()).toThrow(/usage_unknown/);
+  });
+});
+
+describe("dollar caps never switch off in the paid modes (cost_unknown)", () => {
+  const caps = { maxCases: 10, maxSteps: 8, maxTokens: 1_000_000, maxUsd: 1, maxMinutes: 60 };
+  const step = (b: RunBudget, u: ReturnType<typeof usage>) => {
+    b.beforeStep();
+    b.recordStep(u);
+  };
+
+  test("the matrix, injection and judge require a reported cost; the golden run keeps A17's rule", () => {
+    expect(PROFILE_REQUIRES_COST).toEqual({ golden: false, matrix: true, injection: true, judge: true });
+    expect(profileBudget("golden", caps).requireCost).toBe(false);
+    expect(totalBudget({ maxTotalTokens: 1_000, maxTotalUsd: 1 }).requireCost).toBe(true);
+  });
+
+  for (const profile of ["matrix", "injection", "judge"] as const) {
+    test(`${profile}: a first call without a cost trips cost_unknown, counts its tokens and refuses the next call`, () => {
+      const b = profileBudget(profile, caps);
+      b.startCase();
+      b.startTurn();
+      step(b, usage(2_000, 300, null));
+      expect(b.tripped?.cap).toBe("cost_unknown");
+      expect(b.signal.aborted).toBe(true);
+      expect(b.usdEnforcement).not.toBe("not_enforced");
+      expect(b.totals.inputTokens).toBe(2_000);
+      expect(() => b.beforeStep()).toThrow(CapExceededError);
+      expect(() => b.endTurn()).toThrow(/cost_unknown/);
+      expect(b.report()).toMatch(/cap_exceeded \(cost_unknown/);
+    });
+  }
+
+  test("a later call without a cost trips cost_unknown too, after the cap was enforced", () => {
+    const b = profileBudget("matrix", caps);
+    b.startCase();
+    b.startTurn();
+    step(b, usage(1_000, 100, 0.2));
+    expect(b.usdEnforcement).toBe("enforced");
+    step(b, usage(1_000, 100, null));
+    expect(b.tripped?.cap).toBe("cost_unknown");
+  });
+
+  test("with every cost reported, max_usd still trips as before", () => {
+    const b = profileBudget("judge", caps);
+    b.startCase();
+    b.startTurn();
+    step(b, usage(1_000, 100, 0.6));
+    // $0.60 spent plus the dearest call so far could pass $1: refused before it is sent.
+    expect(() => b.beforeStep()).toThrow(/max_usd/);
+    expect(b.tripped?.cap).toBe("max_usd");
+  });
+
+  test("the golden run is unchanged: no cost on the first call means tokens only, reported as not enforced", () => {
+    const b = profileBudget("golden", caps);
+    b.startCase();
+    b.startTurn();
+    step(b, usage(1_000, 100, null));
+    expect(b.tripped).toBeNull();
+    expect(b.usdEnforcement).toBe("not_enforced");
   });
 });

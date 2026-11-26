@@ -26,7 +26,8 @@ import { matrixDatasetItem, matrixRecordingPath, matrixTable, runMatrix, usageOf
 import { measure, recordingSignature } from "@/lib/agent/evals/measures";
 import type { Recording } from "@/lib/agent/evals/recording";
 import { AGENT_EVAL_MODELS } from "@/lib/agent/config";
-import { RunBudget, capsFromEnv, totalBudget, totalCapsFromEnv } from "@/lib/agent/evals/budget";
+import { capsFromEnv, totalBudget, totalCapsFromEnv, type RunBudget } from "@/lib/agent/evals/budget";
+import { assertPricedModels } from "@/lib/agent/evals/matrixPlan";
 
 vi.mock("next/server", async (importOriginal) => {
   const real = await importOriginal<typeof import("next/server")>();
@@ -51,6 +52,8 @@ const models = (process.env.EVAL_MODELS ?? "")
   .filter((m) => m.length > 0);
 const runModels = models.length > 0 ? models : [...AGENT_EVAL_MODELS];
 if (!runModels.every((m) => MODEL_RE.test(m))) throw new Error("eval: EVAL_MODELS holds something that is not a model id");
+// Re-checked here as eval-agent.mjs does: only models with a row in the price table run.
+assertPricedModels(runModels);
 const outDir = fileURLToPath(new URL("./recordings/matrix/", import.meta.url));
 
 vi.stubEnv("AGENT_TOOL_APPROVAL_SECRET", process.env.AGENT_TOOL_APPROVAL_SECRET || "e".repeat(40));

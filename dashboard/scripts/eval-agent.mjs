@@ -66,9 +66,14 @@
 //   --max-tokens <n>        tokens over the whole run                 default 3,000,000, ceiling 6,000,000
 //   --max-usd <n>           reported dollars over the whole run       default 10,  ceiling 20
 //   --max-minutes <n>       wall clock for the whole run              default 60,  ceiling 120
-// --max-usd and --max-total-usd are enforced only when OpenRouter reports each call's cost;
-// if it does not, only the token caps apply and the report says so. No price table stands
-// in for them.
+// Dollar caps come from the cost OpenRouter reports for each call; no price table stands in
+// for them. Matrix, injection and judge: a call that reports no cost stops the run
+// (cost_unknown), so --max-usd and --max-total-usd never switch off. Golden run (A17,
+// unchanged): --max-usd is enforced only when OpenRouter reports the cost; if the first
+// call carries none, only the token cap applies and the report says so.
+//
+// --models and --model (matrix, injection) take only models with a row in
+// lib/agent/prices.ts; any other is a usage error (exit 2), dry run included.
 //
 // Needs Node 22.18 or later: it loads budget.ts and matrixPlan.ts directly (type
 // stripping), so a bad flag is refused here before vitest or the database starts any work.
@@ -180,6 +185,12 @@ const models =
     : args.mode === "judge"
       ? [judgeModel.AGENT_JUDGE_MODEL]
       : plan.runModels({ models: args.models, model: args.model });
+// The matrix and the injection set run only models in the price table, so neither the dry
+// run nor the caps' sizing ever prices a model at another model's rate (dry run included).
+if (args.mode === "matrix" || args.mode === "injection") {
+  const unpriced = plan.unpricedModels(models);
+  if (unpriced.length > 0) usage(plan.unpricedMessage(unpriced));
+}
 
 if (args.dryRun) {
   if (args.mode === "matrix") console.log(plan.formatMatrixDryRun({ models, caps: args.caps, totals: args.totals }));

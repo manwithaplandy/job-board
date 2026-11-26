@@ -8,8 +8,10 @@
 //   max_cases    scenario x persona runs played (the first n of the 12)
 //   max_steps    model calls in one turn of a case; at most the route's own AGENT_LIMITS.maxSteps
 //   max_tokens   input + output tokens summed over every model call in the run
-//   max_usd      spend summed from the provider's reported cost; enforced only when
-//                the provider reports it (OpenRouter usage.cost), never from a price table
+//   max_usd      spend summed from the provider's reported cost (OpenRouter usage.cost),
+//                never from a price table. Golden run: enforced only when the provider
+//                reports it. Matrix, injection and judge: a call without a reported
+//                cost trips the run (cost_unknown), so this cap never switches off
 //   max_minutes  wall clock from the start of the run
 //
 // Pure, with no runtime imports, so scripts/eval-agent.mjs can load it (Node strips the
@@ -20,8 +22,12 @@ export const CAP_KEYS = ["maxCases", "maxSteps", "maxTokens", "maxUsd", "maxMinu
 export type CapKey = (typeof CAP_KEYS)[number];
 export type EvalCaps = Record<CapKey, number>;
 
-/** What tripped: one of the caps, or a step whose usage could not be read. */
-export type CapName = "max_cases" | "max_steps" | "max_tokens" | "max_usd" | "max_minutes" | "usage_unknown";
+/**
+ * What tripped: one of the caps, a step whose usage could not be read, or (matrix,
+ * injection and judge runs only) a step that reported no OpenRouter cost, so the dollar
+ * caps could not be enforced.
+ */
+export type CapName = "max_cases" | "max_steps" | "max_tokens" | "max_usd" | "max_minutes" | "usage_unknown" | "cost_unknown";
 
 /** The route's per-turn step limit (AGENT_LIMITS.maxSteps); budget.test.ts holds them equal. */
 export const ROUTE_MAX_STEPS = 8;
@@ -31,7 +37,7 @@ export const ALL_CASES = 12;
 export const DEFAULT_OUTPUT_RESERVE = 4000;
 
 interface CapSpec {
-  name: Exclude<CapName, "usage_unknown">;
+  name: Exclude<CapName, "usage_unknown" | "cost_unknown">;
   flag: string;
   env: string;
   /** Whole numbers only (all but max_usd, which takes cents). */
@@ -91,11 +97,29 @@ function mapCaps(f: (s: CapSpec) => number, specs: Record<CapKey, CapSpec> = CAP
 //   5.6M tokens and $13 on Sonnet; defaults 9M tokens and $25, ceilings twice that.
 // - judge: one model (openai/gpt-5.5), 144 pairs by default (two repeats of each
 //   scenario, persona and variant pair, both models), estimated about 1.8M tokens and
-//   $4 at the fallback price; a small cap of 3M tokens and $10.
+//   $4 at the fallback price (Sonnet 5.5's list price; gpt-5.5's own price is not in the
+//   table, so the estimate may be high or low); a small cap of 3M tokens and $10.
+//
+// Dollar caps never switch off in these three modes: a model call that reports no
+// OpenRouter cost trips the run as cost_unknown (PROFILE_REQUIRES_COST), where the golden
+// run (A17, unchanged) falls back to its token cap alone.
 // ---------------------------------------------------------------------------
 
 export const CAP_PROFILES = ["golden", "matrix", "injection", "judge"] as const;
 export type CapProfile = (typeof CAP_PROFILES)[number];
+
+/**
+ * Whether every model call of a profile must report its OpenRouter cost. True for the
+ * matrix, the injection set and the judge: a call without one trips cost_unknown, so
+ * max_usd and max_total_usd always hold. False for the golden run, whose A17 behaviour
+ * stays as approved (no cost on the first call: tokens only, and the report says so).
+ */
+export const PROFILE_REQUIRES_COST: Record<CapProfile, boolean> = {
+  golden: false,
+  matrix: true,
+  injection: true,
+  judge: true,
+};
 
 export const TOTAL_CAP_KEYS = ["maxTotalTokens", "maxTotalUsd"] as const;
 export type TotalCapKey = (typeof TOTAL_CAP_KEYS)[number];
@@ -275,7 +299,8 @@ export function totalCapsToEnv(caps: TotalCaps | null, profile: CapProfile): Rec
 /**
  * The whole-command budget of a run over several models: only its token and dollar caps
  * count (cases, steps and minutes are each model's own), and every model's RunBudget
- * reports each call to it.
+ * reports each call to it. Only the matrix and the injection set have one, and both
+ * require a reported cost on every call (PROFILE_REQUIRES_COST), so this one does too.
  */
 export function totalBudget(caps: TotalCaps, now: () => number = Date.now): RunBudget {
   return new RunBudget(
@@ -287,7 +312,14 @@ export function totalBudget(caps: TotalCaps, now: () => number = Date.now): RunB
       maxMinutes: Number.MAX_SAFE_INTEGER / 120_000,
     },
     now,
+    null,
+    true,
   );
+}
+
+/** One model's RunBudget for a profile: its caps, the cost rule of the profile, and an optional whole-command parent. */
+export function profileBudget(profile: CapProfile, caps: EvalCaps, parent: RunBudget | null = null, now: () => number = Date.now): RunBudget {
+  return new RunBudget(caps, now, parent, PROFILE_REQUIRES_COST[profile]);
 }
 
 /** One model call's usage: tokens, and the provider's reported cost in dollars when it gave one. */
@@ -358,12 +390,15 @@ export class RunBudget {
 
   /** The whole-command budget every call also reports to (a run over several models), or null. */
   private readonly parent: RunBudget | null;
+  /** A call that reports no cost trips cost_unknown (matrix, injection, judge), never "not enforced". */
+  readonly requireCost: boolean;
 
-  constructor(caps: EvalCaps, now: () => number = Date.now, parent: RunBudget | null = null) {
+  constructor(caps: EvalCaps, now: () => number = Date.now, parent: RunBudget | null = null, requireCost = false) {
     this.caps = caps;
     this.now = now;
     this.startedAt = now();
     this.parent = parent;
+    this.requireCost = requireCost;
     if (parent) {
       // A trip of the whole command trips this run too (and aborts a call in flight).
       const follow = () => {
@@ -508,8 +543,10 @@ export class RunBudget {
   /**
    * After a model call, with its usage, or null when it could not be read (a missing or
    * malformed finish part, a stream that ended without one): null trips usage_unknown.
-   * The first call decides the dollar cap: enforced when it reported a cost, not
-   * enforced (tokens only) when it did not. Once enforced, a call without a cost trips
+   * With requireCost (matrix, injection, judge), a call without a cost trips
+   * cost_unknown, so the dollar caps are always enforced. Otherwise (golden, A17) the
+   * first call decides the dollar cap: enforced when it reported a cost, not enforced
+   * (tokens only) when it did not; once enforced, a call without a cost trips
    * usage_unknown. Does not throw: the trip aborts `signal` and the next check throws.
    */
   recordStep(usage: StepUsage | null): void {
@@ -522,6 +559,10 @@ export class RunBudget {
     this.inputTokens += usage.inputTokens;
     this.outputTokens += usage.outputTokens;
     this.lastInputTokens = usage.inputTokens;
+    if (usage.costUsd === null && this.requireCost) {
+      this.trip("cost_unknown", "a model call reported no OpenRouter cost, so the dollar caps could not be enforced");
+      return;
+    }
     if (this.usd === "pending") this.usd = usage.costUsd === null ? "not_enforced" : "enforced";
     if (this.usd === "enforced") {
       if (usage.costUsd === null) {
@@ -543,7 +584,9 @@ export class RunBudget {
     const t = this.totals;
     const status = this.trippedAt ? `cap_exceeded (${this.trippedAt.cap}: ${this.trippedAt.detail})` : "within caps";
     const usd =
-      this.usd === "enforced"
+      this.trippedAt?.cap === "cost_unknown"
+        ? `$${t.costUsd.toFixed(4)} reported before a call came back without its cost (the run stopped there)`
+        : this.usd === "enforced"
         ? `$${t.costUsd.toFixed(4)}`
         : this.usd === "not_enforced"
           ? "not enforced: the provider reported no cost, so only the token cap applied"

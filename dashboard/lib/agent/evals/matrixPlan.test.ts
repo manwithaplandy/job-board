@@ -8,8 +8,12 @@ import { profileDefaults, TOTAL_CAP_SPECS, parseTotalCaps } from "@/lib/agent/ev
 import {
   MATRIX_PERSONAS,
   MATRIX_SCENARIOS,
+  UnpricedModelError,
+  assertPricedModels,
   cellKey,
+  estimateInjection,
   estimateMatrix,
+  unpricedModels,
   formatMatrixDryRun,
   formatSimpleDryRun,
   matrixPlan,
@@ -73,14 +77,24 @@ describe("the estimate", () => {
     expect(e.total.costMicros).toBe(41_040_000);
   });
 
-  test("Haiku costs a quarter of Sonnet for the same work, and an unknown model the dearest price", () => {
-    const plan = matrixPlan(["anthropic/claude-haiku-5.5", "x/unknown", "anthropic/claude-sonnet-5.5"]);
+  test("Haiku costs a quarter of Sonnet for the same work", () => {
+    const plan = matrixPlan(["anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5"]);
     const haiku = estimateMatrix(plan, "anthropic/claude-haiku-5.5").total;
     const sonnet = estimateMatrix(plan, "anthropic/claude-sonnet-5.5").total;
-    const unknown = estimateMatrix(plan, "x/unknown").total;
     expect(haiku.costMicros).toBe(10_260_000);
     expect(haiku.inputTokens).toBe(sonnet.inputTokens);
-    expect(unknown.costMicros).toBe(sonnet.costMicros);
+  });
+
+  test("an unpriced model is refused for the matrix and the injection set, never priced at Sonnet's rate", () => {
+    expect(unpricedModels(["anthropic/claude-sonnet-5.5", "x/unknown", "default", "constructor"])).toEqual(["x/unknown", "default", "constructor"]);
+    expect(() => assertPricedModels(AGENT_EVAL_MODELS)).not.toThrow();
+    const plan = matrixPlan(["x/unknown"]);
+    expect(() => estimateMatrix(plan, "x/unknown")).toThrow(UnpricedModelError);
+    expect(() => estimateInjection("x/unknown", 45)).toThrow(/no price for x\/unknown/);
+    expect(() => formatMatrixDryRun({ models: ["x/unknown"], caps: profileDefaults("matrix"), totals: null })).toThrow(UnpricedModelError);
+    expect(() =>
+      formatSimpleDryRun({ profile: "injection", models: ["x/unknown"], runs: 45, caps: profileDefaults("injection"), totals: null }),
+    ).toThrow(UnpricedModelError);
   });
 });
 
@@ -115,7 +129,26 @@ describe("the dry run", () => {
     expect(inj).toContain("| anthropic/claude-sonnet-5.5 | 45 | 360 | 5.40M | 0.22M | $12.96 |");
     expect(inj).toContain("--max-total-tokens");
     const judge = formatSimpleDryRun({ profile: "judge", models: ["openai/gpt-5.5"], runs: 144, caps: profileDefaults("judge"), totals: null });
-    expect(judge).toContain("| openai/gpt-5.5 | 144 | 144 | 1.73M | 0.06M | $4.03 |");
+    expect(judge).toContain("| openai/gpt-5.5 | 144 | 144 | 1.73M | 0.06M | $4.03 | yes |");
     expect(judge).toContain("| --max-pairs | judged pairs | 144 | 144 | 360 |");
+    // The judge model is unpriced: the estimate says so and claims nothing about its direction.
+    expect(judge).toMatch(/estimated at Sonnet 5\.5's list price: its real price may be\nhigher or lower/);
+    expect(judge).not.toMatch(/probably high|dearest/);
+  });
+
+  test("the injection and judge dry runs warn when the estimate would pass a cap, like the matrix's", () => {
+    const judge = formatSimpleDryRun({ profile: "judge", models: ["openai/gpt-5.5"], runs: 360, caps: profileDefaults("judge"), totals: null });
+    // 360 pairs: 4.46M tokens and $10.08 against the 3M and $10 defaults.
+    expect(judge).toMatch(/\| \$10\.08 \| NO: the run would stop at a cap \|/);
+    const inj = formatSimpleDryRun({
+      profile: "injection",
+      models: [...AGENT_EVAL_MODELS],
+      runs: 45,
+      caps: { ...profileDefaults("injection"), maxUsd: 5 },
+      totals: { maxTotalTokens: 18_000_000, maxTotalUsd: 10 },
+    });
+    expect(inj).toMatch(/\| anthropic\/claude-sonnet-5\.5 \| 45 \| .* \$12\.96 \| NO: the run would stop at a cap \|/);
+    expect(inj).toMatch(/\| anthropic\/claude-haiku-5\.5 \| 45 \| .* \$3\.24 \| yes \|/);
+    expect(inj).toMatch(/\| all models \| 90 \| 720 \| .* \$16\.20 \| NO: the run would stop at the total cap \|/);
   });
 });

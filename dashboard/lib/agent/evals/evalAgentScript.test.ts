@@ -93,6 +93,27 @@ describe("eval-agent.mjs", () => {
     expect(noKey.err).toMatch(/eval:agent -- --judge/);
   });
 
+  test("the matrix and the injection set refuse a model with no price, dry run included, with exit 2", () => {
+    // The review's case: two dear models that the old dry run priced at Sonnet's $41.04 and called within caps.
+    const m = run("--matrix", "--dry-run", "--models", "anthropic/claude-opus-4,openai/o1-pro");
+    expect(m.status).toBe(2);
+    expect(m.err).toMatch(/no price for anthropic\/claude-opus-4, openai\/o1-pro in lib\/agent\/prices\.ts/);
+    expect(m.out).not.toContain("Within caps");
+    expect(run("--matrix", "--models", "anthropic/claude-sonnet-5.5,x/unpriced")).toMatchObject({ status: 2 });
+    const i = run("--injection", "--dry-run", "--model", "x/unpriced");
+    expect(i.status).toBe(2);
+    expect(i.err).toMatch(/no price for x\/unpriced/);
+    // A priced model still runs its dry run.
+    expect(run("--injection", "--dry-run", "--model", "anthropic/claude-haiku-5.5").status).toBe(0);
+  });
+
+  test("the judge dry run warns when --max-pairs would pass its caps and says its price is unverified", () => {
+    const r = run("--judge", "--dry-run", "--max-pairs", "360");
+    expect(r.status).toBe(0);
+    expect(r.out).toMatch(/\| openai\/gpt-5\.5 \| 360 \| .* NO: the run would stop at a cap \|/);
+    expect(r.out).toMatch(/real price may be\nhigher or lower/);
+  });
+
   test("a real run without OPENROUTER_API_KEY is refused before vitest starts", () => {
     const matrix = run("--matrix");
     expect(matrix.status).toBe(2);

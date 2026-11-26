@@ -35,7 +35,7 @@ import { loadInjectionFixture, type InjectionCase, type InjectionResult } from "
 import { collectRecording, rerenderUsage, snapshotDb } from "@/lib/agent/evals/record";
 import { playScenario, readStream, type TurnRunner } from "@/lib/agent/evals/play";
 import { recordingFileName, type Recording } from "@/lib/agent/evals/recording";
-import { RunBudget, type EvalCaps } from "@/lib/agent/evals/budget";
+import { profileBudget, type EvalCaps, type RunBudget } from "@/lib/agent/evals/budget";
 import { budgetMiddleware } from "@/lib/agent/evals/budgetMiddleware";
 import { rerenderSurface } from "@/lib/agent/rerender";
 import type { StoredSurface } from "@/lib/agent/surfaces/store";
@@ -313,7 +313,8 @@ export function liveMatrixRunner(
   };
   return {
     startModel: (model) => {
-      budget = new RunBudget(a.caps, Date.now, a.total);
+      // The matrix profile: a call that reports no cost trips cost_unknown.
+      budget = profileBudget("matrix", a.caps, a.total);
       budget.armClock();
       a.onBudget(model, budget);
     },

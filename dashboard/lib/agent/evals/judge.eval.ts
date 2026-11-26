@@ -23,7 +23,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { agentModel } from "@/lib/agent/provider";
 import { budgetedModel } from "@/lib/agent/evals/budgetMiddleware";
-import { RunBudget, capsFromEnv } from "@/lib/agent/evals/budget";
+import { capsFromEnv, profileBudget } from "@/lib/agent/evals/budget";
 import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 import { awaitsRender, handCheckCsv, judgePair, judgePairs, judgeQueue, judgeTable, sampleForHandCheck, type JudgeResult, type RenderedText } from "@/lib/agent/evals/judge";
 import { matrixRecordingPath } from "@/lib/agent/evals/matrix";
@@ -32,7 +32,8 @@ import { readRenderResults, renderedTextIndex } from "@/lib/agent/evals/renderRe
 
 // A cap above its ceiling throws CapUsageError here, before any model work.
 const caps = capsFromEnv(process.env, "judge");
-const budget = new RunBudget(caps);
+// The judge profile: a call that reports no cost trips cost_unknown.
+const budget = profileBudget("judge", caps);
 const results: JudgeResult[] = [];
 const notes: string[] = [];
 

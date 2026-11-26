@@ -31,8 +31,8 @@ export function AgentPageView({
 }) {
   return (
     <main className="rf-secondary-page">
-      <div className="rf-secondary-wrap rf-secondary-wrap--wide rf-secondary-stack">
-        <PageHeader title="Agent" description="Ask about your reviewed jobs, companies and profile." actions={badge} />
+      <div className="rf-secondary-wrap rf-secondary-wrap--wide rf-secondary-stack rf-agent-page">
+        <PageHeader className="rf-agent-header" title="Agent" description="Ask about your reviewed jobs, companies and profile." actions={badge} />
         <div className="rf-agent-layout">
           <ThreadList threads={threads} currentId={currentId} />
           <div className="rf-agent-main">

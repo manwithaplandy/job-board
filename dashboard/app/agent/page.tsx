@@ -105,6 +105,7 @@ export default async function AgentPage({
     <AgentChat
       key={thread.id}
       threadId={thread.id}
+      title={thread.title}
       initialMessages={messages}
       notice={notice}
       autoTitle={messages.length === 0 && thread.title === DEFAULT_THREAD_TITLE}

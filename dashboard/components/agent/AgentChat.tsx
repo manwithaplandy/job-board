@@ -317,8 +317,11 @@ export function AgentChat({
   compare = null,
   hasProfile = true,
   variants = null,
+  title = null,
 }: {
   threadId: string;
+  /** The thread's title, shown in the toolbar above the conversation. */
+  title?: string | null;
   initialMessages: UIMessage[];
   notice: AgentBlockingNotice | null;
   autoTitle?: boolean;
@@ -335,6 +338,9 @@ export function AgentChat({
   const router = useRouter();
   const tracker = useGenerationTracker();
   const [draft, setDraft] = useState("");
+  // The toolbar's title: an untitled thread takes its first message's title at once (the
+  // server rename lands in the background).
+  const [shownTitle, setShownTitle] = useState(title);
   const [blocking, setBlocking] = useState<AgentBlockingNotice | null>(notice);
   // A failed send: its sentence, and whether Retry can resend (the message stayed; a
   // refusal took it back out and returned its text to the composer instead).
@@ -392,6 +398,7 @@ export function AgentChat({
     setDraft("");
     if (!named.current) {
       named.current = true;
+      setShownTitle(titleFromFirstMessage(text));
       void renameThreadAction(threadId, titleFromFirstMessage(text)).catch(() => {});
     }
     const documentIds = attached.map((d) => d.id);
@@ -419,7 +426,8 @@ export function AgentChat({
       // The composer is empty and nothing is attached on mount, so this is send() without
       // its state resets.
       named.current = true;
-      void renameThreadAction(threadId, titleFromFirstMessage(first.text)).catch(() => {});
+      const firstTitle = titleFromFirstMessage(first.text);
+      void renameThreadAction(threadId, firstTitle).then(() => setShownTitle(firstTitle), () => {});
       void sendMessage({ text: first.text }, first.documentIds.length > 0 ? { body: { documentIds: first.documentIds } } : undefined);
       return;
     }
@@ -429,7 +437,8 @@ export function AgentChat({
       // its state resets.
       const text = compareMessage(compare[0], compare[1]);
       named.current = true;
-      void renameThreadAction(threadId, titleFromFirstMessage(text)).catch(() => {});
+      const compareTitle = titleFromFirstMessage(text);
+      void renameThreadAction(threadId, compareTitle).then(() => setShownTitle(compareTitle), () => {});
       void sendMessage({ text });
     }
     router.replace(`/agent?t=${encodeURIComponent(threadId)}`);
@@ -646,7 +655,7 @@ export function AgentChat({
   const approvalProblem =
     waitingId === null ? null : !approvalsEnabled || approvalCard?.status === "unavailable" ? CONFIRMATIONS_UNAVAILABLE : approvalCard?.status === "invalid" ? APPROVAL_INVALID : null;
 
-  // Placement: each chain renders once. At 1024px and wider the latest chain takes the
+  // Placement: each chain renders once. At 1200px and wider the latest chain takes the
   // wide column; every other chain renders inline at the present call that produced its
   // latest row (an earlier row's call renders nothing), or at the end when no call in
   // the loaded history names it.
@@ -685,46 +694,59 @@ export function AgentChat({
   );
 
   return (
-    <div className={columnChain ? "rf-agent-workspace rf-agent-workspace--split" : "rf-agent-workspace"}>
-      <section className="rf-agent-chat" aria-label="Conversation">
-        {/* A change during a turn applies to the next one: the loop read the variant when the turn started. */}
-        {variants && <VariantSwitcher threadId={threadId} state={variants} />}
-        {messages.length > 0 && (
-          // aria-busy holds the live region's announcement while a reply streams, so a
-          // screen reader reads the finished reply once, not every token.
-          <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
-            {messages.map((m) => (
-              <MessageView key={m.id} message={m} renderSurface={renderSurface} />
-            ))}
-          </ol>
-        )}
-        {/* The Send button's own status announces the wait; this line is for the eye. */}
-        {waitingForReply && (
-          <p className="rf-agent-waiting" aria-hidden="true">
-            Thinking…
-          </p>
-        )}
-        {/* One failure line, where the answer would have been: a failed send, or else a
-            stored reply that never finished. */}
-        {problem && !blocking ? (
-          <TurnError text={problem.text} onRetry={problem.retry ? retry : null} />
-        ) : (
-          interrupted && !blocking && <TurnError title={INTERRUPTED_TITLE} text={INTERRUPTED_TEXT} onRetry={retry} />
-        )}
-        {orphans.map((c) => (
-          <Fragment key={c.chainId}>{chainView(c)}</Fragment>
-        ))}
-        <ReviewProgress watch={reviewWatch} />
-        {blocking && <AgentNotice kind={blocking} />}
-        {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
-        {shownConfirm && <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />}
-        {messages.length === 0 ? <EmptyState hasProfile={hasProfile} composer={composer} /> : composer}
-      </section>
-      {columnChain && (
-        <aside className="rf-agent-surface-column" aria-label="Latest view">
-          {chainView(columnChain)}
-        </aside>
+    <div className="rf-agent-conversation">
+      {(shownTitle || variants) && (
+        // The fixed chrome above the conversation (spec 6.1): the thread's title and the
+        // switcher for how answers are drawn. It wraps; nothing in it overlaps.
+        <div className="rf-agent-toolbar">
+          {shownTitle && (
+            <h2 className="rf-agent-toolbar__title" title={shownTitle}>
+              {shownTitle}
+            </h2>
+          )}
+          {/* A change during a turn applies to the next one: the loop read the variant when the turn started. */}
+          {variants && <VariantSwitcher threadId={threadId} state={variants} />}
+        </div>
       )}
+      <div className={columnChain ? "rf-agent-workspace rf-agent-workspace--split" : "rf-agent-workspace"}>
+        <section className="rf-agent-chat" aria-label="Conversation">
+          {messages.length > 0 && (
+            // aria-busy holds the live region's announcement while a reply streams, so a
+            // screen reader reads the finished reply once, not every token.
+            <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
+              {messages.map((m) => (
+                <MessageView key={m.id} message={m} renderSurface={renderSurface} />
+              ))}
+            </ol>
+          )}
+          {/* The Send button's own status announces the wait; this line is for the eye. */}
+          {waitingForReply && (
+            <p className="rf-agent-waiting" aria-hidden="true">
+              Thinking…
+            </p>
+          )}
+          {/* One failure line, where the answer would have been: a failed send, or else a
+              stored reply that never finished. */}
+          {problem && !blocking ? (
+            <TurnError text={problem.text} onRetry={problem.retry ? retry : null} />
+          ) : (
+            interrupted && !blocking && <TurnError title={INTERRUPTED_TITLE} text={INTERRUPTED_TEXT} onRetry={retry} />
+          )}
+          {orphans.map((c) => (
+            <Fragment key={c.chainId}>{chainView(c)}</Fragment>
+          ))}
+          <ReviewProgress watch={reviewWatch} />
+          {blocking && <AgentNotice kind={blocking} />}
+          {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
+          {shownConfirm && <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />}
+          {messages.length === 0 ? <EmptyState hasProfile={hasProfile} composer={composer} /> : composer}
+        </section>
+        {columnChain && (
+          <aside className="rf-agent-surface-column" aria-label="Latest view">
+            {chainView(columnChain)}
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

@@ -120,6 +120,7 @@ export function AgentPageFixture({ state }: { state: AgentPageFixtureState }) {
         {open ? (
           <AgentChat
             threadId={THREAD}
+            title={LONG_TITLE}
             initialMessages={messages}
             notice={null}
             surfaces={state === "agent-page-surface" ? CHAINS : []}

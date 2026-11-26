@@ -49,10 +49,12 @@ export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
   label: ReactNode;
   description?: ReactNode;
   error?: ReactNode;
+  /** Keeps the label for assistive technology but hides it visually (a chat composer). */
+  visuallyHideLabel?: boolean;
 }
 
-export function TextArea({ label, description, error, id, className, required, "aria-describedby": consumerDescribedBy, "aria-invalid": consumerInvalid, ...props }: TextAreaProps) {
-  return <FieldChrome id={id} label={label} description={description} error={error} required={required}>{({ id: controlId, describedBy }) => (
+export function TextArea({ label, description, error, id, className, required, visuallyHideLabel = false, "aria-describedby": consumerDescribedBy, "aria-invalid": consumerInvalid, ...props }: TextAreaProps) {
+  return <FieldChrome id={id} label={label} description={description} error={error} required={required} labelClassName={visuallyHideLabel ? "sr-only" : undefined}>{({ id: controlId, describedBy }) => (
     <textarea {...props} id={controlId} className={["rf-control", "rf-control--textarea", "rf-focusable", className].filter(Boolean).join(" ")} required={required} aria-invalid={error ? true : consumerInvalid} aria-describedby={mergeDescribedBy(consumerDescribedBy, describedBy)} />
   )}</FieldChrome>;
 }
@@ -78,11 +80,17 @@ export interface FileUploadProps extends Omit<InputHTMLAttributes<HTMLInputEleme
   nameClassName?: string;
   visuallyHideLabel?: boolean;
   announceFilename?: boolean;
+  /**
+   * A square icon button (a chat composer's attach control): the action label is kept for
+   * assistive technology but hidden visually, and no filename line is drawn (the caller
+   * lists what was attached).
+   */
+  iconOnly?: boolean;
 }
 
-export function FileUpload({ label, description, error, id, className, required, actionLabel = "Choose file", emptyLabel = "No file selected", nameClassName, visuallyHideLabel = false, announceFilename = true, onChange, "aria-describedby": consumerDescribedBy, "aria-invalid": consumerInvalid, ...props }: FileUploadProps) {
+export function FileUpload({ label, description, error, id, className, required, actionLabel = "Choose file", emptyLabel = "No file selected", nameClassName, visuallyHideLabel = false, announceFilename = true, iconOnly = false, onChange, "aria-describedby": consumerDescribedBy, "aria-invalid": consumerInvalid, ...props }: FileUploadProps) {
   const [filename, setFilename] = useState(emptyLabel);
   return <FieldChrome id={id} label={label} description={description} error={error} required={required} labelClassName={visuallyHideLabel ? "sr-only" : undefined}>{({ id: controlId, describedBy }) => (
-    <div className="rf-file-upload"><input {...props} id={controlId} type="file" className={["rf-file-upload__input", className].filter(Boolean).join(" ")} required={required} aria-invalid={error ? true : consumerInvalid} aria-describedby={mergeDescribedBy(consumerDescribedBy, describedBy)} onChange={(event) => { setFilename(event.currentTarget.files?.[0]?.name ?? emptyLabel); onChange?.(event); }} /><label className="rf-button rf-button--outline rf-button--md rf-focusable" htmlFor={controlId}><Icon name="upload" size={18} />{actionLabel}</label><span className={["rf-file-upload__name", nameClassName].filter(Boolean).join(" ")} role={announceFilename ? "status" : undefined} aria-live={announceFilename ? "polite" : undefined}>{filename}</span></div>
+    <div className={["rf-file-upload", iconOnly && "rf-file-upload--icon"].filter(Boolean).join(" ")}><input {...props} id={controlId} type="file" className={["rf-file-upload__input", className].filter(Boolean).join(" ")} required={required} aria-invalid={error ? true : consumerInvalid} aria-describedby={mergeDescribedBy(consumerDescribedBy, describedBy)} onChange={(event) => { setFilename(event.currentTarget.files?.[0]?.name ?? emptyLabel); onChange?.(event); }} /><label className="rf-button rf-button--outline rf-button--md rf-focusable" htmlFor={controlId}><Icon name="upload" size={18} />{iconOnly ? <span className="sr-only">{actionLabel}</span> : actionLabel}</label>{!iconOnly && <span className={["rf-file-upload__name", nameClassName].filter(Boolean).join(" ")} role={announceFilename ? "status" : undefined} aria-live={announceFilename ? "polite" : undefined}>{filename}</span>}</div>
   )}</FieldChrome>;
 }

@@ -96,11 +96,15 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   fixture("agent", "blocks-prep"),
   fixture("agent", "tree-sample"),
   // The agent page itself (PR K1): the production page layout and chat with fixed threads
-  // and messages (components/agent/AgentPageFixture.tsx). The same three of them also run
-  // at 1024, 1280 and 2000 wide in agent-page-widths.spec.ts.
+  // and messages (components/agent/AgentPageFixture.tsx). The conversation, surface,
+  // failed, steps and view states also run at 375, 768, 1024, 1280, 1440 and 2000 wide in
+  // agent-page-widths.spec.ts.
   // The steps row (spec 08 section 14.2): a turn in progress with a frozen timer, and a
   // finished turn's eight steps collapsed and open.
-  ...["empty", "conversation", "surface", "failed", "blocks", "layout", "code", "steps-working", "steps-done", "steps-open"].map((state) => fixture("agent", `page-${state}`)),
+  // Inline views (spec 08 S4.1, S7.3, S11): the placeholder between two paragraphs, the
+  // "updated below" stub with the updated view, and a layout view shown as blocks with
+  // the "could not be built" caption.
+  ...["empty", "conversation", "surface", "failed", "blocks", "layout", "code", "steps-working", "steps-done", "steps-open", "view-building", "view-updated", "view-degraded"].map((state) => fixture("agent", `page-${state}`)),
   fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"), fixture("workspaces", "memo-diff"),
   fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

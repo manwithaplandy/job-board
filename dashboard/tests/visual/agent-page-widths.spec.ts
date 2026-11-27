@@ -2,24 +2,36 @@ import { expect, test, type Page } from "@playwright/test";
 import { VISUAL_ROUTES } from "./routes";
 import { assertRuntimeContracts } from "./runtime-contracts";
 
-// The agent page at the widths between ui-cohesion.spec.ts's 390 and 1440 and past it
-// (PR K1): 1024 (the conversation list beside the chat, a surface inline), 1280 (the
-// surface in its own column from 1200) and 2000 (the page wrap capped at 1440). Only the
-// agent page fixtures run here; every other route keeps the shared 390/1440 matrix.
-// Each run checks the shared runtime contracts, then that the conversation list, the
-// toolbar, the transcript, the composer and the surface column never overlap, then takes
-// a screenshot named <route id>-w<width>-<theme>.png (ui-cohesion uses -desktop-/-mobile-,
-// so the names cannot collide).
+// The agent page across the width matrix (spec 08 S12, plan D10): 375 (a phone), 768 (a
+// tablet, the list still above the chat), 1024 (the list beside the chat from 900), 1280
+// and 1440 (where the old surface column used to split the page) and 2000 (the page wrap
+// capped at 1440). ui-cohesion.spec.ts adds 390 and 1440 for every route. Only the agent
+// page fixtures run here.
+// One conversation column at every width: views render inline in the reply, in their view
+// frame, and the surface column is gone (spec 08 S4.1). Each run checks the shared runtime
+// contracts, then that the conversation list, the toolbar, the transcript and the composer
+// never overlap, that no surface column exists, that every view frame sits in the
+// transcript or follows it as an orphan, and that the page never scrolls sideways; then it
+// takes a screenshot named <route id>-w<width>-<theme>.png (ui-cohesion uses
+// -desktop-/-mobile-, so the names cannot collide).
 
 const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
 const THEMES = ["light", "dark"] as const;
-const WIDTHS = [1024, 1280, 2000] as const;
+const WIDTHS = [375, 768, 1024, 1280, 1440, 2000] as const;
 const HEIGHT = 1000;
-/** From this width the latest surface takes its own column (agent.css, SurfaceHost.tsx). */
-const SPLIT_FROM = 1200;
-const STATES = ["agent-page-conversation", "agent-page-surface", "agent-page-failed"] as const;
+const STATES = [
+  "agent-page-conversation",
+  "agent-page-surface",
+  "agent-page-failed",
+  "agent-page-view-building",
+  "agent-page-view-updated",
+  "agent-page-view-degraded",
+  "agent-page-steps-working",
+  "agent-page-steps-done",
+  "agent-page-steps-open",
+] as const;
 
-const REGIONS = [".rf-agent-threads", ".rf-agent-toolbar", ".rf-agent-transcript", ".rf-agent-composer", ".rf-agent-surface-column"] as const;
+const REGIONS = [".rf-agent-threads", ".rf-agent-toolbar", ".rf-agent-transcript", ".rf-agent-composer"] as const;
 
 async function assertAgentLayout(page: Page, state: (typeof STATES)[number], width: number) {
   const layout = await page.evaluate((selectors) => {
@@ -45,16 +57,34 @@ async function assertAgentLayout(page: Page, state: (typeof STATES)[number], wid
     const escapedTitles = [...document.querySelectorAll(".rf-agent-threads__item")]
       .filter((item) => list && item.getBoundingClientRect().right > list.right + 1)
       .map((item) => item.textContent?.trim().slice(0, 60) ?? "");
-    return { found: boxes.map((box) => box.selector), overlaps, escapedTitles };
+    // Every view frame is in the transcript, or after it as an orphan (a chain no loaded
+    // message names), never anywhere else.
+    const transcript = document.querySelector(".rf-agent-transcript");
+    const misplacedViews = [...document.querySelectorAll(".rf-view")]
+      .filter((view) => !(transcript && (transcript.contains(view) || transcript.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING)))
+      .map((view) => view.getAttribute("aria-label") ?? "view");
+    return {
+      found: boxes.map((box) => box.selector),
+      overlaps,
+      escapedTitles,
+      surfaceColumn: document.querySelector(".rf-agent-surface-column") !== null,
+      views: document.querySelectorAll(".rf-view").length,
+      misplacedViews,
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    };
   }, [...REGIONS]);
   expect(layout.overlaps, `agent page regions overlap: ${JSON.stringify(layout)}`).toEqual([]);
   expect(layout.escapedTitles, "conversation titles wider than the list").toEqual([]);
-  for (const selector of [".rf-agent-threads", ".rf-agent-toolbar", ".rf-agent-transcript", ".rf-agent-composer"]) {
+  for (const selector of REGIONS) {
     expect(layout.found, `${selector} is shown`).toContain(selector);
   }
-  if (state === "agent-page-surface") {
-    expect(layout.found.includes(".rf-agent-surface-column"), `surface column at ${width}px`).toBe(width >= SPLIT_FROM);
+  expect(layout.surfaceColumn, `no surface column at ${width}px`).toBe(false);
+  expect(layout.misplacedViews, `views outside the transcript at ${width}px`).toEqual([]);
+  if (state === "agent-page-surface" || state === "agent-page-view-updated" || state === "agent-page-view-degraded") {
+    expect(layout.views, `${state} shows its view at ${width}px`).toBe(1);
   }
+  expect(layout.scrollWidth, `no horizontal page scroll at ${width}px`).toBeLessThanOrEqual(layout.innerWidth);
 }
 
 for (const width of WIDTHS) {

@@ -28,6 +28,9 @@ const STATES = [
   "agent-page-steps-working",
   "agent-page-steps-done",
   "agent-page-steps-open",
+  "agent-page-view-building",
+  "agent-page-view-updated",
+  "agent-page-view-degraded",
 ] as const;
 // Not a gallery state: the conversation fixture after a live send whose turn fails
 // (the route is stubbed with a model error), to show the error path as the user sees it.

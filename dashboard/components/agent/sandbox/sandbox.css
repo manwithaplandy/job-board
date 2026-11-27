@@ -1,24 +1,7 @@
 /* The variant 3 host (plan Task 2.6). Tokens only. The dashed frame and the "Generated
-   view" label tell agent-written UI apart from product chrome (spec 10, item 5); the frame's
-   height is set from its resize messages, capped at 1,200px, in SandboxFrame. */
-.rf-sandbox {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-  padding: var(--space-3);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-card);
-  background: var(--bg-surface);
-}
-.rf-sandbox__header { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; margin: 0; min-width: 0; }
-.rf-sandbox__label {
-  color: var(--text-muted);
-  font-size: var(--font-size-small);
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-.rf-sandbox__title { color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; overflow-wrap: anywhere; }
+   view" label that tell agent-written UI apart from product chrome (spec 10, item 5) are
+   the view frame's now (ViewFrame, spec 08 S5); the frame's height is set from its resize
+   messages, capped at 1,200px, in SandboxFrame. */
 .rf-sandbox__holder { min-width: 0; }
 .rf-sandbox__frame { display: block; width: 100%; border: 0; border-radius: var(--radius-control); background: var(--bg-surface); }
 .rf-sandbox__chip {

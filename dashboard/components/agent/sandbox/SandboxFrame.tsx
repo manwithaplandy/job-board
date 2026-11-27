@@ -38,9 +38,15 @@
 // ConfirmCard (the parent's handling of the outcome). The one exception is an open of a
 // workspace page with nothing else, which may run without a press once per surface.
 //
+// The frame owns no chrome of its own (spec 08 S5): the dashed border, the "Generated view"
+// label and the title are ViewFrame's. It renders only the holder, and its chip region goes
+// into the view frame's `rf-view__requests` element through ViewHostContext. With no view
+// host (the frame rendered alone) the region stays inline after the holder.
+//
 // What jsdom cannot show (the sandbox, the CSP, navigation, real message ports between
 // documents) is Task 2.7's real-browser suite.
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import type { GatheredData } from "@/lib/agent/gathered";
 import type { SurfacePayloadV1 } from "@/lib/agent/surfaces/v1/blocks";
@@ -63,7 +69,9 @@ import { describeFrameIntentAction, reportSurfaceFailure, type FrameChip } from 
 import { Button } from "@/components/ui/Button";
 import { BlockList } from "../blocks/BlockList";
 import type { BlockRows } from "../blocks/types";
+import { ViewHostContext } from "../ViewHostContext";
 
+/** The label of a variant 3 view; ViewFrame shows it in the view's header (spec 08 S5). */
 export const GENERATED_VIEW_LABEL = "Generated view";
 export const CHIP_PROMPT = "The view wants to:";
 export const CHIP_REGION_LABEL = "Requests from the generated view";
@@ -127,6 +135,7 @@ function pageTheme(): "light" | "dark" {
 
 export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, server }: SandboxFrameProps) {
   const holderRef = useRef<HTMLDivElement>(null);
+  const viewHost = useContext(ViewHostContext);
   const latest = useRef({ surface, onIntent, onFallback, server });
   // Both are kept with the surface id they belong to, so a new surface starts clean.
   const [fallbackState, setFallbackState] = useState<{ id: string; payload: SurfacePayloadV1 } | null>(null);
@@ -360,43 +369,42 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
   }
 
   const pending = chipEntry?.chip ?? null;
+  const requests = (
+    <div className="rf-sandbox__requests" role="region" aria-label={CHIP_REGION_LABEL} aria-live="polite">
+      {pending && chipEntry && (
+        <div className="rf-sandbox__chip" key={chipEntry.seq}>
+          <p className="rf-sandbox__prompt">{CHIP_PROMPT}</p>
+          <Button
+            variant="secondary"
+            size="sm"
+            data-sandbox-chip=""
+            onClick={() => {
+              // A press within CHIP_ARM_MS of the chip appearing or changing is ignored.
+              if (Date.now() - chipEntry.shownAt < CHIP_ARM_MS) return;
+              setChipState(null);
+              onIntent(surface.id, pending.intent, "frame");
+            }}
+          >
+            {pending.label}
+          </Button>
+          {pending.proposed && pending.proposed.length > 0 && (
+            <ul className="rf-sandbox__proposed">
+              {pending.proposed.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => setChipState(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
+    </div>
+  );
   return (
-    <section className="rf-sandbox" aria-label={`${GENERATED_VIEW_LABEL}: ${surface.payload.title}`}>
-      <p className="rf-sandbox__header">
-        <span className="rf-sandbox__label">{GENERATED_VIEW_LABEL}</span>
-        <span className="rf-sandbox__title">{surface.payload.title}</span>
-      </p>
+    <>
       <div ref={holderRef} className="rf-sandbox__holder" />
-      <div className="rf-sandbox__requests" role="region" aria-label={CHIP_REGION_LABEL} aria-live="polite">
-        {pending && chipEntry && (
-          <div className="rf-sandbox__chip" key={chipEntry.seq}>
-            <p className="rf-sandbox__prompt">{CHIP_PROMPT}</p>
-            <Button
-              variant="secondary"
-              size="sm"
-              data-sandbox-chip=""
-              onClick={() => {
-                // A press within CHIP_ARM_MS of the chip appearing or changing is ignored.
-                if (Date.now() - chipEntry.shownAt < CHIP_ARM_MS) return;
-                setChipState(null);
-                onIntent(surface.id, pending.intent, "frame");
-              }}
-            >
-              {pending.label}
-            </Button>
-            {pending.proposed && pending.proposed.length > 0 && (
-              <ul className="rf-sandbox__proposed">
-                {pending.proposed.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ul>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => setChipState(null)}>
-              Dismiss
-            </Button>
-          </div>
-        )}
-      </div>
-    </section>
+      {viewHost === null ? requests : viewHost.requestsEl === null ? null : createPortal(requests, viewHost.requestsEl)}
+    </>
   );
 }

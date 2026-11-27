@@ -13,6 +13,8 @@ import type { ActionIntent } from "@/lib/agent/actions/intents";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { gatheredFixture, JOB_A, JOB_B } from "@/lib/agent/surfaces/v1/testFixtures";
 import { sandboxSnapshot } from "@/lib/agent/surfaces/v3/document";
+import { useState } from "react";
+import { ViewHostContext } from "../ViewHostContext";
 import { CHIP_ARM_MS, CHIP_PROMPT, GENERATED_VIEW_LABEL, SandboxFrame, type SandboxSurface } from "./SandboxFrame";
 
 const ID = "44444444-4444-4444-8444-444444444444";
@@ -145,8 +147,9 @@ describe("SandboxFrame", () => {
     // The frame document's title is the host's label for it.
     expect(iframe.srcdoc).toContain(`<title>${GENERATED_VIEW_LABEL}</title>`);
     expect(iframe.srcdoc).toContain("<p>Hello from the view</p>");
-    expect(screen.getByText(GENERATED_VIEW_LABEL)).toBeTruthy();
-    expect(screen.getByText("Your matches")).toBeTruthy();
+    // The label and the title are the view frame's (ViewFrame), not the sandbox frame's.
+    expect(screen.queryByText(GENERATED_VIEW_LABEL)).toBeNull();
+    expect(iframe.getAttribute("title")).toBe("Your matches");
   });
 
   test("a message from another window or with origin other than 'null' is ignored", async () => {
@@ -609,7 +612,7 @@ describe("SandboxFrame", () => {
     await screen.findByText(FALLBACK_TEXT);
     const next = { ...s, id: "55555555-5555-4555-8555-555555555555" };
     rerender(<SandboxFrame surface={next} onIntent={onIntent} />);
-    expect(screen.getByText(GENERATED_VIEW_LABEL)).toBeTruthy();
+    expect(document.querySelector(".rf-sandbox__holder")).not.toBeNull();
     const fresh = document.querySelector("iframe");
     expect(fresh).not.toBeNull();
     expect(fresh).not.toBe(iframe);
@@ -651,5 +654,95 @@ describe("SandboxFrame", () => {
     await screen.findByText(FALLBACK_TEXT);
     expect(server.report).toHaveBeenCalledWith(ID, "frame_error");
     expect(actions.reportSurfaceFailure).not.toHaveBeenCalled();
+  });
+});
+
+// PR 2 Task 2.2: the frame keeps only its holder; its chip region goes to the view frame
+// that hosts it (ViewHostContext.requestsEl), so the chip sits in `rf-view__requests`.
+describe("SandboxFrame inside a view host", () => {
+  /** A stand-in for ViewFrame: a requests element it owns, handed down through the context. */
+  function Host({ s, onIntent, tag }: { s: SandboxSurface; onIntent: () => void; tag: string }) {
+    const [el, setEl] = useState<HTMLElement | null>(null);
+    return (
+      <div data-host={tag}>
+        <div data-body={tag}>
+          <ViewHostContext.Provider value={{ requestsEl: el }}>
+            <SandboxFrame surface={s} onIntent={onIntent} />
+          </ViewHostContext.Provider>
+        </div>
+        <div data-requests={tag} ref={setEl} />
+      </div>
+    );
+  }
+
+  test("an action chip appears in the host's requests element, not beside the holder", async () => {
+    actions.describeFrameIntentAction.mockResolvedValue(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const view = render(<Host s={surface()} onIntent={vi.fn()} tag="a" />);
+    const iframe = view.container.querySelector("iframe")!;
+    const { port } = ready(iframe);
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    const chip = await screen.findByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    const requests = view.container.querySelector('[data-requests="a"]')!;
+    expect(requests.contains(chip)).toBe(true);
+    const region = requests.querySelector('[role="region"]')!;
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(region.getAttribute("aria-label")).toBe("Requests from the generated view");
+    const holder = view.container.querySelector(".rf-sandbox__holder")!;
+    // Nothing is rendered after the holder: the region lives only in the host's element.
+    expect(holder.nextElementSibling).toBeNull();
+    expect(view.container.querySelectorAll('[role="region"]')).toHaveLength(1);
+  });
+
+  test("two frames in two hosts each keep their own chip; a new action in A leaves B's as it was (Review Focus 4)", async () => {
+    const second: SandboxSurface = { ...surface(), id: "55555555-5555-4555-8555-555555555555" };
+    actions.describeFrameIntentAction.mockImplementation(async (_t: string, surfaceId: string, name: string) =>
+      surfaceId === ID
+        ? name === "compare" ? chipFor(SKIP_B, "Skip Engineer at Acme") : chipFor(SHORTLIST_A, "Shortlist in A")
+        : chipFor(SHORTLIST_A, "Shortlist in B"),
+    );
+    const view = render(
+      <>
+        <Host s={surface()} onIntent={vi.fn()} tag="a" />
+        <Host s={second} onIntent={vi.fn()} tag="b" />
+      </>,
+    );
+    const [frameA, frameB] = [...view.container.querySelectorAll("iframe")];
+    const a = ready(frameA);
+    const b = ready(frameB);
+    a.port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    b.port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    const chipA = await screen.findByRole("button", { name: "Shortlist in A" });
+    const chipB = await screen.findByRole("button", { name: "Shortlist in B" });
+    const reqA = view.container.querySelector('[data-requests="a"]')!;
+    const reqB = view.container.querySelector('[data-requests="b"]')!;
+    expect(reqA.contains(chipA)).toBe(true);
+    expect(reqB.contains(chipB)).toBe(true);
+
+    a.port.postMessage({ type: "action", name: "compare", args: { jobIds: [JOB_A, JOB_B] } });
+    const nextA = await screen.findByRole("button", { name: "Skip Engineer at Acme" });
+    expect(reqA.contains(nextA)).toBe(true);
+    expect(chipA.isConnected).toBe(false);
+    // B's chip is the same element, still in B's region.
+    expect(chipB.isConnected).toBe(true);
+    expect(reqB.contains(chipB)).toBe(true);
+    expect(reqB.querySelectorAll("[data-sandbox-chip]")).toHaveLength(1);
+  });
+
+  test("without a provider the chip region is the holder's sibling", async () => {
+    actions.describeFrameIntentAction.mockResolvedValue(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const { iframe, container } = mount();
+    const { port } = ready(iframe);
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    const chip = await screen.findByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    const holder = container.querySelector(".rf-sandbox__holder")!;
+    expect(holder.nextElementSibling?.getAttribute("role")).toBe("region");
+    expect(holder.nextElementSibling?.contains(chip)).toBe(true);
+  });
+
+  test("the frame renders no header and no section of its own", () => {
+    const { container } = mount();
+    expect(container.querySelector(".rf-sandbox__header")).toBeNull();
+    expect(container.querySelector("section")).toBeNull();
+    expect(container.querySelector(".rf-sandbox__holder")).not.toBeNull();
   });
 });

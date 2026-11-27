@@ -96,6 +96,17 @@ test("the title is the payload's title, labels the section, and falls back to Vi
   expect(screen.getByRole("heading", { level: 3, name: "View" })).toBeTruthy();
 });
 
+test.each([1, 2] as const)("a variant %s view has exactly one title heading, the frame's h3 (spec 08 S5, S13)", (variant) => {
+  const { container } = mount({ chainId: S1, memberIds: [S1], surface: surface(S1, variant, "Two strong matches") });
+  const titled = screen.getAllByRole("heading", { name: "Two strong matches" });
+  expect(titled).toHaveLength(1);
+  expect(titled[0].tagName).toBe("H3");
+  expect(titled[0].className).toContain("rf-view__title");
+  expect(container.querySelector(".rf-blocks__title, .rf-tree__title")).toBeNull();
+  // Nothing in the body outranks the frame's title.
+  expect(container.querySelector(".rf-view__body h1, .rf-view__body h2")).toBeNull();
+});
+
 test("the header ref reaches the title", () => {
   const ref = createRef<HTMLHeadingElement>();
   render(

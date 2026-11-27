@@ -88,6 +88,7 @@ function surface(id: string, text: string, supersedes: string | null = null, blo
     gathered: gatheredFixture(),
     rows: {},
     degraded: false,
+    outcome: "valid",
   };
 }
 

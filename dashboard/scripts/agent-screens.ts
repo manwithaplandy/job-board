@@ -28,6 +28,9 @@ const STATES = [
   "agent-page-steps-working",
   "agent-page-steps-done",
   "agent-page-steps-open",
+  "agent-page-view-building",
+  "agent-page-view-updated",
+  "agent-page-view-degraded",
 ] as const;
 // Not a gallery state: the conversation fixture after a live send whose turn fails
 // (the route is stubbed with a model error), to show the error path as the user sees it.
@@ -95,7 +98,6 @@ async function layoutProblems(page: Page): Promise<string[]> {
       box("toolbar", ".rf-agent-toolbar") ?? box("variant switcher", ".rf-agent-variants"),
       box("transcript", ".rf-agent-transcript"),
       box("composer", ".rf-agent-composer"),
-      box("latest view", ".rf-agent-surface-column"),
     ].filter((b): b is Box => b !== null);
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {

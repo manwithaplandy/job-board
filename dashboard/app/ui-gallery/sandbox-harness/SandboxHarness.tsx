@@ -9,10 +9,16 @@
 // What the frames did is written into <output data-sandbox-log="..."> elements as JSON for
 // tests/sandbox/sandbox.spec.ts to read: the intents the user's presses ran, the
 // fallbacks with their reasons, and the failure reports the stub received.
+//
+// Each frame sits in the page's view frame (ViewFrame, spec 08 S5, plan D9), so its chip
+// lands in the frame's requests region as on the agent page. The frame is the view frame's
+// body seam, so the stub server and the logged reasons stay the harness's own.
 import { useMemo, useState } from "react";
 import type { FrameChip } from "@/app/actions/agent";
 import { FIXTURE_GATHERED } from "@/components/agent/blocks/AgentBlocksFixture";
 import { SandboxFrame, type SandboxFrameServer, type SandboxSurface } from "@/components/agent/sandbox/SandboxFrame";
+import { sandboxChain } from "@/components/agent/SurfaceHost";
+import { ViewFrame } from "@/components/agent/ViewFrame";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import {
@@ -36,6 +42,11 @@ const HARNESS_CHIPS: Record<string, FrameChip> = {
   "shortlist.set": { label: "Shortlist Senior Product Engineer at Acme Systems", intent: SHORTLIST_A, direct: false },
   compare: { label: "Compare Senior Product Engineer at Acme Systems with Staff Backend Engineer at Globex", intent: COMPARE_AB, direct: false },
 };
+
+// The view frame's own callbacks: its body is the harness's frame, and it has no re-render.
+const NO_INTENT = () => {};
+const NO_PREP = () => {};
+const NO_RERENDER = () => {};
 
 interface LogEntry {
   surface: string;
@@ -86,12 +97,14 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
       <div className="rf-gallery__stack">
         {surfaces.map((s) => (
           <div key={s.id} data-sandbox-surface={s.id}>
-            <SandboxFrame
-              surface={s}
-              server={server}
-              onIntent={(surfaceId, intent, source) => setIntents((l) => [...l, { surface: surfaceId, value: { intent, source } }])}
-              onFallback={(reason) => setFallbacks((l) => [...l, { surface: s.id, value: reason }])}
-            />
+            <ViewFrame chain={sandboxChain(s)} threadId={THREAD_ID} variant3Enabled={null} onIntent={NO_INTENT} onPrepSettled={NO_PREP} onRerendered={NO_RERENDER}>
+              <SandboxFrame
+                surface={s}
+                server={server}
+                onIntent={(surfaceId, intent, source) => setIntents((l) => [...l, { surface: surfaceId, value: { intent, source } }])}
+                onFallback={(reason) => setFallbacks((l) => [...l, { surface: s.id, value: reason }])}
+              />
+            </ViewFrame>
           </div>
         ))}
       </div>

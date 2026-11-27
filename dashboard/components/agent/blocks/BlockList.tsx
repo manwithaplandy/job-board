@@ -1,5 +1,6 @@
 "use client";
 
+import { useContext } from "react";
 import type { GatheredData } from "@/lib/agent/gathered";
 import type { SurfacePayloadV1, V1Block } from "@/lib/agent/surfaces/v1/blocks";
 import { CalloutBlock } from "./CalloutBlock";
@@ -16,6 +17,7 @@ import { ShortlistQueueBlock } from "./ShortlistQueueBlock";
 import { StaleListBlock } from "./StaleListBlock";
 import { StatRowBlock } from "./StatRowBlock";
 import type { BlockRows, OnIntent } from "./types";
+import { ViewHostContext } from "../ViewHostContext";
 
 const NO_ROWS: BlockRows = {};
 
@@ -75,6 +77,9 @@ function Block({
  * `surfaceKey` is the surface row's id, so a new surface row remounts every block and no
  * local state (sent answers, a compare selection) carries over. `onPrepSettled(jobId)`
  * fires when a prep checklist sees that job's generation settle; reload its package row.
+ *
+ * Inside a view frame (ViewHostContext) the frame's h3 is the title, so the list draws
+ * none of its own; rendered alone it keeps its h2.
  */
 export function BlockList({
   payload,
@@ -91,9 +96,10 @@ export function BlockList({
   rows?: BlockRows;
   onPrepSettled?: (jobId: string) => void;
 }) {
+  const inFrame = useContext(ViewHostContext) !== null;
   return (
     <div className="rf-blocks">
-      {payload.title && <h2 className="rf-blocks__title">{payload.title}</h2>}
+      {payload.title && !inFrame && <h2 className="rf-blocks__title">{payload.title}</h2>}
       {payload.blocks.map((block, i) => (
         <Block
           key={`${surfaceKey}:${i}:${block.type}`}

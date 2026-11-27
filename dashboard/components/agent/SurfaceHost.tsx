@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, useCallback, useSyncExternalStore, type ReactNode } from "react";
+import { Component, useCallback, type ReactNode } from "react";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import type { SurfacePayloadV3 } from "@/lib/agent/surfaces/v3/document";
@@ -53,40 +53,58 @@ export function mergeSurface(chains: readonly HostChain[], surface: HostSurface)
   return [...chains.slice(0, parent), ...chains.slice(parent + 1), updated];
 }
 
-// From here the page has room for the conversation list, the conversation and the latest
-// surface side by side (PR K1: at 1024px the three columns were too narrow to read).
-// Kept in step with the split rule in agent.css.
-const WIDE_QUERY = "(min-width: 1200px)";
+/** The caption under a view shown as blocks because it could not be built (spec 08 S11). */
+export const DEGRADED_CAPTION = "Shown as blocks because the view could not be built.";
 
-function subscribeWide(onChange: () => void): () => void {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
-  const mq = window.matchMedia(WIDE_QUERY);
-  mq.addEventListener("change", onChange);
-  return () => mq.removeEventListener("change", onChange);
-}
-
-function wideNow(): boolean {
-  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(WIDE_QUERY).matches;
-}
-
-/** Whether the latest surface takes the wide column (1200px and wider). Narrow on the server. */
-export function useWideLayout(): boolean {
-  return useSyncExternalStore(subscribeWide, wideNow, () => false);
+/**
+ * Whether a surface carries DEGRADED_CAPTION: its stored row or gathered data no longer
+ * parses, its frame fell back, or it is a variant 2 or 3 row stored as its variant 1
+ * fallback. A variant 1 fallback is that variant's own view, and a valid variant 3 row
+ * shown as blocks because variant 3 is switched off is not a degradation either.
+ */
+export function showsDegradedCaption(surface: HostSurface): boolean {
+  return surface.degraded || (surface.variant !== 1 && surface.outcome === "fallback");
 }
 
 /**
  * A surface whose frame fell back in the browser now shows its variant 1 blocks (R15:
- * the fallback is sticky). The page keeps this for the rest of the session, so moving the
- * surface between the column and the transcript does not mount the frame again.
+ * the fallback is sticky) and is marked degraded, so it carries the caption. The page
+ * keeps this for the rest of the session, so a later render never mounts the frame again.
  */
 export function withBlocksView(chains: readonly HostChain[], surfaceId: string): HostChain[] {
-  const toBlocks = (s: HostSurface): HostSurface => (s.id === surfaceId && s.view.kind === "sandbox" ? { ...s, view: { kind: "blocks" } } : s);
+  const toBlocks = (s: HostSurface): HostSurface =>
+    s.id === surfaceId && s.view.kind === "sandbox" ? { ...s, view: { kind: "blocks" }, degraded: true } : s;
   return chains.map((c) => {
     const surface = toBlocks(c.surface);
     const rerenders = c.rerenders?.map(toBlocks);
     const changed = surface !== c.surface || (rerenders ?? []).some((r, i) => r !== c.rerenders?.[i]);
     return changed ? { ...c, surface, ...(rerenders ? { rerenders } : {}) } : c;
   });
+}
+
+/**
+ * A sandbox surface as a one-row chain, for the gallery pages that render SandboxFrame
+ * themselves (the enforcement harness, the replay page) inside a ViewFrame.
+ */
+export function sandboxChain(surface: SandboxSurface): HostChain {
+  return {
+    chainId: surface.id,
+    memberIds: [surface.id],
+    surface: {
+      id: surface.id,
+      threadId: surface.threadId,
+      supersedes: null,
+      rerenderOf: null,
+      createdAt: "1970-01-01T00:00:00.000Z",
+      variant: 3,
+      view: { kind: "sandbox", document: surface.payload },
+      payload: surface.fallback,
+      gathered: surface.gathered,
+      rows: surface.rows,
+      degraded: false,
+      outcome: "valid",
+    },
+  };
 }
 
 function toSandboxSurface(surface: HostSurface, document: SurfacePayloadV3): SandboxSurface {

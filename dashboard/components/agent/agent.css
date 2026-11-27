@@ -2,8 +2,8 @@
    shared primitive. Layout at a glance:
    - below 900px: one column; the conversation list (short, scrolls) sits above the chat.
    - 900px and up: the conversation list on the left (240px), the chat beside it.
-   - 1200px and up, with a surface: the chat and the latest surface side by side
-     (useWideLayout in SurfaceHost.tsx moves the surface into its column at the same width). */
+   Views render inline in the reply at every width (spec 08 S4.1, S12): there is no
+   second column. */
 
 /* A chat page uses more width than the 1040px secondary wrap. */
 .rf-secondary-wrap.rf-agent-page { width: min(100%, 1440px); }
@@ -35,7 +35,7 @@
   .rf-agent-threads__list { max-height: 148px; overflow-y: auto; }
 }
 
-/* The conversation: a toolbar row, then the chat (and the latest surface beside it). */
+/* The conversation: a toolbar row, then the chat. */
 .rf-agent-conversation { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
 .rf-agent-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); min-width: 0; padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
 .rf-agent-toolbar__title { flex: 1 1 14rem; min-width: 0; margin: 0; overflow: hidden; color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
@@ -49,14 +49,41 @@
 .rf-agent-variants__status { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
 .rf-agent-variants__status:empty { display: none; }
 
-.rf-agent-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); min-width: 0; }
-@media (min-width: 1200px) {
-  .rf-agent-workspace--split { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
-  .rf-agent-surface-column { position: sticky; top: var(--space-4); }
-}
-.rf-agent-surface-column { min-width: 0; }
 .rf-agent-surface { min-width: 0; }
 .rf-agent-surface__failed { margin: 0; color: var(--text-secondary); }
+
+/* The view frame (spec 08 S5): every chain renders in one, inline in the reply, at the full
+   width of the conversation column. A solid border for blocks and trees; a generated
+   (variant 3) view keeps the dashed border and its label (spec 05 S10 item 5). */
+.rf-view { display: grid; min-width: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); }
+.rf-view > * + * { margin-top: var(--space-3); }
+.rf-view[data-frame="dashed"] { border-style: dashed; border-color: var(--border-strong); }
+.rf-view__header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-2) var(--space-4); min-width: 0; }
+.rf-view__heading { display: grid; flex: 1 1 14rem; gap: var(--space-1); min-width: 0; }
+.rf-view__kind { color: var(--text-muted); font-size: var(--font-size-small); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.rf-view__title { margin: 0; color: var(--text-primary); font-size: var(--font-size-body); font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.rf-view__title:focus { outline: none; }
+.rf-view__title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-control); }
+.rf-view__caption { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-view__body { min-width: 0; }
+/* The sandbox frame's chip region (an aria-live region) is portalled here. With no chip it
+   takes no room but stays rendered, so a chip that appears is announced. */
+.rf-view__requests { min-width: 0; }
+.rf-view__requests:not(:has(.rf-sandbox__chip)) { margin-top: 0; }
+.rf-view__footer { min-width: 0; }
+
+/* What stands at a present part while its view is not there (spec 08 S7.3, S11): the sized
+   placeholder (the frame's border, a quiet shimmer, none under reduced motion), the one
+   line where an updated view used to be, and the load failure with Try again. */
+.rf-view-placeholder { display: grid; place-items: center; min-width: 0; min-height: 200px; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: linear-gradient(90deg, var(--bg-surface) 0%, var(--bg-muted) 50%, var(--bg-surface) 100%); background-size: 200% 100%; animation: rf-view-shimmer 1.6s ease-in-out infinite; color: var(--text-muted); font-size: var(--font-size-caption); }
+.rf-view-placeholder--code { min-height: 320px; border-style: dashed; border-color: var(--border-strong); }
+@keyframes rf-view-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .rf-view-placeholder { animation: none; background: var(--bg-surface); }
+}
+.rf-view-stub { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-view-failed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); }
+.rf-view-failed__text { flex: 1 1 16rem; min-width: 0; margin: 0; color: var(--text-secondary); }
 
 /* A surface's versions and its "Re-render as" buttons (plan Task 2.9). */
 .rf-agent-versions { display: grid; gap: var(--space-2); min-width: 0; }

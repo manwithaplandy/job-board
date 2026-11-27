@@ -1,14 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { ActionIntent } from "@/lib/agent/actions/intents";
 import type { Variant } from "@/lib/agent/config";
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { VARIANTS, VARIANT_LABELS } from "@/lib/agent/variants";
 import { loadSurfaceAction } from "@/app/actions/agent";
 import { SegmentedControl } from "@/components/ui/Navigation";
 import { Button } from "@/components/ui/Button";
-import { SurfaceHost } from "./SurfaceHost";
 
 // "Re-render as" (plan Task 2.9). A surface chain shows its original and every re-render
 // of it as tabs (one radiogroup), and offers a re-render in each variant. A press posts to
@@ -19,6 +17,9 @@ import { SurfaceHost } from "./SurfaceHost";
 // first original (the server sets rerender_of to the root). Variant 3 is disabled while the
 // operator switch is off. Without a plan (`variant3Enabled` null) the buttons are not shown;
 // earlier re-renders still are.
+//
+// Since PR 2 (spec 08 S8) the view frame (ViewFrame) holds these: the version tabs in its
+// header, the buttons and the status line in its footer, the state in useRerender.
 
 export const VERSIONS_LABEL = "Versions of this view";
 export const RERENDER_LABEL = "Re-render as";
@@ -62,7 +63,7 @@ export async function requestRerender(surfaceId: string, variant: Variant): Prom
 }
 
 /** Tab labels: "Original", then each re-render's variant, numbered when a variant repeats. */
-function versionLabels(versions: readonly HostSurface[]): string[] {
+export function versionLabels(versions: readonly Pick<HostSurface, "variant">[]): string[] {
   const seen = new Map<Variant, number>();
   return versions.map((v, i) => {
     if (i === 0) return "Original";
@@ -72,36 +73,43 @@ function versionLabels(versions: readonly HostSurface[]): string[] {
   });
 }
 
-export function RerenderTabs({
-  chain,
-  threadId,
-  variant3Enabled,
-  onIntent,
-  onPrepSettled,
-  onFallback,
-  onRerendered,
-}: {
-  chain: HostChain;
-  threadId: string;
-  /** The operator switch; null hides the re-render buttons (no plan). */
-  variant3Enabled: boolean | null;
-  onIntent: (surfaceId: string, intent: ActionIntent, source: "host" | "frame") => void;
-  onPrepSettled: (surfaceId: string, jobId: string) => void;
-  onFallback?: (surfaceId: string) => void;
-  onRerendered: (surface: HostSurface) => void;
-}) {
+/** What useRerender gives the view frame: the version shown and the re-render state. */
+export interface Rerender {
+  /** The chain's original first, then its re-renders, oldest first. */
+  versions: HostSurface[];
+  /** The version shown: the selected one, else the chain's surface. */
+  shown: HostSurface;
+  selected: string;
+  select(id: string): void;
+  /** The variant being re-rendered, or null when none is running. */
+  busy: Variant | null;
+  /** The last refusal's line, or null. */
+  message: string | null;
+  rerender(variant: Variant): void;
+}
+
+/**
+ * The state behind a chain's version tabs and "Re-render as" buttons. A press re-renders
+ * the version shown when it was pressed, reads the new row through loadSurfaceAction,
+ * hands it to `onRerendered` (the page merges it into the chain) and selects it.
+ * `threadId` defaults to the chain's own thread.
+ */
+export function useRerender(
+  chain: HostChain,
+  onRerendered: (surface: HostSurface) => void,
+  threadId: string = chain.surface.threadId,
+): Rerender {
   const versions = [chain.surface, ...(chain.rerenders ?? [])];
   const [selected, setSelected] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Variant | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const shown = versions.find((v) => v.id === selected) ?? chain.surface;
-  const labels = versionLabels(versions);
 
   const rerender = (variant: Variant) => {
-    if (busy) return;
+    if (busy !== null) return;
     // The version the buttons describe: the one shown when the button was pressed.
     const sourceId = shown.id;
-    setBusy(true);
+    setBusy(variant);
     setMessage(null);
     void (async () => {
       const answer = await requestRerender(sourceId, variant);
@@ -116,20 +124,54 @@ export function RerenderTabs({
       }
       onRerendered(surface);
       setSelected(surface.id);
-    })().finally(() => setBusy(false));
+    })().finally(() => setBusy(null));
   };
 
+  return { versions, shown, selected: shown.id, select: setSelected, busy, message, rerender };
+}
+
+/** The chain's versions as one radiogroup; nothing when the chain has no re-renders. */
+export function VersionTabs({
+  versions,
+  selected,
+  onSelect,
+}: {
+  versions: readonly HostSurface[];
+  selected: string;
+  onSelect: (id: string) => void;
+}) {
+  if (versions.length < 2) return null;
+  const labels = versionLabels(versions);
+  return (
+    <SegmentedControl
+      label={VERSIONS_LABEL}
+      value={selected}
+      onChange={onSelect}
+      items={versions.map((v, i) => ({ label: labels[i], value: v.id }))}
+    />
+  );
+}
+
+/**
+ * "Re-render as" one button per variant, for the version shown, and the status line. The
+ * buttons are hidden without a plan (`variant3Enabled` null); the status line stays.
+ */
+export function RerenderControls({
+  shownVariant,
+  variant3Enabled,
+  busy,
+  message,
+  onRerender,
+}: {
+  shownVariant: Variant;
+  /** The operator switch; null hides the re-render buttons (no plan). */
+  variant3Enabled: boolean | null;
+  busy: Variant | null;
+  message: string | null;
+  onRerender: (variant: Variant) => void;
+}) {
   return (
     <div className="rf-agent-versions">
-      {versions.length > 1 && (
-        <SegmentedControl
-          label={VERSIONS_LABEL}
-          value={shown.id}
-          onChange={setSelected}
-          items={versions.map((v, i) => ({ label: labels[i], value: v.id }))}
-        />
-      )}
-      <SurfaceHost key={shown.id} surface={shown} onIntent={onIntent} onPrepSettled={onPrepSettled} onFallback={onFallback} />
       {variant3Enabled !== null && (
         <div className="rf-agent-versions__actions" role="group" aria-label={RERENDER_LABEL}>
           <span className="rf-agent-versions__label">{RERENDER_LABEL}</span>
@@ -138,8 +180,8 @@ export function RerenderTabs({
               key={v}
               variant="ghost"
               size="sm"
-              disabled={busy || v === shown.variant || (v === 3 && !variant3Enabled)}
-              onClick={() => rerender(v)}
+              disabled={busy !== null || v === shownVariant || (v === 3 && !variant3Enabled)}
+              onClick={() => onRerender(v)}
               aria-label={`${RERENDER_LABEL} ${VARIANT_LABELS[v]}`}
             >
               {VARIANT_LABELS[v]}
@@ -148,7 +190,7 @@ export function RerenderTabs({
         </div>
       )}
       <p className="rf-agent-versions__status" role="status">
-        {busy ? RERENDER_BUSY : (message ?? "")}
+        {busy !== null ? RERENDER_BUSY : (message ?? "")}
       </p>
     </div>
   );

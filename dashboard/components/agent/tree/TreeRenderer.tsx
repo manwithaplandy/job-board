@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useContext, useMemo, useState } from "react";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import type { GatheredData } from "@/lib/agent/gathered";
 import type { SurfacePayloadV2 } from "@/lib/agent/surfaces/v2/tree";
+import { ViewHostContext } from "../ViewHostContext";
 import { TreeContext, TreeNode, type TreeCtx } from "./nodes";
 
 /**
@@ -19,6 +20,9 @@ import { TreeContext, TreeNode, type TreeCtx } from "./nodes";
  * Preconditions for the host (Task 2.8): `payload` passed validateSurfaceV2 or at least
  * its schema, and `gathered` was total-parsed from the stored row. The renderer still
  * never throws on a bind that no longer resolves; it shows a fixed placeholder.
+ *
+ * Inside a view frame (ViewHostContext) the frame's h3 is the title, so the tree draws
+ * none of its own; rendered alone it keeps its h2.
  */
 export function TreeRenderer({
   payload,
@@ -49,11 +53,12 @@ export function TreeRenderer({
     },
     [onIntent, fields],
   );
+  const inFrame = useContext(ViewHostContext) !== null;
   const ctx = useMemo<TreeCtx>(() => ({ gathered, values, setValue, press }), [gathered, values, setValue, press]);
   return (
     <TreeContext.Provider value={ctx}>
       <div className="rf-tree">
-        {payload.title && <h2 className="rf-tree__title">{payload.title}</h2>}
+        {payload.title && !inFrame && <h2 className="rf-tree__title">{payload.title}</h2>}
         <TreeNode node={payload.root} depth={1} />
       </div>
     </TreeContext.Provider>

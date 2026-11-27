@@ -18,7 +18,7 @@ import {
 import { useGenerationTracker } from "@/components/generation/GenerationToastProvider";
 import { Alert } from "@/components/ui/SystemStates";
 import { Button } from "@/components/ui/Button";
-import { AGENT_LIMITS } from "@/lib/agent/config";
+import { AGENT_LIMITS, type Variant } from "@/lib/agent/config";
 import { CONFIRMATIONS_UNAVAILABLE } from "@/lib/agent/approvalSecret";
 import { compareMessage } from "@/lib/agent/actions/compareText";
 import type { PendingApproval } from "@/lib/agent/actions/approvalCard";
@@ -34,13 +34,14 @@ import { ConfirmCard } from "./ConfirmCard";
 import { EmptyState } from "./EmptyState";
 import { stashFirstMessage, takeFirstMessage } from "./firstMessage";
 import { ReviewProgress } from "./ReviewProgress";
-import { mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
-import { RerenderTabs } from "./RerenderTabs";
+import { mergeSurface, withBlocksView } from "./SurfaceHost";
 import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
 import { currentStepLabel, summarizeSteps, type StepsState } from "@/lib/agent/steps";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { StepsRow } from "./StepsRow";
+import { ViewFrame } from "./ViewFrame";
+import { ViewLoadFailed, ViewPlaceholder, ViewUpdatedStub } from "./ViewPlaceholder";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
 // carries only the thread id and either the new message's id, text and attached document
@@ -48,8 +49,10 @@ import { StepsRow } from "./StepsRow";
 // text is drawn as markdown by AgentMarkdown, as React elements only: no raw HTML, and no
 // links or images (spec section 10). The user's text stays plain. The one rich output is
 // a surface, and it is rendered only by SurfaceHost from the server-parsed surface row,
-// never from the tool part's own payload. Approvals and high-risk intents show only the
-// fixed ConfirmCard, built on the server from database values.
+// never from the tool part's own payload. Every view renders inline, in a ViewFrame, at
+// the present part that made it (spec 08 S4.1); there is no second column. Approvals and
+// high-risk intents show only the fixed ConfirmCard, built on the server from database
+// values.
 
 const generateId = createIdGenerator({ prefix: "u", size: 16 });
 
@@ -215,7 +218,9 @@ function toolPartsOf(m: UIMessage): ToolPart[] {
   return m.parts.filter((p): p is ToolPart => isToolUIPart(p));
 }
 
-const presentOutputSchema = z.object({ surfaceId: z.uuid() });
+// What the page reads of a present result: the stored row's id and the outcome. The
+// payload is never read (the view is drawn from the stored row).
+const presentOutputSchema = z.object({ surfaceId: z.uuid().optional(), outcome: z.string().optional() });
 const writeOutputSchema = z.object({ status: z.literal("done"), actionId: z.number().int().positive() });
 // The approval tools that start a generation, and the outputs that mean one is running.
 const PREP_TOOLS: ReadonlySet<string> = new Set(["start_application_prep", "refine_documents"]);
@@ -223,10 +228,23 @@ const prepOutputSchema = z.object({ status: z.enum(["started", "already_running"
 // ask_user's questions, shown as plain text (the answer is the user's next message).
 const askUserInputSchema = z.object({ questions: z.array(z.object({ label: z.string(), options: z.array(z.string()).optional() })) });
 
+/** What stands at a present part (spec 08 S7.3): a placeholder while it is written, its stored row, or nothing. */
+export type PresentView = { kind: "building" } | { kind: "none" } | { kind: "surface"; surfaceId: string };
+
+export function presentView(part: ToolPart): PresentView {
+  if (part.state === "input-streaming" || part.state === "input-available") return { kind: "building" };
+  if (part.state !== "output-available") return { kind: "none" };
+  const out = presentOutputSchema.safeParse(part.output);
+  // An invalid payload or a turn past its views stored nothing: the steps row says so.
+  if (!out.success || out.data.outcome === "invalid" || out.data.outcome === "limit" || !out.data.surfaceId) return { kind: "none" };
+  return { kind: "surface", surfaceId: out.data.surfaceId };
+}
+
 /** The surface a present part produced, or null. */
 function presentedSurfaceId(part: ToolPart): string | null {
-  if (getToolName(part) !== "present" || part.state !== "output-available") return null;
-  return presentOutputSchema.safeParse(part.output).data?.surfaceId ?? null;
+  if (getToolName(part) !== "present") return null;
+  const view = presentView(part);
+  return view.kind === "surface" ? view.surfaceId : null;
 }
 
 /** The first approval in the last assistant message that waits for the user (an automatic one never does). */
@@ -260,11 +278,16 @@ type StepsView = { state: StepsState; elapsedMs: number; open: boolean; onToggle
 
 function MessageView({
   message,
-  renderSurface,
+  renderPresent,
   steps,
 }: {
   message: UIMessage;
-  renderSurface: (surfaceId: string) => ReactNode;
+  /**
+   * What stands at a present part: its view, a placeholder, a stub, a load failure, or
+   * nothing. `state` is the message's steps state, so a part still being written shows the
+   * placeholder only while its turn is working.
+   */
+  renderPresent: (part: ToolPart, state: StepsState | null) => ReactNode;
   /** Assistant messages only; null for the user's. */
   steps: StepsView | null;
 }) {
@@ -283,9 +306,8 @@ function MessageView({
     if (!isToolUIPart(part)) return [];
     const name = getToolName(part);
     if (name === "present") {
-      const surfaceId = presentedSurfaceId(part);
-      const surface = surfaceId ? renderSurface(surfaceId) : null;
-      return surface ? [<div key={i}>{surface}</div>] : [];
+      const view = renderPresent(part, steps?.state ?? null);
+      return view ? [<Fragment key={i}>{view}</Fragment>] : [];
     }
     if (name === "ask_user" && askUserInputSchema.safeParse(part.input).success) return [<AskUserQuestions key={i} part={part} />];
     return [];
@@ -437,7 +459,6 @@ export function AgentChat({
   const named = useRef(!autoTitle);
   // One transport per mounted chat (the page keys AgentChat by thread id).
   const [{ transport, book }] = useState(() => chatTransport(threadId));
-  const wide = useWideLayout();
 
   const { messages, sendMessage, regenerate, setMessages, status, addToolApprovalResponse } = useChat<UIMessage>({
     id: threadId,
@@ -562,22 +583,35 @@ export function AgentChat({
   }, []);
 
   // A present result: load the stored row, parsed on the server, and fold it into its chain.
+  // A load that rejects or finds nothing is kept in failedLoads, so its part shows the
+  // fixed line with Try again instead of a placeholder that never resolves (spec 08 S7.3).
   const loading = useRef(new Set<string>());
+  const [failedLoads, setFailedLoads] = useState<ReadonlySet<string>>(() => new Set());
+  const loadSurface = useCallback(
+    (surfaceId: string) => {
+      loading.current.add(surfaceId);
+      const failed = () => setFailedLoads((prev) => new Set(prev).add(surfaceId));
+      void loadSurfaceAction(threadId, surfaceId).then((surface) => {
+        if (surface) setChains((prev) => mergeSurface(prev, surface));
+        else failed();
+      }, failed);
+    },
+    [threadId],
+  );
+  const retryLoad = (surfaceId: string) => {
+    setFailedLoads((prev) => new Set([...prev].filter((id) => id !== surfaceId)));
+    loading.current.delete(surfaceId);
+    loadSurface(surfaceId);
+  };
   useEffect(() => {
     for (const m of messages) {
       for (const part of toolPartsOf(m)) {
         const surfaceId = presentedSurfaceId(part);
         if (!surfaceId || loading.current.has(surfaceId) || chains.some((c) => c.memberIds.includes(surfaceId))) continue;
-        loading.current.add(surfaceId);
-        void loadSurfaceAction(threadId, surfaceId).then(
-          (surface) => {
-            if (surface) setChains((prev) => mergeSurface(prev, surface));
-          },
-          () => {},
-        );
+        loadSurface(surfaceId);
       }
     }
-  }, [messages, chains, threadId]);
+  }, [messages, chains, loadSurface]);
 
   // A write tool's result with an actionId raises an Undo toast, once, for results that
   // arrive while the page is open (not for the stored history).
@@ -732,8 +766,20 @@ export function AgentChat({
   // A re-render joins its original's chain as another version (Task 2.9).
   const onRerendered = useCallback((surface: HostSurface) => setChains((prev) => mergeSurface(prev, surface)), []);
   const rerenderSwitch = variants ? variants.variant3Enabled : null;
+  // "Go to it": the latest frame of a chain, found in this chat when pressed, scrolled into
+  // view with its title focused.
+  const chatRef = useRef<HTMLElement>(null);
+  const goToChain = (chainId: string) => {
+    const frame = [...(chatRef.current?.querySelectorAll<HTMLElement>(".rf-view") ?? [])].find((el) => el.dataset.chainId === chainId);
+    const title = frame?.querySelector<HTMLElement>(".rf-view__title");
+    if (!frame || !title) return;
+    if (typeof frame.scrollIntoView === "function") frame.scrollIntoView({ block: "start" });
+    title.focus({ preventScroll: true });
+  };
+  // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
   const chainView = (chain: HostChain) => (
-    <RerenderTabs
+    <ViewFrame
+      key={chain.chainId}
       chain={chain}
       threadId={threadId}
       variant3Enabled={rerenderSwitch}
@@ -773,20 +819,30 @@ export function AgentChat({
   const approvalProblem =
     waitingId === null ? null : !approvalsEnabled || approvalCard?.status === "unavailable" ? CONFIRMATIONS_UNAVAILABLE : approvalCard?.status === "invalid" ? APPROVAL_INVALID : null;
 
-  // Placement: each chain renders once. At 1200px and wider the latest chain takes the
-  // wide column; every other chain renders inline at the present call that produced its
-  // latest row (an earlier row's call renders nothing), or at the end when no call in
-  // the loaded history names it.
-  const latest = chains.at(-1) ?? null;
-  const columnChain = wide ? latest : null;
-  const inlineIds = new Set(chains.filter((c) => c !== columnChain).map((c) => c.surface.id));
+  // Placement (spec 08 S4.1): one column at every width. Each chain renders once, inline
+  // at the present call that produced its latest row; an earlier row's call shows the
+  // "updated below" stub; a chain no call in the loaded history names renders after the
+  // transcript. A call whose row has not loaded shows the placeholder sized for the
+  // thread's variant, or the load failure with Try again.
+  const placeholderVariant: Variant = variants?.thread ?? 1;
   const presentedIds = new Set(messages.flatMap((m) => toolPartsOf(m).map(presentedSurfaceId).filter((id): id is string => id !== null)));
-  const renderSurface = (surfaceId: string) => {
-    if (!inlineIds.has(surfaceId)) return null;
-    const chain = chains.find((c) => c.surface.id === surfaceId);
-    return chain ? chainView(chain) : null;
+  const orphans = chains.filter((c) => !presentedIds.has(c.surface.id));
+  const renderPresent = (part: ToolPart, state: StepsState | null): ReactNode => {
+    const view = presentView(part);
+    if (view.kind === "none") return null;
+    // A part left half-written by a turn that stopped (a stored failed reply, a stream
+    // error after present's input arrived) never resolves, so it draws nothing; the steps
+    // row and the turn error say what happened.
+    if (view.kind === "building") return state === "working" ? <ViewPlaceholder variant={placeholderVariant} /> : null;
+    const id = view.surfaceId;
+    const latestOf = chains.find((c) => c.surface.id === id);
+    if (latestOf) return chainView(latestOf);
+    // Every known chain renders (here or as an orphan), so its latest frame is on the page.
+    const memberOf = chains.find((c) => c.memberIds.includes(id));
+    if (memberOf) return <ViewUpdatedStub onGo={() => goToChain(memberOf.chainId)} />;
+    if (failedLoads.has(id)) return <ViewLoadFailed onRetry={() => retryLoad(id)} />;
+    return <ViewPlaceholder variant={placeholderVariant} />;
   };
-  const orphans = chains.filter((c) => c !== columnChain && !presentedIds.has(c.surface.id));
 
   const reviewWatch = messages.reduce(
     (n, m) => n + toolPartsOf(m).filter((p) => getToolName(p) === "request_review" && p.state === "output-available").length,
@@ -826,52 +882,45 @@ export function AgentChat({
           {variants && <VariantSwitcher threadId={threadId} state={variants} />}
         </div>
       )}
-      <div className={columnChain ? "rf-agent-workspace rf-agent-workspace--split" : "rf-agent-workspace"}>
-        <section className="rf-agent-chat" aria-label="Conversation">
-          {messages.length > 0 && (
-            // aria-busy holds the live region's announcement while a reply streams, so a
-            // screen reader reads the finished reply once, not every token.
-            <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
-              {messages.map((m, i) => (
-                <MessageView
-                  key={m.id}
-                  message={m}
-                  renderSurface={renderSurface}
-                  steps={m.role === "assistant" ? stepsFor(m, i === messages.length - 1) : null}
-                />
-              ))}
-              {/* Before the reply's first part arrives, a provisional reply holds the working row. */}
-              {working && last?.role === "user" && (
-                <MessageView
-                  message={{ id: PROVISIONAL_ID, role: "assistant", parts: [] }}
-                  renderSurface={renderSurface}
-                  steps={stepsFor({ id: PROVISIONAL_ID, role: "assistant", parts: [] }, true)}
-                />
-              )}
-            </ol>
-          )}
-          {/* One failure line, where the answer would have been: a failed send, or else a
-              stored reply that never finished. */}
-          {problem && !blocking ? (
-            <TurnError text={problem.text} onRetry={problem.retry ? retry : null} />
-          ) : (
-            interrupted && !blocking && <TurnError title={INTERRUPTED_TITLE} text={INTERRUPTED_TEXT} onRetry={retry} />
-          )}
-          {orphans.map((c) => (
-            <Fragment key={c.chainId}>{chainView(c)}</Fragment>
-          ))}
-          <ReviewProgress watch={reviewWatch} />
-          {blocking && <AgentNotice kind={blocking} />}
-          {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
-          {shownConfirm && <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />}
-          {messages.length === 0 ? <EmptyState hasProfile={hasProfile} composer={composer} /> : composer}
-        </section>
-        {columnChain && (
-          <aside className="rf-agent-surface-column" aria-label="Latest view">
-            {chainView(columnChain)}
-          </aside>
+      <section ref={chatRef} className="rf-agent-chat" aria-label="Conversation">
+        {messages.length > 0 && (
+          // aria-busy holds the live region's announcement while a reply streams, so a
+          // screen reader reads the finished reply once, not every token.
+          <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
+            {messages.map((m, i) => (
+              <MessageView
+                key={m.id}
+                message={m}
+                renderPresent={renderPresent}
+                steps={m.role === "assistant" ? stepsFor(m, i === messages.length - 1) : null}
+              />
+            ))}
+            {/* Before the reply's first part arrives, a provisional reply holds the working row. */}
+            {working && last?.role === "user" && (
+              <MessageView
+                message={{ id: PROVISIONAL_ID, role: "assistant", parts: [] }}
+                renderPresent={renderPresent}
+                steps={stepsFor({ id: PROVISIONAL_ID, role: "assistant", parts: [] }, true)}
+              />
+            )}
+          </ol>
         )}
-      </div>
+        {/* One failure line, where the answer would have been: a failed send, or else a
+            stored reply that never finished. */}
+        {problem && !blocking ? (
+          <TurnError text={problem.text} onRetry={problem.retry ? retry : null} />
+        ) : (
+          interrupted && !blocking && <TurnError title={INTERRUPTED_TITLE} text={INTERRUPTED_TEXT} onRetry={retry} />
+        )}
+        {orphans.map((c) => (
+          <Fragment key={c.chainId}>{chainView(c)}</Fragment>
+        ))}
+        <ReviewProgress watch={reviewWatch} />
+        {blocking && <AgentNotice kind={blocking} />}
+        {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
+        {shownConfirm && <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />}
+        {messages.length === 0 ? <EmptyState hasProfile={hasProfile} composer={composer} /> : composer}
+      </section>
     </div>
   );
 }

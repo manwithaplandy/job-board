@@ -10,7 +10,7 @@ vi.mock("@/app/actions/agent", () => actions);
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
 import { everyNodePayload } from "@/lib/agent/surfaces/v2/testFixtures";
-import { SurfaceHost, withBlocksView } from "./SurfaceHost";
+import { DEGRADED_CAPTION, showsDegradedCaption, SurfaceHost, withBlocksView } from "./SurfaceHost";
 
 const THREAD = "22222222-2222-4222-8222-222222222222";
 const ID = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -29,6 +29,7 @@ function surface(view: HostSurface["view"], variant: HostSurface["variant"]): Ho
     gathered: gatheredFixture(),
     rows: {},
     degraded: false,
+    outcome: "valid",
   };
 }
 
@@ -77,4 +78,25 @@ test("a sandbox view mounts the frame; when it falls back the page is told, and 
   expect(after[0].surface.variant).toBe(3);
   // Another chain, or a chain already on blocks, is left as it is.
   expect(withBlocksView(chains, "other")[0]).toBe(chains[0]);
+});
+
+// PR 2 Task 2.1: the caption under a view that could not be built (spec S11).
+test("the degraded caption shows for a degraded row and for a variant 2 or 3 row stored as its fallback", () => {
+  expect(DEGRADED_CAPTION).toBe("Shown as blocks because the view could not be built.");
+  const blocks = { kind: "blocks" } as const;
+  expect(showsDegradedCaption({ ...surface(blocks, 1), degraded: true })).toBe(true);
+  expect(showsDegradedCaption({ ...surface(blocks, 3), outcome: "fallback" })).toBe(true);
+  expect(showsDegradedCaption({ ...surface(blocks, 2), outcome: "fallback" })).toBe(true);
+  // Variant 1 stores its fallback at once: that is its view, not a degradation.
+  expect(showsDegradedCaption({ ...surface(blocks, 1), outcome: "fallback" })).toBe(false);
+  // A valid variant 3 row shown as blocks because variant 3 is switched off.
+  expect(showsDegradedCaption(surface(blocks, 3))).toBe(false);
+});
+
+test("a frame that fell back in the browser is marked degraded", () => {
+  const document = { variant: 3 as const, title: "Picks", html: "<p>Hi</p>" };
+  const chains: HostChain[] = [{ chainId: ID, memberIds: [ID], surface: surface({ kind: "sandbox", document }, 3) }];
+  const after = withBlocksView(chains, ID);
+  expect(after[0].surface.degraded).toBe(true);
+  expect(showsDegradedCaption(after[0].surface)).toBe(true);
 });

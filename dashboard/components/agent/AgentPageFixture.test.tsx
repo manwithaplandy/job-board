@@ -76,3 +76,33 @@ test("agent-page-steps-open shows the same steps expanded, with a grouped count 
   expect(panel?.textContent).toContain("Searched your reviewed jobs (5 times)");
   expect(container.querySelector(".rf-steps__item--failed")?.textContent).toBe("Could not read a job review");
 });
+
+// PR 2 (spec 08 S14.2): the inline-view states.
+test("agent-page-view-building shows the placeholder between two paragraphs while the turn works", () => {
+  const { container } = render(<AgentPageFixture state="agent-page-view-building" />);
+  const reply = [...container.querySelectorAll(".rf-agent-transcript > li")].at(-1)!;
+  const order = [...reply.querySelectorAll(".rf-md, .rf-view-placeholder")].map((el) => (el.classList.contains("rf-view-placeholder") ? "placeholder" : "text"));
+  expect(order).toEqual(["text", "placeholder", "text"]);
+  expect(reply.querySelector(".rf-view-placeholder")?.getAttribute("role")).toBe("status");
+  expect(reply.querySelector(".rf-view-placeholder")?.textContent).toBe("Building a view…");
+  expect(screen.getByRole("button", { name: /Building a view/ }).closest(".rf-steps--working")).not.toBeNull();
+  expect(screen.queryByText("This reply was interrupted")).toBeNull();
+});
+
+test("agent-page-view-updated shows the updated-below stub at the older part and the view at the newer one", () => {
+  const { container } = render(<AgentPageFixture state="agent-page-view-updated" />);
+  expect(screen.getByText("This view was updated below.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Go to it" })).toBeTruthy();
+  const views = container.querySelectorAll(".rf-view");
+  expect(views).toHaveLength(1);
+  expect([...container.querySelectorAll(".rf-agent-transcript > li")].at(-1)?.contains(views[0])).toBe(true);
+});
+
+test("agent-page-view-degraded shows a layout view stored as blocks, solid-framed, with the caption", () => {
+  const { container } = render(<AgentPageFixture state="agent-page-view-degraded" />);
+  const view = container.querySelector(".rf-view")!;
+  expect(view.getAttribute("data-variant")).toBe("2");
+  expect(view.getAttribute("data-frame")).toBe("solid");
+  expect(screen.getByText("Shown as blocks because the view could not be built.")).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "Layout" }).getAttribute("aria-checked")).toBe("true");
+});

@@ -12,6 +12,9 @@ export const AGENT_PAGE_FIXTURE_STATES = [
   "agent-page-steps-working",
   "agent-page-steps-done",
   "agent-page-steps-open",
+  "agent-page-view-building",
+  "agent-page-view-updated",
+  "agent-page-view-degraded",
 ] as const;
 
 export type AgentPageFixtureState = (typeof AGENT_PAGE_FIXTURE_STATES)[number];

@@ -2,7 +2,7 @@
 
 import type { UIMessage } from "ai";
 import type { Variant } from "@/lib/agent/config";
-import type { HostChain } from "@/lib/agent/surfaces/host";
+import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { AgentChat, StartConversation, type AgentChatFixture } from "./AgentChat";
@@ -15,13 +15,16 @@ import { FIXTURE_GATHERED, JOBS_FIXTURE_PAYLOAD, JOBS_FIXTURE_ROWS } from "./blo
 // The gallery's agent page fixtures (ui-gallery/states/agent-page-*): the production agent
 // page layout and chat with fixed threads, messages and a surface, and no session or
 // database. They are in the committed visual-regression suite (tests/visual/routes.ts at
-// 390 and 1440, tests/visual/agent-page-widths.spec.ts at 1024, 1280 and 2000), and
+// 390 and 1440, tests/visual/agent-page-widths.spec.ts at 375, 768, 1024, 1280, 1440 and
+// 2000 for the inline-view and steps states), and
 // scripts/agent-screens.ts renders them at every width locally. Nothing is sent on load;
 // sending from a fixture calls /api/agent like the real page, which only the local script
 // stubs (its failed-live state), never the committed suite.
 
 const THREAD = "00000000-0000-4000-8000-0000000000a1";
 const SURFACE = "00000000-0000-4000-8000-0000000000b1";
+// The update of SURFACE in agent-page-view-updated.
+const SURFACE_UPDATED = "00000000-0000-4000-8000-0000000000b2";
 const CLOCK = { now: new Date("2026-10-12T00:00:00.000Z"), frozen: true };
 
 const LONG_TITLE = "What are some jobs that would be interesting as a slight career pivot for me, given my platform background?";
@@ -47,14 +50,18 @@ function assistant(id: string, parts: UIMessage["parts"], status: "complete" | "
 const lookup = (callId: string, tool: string) =>
   ({ type: `tool-${tool}`, toolCallId: callId, state: "output-available", input: {}, output: {} }) as UIMessage["parts"][number];
 
-const present = (callId: string) =>
+const present = (callId: string, surfaceId: string = SURFACE, variant: Variant = 1) =>
   ({
     type: "tool-present",
     toolCallId: callId,
     state: "output-available",
     input: {},
-    output: { surfaceId: SURFACE, variant: 1, outcome: "valid", payload: { variant: 1, blocks: [] } },
+    output: { surfaceId, variant, outcome: "valid", payload: { variant: 1, blocks: [] } },
   }) as UIMessage["parts"][number];
+
+/** A present call whose input is still arriving: its view is being built. */
+const building = (callId: string) =>
+  ({ type: "tool-present", toolCallId: callId, state: "input-available", input: {} }) as UIMessage["parts"][number];
 
 const CONVERSATION: UIMessage[] = [
   user("u1", LONG_TITLE),
@@ -109,30 +116,72 @@ const STEPS_DONE: UIMessage[] = [
   ]),
 ];
 
-const CHAINS: HostChain[] = [
+// A view in progress (spec 08 S7.3): the reply says what the view is for, the present call
+// is still arriving, and the answer goes on. Pending with no start time, like
+// STEPS_WORKING, so it never reads as interrupted.
+const VIEW_BUILDING: UIMessage[] = [
+  ...CONVERSATION.slice(0, 3),
   {
-    chainId: SURFACE,
-    memberIds: [SURFACE],
-    surface: {
-      id: SURFACE,
-      threadId: THREAD,
-      supersedes: null,
-      rerenderOf: null,
-      createdAt: "2026-11-25T12:00:00.000Z",
-      variant: 1,
-      view: { kind: "blocks" },
-      payload: JOBS_FIXTURE_PAYLOAD,
-      gathered: FIXTURE_GATHERED,
-      rows: JOBS_FIXTURE_ROWS,
-      degraded: false,
-    },
+    id: "a2",
+    role: "assistant",
+    parts: [
+      lookup("b1", "search_jobs"),
+      { type: "text", text: "Two of your reviewed jobs fit developer tooling. Here they are side by side:" },
+      building("b2"),
+      { type: "text", text: "Acme pays more; Globex is on-site in Austin." },
+    ],
+    metadata: { status: "pending" },
   },
 ];
+
+// An updated view (spec 08 S4.1): the older reply named the chain's first row, so it shows
+// the "updated below" stub; the newer reply names the update and shows the view.
+const VIEW_UPDATED: UIMessage[] = [
+  ...CONVERSATION.slice(0, 3),
+  assistant("a2", [lookup("c2", "search_jobs"), { type: "text", text: "Here are the two closest matches side by side." }, present("c3")]),
+  user("u3", "Put the one that lists pay first."),
+  assistant("a3", [{ type: "text", text: "Done: Acme lists pay, so it comes first now." }, present("c4", SURFACE_UPDATED)]),
+];
+
+// A layout (variant 2) view whose tree could not be built: its row holds the blocks
+// fallback with outcome fallback, so it shows blocks with the caption (spec 08 S11).
+const VIEW_DEGRADED: UIMessage[] = [
+  ...CONVERSATION.slice(0, 3),
+  assistant("a2", [lookup("c2", "search_jobs"), { type: "text", text: "Here are the two closest matches side by side." }, present("c3", SURFACE, 2)]),
+];
+
+const FIXTURE_SURFACE: HostSurface = {
+  id: SURFACE,
+  threadId: THREAD,
+  supersedes: null,
+  rerenderOf: null,
+  createdAt: "2026-11-25T12:00:00.000Z",
+  variant: 1,
+  view: { kind: "blocks" },
+  payload: JOBS_FIXTURE_PAYLOAD,
+  gathered: FIXTURE_GATHERED,
+  rows: JOBS_FIXTURE_ROWS,
+  degraded: false,
+  outcome: "valid",
+};
+
+const CHAINS: HostChain[] = [{ chainId: SURFACE, memberIds: [SURFACE], surface: FIXTURE_SURFACE }];
+
+const UPDATED_CHAINS: HostChain[] = [
+  {
+    chainId: SURFACE,
+    memberIds: [SURFACE, SURFACE_UPDATED],
+    surface: { ...FIXTURE_SURFACE, id: SURFACE_UPDATED, supersedes: SURFACE, createdAt: "2026-11-25T12:05:00.000Z" },
+  },
+];
+
+const DEGRADED_CHAINS: HostChain[] = [{ chainId: SURFACE, memberIds: [SURFACE], surface: { ...FIXTURE_SURFACE, variant: 2, outcome: "fallback" } }];
 
 const VARIANT_OF: Partial<Record<AgentPageFixtureState, Variant>> = {
   "agent-page-blocks": 1,
   "agent-page-layout": 2,
   "agent-page-code": 3,
+  "agent-page-view-degraded": 2,
 };
 
 const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
@@ -141,14 +190,24 @@ const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
   "agent-page-steps-working": STEPS_WORKING,
   "agent-page-steps-done": STEPS_DONE,
   "agent-page-steps-open": STEPS_DONE,
+  "agent-page-view-building": VIEW_BUILDING,
+  "agent-page-view-updated": VIEW_UPDATED,
+  "agent-page-view-degraded": VIEW_DEGRADED,
 };
 
-const WITH_CHAINS: ReadonlySet<AgentPageFixtureState> = new Set(["agent-page-surface", "agent-page-steps-done", "agent-page-steps-open"]);
+const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
+  "agent-page-surface": CHAINS,
+  "agent-page-steps-done": CHAINS,
+  "agent-page-steps-open": CHAINS,
+  "agent-page-view-updated": UPDATED_CHAINS,
+  "agent-page-view-degraded": DEGRADED_CHAINS,
+};
 
 // The chat's gallery seam: a frozen working timer, or one message's steps open.
 const CHAT_FIXTURE_OF: Partial<Record<AgentPageFixtureState, AgentChatFixture>> = {
   "agent-page-steps-working": { working: { elapsedMs: 65_000 } },
   "agent-page-steps-open": { openStepsFor: "a2" },
+  "agent-page-view-building": { working: { elapsedMs: 12_000 } },
 };
 
 export function AgentPageFixture({ state }: { state: AgentPageFixtureState }) {
@@ -169,7 +228,7 @@ export function AgentPageFixture({ state }: { state: AgentPageFixtureState }) {
             title={LONG_TITLE}
             initialMessages={messages}
             notice={null}
-            surfaces={WITH_CHAINS.has(state) ? CHAINS : []}
+            surfaces={CHAINS_OF[state] ?? []}
             hasProfile
             variants={{ thread: VARIANT_OF[state] ?? 1, default: 1, variant3Enabled: true }}
             fixture={CHAT_FIXTURE_OF[state]}

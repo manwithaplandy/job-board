@@ -2,7 +2,7 @@
 // The minimal agent page's chat (plan Task 0.14). fetch is stubbed: the route answers
 // either a UI message stream or one of its JSON rejections.
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createUIMessageStreamResponse, type UIMessage, type UIMessageChunk } from "ai";
 
 const actions = vi.hoisted(() => ({
@@ -12,6 +12,7 @@ const actions = vi.hoisted(() => ({
   reportSurfaceFailure: vi.fn(),
   setThreadVariantAction: vi.fn(),
   setDefaultVariantAction: vi.fn(),
+  loadSurfaceAction: vi.fn(),
 }));
 vi.mock("@/app/actions/agent", () => actions);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
@@ -26,6 +27,10 @@ import {
   UNAVAILABLE_PROBLEM,
   problemFromStreamError,
 } from "./AgentChat";
+import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
+import { gatheredFixture } from "@/lib/agent/surfaces/v1/testFixtures";
+import { SURFACE_FAILED_TEXT } from "./SurfaceHost";
+import { ViewUpdatedStub } from "./ViewPlaceholder";
 
 const THREAD = "22222222-2222-4222-8222-222222222222";
 
@@ -596,4 +601,273 @@ test("a successful Retry of a failed reply reads done, though the server reuses 
   await waitFor(() => expect(container.querySelector(".rf-steps--working")).toBeNull());
   expect(container.querySelectorAll(".rf-steps")).toHaveLength(1);
   expect(stepsToggle().textContent).toContain("Worked through 1 step");
+});
+
+
+// PR 2 Task 2.4: views render inline at their present part (spec 08 S4.1, S7.3, S11); the
+// surface column is gone.
+const V1 = "aaaaaaaa-0000-4000-8000-0000000000a1";
+const V2 = "aaaaaaaa-0000-4000-8000-0000000000a2";
+const V3 = "aaaaaaaa-0000-4000-8000-0000000000a3";
+
+function hostSurface(id: string, title: string, supersedes: string | null = null): HostSurface {
+  return {
+    id,
+    threadId: THREAD,
+    supersedes,
+    rerenderOf: null,
+    createdAt: "2026-11-25T00:00:00.000Z",
+    variant: 1,
+    view: { kind: "blocks" },
+    payload: { variant: 1, title, blocks: [{ type: "Callout", tone: "info", text: `${title} body` }] },
+    gathered: gatheredFixture(),
+    rows: {},
+    degraded: false,
+    outcome: "valid",
+  };
+}
+
+const chainOf = (surface: HostSurface, memberIds: string[] = [surface.id]): HostChain => ({ chainId: memberIds[0], memberIds, surface });
+
+function presentPart(surfaceId: string | null, state = "output-available", output?: unknown): Part {
+  call += 1;
+  return {
+    type: "tool-present",
+    toolCallId: `call-${call}`,
+    state,
+    input: { payload: {} },
+    ...(state === "output-available" ? { output: output ?? { surfaceId, variant: 1, outcome: "valid" } } : {}),
+  } as Part;
+}
+
+const text = (t: string): Part => ({ type: "text", text: t });
+const reply = (id: string, parts: Part[], status: "complete" | "failed" = "complete"): UIMessage => ({ id, role: "assistant", parts, metadata: { status } });
+const ask = (id: string, t: string): UIMessage => ({ id, role: "user", parts: [text(t)], metadata: { status: "complete" } });
+
+function stubMatchMedia(matches: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    onchange: null,
+    dispatchEvent: () => false,
+  }));
+}
+
+describe("inline views", () => {
+  beforeEach(() => {
+    actions.loadSurfaceAction.mockReset().mockResolvedValue(null);
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+  });
+
+  test.each([true, false])("there is no surface column (wide %s); the newest chain renders in the transcript at its part", (wide) => {
+    stubMatchMedia(wide);
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Here they are."), presentPart(V1)])];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={[chainOf(hostSurface(V1, "Top matches"))]} />);
+    expect(container.querySelector(".rf-agent-surface-column")).toBeNull();
+    expect(container.querySelector(".rf-agent-workspace--split")).toBeNull();
+    const view = container.querySelector<HTMLElement>(`.rf-view[data-chain-id="${V1}"]`);
+    expect(view?.closest(".rf-agent-transcript")).not.toBeNull();
+    expect(view?.closest("li")?.textContent).toContain("Here they are.");
+    expect(container.querySelectorAll(".rf-view")).toHaveLength(1);
+  });
+
+  test("a message's parts render text, view, text, view in stored order", () => {
+    const messages = [ask("u1", "Compare"), reply("a1", [text("First paragraph."), presentPart(V1), text("Second paragraph."), presentPart(V2)])];
+    const chains = [chainOf(hostSurface(V1, "View A")), chainOf(hostSurface(V2, "View B"))];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={chains} />);
+    const li = container.querySelectorAll(".rf-agent-transcript > li")[1];
+    const order = [...li.querySelectorAll(".rf-md, .rf-view")].map((el) => (el.classList.contains("rf-view") ? `view:${el.getAttribute("data-chain-id")}` : `text:${el.textContent}`));
+    expect(order).toEqual(["text:First paragraph.", `view:${V1}`, "text:Second paragraph.", `view:${V2}`]);
+  });
+
+  test("a present part still being written in the working turn shows the placeholder", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Before."), presentPart(null, "input-available"), text("After.")])];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ working: { elapsedMs: 0 } }} />);
+    const li = container.querySelectorAll(".rf-agent-transcript > li")[1];
+    const placeholder = li.querySelector(".rf-view-placeholder");
+    expect(placeholder?.getAttribute("role")).toBe("status");
+    expect(placeholder?.textContent).toContain("Building a view…");
+    // Between the two paragraphs.
+    const order = [...li.querySelectorAll(".rf-md, .rf-view-placeholder")].map((el) => (el.className.includes("placeholder") ? "placeholder" : el.textContent));
+    expect(order).toEqual(["Before.", "placeholder", "After."]);
+    expect(actions.loadSurfaceAction).not.toHaveBeenCalled();
+  });
+
+  test("an invalid or limit result shows nothing", () => {
+    const messages = [
+      ask("u2", "Again"),
+      reply("a2", [text("Tried."), presentPart(null, "output-available", { variant: 2, outcome: "invalid", errors: ["bad"] })]),
+      ask("u3", "More"),
+      reply("a3", [text("Full."), presentPart(null, "output-available", { variant: 1, outcome: "limit", errors: ["This turn already has 3 views. Finish the answer in text."] })]),
+    ];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ working: { elapsedMs: 0 } }} />);
+    for (const li of container.querySelectorAll(".rf-agent-transcript > li")) {
+      expect(li.querySelector(".rf-view-placeholder")).toBeNull();
+      expect(li.querySelector(".rf-view")).toBeNull();
+    }
+    expect(actions.loadSurfaceAction).not.toHaveBeenCalled();
+  });
+
+  test("the placeholder is sized for the thread's variant", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [presentPart(null, "input-streaming")])];
+    const variants = { thread: 3 as const, default: 3 as const, variant3Enabled: true };
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} variants={variants} fixture={{ working: { elapsedMs: 0 } }} />,
+    );
+    expect(container.querySelector(".rf-view-placeholder--code")).not.toBeNull();
+  });
+
+  test("a building part in a reply that is not working (an older reply, or a finished one) shows nothing", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Cut off."), presentPart(null, "input-available")]), ask("u2", "Again"), reply("a2", [text("Working.")])];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ working: { elapsedMs: 0 } }} />);
+    expect(container.querySelector(".rf-view-placeholder")).toBeNull();
+    expect(screen.queryByText("Building a view…")).toBeNull();
+  });
+
+  test("a stored failed reply that died mid-present shows no placeholder, only the interruption (Important 2)", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Starting."), presentPart(null, "input-available")], "failed")];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+    expect(container.querySelector(".rf-view-placeholder")).toBeNull();
+    expect(screen.queryByText("Building a view…")).toBeNull();
+    expect(screen.getByText("This reply was interrupted")).toBeTruthy();
+    expect(stepsToggle().textContent).toContain("Stopped");
+  });
+
+  test("a stream error after present's input arrived leaves no placeholder (Important 2)", async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      createUIMessageStreamResponse({
+        stream: new ReadableStream<UIMessageChunk>({
+          start(controller) {
+            controller.enqueue({ type: "start", messageId: "msg-mid-present" });
+            controller.enqueue({ type: "start-step" });
+            controller.enqueue({ type: "text-start", id: "t1" });
+            controller.enqueue({ type: "text-delta", id: "t1", delta: "Building it." });
+            controller.enqueue({ type: "text-end", id: "t1" });
+            controller.enqueue({ type: "tool-input-available", toolCallId: "p-1", toolName: "present", input: { payload: {} } });
+            controller.enqueue({ type: "error", errorText: "model_error:503" });
+            controller.close();
+          },
+        }),
+      }),
+    );
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+    fireEvent.change(composer(), { target: { value: "Show me" } });
+    fireEvent.click(sendButton());
+    await screen.findByText(PROVIDER_DOWN_PROBLEM);
+    await waitFor(() => expect(stepsToggle().textContent).toContain("Stopped"));
+    expect(screen.getByText("Building it.")).toBeTruthy();
+    expect(container.querySelector(".rf-view-placeholder")).toBeNull();
+    expect(screen.queryByText("Building a view…")).toBeNull();
+    expect(actions.loadSurfaceAction).not.toHaveBeenCalled();
+  });
+
+  test("an updated view's older part says it was updated below; Go to it focuses the latest frame's title", () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    try {
+      const messages = [ask("u1", "Show me"), reply("a1", [text("First."), presentPart(V1)]), ask("u2", "Change it"), reply("a2", [text("Changed."), presentPart(V2)])];
+      const chains = [chainOf(hostSurface(V2, "Updated view", V1), [V1, V2])];
+      const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={chains} />);
+      const items = container.querySelectorAll(".rf-agent-transcript > li");
+      expect(items[1].textContent).toContain("This view was updated below.");
+      expect(items[1].querySelector(".rf-view")).toBeNull();
+      expect(items[3].querySelector(`.rf-view[data-chain-id="${V1}"]`)).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Go to it" }));
+      const title = items[3].querySelector(".rf-view__title");
+      expect(document.activeElement).toBe(title);
+      expect(scrolled).toHaveBeenCalled();
+    } finally {
+      // @ts-expect-error jsdom has no scrollIntoView of its own; restore that.
+      delete Element.prototype.scrollIntoView;
+    }
+  });
+
+  test("Go to it reaches the latest frame when only an orphan shows it (Review Focus 2)", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("First."), presentPart(V1)])];
+    // V2 updated V1, and no loaded message names V2: the chain renders after the transcript.
+    const chains = [chainOf(hostSurface(V2, "Updated view", V1), [V1, V2])];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={chains} />);
+    const orphan = container.querySelector<HTMLElement>(`.rf-view[data-chain-id="${V1}"]`);
+    expect(orphan?.closest(".rf-agent-transcript")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Go to it" }));
+    expect(document.activeElement).toBe(orphan?.querySelector(".rf-view__title"));
+  });
+
+  test("without a frame to go to the stub has no button (Review Focus 2)", () => {
+    render(<ViewUpdatedStub />);
+    expect(screen.getByText("This view was updated below.")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  test("a view that cannot be loaded says so with Try again, which loads it again", async () => {
+    actions.loadSurfaceAction.mockRejectedValueOnce(new Error("offline"));
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Here."), presentPart(V3)])];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+    expect(container.querySelector(".rf-view-placeholder")).not.toBeNull();
+    await screen.findByText(SURFACE_FAILED_TEXT);
+    expect(container.querySelector(".rf-view-placeholder")).toBeNull();
+    expect(actions.loadSurfaceAction).toHaveBeenCalledTimes(1);
+    actions.loadSurfaceAction.mockResolvedValueOnce(hostSurface(V3, "Loaded at last"));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("heading", { level: 3, name: "Loaded at last" });
+    expect(actions.loadSurfaceAction).toHaveBeenCalledTimes(2);
+    expect(actions.loadSurfaceAction).toHaveBeenLastCalledWith(THREAD, V3);
+    expect(screen.queryByText(SURFACE_FAILED_TEXT)).toBeNull();
+    expect(container.querySelector(`.rf-agent-transcript .rf-view[data-chain-id="${V3}"]`)).not.toBeNull();
+  });
+
+  test("a load that returns nothing shows the same line", async () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [presentPart(V3)])];
+    render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+    await screen.findByText(SURFACE_FAILED_TEXT);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  test("a stored failed reply whose view was stored still shows it, with Stopped after 1 step (Review Focus 1)", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Here is the start."), presentPart(V1)], "failed")];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={[chainOf(hostSurface(V1, "Kept view"))]} />);
+    const li = container.querySelectorAll(".rf-agent-transcript > li")[1];
+    expect(li.querySelector(`.rf-view[data-chain-id="${V1}"]`)).not.toBeNull();
+    expect(stepsToggle().textContent).toContain("Stopped after 1 step");
+    expect(screen.getByText("This reply was interrupted")).toBeTruthy();
+  });
+
+  test("a reply that fails in the session after its view was stored keeps the view and reads Stopped (Review Focus 1)", async () => {
+    actions.loadSurfaceAction.mockResolvedValue(hostSurface(V1, "Streamed view"));
+    fetchMock.mockImplementationOnce(async () =>
+      createUIMessageStreamResponse({
+        stream: new ReadableStream<UIMessageChunk>({
+          start(controller) {
+            controller.enqueue({ type: "start", messageId: "msg-view-failed" });
+            controller.enqueue({ type: "start-step" });
+            controller.enqueue({ type: "tool-input-available", toolCallId: "p-1", toolName: "present", input: { payload: {} } });
+            controller.enqueue({ type: "tool-output-available", toolCallId: "p-1", output: { surfaceId: V1, variant: 1, outcome: "valid" } });
+            controller.enqueue({ type: "finish-step" });
+            controller.enqueue({ type: "error", errorText: "model_error:503" });
+            controller.close();
+          },
+        }),
+      }),
+    );
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+    fireEvent.change(composer(), { target: { value: "Show me" } });
+    fireEvent.click(sendButton());
+    await screen.findByText(PROVIDER_DOWN_PROBLEM);
+    await screen.findByRole("heading", { level: 3, name: "Streamed view" });
+    await waitFor(() => expect(stepsToggle().textContent).toContain("Stopped after 1 step"));
+    expect(container.querySelector(`.rf-agent-transcript .rf-view[data-chain-id="${V1}"]`)).not.toBeNull();
+  });
+
+  test("a chain no loaded message names renders after the transcript", () => {
+    const messages = [ask("u1", "Hello"), reply("a1", [text("Hi.")])];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={[chainOf(hostSurface(V1, "Earlier view"))]} />);
+    const view = container.querySelector(`.rf-view[data-chain-id="${V1}"]`)!;
+    const transcript = container.querySelector(".rf-agent-transcript")!;
+    expect(transcript.contains(view)).toBe(false);
+    expect(transcript.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

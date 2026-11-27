@@ -5,7 +5,9 @@ import { VISUAL_ROUTES } from "./routes";
 // 14.2, plan "Browser validation" item 4). It runs in the public visual job against the
 // gallery fixtures, at a desktop and a phone width, and takes no screenshots. PR 1: the
 // steps row opens and closes by click and by keyboard, says so through aria-expanded, and
-// keeps a 44px target. Later PRs add the view frame, Expand and the pending ask here.
+// keeps a 44px target. PR 2: "Go to it" on an updated view's old position moves focus to
+// the latest view's title and brings it into view. Later PRs add Expand and the pending
+// ask here.
 
 const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
 const VIEWPORTS = [
@@ -69,6 +71,16 @@ for (const viewport of VIEWPORTS) {
       await expect(toggle).toBeVisible();
       await expect(toggle).toHaveAttribute("aria-expanded", "false");
       await expect(page.locator(".rf-steps--working .rf-steps__timer")).toHaveText("1:05");
+    });
+
+    test(`Go to it focuses the updated view's title w${viewport.width}`, async ({ page }) => {
+      await page.goto(routePath("agent-page-view-updated"), { waitUntil: "networkidle" });
+      await expect(page.getByText("This view was updated below.")).toBeVisible();
+      const title = page.locator(".rf-view .rf-view__title");
+      await expect(title).toHaveCount(1);
+      await page.getByRole("button", { name: "Go to it" }).click();
+      await expect(title).toBeFocused();
+      await expect(title).toBeInViewport();
     });
   });
 }

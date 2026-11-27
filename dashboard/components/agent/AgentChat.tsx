@@ -49,9 +49,10 @@ import { ViewLoadFailed, ViewPlaceholder, ViewUpdatedStub } from "./ViewPlacehol
 // text is drawn as markdown by AgentMarkdown, as React elements only: no raw HTML, and no
 // links or images (spec section 10). The user's text stays plain. The one rich output is
 // a surface, and it is rendered only by SurfaceHost from the server-parsed surface row,
-// never from the tool part's own payload. Every view renders inline, in a ViewFrame, at the
-// present part that made it (spec 08 S4.1); there is no second column. Approvals and high-risk intents show only the
-// fixed ConfirmCard, built on the server from database values.
+// never from the tool part's own payload. Every view renders inline, in a ViewFrame, at
+// the present part that made it (spec 08 S4.1); there is no second column. Approvals and
+// high-risk intents show only the fixed ConfirmCard, built on the server from database
+// values.
 
 const generateId = createIdGenerator({ prefix: "u", size: 16 });
 

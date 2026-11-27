@@ -55,7 +55,8 @@
 /* The view frame (spec 08 S5): every chain renders in one, inline in the reply, at the full
    width of the conversation column. A solid border for blocks and trees; a generated
    (variant 3) view keeps the dashed border and its label (spec 05 S10 item 5). */
-.rf-view { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); }
+.rf-view { display: grid; min-width: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); }
+.rf-view > * + * { margin-top: var(--space-3); }
 .rf-view[data-frame="dashed"] { border-style: dashed; border-color: var(--border-strong); }
 .rf-view__header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-2) var(--space-4); min-width: 0; }
 .rf-view__heading { display: grid; flex: 1 1 14rem; gap: var(--space-1); min-width: 0; }
@@ -65,9 +66,10 @@
 .rf-view__title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-control); }
 .rf-view__caption { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
 .rf-view__body { min-width: 0; }
-/* The sandbox frame's chip region is portalled here; with no chip the row takes no room. */
+/* The sandbox frame's chip region (an aria-live region) is portalled here. With no chip it
+   takes no room but stays rendered, so a chip that appears is announced. */
 .rf-view__requests { min-width: 0; }
-.rf-view__requests:not(:has(.rf-sandbox__chip)) { display: none; }
+.rf-view__requests:not(:has(.rf-sandbox__chip)) { margin-top: 0; }
 .rf-view__footer { min-width: 0; }
 
 /* What stands at a present part while its view is not there (spec 08 S7.3, S11): the sized

@@ -89,6 +89,10 @@ export async function setThreadVariantAction(threadId: string, variant: number):
   if (!allowed.ok || !isVariant(variant)) return allowed;
   if (!(await getThread(userId, threadId))) return { ok: false, reason: "not_found" };
   await setThreadVariant(userId, threadId, variant);
+  // The pick is also the user's default, so a new conversation opens in the style they
+  // last chose (Andrew 2026-11-27: "The state I've selected should persist across
+  // conversations"). Existing threads keep their own recorded variant.
+  await setDefaultVariant(userId, variant);
   revalidatePath("/agent");
   return { ok: true };
 }

@@ -65,7 +65,10 @@ const CONVERSATION: UIMessage[] = [
   user("u2", "Which of my reviewed jobs fit the first one?"),
   assistant("a2", [
     lookup("c2", "search_jobs"),
-    { type: "text", text: "Two of your reviewed jobs fit developer tooling well. Acme Systems is remote and lists pay; Globex is on-site in Austin." },
+    {
+      type: "text",
+      text: "Two of your reviewed jobs fit developer tooling well.\n\n**Closest matches:**\n- **Acme Systems**, Platform Engineer (fit 88). Remote and lists pay.\n- **Globex**, Build Tools Lead (fit 81). On-site in Austin.\n\nThe Globex review is a month old, so treat its `on-site` note with some caution.",
+    },
   ]),
 ];
 

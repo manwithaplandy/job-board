@@ -91,16 +91,42 @@ export function presentSchemaFor(variant: Variant): z.ZodType {
 }
 
 /**
+ * A draft 7 tuple (`items` as a list, with `additionalItems`) rewritten as a fixed-length
+ * array: `items` one schema (the list's one schema, or anyOf its distinct schemas) with
+ * minItems and maxItems both the tuple's length. Anthropic validates every tool's
+ * input_schema against JSON Schema draft 2020-12, where `items` must be one schema, so a
+ * draft 7 tuple is refused with a 400 ("tools.N.custom.input_schema: JSON schema is
+ * invalid"). This form is valid in both drafts and needs no prefixItems. The tool's own
+ * zod check still holds the exact tuple; the model only reads this. Every other node is
+ * copied as is.
+ */
+export function withoutTuples(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(withoutTuples);
+  if (node === null || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) out[key] = withoutTuples(value);
+  if (Array.isArray(out.items)) {
+    const list = out.items as unknown[];
+    const distinct = list.filter((s, i) => list.findIndex((t) => JSON.stringify(t) === JSON.stringify(s)) === i);
+    out.items = distinct.length === 1 ? distinct[0] : { anyOf: distinct };
+    out.minItems = Math.max(typeof out.minItems === "number" ? out.minItems : 0, list.length);
+    if (out.additionalItems === false) out.maxItems = list.length;
+    delete out.additionalItems;
+  }
+  return out;
+}
+
+/**
  * The JSON schema the model is shown: { surfaceId?, payload } with the variant's grammar.
- * Draft 7 (PR #51 review L1): the JobComparison tuple is then `items: [...]` with
- * `additionalItems: false`, not draft 2020-12's `prefixItems`, which the tool's
- * JSONSchema7 type and some providers do not read. The variant 2 tree is recursive, so
- * zod emits its node schema under `definitions` with `#/definitions/...` references;
- * those resolve against the document root, so the definitions move to the tool schema's
- * root.
+ * Draft 7 (PR #51 review L1), so no draft 2020-12 prefixItems, which the tool's
+ * JSONSchema7 type and some providers do not read; its tuples (JobComparison's two job
+ * ids, the compare action's) are then rewritten as fixed-length arrays (withoutTuples),
+ * since Anthropic refuses a draft 7 tuple. The variant 2 tree is recursive, so zod emits
+ * its node schema under `definitions` with `#/definitions/...` references; those resolve
+ * against the document root, so the definitions move to the tool schema's root.
  */
 export function presentJsonSchema(variant: Variant = 1): JSONSchema7 {
-  const payload = z.toJSONSchema(presentSchemaFor(variant), { io: "input", target: "draft-7" }) as Record<string, unknown>;
+  const payload = withoutTuples(z.toJSONSchema(presentSchemaFor(variant), { io: "input", target: "draft-7" })) as Record<string, unknown>;
   delete payload.$schema;
   const definitions = payload.definitions;
   delete payload.definitions;

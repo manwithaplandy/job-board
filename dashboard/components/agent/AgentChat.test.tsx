@@ -357,3 +357,243 @@ test("a refused Retry keeps the question on screen and offers Retry again", asyn
   expect(composer().value).toBe("");
   expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 });
+
+// The steps row and the assistant message chrome (spec 08 sections 4.2 and 7.2).
+type Part = UIMessage["parts"][number];
+let call = 0;
+function toolPart(name: string, state = "output-available"): Part {
+  call += 1;
+  return { type: `tool-${name}`, toolCallId: `call-${call}`, state, input: {}, output: {} } as Part;
+}
+const stepsToggle = () => screen.getByRole("button", { name: /Worked through|Stopped after|Thinking|Searching/ });
+
+test("a stored reply's tool calls fold into one steps row above the answer, with no tool lines", () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    {
+      id: "a1",
+      role: "assistant",
+      parts: [...Array.from({ length: 5 }, () => toolPart("search_jobs")), toolPart("get_job"), { type: "text", text: "Here they are." }],
+      metadata: { status: "complete" },
+    },
+  ];
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  const toggles = container.querySelectorAll(".rf-steps__toggle");
+  expect(toggles).toHaveLength(1);
+  expect(toggles[0].textContent).toContain("Worked through 6 steps");
+  // The row comes before every part of the answer (the role label is visually hidden),
+  // and no per-call tool line is drawn beside it: the message holds the row and the text.
+  const message = container.querySelector(".rf-agent-message--assistant") as HTMLElement;
+  const visible = [...message.children].filter((el) => !el.classList.contains("rf-agent-message__role"));
+  expect(visible).toHaveLength(2);
+  expect(visible[0].classList.contains("rf-steps")).toBe(true);
+  expect(visible[1].classList.contains("rf-md")).toBe(true);
+});
+
+test("a text-only reply has no steps row", () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Hi" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [{ type: "text", text: "Hello." }], metadata: { status: "complete" } },
+  ];
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  expect(container.querySelector(".rf-steps")).toBeNull();
+  expect(screen.getByText("Hello.")).toBeTruthy();
+});
+
+test("ask_user's questions stay in the answer and are not counted as a step", () => {
+  const ask = { type: "tool-ask_user", toolCallId: "ask-1", state: "output-available", input: { questions: [{ label: "Remote only?", options: ["Yes", "No"] }] }, output: {} } as Part;
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [toolPart("search_jobs"), ask], metadata: { status: "complete" } },
+  ];
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  expect(stepsToggle().textContent).toContain("Worked through 1 step");
+  expect(container.querySelector(".rf-agent-message__questions")?.textContent).toBe("Remote only? (Yes, No)");
+});
+
+test("a stored failed reply with two steps reads Stopped after 2 steps", () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [toolPart("search_jobs"), toolPart("get_job")], metadata: { status: "failed" } },
+  ];
+  render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  expect(stepsToggle().textContent).toContain("Stopped after 2 steps");
+  expect(screen.getByText("This reply was interrupted")).toBeTruthy();
+});
+
+test("while a turn waits for its first part, a provisional reply holds the working row and its timer", () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+  ];
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ working: { elapsedMs: 65_000 } }} />);
+  const provisional = container.querySelectorAll(".rf-agent-message--assistant");
+  expect(provisional).toHaveLength(1);
+  expect(provisional[0].textContent).toContain("Thinking");
+  expect(container.querySelector(".rf-steps__timer")?.textContent).toBe("1:05");
+  // The row replaces the old dashed waiting line: nothing else in the chat says "Thinking".
+  expect(screen.getAllByText(/Thinking/)).toHaveLength(1);
+});
+
+test("the working row names the running step of the last reply", () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [toolPart("search_jobs", "input-available")], metadata: { status: "pending" } },
+  ];
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ working: { elapsedMs: 5_000 } }} />);
+  expect(container.querySelectorAll(".rf-agent-message--assistant")).toHaveLength(1);
+  expect(stepsToggle().textContent).toContain("Searching your reviewed jobs");
+  expect(container.querySelector(".rf-steps__timer")?.textContent).toBe("0:05");
+});
+
+test("a live send shows the provisional working row until the reply arrives, then the reply alone", async () => {
+  let release: () => void = () => {};
+  fetchMock.mockImplementation(async () =>
+    createUIMessageStreamResponse({
+      stream: new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          release = () => {
+            controller.enqueue({ type: "start", messageId: "msg-reply" });
+            controller.enqueue({ type: "text-start", id: "t1" });
+            controller.enqueue({ type: "text-delta", id: "t1", delta: "Done." });
+            controller.enqueue({ type: "text-end", id: "t1" });
+            controller.enqueue({ type: "finish" });
+            controller.close();
+          };
+        },
+      }),
+    }),
+  );
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Go" } });
+  fireEvent.click(sendButton());
+  await waitFor(() => expect(container.querySelector(".rf-steps__toggle")?.textContent).toContain("Thinking"));
+  expect(container.querySelector(".rf-steps__timer")?.textContent).toMatch(/^0:0\d$/);
+  act(() => release());
+  await screen.findByText("Done.");
+  await waitFor(() => expect(container.querySelector(".rf-steps")).toBeNull());
+  expect(container.querySelectorAll(".rf-agent-message--assistant")).toHaveLength(1);
+});
+
+test("a click opens the steps panel and it stays open across a re-render", () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [toolPart("search_jobs"), toolPart("search_jobs"), { type: "text", text: "Two." }], metadata: { status: "complete" } },
+  ];
+  const props = { threadId: THREAD, initialMessages: messages, notice: null };
+  const { container, rerender } = render(<AgentChat {...props} />);
+  const panel = () => container.querySelector(".rf-steps__panel") as HTMLElement;
+  expect(panel().hidden).toBe(true);
+  fireEvent.click(stepsToggle());
+  expect(panel().hidden).toBe(false);
+  expect(panel().textContent).toContain("Searched your reviewed jobs (2 times)");
+  rerender(<AgentChat {...props} title="Renamed" />);
+  expect(panel().hidden).toBe(false);
+  expect(stepsToggle().getAttribute("aria-expanded")).toBe("true");
+});
+
+test("the fixture seam can open one message's steps on load", () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [toolPart("search_jobs"), { type: "text", text: "One." }], metadata: { status: "complete" } },
+  ];
+  render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ openStepsFor: "a1" }} />);
+  expect(stepsToggle().getAttribute("aria-expanded")).toBe("true");
+});
+
+test("a failed reply with no parts renders no list item", () => {
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [], metadata: { status: "failed" } },
+  ];
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  expect(container.querySelectorAll(".rf-agent-transcript > li")).toHaveLength(1);
+  expect(container.querySelector(".rf-steps")).toBeNull();
+});
+
+function toolThenError(): Response {
+  return createUIMessageStreamResponse({
+    stream: new ReadableStream<UIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "msg-tool-failed" });
+        controller.enqueue({ type: "start-step" });
+        controller.enqueue({ type: "tool-input-available", toolCallId: "t-1", toolName: "search_jobs", input: { query: "ml" } });
+        controller.enqueue({ type: "error", errorText: "model_error:503" });
+        controller.close();
+      },
+    }),
+  });
+}
+
+test("a turn that fails after a tool call reads Stopped after 1 step, with no spinner left running", async () => {
+  fetchMock.mockImplementationOnce(async () => toolThenError());
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Find ML roles" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(PROVIDER_DOWN_PROBLEM);
+  await waitFor(() => expect(stepsToggle().textContent).toContain("Stopped after 1 step"));
+  fireEvent.click(stepsToggle());
+  expect(container.querySelector(".rf-steps__panel")?.textContent).toContain("Searched your reviewed jobs");
+  expect(container.querySelector(".rf-steps__spinner")).toBeNull();
+});
+
+test("the failed reply stays stopped after the next turn answers", async () => {
+  fetchMock.mockImplementationOnce(async () => toolThenError());
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Find ML roles" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(PROVIDER_DOWN_PROBLEM);
+  fireEvent.change(composer(), { target: { value: "Something else" } });
+  fireEvent.click(sendButton());
+  await screen.findByText("Here are two roles.");
+  await waitFor(() => expect(container.querySelector(".rf-steps--working")).toBeNull());
+  expect(container.querySelectorAll(".rf-steps")).toHaveLength(1);
+  expect(stepsToggle().textContent).toContain("Stopped after 1 step");
+});
+
+test("a refused send leaves the earlier finished reply reading done", async () => {
+  fetchMock.mockImplementationOnce(async () => Response.json({ error: "turn_in_progress" }, { status: 409 }));
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [toolPart("search_jobs"), { type: "text", text: "One." }], metadata: { status: "complete" } },
+  ];
+  render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Again" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(/A reply is still being written/);
+  expect(stepsToggle().textContent).toContain("Worked through 1 step");
+});
+
+test("a successful Retry of a failed reply reads done, though the server reuses the reply's id", async () => {
+  fetchMock.mockImplementationOnce(async () => toolThenError());
+  fetchMock.mockImplementationOnce(async () =>
+    createUIMessageStreamResponse({
+      stream: new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          // The retried reply streams in under the failed reply's id (lib/agent/loop.ts).
+          controller.enqueue({ type: "start", messageId: "msg-tool-failed" });
+          controller.enqueue({ type: "start-step" });
+          controller.enqueue({ type: "tool-input-available", toolCallId: "t-2", toolName: "search_jobs", input: { query: "ml" } });
+          controller.enqueue({ type: "tool-output-available", toolCallId: "t-2", output: { jobs: [] } });
+          controller.enqueue({ type: "finish-step" });
+          controller.enqueue({ type: "start-step" });
+          controller.enqueue({ type: "text-start", id: "t1" });
+          controller.enqueue({ type: "text-delta", id: "t1", delta: "Found them." });
+          controller.enqueue({ type: "text-end", id: "t1" });
+          controller.enqueue({ type: "finish-step" });
+          controller.enqueue({ type: "finish" });
+          controller.close();
+        },
+      }),
+    }),
+  );
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Find ML roles" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(PROVIDER_DOWN_PROBLEM);
+  await waitFor(() => expect(stepsToggle().textContent).toContain("Stopped after 1 step"));
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByText("Found them.");
+  await waitFor(() => expect(container.querySelector(".rf-steps--working")).toBeNull());
+  expect(container.querySelectorAll(".rf-steps")).toHaveLength(1);
+  expect(stepsToggle().textContent).toContain("Worked through 1 step");
+});

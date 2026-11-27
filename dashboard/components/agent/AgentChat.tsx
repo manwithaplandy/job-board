@@ -38,8 +38,9 @@ import { mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
 import { RerenderTabs } from "./RerenderTabs";
 import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
-import { toolActivityLabel } from "@/lib/agent/toolLabel";
+import { currentStepLabel, summarizeSteps, type StepsState } from "@/lib/agent/steps";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { StepsRow } from "./StepsRow";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
 // carries only the thread id and either the new message's id, text and attached document
@@ -69,18 +70,23 @@ function textOf(m: UIMessage): string {
 }
 
 /**
- * The last reply never finished: a failed assistant row, or one still pending after the
+ * A reply that never finished: a failed assistant row, or one still pending after the
  * stale-turn window (the server aborts such a run on the next turn, AGENT_LIMITS.staleTurnMs).
  */
-function isInterrupted(messages: UIMessage[], now: number): boolean {
-  const last = messages.at(-1);
-  if (!last || last.role !== "assistant") return false;
-  const meta = metaOf(last);
+function isUnfinished(m: UIMessage, now: number): boolean {
+  if (m.role !== "assistant") return false;
+  const meta = metaOf(m);
   if (!meta) return false;
   if (meta.status === "failed") return true;
   if (meta.status !== "pending" || !meta.createdAt) return false;
   const at = Date.parse(meta.createdAt);
   return Number.isFinite(at) && now - at > AGENT_LIMITS.staleTurnMs;
+}
+
+/** The last reply never finished. */
+function isInterrupted(messages: UIMessage[], now: number): boolean {
+  const last = messages.at(-1);
+  return last !== undefined && isUnfinished(last, now);
 }
 
 /**
@@ -233,34 +239,39 @@ function waitingApproval(messages: UIMessage[]): { id: string } | null {
   return null;
 }
 
-function ToolLine({ part }: { part: ToolPart }) {
-  const name = getToolName(part);
-  if (name === "ask_user") {
-    const input = askUserInputSchema.safeParse(part.input);
-    if (!input.success) return null;
-    return (
-      <ul className="rf-agent-message__questions">
-        {input.data.questions.map((q, i) => (
-          <li key={i}>
-            {q.label}
-            {q.options && q.options.length > 0 ? ` (${q.options.join(", ")})` : ""}
-          </li>
-        ))}
-      </ul>
-    );
-  }
-  if (part.state === "approval-requested" || part.state === "approval-responded") return null;
-  return <p className="rf-agent-message__tool">{toolActivityLabel(name)}</p>;
+/** ask_user's questions, shown in the answer as plain text (the answer is the user's next message). */
+function AskUserQuestions({ part }: { part: ToolPart }) {
+  const input = askUserInputSchema.safeParse(part.input);
+  if (!input.success) return null;
+  return (
+    <ul className="rf-agent-message__questions">
+      {input.data.questions.map((q, i) => (
+        <li key={i}>
+          {q.label}
+          {q.options && q.options.length > 0 ? ` (${q.options.join(", ")})` : ""}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
-/** Whether ToolLine draws anything for the part. */
-function toolLineShows(part: ToolPart): boolean {
-  if (getToolName(part) === "ask_user") return askUserInputSchema.safeParse(part.input).success;
-  return part.state !== "approval-requested" && part.state !== "approval-responded";
-}
+/** An assistant message's steps row: its state, the working label and time, and whether it is open. */
+type StepsView = { state: StepsState; elapsedMs: number; open: boolean; onToggle: () => void };
 
-function MessageView({ message, renderSurface }: { message: UIMessage; renderSurface: (surfaceId: string) => ReactNode }) {
+function MessageView({
+  message,
+  renderSurface,
+  steps,
+}: {
+  message: UIMessage;
+  renderSurface: (surfaceId: string) => ReactNode;
+  /** Assistant messages only; null for the user's. */
+  steps: StepsView | null;
+}) {
   const who = message.role === "user" ? "You" : "Assistant";
+  // Parts render in stored order. A tool call is a step, shown only in the steps row,
+  // except present (its view renders where it was made) and ask_user (its questions
+  // are part of the answer).
   const shown = message.parts.flatMap((part, i): ReactNode[] => {
     if (part.type === "text") {
       if (part.text.trim() === "") return [];
@@ -270,19 +281,35 @@ function MessageView({ message, renderSurface }: { message: UIMessage; renderSur
         : [<p key={i} className="rf-agent-message__text">{part.text}</p>];
     }
     if (!isToolUIPart(part)) return [];
-    if (getToolName(part) === "present") {
+    const name = getToolName(part);
+    if (name === "present") {
       const surfaceId = presentedSurfaceId(part);
       const surface = surfaceId ? renderSurface(surfaceId) : null;
       return surface ? [<div key={i}>{surface}</div>] : [];
     }
-    return toolLineShows(part) ? [<ToolLine key={i} part={part} />] : [];
+    if (name === "ask_user" && askUserInputSchema.safeParse(part.input).success) return [<AskUserQuestions key={i} part={part} />];
+    return [];
   });
-  // A reply with nothing to show (a failed turn, or one still waiting for its first
-  // token) is not drawn as an empty bubble; the error or the waiting line stands in.
-  if (shown.length === 0) return null;
+  const summary = steps ? summarizeSteps(message.parts) : null;
+  const row =
+    steps && summary && (steps.state === "working" || summary.total > 0) ? (
+      <StepsRow
+        id={`steps-${message.id}`}
+        summary={summary}
+        state={steps.state}
+        currentLabel={steps.state === "working" ? currentStepLabel(message.parts) : undefined}
+        elapsedMs={steps.elapsedMs}
+        open={steps.open}
+        onToggle={steps.onToggle}
+      />
+    ) : null;
+  // A reply with nothing to show (a failed turn with no steps) is not drawn as an empty
+  // bubble; the error line stands in.
+  if (shown.length === 0 && row === null) return null;
   return (
     <li className={`rf-agent-message rf-agent-message--${message.role}`}>
       <span className="rf-agent-message__role">{who}</span>
+      {row}
       {shown}
     </li>
   );
@@ -317,6 +344,19 @@ type ConfirmState =
 
 const APPROVAL_RETRY_MS = [500, 1_000, 2_000];
 
+// How often the working steps row's timer ticks while a turn runs.
+const TIMER_TICK_MS = 1_000;
+
+/**
+ * Test and gallery seams (spec 08 section 14.2), in the pattern of SandboxFrame's `server`
+ * prop: show the working row with a frozen timer, or open one message's steps, without a
+ * network or a click. Product code never passes it.
+ */
+export type AgentChatFixture = { working?: { elapsedMs: number }; openStepsFor?: string; expandedChainId?: string };
+
+// The provisional reply that holds the working row before the first part arrives.
+const PROVISIONAL_ID = "provisional";
+
 export function AgentChat({
   threadId,
   initialMessages,
@@ -328,6 +368,7 @@ export function AgentChat({
   hasProfile = true,
   variants = null,
   title = null,
+  fixture,
 }: {
   threadId: string;
   /** The thread's title, shown in the toolbar above the conversation. */
@@ -344,6 +385,8 @@ export function AgentChat({
   /** Two validated job ids from ?compare=a,b: sent once as the structured compare message. */
   compare?: readonly [string, string] | null;
   hasProfile?: boolean;
+  /** Gallery and test seam only; see AgentChatFixture. */
+  fixture?: AgentChatFixture;
 }) {
   const router = useRouter();
   const tracker = useGenerationTracker();
@@ -365,6 +408,32 @@ export function AgentChat({
     const tick = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
     return () => clearInterval(tick);
   }, []);
+  // When the page sent the running turn (a send, a Retry, an approval answer): the working
+  // steps row's timer counts from it. A turn sent on mount (the handed-over first message,
+  // ?compare) counts from the mount.
+  const [mountedAt] = useState(() => Date.now());
+  const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
+  // Which messages' steps panels are open, kept for the session; all start collapsed.
+  const [openSteps, setOpenSteps] = useState<Record<string, boolean>>(() => (fixture?.openStepsFor ? { [fixture.openStepsFor]: true } : {}));
+  // A turn that failed while the page was open: the user message it answered (null for an
+  // approval answer) until the render below finds the reply, then that reply's id in
+  // failedReplies for the session. Streamed replies carry no stored status, so this is how
+  // their steps row reads "Stopped" (spec 08 section 11, row 13).
+  const [pendingFailure, setPendingFailure] = useState<{ afterUserId: string | null } | null>(null);
+  const [failedReplies, setFailedReplies] = useState<ReadonlySet<string>>(() => new Set());
+  // A turn about to re-stream replies under their own ids (a Retry: the server reuses the
+  // failed reply's id; an approval answer: the continuation fills the waiting reply) must
+  // not inherit their "Stopped" mark. Other failed replies keep theirs for the session.
+  const clearFailed = (ids: string[]) => {
+    if (ids.some((id) => failedReplies.has(id))) {
+      setFailedReplies((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+    }
+  };
+  const startTurn = () => {
+    const at = Date.now();
+    setTurnStartedAt(at);
+    setNow(at);
+  };
   const named = useRef(!autoTitle);
   // One transport per mounted chat (the page keys AgentChat by thread id).
   const [{ transport, book }] = useState(() => chatTransport(threadId));
@@ -386,6 +455,9 @@ export function AgentChat({
         setMessages((prev) => prev.filter((m) => m.id !== sent.id));
         setDraft((d) => (d === "" ? sent.text : d));
       }
+      // Kept: the reply that was streaming (if one arrived) failed. A refusal rolled back,
+      // so no reply is marked and earlier replies stay as they were.
+      if (!r.rollback) setPendingFailure({ afterUserId: sent?.id ?? null });
       if ("notice" in r) {
         setBlocking(r.notice);
         setProblem(null);
@@ -401,12 +473,41 @@ export function AgentChat({
   const interrupted = !busy && isInterrupted(messages, now);
   const lastUserText = [...messages].reverse().find((m) => m.role === "user");
   const last = messages.at(-1);
-  const waitingForReply =
-    busy && (!last || last.role !== "assistant" || last.parts.every((p) => p.type === "step-start" || (p.type === "text" && p.text.trim() === "")));
+  // The working row's timer ticks once a second while a turn runs.
+  useEffect(() => {
+    if (!busy) return;
+    const tick = setInterval(() => setNow(Date.now()), TIMER_TICK_MS);
+    return () => clearInterval(tick);
+  }, [busy]);
+  // Resolve a failure into the reply it ended, once the turn has stopped: the last message,
+  // when it is an assistant reply after the kept user message. State adjusted during
+  // render (the React pattern for deriving from an event), so no effect is needed.
+  if (pendingFailure && !busy) {
+    const reply = messages.at(-1);
+    const askedAt = pendingFailure.afterUserId === null ? -1 : messages.findIndex((m) => m.id === pendingFailure.afterUserId);
+    if (reply?.role === "assistant" && messages.length - 1 > askedAt && !failedReplies.has(reply.id)) {
+      setFailedReplies((prev) => new Set(prev).add(reply.id));
+    }
+    setPendingFailure(null);
+  }
+  const working = busy || fixture?.working !== undefined;
+  const elapsedMs = fixture?.working?.elapsedMs ?? now - (turnStartedAt ?? mountedAt);
+  const stepsFor = (m: UIMessage, isLast: boolean): StepsView => {
+    // "Stopped": the stored status says so (a reload after a failure), or the turn failed
+    // while the page was open.
+    const state: StepsState = isLast && working ? "working" : isUnfinished(m, now) || failedReplies.has(m.id) ? "stopped" : "done";
+    return {
+      state,
+      elapsedMs,
+      open: openSteps[m.id] === true,
+      onToggle: () => setOpenSteps((prev) => ({ ...prev, [m.id]: !prev[m.id] })),
+    };
+  };
 
   const send = (text: string) => {
     setProblem(null);
     setDraft("");
+    startTurn();
     if (!named.current) {
       named.current = true;
       setShownTitle(titleFromFirstMessage(text));
@@ -422,6 +523,8 @@ export function AgentChat({
   const retry = lastUserText
     ? () => {
         setProblem(null);
+        startTurn();
+        clearFailed(messages.slice(messages.findIndex((m) => m.id === lastUserText.id) + 1).filter((m) => m.role === "assistant").map((m) => m.id));
         void regenerate({ messageId: lastUserText.id });
       }
     : null;
@@ -553,6 +656,9 @@ export function AgentChat({
   const respondToApproval = async (approvalId: string, approved: boolean) => {
     setProblem(null);
     await addToolApprovalResponse({ id: approvalId, approved });
+    startTurn();
+    const waitingReply = messages.at(-1);
+    if (waitingReply?.role === "assistant") clearFailed([waitingReply.id]);
     void sendMessage(undefined, { body: { approval: { approvalId, approved } } });
   };
 
@@ -726,16 +832,23 @@ export function AgentChat({
             // aria-busy holds the live region's announcement while a reply streams, so a
             // screen reader reads the finished reply once, not every token.
             <ol className="rf-agent-transcript" aria-live="polite" aria-busy={busy}>
-              {messages.map((m) => (
-                <MessageView key={m.id} message={m} renderSurface={renderSurface} />
+              {messages.map((m, i) => (
+                <MessageView
+                  key={m.id}
+                  message={m}
+                  renderSurface={renderSurface}
+                  steps={m.role === "assistant" ? stepsFor(m, i === messages.length - 1) : null}
+                />
               ))}
+              {/* Before the reply's first part arrives, a provisional reply holds the working row. */}
+              {working && last?.role === "user" && (
+                <MessageView
+                  message={{ id: PROVISIONAL_ID, role: "assistant", parts: [] }}
+                  renderSurface={renderSurface}
+                  steps={stepsFor({ id: PROVISIONAL_ID, role: "assistant", parts: [] }, true)}
+                />
+              )}
             </ol>
-          )}
-          {/* The Send button's own status announces the wait; this line is for the eye. */}
-          {waitingForReply && (
-            <p className="rf-agent-waiting" aria-hidden="true">
-              Thinking…
-            </p>
           )}
           {/* One failure line, where the answer would have been: a failed send, or else a
               stored reply that never finished. */}

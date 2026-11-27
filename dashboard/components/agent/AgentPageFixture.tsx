@@ -5,7 +5,7 @@ import type { Variant } from "@/lib/agent/config";
 import type { HostChain } from "@/lib/agent/surfaces/host";
 import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
-import { AgentChat, StartConversation } from "./AgentChat";
+import { AgentChat, StartConversation, type AgentChatFixture } from "./AgentChat";
 import { AgentPageView } from "./AgentPageView";
 import type { AgentPageFixtureState } from "./agentPageFixtureStates";
 import { TestDataBadge } from "./TestDataBadge";
@@ -83,6 +83,32 @@ const WITH_SURFACE: UIMessage[] = [
 
 const FAILED: UIMessage[] = [user("u1", LONG_TITLE), assistant("a1", [], "failed")];
 
+const failedLookup = (callId: string, tool: string) =>
+  ({ type: `tool-${tool}`, toolCallId: callId, state: "output-error", input: {}, errorText: "fixture" }) as UIMessage["parts"][number];
+
+const running = (callId: string, tool: string) =>
+  ({ type: `tool-${tool}`, toolCallId: callId, state: "input-available", input: {} }) as UIMessage["parts"][number];
+
+// A turn in progress (spec 08 section 14.2): the reply has one search running. Its stored
+// status is pending with no start time, so it never reads as interrupted.
+const STEPS_WORKING: UIMessage[] = [
+  ...CONVERSATION.slice(0, 3),
+  { id: "a2", role: "assistant", parts: [running("s1", "search_jobs")], metadata: { status: "pending" } },
+];
+
+// Eight steps: five searches, one posting read, one view built and one review read that
+// failed. The view is the fixture chain, so nothing is loaded from the server.
+const STEPS_DONE: UIMessage[] = [
+  ...CONVERSATION.slice(0, 3),
+  assistant("a2", [
+    ...["s1", "s2", "s3", "s4", "s5"].map((id) => lookup(id, "search_jobs")),
+    lookup("s6", "get_job"),
+    failedLookup("s7", "get_review"),
+    present("s8"),
+    { type: "text", text: "Here are the two closest matches side by side. One review could not be read, so its fit score is from the posting alone." },
+  ]),
+];
+
 const CHAINS: HostChain[] = [
   {
     chainId: SURFACE,
@@ -109,9 +135,25 @@ const VARIANT_OF: Partial<Record<AgentPageFixtureState, Variant>> = {
   "agent-page-code": 3,
 };
 
+const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
+  "agent-page-surface": WITH_SURFACE,
+  "agent-page-failed": FAILED,
+  "agent-page-steps-working": STEPS_WORKING,
+  "agent-page-steps-done": STEPS_DONE,
+  "agent-page-steps-open": STEPS_DONE,
+};
+
+const WITH_CHAINS: ReadonlySet<AgentPageFixtureState> = new Set(["agent-page-surface", "agent-page-steps-done", "agent-page-steps-open"]);
+
+// The chat's gallery seam: a frozen working timer, or one message's steps open.
+const CHAT_FIXTURE_OF: Partial<Record<AgentPageFixtureState, AgentChatFixture>> = {
+  "agent-page-steps-working": { working: { elapsedMs: 65_000 } },
+  "agent-page-steps-open": { openStepsFor: "a2" },
+};
+
 export function AgentPageFixture({ state }: { state: AgentPageFixtureState }) {
   const open = state !== "agent-page-empty";
-  const messages = state === "agent-page-surface" ? WITH_SURFACE : state === "agent-page-failed" ? FAILED : CONVERSATION;
+  const messages = MESSAGES_OF[state] ?? CONVERSATION;
   return (
     <AppShell header={<AppHeader current="agent" email="sam@example.com" isAdmin />}>
       <AgentPageView
@@ -127,9 +169,10 @@ export function AgentPageFixture({ state }: { state: AgentPageFixtureState }) {
             title={LONG_TITLE}
             initialMessages={messages}
             notice={null}
-            surfaces={state === "agent-page-surface" ? CHAINS : []}
+            surfaces={WITH_CHAINS.has(state) ? CHAINS : []}
             hasProfile
             variants={{ thread: VARIANT_OF[state] ?? 1, default: 1, variant3Enabled: true }}
+            fixture={CHAT_FIXTURE_OF[state]}
           />
         ) : (
           <StartConversation hasProfile />

@@ -73,12 +73,16 @@
 .rf-agent-transcript { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
 .rf-agent-message { display: grid; gap: var(--space-2); min-width: 0; max-width: 100%; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-surface); }
 .rf-agent-message--user { justify-self: end; max-width: min(85%, 640px); border-color: var(--accent-border); border-bottom-right-radius: var(--space-1); background: var(--accent-bg); }
-.rf-agent-message--assistant { justify-self: start; width: 100%; border-bottom-left-radius: var(--space-1); }
+/* An assistant reply has no bubble (spec 08 section 4.2): views sit inside it, and a box in a
+   box reads as clutter. Parts are spaced evenly; the steps row gets a little more room
+   below it (var(--space-5) in all) so it reads as chrome above the answer. */
+.rf-agent-message--assistant { justify-self: start; width: 100%; gap: var(--space-4); padding: 0; border: 0; border-radius: 0; background: transparent; }
+.rf-agent-message--assistant > .rf-steps { margin-bottom: calc(var(--space-5) - var(--space-4)); }
 .rf-agent-message__role { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 /* Plain text, as the model wrote it: line breaks kept, long words wrapped. */
 .rf-agent-message__text { margin: 0; color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* The assistant's markdown (AgentMarkdown). Spacing follows the message's own rhythm. */
-.rf-md { white-space: normal; }
+.rf-md { max-width: 72ch; white-space: normal; }
 .rf-md > :first-child { margin-top: 0; }
 .rf-md > :last-child { margin-bottom: 0; }
 .rf-md p, .rf-md ul, .rf-md ol, .rf-md pre, .rf-md blockquote, .rf-md .rf-md__table-wrap { margin: 0 0 var(--space-3); }
@@ -99,11 +103,24 @@
 .rf-md th { background: var(--bg-muted); font-weight: 600; }
 .rf-md__link-text { text-decoration: underline dotted; text-underline-offset: 2px; }
 .rf-md__img-alt { color: var(--text-muted); font-style: italic; }
-.rf-agent-message__tool { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
 .rf-agent-message__questions { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-5); color: var(--text-primary); overflow-wrap: anywhere; }
-
-/* Where the next answer will appear, while it is on its way. */
-.rf-agent-waiting { justify-self: start; margin: 0; padding: var(--space-2) var(--space-4); border: 1px dashed var(--border-strong); border-radius: var(--radius-card); color: var(--text-muted); font-size: var(--font-size-caption); }
+/* The steps row (spec 08 section 7.2): chrome above the answer, not part of it. */
+.rf-steps { display: grid; min-width: 0; border-radius: var(--radius-control); background: var(--bg-muted); color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-steps__toggle.rf-button { justify-content: flex-start; width: 100%; min-height: var(--control-height); padding-inline: var(--space-3); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 600; line-height: 1.35; text-align: start; white-space: normal; }
+.rf-steps__toggle.rf-button:hover:not(:disabled) { color: var(--text-primary); background: transparent; }
+.rf-steps__label { min-width: 0; overflow-wrap: anywhere; }
+.rf-steps__timer { color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 400; }
+.rf-steps__chevron { margin-left: auto; }
+.rf-steps--done .rf-steps__icon { color: var(--success); }
+.rf-steps--stopped .rf-steps__icon { color: var(--warning); }
+.rf-steps__spinner { flex: none; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rf-spin .7s linear infinite; }
+.rf-steps__spinner--small { display: inline-block; width: 10px; height: 10px; margin-left: var(--space-2); vertical-align: middle; }
+.rf-steps__panel { display: grid; gap: var(--space-1); margin: 0; padding: 0 var(--space-3) var(--space-3) var(--space-8); list-style: disc; overflow-wrap: anywhere; }
+.rf-steps__panel[hidden] { display: none; }
+.rf-steps__item--failed { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .rf-steps__spinner { animation: none; border-style: dotted; }
+}
 
 /* A failed or interrupted reply: one line where the answer would have been, with Retry. */
 .rf-agent-turn-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--danger-border); border-radius: var(--radius-card); border-bottom-left-radius: var(--space-1); background: var(--danger-bg); }

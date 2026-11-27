@@ -9,6 +9,9 @@ export const AGENT_PAGE_FIXTURE_STATES = [
   "agent-page-blocks",
   "agent-page-layout",
   "agent-page-code",
+  "agent-page-steps-working",
+  "agent-page-steps-done",
+  "agent-page-steps-open",
 ] as const;
 
 export type AgentPageFixtureState = (typeof AGENT_PAGE_FIXTURE_STATES)[number];

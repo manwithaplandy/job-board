@@ -684,24 +684,28 @@ describe("inline views", () => {
     expect(order).toEqual(["text:First paragraph.", `view:${V1}`, "text:Second paragraph.", `view:${V2}`]);
   });
 
-  test("a present part still being written shows the placeholder; an invalid or limit result shows nothing", () => {
+  test("a present part still being written in the working turn shows the placeholder", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Before."), presentPart(null, "input-available"), text("After.")])];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ working: { elapsedMs: 0 } }} />);
+    const li = container.querySelectorAll(".rf-agent-transcript > li")[1];
+    const placeholder = li.querySelector(".rf-view-placeholder");
+    expect(placeholder?.getAttribute("role")).toBe("status");
+    expect(placeholder?.textContent).toContain("Building a view…");
+    // Between the two paragraphs.
+    const order = [...li.querySelectorAll(".rf-md, .rf-view-placeholder")].map((el) => (el.className.includes("placeholder") ? "placeholder" : el.textContent));
+    expect(order).toEqual(["Before.", "placeholder", "After."]);
+    expect(actions.loadSurfaceAction).not.toHaveBeenCalled();
+  });
+
+  test("an invalid or limit result shows nothing", () => {
     const messages = [
-      ask("u1", "Show me"),
-      reply("a1", [text("Before."), presentPart(null, "input-available"), text("After.")]),
       ask("u2", "Again"),
       reply("a2", [text("Tried."), presentPart(null, "output-available", { variant: 2, outcome: "invalid", errors: ["bad"] })]),
       ask("u3", "More"),
       reply("a3", [text("Full."), presentPart(null, "output-available", { variant: 1, outcome: "limit", errors: ["This turn already has 3 views. Finish the answer in text."] })]),
     ];
-    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
-    const items = container.querySelectorAll(".rf-agent-transcript > li");
-    const placeholder = items[1].querySelector(".rf-view-placeholder");
-    expect(placeholder?.getAttribute("role")).toBe("status");
-    expect(placeholder?.textContent).toContain("Building a view…");
-    // Between the two paragraphs.
-    const order = [...items[1].querySelectorAll(".rf-md, .rf-view-placeholder")].map((el) => el.className.includes("placeholder") ? "placeholder" : el.textContent);
-    expect(order).toEqual(["Before.", "placeholder", "After."]);
-    for (const li of [items[3], items[5]]) {
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ working: { elapsedMs: 0 } }} />);
+    for (const li of container.querySelectorAll(".rf-agent-transcript > li")) {
       expect(li.querySelector(".rf-view-placeholder")).toBeNull();
       expect(li.querySelector(".rf-view")).toBeNull();
     }
@@ -711,26 +715,75 @@ describe("inline views", () => {
   test("the placeholder is sized for the thread's variant", () => {
     const messages = [ask("u1", "Show me"), reply("a1", [presentPart(null, "input-streaming")])];
     const variants = { thread: 3 as const, default: 3 as const, variant3Enabled: true };
-    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} variants={variants} />);
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} variants={variants} fixture={{ working: { elapsedMs: 0 } }} />,
+    );
     expect(container.querySelector(".rf-view-placeholder--code")).not.toBeNull();
+  });
+
+  test("a building part in a reply that is not working (an older reply, or a finished one) shows nothing", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Cut off."), presentPart(null, "input-available")]), ask("u2", "Again"), reply("a2", [text("Working.")])];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} fixture={{ working: { elapsedMs: 0 } }} />);
+    expect(container.querySelector(".rf-view-placeholder")).toBeNull();
+    expect(screen.queryByText("Building a view…")).toBeNull();
+  });
+
+  test("a stored failed reply that died mid-present shows no placeholder, only the interruption (Important 2)", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("Starting."), presentPart(null, "input-available")], "failed")];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+    expect(container.querySelector(".rf-view-placeholder")).toBeNull();
+    expect(screen.queryByText("Building a view…")).toBeNull();
+    expect(screen.getByText("This reply was interrupted")).toBeTruthy();
+    expect(stepsToggle().textContent).toContain("Stopped");
+  });
+
+  test("a stream error after present's input arrived leaves no placeholder (Important 2)", async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      createUIMessageStreamResponse({
+        stream: new ReadableStream<UIMessageChunk>({
+          start(controller) {
+            controller.enqueue({ type: "start", messageId: "msg-mid-present" });
+            controller.enqueue({ type: "start-step" });
+            controller.enqueue({ type: "text-start", id: "t1" });
+            controller.enqueue({ type: "text-delta", id: "t1", delta: "Building it." });
+            controller.enqueue({ type: "text-end", id: "t1" });
+            controller.enqueue({ type: "tool-input-available", toolCallId: "p-1", toolName: "present", input: { payload: {} } });
+            controller.enqueue({ type: "error", errorText: "model_error:503" });
+            controller.close();
+          },
+        }),
+      }),
+    );
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+    fireEvent.change(composer(), { target: { value: "Show me" } });
+    fireEvent.click(sendButton());
+    await screen.findByText(PROVIDER_DOWN_PROBLEM);
+    await waitFor(() => expect(stepsToggle().textContent).toContain("Stopped"));
+    expect(screen.getByText("Building it.")).toBeTruthy();
+    expect(container.querySelector(".rf-view-placeholder")).toBeNull();
+    expect(screen.queryByText("Building a view…")).toBeNull();
+    expect(actions.loadSurfaceAction).not.toHaveBeenCalled();
   });
 
   test("an updated view's older part says it was updated below; Go to it focuses the latest frame's title", () => {
     const scrolled = vi.fn();
     Element.prototype.scrollIntoView = scrolled;
-    const messages = [ask("u1", "Show me"), reply("a1", [text("First."), presentPart(V1)]), ask("u2", "Change it"), reply("a2", [text("Changed."), presentPart(V2)])];
-    const chains = [chainOf(hostSurface(V2, "Updated view", V1), [V1, V2])];
-    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={chains} />);
-    const items = container.querySelectorAll(".rf-agent-transcript > li");
-    expect(items[1].textContent).toContain("This view was updated below.");
-    expect(items[1].querySelector(".rf-view")).toBeNull();
-    expect(items[3].querySelector(`.rf-view[data-chain-id="${V1}"]`)).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Go to it" }));
-    const title = items[3].querySelector(".rf-view__title");
-    expect(document.activeElement).toBe(title);
-    expect(scrolled).toHaveBeenCalled();
-    // @ts-expect-error jsdom has no scrollIntoView of its own; restore that.
-    delete Element.prototype.scrollIntoView;
+    try {
+      const messages = [ask("u1", "Show me"), reply("a1", [text("First."), presentPart(V1)]), ask("u2", "Change it"), reply("a2", [text("Changed."), presentPart(V2)])];
+      const chains = [chainOf(hostSurface(V2, "Updated view", V1), [V1, V2])];
+      const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={chains} />);
+      const items = container.querySelectorAll(".rf-agent-transcript > li");
+      expect(items[1].textContent).toContain("This view was updated below.");
+      expect(items[1].querySelector(".rf-view")).toBeNull();
+      expect(items[3].querySelector(`.rf-view[data-chain-id="${V1}"]`)).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Go to it" }));
+      const title = items[3].querySelector(".rf-view__title");
+      expect(document.activeElement).toBe(title);
+      expect(scrolled).toHaveBeenCalled();
+    } finally {
+      // @ts-expect-error jsdom has no scrollIntoView of its own; restore that.
+      delete Element.prototype.scrollIntoView;
+    }
   });
 
   test("Go to it reaches the latest frame when only an orphan shows it (Review Focus 2)", () => {

@@ -282,8 +282,12 @@ function MessageView({
   steps,
 }: {
   message: UIMessage;
-  /** What stands at a present part: its view, a placeholder, a stub, a load failure, or nothing. */
-  renderPresent: (part: ToolPart) => ReactNode;
+  /**
+   * What stands at a present part: its view, a placeholder, a stub, a load failure, or
+   * nothing. `state` is the message's steps state, so a part still being written shows the
+   * placeholder only while its turn is working.
+   */
+  renderPresent: (part: ToolPart, state: StepsState | null) => ReactNode;
   /** Assistant messages only; null for the user's. */
   steps: StepsView | null;
 }) {
@@ -302,7 +306,7 @@ function MessageView({
     if (!isToolUIPart(part)) return [];
     const name = getToolName(part);
     if (name === "present") {
-      const view = renderPresent(part);
+      const view = renderPresent(part, steps?.state ?? null);
       return view ? [<Fragment key={i}>{view}</Fragment>] : [];
     }
     if (name === "ask_user" && askUserInputSchema.safeParse(part.input).success) return [<AskUserQuestions key={i} part={part} />];
@@ -823,10 +827,13 @@ export function AgentChat({
   const placeholderVariant: Variant = variants?.thread ?? 1;
   const presentedIds = new Set(messages.flatMap((m) => toolPartsOf(m).map(presentedSurfaceId).filter((id): id is string => id !== null)));
   const orphans = chains.filter((c) => !presentedIds.has(c.surface.id));
-  const renderPresent = (part: ToolPart): ReactNode => {
+  const renderPresent = (part: ToolPart, state: StepsState | null): ReactNode => {
     const view = presentView(part);
     if (view.kind === "none") return null;
-    if (view.kind === "building") return <ViewPlaceholder variant={placeholderVariant} />;
+    // A part left half-written by a turn that stopped (a stored failed reply, a stream
+    // error after present's input arrived) never resolves, so it draws nothing; the steps
+    // row and the turn error say what happened.
+    if (view.kind === "building") return state === "working" ? <ViewPlaceholder variant={placeholderVariant} /> : null;
     const id = view.surfaceId;
     const latestOf = chains.find((c) => c.surface.id === id);
     if (latestOf) return chainView(latestOf);

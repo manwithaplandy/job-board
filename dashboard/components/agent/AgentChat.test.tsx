@@ -562,3 +562,38 @@ test("a refused send leaves the earlier finished reply reading done", async () =
   await screen.findByText(/A reply is still being written/);
   expect(stepsToggle().textContent).toContain("Worked through 1 step");
 });
+
+test("a successful Retry of a failed reply reads done, though the server reuses the reply's id", async () => {
+  fetchMock.mockImplementationOnce(async () => toolThenError());
+  fetchMock.mockImplementationOnce(async () =>
+    createUIMessageStreamResponse({
+      stream: new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          // The retried reply streams in under the failed reply's id (lib/agent/loop.ts).
+          controller.enqueue({ type: "start", messageId: "msg-tool-failed" });
+          controller.enqueue({ type: "start-step" });
+          controller.enqueue({ type: "tool-input-available", toolCallId: "t-2", toolName: "search_jobs", input: { query: "ml" } });
+          controller.enqueue({ type: "tool-output-available", toolCallId: "t-2", output: { jobs: [] } });
+          controller.enqueue({ type: "finish-step" });
+          controller.enqueue({ type: "start-step" });
+          controller.enqueue({ type: "text-start", id: "t1" });
+          controller.enqueue({ type: "text-delta", id: "t1", delta: "Found them." });
+          controller.enqueue({ type: "text-end", id: "t1" });
+          controller.enqueue({ type: "finish-step" });
+          controller.enqueue({ type: "finish" });
+          controller.close();
+        },
+      }),
+    }),
+  );
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Find ML roles" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(PROVIDER_DOWN_PROBLEM);
+  await waitFor(() => expect(stepsToggle().textContent).toContain("Stopped after 1 step"));
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByText("Found them.");
+  await waitFor(() => expect(container.querySelector(".rf-steps--working")).toBeNull());
+  expect(container.querySelectorAll(".rf-steps")).toHaveLength(1);
+  expect(stepsToggle().textContent).toContain("Worked through 1 step");
+});

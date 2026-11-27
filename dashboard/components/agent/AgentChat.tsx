@@ -421,6 +421,14 @@ export function AgentChat({
   // their steps row reads "Stopped" (spec 08 section 11, row 13).
   const [pendingFailure, setPendingFailure] = useState<{ afterUserId: string | null } | null>(null);
   const [failedReplies, setFailedReplies] = useState<ReadonlySet<string>>(() => new Set());
+  // A turn about to re-stream replies under their own ids (a Retry: the server reuses the
+  // failed reply's id; an approval answer: the continuation fills the waiting reply) must
+  // not inherit their "Stopped" mark. Other failed replies keep theirs for the session.
+  const clearFailed = (ids: string[]) => {
+    if (ids.some((id) => failedReplies.has(id))) {
+      setFailedReplies((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+    }
+  };
   const startTurn = () => {
     const at = Date.now();
     setTurnStartedAt(at);
@@ -516,6 +524,7 @@ export function AgentChat({
     ? () => {
         setProblem(null);
         startTurn();
+        clearFailed(messages.slice(messages.findIndex((m) => m.id === lastUserText.id) + 1).filter((m) => m.role === "assistant").map((m) => m.id));
         void regenerate({ messageId: lastUserText.id });
       }
     : null;
@@ -648,6 +657,8 @@ export function AgentChat({
     setProblem(null);
     await addToolApprovalResponse({ id: approvalId, approved });
     startTurn();
+    const waitingReply = messages.at(-1);
+    if (waitingReply?.role === "assistant") clearFailed([waitingReply.id]);
     void sendMessage(undefined, { body: { approval: { approvalId, approved } } });
   };
 

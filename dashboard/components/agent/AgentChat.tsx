@@ -42,6 +42,7 @@ import { AgentMarkdown } from "./AgentMarkdown";
 import { StepsRow } from "./StepsRow";
 import { ViewFrame } from "./ViewFrame";
 import { ViewLoadFailed, ViewPlaceholder, ViewUpdatedStub } from "./ViewPlaceholder";
+import { useExpandedView } from "./useExpandedView";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
 // carries only the thread id and either the new message's id, text and attached document
@@ -776,19 +777,6 @@ export function AgentChat({
     if (typeof frame.scrollIntoView === "function") frame.scrollIntoView({ block: "start" });
     title.focus({ preventScroll: true });
   };
-  // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
-  const chainView = (chain: HostChain) => (
-    <ViewFrame
-      key={chain.chainId}
-      chain={chain}
-      threadId={threadId}
-      variant3Enabled={rerenderSwitch}
-      onIntent={onIntent}
-      onPrepSettled={onPrepSettled}
-      onFallback={onFallback}
-      onRerendered={onRerendered}
-    />
-  );
 
   const approve = async (target: ConfirmState) => {
     setConfirmBusy(true);
@@ -818,6 +806,30 @@ export function AgentChat({
     confirm ?? (approvalCard?.status === "ready" && waitingId !== null ? { source: "approval", descriptor: approvalCard.descriptor, approvalId: waitingId } : null);
   const approvalProblem =
     waitingId === null ? null : !approvalsEnabled || approvalCard?.status === "unavailable" ? CONFIRMATIONS_UNAVAILABLE : approvalCard?.status === "invalid" ? APPROVAL_INVALID : null;
+
+  // The one expanded view (spec 08 S6), held here above the message list and keyed by chain,
+  // so a chain whose update lands in a newer message (a new frame there) stays expanded.
+  const { expandedChainId, expand, collapse } = useExpandedView({
+    chainIds: chains.map((c) => c.chainId),
+    blocked: () => shownConfirm !== null,
+    initial: fixture?.expandedChainId,
+  });
+  // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
+  const chainView = (chain: HostChain) => (
+    <ViewFrame
+      key={chain.chainId}
+      chain={chain}
+      threadId={threadId}
+      variant3Enabled={rerenderSwitch}
+      onIntent={onIntent}
+      onPrepSettled={onPrepSettled}
+      onFallback={onFallback}
+      onRerendered={onRerendered}
+      expanded={expandedChainId === chain.chainId}
+      onExpand={() => expand(chain.chainId)}
+      onCollapse={collapse}
+    />
+  );
 
   // Placement (spec 08 S4.1): one column at every width. Each chain renders once, inline
   // at the present call that produced its latest row; an earlier row's call shows the

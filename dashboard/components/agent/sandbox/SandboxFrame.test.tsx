@@ -666,7 +666,7 @@ describe("SandboxFrame inside a view host", () => {
     return (
       <div data-host={tag}>
         <div data-body={tag}>
-          <ViewHostContext.Provider value={{ requestsEl: el }}>
+          <ViewHostContext.Provider value={{ requestsEl: el, expanded: false, onEscape: () => {} }}>
             <SandboxFrame surface={s} onIntent={onIntent} />
           </ViewHostContext.Provider>
         </div>

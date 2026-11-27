@@ -13,7 +13,7 @@
 // Each frame sits in the page's view frame (ViewFrame, spec 08 S5, plan D9), so its chip
 // lands in the frame's requests region as on the agent page. The frame is the view frame's
 // body seam, so the stub server and the logged reasons stay the harness's own.
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { FrameChip } from "@/app/actions/agent";
 import { FIXTURE_GATHERED } from "@/components/agent/blocks/AgentBlocksFixture";
 import { SandboxFrame, type SandboxFrameServer, type SandboxSurface } from "@/components/agent/sandbox/SandboxFrame";
@@ -58,6 +58,10 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
   const [intents, setIntents] = useState<LogEntry[]>([]);
   const [fallbacks, setFallbacks] = useState<LogEntry[]>([]);
   const [reports, setReports] = useState<LogEntry[]>([]);
+  // The one expanded frame (spec 08 S6), held here as the agent page holds it, without the
+  // history entry: the harness tests the restyle in place, not Back.
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const collapse = useCallback(() => setExpanded(null), []);
 
   const surfaces = useMemo<SandboxSurface[]>(
     () =>
@@ -97,7 +101,17 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
       <div className="rf-gallery__stack">
         {surfaces.map((s) => (
           <div key={s.id} data-sandbox-surface={s.id}>
-            <ViewFrame chain={sandboxChain(s)} threadId={THREAD_ID} variant3Enabled={null} onIntent={NO_INTENT} onPrepSettled={NO_PREP} onRerendered={NO_RERENDER}>
+            <ViewFrame
+              chain={sandboxChain(s)}
+              threadId={THREAD_ID}
+              variant3Enabled={null}
+              onIntent={NO_INTENT}
+              onPrepSettled={NO_PREP}
+              onRerendered={NO_RERENDER}
+              expanded={expanded === s.id}
+              onExpand={() => setExpanded(s.id)}
+              onCollapse={collapse}
+            >
               <SandboxFrame
                 surface={s}
                 server={server}

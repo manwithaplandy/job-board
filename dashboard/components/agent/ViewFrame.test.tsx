@@ -3,8 +3,8 @@
 // version tabs and "Re-render as" (plan Task 2.9) moved inside it. fetch and
 // loadSurfaceAction are stubs; the route's own gates are app/api/agent/rerender/route.test.ts.
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createRef } from "react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { createRef, useContext } from "react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const actions = vi.hoisted(() => ({ loadSurfaceAction: vi.fn(), describeFrameIntentAction: vi.fn(), reportSurfaceFailure: vi.fn() }));
 vi.mock("@/app/actions/agent", () => actions);
@@ -13,8 +13,10 @@ import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { gatheredFixture } from "@/lib/agent/surfaces/v1/testFixtures";
 import { everyNodePayload } from "@/lib/agent/surfaces/v2/testFixtures";
 import { RERENDER_ERRORS, VERSIONS_LABEL } from "./RerenderTabs";
-import { DEGRADED_CAPTION, mergeSurface } from "./SurfaceHost";
-import { ViewFrame } from "./ViewFrame";
+import { SandboxFrame, type SandboxFrameServer } from "./sandbox/SandboxFrame";
+import { DEGRADED_CAPTION, mergeSurface, sandboxChain, withBlocksView } from "./SurfaceHost";
+import { ViewFrame, type ViewFrameProps } from "./ViewFrame";
+import { ViewHostContext, type ViewHost } from "./ViewHostContext";
 
 const THREAD = "22222222-2222-4222-8222-222222222222";
 const S1 = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -47,9 +49,22 @@ function sandboxSurface(id: string, title: string): HostSurface {
 
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 
-function frame(chain: HostChain, variant3Enabled: boolean | null = true, onRerendered = vi.fn()) {
+const NOOP = () => {};
+
+function frame(chain: HostChain, variant3Enabled: boolean | null = true, onRerendered = vi.fn(), extra: Partial<ViewFrameProps> = {}) {
   return (
-    <ViewFrame chain={chain} threadId={THREAD} variant3Enabled={variant3Enabled} onIntent={vi.fn()} onPrepSettled={vi.fn()} onRerendered={onRerendered} />
+    <ViewFrame
+      chain={chain}
+      threadId={THREAD}
+      variant3Enabled={variant3Enabled}
+      onIntent={vi.fn()}
+      onPrepSettled={vi.fn()}
+      onRerendered={onRerendered}
+      expanded={false}
+      onExpand={NOOP}
+      onCollapse={NOOP}
+      {...extra}
+    />
   );
 }
 
@@ -109,9 +124,7 @@ test.each([1, 2] as const)("a variant %s view has exactly one title heading, the
 
 test("the header ref reaches the title", () => {
   const ref = createRef<HTMLHeadingElement>();
-  render(
-    <ViewFrame chain={original()} threadId={THREAD} variant3Enabled onIntent={vi.fn()} onPrepSettled={vi.fn()} onRerendered={vi.fn()} headerRef={ref} />,
-  );
+  render(frame(original(), true, vi.fn(), { headerRef: ref }));
   expect(ref.current?.textContent).toBe("Original view");
 });
 
@@ -250,4 +263,155 @@ test("a refused re-render says why and adds nothing", async () => {
     unmount();
   }
   expect(actions.loadSurfaceAction).not.toHaveBeenCalled();
+});
+
+
+// PR 3 Task 3.3: Expand restyles the same section in place (spec 08 S6.1, S6.3).
+describe("expand", () => {
+  test("toggling expanded keeps the same section and the same body node", () => {
+    const chain = original();
+    const { container, rerender } = render(frame(chain));
+    const s = section(container);
+    const body = container.querySelector(".rf-agent-surface");
+    expect(body).not.toBeNull();
+    for (const expanded of [true, false, true, false]) {
+      rerender(frame(chain, true, vi.fn(), { expanded }));
+      expect(section(container)).toBe(s);
+      expect(container.querySelector(".rf-agent-surface")).toBe(body);
+    }
+  });
+
+  test("a sandbox frame keeps its iframe element and records no failure across expand and collapse", () => {
+    const report = vi.fn<SandboxFrameServer["report"]>().mockResolvedValue(null);
+    const server: SandboxFrameServer = { describe: vi.fn().mockResolvedValue(null), report };
+    const surface = { id: S1, threadId: THREAD, payload: { variant: 3 as const, title: "Picks", html: "<p>Hi</p>" }, gathered: gatheredFixture(), fallback: { variant: 1 as const, blocks: [] }, rows: {} };
+    const chain = sandboxChain(surface);
+    const view = (expanded: boolean) => frame(chain, null, vi.fn(), { expanded, children: <SandboxFrame surface={surface} server={server} onIntent={vi.fn()} /> });
+    const { container, rerender } = render(view(false));
+    const iframe = container.querySelector("iframe");
+    expect(iframe).not.toBeNull();
+    for (const expanded of [true, false, true, false, true, false]) {
+      rerender(view(expanded));
+      expect(container.querySelector("iframe")).toBe(iframe);
+    }
+    expect(report).not.toHaveBeenCalled();
+  });
+
+  test("collapsed: an Expand button and a labelled region; expanded: a Close button and a non-modal dialog", () => {
+    const onExpand = vi.fn();
+    const onCollapse = vi.fn();
+    const chain: HostChain = { chainId: S1, memberIds: [S1], surface: surface(S1, 1, "Top matches") };
+    const { container, rerender } = render(frame(chain, true, vi.fn(), { onExpand, onCollapse }));
+    const s = section(container)!;
+    const expand = screen.getByRole("button", { name: "Expand view: Top matches" });
+    expect(expand.textContent).toBe("Expand");
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    expect(s.hasAttribute("data-expanded")).toBe(false);
+    expect(s.getAttribute("role")).toBeNull();
+    expect(s.getAttribute("aria-modal")).toBeNull();
+    expect(s.getAttribute("aria-label")).toBe("View: Top matches");
+    fireEvent.click(expand);
+    expect(onExpand).toHaveBeenCalledTimes(1);
+
+    rerender(frame(chain, true, vi.fn(), { expanded: true, onExpand, onCollapse }));
+    const close = screen.getByRole("button", { name: "Close expanded view" });
+    expect(close).toBe(expand);
+    expect(close.textContent).toBe("Close");
+    expect(close.getAttribute("aria-expanded")).toBe("true");
+    expect(s.getAttribute("data-expanded")).toBe("true");
+    expect(s.getAttribute("role")).toBe("dialog");
+    expect(s.getAttribute("aria-modal")).toBe("false");
+    expect(s.getAttribute("aria-label")).toBe("Expanded view: Top matches");
+    fireEvent.click(close);
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+    expect(onExpand).toHaveBeenCalledTimes(1);
+  });
+
+  test("focus moves to Close on expand and back to Expand on collapse", () => {
+    const chain = original();
+    const { rerender } = render(frame(chain));
+    const button = screen.getByRole("button", { name: /Expand view/ });
+    expect(document.activeElement).not.toBe(button);
+    rerender(frame(chain, true, vi.fn(), { expanded: true }));
+    expect(document.activeElement).toBe(button);
+    (document.activeElement as HTMLElement).blur();
+    rerender(frame(chain, true, vi.fn(), { expanded: false }));
+    expect(document.activeElement).toBe(button);
+  });
+
+  test("a frame mounted expanded (its chain moved to a newer message) takes focus only when nothing else has it", () => {
+    const outside = document.createElement("input");
+    document.body.appendChild(outside);
+    outside.focus();
+    const first = render(frame(original(), true, vi.fn(), { expanded: true }));
+    expect(document.activeElement).toBe(outside);
+    first.unmount();
+    outside.remove();
+    render(frame(original(), true, vi.fn(), { expanded: true }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close expanded view" }));
+  });
+
+  test("a frame that falls back to blocks while expanded stays expanded and shows the caption (Review Focus 3)", () => {
+    const sandbox: HostChain = { chainId: S1, memberIds: [S1], surface: sandboxSurface(S1, "Picks") };
+    const { container, rerender } = render(frame(sandbox, true, vi.fn(), { expanded: true }));
+    const s = section(container);
+    expect(s?.getAttribute("data-frame")).toBe("dashed");
+    const fellBack = withBlocksView([sandbox], S1)[0];
+    rerender(frame(fellBack, true, vi.fn(), { expanded: true }));
+    expect(section(container)).toBe(s);
+    expect(s?.getAttribute("data-expanded")).toBe("true");
+    expect(s?.getAttribute("data-frame")).toBe("solid");
+    expect(screen.getByText(DEGRADED_CAPTION)).toBeTruthy();
+  });
+
+  test("switching versions while expanded keeps the frame expanded", () => {
+    const chain: HostChain = {
+      chainId: S1,
+      memberIds: [S1, R1],
+      surface: surface(S1, 1, "Original view"),
+      rerenders: [surface(R1, 2, "Layout view", S1)],
+    };
+    const { container } = render(frame(chain, true, vi.fn(), { expanded: true }));
+    const s = section(container);
+    fireEvent.click(screen.getByRole("radio", { name: "Layout" }));
+    expect(section(container)).toBe(s);
+    expect(s?.getAttribute("data-expanded")).toBe("true");
+    expect(s?.getAttribute("aria-label")).toBe("Expanded view: Layout view");
+  });
+
+  test("the view host tells the renderer whether the frame is expanded, and its Escape collapses only then", () => {
+    const onCollapse = vi.fn();
+    const seen: ViewHost[] = [];
+    function Probe() {
+      const host = useContext(ViewHostContext);
+      if (host) seen.push(host);
+      return null;
+    }
+    const chain = original();
+    const { rerender } = render(frame(chain, true, vi.fn(), { onCollapse, children: <Probe /> }));
+    expect(seen.at(-1)?.expanded).toBe(false);
+    seen.at(-1)?.onEscape();
+    expect(onCollapse).not.toHaveBeenCalled();
+    rerender(frame(chain, true, vi.fn(), { expanded: true, onCollapse, children: <Probe /> }));
+    expect(seen.at(-1)?.expanded).toBe(true);
+    seen.at(-1)?.onEscape();
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  test("expanded, the re-render buttons sit behind one Re-render as disclosure", () => {
+    const chain = original();
+    const { container, rerender } = render(frame(chain));
+    expect(screen.queryByRole("button", { name: "Re-render as", expanded: false })).toBeNull();
+    rerender(frame(chain, true, vi.fn(), { expanded: true }));
+    const disclosure = screen.getByRole("button", { name: "Re-render as" });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    const group = container.querySelector(".rf-agent-versions__actions")!;
+    expect(disclosure.getAttribute("aria-controls")).toBe(group.id);
+    expect(container.querySelector(".rf-view__footer")?.getAttribute("data-rerender-open")).toBe("false");
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".rf-view__footer")?.getAttribute("data-rerender-open")).toBe("true");
+    // The buttons themselves are the same primitives either way.
+    expect(screen.getByRole("button", { name: "Re-render as Layout" })).toBeTruthy();
+  });
 });

@@ -30,6 +30,7 @@ function surface(id: string, variant: 1 | 2, text: string, rerenderOf: string | 
     gathered: gatheredFixture(),
     rows: {},
     degraded: false,
+    outcome: "valid",
   };
 }
 

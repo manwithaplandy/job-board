@@ -125,6 +125,7 @@ const CHAINS: HostChain[] = [
       gathered: FIXTURE_GATHERED,
       rows: JOBS_FIXTURE_ROWS,
       degraded: false,
+      outcome: "valid",
     },
   },
 ];

@@ -20,7 +20,7 @@ import { emptyGathered } from "@/lib/agent/gathered";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
 import type { StoredSurface } from "@/lib/agent/surfaces/store";
-import { groupChains, loadBlockRows, parseStoredSurface } from "@/lib/agent/surfaces/host";
+import { groupChains, loadBlockRows, loadHostSurface, parseStoredSurface } from "@/lib/agent/surfaces/host";
 import { everyNodePayload } from "@/lib/agent/surfaces/v2/testFixtures";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -172,4 +172,29 @@ test("rows are read only for the ids the payload names", async () => {
   const pkgQuery = db.calls.find((c) => c.text.includes("application_packages"));
   expect(pkgQuery?.values).toContainEqual([JOB_A]);
   expect(pkgQuery?.values).toContain(USER);
+});
+
+// PR 2 Task 2.1: the host type carries the row's outcome, so the page can caption a
+// variant 2 or 3 row that was stored as its fallback.
+test("the host surface carries the row's stored outcome", async () => {
+  const id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  db.queue = [[{
+    id,
+    thread_id: THREAD,
+    run_id: null,
+    variant: 2,
+    payload: STORED_FALLBACK,
+    fallback_payload: STORED_FALLBACK,
+    gathered: gatheredFixture(),
+    outcome: "fallback",
+    failure: null,
+    supersedes: null,
+    rerender_of: null,
+    model: null,
+    latency_ms: null,
+    created_at: new Date("2026-11-25T10:00:00.000Z"),
+  }]];
+  const host = await loadHostSurface(USER, THREAD, id, OFF);
+  expect(host?.outcome).toBe("fallback");
+  expect(host?.variant).toBe(2);
 });

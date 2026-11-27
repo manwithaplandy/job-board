@@ -74,13 +74,27 @@ export function useWideLayout(): boolean {
   return useSyncExternalStore(subscribeWide, wideNow, () => false);
 }
 
+/** The caption under a view shown as blocks because it could not be built (spec 08 S11). */
+export const DEGRADED_CAPTION = "Shown as blocks because the view could not be built.";
+
+/**
+ * Whether a surface carries DEGRADED_CAPTION: its stored row or gathered data no longer
+ * parses, its frame fell back, or it is a variant 2 or 3 row stored as its variant 1
+ * fallback. A variant 1 fallback is that variant's own view, and a valid variant 3 row
+ * shown as blocks because variant 3 is switched off is not a degradation either.
+ */
+export function showsDegradedCaption(surface: HostSurface): boolean {
+  return surface.degraded || (surface.variant !== 1 && surface.outcome === "fallback");
+}
+
 /**
  * A surface whose frame fell back in the browser now shows its variant 1 blocks (R15:
- * the fallback is sticky). The page keeps this for the rest of the session, so moving the
- * surface between the column and the transcript does not mount the frame again.
+ * the fallback is sticky) and is marked degraded, so it carries the caption. The page
+ * keeps this for the rest of the session, so a later render never mounts the frame again.
  */
 export function withBlocksView(chains: readonly HostChain[], surfaceId: string): HostChain[] {
-  const toBlocks = (s: HostSurface): HostSurface => (s.id === surfaceId && s.view.kind === "sandbox" ? { ...s, view: { kind: "blocks" } } : s);
+  const toBlocks = (s: HostSurface): HostSurface =>
+    s.id === surfaceId && s.view.kind === "sandbox" ? { ...s, view: { kind: "blocks" }, degraded: true } : s;
   return chains.map((c) => {
     const surface = toBlocks(c.surface);
     const rerenders = c.rerenders?.map(toBlocks);

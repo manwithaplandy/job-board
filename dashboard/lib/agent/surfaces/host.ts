@@ -27,7 +27,7 @@ import { catalogNow } from "@/lib/catalogClock";
 import { getMemo } from "@/lib/workspaces/memo";
 import { emptyGathered, type GatheredData } from "@/lib/agent/gathered";
 import { parseGathered } from "@/lib/agent/gatheredSchema";
-import { getSurface, listThreadSurfaces, type StoredSurface } from "@/lib/agent/surfaces/store";
+import { getSurface, listThreadSurfaces, type StoredSurface, type SurfaceOutcome } from "@/lib/agent/surfaces/store";
 import { SurfacePayloadV1Schema, type SurfacePayloadV1 } from "@/lib/agent/surfaces/v1/blocks";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { validateSurfaceV2, type SurfacePayloadV2 } from "@/lib/agent/surfaces/v2/tree";
@@ -71,6 +71,11 @@ export interface HostSurface {
   rows: BlockRows;
   /** True when the stored payload or gathered data did not parse and a fallback is shown. */
   degraded: boolean;
+  /**
+   * The row's stored outcome. A variant 2 or 3 row stored as `fallback` holds the variant 1
+   * fallback because its view could not be built (spec 08 S11: the page captions it).
+   */
+  outcome: SurfaceOutcome;
 }
 
 /** One chain of surfaces (a surface and every update of it), shown once at its latest row. */
@@ -242,6 +247,7 @@ async function toHostSurface(userId: string, s: StoredSurface, options: HostOpti
     rerenderOf: s.rerenderOf,
     createdAt: s.createdAt,
     variant: s.variant,
+    outcome: s.outcome,
     ...parsed,
     // The rows of the variant 1 payload: BlockList's, for blocks and for a browser fallback.
     rows: await loadBlockRows(userId, parsed.payload),

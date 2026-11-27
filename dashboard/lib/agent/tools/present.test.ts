@@ -22,6 +22,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import type { ToolCtx } from "@/lib/agent/tools";
+import { buildTools } from "@/lib/agent/tools";
 import { assertNoUserIdInput } from "@/lib/agent/tools/assertNoUserIdInput";
 import { finishPendingRepair, presentTool, REPAIR_NOT_ATTEMPTED, runPresent } from "@/lib/agent/tools/present";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
@@ -115,14 +116,35 @@ describe("present", () => {
     expect(text).not.toContain("prefixItems");
     const dialects = [...text.matchAll(/"\$schema":"([^"]*)"/g)].map((x) => x[1]);
     for (const d of dialects) expect(d).toBe("http://json-schema.org/draft-07/schema#");
-    // The JobComparison tuple is a draft 7 tuple: items as a list, no extra items.
+    // The JobComparison tuple is a fixed-length array of two job ids: valid in draft 7 and
+    // in draft 2020-12, which Anthropic checks every tool schema against.
     const blocks = (schema as { properties: { payload: { properties: { blocks: { items: { oneOf: unknown[] } } } } } })
       .properties.payload.properties.blocks.items.oneOf;
     const comparison = blocks.find((b) => JSON.stringify(b).includes('"const":"JobComparison"')) as {
-      properties: { jobIds: { items: unknown; additionalItems: unknown } };
+      properties: { jobIds: { items: unknown; additionalItems?: unknown; minItems: number; maxItems: number } };
     };
-    expect(Array.isArray(comparison.properties.jobIds.items)).toBe(true);
-    expect(comparison.properties.jobIds.additionalItems).toBe(false);
+    expect(Array.isArray(comparison.properties.jobIds.items)).toBe(false);
+    expect(comparison.properties.jobIds.additionalItems).toBeUndefined();
+    expect(comparison.properties.jobIds).toMatchObject({ type: "array", minItems: 2, maxItems: 2 });
+  });
+
+  // Anthropic refused the whole call with "tools.21.custom.input_schema: JSON schema is
+  // invalid. It must match JSON Schema draft 2020-12" while present sent draft 7 tuples.
+  test.each([1, 2, 3] as const)("variant %i: no tool schema uses a draft 7 tuple (list items or additionalItems)", async (variant) => {
+    const tools = buildTools(ctx({ variant }));
+    const offenders: string[] = [];
+    const visit = (node: unknown, path: string): void => {
+      if (Array.isArray(node)) return node.forEach((n, i) => visit(n, `${path}/${i}`));
+      if (node === null || typeof node !== "object") return;
+      const o = node as Record<string, unknown>;
+      if (Array.isArray(o.items) || "additionalItems" in o) offenders.push(path);
+      for (const [k, v] of Object.entries(o)) visit(v, `${path}/${k}`);
+    };
+    for (const [name, t] of Object.entries(tools)) {
+      visit(await (t.inputSchema as unknown as { jsonSchema: unknown | PromiseLike<unknown> }).jsonSchema, name);
+    }
+    expect(Object.keys(tools)).toContain("present");
+    expect(offenders).toEqual([]);
   });
 });
 

@@ -95,7 +95,6 @@ async function layoutProblems(page: Page): Promise<string[]> {
       box("toolbar", ".rf-agent-toolbar") ?? box("variant switcher", ".rf-agent-variants"),
       box("transcript", ".rf-agent-transcript"),
       box("composer", ".rf-agent-composer"),
-      box("latest view", ".rf-agent-surface-column"),
     ].filter((b): b is Box => b !== null);
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {

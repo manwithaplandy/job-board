@@ -113,3 +113,12 @@ test("a running group shows a small spinner in the open panel", () => {
   const { container } = row({ state: "working", summary: running, currentLabel: "Searching your reviewed jobs", elapsedMs: 0, open: true });
   expect(container.querySelector(".rf-steps__panel .rf-steps__spinner")).not.toBeNull();
 });
+
+test("a group left running in a row that is not working shows no spinner", () => {
+  const stuck: StepSummary = { ...none, groups: [{ key: "search_jobs", label: "Searched your reviewed jobs", count: 1, running: true }], total: 1 };
+  const { container } = row({ state: "stopped", summary: stuck, open: true });
+  expect(container.querySelector(".rf-steps__spinner")).toBeNull();
+  cleanup();
+  const done = row({ state: "done", summary: stuck, open: true });
+  expect(done.container.querySelector(".rf-steps__spinner")).toBeNull();
+});

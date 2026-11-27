@@ -52,7 +52,8 @@ export function StepsRow({
         {summary.groups.map((g) => (
           <li key={g.key} className="rf-steps__item">
             {g.count > 1 ? `${g.label} (${g.count} times)` : g.label}
-            {g.running && <span className="rf-steps__spinner rf-steps__spinner--small" aria-hidden="true" />}
+            {/* Only a working row spins: a call left without a result in a stopped turn never finishes. */}
+            {g.running && state === "working" && <span className="rf-steps__spinner rf-steps__spinner--small" aria-hidden="true" />}
           </li>
         ))}
         {summary.failures.map((line, i) => (

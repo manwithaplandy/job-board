@@ -509,3 +509,56 @@ test("a failed reply with no parts renders no list item", () => {
   expect(container.querySelectorAll(".rf-agent-transcript > li")).toHaveLength(1);
   expect(container.querySelector(".rf-steps")).toBeNull();
 });
+
+function toolThenError(): Response {
+  return createUIMessageStreamResponse({
+    stream: new ReadableStream<UIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "msg-tool-failed" });
+        controller.enqueue({ type: "start-step" });
+        controller.enqueue({ type: "tool-input-available", toolCallId: "t-1", toolName: "search_jobs", input: { query: "ml" } });
+        controller.enqueue({ type: "error", errorText: "model_error:503" });
+        controller.close();
+      },
+    }),
+  });
+}
+
+test("a turn that fails after a tool call reads Stopped after 1 step, with no spinner left running", async () => {
+  fetchMock.mockImplementationOnce(async () => toolThenError());
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Find ML roles" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(PROVIDER_DOWN_PROBLEM);
+  await waitFor(() => expect(stepsToggle().textContent).toContain("Stopped after 1 step"));
+  fireEvent.click(stepsToggle());
+  expect(container.querySelector(".rf-steps__panel")?.textContent).toContain("Searched your reviewed jobs");
+  expect(container.querySelector(".rf-steps__spinner")).toBeNull();
+});
+
+test("the failed reply stays stopped after the next turn answers", async () => {
+  fetchMock.mockImplementationOnce(async () => toolThenError());
+  const { container } = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Find ML roles" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(PROVIDER_DOWN_PROBLEM);
+  fireEvent.change(composer(), { target: { value: "Something else" } });
+  fireEvent.click(sendButton());
+  await screen.findByText("Here are two roles.");
+  await waitFor(() => expect(container.querySelector(".rf-steps--working")).toBeNull());
+  expect(container.querySelectorAll(".rf-steps")).toHaveLength(1);
+  expect(stepsToggle().textContent).toContain("Stopped after 1 step");
+});
+
+test("a refused send leaves the earlier finished reply reading done", async () => {
+  fetchMock.mockImplementationOnce(async () => Response.json({ error: "turn_in_progress" }, { status: 409 }));
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [toolPart("search_jobs"), { type: "text", text: "One." }], metadata: { status: "complete" } },
+  ];
+  render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  fireEvent.change(composer(), { target: { value: "Again" } });
+  fireEvent.click(sendButton());
+  await screen.findByText(/A reply is still being written/);
+  expect(stepsToggle().textContent).toContain("Worked through 1 step");
+});

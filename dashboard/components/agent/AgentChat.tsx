@@ -415,6 +415,12 @@ export function AgentChat({
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
   // Which messages' steps panels are open, kept for the session; all start collapsed.
   const [openSteps, setOpenSteps] = useState<Record<string, boolean>>(() => (fixture?.openStepsFor ? { [fixture.openStepsFor]: true } : {}));
+  // A turn that failed while the page was open: the user message it answered (null for an
+  // approval answer) until the render below finds the reply, then that reply's id in
+  // failedReplies for the session. Streamed replies carry no stored status, so this is how
+  // their steps row reads "Stopped" (spec 08 section 11, row 13).
+  const [pendingFailure, setPendingFailure] = useState<{ afterUserId: string | null } | null>(null);
+  const [failedReplies, setFailedReplies] = useState<ReadonlySet<string>>(() => new Set());
   const startTurn = () => {
     const at = Date.now();
     setTurnStartedAt(at);
@@ -441,6 +447,9 @@ export function AgentChat({
         setMessages((prev) => prev.filter((m) => m.id !== sent.id));
         setDraft((d) => (d === "" ? sent.text : d));
       }
+      // Kept: the reply that was streaming (if one arrived) failed. A refusal rolled back,
+      // so no reply is marked and earlier replies stay as they were.
+      if (!r.rollback) setPendingFailure({ afterUserId: sent?.id ?? null });
       if ("notice" in r) {
         setBlocking(r.notice);
         setProblem(null);
@@ -462,12 +471,23 @@ export function AgentChat({
     const tick = setInterval(() => setNow(Date.now()), TIMER_TICK_MS);
     return () => clearInterval(tick);
   }, [busy]);
+  // Resolve a failure into the reply it ended, once the turn has stopped: the last message,
+  // when it is an assistant reply after the kept user message. State adjusted during
+  // render (the React pattern for deriving from an event), so no effect is needed.
+  if (pendingFailure && !busy) {
+    const reply = messages.at(-1);
+    const askedAt = pendingFailure.afterUserId === null ? -1 : messages.findIndex((m) => m.id === pendingFailure.afterUserId);
+    if (reply?.role === "assistant" && messages.length - 1 > askedAt && !failedReplies.has(reply.id)) {
+      setFailedReplies((prev) => new Set(prev).add(reply.id));
+    }
+    setPendingFailure(null);
+  }
   const working = busy || fixture?.working !== undefined;
   const elapsedMs = fixture?.working?.elapsedMs ?? now - (turnStartedAt ?? mountedAt);
   const stepsFor = (m: UIMessage, isLast: boolean): StepsView => {
-    // "Stopped" is read from the stored status (a reload after a failure); a turn that
-    // fails while the page is open keeps its row as it is and shows TurnError under it.
-    const state: StepsState = isLast && working ? "working" : isUnfinished(m, now) ? "stopped" : "done";
+    // "Stopped": the stored status says so (a reload after a failure), or the turn failed
+    // while the page was open.
+    const state: StepsState = isLast && working ? "working" : isUnfinished(m, now) || failedReplies.has(m.id) ? "stopped" : "done";
     return {
       state,
       elapsedMs,

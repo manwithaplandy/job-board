@@ -3,9 +3,8 @@
 import { useState } from "react";
 import type { Variant } from "@/lib/agent/config";
 import { VARIANTS, VARIANT_LABELS, VARIANT3_OFF_NOTE, isVariant, presentVariant } from "@/lib/agent/variants";
-import { setDefaultVariantAction, setThreadVariantAction, type VariantChange } from "@/app/actions/agent";
+import { setThreadVariantAction, type VariantChange } from "@/app/actions/agent";
 import { SegmentedControl } from "@/components/ui/Navigation";
-import { Button } from "@/components/ui/Button";
 
 // The per-thread variant switcher (plan Task 2.8, spec 7.2). Any signed-in user with a plan
 // sees all three options: there is no admin check (Andrew 2026-11-19). The page passes no
@@ -13,11 +12,13 @@ import { Button } from "@/components/ui/Button";
 // switch agentVariant3Enabled is off, option 3 is disabled with a fixed note, and a thread
 // recorded as variant 3 shows (and presents) as variant 1; its recorded variant is kept.
 // A change applies from the next turn: surfaces already shown keep the variant on their row.
+// The pick is also saved as the default for new conversations (the action does both), so
+// the choice carries over when a new conversation starts.
 
 export interface VariantsState {
   /** The thread's recorded variant. */
   thread: Variant;
-  /** The user's default for new threads (agent_settings.default_variant). */
+  /** The user's default for new threads (agent_settings.default_variant); each pick updates it. */
   default: Variant;
   variant3Enabled: boolean;
 }
@@ -25,10 +26,8 @@ export interface VariantsState {
 // The switcher picks how the assistant's answers are drawn (Blocks, Layout or Code), so
 // its visible label says that, for someone who has never seen it.
 export const SWITCHER_LABEL = "Show answers as";
-export const SWITCHER_APPLIES = "Applies from your next message.";
+export const SWITCHER_APPLIES = "Applies from your next message and to new conversations.";
 export const SWITCHER_FAILED = "The layout could not be changed. Try again.";
-export const USE_AS_DEFAULT = "Use for new conversations";
-export const IS_DEFAULT = "Used for new conversations";
 
 function failureText(result: VariantChange): string | null {
   if (result.ok) return null;
@@ -38,7 +37,6 @@ function failureText(result: VariantChange): string | null {
 
 export function VariantSwitcher({ threadId, state, disabled = false }: { threadId: string; state: VariantsState; disabled?: boolean }) {
   const [recorded, setRecorded] = useState<Variant>(state.thread);
-  const [defaultVariant, setDefault] = useState<Variant>(state.default);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const shown = presentVariant(recorded, state.variant3Enabled);
@@ -63,26 +61,6 @@ export function VariantSwitcher({ threadId, state, disabled = false }: { threadI
     ).finally(() => setBusy(false));
   };
 
-  const makeDefault = () => {
-    if (busy || shown === defaultVariant) return;
-    const before = defaultVariant;
-    setDefault(shown);
-    setBusy(true);
-    setMessage(null);
-    void setDefaultVariantAction(shown).then(
-      (result) => {
-        if (!result.ok) {
-          setDefault(before);
-          setMessage(failureText(result));
-        }
-      },
-      () => {
-        setDefault(before);
-        setMessage(SWITCHER_FAILED);
-      },
-    ).finally(() => setBusy(false));
-  };
-
   return (
     <div className="rf-agent-variants">
       <div className="rf-agent-variants__row">
@@ -101,9 +79,6 @@ export function VariantSwitcher({ threadId, state, disabled = false }: { threadI
             disabled: disabled || (v === 3 && !state.variant3Enabled),
           }))}
         />
-        <Button variant="ghost" size="sm" onClick={makeDefault} disabled={disabled || busy || shown === defaultVariant}>
-          {shown === defaultVariant ? IS_DEFAULT : USE_AS_DEFAULT}
-        </Button>
       </div>
       {!state.variant3Enabled && <p className="rf-agent-variants__note">{VARIANT3_OFF_NOTE}</p>}
       <p className="rf-agent-variants__status" role="status">

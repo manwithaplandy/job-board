@@ -67,15 +67,23 @@ function bodyOf(call: number): Record<string, unknown> {
   return JSON.parse(String(init?.body)) as Record<string, unknown>;
 }
 
-test("renders assistant text parts as plain text, never as HTML or links", () => {
+test("renders assistant text as markdown, never as HTML or links; the user's text stays plain", () => {
   const messages: UIMessage[] = [
-    { id: "u1", role: "user", parts: [{ type: "text", text: "Show me a link" }], metadata: { status: "complete" } },
-    { id: "a1", role: "assistant", parts: [{ type: "text", text: "<a href=x>y</a>" }], metadata: { status: "complete" } },
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Show me **a link**" }], metadata: { status: "complete" } },
+    {
+      id: "a1",
+      role: "assistant",
+      parts: [{ type: "text", text: "- **One** item\n- [a link](https://x.example)\n\n<a href=x>y</a>" }],
+      metadata: { status: "complete" },
+    },
   ];
   const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
-  expect(screen.getByText("<a href=x>y</a>")).toBeTruthy();
+  expect(screen.getByText("Show me **a link**")).toBeTruthy();
+  expect(container.querySelectorAll(".rf-md li")).toHaveLength(2);
+  expect(container.querySelector(".rf-md strong")?.textContent).toBe("One");
   expect(container.querySelector('a[href="x"]')).toBeNull();
   expect(container.querySelector(".rf-agent-transcript a")).toBeNull();
+  expect(container.querySelector(".rf-agent-transcript [href]")).toBeNull();
 });
 
 test("the transport body carries only threadId, kind, id, text", async () => {

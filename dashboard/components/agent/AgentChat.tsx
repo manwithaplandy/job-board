@@ -39,11 +39,13 @@ import { RerenderTabs } from "./RerenderTabs";
 import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
 import { toolActivityLabel } from "@/lib/agent/toolLabel";
+import { AgentMarkdown } from "./AgentMarkdown";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
 // carries only the thread id and either the new message's id, text and attached document
 // ids, or an approval decision; the route loads the rest from agent_messages. Assistant
-// text is rendered as React text nodes, never as HTML or markdown. The one rich output is
+// text is drawn as markdown by AgentMarkdown, as React elements only: no raw HTML, and no
+// links or images (spec section 10). The user's text stays plain. The one rich output is
 // a surface, and it is rendered only by SurfaceHost from the server-parsed surface row,
 // never from the tool part's own payload. Approvals and high-risk intents show only the
 // fixed ConfirmCard, built on the server from database values.
@@ -260,7 +262,13 @@ function toolLineShows(part: ToolPart): boolean {
 function MessageView({ message, renderSurface }: { message: UIMessage; renderSurface: (surfaceId: string) => ReactNode }) {
   const who = message.role === "user" ? "You" : "Assistant";
   const shown = message.parts.flatMap((part, i): ReactNode[] => {
-    if (part.type === "text") return part.text.trim() === "" ? [] : [<p key={i} className="rf-agent-message__text">{part.text}</p>];
+    if (part.type === "text") {
+      if (part.text.trim() === "") return [];
+      // The user's own words stay plain text; the assistant's are drawn as markdown.
+      return message.role === "assistant"
+        ? [<AgentMarkdown key={i} text={part.text} />]
+        : [<p key={i} className="rf-agent-message__text">{part.text}</p>];
+    }
     if (!isToolUIPart(part)) return [];
     if (getToolName(part) === "present") {
       const surfaceId = presentedSurfaceId(part);

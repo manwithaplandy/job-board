@@ -189,6 +189,8 @@ describe("the variant switcher's actions", () => {
     for (const v of [1, 2, 3] as const) {
       expect(await setThreadVariantAction(THREAD, v)).toEqual({ ok: true });
       expect(variants.setThreadVariant).toHaveBeenLastCalledWith(USER, THREAD, v);
+      // The pick also becomes the default, so a new conversation opens in it.
+      expect(variants.setDefaultVariant).toHaveBeenLastCalledWith(USER, v);
       expect(await setDefaultVariantAction(v)).toEqual({ ok: true });
       expect(variants.setDefaultVariant).toHaveBeenLastCalledWith(USER, v);
     }
@@ -215,7 +217,9 @@ describe("the variant switcher's actions", () => {
     expect(await setDefaultVariantAction(3)).toEqual({ ok: false, reason: "variant3_off" });
     expect(await setThreadVariantAction(THREAD, 2)).toEqual({ ok: true });
     expect(variants.setThreadVariant).toHaveBeenCalledTimes(1);
-    expect(variants.setDefaultVariant).not.toHaveBeenCalled();
+    // Only the accepted pick (variant 2) became the default.
+    expect(variants.setDefaultVariant).toHaveBeenCalledTimes(1);
+    expect(variants.setDefaultVariant).toHaveBeenCalledWith(USER, 2);
   });
 
   test("another user's thread, or a malformed id, is not found", async () => {

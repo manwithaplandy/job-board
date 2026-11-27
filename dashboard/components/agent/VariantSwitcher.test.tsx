@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 // The per-thread variant switcher (plan Task 2.8). The server actions are mocks; their own
 // checks (plan, variant 3 switch, thread ownership) are app/actions/agent.test.ts.
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const actions = vi.hoisted(() => ({ setThreadVariantAction: vi.fn(), setDefaultVariantAction: vi.fn() }));
 vi.mock("@/app/actions/agent", () => actions);
 
 import { VARIANT3_OFF_NOTE } from "@/lib/agent/variants";
-import { IS_DEFAULT, SWITCHER_APPLIES, SWITCHER_FAILED, SWITCHER_LABEL, USE_AS_DEFAULT, VariantSwitcher, type VariantsState } from "./VariantSwitcher";
+import { SWITCHER_APPLIES, SWITCHER_FAILED, SWITCHER_LABEL, VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 
 const THREAD = "22222222-2222-4222-8222-222222222222";
 
@@ -60,12 +60,7 @@ test("with variant 3 switched off, option 3 is disabled with the fixed note and 
   expect(actions.setThreadVariantAction).not.toHaveBeenCalled();
 });
 
-test("the shown variant can be made the default for new conversations", async () => {
+test("there is no separate default button: a pick carries over to new conversations by itself", () => {
   mount({ thread: 2, default: 1 });
-  const button = screen.getByRole("button", { name: USE_AS_DEFAULT });
-  await act(async () => {
-    fireEvent.click(button);
-  });
-  expect(actions.setDefaultVariantAction).toHaveBeenCalledWith(2);
-  expect((screen.getByRole("button", { name: IS_DEFAULT }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("button")).toBeNull();
 });

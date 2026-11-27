@@ -103,6 +103,31 @@ export function withBlocksView(chains: readonly HostChain[], surfaceId: string):
   });
 }
 
+/**
+ * A sandbox surface as a one-row chain, for the gallery pages that render SandboxFrame
+ * themselves (the enforcement harness, the replay page) inside a ViewFrame.
+ */
+export function sandboxChain(surface: SandboxSurface): HostChain {
+  return {
+    chainId: surface.id,
+    memberIds: [surface.id],
+    surface: {
+      id: surface.id,
+      threadId: surface.threadId,
+      supersedes: null,
+      rerenderOf: null,
+      createdAt: "1970-01-01T00:00:00.000Z",
+      variant: 3,
+      view: { kind: "sandbox", document: surface.payload },
+      payload: surface.fallback,
+      gathered: surface.gathered,
+      rows: surface.rows,
+      degraded: false,
+      outcome: "valid",
+    },
+  };
+}
+
 function toSandboxSurface(surface: HostSurface, document: SurfacePayloadV3): SandboxSurface {
   return {
     id: surface.id,

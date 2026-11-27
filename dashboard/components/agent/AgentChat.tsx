@@ -35,12 +35,12 @@ import { EmptyState } from "./EmptyState";
 import { stashFirstMessage, takeFirstMessage } from "./firstMessage";
 import { ReviewProgress } from "./ReviewProgress";
 import { mergeSurface, useWideLayout, withBlocksView } from "./SurfaceHost";
-import { RerenderTabs } from "./RerenderTabs";
 import { VariantSwitcher, type VariantsState } from "./VariantSwitcher";
 import { showUndoToast, writeToastText } from "./UndoToast";
 import { currentStepLabel, summarizeSteps, type StepsState } from "@/lib/agent/steps";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { StepsRow } from "./StepsRow";
+import { ViewFrame } from "./ViewFrame";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
 // carries only the thread id and either the new message's id, text and attached document
@@ -732,8 +732,10 @@ export function AgentChat({
   // A re-render joins its original's chain as another version (Task 2.9).
   const onRerendered = useCallback((surface: HostSurface) => setChains((prev) => mergeSurface(prev, surface)), []);
   const rerenderSwitch = variants ? variants.variant3Enabled : null;
+  // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
   const chainView = (chain: HostChain) => (
-    <RerenderTabs
+    <ViewFrame
+      key={chain.chainId}
       chain={chain}
       threadId={threadId}
       variant3Enabled={rerenderSwitch}

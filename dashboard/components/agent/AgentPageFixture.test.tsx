@@ -51,3 +51,28 @@ test("the variant states select Blocks, Layout and Code", () => {
     cleanup();
   }
 });
+
+test("agent-page-steps-working shows the working row with its frozen timer", () => {
+  const { container } = render(<AgentPageFixture state="agent-page-steps-working" />);
+  const toggle = screen.getByRole("button", { name: /Searching your reviewed jobs/ });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelector(".rf-steps--working .rf-steps__timer")?.textContent).toBe("1:05");
+  expect(screen.queryByText("This reply was interrupted")).toBeNull();
+});
+
+test("agent-page-steps-done shows eight steps collapsed, one of which did not work", () => {
+  render(<AgentPageFixture state="agent-page-steps-done" />);
+  const toggle = screen.getByRole("button", { name: /Worked through 8 steps/ });
+  expect(toggle.textContent).toContain("Worked through 8 steps, 1 did not work");
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("agent-page-steps-open shows the same steps expanded, with a grouped count and the failed step", () => {
+  const { container } = render(<AgentPageFixture state="agent-page-steps-open" />);
+  const toggle = screen.getByRole("button", { name: /Worked through 8 steps/ });
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  const panel = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+  expect(panel?.hidden).toBe(false);
+  expect(panel?.textContent).toContain("Searched your reviewed jobs (5 times)");
+  expect(container.querySelector(".rf-steps__item--failed")?.textContent).toBe("Could not read a job review");
+});

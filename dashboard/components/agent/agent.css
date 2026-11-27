@@ -101,6 +101,23 @@
 .rf-md__img-alt { color: var(--text-muted); font-style: italic; }
 .rf-agent-message__tool { margin: 0; color: var(--text-muted); font-size: var(--font-size-caption); }
 .rf-agent-message__questions { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-5); color: var(--text-primary); overflow-wrap: anywhere; }
+/* The steps row (spec 08 section 7.2): chrome above the answer, not part of it. */
+.rf-steps { display: grid; min-width: 0; border-radius: var(--radius-control); background: var(--bg-muted); color: var(--text-secondary); font-size: var(--font-size-caption); }
+.rf-steps__toggle.rf-button { justify-content: flex-start; width: 100%; min-height: var(--control-height); padding-inline: var(--space-3); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 600; line-height: 1.35; text-align: start; white-space: normal; }
+.rf-steps__toggle.rf-button:hover:not(:disabled) { color: var(--text-primary); background: transparent; }
+.rf-steps__label { min-width: 0; overflow-wrap: anywhere; }
+.rf-steps__timer { color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 400; }
+.rf-steps__chevron { margin-left: auto; }
+.rf-steps--done .rf-steps__icon { color: var(--success); }
+.rf-steps--stopped .rf-steps__icon { color: var(--warning); }
+.rf-steps__spinner { flex: none; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rf-spin .7s linear infinite; }
+.rf-steps__spinner--small { display: inline-block; width: 10px; height: 10px; margin-left: var(--space-2); vertical-align: middle; }
+.rf-steps__panel { display: grid; gap: var(--space-1); margin: 0; padding: 0 var(--space-3) var(--space-3) var(--space-8); list-style: disc; overflow-wrap: anywhere; }
+.rf-steps__panel[hidden] { display: none; }
+.rf-steps__item--failed { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .rf-steps__spinner { animation: none; border-style: dotted; }
+}
 
 /* Where the next answer will appear, while it is on its way. */
 .rf-agent-waiting { justify-self: start; margin: 0; padding: var(--space-2) var(--space-4); border: 1px dashed var(--border-strong); border-radius: var(--radius-card); color: var(--text-muted); font-size: var(--font-size-caption); }

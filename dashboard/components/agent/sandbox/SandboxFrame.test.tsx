@@ -842,7 +842,7 @@ describe("a view's ask", () => {
   }
 
   function mountAsk(opts: { disabledReason?: string | null; server?: SandboxFrameServer; initialRequest?: { kind: "ask"; text: string } } = {}) {
-    const send = vi.fn<(text: string, surfaceId: string) => void>();
+    const send = vi.fn<(text: string, surfaceId: string, onRefused: () => void) => void>();
     const ask: Ask = { send, disabledReason: opts.disabledReason ?? null };
     const view = render(<AskHost s={surface()} ask={ask} server={opts.server} initialRequest={opts.initialRequest} />);
     const iframe = view.container.querySelector("iframe");
@@ -882,8 +882,64 @@ describe("a view's ask", () => {
     act(() => vi.advanceTimersByTime(1));
     fireEvent.click(button);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith("Compare the top two", ID);
+    expect(send).toHaveBeenCalledWith("Compare the top two", ID, expect.any(Function));
     expect(sendButton()).toBeNull();
+    expect(askText()).toBeNull();
+  });
+
+  // PR 6 review, minor 9: a send refused before the server accepted it shows the ask again.
+  test("a refused send shows the ask again, armed afresh, so it can be sent or dismissed", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await flush();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    expect(askText()).toBeNull();
+    const refused = send.mock.calls[0][2];
+    act(() => refused());
+    expect(askText()).toBe("Compare the top two");
+    // Armed afresh: a press inside the arm window does nothing.
+    fireEvent.click(sendButton()!);
+    expect(send).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1].slice(0, 2)).toEqual(["Compare the top two", ID]);
+    // A second refusal shows it again, and Dismiss then clears it.
+    act(() => send.mock.calls[1][2]());
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss: Compare the top two" }));
+    expect(askText()).toBeNull();
+  });
+
+  test("a refusal never replaces a newer request, and a frame that failed shows nothing again", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "ask", text: "First" });
+    await flush();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    port.postMessage({ type: "ask", text: "Second" });
+    await flush();
+    act(() => send.mock.calls[0][2]());
+    expect(askText()).toBe("Second");
+    // Dismissed: the older refusal is still stale (the frame asked since), so it shows nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss: Second" }));
+    act(() => send.mock.calls[0][2]());
+    expect(askText()).toBeNull();
+    // After the frame fails (too many asks), a refusal shows nothing.
+    port.postMessage({ type: "ask", text: "Third" });
+    await flush();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    for (let i = 0; i < 6; i++) port.postMessage({ type: "ask", text: `Loop ${i}` });
+    await flush();
+    expect(iframe.isConnected).toBe(false);
+    act(() => send.mock.calls[1][2]());
     expect(askText()).toBeNull();
   });
 
@@ -917,7 +973,7 @@ describe("a view's ask", () => {
     expect(send).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
     fireEvent.click(second);
-    expect(send).toHaveBeenCalledWith("Second", ID);
+    expect(send).toHaveBeenCalledWith("Second", ID, expect.any(Function));
   });
 
   test("an action replaces a pending ask, and an ask replaces a pending action chip", async () => {
@@ -1052,7 +1108,7 @@ describe("a view's ask", () => {
     const { send } = mountAsk({ initialRequest: { kind: "ask", text: "Compare\n the top two" } });
     const button = await screen.findByRole("button", { name: "Send: Compare the top two" });
     fireEvent.click(button);
-    expect(send).toHaveBeenCalledWith("Compare the top two", ID);
+    expect(send).toHaveBeenCalledWith("Compare the top two", ID, expect.any(Function));
   });
 
   test("with two frames, an ask in A leaves B's pending request as it was (Review Focus 4)", async () => {
@@ -1081,7 +1137,7 @@ describe("a view's ask", () => {
     expect(fromB.isConnected).toBe(true);
     expect(reqB.querySelectorAll(".rf-ask__text")).toHaveLength(1);
     pressChip(fromB);
-    expect(sendB).toHaveBeenCalledWith("From B", SECOND_ID);
+    expect(sendB).toHaveBeenCalledWith("From B", SECOND_ID, expect.any(Function));
     expect(sendA).not.toHaveBeenCalled();
   });
 });

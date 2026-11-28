@@ -186,6 +186,9 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
   // Both are kept with the surface id they belong to, so a new surface starts clean.
   const [fallbackState, setFallbackState] = useState<{ id: string; payload: SurfacePayloadV1 } | null>(null);
   const [requestState, setRequestState] = useState<RequestEntry | null>(() => initialEntry(surface.id, initialRequest));
+  // The mounted document's state, for Send's refusal path (PR 6 review, minor 9), which runs
+  // outside the effect that owns it.
+  const liveRef = useRef<Live | null>(null);
   const fallback = fallbackState?.id === surface.id ? fallbackState.payload : null;
   const entry = requestState?.id === surface.id ? requestState : null;
   const reasonId = useId();
@@ -213,6 +216,7 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
       askTotal: 0,
       requestSeq: 0,
     };
+    liveRef.current = live;
     const iframe = document.createElement("iframe");
     let timer = 0;
     let pingTimer = 0;
@@ -490,7 +494,19 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
                 const sink = viewHostRef.current?.ask ?? null;
                 if (sink === null || sink.disabledReason !== null) return;
                 setRequestState(null);
-                sink.send(pending.text, surface.id);
+                // PR 6 review, minor 9: if the page's request is refused or fails before the
+                // server accepts it, the ask shows again here, armed afresh, so the user can
+                // retry or dismiss it. Not when the document is gone, has failed, or has
+                // asked or acted again since: a newer request wins.
+                const live = liveRef.current;
+                const seqAtSend = live?.requestSeq ?? 0;
+                const id = surface.id;
+                const text = pending.text;
+                sink.send(text, id, () => {
+                  if (live !== null && (live.disposed || live.failed || live !== liveRef.current || live.requestSeq !== seqAtSend)) return;
+                  const seq = live === null ? seqAtSend + 1 : ++live.requestSeq;
+                  setRequestState((prev) => (prev === null || prev.id !== id ? { id, seq, shownAt: Date.now(), request: { kind: "ask", n: seq, text } } : prev));
+                });
               }}
             >
               {ASK_SEND_TEXT}

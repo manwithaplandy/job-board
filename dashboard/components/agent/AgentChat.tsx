@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { toast } from "sonner";
@@ -501,6 +501,10 @@ export function AgentChat({
     }
   };
   const named = useRef(!autoTitle);
+  // PR 6 review, minor 9: a view message's way back to its frame, by message id, while its
+  // request is in flight. A refusal or a network failure (nothing stored) calls it, so the
+  // ask shows again as pending in its frame; any other end drops it.
+  const viewRefused = useRef(new Map<string, () => void>());
   // One transport per mounted chat (the page keys AgentChat by thread id).
   const [{ transport, book }] = useState(() => chatTransport(threadId));
 
@@ -509,7 +513,10 @@ export function AgentChat({
     messages: initialMessages,
     transport,
     generateId,
-    onFinish: () => setTurnsEnded((n) => n + 1),
+    onFinish: () => {
+      setTurnsEnded((n) => n + 1);
+      viewRefused.current.clear();
+    },
     onError: (error) => {
       setTurnsEnded((n) => n + 1);
       // A refusal or a network failure stored nothing; a 5xx or an error mid-stream may
@@ -521,7 +528,10 @@ export function AgentChat({
       if (sent && r.rollback && !sent.retry) {
         setMessages((prev) => prev.filter((m) => m.id !== sent.id));
         if (!sent.view) setDraft((d) => (d === "" ? sent.text : d));
+        // A view's ask never goes to the composer; it goes back to its frame's pending region.
+        else viewRefused.current.get(sent.id)?.();
       }
+      viewRefused.current.clear();
       // Kept: the reply that was streaming (if one arrived) failed. A refusal rolled back,
       // so no reply is marked and earlier replies stay as they were.
       if (!r.rollback) setPendingFailure({ afterUserId: sent?.id ?? null });
@@ -594,11 +604,23 @@ export function AgentChat({
   // PR 6 (spec 08 S10.4): a view's ask, sent on the user's press of its Send, as their own
   // message with a view id and the view's source. It goes through the same transport as a
   // typed message; the composer's draft and attachments are not read or cleared.
-  const sendFromView = (text: string, surfaceId: string) => {
-    setProblem(null);
-    startTurn();
-    void sendMessage({ id: viewId(), role: "user", parts: [{ type: "text", text }] }, { body: { source: { kind: "view", surfaceId } } });
-  };
+  // Stable (PR 6 review, minor 3): it is part of every ViewFrame's memoised host, so a new
+  // function on each render (each streamed chunk) would re-render every view. startTurn
+  // reads the latest messages, so it is read through a ref.
+  const viewSend = useRef({ startTurn });
+  useEffect(() => {
+    viewSend.current = { startTurn };
+  });
+  const sendFromView = useCallback(
+    (text: string, surfaceId: string, onRefused: () => void) => {
+      setProblem(null);
+      viewSend.current.startTurn();
+      const id = viewId();
+      viewRefused.current.set(id, onRefused);
+      void sendMessage({ id, role: "user", parts: [{ type: "text", text }] }, { body: { source: { kind: "view", surfaceId } } });
+    },
+    [sendMessage],
+  );
   // Retry answers the last question again: everything after it is dropped from the screen
   // and the server reuses the stored question (kind "retry"), so it is never stored twice.
   // The composer's draft and attachments stay as they are.
@@ -917,7 +939,7 @@ export function AgentChat({
   }, [expandedChainId, dockRef]);
   // Why a view's pending ask cannot be sent now (spec 08 S10.2), in this order; null when it can.
   const askDisabledReason = busy ? ASK_WAIT_REPLY : blocking ? agentNoticeTitle(blocking) : shownConfirm !== null ? ASK_ANSWER_CONFIRM : null;
-  const askSink = { send: sendFromView, disabledReason: askDisabledReason };
+  const askSink = useMemo(() => ({ send: sendFromView, disabledReason: askDisabledReason }), [sendFromView, askDisabledReason]);
   const askFor = fixture?.askFor;
   // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
   const chainView = (chain: HostChain) => (

@@ -1195,5 +1195,29 @@ describe("a view's ask", () => {
     await screen.findByText(GENERIC_PROBLEM);
     expect(container.querySelector('[data-message-id^="view-"]')).toBeNull();
     expect(composer().value).toBe("");
+    // PR 6 review, minor 9: it goes back to its frame as the pending ask, to retry or dismiss.
+    expect(askSend().disabled).toBe(false);
+    expect(container.querySelector("[data-sandbox-ask] .rf-ask__text")?.textContent).toBe(ASK_TEXT);
+  });
+
+  test("a network failure puts the ask back too; a failure after the server accepted it does not", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const { container, unmount } = render(
+      <AgentChat threadId={THREAD} initialMessages={history()} notice={null} surfaces={[codeChain()]} fixture={{ askFor: { surfaceId: CODE, text: ASK_TEXT } }} />,
+    );
+    fireEvent.click(askSend());
+    await waitFor(() => expect(container.querySelector("[data-sandbox-ask] .rf-ask__text")?.textContent).toBe(ASK_TEXT));
+    expect(composer().value).toBe("");
+    unmount();
+    // A 5xx may come after the server stored the message: it stays, and the ask is not shown again.
+    fetchMock.mockResolvedValueOnce(Response.json({ error: "internal" }, { status: 500 }));
+    const again = render(
+      <AgentChat threadId={THREAD} initialMessages={history()} notice={null} surfaces={[codeChain()]} fixture={{ askFor: { surfaceId: CODE, text: ASK_TEXT } }} />,
+    );
+    fireEvent.click(askSend());
+    await waitFor(() => expect(again.container.querySelector('[data-message-id^="view-"]')).not.toBeNull());
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(again.container.querySelector("[data-sandbox-ask]")).toBeNull();
   });
 });

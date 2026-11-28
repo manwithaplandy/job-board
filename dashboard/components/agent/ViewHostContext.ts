@@ -23,9 +23,10 @@ export type ViewHost = {
   /**
    * PR 6: sends a view's ask as the user's message, from the frame's pending message's Send.
    * Null where nothing can send (Send is then disabled); disabledReason, when set, disables
-   * Send too and is read out as its description.
+   * Send too and is read out as its description. onRefused is called if the request is
+   * refused or fails before the server accepts it, so the frame can show the ask again.
    */
-  ask: { send: (text: string, surfaceId: string) => void; disabledReason: string | null } | null;
+  ask: { send: (text: string, surfaceId: string, onRefused: () => void) => void; disabledReason: string | null } | null;
 };
 
 export const ViewHostContext = createContext<ViewHost | null>(null);

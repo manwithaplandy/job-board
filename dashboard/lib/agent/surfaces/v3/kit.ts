@@ -208,6 +208,17 @@ const LAYOUT_CSS = `
 .jb-table th, .jb-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); text-align: start; vertical-align: middle; }
 .jb-table th { font-size: var(--font-size-caption); font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
 .jb-table .jb-num { text-align: end; font-variant-numeric: tabular-nums; }
+.jb-table__sort { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--target-size); margin: calc(var(--space-2) * -1) 0; padding: 0; border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.jb-table .jb-num .jb-table__sort { flex-direction: row-reverse; }
+.jb-table__sort::after { content: "\\2195"; color: var(--text-muted); }
+.jb-table th[aria-sort="ascending"] .jb-table__sort::after { content: "\\2191"; color: var(--text-primary); }
+.jb-table th[aria-sort="descending"] .jb-table__sort::after { content: "\\2193"; color: var(--text-primary); }
+.jb-table__row { cursor: pointer; }
+.jb-table__row:hover { background: var(--bg-muted); }
+.jb-table__row td { height: var(--target-size); }
+.jb-table__more { display: inline-flex; align-items: center; justify-content: center; min-height: var(--target-size); margin-top: var(--space-2); padding: 0 var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); font: inherit; font-size: var(--font-size-control); color: var(--text-primary); cursor: pointer; }
+.jb-table__more:hover { background: var(--bg-muted); }
+.jb-table__sort:focus-visible, .jb-table__more:focus-visible, .jb-table__row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .jb-timeline { list-style: none; margin: 0; padding: 0; }
 .jb-timeline__item { position: relative; margin: 0; padding: 0 0 var(--space-4) var(--space-6); }
 .jb-timeline__item::before { content: ""; position: absolute; left: 4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent-solid); }
@@ -1261,6 +1272,190 @@ export const KIT_JS: string = `(function () {
     return { job: j, review: r, shortlist: s, application: a };
   }
 
+  /* PR 5 (spec 08 S9.5): host.table(el, spec) -> { update(rows), sort(key, dir) }. A real
+     table in a jb-scroll-x wrapper; every cell is set as text. A sortable column's header is
+     a button that sorts ascending, then descending; a missing value sorts last either way.
+     pageSize rows show at first (25 by default), with a Show more button for the next page,
+     and at most 500 rows ever render. onRowSelect(row, index) gets the caller's own row and
+     its index in the rows given, on click or Enter. */
+  var TABLE_ROWS_MAX = 500;
+  var TABLE_COLUMNS_MAX = 20;
+  var compareText = uncurry("".localeCompare);
+  var NO_TABLE = freeze({ update: function () {}, sort: function () {} });
+  function cellValue(row, key) {
+    return row !== null && typeof row === "object" && hasOwn(row, key) ? row[key] : undefined;
+  }
+  function cellText(value, fmtName) {
+    if (value === null || value === undefined) return "";
+    if (fmtName === "date") return typeof value === "string" ? fmtDate(value) : "";
+    if (fmtName === "pay") { var p = value && typeof value === "object" ? fmtPay(value) : null; return p === null ? "" : p; }
+    if (typeof fmtName === "string" && hasOwn(VALUE_FORMATS, fmtName)) return VALUE_FORMATS[fmtName](value);
+    if (typeof value === "number") return fmtNumber(value);
+    if (typeof value === "string") return value;
+    if (typeof value === "boolean") return value ? "Yes" : "No";
+    return "";
+  }
+  function isMissing(v) {
+    return v === null || v === undefined || v === "" || (typeof v === "number" && !finite(v));
+  }
+  function compareCells(a, b) {
+    if (typeof a === "number" && typeof b === "number") return a < b ? -1 : a > b ? 1 : 0;
+    var r;
+    try { r = compareText(String(a), String(b), "en", { numeric: true, sensitivity: "base" }); } catch (err) { r = 0; }
+    return r < 0 ? -1 : r > 0 ? 1 : 0;
+  }
+  function tableColumns(list) {
+    var out = [];
+    if (!isList(list)) return out;
+    for (var i = 0; i < list.length && out.length < TABLE_COLUMNS_MAX; i++) {
+      var c = list[i];
+      if (!c || typeof c !== "object" || typeof c.key !== "string" || c.key === "") continue;
+      out[out.length] = {
+        key: c.key,
+        label: clip(typeof c.label === "string" && c.label !== "" ? c.label : c.key, 80),
+        end: c.align === "end",
+        format: typeof c.format === "string" ? c.format : "",
+        sortable: c.sortable === true
+      };
+    }
+    return out;
+  }
+  function tableRows(list) {
+    var out = [];
+    if (!isList(list)) return out;
+    for (var i = 0; i < list.length; i++) out[out.length] = { row: list[i], index: i };
+    return out;
+  }
+  function table(el, spec) {
+    if (!el || typeof el.appendChild !== "function" || !isElement(el)) return NO_TABLE;
+    spec = spec && typeof spec === "object" ? spec : {};
+    var columns = tableColumns(spec.columns);
+    var onRowSelect = typeof spec.onRowSelect === "function" ? spec.onRowSelect : null;
+    var size = toNumber(spec.pageSize);
+    var pageSize = finite(size) && size >= 1 ? M.min(M.floor(size), TABLE_ROWS_MAX) : 25;
+    var entries = tableRows(spec.rows);
+    var order = entries;
+    var shown = pageSize;
+    var sortKey = null;
+    var sortDesc = false;
+    var heads = [];
+
+    var wrap = node("div", "jb-scroll-x");
+    var tableEl = node("table", "jb-table");
+    var caption = node("caption", "", clip(typeof spec.caption === "string" ? spec.caption : "", 200));
+    var thead = node("thead", "");
+    var headRow = node("tr", "");
+    var tbody = node("tbody", "");
+    var more = node("button", "jb-table__more", "Show more");
+    setAttr(more, "type", "button");
+    appendTo(tableEl, caption);
+    appendTo(thead, headRow);
+    appendTo(tableEl, thead);
+    appendTo(tableEl, tbody);
+    appendTo(wrap, tableEl);
+
+    function columnIndex(key) {
+      for (var i = 0; i < columns.length; i++) if (columns[i].key === key) return i;
+      return -1;
+    }
+    function markSort() {
+      for (var i = 0; i < columns.length; i++) {
+        var c = columns[i];
+        if (c.key === sortKey) setAttr(heads[i], "aria-sort", sortDesc ? "descending" : "ascending");
+        else if (c.sortable) setAttr(heads[i], "aria-sort", "none");
+        else dropAttribute(heads[i], "aria-sort");
+      }
+    }
+    function sortEntries() {
+      if (sortKey === null) { order = entries; return; }
+      var key = sortKey;
+      var desc = sortDesc;
+      var copy = [];
+      for (var i = 0; i < entries.length; i++) copy[i] = entries[i];
+      sortList(copy, function (x, y) {
+        var a = cellValue(x.row, key);
+        var b = cellValue(y.row, key);
+        var ma = isMissing(a);
+        var mb = isMissing(b);
+        if (ma || mb) return ma && mb ? x.index - y.index : ma ? 1 : -1;
+        var r = compareCells(a, b);
+        if (desc) r = -r;
+        return r !== 0 ? r : x.index - y.index;
+      });
+      order = copy;
+    }
+    function selectRow(entry) {
+      try { onRowSelect(entry.row, entry.index); } catch (err) { report(errorText(err)); }
+    }
+    function rowNode(entry) {
+      var tr = node("tr", onRowSelect ? "jb-table__row" : "");
+      for (var i = 0; i < columns.length; i++) {
+        var c = columns[i];
+        var td = node("td", c.end ? "jb-num" : "", cellText(cellValue(entry.row, c.key), c.format));
+        appendTo(tr, td);
+      }
+      if (onRowSelect) {
+        setAttr(tr, "tabindex", "0");
+        listen(tr, "click", function () { selectRow(entry); });
+        listen(tr, "keydown", function (e) {
+          if (keyName(e) !== "Enter") return;
+          cancelEvent(e);
+          selectRow(entry);
+        });
+      }
+      return tr;
+    }
+    function render() {
+      clearNode(tbody);
+      var limit = M.min(order.length, TABLE_ROWS_MAX);
+      var count = M.min(shown, limit);
+      for (var i = 0; i < count; i++) appendTo(tbody, rowNode(order[i]));
+      setAttr(more, "class", count < limit ? "jb-table__more" : "jb-table__more jb-hidden");
+    }
+    function sortBy(key, desc) {
+      if (columnIndex(key) < 0) return;
+      sortKey = key;
+      sortDesc = desc;
+      sortEntries();
+      markSort();
+      render();
+    }
+
+    for (var i = 0; i < columns.length; i++) {
+      (function (c) {
+        var th = node("th", c.end ? "jb-num" : "");
+        setAttr(th, "scope", "col");
+        if (c.sortable) {
+          var b = node("button", "jb-table__sort", c.label);
+          setAttr(b, "type", "button");
+          listen(b, "click", function () { sortBy(c.key, sortKey === c.key ? !sortDesc : false); });
+          appendTo(th, b);
+        } else setText(th, c.label);
+        heads[heads.length] = th;
+        appendTo(headRow, th);
+      })(columns[i]);
+    }
+    listen(more, "click", function () { shown += pageSize; render(); });
+
+    clearNode(el);
+    appendTo(el, wrap);
+    appendTo(el, more);
+    markSort();
+    render();
+
+    return freeze({
+      update: function (rows) {
+        entries = tableRows(rows);
+        shown = pageSize;
+        sortEntries();
+        render();
+      },
+      sort: function (key, dir) {
+        sortBy(String(key), dir === "desc" || dir === "descending");
+      }
+    });
+  }
+
   var host = {
     get data() { return state.data; },
     get theme() { return state.theme; },
@@ -1274,7 +1469,8 @@ export const KIT_JS: string = `(function () {
     chart: chart,
     el: buildEl,
     format: format,
-    job: jobOf
+    job: jobOf,
+    table: table
   };
   Object.defineProperty(window, "host", { value: Object.freeze(host), writable: false, configurable: false });
 

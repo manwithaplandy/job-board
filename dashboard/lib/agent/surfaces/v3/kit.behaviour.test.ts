@@ -23,6 +23,7 @@ interface KitHost {
     pay(review: unknown): string | null;
   };
   job(id: unknown): { job: unknown; review: unknown; shortlist: unknown; application: unknown } | null;
+  table(el: Element, spec: unknown): { update(rows: unknown[]): void; sort(key: string, dir?: string): void };
 }
 
 // The snapshot the first init carries (the shape of sandboxSnapshot, trimmed): host.job
@@ -955,7 +956,7 @@ describe("host.job", () => {
   test("host is still frozen and its helpers cannot be replaced", () => {
     const h = host();
     expect(Object.isFrozen(h)).toBe(true);
-    for (const name of ["el", "format", "job", "chart", "action", "onInit"]) {
+    for (const name of ["el", "format", "job", "table", "chart", "action", "onInit"]) {
       expect({ name, set: Reflect.set(h, name, () => "x") }).toEqual({ name, set: false });
     }
     expect(Reflect.set(h.format, "pay", () => "x")).toBe(false);
@@ -1130,5 +1131,116 @@ describe("host.chart: new kinds", () => {
     expect(el.childNodes).toHaveLength(0);
     handle.update({ viz: "bar", title: "After", points: STAGES });
     expect(el.childNodes).toHaveLength(0);
+  });
+});
+
+// PR 5 Task 5.6 (spec 08 S9.5): host.table.
+describe("host.table", () => {
+  const COLUMNS = [
+    { key: "company", label: "Company", sortable: true },
+    { key: "fit", label: "Fit", align: "end", format: "number", sortable: true },
+    { key: "seen", label: "First seen", format: "date" },
+  ];
+  const ROWS = [
+    { company: "Globex", fit: 64, seen: "2026-11-02" },
+    { company: "<i>Acme</i>", fit: 82, seen: "2026-10-30" },
+    { company: "Initech", fit: null, seen: "2026-11-20" },
+    { company: "Hooli", fit: 71 },
+  ];
+  function mount(spec: Record<string, unknown>) {
+    document.body.innerHTML = `<div id="t"></div>`;
+    const el = document.getElementById("t")!;
+    const api = host().table(el, spec);
+    return { el, api };
+  }
+  const column = (el: Element, i: number) => [...el.querySelectorAll("tbody tr")].map((tr) => tr.children[i].textContent);
+
+  test("a real table: caption, column headers, a jb-scroll-x wrapper, cells set as text and formatted", () => {
+    const { el, api } = mount({ caption: "Open roles", columns: COLUMNS, rows: ROWS });
+    expect(Object.isFrozen(api)).toBe(true);
+    const wrap = el.querySelector(".jb-scroll-x")!;
+    expect(wrap).not.toBeNull();
+    const table = wrap.querySelector("table")!;
+    expect(table.classList.contains("jb-table")).toBe(true);
+    expect(table.querySelector("caption")?.textContent).toBe("Open roles");
+    const heads = [...table.querySelectorAll("thead th")];
+    expect(heads.map((th) => th.getAttribute("scope"))).toEqual(["col", "col", "col"]);
+    expect(heads.map((th) => th.textContent)).toEqual(["Company", "Fit", "First seen"]);
+    expect(column(el, 0)).toEqual(["Globex", "<i>Acme</i>", "Initech", "Hooli"]);
+    expect(table.querySelector("tbody i")).toBeNull();
+    expect(column(el, 1)).toEqual(["64", "82", "", "71"]);
+    expect(column(el, 2)).toEqual(["Nov 2, 2026", "Oct 30, 2026", "Nov 20, 2026", ""]);
+    expect(table.querySelector("tbody td:nth-child(2)")!.classList.contains("jb-num")).toBe(true);
+    // Only sortable columns get a sort button.
+    expect(heads.map((th) => th.querySelector("button") !== null)).toEqual([true, true, false]);
+  });
+
+  test("a sortable column's button toggles aria-sort ascending and descending and reorders the rows", () => {
+    const { el } = mount({ caption: "Open roles", columns: COLUMNS, rows: ROWS });
+    const fitHead = el.querySelectorAll("thead th")[1];
+    const button = fitHead.querySelector("button")!;
+    expect(fitHead.getAttribute("aria-sort")).toBe("none");
+    button.click();
+    expect(fitHead.getAttribute("aria-sort")).toBe("ascending");
+    expect(column(el, 1)).toEqual(["64", "71", "82", ""]);
+    button.click();
+    expect(fitHead.getAttribute("aria-sort")).toBe("descending");
+    // A missing value stays last either way.
+    expect(column(el, 1)).toEqual(["82", "71", "64", ""]);
+    const companyHead = el.querySelectorAll("thead th")[0];
+    companyHead.querySelector("button")!.click();
+    expect(companyHead.getAttribute("aria-sort")).toBe("ascending");
+    expect(fitHead.getAttribute("aria-sort")).toBe("none");
+    expect(column(el, 0)).toEqual(["<i>Acme</i>", "Globex", "Hooli", "Initech"]);
+  });
+
+  test("pageSize defaults to 25 with a Show more button; 600 rows render at most 500", () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ company: `C${i}`, fit: i }));
+    const { el } = mount({ caption: "Many", columns: COLUMNS, rows: many });
+    expect(el.querySelectorAll("tbody tr")).toHaveLength(25);
+    const more = [...el.querySelectorAll("button")].find((b) => b.textContent === "Show more")!;
+    expect(more).toBeDefined();
+    more.click();
+    expect(el.querySelectorAll("tbody tr")).toHaveLength(30);
+    expect(more.classList.contains("jb-hidden")).toBe(true);
+
+    const huge = Array.from({ length: 600 }, (_, i) => ({ company: `C${i}`, fit: i }));
+    const big = mount({ caption: "Huge", columns: COLUMNS, rows: huge, pageSize: 1000 }).el;
+    expect(big.querySelectorAll("tbody tr")).toHaveLength(500);
+    const paged = mount({ caption: "Paged", columns: COLUMNS, rows: huge, pageSize: 200 }).el;
+    const next = [...paged.querySelectorAll("button")].find((b) => b.textContent === "Show more")!;
+    next.click();
+    next.click();
+    next.click();
+    expect(paged.querySelectorAll("tbody tr")).toHaveLength(500);
+    expect(next.classList.contains("jb-hidden")).toBe(true);
+  });
+
+  test("onRowSelect(row, index) fires on click and on Enter, with the row's own index", () => {
+    const picked: unknown[] = [];
+    const { el } = mount({ caption: "Pick", columns: COLUMNS, rows: ROWS, onRowSelect: (row: unknown, index: number) => picked.push([row, index]) });
+    el.querySelectorAll("thead th")[1].querySelector("button")!.click(); // sort by fit: 64, 71, 82, -
+    const rows = [...el.querySelectorAll("tbody tr")] as HTMLElement[];
+    expect(rows.every((r) => r.getAttribute("tabindex") === "0")).toBe(true);
+    rows[2].click();
+    press(rows[0], "Enter");
+    expect(picked).toEqual([[ROWS[1], 1], [ROWS[0], 0]]);
+  });
+
+  test("update(rows) replaces the rows, keeping the sort; sort(key, dir) sorts", () => {
+    const { el, api } = mount({ caption: "Open roles", columns: COLUMNS, rows: ROWS });
+    api.sort("fit", "desc");
+    expect(el.querySelectorAll("thead th")[1].getAttribute("aria-sort")).toBe("descending");
+    expect(column(el, 1)).toEqual(["82", "71", "64", ""]);
+    api.update([{ company: "Umbrella", fit: 50 }, { company: "Stark", fit: 90 }]);
+    expect(column(el, 0)).toEqual(["Stark", "Umbrella"]);
+    api.sort("company", "asc");
+    expect(column(el, 0)).toEqual(["Stark", "Umbrella"]);
+    api.sort("company", "desc");
+    expect(column(el, 0)).toEqual(["Umbrella", "Stark"]);
+    api.sort("nope", "asc");
+    expect(column(el, 0)).toEqual(["Umbrella", "Stark"]);
+    expect(cssFor(".jb-table__sort")).toMatch(/min-height: var\(--target-size\);/);
+    expect(cssFor(".jb-table__more")).toMatch(/min-height: var\(--target-size\);/);
   });
 });

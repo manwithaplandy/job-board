@@ -163,8 +163,11 @@ const CHART_CSS = `
 .jb-chart .jb-chart-ring { fill: none; stroke: var(--chart-muted); stroke-width: 28; opacity: 0.3; }
 .jb-chart .jb-chart-total { fill: var(--text-primary); font-size: var(--font-size-control); font-weight: 700; }
 .jb-chart .jb-chart-hit { fill: transparent; stroke: none; }
-.jb-chart [role="button"] { cursor: pointer; outline: none; }
-.jb-chart [role="button"]:focus-visible, .jb-chart [role="button"]:focus-visible .jb-chart-hit { stroke: var(--focus-ring); stroke-width: 2; }
+.jb-chart .jb-chart-target { cursor: pointer; }
+.jb-chart-picks { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-2) 0 0; }
+.jb-chart-pick { display: inline-flex; align-items: center; justify-content: center; min-height: var(--target-size); min-width: var(--target-size); padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); color: var(--text-primary); font: inherit; font-size: var(--font-size-caption); cursor: pointer; }
+.jb-chart-pick:hover { background: var(--bg-muted); }
+.jb-chart-pick:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .jb-chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-2) 0 0; padding: 0; list-style: none; font-size: var(--font-size-caption); color: var(--text-secondary); }
 .jb-chart-legend li { display: inline-flex; align-items: center; gap: var(--space-2); }
 .jb-chart-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--chart-stage); }
@@ -496,6 +499,9 @@ export const KIT_JS: string = `(function () {
   var numberText = uncurry((0).toLocaleString);
   var fixedText = uncurry((0).toFixed);
   var sortList = uncurry([].sort);
+  var sliceList = uncurry([].slice);
+  var joinList = uncurry([].join);
+  var textOf = String;
   var hasOwn = uncurry(Object.prototype.hasOwnProperty);
   var ownKeys = Object.keys;
   var freeze = Object.freeze;
@@ -504,7 +510,8 @@ export const KIT_JS: string = `(function () {
   var toNumber = Number;
   var M = { max: Math.max, min: Math.min, round: Math.round, floor: Math.floor, abs: Math.abs, sin: Math.sin, cos: Math.cos, PI: Math.PI };
   var ChangeEvent = CustomEvent;
-  var defer = typeof queueMicrotask === "function" ? queueMicrotask : function (f) { setTimeout(f, 0); };
+  var queueTask = setTimeout;
+  var defer = typeof queueMicrotask === "function" ? queueMicrotask : function (f) { queueTask(f, 0); };
   function isElement(node) {
     try { return nodeTypeOf(node) === 1; } catch (err) { return false; }
   }
@@ -591,8 +598,8 @@ export const KIT_JS: string = `(function () {
     try { portSend(port, msg); } catch (err) { /* an uncloneable value: nothing is sent */ }
   }
   function clip(value, max) {
-    var s = String(value == null ? "" : value);
-    return s.length > max ? s.slice(0, max) : s;
+    var s = textOf(value == null ? "" : value);
+    return s.length > max ? sliceText(s, 0, max) : s;
   }
   function report(message) {
     if (state.reported) return;
@@ -715,6 +722,8 @@ export const KIT_JS: string = `(function () {
     for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, String(attrs[k]));
     return el;
   }
+  /* PR 5: the namespace is read now, while the natives are still the browser's own. */
+  svgEl("g", {});
   /* bar, line and sparkline (and the bar drawing any other unknown viz name falls back to):
      the drawing as it was before PR 5, unchanged for the same input, so stored documents
      render as before (kit.behaviour.test.ts holds the snapshots). PR 5 adds, beside it, the
@@ -774,7 +783,6 @@ export const KIT_JS: string = `(function () {
         appendTo(svg, hit);
       }
     }
-    if (onSelect) setAttr(svg, "role", "group");
     return { svg: svg, legend: null, head: ["Label", "Value"], rows: rows };
   }
 
@@ -791,10 +799,9 @@ export const KIT_JS: string = `(function () {
   }
   function fx(n) { return fixedText(n, 1); }
   function svgNode(tag, attrs) {
-    if (svgNamespace === null) svgEl("g", {});
     var e = makeElNS(document, svgNamespace, tag);
     var keys = ownKeys(attrs);
-    for (var i = 0; i < keys.length; i++) setAttr(e, keys[i], String(attrs[keys[i]]));
+    for (var i = 0; i < keys.length; i++) setAttr(e, keys[i], textOf(attrs[keys[i]]));
     return e;
   }
   function svgText(x, y, text, anchor, cls) {
@@ -810,20 +817,28 @@ export const KIT_JS: string = `(function () {
   function describePoint(info, fmt) {
     return (info.series ? info.series + ", " : "") + info.label + ": " + fmt(info.value);
   }
-  /* With onSelect, a mark is a focusable button: click, Enter or Space calls onSelect with a
-     fresh { label, value, series, index }. */
+  /* With onSelect, each mark gets a native button in a row under the chart (S12: an SVG mark
+     scales with the frame, so it cannot promise 44px; the button can). The button answers
+     click, Enter and Space as any button does; the drawn mark still answers a pointer. Each
+     calls onSelect with a fresh { label, value, series, index }. */
+  var chartPicks = null;
   function selectable(mark, info, onSelect, fmt) {
-    setAttr(mark, "role", "button");
-    setAttr(mark, "tabindex", "0");
-    setAttr(mark, "aria-label", describePoint(info, fmt));
     function fire() { onSelect({ label: info.label, value: info.value, series: info.series, index: info.index }); }
+    setAttr(mark, "class", (getAttr(mark, "class") || "") + " jb-chart-target");
     listen(mark, "click", fire);
-    listen(mark, "keydown", function (e) {
-      var k = keyName(e);
-      if (k !== "Enter" && k !== " ") return;
-      cancelEvent(e);
-      fire();
-    });
+    if (chartPicks) chartPicks[chartPicks.length] = { text: describePoint(info, fmt), fire: fire };
+  }
+  function picksRow(title, picks) {
+    var row = node("div", "jb-chart-picks");
+    setAttr(row, "role", "group");
+    setAttr(row, "aria-label", "Select in " + title);
+    for (var i = 0; i < picks.length; i++) {
+      var b = node("button", "jb-chart-pick", picks[i].text);
+      setAttr(b, "type", "button");
+      listen(b, "click", picks[i].fire);
+      appendTo(row, b);
+    }
+    return row;
   }
   /* A point's target: a 44-unit transparent circle with a small visible dot. */
   function pointTarget(x, y, tone) {
@@ -906,11 +921,11 @@ export const KIT_JS: string = `(function () {
     for (var i = 0; i < labels.length; i += every) appendTo(svg, svgText(step * i + step / 2, y, labels[i], "middle"));
   }
   function chartSvg(w, h, title, onSelect) {
-    return svgNode("svg", { viewBox: "0 0 " + w + " " + h, role: onSelect ? "group" : "img", "class": "jb-chart", "aria-label": clip(title || "Chart", 80) });
+    return svgNode("svg", { viewBox: "0 0 " + w + " " + h, role: "img", "class": "jb-chart", "aria-label": clip(title || "Chart", 80) });
   }
 
   function drawHbar(spec, fmt, onSelect) {
-    var series = chartSeries(spec).slice(0, 1);
+    var series = sliceList(chartSeries(spec), 0, 1);
     var pts = series[0].points;
     var W = 320, LABEL_W = 112, VALUE_W = 52, BAR_H = 16;
     var rowH = onSelect ? 48 : 28;
@@ -936,7 +951,7 @@ export const KIT_JS: string = `(function () {
         appendTo(svg, hit);
       }
     }
-    var table = seriesTable(series, null, fmt);
+    var table = seriesTable(series, chartCategories(series), fmt);
     return { svg: svg, legend: null, head: table.head, rows: table.rows };
   }
 
@@ -996,10 +1011,10 @@ export const KIT_JS: string = `(function () {
       for (var j = 0; j < pts.length; j++) coords[j] = fx(step * j + step / 2) + "," + fx(BASE - (M.max(pts[j].value, 0) / max) * PLOT);
       var first = fx(step / 2) + "," + BASE;
       var last = fx(step * (pts.length - 1) + step / 2) + "," + BASE;
-      var area = svgNode("polygon", { points: first + " " + coords.join(" ") + " " + last, "class": "jb-chart-area jb-chart-mark jb-tone-" + series[t].tone });
+      var area = svgNode("polygon", { points: first + " " + joinList(coords, " ") + " " + last, "class": "jb-chart-area jb-chart-mark jb-tone-" + series[t].tone });
       tip(area, series[t].name === null ? clip(spec.title || "Chart", 80) : series[t].name);
       appendTo(svg, area);
-      appendTo(svg, svgNode("polyline", { points: coords.join(" "), "class": "jb-chart-line jb-tone-" + series[t].tone }));
+      appendTo(svg, svgNode("polyline", { points: joinList(coords, " "), "class": "jb-chart-line jb-tone-" + series[t].tone }));
       if (!onSelect) continue;
       for (var q = 0; q < pts.length; q++) {
         var mark = pointTarget(step * q + step / 2, BASE - (M.max(pts[q].value, 0) / max) * PLOT, series[t].tone);
@@ -1075,7 +1090,7 @@ export const KIT_JS: string = `(function () {
       " L " + at(r, a1) + " A " + r + " " + r + " 0 " + large + " 0 " + at(r, a0) + " Z";
   }
   function drawDonut(spec, fmt, onSelect) {
-    var series = chartSeries(spec).slice(0, 1);
+    var series = sliceList(chartSeries(spec), 0, 1);
     var pts = series[0].points;
     var W = 320, H = 160, CX = 80, CY = 80, R = 72, RI = 44;
     var svg = chartSvg(W, H, spec.title, onSelect);
@@ -1103,7 +1118,7 @@ export const KIT_JS: string = `(function () {
     }
     if (total <= 0) appendTo(svg, svgNode("circle", { cx: CX, cy: CY, r: (R + RI) / 2, "class": "jb-chart-ring" }));
     appendTo(svg, svgText(CX, CY + 5, fmt(total), "middle", "jb-chart-total"));
-    var table = seriesTable(series, null, fmt);
+    var table = seriesTable(series, chartCategories(series), fmt);
     return { svg: svg, legend: null, head: table.head, rows: table.rows };
   }
 
@@ -1153,16 +1168,29 @@ export const KIT_JS: string = `(function () {
     var fmt = formatterOf(spec.format);
     var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
     var out;
+    var picks = [];
+    chartPicks = picks;
+    try {
+      out = drawOne(spec, fmt, onSelect);
+    } finally {
+      chartPicks = null;
+    }
+    var title = clip(spec.title || "Chart", 80);
+    clearNode(el);
+    appendTo(el, out.svg);
+    if (out.legend) appendTo(el, chartLegend(out.legend));
+    if (picks.length > 0) appendTo(el, picksRow(title, picks));
+    appendTo(el, chartTable(title, out.head, out.rows));
+  }
+  function drawOne(spec, fmt, onSelect) {
+    var out;
     if (spec.viz === "hbar") out = drawHbar(spec, fmt, onSelect);
     else if (spec.viz === "stacked") out = drawStacked(spec, fmt, onSelect);
     else if (spec.viz === "area") out = drawArea(spec, fmt, onSelect);
     else if (spec.viz === "scatter") out = drawScatter(spec, fmt, onSelect);
     else if (spec.viz === "donut") out = drawDonut(spec, fmt, onSelect);
     else out = legacyChart(spec, fmt);
-    clearNode(el);
-    appendTo(el, out.svg);
-    if (out.legend) appendTo(el, chartLegend(out.legend));
-    appendTo(el, chartTable(clip(spec.title || "Chart", 80), out.head, out.rows));
+    return out;
   }
   /* host.chart(el, spec) -> { update(spec), destroy() }: update redraws into the same
      element; destroy empties it, and nothing draws there afterwards. */
@@ -1184,23 +1212,23 @@ export const KIT_JS: string = `(function () {
   var EL_ATTRS = { role: 1, title: 1, colspan: 1, rowspan: 1 };
   var EL_ATTR_RE = /^(?:aria|data)-[A-Za-z0-9_.:-]+$/;
   function buildEl(tag, attrs, children) {
-    var e = makeEl(document, String(tag));
+    var e = makeEl(document, textOf(tag));
     if (attrs && typeof attrs === "object") {
       var keys = ownKeys(attrs);
       for (var i = 0; i < keys.length; i++) {
         var k = keys[i];
         var v = attrs[k];
         if (v === undefined || v === null) continue;
-        if (k === "class") setAttr(e, "class", String(v));
-        else if (k === "text") setText(e, String(v));
+        if (k === "class") setAttr(e, "class", textOf(v));
+        else if (k === "text") setText(e, textOf(v));
         else if (k === "hidden") { if (v) setAttr(e, "hidden", ""); }
-        else if (hasOwn(EL_ATTRS, k) || testRe(EL_ATTR_RE, k)) setAttr(e, k, String(v));
+        else if (hasOwn(EL_ATTRS, k) || testRe(EL_ATTR_RE, k)) setAttr(e, k, textOf(v));
       }
     }
     if (isList(children)) {
       for (var j = 0; j < children.length; j++) {
         var c = children[j];
-        if (typeof c === "string" || typeof c === "number") appendTo(e, makeText(document, String(c)));
+        if (typeof c === "string" || typeof c === "number") appendTo(e, makeText(document, textOf(c)));
         else if (isElement(c)) appendTo(e, c);
       }
     }
@@ -1301,7 +1329,7 @@ export const KIT_JS: string = `(function () {
   function compareCells(a, b) {
     if (typeof a === "number" && typeof b === "number") return a < b ? -1 : a > b ? 1 : 0;
     var r;
-    try { r = compareText(String(a), String(b), "en", { numeric: true, sensitivity: "base" }); } catch (err) { r = 0; }
+    try { r = compareText(textOf(a), textOf(b), "en", { numeric: true, sensitivity: "base" }); } catch (err) { r = 0; }
     return r < 0 ? -1 : r > 0 ? 1 : 0;
   }
   function tableColumns(list) {
@@ -1413,7 +1441,8 @@ export const KIT_JS: string = `(function () {
       setAttr(more, "class", count < limit ? "jb-table__more" : "jb-table__more jb-hidden");
     }
     function sortBy(key, desc) {
-      if (columnIndex(key) < 0) return;
+      var at = columnIndex(key);
+      if (at < 0 || !columns[at].sortable) return;
       sortKey = key;
       sortDesc = desc;
       sortEntries();
@@ -1435,7 +1464,17 @@ export const KIT_JS: string = `(function () {
         appendTo(headRow, th);
       })(columns[i]);
     }
-    listen(more, "click", function () { shown += pageSize; render(); });
+    /* The button hides itself after the last page, so focus moves to the first new row. */
+    listen(more, "click", function () {
+      var before = collectionLength(childrenOf(tbody));
+      shown += pageSize;
+      render();
+      var rows = childrenOf(tbody);
+      if (before >= collectionLength(rows)) return;
+      var first = rows[before];
+      if (!hasAttr(first, "tabindex")) setAttr(first, "tabindex", "-1");
+      focusOn(first);
+    });
 
     clearNode(el);
     appendTo(el, wrap);
@@ -1451,7 +1490,7 @@ export const KIT_JS: string = `(function () {
         render();
       },
       sort: function (key, dir) {
-        sortBy(String(key), dir === "desc" || dir === "descending");
+        sortBy(textOf(key), dir === "desc" || dir === "descending");
       }
     });
   }
@@ -1540,7 +1579,7 @@ export const KIT_JS: string = `(function () {
   function node(tag, cls, text) {
     var e = makeEl(document, tag);
     if (cls) setAttr(e, "class", cls);
-    if (text !== undefined && text !== null) setText(e, String(text));
+    if (text !== undefined && text !== null) setText(e, textOf(text));
     return e;
   }
   function nameOf(el) { var n = getAttr(el, "name"); return n === null ? "" : n; }
@@ -1727,7 +1766,7 @@ export const KIT_JS: string = `(function () {
     }
     set value(v) {
       var st = this.jbSelect;
-      v = String(v);
+      v = textOf(v);
       if (st && st.built) {
         var i = indexOfValue(st.options, v);
         if (i >= 0 && st.show) st.show(i);
@@ -1765,7 +1804,7 @@ export const KIT_JS: string = `(function () {
   }
   function decimalsOf(text) {
     if (text === null) return 0;
-    var s = trimText(String(text));
+    var s = trimText(textOf(text));
     var dot = -1;
     for (var i = 0; i < s.length; i++) if (s[i] === ".") dot = i;
     return dot < 0 ? 0 : M.min(s.length - dot - 1, 10);
@@ -1793,9 +1832,9 @@ export const KIT_JS: string = `(function () {
     var input = node("input", "jb-slider__input");
     setAttr(input, "type", "range");
     setAttr(input, "id", inputId);
-    setAttr(input, "min", String(min));
-    setAttr(input, "max", String(max));
-    setAttr(input, "step", String(step));
+    setAttr(input, "min", textOf(min));
+    setAttr(input, "max", textOf(max));
+    setAttr(input, "step", textOf(step));
     var out = node("span", "jb-slider__value");
     setAttr(out, "aria-hidden", "true");
     appendTo(row, input);
@@ -1811,7 +1850,7 @@ export const KIT_JS: string = `(function () {
     }
     function set(v) {
       st.value = snap(v);
-      setInputValue(input, String(st.value));
+      setInputValue(input, textOf(st.value));
       var text = format(st.value);
       setText(out, text);
       setAttr(input, "aria-valuetext", text);
@@ -1853,7 +1892,7 @@ export const KIT_JS: string = `(function () {
     }
     set value(v) {
       var st = this.jbSlider;
-      if (st && st.built && st.set) st.set(toNumber(v)); else setAttr(this, "value", String(v));
+      if (st && st.built && st.set) st.set(toNumber(v)); else setAttr(this, "value", textOf(v));
     }
   });
 
@@ -1988,7 +2027,7 @@ export const KIT_JS: string = `(function () {
     }
     set value(v) {
       var st = this.jbSegmented;
-      v = String(v);
+      v = textOf(v);
       if (st && st.built) {
         var i = indexOfValue(st.options, v);
         if (i >= 0 && st.show) st.show(i);
@@ -2074,7 +2113,7 @@ export const KIT_JS: string = `(function () {
       var i = M.floor(toNumber(v));
       if (st && st.built) {
         if (i >= 0 && i < st.count && st.show) st.show(i);
-      } else if (finite(i)) setAttr(this, "value", String(i));
+      } else if (finite(i)) setAttr(this, "value", textOf(i));
     }
   });
 

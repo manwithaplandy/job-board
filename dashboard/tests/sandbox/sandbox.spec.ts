@@ -1281,7 +1281,7 @@ test.describe("expanded view (PR 3)", () => {
 
 test.describe("kit controls (PR 5)", () => {
   for (const lane of Object.keys(SANDBOX_LANES) as SandboxLane[]) {
-    test(`[${lane}] kit-controls: handshake, a slider key and a tab arrow key change what is shown, a chart mark and a table row answer Enter, nothing leaves`, async ({
+    test(`[${lane}] kit-controls: handshake, a slider key and a tab arrow key change what is shown, a chart pick and a table row answer Enter, nothing leaves`, async ({
       page,
       request,
       browserName,
@@ -1310,8 +1310,8 @@ test.describe("kit controls (PR 5)", () => {
       expect(await waitForProbe(run, "kit-controls", "tab", 2_000), `${run.at}: the tabs sent a change`).toBe(true);
       expect(probeValue(run.probes, "kit-controls", "tab"), `${run.at}: the tabs' change detail`).toBe(1);
 
-      // host.chart's onSelect and host.table's onRowSelect answer the keyboard.
-      await frame.locator('#chart [role="button"]').first().press("Enter");
+      // host.chart's onSelect (its row of native buttons) and host.table's onRowSelect answer the keyboard.
+      await frame.locator("#chart .jb-chart-picks button").first().press("Enter");
       await expect(frame.locator("#picked"), `${run.at}: the chart mark's onSelect`).toHaveText("Ready 4");
       await frame.locator("#table tbody tr").nth(1).press("Enter");
       await expect(frame.locator("#picked"), `${run.at}: the table row's onRowSelect`).toHaveText("Applied row 1");

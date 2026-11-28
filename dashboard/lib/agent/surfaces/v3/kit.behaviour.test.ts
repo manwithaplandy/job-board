@@ -1039,6 +1039,9 @@ describe("host.chart: new kinds", () => {
     ["area", { points: STAGES }, [["Label", "Value"], ["Ready", "4"], ["Applied", "6"], ["Interviewing", "2"]]],
     ["scatter", { xy: [{ x: 1, y: 82, label: "Acme" }, { x: 9, y: 64 }], xLabel: "Days open", yLabel: "Fit" }, [["Label", "Days open", "Fit"], ["Acme", "1", "82"], ["", "9", "64"]]],
     ["donut", { points: STAGES }, [["Label", "Value"], ["Ready", "4"], ["Applied", "6"], ["Interviewing", "2"]]],
+    // Fix round 1: hbar and donut draw the first of several series, named in the table's head.
+    ["hbar", { series: SERIES }, [["Label", "Remote"], ["Oct", "3"], ["Nov", "5"]]],
+    ["donut", { series: SERIES }, [["Label", "Remote"], ["Oct", "3"], ["Nov", "5"]]],
   ])("%s renders inline SVG named by its title, with a visually hidden data table", (viz, rest, rows) => {
     const { el } = drawChart({ viz, title: `A ${viz} chart`, ...rest });
     const svg = el.querySelector("svg")!;
@@ -1085,19 +1088,25 @@ describe("host.chart: new kinds", () => {
     expect(tableRows(drawChart({ viz: "stacked", title: "Wide", series: wide }).el).slice(1).flatMap((r) => r.slice(1)).filter((c) => c !== "")).toHaveLength(200);
   });
 
-  test("onSelect makes the marks focusable buttons, called with { label, value, series, index } on click and on Enter", () => {
+  test("onSelect adds a row of native buttons, one per mark, called with { label, value, series, index }; a mark still answers a click", () => {
     const picked: unknown[] = [];
     const onSelect = (p: unknown) => picked.push(p);
     const { el } = drawChart({ viz: "hbar", title: "Stages", points: STAGES, onSelect });
     const svg = el.querySelector("svg")!;
-    expect(svg.getAttribute("role")).toBe("group");
+    expect(svg.getAttribute("role")).toBe("img");
     expect(svg.getAttribute("aria-label")).toBe("Stages");
-    const marks = [...svg.querySelectorAll('[role="button"]')];
-    expect(marks).toHaveLength(3);
-    expect(marks.every((m) => m.getAttribute("tabindex") === "0")).toBe(true);
-    expect(marks[1].getAttribute("aria-label")).toBe("Applied: 6");
-    marks[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    press(marks[2], "Enter");
+    const row = el.querySelector(".jb-chart-picks")!;
+    expect(row.getAttribute("role")).toBe("group");
+    expect(row.getAttribute("aria-label")).toBe("Select in Stages");
+    const picks = [...row.querySelectorAll("button")];
+    expect(picks.map((b) => [b.getAttribute("type"), b.textContent])).toEqual([
+      ["button", "Ready: 4"],
+      ["button", "Applied: 6"],
+      ["button", "Interviewing: 2"],
+    ]);
+    picks[1].click();
+    // A pointer on the drawn mark selects it too.
+    svg.querySelectorAll(".jb-chart-target")[2].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(picked).toEqual([
       { label: "Applied", value: 6, series: null, index: 1 },
       { label: "Interviewing", value: 2, series: null, index: 2 },
@@ -1105,18 +1114,96 @@ describe("host.chart: new kinds", () => {
 
     const fromSeries: unknown[] = [];
     const stacked = drawChart({ viz: "stacked", title: "S", series: SERIES, onSelect: (p: unknown) => fromSeries.push(p) }).el;
-    const segs = [...stacked.querySelectorAll('svg [role="button"]')];
-    expect(segs).toHaveLength(4);
-    for (const s of segs) s.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const segs = [...stacked.querySelectorAll<HTMLButtonElement>(".jb-chart-picks button")];
+    expect(segs.map((b) => b.textContent)).toEqual(["Remote, Oct: 3", "On site, Oct: 1", "Remote, Nov: 5", "On site, Nov: 2"]);
+    for (const b of segs) b.click();
     expect(fromSeries).toContainEqual({ label: "Nov", value: 2, series: "On site", index: 1 });
 
-    // bar keeps its drawing and gains a target per bar.
+    // bar keeps its drawing and gains a button per bar.
     const barPicks: unknown[] = [];
     const bar = drawChart({ viz: "bar", title: "B", points: STAGES, onSelect: (p: unknown) => barPicks.push(p) }).el;
-    const barMarks = [...bar.querySelectorAll('svg [role="button"]')];
-    expect(barMarks).toHaveLength(3);
-    press(barMarks[0], "Enter");
+    const barButtons = [...bar.querySelectorAll<HTMLButtonElement>(".jb-chart-picks button")];
+    expect(barButtons).toHaveLength(3);
+    barButtons[0].click();
     expect(barPicks).toEqual([{ label: "Ready", value: 4, series: null, index: 0 }]);
+  });
+
+  test("with onSelect every focusable target is a native button of at least 44 CSS px, never a scaled SVG mark", () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({ label: `p${i}`, value: i + 1 }));
+    const specs: Array<[string, Record<string, unknown>, number]> = [
+      ["bar", { points: many }, 50],
+      ["line", { points: many }, 50],
+      ["sparkline", { points: many }, 50],
+      ["hbar", { points: STAGES }, 3],
+      ["stacked", { series: SERIES }, 4],
+      ["area", { series: SERIES }, 4],
+      ["scatter", { xy: [{ x: 1, y: 2 }, { x: 3, y: 4 }] }, 2],
+      ["donut", { points: [{ label: "big", value: 999 }, { label: "tiny", value: 1 }] }, 2],
+    ];
+    for (const [viz, rest, count] of specs) {
+      const { el } = drawChart({ viz, title: viz, onSelect: () => {}, ...rest });
+      expect(el.querySelectorAll('svg [role="button"], svg [tabindex]'), viz).toHaveLength(0);
+      expect(el.querySelectorAll(".jb-chart-picks button.jb-chart-pick"), viz).toHaveLength(count);
+    }
+    expect(cssFor(".jb-chart-pick")).toMatch(/min-height: var\(--target-size\);/);
+    expect(cssFor(".jb-chart-pick")).toMatch(/min-width: var\(--target-size\);/);
+    // No onSelect, no buttons.
+    expect(drawChart({ viz: "donut", title: "d", points: STAGES }).el.querySelector(".jb-chart-picks")).toBeNull();
+  });
+
+  // Fix round 1 (spec 08 S9): what the kit draws with was captured before model code ran.
+  test("a chart and a table still draw after model code replaces Array.prototype.join and slice and String", () => {
+    const realJoin = Array.prototype.join;
+    const realSlice = Array.prototype.slice;
+    const RealString = String;
+    const coord = /^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/;
+    const fakeString = Object.assign(
+      function (v?: unknown) {
+        // Only the kit compares booleans as text; everything else gets the real answer.
+        if (typeof v === "boolean") return v ? "a" : "b";
+        return arguments.length === 0 ? "" : RealString(v);
+      },
+      { fromCharCode: RealString.fromCharCode, fromCodePoint: RealString.fromCodePoint, raw: RealString.raw },
+    );
+    Object.defineProperty(fakeString, "prototype", { value: RealString.prototype });
+    document.body.innerHTML = `<div id="a"></div><div id="h"></div><div id="t"></div>`;
+    let error: unknown = null;
+    let line = "";
+    let hbarRows = 0;
+    let order: Array<string | null> = [];
+    Array.prototype.join = function (this: unknown[], sep?: string) {
+      if (this.length > 0 && typeof this[0] === "string" && coord.test(this[0])) return "0,0";
+      return realJoin.call(this, sep);
+    };
+    Array.prototype.slice = function (this: unknown[], ...args: [number?, number?]) {
+      if (this.length > 0 && this[0] !== null && typeof this[0] === "object" && "points" in (this[0] as object)) return [];
+      return realSlice.apply(this, args);
+    } as typeof Array.prototype.slice;
+    Reflect.set(globalThis, "String", fakeString);
+    try {
+      host().chart(document.getElementById("a")!, { viz: "area", title: "A", points: STAGES });
+      host().chart(document.getElementById("h")!, { viz: "hbar", title: "H", series: SERIES });
+      const t = host().table(document.getElementById("t")!, {
+        caption: "Open",
+        columns: [{ key: "name", label: "Name" }, { key: "open", label: "Open", sortable: true }],
+        rows: [{ name: "A", open: true }, { name: "B", open: false }, { name: "C", open: true }],
+      });
+      t.sort("open", "asc");
+      line = document.querySelector("#a polyline")?.getAttribute("points") ?? "";
+      hbarRows = document.querySelectorAll("#h svg .jb-chart-mark").length;
+      order = [...document.querySelectorAll("#t tbody tr")].map((tr) => tr.firstElementChild!.textContent);
+    } catch (err) {
+      error = err;
+    } finally {
+      Array.prototype.join = realJoin;
+      Array.prototype.slice = realSlice;
+      Reflect.set(globalThis, "String", RealString);
+    }
+    expect(error).toBeNull();
+    expect(line.split(" ")).toHaveLength(3);
+    expect(hbarRows).toBe(2);
+    // "false" sorts before "true": B, then A and C in their own order.
+    expect(order).toEqual(["B", "A", "C"]);
   });
 
   test("update(spec) replaces the drawing; destroy() empties the element", () => {
@@ -1216,6 +1303,24 @@ describe("host.table", () => {
     expect(next.classList.contains("jb-hidden")).toBe(true);
   });
 
+  test("Show more moves focus to the first newly shown row, so focus is not lost when the button hides", () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ company: `C${i}`, fit: i }));
+    const { el } = mount({ caption: "Many", columns: COLUMNS, rows: many });
+    const more = [...el.querySelectorAll("button")].find((b) => b.textContent === "Show more")!;
+    more.focus();
+    more.click();
+    const rows = el.querySelectorAll("tbody tr");
+    expect(document.activeElement).toBe(rows[25]);
+    expect(rows[25].getAttribute("tabindex")).toBe("-1");
+    expect(rows[25].textContent).toContain("C25");
+
+    const pickable = mount({ caption: "Pick", columns: COLUMNS, rows: many, onRowSelect: () => {} }).el;
+    const next = [...pickable.querySelectorAll("button")].find((b) => b.textContent === "Show more")!;
+    next.click();
+    expect(document.activeElement).toBe(pickable.querySelectorAll("tbody tr")[25]);
+    expect(pickable.querySelectorAll("tbody tr")[25].getAttribute("tabindex")).toBe("0");
+  });
+
   test("onRowSelect(row, index) fires on click and on Enter, with the row's own index", () => {
     const picked: unknown[] = [];
     const { el } = mount({ caption: "Pick", columns: COLUMNS, rows: ROWS, onRowSelect: (row: unknown, index: number) => picked.push([row, index]) });
@@ -1240,6 +1345,11 @@ describe("host.table", () => {
     expect(column(el, 0)).toEqual(["Umbrella", "Stark"]);
     api.sort("nope", "asc");
     expect(column(el, 0)).toEqual(["Umbrella", "Stark"]);
+    // A column that is not sortable is ignored, and its header gets no aria-sort.
+    api.sort("seen", "asc");
+    expect(column(el, 0)).toEqual(["Umbrella", "Stark"]);
+    expect(el.querySelectorAll("thead th")[2].hasAttribute("aria-sort")).toBe(false);
+    expect(el.querySelectorAll("thead th")[0].getAttribute("aria-sort")).toBe("descending");
     expect(cssFor(".jb-table__sort")).toMatch(/min-height: var\(--target-size\);/);
     expect(cssFor(".jb-table__more")).toMatch(/min-height: var\(--target-size\);/);
   });

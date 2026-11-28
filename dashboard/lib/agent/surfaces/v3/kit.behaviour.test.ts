@@ -795,3 +795,24 @@ describe("jb-tabs and jb-tab", () => {
     expect(cssFor(".jb-tabs__tab")).toMatch(/min-height: var\(--target-size\);/);
   });
 });
+
+describe('jb-button variant="secondary"', () => {
+  test("a quieter button with the same 44px target and the same press: it posts its action on click and keys", async () => {
+    document.body.innerHTML = `<jb-button action='{"name":"open","target":"applications"}'>Primary</jb-button><jb-button variant="secondary" action='{"name":"open","target":"tracker"}'>Open the tracker</jb-button>`;
+    const secondary = document.querySelectorAll("jb-button")[1] as HTMLElement;
+    expect(secondary.textContent).toBe("Open the tracker");
+    expect(secondary.getAttribute("role")).toBe("button");
+    expect(secondary.getAttribute("tabindex")).toBe("0");
+    // jsdom does not resolve var(), so the rule itself is read: a surface fill, not the accent.
+    expect(cssFor('jb-button[variant="secondary"]')).toMatch(/background: var\(--bg-surface\);/);
+    expect(cssFor('jb-button[variant="secondary"]')).toMatch(/color: var\(--text-primary\);/);
+    expect(cssFor('jb-button[variant="secondary"]')).toMatch(/border-color: var\(--border-strong\);/);
+    expect(cssFor("jb-button")).toMatch(/min-height: var\(--target-size\);[^}]*min-width: var\(--target-size\);/);
+    const before = ofType("action").length;
+    secondary.click();
+    press(secondary, "Enter");
+    press(secondary, " ");
+    await vi.waitFor(() => expect(ofType("action")).toHaveLength(before + 3));
+    expect(ofType("action").at(-1)).toEqual({ type: "action", name: "open", args: { target: "tracker" } });
+  });
+});

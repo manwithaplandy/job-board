@@ -71,6 +71,8 @@ export const JUDGE_RECORDING_CHARS = 12_000;
 export const JUDGE_SYSTEM = [
   "You compare two responses an assistant gave a job seeker for the same requests, built from the same data.",
   "Decide which response serves the user better: it answers what was asked; every job, score and pay figure it states is consistent across what it shows; it is easy to scan; the next step is clear and the controls say what they do.",
+  // PR 7 (inline-UI spec S15.2): a criterion, not a field; the reply format below is unchanged.
+  "Does the view let the person work with the data, or only read it?",
   "Length is not a merit. Do not prefer a response for being first or second.",
   'Reply with JSON only, no other text: {"winner": "first" | "second" | "tie", "reason": "one or two sentences"}.',
 ].join(" ");

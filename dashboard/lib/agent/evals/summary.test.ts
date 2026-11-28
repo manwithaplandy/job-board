@@ -33,6 +33,9 @@ function measures(model: string, variant: 1 | 2 | 3, over: Partial<VariantMeasur
     costMicros: 12_340_000,
     inputTokens: 1_000_000,
     outputTokens: 50_000,
+    viewsPerTurn: 1.75,
+    interactiveRate: variant === 3 ? 0.5 : null,
+    rowListRate: variant === 3 ? 0.1 : null,
     ...over,
   };
 }
@@ -117,6 +120,22 @@ describe("variantSummary", () => {
     expect(section(2)).toContain("| Timings, tokens and cost cover | re-render only | re-render only |");
     expect(section(3)).toContain("| Timings, tokens and cost cover | re-render only | re-render only |");
     expect(md).toContain("| Misstatements | not run yet (test:render-smoke) | not run yet (test:render-smoke) |");
+  });
+
+  test("PR 7: views per turn in every variant's section; interactive and row-list rates in variant 3's only", () => {
+    const md = variantSummary(
+      empty({
+        measures: [1, 2, 3].flatMap((v) => [
+          measures(SONNET, v as 1 | 2 | 3, { viewsPerTurn: 1.75, interactiveRate: v === 3 ? 0.4 : null, rowListRate: v === 3 ? 0.25 : null }),
+          measures(HAIKU, v as 1 | 2 | 3, { viewsPerTurn: 2, interactiveRate: null, rowListRate: null }),
+        ]),
+      }),
+    );
+    const section = (v: number) => md.split(/^## /m).find((x) => x.startsWith(`Variant ${v}`))!;
+    for (const v of [1, 2, 3]) expect(section(v)).toContain("| Views per turn (mean surfaces per run) | 1.75 | 2.00 |");
+    expect(section(3)).toContain("| Interactive views (variant 3 documents) | 40.0% | n/a |");
+    expect(section(3)).toContain("| Row-list views (variant 3 documents) | 25.0% | n/a |");
+    for (const v of [1, 2]) expect(section(v)).not.toMatch(/Interactive views|Row-list views/);
   });
 
   test("with nothing run, both default models still show, every input reads not run yet, and the checklist is there", () => {

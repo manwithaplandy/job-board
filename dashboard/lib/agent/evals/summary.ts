@@ -138,6 +138,13 @@ function measureRows(m: VariantMeasures | undefined): Array<[string, string]> {
     ["Assert failures (runs with any; re-renders: surface checks only)", `${m.assertFailures} (${m.runsFailingAsserts})`],
     ["Misstatements", m.misstatements === null ? `${NOT_RUN} (test:render-smoke)` : String(m.misstatements)],
     ["Structural variance (0 same, 1 all different)", num(m.structuralVariance, 2)],
+    ["Views per turn (mean surfaces per run)", num(m.viewsPerTurn, 2)],
+    ...(m.variant === 3
+      ? ([
+          ["Interactive views (variant 3 documents)", pct(m.interactiveRate)],
+          ["Row-list views (variant 3 documents)", pct(m.rowListRate)],
+        ] as Array<[string, string]>)
+      : []),
     ["Cost at reported prices", usd(m.costMicros)],
     ["Tokens in / out", `${m.inputTokens.toLocaleString("en-US")} / ${m.outputTokens.toLocaleString("en-US")}`],
   ];

@@ -70,6 +70,12 @@ export interface VariantMeasures {
   costMicros: number;
   inputTokens: number;
   outputTokens: number;
+  /** PR 7: mean surfaces per run (viewsPerTurn); null with no runs. */
+  viewsPerTurn: number | null;
+  /** PR 7, variant 3 only: the share of its documents that are interactive (isInteractiveDocument); null otherwise or with none. */
+  interactiveRate: number | null;
+  /** PR 7, variant 3 only: the share of its documents that only list rows (isRowListDocument); null otherwise or with none. */
+  rowListRate: number | null;
 }
 
 /** Signature tokens are joined by spaces; surfaces in one run are separated by this token. */
@@ -160,6 +166,76 @@ export function isSurfaceFailure(f: { path?: string }): boolean {
   return p === "surfaces" || p.startsWith("surfaces[") || p.startsWith("surfaces.");
 }
 
+// ---------------------------------------------------------------------------
+// PR 7 (inline-UI spec S15.2): views per turn, interactive and row-list documents. They
+// feed the summary only; no gate reads them.
+// ---------------------------------------------------------------------------
+
+/** What makes a variant 3 document interactive: a kit control, a kit table, a chart's onSelect, or a listener of its own. */
+const INTERACTIVE_TAGS = ["<jb-select", "<jb-slider", "<jb-toggle", "<jb-segmented", "<jb-tabs", "<jb-field"] as const;
+const INTERACTIVE_SCRIPT = ["host.table(", "onSelect", "addEventListener("] as const;
+
+/** A row list repeats one class value on this many elements or more. */
+const ROW_LIST_MIN_ROWS = 4;
+
+/** True when the document lets the person work with the data: any of INTERACTIVE_TAGS or INTERACTIVE_SCRIPT in it. */
+export function isInteractiveDocument(html: string): boolean {
+  const lower = html.toLowerCase();
+  return INTERACTIVE_TAGS.some((t) => lower.includes(t)) || INTERACTIVE_SCRIPT.some((s) => html.includes(s));
+}
+
+/**
+ * True when the document only lists rows: it is not interactive, and one class attribute
+ * value (trimmed, whitespace collapsed) is on ROW_LIST_MIN_ROWS elements or more of its
+ * markup. Rows a script builds (host.el in a loop) are not markup and are not counted.
+ */
+export function isRowListDocument(html: string): boolean {
+  if (isInteractiveDocument(html)) return false;
+  const counts = new Map<string, number>();
+  for (const tag of scanStartTags(html)) {
+    const cls = tag.attrs.find((a) => a.name.toLowerCase() === "class")?.value?.trim().split(/\s+/).join(" ");
+    if (!cls) continue;
+    const n = (counts.get(cls) ?? 0) + 1;
+    if (n >= ROW_LIST_MIN_ROWS) return true;
+    counts.set(cls, n);
+  }
+  return false;
+}
+
+/** The HTML of every variant 3 document in `recordings`' variant 3 runs (a surface stored as its fallback is not one). */
+function variant3Documents(recordings: readonly Recording[]): string[] {
+  const out: string[] = [];
+  for (const r of recordings) {
+    if (r.variant !== 3) continue;
+    for (const s of r.surfaces) {
+      const p = s.payload as Record<string, unknown>;
+      if (p.variant === 3 && typeof p.html === "string") out.push(p.html);
+    }
+  }
+  return out;
+}
+
+/** The share of `recordings`' variant 3 documents that are interactive; null with none. */
+export function interactiveRate(recordings: readonly Recording[]): number | null {
+  const docs = variant3Documents(recordings);
+  return rate(docs.filter(isInteractiveDocument).length, docs.length);
+}
+
+/** The share of `recordings`' variant 3 documents that only list rows; null with none. */
+export function rowListRate(recordings: readonly Recording[]): number | null {
+  const docs = variant3Documents(recordings);
+  return rate(docs.filter(isRowListDocument).length, docs.length);
+}
+
+/** Mean surfaces per run, per variant; 0 for a variant with no runs in `recordings`. */
+export function viewsPerTurn(recordings: readonly Recording[]): Record<Variant, number> {
+  const mean = (v: Variant) => {
+    const rs = recordings.filter((r) => r.variant === v);
+    return rs.length === 0 ? 0 : rs.reduce((n, r) => n + r.surfaces.length, 0) / rs.length;
+  };
+  return { 1: mean(1), 2: mean(2), 3: mean(3) };
+}
+
 function scopeOf(rs: readonly Recording[]): MeasureScope {
   const rerenders = rs.filter((r) => r.source === "rerender").length;
   return rerenders === 0 ? "whole scenario" : rerenders === rs.length ? "re-render only" : "mixed";
@@ -208,6 +284,9 @@ function measureGroup(model: string, variant: Variant, rs: Recording[], v3Missta
     costMicros: rs.reduce((s, r) => s + r.usage.costMicros, 0),
     inputTokens: rs.reduce((s, r) => s + r.usage.inputTokens, 0),
     outputTokens: rs.reduce((s, r) => s + r.usage.outputTokens, 0),
+    viewsPerTurn: rs.length === 0 ? null : viewsPerTurn(rs)[variant],
+    interactiveRate: variant === 3 ? interactiveRate(rs) : null,
+    rowListRate: variant === 3 ? rowListRate(rs) : null,
   };
 }
 

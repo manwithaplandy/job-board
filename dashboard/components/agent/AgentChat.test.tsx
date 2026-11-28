@@ -19,6 +19,20 @@ vi.mock("@/app/actions/agent", () => actions);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
 // The review indicator polls its own route; these tests count only /api/agent requests.
 vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
+// The real SurfaceHost, which also records the view host its frame hands it, by surface id,
+// so a test can send the in-frame Escape a sandbox frame would send (spec 08 S6.3).
+const viewHosts = vi.hoisted(() => new Map<string, { onEscape: () => void }>());
+vi.mock("./SurfaceHost", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./SurfaceHost")>();
+  const { createElement, useContext } = await import("react");
+  const { ViewHostContext } = await import("./ViewHostContext");
+  function SurfaceHost(props: Parameters<typeof real.SurfaceHost>[0]) {
+    const host = useContext(ViewHostContext);
+    if (host) viewHosts.set(props.surface.id, host);
+    return createElement(real.SurfaceHost, props);
+  }
+  return { ...real, SurfaceHost };
+});
 
 import {
   AgentChat,
@@ -878,13 +892,22 @@ describe("inline views", () => {
 // PR 3 Task 3.4: the dock, inert and the status line (spec 08 S6.2, S6.3, S8). The expanded
 // state is held here, keyed by chain, so it survives a chain moving to a newer message.
 describe("an expanded view", () => {
+  let back: { mockRestore(): void } | null = null;
   beforeEach(() => {
+    // jsdom's history.back() traverses asynchronously, so a collapse's back() could land in a
+    // later test and collapse that test's view. Here it lands at once: the entry below is
+    // the plain one, and its popstate arrives (the hook swallows it as its own back).
+    back = vi.spyOn(window.history, "back").mockImplementation(() => {
+      window.history.replaceState(null, "");
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    });
     actions.loadSurfaceAction.mockReset().mockResolvedValue(null);
     actions.describeApprovalAction.mockReset();
     vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
     window.history.replaceState(null, "");
   });
   afterEach(() => {
+    back?.mockRestore();
     document.documentElement.classList.remove("rf-view-expanded");
   });
 
@@ -981,6 +1004,43 @@ describe("an expanded view", () => {
     expect(isInert(card)).toBe(false);
     act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+  });
+
+  test("Escape from inside the frame goes through the same gate: nothing while a confirm card shows", async () => {
+    actions.describeApprovalAction.mockResolvedValue({ status: "ready", descriptor });
+    const messages = [ask("u1", "Prepare it"), reply("a1", [presentPart(V1), approvalPart("ap-4")])];
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} approvalsEnabled surfaces={[chainOf(hostSurface(V1, "View A"))]} fixture={{ expandedChainId: V1 }} />,
+    );
+    await screen.findByRole("group", { name: "Prepare this application?" });
+    expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+    act(() => viewHosts.get(V1)!.onEscape());
+    expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+  });
+
+  test("Escape from inside the frame collapses when no confirm card shows", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [presentPart(V1)])];
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={[chainOf(hostSurface(V1, "View A"))]} fixture={{ expandedChainId: V1 }} />,
+    );
+    expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+    act(() => viewHosts.get(V1)!.onEscape());
+    expect(frameOf(container, V1)!.dataset.expanded).toBeUndefined();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand view: View A" }));
+  });
+
+  test("a collapse whose view is gone puts focus in the composer (spec 08 S6.3)", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [presentPart(V1)])];
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={[chainOf(hostSurface(V1, "View A"))]} fixture={{ expandedChainId: V1 }} />,
+    );
+    // Within one mount a chain never leaves the page (chains only grow, and each renders
+    // somewhere), so the frame stands in for a view that went: it no longer answers to its
+    // chain when the collapse looks for it.
+    frameOf(container, V1)!.dataset.chainId = "gone";
+    act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(container.querySelector('.rf-view[data-expanded="true"]')).toBeNull();
+    expect(document.activeElement).toBe(composer());
   });
 
   test("the variant switcher is disabled while a view is expanded", () => {

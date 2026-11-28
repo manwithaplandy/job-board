@@ -82,7 +82,7 @@
    (.rf-agent-dock) sits one above it, and the view keeps its height clear at the bottom
    through --rf-dock-h. */
 html.rf-view-expanded { overflow: hidden; }
-.rf-view[data-expanded="true"] {
+.rf-view:is([data-expanded="true"], [data-fade="close"]) {
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -93,30 +93,35 @@ html.rf-view-expanded { overflow: hidden; }
   border: 0;
   border-radius: 0;
   background: var(--bg-page);
-  animation: rf-view-open 120ms ease-out;
 }
+/* The 120ms opacity fade both ways (spec 08 S6.3), set by ViewFrame. A closing view keeps
+   the layout above (data-fade="close") only for its fade out, and takes no pointer events:
+   the page under it is already live again. */
+.rf-view[data-fade="open"] { animation: rf-view-open 120ms ease-out; }
+.rf-view[data-fade="close"] { animation: rf-view-close 120ms ease-in forwards; pointer-events: none; }
 @keyframes rf-view-open { from { opacity: 0; } to { opacity: 1; } }
-.rf-view[data-expanded="true"] > .rf-view__body { min-height: 0; overflow: auto; }
+@keyframes rf-view-close { from { opacity: 1; } to { opacity: 0; } }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) > .rf-view__body { min-height: 0; overflow: auto; }
 /* Blocks and trees are centred at the workspace width; a sandbox document fills the body
    and scrolls inside its own frame (sandbox.css). */
-.rf-view[data-expanded="true"] > .rf-view__body > .rf-agent-surface:not([data-surface-view="sandbox"]) { max-width: var(--content-workspace); margin-inline: auto; }
-.rf-view[data-expanded="true"] > .rf-view__body > .rf-agent-surface[data-surface-view="sandbox"] { height: 100%; }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) > .rf-view__body > .rf-agent-surface:not([data-surface-view="sandbox"]) { max-width: var(--content-workspace); margin-inline: auto; }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) > .rf-view__body > .rf-agent-surface[data-surface-view="sandbox"] { height: 100%; }
 @media (prefers-reduced-motion: reduce) {
-  .rf-view[data-expanded="true"] { animation: none; }
+  .rf-view[data-fade] { animation: none; }
 }
 /* Below 900px the expanded view is a full-screen sheet: the header wraps to two rows with
    Close at the top right, and "Re-render as" collapses behind one disclosure. From 900px
    the header is one row and the buttons always show. */
 @media (max-width: 899px) {
-  .rf-view[data-expanded="true"] > .rf-view__header {
+  .rf-view:is([data-expanded="true"], [data-fade="close"]) > .rf-view__header {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "heading close" "versions versions";
     align-items: start;
   }
-  .rf-view[data-expanded="true"] .rf-view__heading { grid-area: heading; }
-  .rf-view[data-expanded="true"] .rf-view__versions { grid-area: versions; min-width: 0; }
-  .rf-view[data-expanded="true"] .rf-view__expand { grid-area: close; min-width: var(--target-size); min-height: var(--target-size); }
+  .rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-view__heading { grid-area: heading; }
+  .rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-view__versions { grid-area: versions; min-width: 0; }
+  .rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-view__expand { grid-area: close; min-width: var(--target-size); min-height: var(--target-size); }
   .rf-view__footer[data-rerender-open="false"] .rf-agent-versions__actions { display: none; }
 }
 @media (min-width: 900px) {

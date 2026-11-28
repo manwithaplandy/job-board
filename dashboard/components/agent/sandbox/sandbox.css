@@ -19,5 +19,5 @@
 /* An expanded view (spec 08 S6.1): the frame fills the view's body and the document scrolls
    inside it. The !important beats the inline height the resize handler sets; on collapse
    that inline height applies again with no message to the frame. */
-.rf-view[data-expanded="true"] .rf-sandbox__holder { height: 100%; }
-.rf-view[data-expanded="true"] .rf-sandbox__frame { height: 100% !important; }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-sandbox__holder { height: 100%; }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-sandbox__frame { height: 100% !important; }

@@ -28,10 +28,24 @@ import { ViewHostContext, type ViewHost } from "./ViewHostContext";
 // expanded. The header button is Expand, or Close while expanded; focus moves to it on each
 // change. Expanded, the frame is a non-modal dialog (the composer stays reachable in the
 // dock), and below 900px the "Re-render as" buttons sit behind one disclosure.
+//
+// The change fades over 120ms both ways (spec 08 S6.1), and not at all under
+// prefers-reduced-motion. Opening fades the expanded frame in (`data-fade="open"`).
+// Closing keeps the fixed layout for the fade out (`data-fade="close"`, agent.css), while
+// everything else (the dialog role, focus, the page's inert and scroll) is restored at once.
+// A frame mounted already expanded has no fade, so a remount does not replay the open one.
 
 export const EXPAND_TEXT = "Expand";
 export const CLOSE_TEXT = "Close";
 export const CLOSE_LABEL = "Close expanded view";
+/** How long a closing view keeps its fixed layout: the 120ms fade out and a little slack. */
+export const CLOSE_FADE_MS = 150;
+
+type Fade = "open" | "close" | null;
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 /** The heading of a view: its payload's title when it has one, else "View". */
 export function viewTitle(surface: HostSurface): string {
@@ -53,6 +67,12 @@ export interface ViewFrameProps {
   expanded: boolean;
   onExpand: () => void;
   onCollapse: () => void;
+  /**
+   * Escape from inside the view (the sandbox frame's in-frame Escape). The page passes its
+   * gated path (useExpandedView's requestEscape), so a confirm card blocks it as it blocks
+   * Escape on the page; without it, onCollapse.
+   */
+  onEscape?: () => void;
   /** The title heading, so "Go to it" can focus it. */
   headerRef?: Ref<HTMLHeadingElement>;
   /**
@@ -74,6 +94,7 @@ export function ViewFrame({
   expanded,
   onExpand,
   onCollapse,
+  onEscape,
   headerRef,
   children,
 }: ViewFrameProps) {
@@ -81,8 +102,22 @@ export function ViewFrame({
   // The requests element goes to the renderer through state, so a sandbox frame portals its
   // chip there once the element exists.
   const [requestsEl, setRequestsEl] = useState<HTMLDivElement | null>(null);
-  const host = useMemo<ViewHost>(() => ({ requestsEl, expanded, onEscape: expanded ? onCollapse : () => {} }), [requestsEl, expanded, onCollapse]);
+  const escape = onEscape ?? onCollapse;
+  const host = useMemo<ViewHost>(() => ({ requestsEl, expanded, onEscape: expanded ? escape : () => {} }), [requestsEl, expanded, escape]);
   const [rerenderOpen, setRerenderOpen] = useState(false);
+  // The fade, and the disclosure closed again on collapse. State adjusted during render.
+  const [prevExpanded, setPrevExpanded] = useState(expanded);
+  const [fade, setFade] = useState<Fade>(null);
+  if (prevExpanded !== expanded) {
+    setPrevExpanded(expanded);
+    setFade(expanded ? "open" : prefersReducedMotion() ? null : "close");
+    if (!expanded) setRerenderOpen(false);
+  }
+  useEffect(() => {
+    if (fade !== "close") return;
+    const timer = window.setTimeout(() => setFade(null), CLOSE_FADE_MS);
+    return () => window.clearTimeout(timer);
+  }, [fade]);
   const actionsId = useId();
   const sectionRef = useRef<HTMLElement>(null);
   const title = viewTitle(shown);
@@ -113,6 +148,7 @@ export function ViewFrame({
       data-variant={shown.variant}
       data-frame={generated ? "dashed" : "solid"}
       data-expanded={expanded ? "true" : undefined}
+      data-fade={fade ?? undefined}
       role={expanded ? "dialog" : undefined}
       aria-modal={expanded ? "false" : undefined}
       aria-label={expanded ? `Expanded view: ${title}` : `View: ${title}`}

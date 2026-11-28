@@ -828,7 +828,7 @@ export function AgentChat({
 
   // The one expanded view (spec 08 S6), held here above the message list and keyed by chain,
   // so a chain whose update lands in a newer message (a new frame there) stays expanded.
-  const { expandedChainId, expand, collapse } = useExpandedView({
+  const { expandedChainId, expand, collapse, requestEscape } = useExpandedView({
     chainIds: chains.map((c) => c.chainId),
     blocked: () => shownConfirm !== null,
     initial: fixture?.expandedChainId,
@@ -887,6 +887,7 @@ export function AgentChat({
       expanded={expandedChainId === chain.chainId}
       onExpand={() => expand(chain.chainId)}
       onCollapse={collapse}
+      onEscape={requestEscape}
     />
   );
 

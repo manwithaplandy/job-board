@@ -5,6 +5,7 @@ import { KIT_CSS, KIT_JS } from "@/lib/agent/surfaces/v3/kit";
 import { KIT_TOKENS, KIT_TOKEN_NAMES } from "@/lib/agent/surfaces/v3/kitTokens";
 import { parseThemeTokens } from "@/lib/agent/surfaces/v3/themeTokens";
 import { buildSandboxDocument, checkV3Static } from "@/lib/agent/surfaces/v3/document";
+import { ASK_INVISIBLE_SOURCE, ASK_TEXT_MAX } from "@/lib/agent/surfaces/v3/bridge";
 
 /** The kit's own cap: it is not counted against the model's 60,000 bytes (spec 08 S9). */
 const KIT_BYTES_BUDGET = 120_000;
@@ -221,5 +222,34 @@ describe("variant 3 kit script", () => {
     expect(KIT_JS).toContain('post({ type: "resize", height: h })');
     expect(KIT_JS).toContain('window.addEventListener("error"');
     expect(KIT_JS).toContain('window.addEventListener("unhandledrejection"');
+  });
+  test("host.ask posts only an ask, behind activation read through natives taken before model code (PR 6, S10.2)", () => {
+    const code = KIT_JS.replace(/\/\*[\s\S]*?\*\//g, "");
+    // navigator.userActivation is read once, when the kit starts, and its isActive getter is
+    // taken from the object's own prototype then; a value put on the object is never read.
+    expect([...code.matchAll(/userActivation/g)]).toHaveLength(1);
+    expect(code).toContain('activeOf = getterOf(Object.getPrototypeOf(found), "isActive");');
+    expect(code).not.toMatch(/\.isActive\b/);
+    expect(code).toMatch(/function ask\(text\) \{\s*if \(!userActive\(\)\) return false;/);
+    expect(code).toContain('post({ type: "ask", text: s });');
+    // PR 6 review, minor 6: the host's own character class, a refusal that posts nothing, and
+    // the code-point cap.
+    expect(code).toContain(`askInvisible = new RegExp(${JSON.stringify(ASK_INVISIBLE_SOURCE)}, "gu");`);
+    expect(code).toMatch(/try \{ s = askText\(textOf\(text\)\); \} catch \(err\) \{ return false; \}\s*if \(s === null\) return false;/);
+    expect(code).toContain(`var ASK_TEXT_MAX = ${ASK_TEXT_MAX};`);
+    // Fix round 2: the kit's own flag is always required (isActive too, where it exists), set by
+    // trusted activation-triggering input in the capture phase on the window.
+    expect(code).toContain('var ARM_EVENTS = ["keydown", "keyup", "mousedown", "pointerdown", "pointerup", "touchend"];');
+    expect(code).toContain("window.addEventListener(ARM_EVENTS[ae], armOnTrusted, true);");
+    expect(code).toContain("if (e.isTrusted !== true) return;");
+    expect(code).toMatch(/function userActive\(\) \{\s*if \(!armed\) return false;\s*if \(activation !== null\) \{\s*try \{ return activeOf\(activation\) === true; \}/);
+    // Installed whether or not navigator.userActivation exists.
+    expect(code).not.toMatch(/if \(activation === null\) \{\s*var armOnTrusted/);
+    // All of it is set up before the host object exists, and so before any model code.
+    const hostAt = code.indexOf("var host = {");
+    for (const setup of ["var activeOf = null;", "var ARM_EVENTS", "function userActive()", "function ask(text)"]) {
+      expect({ setup, before: code.indexOf(setup) > 0 && code.indexOf(setup) < hostAt }).toEqual({ setup, before: true });
+    }
+    expect(code).toMatch(/var host = \{[\s\S]*?ask: ask,/);
   });
 });

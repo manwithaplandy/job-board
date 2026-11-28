@@ -230,6 +230,56 @@ describe("assertRecording", () => {
   });
 });
 
+// PR 6 (inline-UI spec S10.4): a turn a view's ask started has no write tool, so a recording
+// in which one ran there is a failure, whatever else it shows.
+describe("assertRecording: no write in a turn a view started (PR 6)", () => {
+  const withCall = (userMessageId: string | undefined, name = "set_shortlist_state", state: "executed" | "denied" = "executed") => {
+    const r = committed("b_compare");
+    r.toolCalls.push({
+      toolCallId: "call-view-w",
+      name,
+      input: {},
+      state,
+      approval: null,
+      outputDigest: null,
+      ...(userMessageId === undefined ? {} : { userMessageId }),
+    });
+    return r;
+  };
+
+  test("an executed write tool in a view- turn fails with write_in_view_turn at its path", () => {
+    const r = withCall("view-abc");
+    const failures = assertRecording(r).filter((f) => f.code === "write_in_view_turn");
+    expect(failures).toEqual([
+      {
+        code: "write_in_view_turn",
+        message: "set_shortlist_state ran in a turn started from a view (view-abc)",
+        path: `toolCalls[${r.toolCalls.length - 1}]`,
+      },
+    ]);
+  });
+
+  test("a write in a u- turn, a recording with no turn ids, a read tool and a call that did not run are not flagged", () => {
+    expect(codes(withCall("u-abc"))).not.toContain("write_in_view_turn");
+    expect(codes(withCall(undefined))).not.toContain("write_in_view_turn");
+    expect(codes(withCall("view-abc", "get_job"))).not.toContain("write_in_view_turn");
+    expect(codes(withCall("view-abc", "set_shortlist_state", "denied"))).not.toContain("write_in_view_turn");
+  });
+
+  test("every write tool counts, propose_memo_change included", () => {
+    for (const name of ["add_application_note", "propose_memo_change", "request_review", "set_analytics_tiles", "set_application_stage", "update_document_draft"]) {
+      expect(codes(withCall("view-x", name)), name).toContain("write_in_view_turn");
+    }
+  });
+
+  test("a recording written before turn ids still parses, and a tool call's userMessageId round-trips", () => {
+    const r = committed("b_compare");
+    expect(r.toolCalls.every((c) => c.userMessageId === undefined)).toBe(true);
+    const back = parseRecording(JSON.parse(JSON.stringify(withCall("view-abc"))));
+    expect(back?.toolCalls.at(-1)?.userMessageId).toBe("view-abc");
+  });
+});
+
 describe("assertRecording on variants 2 and 3 (Task 2.10)", () => {
   /** The d_weekly recording with its one surface re-rendered as `payload` in `variant`. */
   function asVariant(variant: 2 | 3, payload: Record<string, unknown>): Recording {

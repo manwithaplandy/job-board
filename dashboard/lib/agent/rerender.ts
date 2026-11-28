@@ -214,7 +214,7 @@ export async function rerenderSurface(userId: string, a: RerenderArgs, deps: Rer
       gathered,
       repairsLeft: { n: 1 },
       // A re-render is its own run with one view (spec 08 S4.4): the cap never interferes.
-      views: { used: 0 },
+      views: { used: 0 }, fromView: false,
       modelId,
       // A chain of re-renders all point at the first original.
       rerenderOf: source.rerenderOf ?? source.id,

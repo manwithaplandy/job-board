@@ -51,7 +51,7 @@ function browseCtx(userId: string, email: string | null): ToolCtx {
     unattended: false,
     gathered: emptyGathered(),
     repairsLeft: { n: 0 },
-    views: { used: 0 },
+    views: { used: 0 }, fromView: false,
   };
 }
 

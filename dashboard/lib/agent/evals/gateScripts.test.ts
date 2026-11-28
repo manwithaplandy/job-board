@@ -36,7 +36,7 @@ const ctx = (): ToolCtx => ({
   variant: 1,
   unattended: false,
   gathered: emptyGathered(),
-  repairsLeft: { n: 1 }, views: { used: 0 },
+  repairsLeft: { n: 1 }, views: { used: 0 }, fromView: false,
 });
 
 /** A prompt whose tool results hold the persona's top jobs and one memo proposal, as the real tools return them. */

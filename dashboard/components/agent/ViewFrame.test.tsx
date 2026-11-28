@@ -444,6 +444,21 @@ describe("expand", () => {
     expect(onCollapse).not.toHaveBeenCalled();
   });
 
+  test("the view host passes the ask prop through to the renderer, and null without one (PR 6)", () => {
+    const seen: ViewHost[] = [];
+    function Probe() {
+      const host = useContext(ViewHostContext);
+      if (host) seen.push(host);
+      return null;
+    }
+    const chain = original();
+    const ask = { send: vi.fn(), disabledReason: "Wait for the current reply." };
+    const { rerender } = render(frame(chain, true, vi.fn(), { children: <Probe /> }));
+    expect(seen.at(-1)?.ask).toBeNull();
+    rerender(frame(chain, true, vi.fn(), { ask, children: <Probe /> }));
+    expect(seen.at(-1)?.ask).toBe(ask);
+  });
+
   test("the disclosure is closed again after a collapse", () => {
     const chain = original();
     const { container, rerender } = render(frame(chain, true, vi.fn(), { expanded: true }));

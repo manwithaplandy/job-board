@@ -1,6 +1,7 @@
 // The agent's tool set (plan Tasks 0.10, 1.15 and 1.16): the phase 0 read tools, the
 // phase 1 workspace read tools, the undoable write tools and the approval tools. Every tool gets the caller's
-// identity from ToolCtx and never from model input.
+// identity from ToolCtx and never from model input. A turn started from a view's ask gets no
+// write tools (ToolCtx.fromView, PR 6).
 import type { Variant } from "@/lib/agent/config";
 import type { GatheredData } from "@/lib/agent/gathered";
 import { readTools } from "@/lib/agent/tools/read";
@@ -25,6 +26,14 @@ export interface ToolCtx {
    * share it. `used` is the slots taken, at most AGENT_LIMITS.maxViewsPerTurn.
    */
   views: { used: number };
+  /**
+   * PR 6 (spec 08 S10.4): the turn answers a message sent from a view (its user message id
+   * starts with "view-"; plan D6 for an approval continuation). Text a generated view wrote
+   * then reaches the model as the user's words, so the turn is built without the write
+   * tools: it can read, show a view, ask a question, or ask for something the user approves
+   * on a fixed card. False everywhere else.
+   */
+  fromView: boolean;
   /** The model the run calls, recorded on every surface it presents (Task 2.9 re-renders with it). */
   modelId?: string;
   /**
@@ -62,7 +71,8 @@ export function buildTools(ctx: ToolCtx) {
   return {
     ...readTools(ctx),
     ...workspaceReadTools(ctx),
-    ...writeTools(ctx),
+    // None in a turn started from a view (PR 6, spec 08 S10.4).
+    ...(ctx.fromView ? {} : writeTools(ctx)),
     // Empty without the approval secret or in an unattended run (Task 1.16).
     ...approvalTools(ctx),
     // A surface and a question need a user on the page (Task 1.20): interactive only.

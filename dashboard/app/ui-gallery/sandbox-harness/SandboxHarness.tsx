@@ -10,12 +10,15 @@
 // tests/sandbox/sandbox.spec.ts to read: the intents the user's presses ran, the
 // fallbacks with their reasons, the failure reports the stub received, and every load
 // event of every iframe (PR 3: expanding a view must not reload its document, so the
-// expand-no-reload case counts them).
+// expand-no-reload case counts them), and every ask the user sent from a view's pending
+// message (PR 6): the view frame's ask sink is a fake that logs "ask-sent:<text>" and sends
+// nothing anywhere.
 //
 // Each frame sits in the page's view frame (ViewFrame, spec 08 S5, plan D9), so its chip
 // lands in the frame's requests region as on the agent page. The frame is the view frame's
 // body seam, so the stub server and the logged reasons stay the harness's own.
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ViewHost } from "@/components/agent/ViewHostContext";
 import type { FrameChip } from "@/app/actions/agent";
 import { FIXTURE_GATHERED } from "@/components/agent/blocks/AgentBlocksFixture";
 import { SandboxFrame, type SandboxFrameServer, type SandboxSurface } from "@/components/agent/sandbox/SandboxFrame";
@@ -61,6 +64,12 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
   const [fallbacks, setFallbacks] = useState<LogEntry[]>([]);
   const [reports, setReports] = useState<LogEntry[]>([]);
   const [loads, setLoads] = useState<LogEntry[]>([]);
+  const [asks, setAsks] = useState<LogEntry[]>([]);
+  // The page's send(text) stands here as a log line: what Send would have sent, and from which view.
+  const ask = useMemo<NonNullable<ViewHost["ask"]>>(
+    () => ({ send: (text, surfaceId) => setAsks((l) => [...l, { surface: surfaceId, value: `ask-sent:${text}` }]), disabledReason: null }),
+    [],
+  );
   // load does not bubble, but a capture listener on an ancestor sees each iframe's. A layout
   // effect, so it is listening before SandboxFrame's passive effect appends the iframe.
   const stackRef = useRef<HTMLDivElement>(null);
@@ -128,6 +137,7 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
               expanded={expanded === s.id}
               onExpand={() => setExpanded(s.id)}
               onCollapse={collapse}
+              ask={ask}
             >
               <SandboxFrame
                 surface={s}
@@ -143,6 +153,7 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
       <output data-sandbox-log="fallbacks">{JSON.stringify(fallbacks)}</output>
       <output data-sandbox-log="reports">{JSON.stringify(reports)}</output>
       <output data-sandbox-log="loads">{JSON.stringify(loads)}</output>
+      <output data-sandbox-log="asks">{JSON.stringify(asks)}</output>
     </main>
   );
 }

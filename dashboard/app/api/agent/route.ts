@@ -6,7 +6,8 @@ import { checkBudget } from "@/lib/agent/budget";
 import { getThread } from "@/lib/agent/threads";
 import { TurnInProgressError } from "@/lib/agent/runs";
 import { streamAgentTurn, TurnInputError, type TurnInput } from "@/lib/agent/loop";
-import { AgentRequestSchema, type AgentRequest } from "@/lib/agent/request";
+import { AgentRequestSchema, viewSourceError, type AgentRequest } from "@/lib/agent/request";
+import { ownsVariant3Surface } from "@/lib/agent/surfaces/store";
 
 export const dynamic = "force-dynamic";
 // The turn's own wall clock is 240 s (AGENT_LIMITS.wallClockMs); persistence runs in
@@ -18,6 +19,9 @@ export const maxDuration = 300;
 //   403 { error: "forbidden" }              Sec-Fetch-Site is cross-site or same-site
 //   401 no session (or an erased account's stale JWT)
 //   400 { error: "bad_request" }            not application/json, or the body fails the strict schema
+//   400 { error: <view source code> }       a message whose id and source disagree, or a view's
+//                                           text over 280 code points (viewSourceError)
+//   400 { error: "view_source_invalid" }    a source naming no variant 3 view of this user's thread
 //   402 { error: "subscription_required" }  no plan
 //   503 { error: "agent_disabled" }         the kill switch (fails closed on a failed read)
 //   429 { error: "agent_budget_exhausted", reason }  a ceiling is reached
@@ -83,6 +87,16 @@ export async function POST(req: Request): Promise<Response> {
 
   const body = await readBody(req);
   if (!body) return badRequest();
+  // A view's ask (inline-UI spec S10.3): the id prefix and the source must agree, and the
+  // source must name a variant 3 view this user owns in this thread. The stored message is
+  // built from the text alone; the source is not kept.
+  if (body.kind === "message") {
+    const sourceError = viewSourceError(body);
+    if (sourceError) return json({ error: sourceError }, 400);
+    if (body.source && !(await ownsVariant3Surface(userId, body.source.surfaceId, body.threadId))) {
+      return json({ error: "view_source_invalid" }, 400);
+    }
+  }
 
   const plan = await getViewerPlan(userId, claims.email);
   if (!plan) return json({ error: "subscription_required" }, 402);

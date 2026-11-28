@@ -114,6 +114,9 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   ...["view-expanded", "code-expanded"].map((state): VisualRoute => ({ ...fixture("agent", `page-${state}`), viewportOnly: true })),
   // Up to 3 views per turn (spec 08 S4.4): one reply with two views between its paragraphs.
   fixture("agent", "page-views-multi"),
+  // A view's ask (spec 08 S10.2): the code view's 280-character ask pending on host chrome
+  // under the view, wrapping inside its unbroken second half at 375.
+  fixture("agent", "page-ask-pending"),
   fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"), fixture("workspaces", "memo-diff"),
   fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

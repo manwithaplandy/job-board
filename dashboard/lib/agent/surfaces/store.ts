@@ -173,6 +173,18 @@ export async function getSurface(userId: string, id: string): Promise<StoredSurf
   return rows.length === 0 ? null : toSurface(rows[0]);
 }
 
+/**
+ * True when the surface is a variant 3 row of the caller's, in this thread when one is given
+ * (plan D8: the body of app/actions/agent.ts's former private ownVariant3, moved here so the
+ * agent route can check a view message's source with the same rule). Ids that are not uuids
+ * run no query.
+ */
+export async function ownsVariant3Surface(userId: string, surfaceId: string, threadId: string | null): Promise<boolean> {
+  if (!UUID_RE.test(surfaceId) || (threadId !== null && !UUID_RE.test(threadId))) return false;
+  const surface = await getSurface(userId, surfaceId);
+  return surface !== null && surface.variant === 3 && (threadId === null || surface.threadId === threadId);
+}
+
 /** How many surfaces of one thread the agent page reads, newest first. */
 export const THREAD_SURFACES_MAX = 50;
 

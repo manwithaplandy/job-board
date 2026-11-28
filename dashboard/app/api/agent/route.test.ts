@@ -21,6 +21,8 @@ const m = vi.hoisted(() => {
     checkBudget: vi.fn(),
     getThread: vi.fn(),
     streamAgentTurn: vi.fn(),
+    // agent_surfaces rows the stubbed withUserSql serves: the real store runs over them.
+    surfaces: [] as Record<string, unknown>[],
   };
 });
 
@@ -32,6 +34,15 @@ vi.mock("@/lib/agent/budget", () => ({ checkBudget: m.checkBudget }));
 vi.mock("@/lib/agent/threads", () => ({ getThread: m.getThread }));
 vi.mock("@/lib/agent/runs", () => ({ TurnInProgressError: m.TurnInProgressError }));
 vi.mock("@/lib/agent/loop", () => ({ streamAgentTurn: m.streamAgentTurn, TurnInputError: m.TurnInputError }));
+// getSurface binds [id, userId]; the stub answers the rows that match both, the way the
+// query's WHERE clause does.
+vi.mock("@/lib/db", () => ({
+  withUserSql: vi.fn(async (_userId: string, fn: (t: unknown) => Promise<unknown>) =>
+    fn((_strings: TemplateStringsArray, ...values: unknown[]) =>
+      Promise.resolve(m.surfaces.filter((r) => r.id === values[0] && r.user_id === values[1])),
+    ),
+  ),
+}));
 
 import { POST, dynamic, maxDuration } from "@/app/api/agent/route";
 
@@ -67,6 +78,7 @@ beforeEach(() => {
   m.checkBudget.mockResolvedValue({ ok: true, remainingMicros: 1_000_000 });
   m.getThread.mockImplementation(async (userId: string, id: string) => (userId === USER && id === THREAD ? thread : null));
   m.streamAgentTurn.mockResolvedValue(new Response("stream", { status: 200 }));
+  m.surfaces = [];
 });
 
 type Case = [string, number, () => void, unknown?];
@@ -259,4 +271,82 @@ describe("POST /api/agent same-origin guard", () => {
       expect(m.streamAgentTurn).not.toHaveBeenCalled();
     },
   );
+});
+
+// PR 6 (inline-UI spec S10.3): a message a view sent. Its id starts "view-", it names the
+// view in source, and the route checks the view is a variant 3 surface of this user's thread.
+describe("POST /api/agent: a view's ask", () => {
+  const SURFACE = "44444444-4444-4444-8444-444444444444";
+  const OTHER_THREAD = "55555555-5555-4555-8555-555555555555";
+  const surfaceRow = (extra: Record<string, unknown> = {}) => ({
+    id: SURFACE,
+    user_id: USER,
+    thread_id: THREAD,
+    run_id: null,
+    variant: "3",
+    payload: { html: "<p>x</p>" },
+    fallback_payload: null,
+    gathered: { jobs: {} },
+    outcome: "valid",
+    failure: null,
+    supersedes: null,
+    rerender_of: null,
+    model: "m",
+    latency_ms: "1200",
+    created_at: new Date("2026-11-25T10:00:00Z"),
+    ...extra,
+  });
+  const ask = { threadId: THREAD, kind: "message", id: "view-abc", text: "Show the Berlin jobs", source: { kind: "view", surfaceId: SURFACE } };
+
+  async function refused(body: unknown, error: string) {
+    const res = await POST(post(body));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error });
+    expect(m.streamAgentTurn).not.toHaveBeenCalled();
+  }
+
+  test("a view- id without a source is 400", async () => {
+    m.surfaces = [surfaceRow()];
+    const { source: _source, ...noSource } = ask;
+    await refused(noSource, "view_id_without_source");
+  });
+
+  test("a source on a u- id is 400", async () => {
+    m.surfaces = [surfaceRow()];
+    await refused({ ...ask, id: "u-abc" }, "source_without_view_id");
+  });
+
+  test("a view's text of 281 characters is 400, and 280 passes", async () => {
+    m.surfaces = [surfaceRow()];
+    await refused({ ...ask, text: "x".repeat(281) }, "view_text_too_long");
+    expect((await POST(post({ ...ask, text: "x".repeat(280) }))).status).toBe(200);
+  });
+
+  test("a source that is not a uuid fails the strict schema", async () => {
+    await refused({ ...ask, source: { kind: "view", surfaceId: "nope" } }, "bad_request");
+    await refused({ ...ask, source: { kind: "view", surfaceId: SURFACE, extra: 1 } }, "bad_request");
+  });
+
+  test.each([
+    ["a variant 1 surface", () => [surfaceRow({ variant: "1", payload: { blocks: [] } })]],
+    ["another user's surface", () => [surfaceRow({ user_id: OTHER })]],
+    ["a surface in another thread", () => [surfaceRow({ thread_id: OTHER_THREAD })]],
+    ["no such surface", () => []],
+  ])("%s is 400 view_source_invalid", async (_name, rows) => {
+    m.surfaces = rows();
+    await refused(ask, "view_source_invalid");
+  });
+
+  test("a valid view message reaches streamAgentTurn, stored from its text alone", async () => {
+    m.surfaces = [surfaceRow()];
+    const res = await POST(post(ask));
+    expect(res.status).toBe(200);
+    expect(m.streamAgentTurn).toHaveBeenCalledTimes(1);
+    expect(m.streamAgentTurn.mock.calls[0][0].input).toEqual({
+      kind: "message",
+      id: "view-abc",
+      text: "Show the Berlin jobs",
+      documentIds: [],
+    });
+  });
 });

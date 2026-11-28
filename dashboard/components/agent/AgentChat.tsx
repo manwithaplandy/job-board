@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { toast } from "sonner";
@@ -23,7 +23,7 @@ import { CONFIRMATIONS_UNAVAILABLE } from "@/lib/agent/approvalSecret";
 import { compareMessage } from "@/lib/agent/actions/compareText";
 import type { PendingApproval } from "@/lib/agent/actions/approvalCard";
 import type { ActionIntent, ConfirmDescriptor, IntentOutcome } from "@/lib/agent/actions/intents";
-import type { AgentRequest } from "@/lib/agent/request";
+import { isViewMessageId, ViewSourceSchema, type AgentRequest } from "@/lib/agent/request";
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { titleFromFirstMessage } from "@/lib/agent/titles";
 import { parseGenerationJob } from "@/lib/generationJobCodec";
@@ -58,6 +58,16 @@ import { useExpandedView } from "./useExpandedView";
 // values.
 
 const generateId = createIdGenerator({ prefix: "u", size: 16 });
+// PR 6 (spec 08 S10.4): the id of a message sent from a view's ask. Its "view-" prefix is the
+// message's provenance: the route requires the matching source, and the turn that answers it
+// (or a Retry of it) is built without write tools.
+const viewId = createIdGenerator({ prefix: "view", size: 16 });
+
+/** PR 6: the caption under a message sent from a view (derived from its id, so it survives a reload). */
+export const SENT_FROM_VIEW = "Sent from a view";
+/** PR 6: why a view's pending ask cannot be sent right now (Send's accessible description). */
+export const ASK_WAIT_REPLY = "Wait for the current reply.";
+export const ASK_ANSWER_CONFIRM = "Answer the confirmation first.";
 
 // A stored message's metadata (lib/agent/threads.ts loadMessages): a total parse, so a
 // stray shape reads as "no status" rather than crashing the page.
@@ -149,6 +159,8 @@ const CLOCK_TICK_MS = 15_000;
 const requestExtraSchema = z.object({
   documentIds: z.array(z.string()).optional(),
   approval: z.object({ approvalId: z.string(), approved: z.boolean() }).optional(),
+  // PR 6: a message sent from a view's ask names the view it came from.
+  source: ViewSourceSchema.optional(),
 });
 
 /**
@@ -159,7 +171,9 @@ const requestExtraSchema = z.object({
  */
 function chatTransport(threadId: string) {
   // `retry`: the request answered a stored question again, so a refusal keeps it on screen.
-  let sent: { id: string; text: string; retry: boolean } | null = null;
+  // `view`: the message came from a view's ask, so a refusal does not put its text in the
+  // composer (where it would go out again as a typed message, spec 08 S10.2).
+  let sent: { id: string; text: string; retry: boolean; view: boolean } | null = null;
   let rejected: Rejection | null = null;
   const transport = new DefaultChatTransport<UIMessage>({
     api: "/api/agent",
@@ -177,18 +191,20 @@ function chatTransport(threadId: string) {
       // Retry (regenerate): the server reads the stored question by id; nothing is resent.
       if (trigger === "regenerate-message" && last?.role === "user") {
         const body: AgentRequest = { threadId, kind: "retry", id: last.id };
-        sent = { id: last.id, text, retry: true };
+        sent = { id: last.id, text, retry: true, view: isViewMessageId(last.id) };
         return { body };
       }
       const documentIds = extra.success ? (extra.data.documentIds ?? []) : [];
+      const source = extra.success ? extra.data.source : undefined;
       const body: AgentRequest = {
         threadId,
         kind: "message",
         id: last?.id ?? generateId(),
         text,
         ...(documentIds.length > 0 ? { documentIds } : {}),
+        ...(source ? { source } : {}),
       };
-      sent = { id: body.id, text, retry: false };
+      sent = { id: body.id, text, retry: false, view: source !== undefined };
       return { body };
     },
     fetch: async (input, init) => {
@@ -336,6 +352,17 @@ function MessageView({
   // A reply with nothing to show (a failed turn with no steps) is not drawn as an empty
   // bubble; the error line stands in.
   if (shown.length === 0 && row === null) return null;
+  // PR 6 (spec 08 S10.4): a message sent from a view keeps its bubble and has a caption under
+  // it, read from the id prefix, so it shows after a reload too.
+  if (message.role === "user" && isViewMessageId(message.id)) {
+    return (
+      <li className="rf-agent-message rf-agent-message--user rf-agent-message--from-view" data-message-id={message.id}>
+        <span className="rf-agent-message__role">{who}</span>
+        <div className="rf-agent-message__bubble">{shown}</div>
+        <p className="rf-agent-message__from-view">{SENT_FROM_VIEW}</p>
+      </li>
+    );
+  }
   return (
     <li className={`rf-agent-message rf-agent-message--${message.role}`} data-message-id={message.id}>
       <span className="rf-agent-message__role">{who}</span>
@@ -382,7 +409,13 @@ const TIMER_TICK_MS = 1_000;
  * prop: show the working row with a frozen timer, or open one message's steps, without a
  * network or a click. Product code never passes it.
  */
-export type AgentChatFixture = { working?: { elapsedMs: number }; openStepsFor?: string; expandedChainId?: string };
+export type AgentChatFixture = {
+  working?: { elapsedMs: number };
+  openStepsFor?: string;
+  expandedChainId?: string;
+  /** PR 6 (agent-page-ask-pending): the sandbox view of this surface id shows this ask pending at mount. */
+  askFor?: { surfaceId: string; text: string };
+};
 
 // The provisional reply that holds the working row before the first part arrives.
 const PROVISIONAL_ID = "provisional";
@@ -468,6 +501,10 @@ export function AgentChat({
     }
   };
   const named = useRef(!autoTitle);
+  // PR 6 review, minor 9: a view message's way back to its frame, by message id, while its
+  // request is in flight. A refusal or a network failure (nothing stored) calls it, so the
+  // ask shows again as pending in its frame; any other end drops it.
+  const viewRefused = useRef(new Map<string, () => void>());
   // One transport per mounted chat (the page keys AgentChat by thread id).
   const [{ transport, book }] = useState(() => chatTransport(threadId));
 
@@ -476,7 +513,10 @@ export function AgentChat({
     messages: initialMessages,
     transport,
     generateId,
-    onFinish: () => setTurnsEnded((n) => n + 1),
+    onFinish: () => {
+      setTurnsEnded((n) => n + 1);
+      viewRefused.current.clear();
+    },
     onError: (error) => {
       setTurnsEnded((n) => n + 1);
       // A refusal or a network failure stored nothing; a 5xx or an error mid-stream may
@@ -487,8 +527,11 @@ export function AgentChat({
       const r = rejected ?? { rollback: false, message: problemFromStreamError(error instanceof Error ? error.message : "") };
       if (sent && r.rollback && !sent.retry) {
         setMessages((prev) => prev.filter((m) => m.id !== sent.id));
-        setDraft((d) => (d === "" ? sent.text : d));
+        if (!sent.view) setDraft((d) => (d === "" ? sent.text : d));
+        // A view's ask never goes to the composer; it goes back to its frame's pending region.
+        else viewRefused.current.get(sent.id)?.();
       }
+      viewRefused.current.clear();
       // Kept: the reply that was streaming (if one arrived) failed. A refusal rolled back,
       // so no reply is marked and earlier replies stay as they were.
       if (!r.rollback) setPendingFailure({ afterUserId: sent?.id ?? null });
@@ -558,6 +601,26 @@ export function AgentChat({
     setAttached([]);
     void sendMessage({ text }, documentIds.length > 0 ? { body: { documentIds } } : undefined);
   };
+  // PR 6 (spec 08 S10.4): a view's ask, sent on the user's press of its Send, as their own
+  // message with a view id and the view's source. It goes through the same transport as a
+  // typed message; the composer's draft and attachments are not read or cleared.
+  // Stable (PR 6 review, minor 3): it is part of every ViewFrame's memoised host, so a new
+  // function on each render (each streamed chunk) would re-render every view. startTurn
+  // reads the latest messages, so it is read through a ref.
+  const viewSend = useRef({ startTurn });
+  useEffect(() => {
+    viewSend.current = { startTurn };
+  });
+  const sendFromView = useCallback(
+    (text: string, surfaceId: string, onRefused: () => void) => {
+      setProblem(null);
+      viewSend.current.startTurn();
+      const id = viewId();
+      viewRefused.current.set(id, onRefused);
+      void sendMessage({ id, role: "user", parts: [{ type: "text", text }] }, { body: { source: { kind: "view", surfaceId } } });
+    },
+    [sendMessage],
+  );
   // Retry answers the last question again: everything after it is dropped from the screen
   // and the server reuses the stored question (kind "retry"), so it is never stored twice.
   // The composer's draft and attachments stay as they are.
@@ -874,6 +937,10 @@ export function AgentChat({
     const textarea = dockRef.current?.querySelector<HTMLElement>("textarea");
     if (textarea && !frameOfChain(chatRef.current, was)) focusInPage(textarea);
   }, [expandedChainId, dockRef]);
+  // Why a view's pending ask cannot be sent now (spec 08 S10.2), in this order; null when it can.
+  const askDisabledReason = busy ? ASK_WAIT_REPLY : blocking ? agentNoticeTitle(blocking) : shownConfirm !== null ? ASK_ANSWER_CONFIRM : null;
+  const askSink = useMemo(() => ({ send: sendFromView, disabledReason: askDisabledReason }), [sendFromView, askDisabledReason]);
+  const askFor = fixture?.askFor;
   // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
   const chainView = (chain: HostChain) => (
     <ViewFrame
@@ -889,6 +956,8 @@ export function AgentChat({
       onExpand={() => expand(chain.chainId)}
       onCollapse={collapse}
       onEscape={requestEscape}
+      ask={askSink}
+      initialRequest={askFor ? { surfaceId: askFor.surfaceId, request: { kind: "ask", text: askFor.text } } : undefined}
     />
   );
 

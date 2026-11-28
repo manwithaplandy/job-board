@@ -26,7 +26,7 @@ afterAll(async () => {
 
 const ctx = (): ToolCtx => ({
   userId: USER_A, email: null, threadId: THREAD, runId: RUN, variant: 1, unattended: false,
-  gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 },
+  gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 }, fromView: false,
 });
 
 beforeEach(async () => {

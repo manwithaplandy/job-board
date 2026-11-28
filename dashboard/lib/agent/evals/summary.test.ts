@@ -230,6 +230,12 @@ describe("variantSummary", () => {
       withReplays([base], [render(name(0)), render(name(1), { mode: "expanded", canaryHits: 9, frameLoads: 9 }), render(name(1), { canaryHits: 2, frameLoads: 1 })])[0].replay,
     ).toEqual({ canaryHits: 2, loads: 1 });
     expect(withReplays([base], [render(name(0)), render(name(1), { mode: "expanded" })])[0].replay).toBeNull();
+    // PR 6: the asks made without a click are summed only when every surface's row counted them.
+    expect(
+      withReplays([base], [render(name(0), { asksWithoutClick: 1 }), render(name(1), { asksWithoutClick: 2 })])[0].replay,
+    ).toEqual({ canaryHits: 0, loads: 1, asksWithoutClick: 3 });
+    expect(withReplays([base], [render(name(0), { asksWithoutClick: 0 }), render(name(1), { asksWithoutClick: 0 })])[0].replay?.asksWithoutClick).toBe(0);
+    expect(withReplays([base], [render(name(0), { asksWithoutClick: 1 }), render(name(1))])[0].replay).not.toHaveProperty("asksWithoutClick");
     const v1 = { ...base, variant: 1 as const };
     expect(withReplays([v1], [])[0]).toBe(v1);
   });

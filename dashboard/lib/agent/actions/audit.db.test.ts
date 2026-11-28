@@ -299,7 +299,7 @@ test("the migration applies twice on top of schema.sql", async () => {
 // The libraries (Task 1.2) against the real definer functions.
 const ctxFor = (userId: string, threadId: string) => ({
   userId, email: null, threadId, runId: RUN, variant: 1 as const, unattended: false,
-  gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 },
+  gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 }, fromView: false,
 });
 
 test("logAction and listRecentActions round-trip through agent_log_action, bigint ids parsed", async () => {

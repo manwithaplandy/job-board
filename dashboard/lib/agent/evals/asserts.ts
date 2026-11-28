@@ -9,6 +9,8 @@
 //     S15.2), and every view of a turn is checked, not only the last;
 //   - every action a surface offers or the user pressed is an intent with a handler;
 //   - no confirmation tool ran without the user's approval;
+//   - no write tool ran in a turn whose user message id starts with "view-" (spec 08 S15.2:
+//     a turn a generated view started is built without the write tools);
 //   - the memo changed only through a proposal the user approved on a surface;
 //   - a tailored résumé the run produced passes resumeChecks against the profile;
 //   - scenario (a) ends with rows on the shortlist; scenario (d) shows metrics, and every
@@ -22,6 +24,7 @@ import { parseGathered } from "@/lib/agent/gatheredSchema";
 import type { GatheredData } from "@/lib/agent/gathered";
 import { ActionIntentSchema, INTENT_NAMES, type IntentName } from "@/lib/agent/actions/intents";
 import type { ApprovalToolName } from "@/lib/agent/tools/approval";
+import type { writeTools } from "@/lib/agent/tools/write";
 import { parseTailoredResume } from "@/lib/rolefit/packageCodec";
 import { parseProfileText } from "@/lib/rolefit/parseProfile";
 import { resumeChecks } from "@/lib/rolefit/resumeChecks";
@@ -29,6 +32,7 @@ import { RATE_METRICS, RESPONSE_RATE_MIN_N } from "@/lib/workspaces/metrics/cata
 import type { MetricResult } from "@/lib/workspaces/types";
 import type { DbSnapshot, Recording } from "@/lib/agent/evals/recording";
 import { AGENT_LIMITS } from "@/lib/agent/config";
+import { isViewMessageId } from "@/lib/agent/request";
 
 export type AssertCode =
   | "gathered_invalid"
@@ -51,7 +55,8 @@ export type AssertCode =
   | "metric_not_gathered"
   | "rate_without_n"
   | "rate_below_min_n"
-  | "too_many_views";
+  | "too_many_views"
+  | "write_in_view_turn";
 
 export interface AssertFailure {
   code: AssertCode;
@@ -74,6 +79,26 @@ export const CONFIRMATION_TOOLS = [
 type MissingConfirmationTool = Exclude<ApprovalToolName, (typeof CONFIRMATION_TOOLS)[number]>;
 const confirmationToolsComplete: [MissingConfirmationTool] extends [never] ? true : false = true;
 void confirmationToolsComplete;
+
+/**
+ * The write tools (writeTools in lib/agent/tools/write.ts, attended set), which a turn a view
+ * started does not have (ToolCtx.fromView, PR 6). Restated because write.ts imports the
+ * database; the two type checks below fail the build if the lists ever differ.
+ */
+export const WRITE_TOOLS = [
+  "set_shortlist_state",
+  "set_application_stage",
+  "add_application_note",
+  "set_analytics_tiles",
+  "update_document_draft",
+  "request_review",
+  "propose_memo_change",
+] as const satisfies ReadonlyArray<WriteToolName>;
+/** Every key of either write set (writeTools returns the attended or the unattended set). */
+type WriteToolName = ReturnType<typeof writeTools> extends infer U ? (U extends object ? keyof U : never) : never;
+type MissingWriteTool = Exclude<WriteToolName, (typeof WRITE_TOOLS)[number]>;
+const writeToolsComplete: [MissingWriteTool] extends [never] ? true : false = true;
+void writeToolsComplete;
 
 /**
  * The intents each variant 1 block's controls send (components/agent/blocks/*). A block
@@ -395,6 +420,23 @@ function checkApprovals(r: Recording, out: AssertFailure[]): void {
   }
 }
 
+/**
+ * Spec 08 S15.2: a turn whose user message id starts with "view-" ran no write tool. A call
+ * with no userMessageId (an older recording) cannot be placed in a turn and is not counted.
+ */
+function checkViewTurns(r: Recording, out: AssertFailure[]): void {
+  const writes: ReadonlySet<string> = new Set(WRITE_TOOLS);
+  for (const [i, call] of r.toolCalls.entries()) {
+    if (!writes.has(call.name) || call.state !== "executed") continue;
+    if (call.userMessageId === undefined || !isViewMessageId(call.userMessageId)) continue;
+    out.push({
+      code: "write_in_view_turn",
+      message: `${call.name} ran in a turn started from a view (${call.userMessageId})`,
+      path: `toolCalls[${i}]`,
+    });
+  }
+}
+
 function checkMemo(r: Recording, out: AssertFailure[]): void {
   const before = new Set(r.dbBefore.memoVersions.map((v) => v.version));
   const created = r.dbAfter.memoVersions.filter((v) => !before.has(v.version));
@@ -480,6 +522,7 @@ export function assertRecording(r: Recording): AssertFailure[] {
   checkViewsPerTurn(r, out);
   checkIntents(r, out);
   checkApprovals(r, out);
+  checkViewTurns(r, out);
   checkMemo(r, out);
   checkResumes(r, out);
   checkScenario(r, shownMetrics, out);

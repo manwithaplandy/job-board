@@ -14,8 +14,16 @@ import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { gatheredFixture, JOB_A, JOB_B } from "@/lib/agent/surfaces/v1/testFixtures";
 import { sandboxSnapshot } from "@/lib/agent/surfaces/v3/document";
 import { useState } from "react";
-import { ViewHostContext } from "../ViewHostContext";
-import { CHIP_ARM_MS, CHIP_PROMPT, GENERATED_VIEW_LABEL, SandboxFrame, type SandboxSurface } from "./SandboxFrame";
+import { ViewHostContext, type ViewHost } from "../ViewHostContext";
+import {
+  ASK_CAPTION,
+  CHIP_ARM_MS,
+  CHIP_PROMPT,
+  GENERATED_VIEW_LABEL,
+  SandboxFrame,
+  type SandboxFrameServer,
+  type SandboxSurface,
+} from "./SandboxFrame";
 
 const ID = "44444444-4444-4444-8444-444444444444";
 const THREAD = "11111111-1111-4111-8111-111111111111";
@@ -666,7 +674,7 @@ describe("SandboxFrame inside a view host", () => {
     return (
       <div data-host={tag}>
         <div data-body={tag}>
-          <ViewHostContext.Provider value={{ requestsEl: el, expanded: false, onEscape: () => {} }}>
+          <ViewHostContext.Provider value={{ requestsEl: el, expanded: false, onEscape: () => {}, ask: null }}>
             <SandboxFrame surface={s} onIntent={onIntent} />
           </ViewHostContext.Provider>
         </div>
@@ -752,7 +760,7 @@ describe("SandboxFrame inside a view host", () => {
 describe("escape from the frame", () => {
   function mountHosted(onEscape: () => void) {
     const view = render(
-      <ViewHostContext.Provider value={{ requestsEl: null, expanded: true, onEscape }}>
+      <ViewHostContext.Provider value={{ requestsEl: null, expanded: true, onEscape, ask: null }}>
         <SandboxFrame surface={surface()} onIntent={vi.fn()} />
       </ViewHostContext.Provider>,
     );
@@ -790,7 +798,7 @@ describe("escape from the frame", () => {
     const { port } = ready(iframe);
     await settle();
     rerender(
-      <ViewHostContext.Provider value={{ requestsEl: null, expanded: false, onEscape: second }}>
+      <ViewHostContext.Provider value={{ requestsEl: null, expanded: false, onEscape: second, ask: null }}>
         <SandboxFrame surface={surface()} onIntent={vi.fn()} />
       </ViewHostContext.Provider>,
     );
@@ -799,5 +807,337 @@ describe("escape from the frame", () => {
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
     expect(iframe.isConnected).toBe(true);
+  });
+});
+
+// PR 6 Task 6.3 (spec 08 S10.2 layer 2, S10.3): an ask from the frame is only ever a pending
+// message on host chrome, in the view frame's requests element. Only a press on its Send,
+// once armed, hands the text to the page (ViewHost.ask.send).
+describe("a view's ask", () => {
+  const SECOND_ID = "55555555-5555-4555-8555-555555555555";
+  type Ask = NonNullable<ViewHost["ask"]>;
+
+  function stubServer() {
+    return { describe: vi.fn().mockResolvedValue(null), report: vi.fn().mockResolvedValue(null) };
+  }
+
+  /** A stand-in for ViewFrame with an ask sink, as the page passes it. */
+  function AskHost(props: {
+    s: SandboxSurface;
+    ask: Ask | null;
+    tag?: string;
+    server?: SandboxFrameServer;
+    initialRequest?: { kind: "ask"; text: string };
+  }) {
+    const tag = props.tag ?? "a";
+    const [el, setEl] = useState<HTMLElement | null>(null);
+    return (
+      <div data-host={tag}>
+        <ViewHostContext.Provider value={{ requestsEl: el, expanded: false, onEscape: () => {}, ask: props.ask }}>
+          <SandboxFrame surface={props.s} onIntent={vi.fn()} server={props.server} initialRequest={props.initialRequest} />
+        </ViewHostContext.Provider>
+        <div data-requests={tag} ref={setEl} />
+      </div>
+    );
+  }
+
+  function mountAsk(opts: { disabledReason?: string | null; server?: SandboxFrameServer; initialRequest?: { kind: "ask"; text: string } } = {}) {
+    const send = vi.fn<(text: string, surfaceId: string, onRefused: () => void) => void>();
+    const ask: Ask = { send, disabledReason: opts.disabledReason ?? null };
+    const view = render(<AskHost s={surface()} ask={ask} server={opts.server} initialRequest={opts.initialRequest} />);
+    const iframe = view.container.querySelector("iframe");
+    if (!iframe) throw new Error("no iframe");
+    return { ...view, iframe, send, ask };
+  }
+
+  const sendButton = () => screen.queryByRole("button", { name: /^Send: / });
+  const askText = () => document.querySelector(".rf-ask__text")?.textContent ?? null;
+
+  test("an ask after inited shows the pending message with the normalised text and sends nothing", async () => {
+    const { iframe, send, container } = mountAsk();
+    const { port } = ready(iframe);
+    await settle();
+    port.postMessage({ type: "ask", text: "  Compare\n the\ttop \u202Etwo " });
+    await screen.findByText(ASK_CAPTION);
+    expect(askText()).toBe("Compare the top two");
+    const requests = container.querySelector('[data-requests="a"]')!;
+    expect(requests.contains(sendButton())).toBe(true);
+    expect(screen.getByRole("button", { name: "Send: Compare the top two" }).textContent).toBe("Send");
+    expect(screen.getByRole("button", { name: "Dismiss: Compare the top two" }).textContent).toBe("Dismiss");
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test("Send inside 700 ms does nothing; after, it sends once with the text and the surface id and clears", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await flush();
+    const button = sendButton()!;
+    fireEvent.click(button);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    fireEvent.click(button);
+    expect(send).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    fireEvent.click(button);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith("Compare the top two", ID, expect.any(Function));
+    expect(sendButton()).toBeNull();
+    expect(askText()).toBeNull();
+  });
+
+  // PR 6 review, minor 9: a send refused before the server accepted it shows the ask again.
+  test("a refused send shows the ask again, armed afresh, so it can be sent or dismissed", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await flush();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    expect(askText()).toBeNull();
+    const refused = send.mock.calls[0][2];
+    act(() => refused());
+    expect(askText()).toBe("Compare the top two");
+    // Armed afresh: a press inside the arm window does nothing.
+    fireEvent.click(sendButton()!);
+    expect(send).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1].slice(0, 2)).toEqual(["Compare the top two", ID]);
+    // A second refusal shows it again, and Dismiss then clears it.
+    act(() => send.mock.calls[1][2]());
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss: Compare the top two" }));
+    expect(askText()).toBeNull();
+  });
+
+  test("a refusal never replaces a newer request, and a frame that failed shows nothing again", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "ask", text: "First" });
+    await flush();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    port.postMessage({ type: "ask", text: "Second" });
+    await flush();
+    act(() => send.mock.calls[0][2]());
+    expect(askText()).toBe("Second");
+    // Dismissed: the older refusal is still stale (the frame asked since), so it shows nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss: Second" }));
+    act(() => send.mock.calls[0][2]());
+    expect(askText()).toBeNull();
+    // After the frame fails (too many asks), a refusal shows nothing.
+    port.postMessage({ type: "ask", text: "Third" });
+    await flush();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    for (let i = 0; i < 6; i++) port.postMessage({ type: "ask", text: `Loop ${i}` });
+    await flush();
+    expect(iframe.isConnected).toBe(false);
+    act(() => send.mock.calls[1][2]());
+    expect(askText()).toBeNull();
+  });
+
+  test("Dismiss removes it without sending", async () => {
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await settle();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss: Compare the top two" }));
+    expect(askText()).toBeNull();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test("a second ask replaces the text and arms again", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "ask", text: "First" });
+    await flush();
+    const first = sendButton()!;
+    act(() => vi.advanceTimersByTime(2000));
+    port.postMessage({ type: "ask", text: "Second" });
+    await flush();
+    const second = screen.getByRole("button", { name: "Send: Second" });
+    expect(first.isConnected).toBe(false);
+    expect(askText()).toBe("Second");
+    fireEvent.click(second);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    fireEvent.click(second);
+    expect(send).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    fireEvent.click(second);
+    expect(send).toHaveBeenCalledWith("Second", ID, expect.any(Function));
+  });
+
+  test("an action replaces a pending ask, and an ask replaces a pending action chip", async () => {
+    actions.describeFrameIntentAction.mockResolvedValue(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const { iframe } = mountAsk();
+    const { port } = ready(iframe);
+    await settle();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await screen.findByText(ASK_CAPTION);
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await screen.findByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    expect(askText()).toBeNull();
+    expect(chips()).toHaveLength(1);
+    port.postMessage({ type: "ask", text: "Tell me more" });
+    await screen.findByRole("button", { name: "Send: Tell me more" });
+    expect(chips()).toHaveLength(0);
+    expect(document.querySelectorAll(".rf-sandbox__chip")).toHaveLength(1);
+  });
+
+  test("an ask that arrives while an action is being described wins: the late chip is not shown", async () => {
+    let resolve: (v: unknown) => void = () => {};
+    actions.describeFrameIntentAction.mockReturnValue(new Promise((r) => (resolve = r)));
+    const { iframe } = mountAsk();
+    const { port } = ready(iframe);
+    await settle();
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await waitFor(() => expect(actions.describeFrameIntentAction).toHaveBeenCalledTimes(1));
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await screen.findByText(ASK_CAPTION);
+    await act(async () => resolve(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme")));
+    await settle();
+    expect(chips()).toHaveLength(0);
+    expect(askText()).toBe("Compare the top two");
+  });
+
+  test("a disabledReason disables Send and is its accessible description; Dismiss still works", async () => {
+    const { iframe, send } = mountAsk({ disabledReason: "Wait for the current reply." });
+    const { port } = ready(iframe);
+    await settle();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    const button = await screen.findByRole("button", { name: "Send: Compare the top two" });
+    expect(button).toHaveProperty("disabled", true);
+    const describedBy = button.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toBe("Wait for the current reply.");
+    pressChip(button);
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss: Compare the top two" }));
+    expect(askText()).toBeNull();
+  });
+
+  test("with no ask sink in the view host, Send is disabled with a reason", async () => {
+    const view = render(<AskHost s={surface()} ask={null} />);
+    const { port } = ready(view.container.querySelector("iframe")!);
+    await settle();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    const button = await screen.findByRole("button", { name: "Send: Compare the top two" });
+    expect(button).toHaveProperty("disabled", true);
+    expect(document.getElementById(button.getAttribute("aria-describedby")!)?.textContent).toBeTruthy();
+  });
+
+  test("the 7th ask within 60 s tears the frame down with ask_rate_limit", async () => {
+    const server = stubServer();
+    const { iframe, send } = mountAsk({ server });
+    const { port } = ready(iframe);
+    await settle();
+    for (let i = 0; i < 6; i++) port.postMessage({ type: "ask", text: `Ask ${i}` });
+    await waitFor(() => expect(askText()).toBe("Ask 5"));
+    await settle();
+    expect(server.report).not.toHaveBeenCalled();
+    expect(iframe.isConnected).toBe(true);
+    port.postMessage({ type: "ask", text: "Ask 6" });
+    await waitFor(() => expect(server.report).toHaveBeenCalledWith(ID, "ask_rate_limit"));
+    expect(iframe.isConnected).toBe(false);
+    expect(askText()).toBeNull();
+    expect(screen.getByText(FALLBACK_TEXT)).toBeTruthy();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test("asks whose text normalises to nothing count toward the limit and show nothing", async () => {
+    const server = stubServer();
+    const { iframe } = mountAsk({ server });
+    const { port } = ready(iframe);
+    await settle();
+    for (let i = 0; i < 6; i++) port.postMessage({ type: "ask", text: " \u200B\n " });
+    await settle();
+    expect(askText()).toBeNull();
+    expect(server.report).not.toHaveBeenCalled();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await waitFor(() => expect(server.report).toHaveBeenCalledWith(ID, "ask_rate_limit"));
+  });
+
+  test("the 21st ask in all tears the frame down with ask_total_limit, even spread over minutes", async () => {
+    const server = stubServer();
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const { iframe } = mountAsk({ server });
+    const { port } = ready(iframe);
+    await settle();
+    for (let batch = 0; batch < 4; batch++) {
+      for (let i = 0; i < 5; i++) port.postMessage({ type: "ask", text: `Ask ${batch}.${i}` });
+      await waitFor(() => expect(askText()).toBe(`Ask ${batch}.4`));
+      now += 61_000;
+    }
+    expect(server.report).not.toHaveBeenCalled();
+    port.postMessage({ type: "ask", text: "One too many" });
+    await waitFor(() => expect(server.report).toHaveBeenCalledWith(ID, "ask_total_limit"));
+    expect(iframe.isConnected).toBe(false);
+  });
+
+  test("an ask before the kit acknowledged init is ignored", async () => {
+    const server = stubServer();
+    const { iframe } = mountAsk({ server });
+    const { port } = ready(iframe, { ack: false });
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await settle();
+    expect(askText()).toBeNull();
+    expect(server.report).not.toHaveBeenCalled();
+  });
+
+  test("an oversized or malformed ask is dropped and counts for nothing", async () => {
+    const { iframe } = mountAsk();
+    const { port } = ready(iframe);
+    await settle();
+    port.postMessage({ type: "ask", text: "x".repeat(281) });
+    port.postMessage({ type: "ask", text: "x", extra: 1 });
+    await settle();
+    expect(askText()).toBeNull();
+  });
+
+  test("initialRequest shows at mount, normalised and armed at once", async () => {
+    const { send } = mountAsk({ initialRequest: { kind: "ask", text: "Compare\n the top two" } });
+    const button = await screen.findByRole("button", { name: "Send: Compare the top two" });
+    fireEvent.click(button);
+    expect(send).toHaveBeenCalledWith("Compare the top two", ID, expect.any(Function));
+  });
+
+  test("with two frames, an ask in A leaves B's pending request as it was (Review Focus 4)", async () => {
+    const sendA = vi.fn();
+    const sendB = vi.fn();
+    const view = render(
+      <>
+        <AskHost s={surface()} ask={{ send: sendA, disabledReason: null }} tag="a" />
+        <AskHost s={{ ...surface(), id: SECOND_ID }} ask={{ send: sendB, disabledReason: null }} tag="b" />
+      </>,
+    );
+    const [frameA, frameB] = [...view.container.querySelectorAll("iframe")];
+    const a = ready(frameA);
+    const b = ready(frameB);
+    await settle();
+    b.port.postMessage({ type: "ask", text: "From B" });
+    const fromB = await screen.findByRole("button", { name: "Send: From B" });
+    a.port.postMessage({ type: "ask", text: "From A" });
+    const fromA = await screen.findByRole("button", { name: "Send: From A" });
+    const reqA = view.container.querySelector('[data-requests="a"]')!;
+    const reqB = view.container.querySelector('[data-requests="b"]')!;
+    expect(reqA.contains(fromA)).toBe(true);
+    expect(reqB.contains(fromB)).toBe(true);
+    a.port.postMessage({ type: "ask", text: "From A again" });
+    await screen.findByRole("button", { name: "Send: From A again" });
+    expect(fromB.isConnected).toBe(true);
+    expect(reqB.querySelectorAll(".rf-ask__text")).toHaveLength(1);
+    pressChip(fromB);
+    expect(sendB).toHaveBeenCalledWith("From B", SECOND_ID, expect.any(Function));
+    expect(sendA).not.toHaveBeenCalled();
   });
 });

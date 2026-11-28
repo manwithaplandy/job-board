@@ -222,8 +222,11 @@ describe("the dry run", () => {
   test("fix round 1: each pass stage fits its cap (what is left) with its reserve, uncached and cached", () => {
     const stages = estimatePass();
     const uncached = passStageFits(stages, 3, (c) => c.costMicros);
-    expect(uncached.map((f) => f.capUsd)).toEqual([3, 0.94, 0.3]);
-    expect(uncached.every((f) => f.fits)).toBe(true);
+    // PR 6: the injection set grew to 57 runs ($0.82), so uncached the judge has $0.12 left
+    // and would stop at its cap; the $3 pass ceiling does not rise (the work splits into
+    // passes that each fit, as the plan's "Eval budget" says).
+    expect(uncached.map((f) => f.capUsd)).toEqual([3, 0.94, 0.12]);
+    expect(uncached.map((f) => f.fits)).toEqual([true, true, false]);
     expect(passStageFits(stages, 3, (c) => c.cachedCostMicros).map((f) => f.capUsd)).toEqual([3, 1.5, 1]);
     // At $2.50 the matrix still fits its cap; the injection, with $0.44 left, does not.
     expect(passStageFits(stages, 2.5, (c) => c.costMicros).map((f) => f.fits)).toEqual([true, false, false]);
@@ -232,20 +235,21 @@ describe("the dry run", () => {
   test("the pass's dry run prints each stage and the total against the $3 budget", () => {
     const out = formatPassDryRun({ budgetUsd: 3 });
     expect(out).toContain("| matrix | anthropic/claude-haiku-5.5 | 180 cells | 930 | 12.69M | 1.57M | $2.05 | $1.48 |");
-    expect(out).toContain("| injection | anthropic/claude-haiku-5.5 | 45 runs | 360 | 5.40M | 0.22M | $0.65 | $0.32 |");
+    expect(out).toContain("| injection | anthropic/claude-haiku-5.5 | 57 runs | 456 | 6.84M | 0.27M | $0.82 | $0.40 |");
     expect(out).toContain("| judge | anthropic/claude-haiku-5.5 | up to 144 pairs | 144 | 1.73M | 0.06M | $0.20 | $0.20 |");
-    expect(out).toContain("| pass total | | | 1434 | 19.82M | 1.84M | $2.90 | $2.00 |");
-    expect(out).toContain("Pass total against the budget: $2.90 uncached (within $3.00: yes), $2.00 cached (within: yes).");
+    expect(out).toContain("| pass total | | | 1530 | 21.26M | 1.90M | $3.07 | $2.09 |");
+    expect(out).toContain("Pass total against the budget: $3.07 uncached (within $3.00: NO), $2.09 cached (within: yes).");
     // Fix round 1: every stage, with its look-ahead reserve, within what is left when it starts.
     expect(out).toContain("| matrix | $0.0098 | $2.0618 vs $3.00: fits | $1.4924 vs $3.00: fits |");
-    expect(out).toContain("| injection | $0.0098 | $0.6578 vs $0.94: fits | $0.3270 vs $1.50: fits |");
-    expect(out).toContain("| judge | $0.0073 | $0.2089 vs $0.30: fits | $0.2089 vs $1.00: fits |");
-    expect(out).toContain("Every stage completes within the budget: uncached yes, cached yes.");
-    expect(out).toContain("a reserve of $0.1113), every stage would complete uncached: yes.");
-    expect(out).not.toMatch(/Uncached, a stage would reach its cap/);
+    expect(out).toContain("| injection | $0.0098 | $0.8306 vs $0.94: fits | $0.4116 vs $1.50: fits |");
+    // PR 6: with 57 injection runs the uncached pass is over $3; the judge would stop at its cap.
+    expect(out).toContain("| judge | $0.0073 | $0.2089 vs $0.12: NO | $0.2089 vs $1.00: fits |");
+    expect(out).toContain("Every stage completes within the budget: uncached NO, cached yes.");
+    expect(out).toContain("a reserve of $0.1113), every stage would complete uncached: NO.");
+    expect(out).toMatch(/Uncached, a stage would reach its cap\. The cap still holds/);
     // A lowered budget the uncached pass does not fit: it says so, and how the cap still holds.
     const low = formatPassDryRun({ budgetUsd: 2.5 });
-    expect(low).toContain("$2.90 uncached (within $2.50: NO), $2.00 cached (within: yes)");
+    expect(low).toContain("$3.07 uncached (within $2.50: NO), $2.09 cached (within: yes)");
     expect(low).toContain("Every stage completes within the budget: uncached NO, cached yes.");
     expect(low).toMatch(/The cap still holds: the stage stops \(cap_exceeded\) before a call that could/);
   });

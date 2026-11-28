@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { HTML_INJECTION_CASES } from "@/lib/agent/evals/injectionHtml";
-import { SANDBOX_CANARY_ORIGIN, SANDBOX_CANARY_PORT, SANDBOX_CASES, SANDBOX_CASE_NAMES, isSandboxCaseName, sandboxCase } from "./fixtures";
+import { normalizeAskText } from "@/lib/agent/surfaces/v3/bridge";
+import {
+  HARNESS_ASK_BIDI_SHOWN,
+  HARNESS_ASK_SWAPPED,
+  HARNESS_ASK_TEXT,
+  SANDBOX_CANARY_ORIGIN, SANDBOX_CANARY_PORT, SANDBOX_CASES, SANDBOX_CASE_NAMES, isSandboxCaseName, sandboxCase } from "./fixtures";
 
 // The harness's hostile documents (plan Task 2.7). The browsers themselves run in CI; these
 // checks keep the fixtures honest where they can be checked without one.
@@ -91,6 +96,31 @@ describe("sandbox harness fixtures", () => {
     expect(html).toContain('P("tab"');
     expect(html, "no action is sent: the jb-buttons carry none").not.toMatch(/host\.action\(|action=/);
     expect(html).not.toMatch(/\bfetch\b|new Image|location/);
+  });
+
+  test("the ask cases ask, never act or reach out, and say what the browser test checks (PR 6)", () => {
+    const names = ["ask-on-load", "ask-loop", "ask-click", "ask-swap", "ask-synthetic-click", "ask-oversize", "ask-bidi"] as const;
+    for (const name of names) {
+      expect(isSandboxCaseName(name), name).toBe(true);
+      const html = sandboxCase(name).frames[0].html;
+      expect(html, name).toMatch(/host\.ask\(|ask="/);
+      expect(html, name).not.toMatch(/host\.action\(|action=/);
+      expect(html, name).not.toMatch(/\bfetch\b|new Image|location/);
+    }
+    expect(sandboxCase("ask-click").frames[0].html).toContain(`<jb-button id="ask" ask="${HARNESS_ASK_TEXT}">`);
+    expect(sandboxCase("ask-swap").frames[0].html).toContain(`host.ask("${HARNESS_ASK_SWAPPED}")`);
+    expect(sandboxCase("ask-swap").frames[0].html).toMatch(/}, 100\);/);
+    expect(sandboxCase("ask-loop").frames[0].html).toMatch(/i < 40/);
+    expect(sandboxCase("ask-oversize").frames[0].html).toMatch(/i < 281/);
+    // The bidi document carries escapes, so the raw controls never sit in this source file.
+    const bidi = sandboxCase("ask-bidi").frames[0].html;
+    expect(bidi).toContain("\\u202E");
+    expect(/[\u202A-\u202E\u2066-\u2069\u200B]/.test(bidi)).toBe(false);
+    expect(HARNESS_ASK_BIDI_SHOWN).toBe("Show the top two roles now");
+    // What the document asks for, decoded, normalises to exactly what the browser test expects shown.
+    expect(normalizeAskText("Show the \u202Etop two\u202C\u200B roles\u0007\n\u2066now\u2069")).toBe(HARNESS_ASK_BIDI_SHOWN);
+    expect(normalizeAskText("\u200B\u202E \u0007 \n\u2066\u2069")).toBeNull();
+    expect(bidi).toContain('"Show the \\u202Etop two\\u202C\\u200B roles\\u0007\\n\\u2066now\\u2069"');
   });
 
   test("the canary server listens on the port the fixtures name", () => {

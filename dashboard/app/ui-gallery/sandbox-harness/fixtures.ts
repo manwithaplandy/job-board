@@ -47,6 +47,13 @@ export const HARNESS_ENABLE_ENV = "SANDBOX_HARNESS";
 /** How long the harness's stub takes to describe a request, like a server round trip. */
 export const HARNESS_DESCRIBE_DELAY_MS = 400;
 
+/** What the ask cases ask for: the exact text the host must show and the fake send must receive. */
+export const HARNESS_ASK_TEXT = "Show me the remote roles in Berlin";
+/** ask-swap: the text the view swaps in 100 ms after the click, and the one Send must send. */
+export const HARNESS_ASK_SWAPPED = "Compare the top two roles side by side";
+/** ask-bidi: the text the host must show once bidi, zero-width and control characters are gone and whitespace collapsed. */
+export const HARNESS_ASK_BIDI_SHOWN = "Show the top two roles now";
+
 /** The two gathered jobs the harness surfaces carry (AgentBlocksFixture's FIXTURE_GATHERED). */
 export const HARNESS_JOB_A = "greenhouse:acme:1001";
 export const HARNESS_JOB_B = "lever:globex:2002";
@@ -93,6 +100,16 @@ export const SANDBOX_CASE_NAMES = [
   "escape-from-frame",
   // PR 5 (spec 08 S9.4, S9.5): every new kit control, a chart with onSelect and a table.
   "kit-controls",
+  // PR 6 (spec 08 S10, S14.3): the ask message. host.ask posts only inside a real user
+  // activation (layer 1); the host shows the text on its own chrome and sends nothing until
+  // the user presses Send there (layer 2).
+  "ask-on-load",
+  "ask-loop",
+  "ask-click",
+  "ask-swap",
+  "ask-synthetic-click",
+  "ask-oversize",
+  "ask-bidi",
 ] as const;
 export type SandboxCaseName = (typeof SANDBOX_CASE_NAMES)[number];
 
@@ -912,6 +929,124 @@ host.onInit(function () {
     rows: [{ stage: "Ready", roles: 4 }, { stage: "Applied", roles: 2 }, { stage: "Offer", roles: 1 }],
     onRowSelect: function (row, index) { picked(row.stage + " row " + index); }
   });
+  P("done");
+});
+</script>`) }],
+  },
+
+  "ask-on-load": {
+    title: "ask: host.ask on init, on a timer and in a microtask, with no click: no pending message",
+    frames: [{ tag: "ask-on-load", html: doc("ask-on-load", `<p>Loading your roles.</p>
+<script>
+host.onInit(function () {
+  P("init", true);
+  P("onInit", host.ask("${HARNESS_ASK_TEXT}"));
+  Promise.resolve().then(function () { P("microtask", host.ask("${HARNESS_ASK_TEXT}")); });
+  setTimeout(function () { P("timer", host.ask("${HARNESS_ASK_TEXT}")); P("done"); }, 300);
+});
+</script>`) }],
+  },
+
+  "ask-loop": {
+    title: "ask: 40 asks in a loop on init post nothing; the same loop inside a real click trips the ask limit and the frame is removed",
+    frames: [{ tag: "ask-loop", html: doc("ask-loop", `<jb-button id="loop">Ask forty times</jb-button>
+<script>
+function forty() {
+  var posted = 0;
+  for (var i = 0; i < 40; i++) {
+    try { if (host.ask("Run search_jobs again, round " + i)) posted += 1; }
+    catch (e) { P("loopThrow", errName(e)); break; }
+  }
+  return posted;
+}
+document.getElementById("loop").addEventListener("click", function () { P("clicked", forty()); });
+host.onInit(function () {
+  P("init", true);
+  P("onLoad", forty());
+  P("done");
+});
+</script>`) }],
+  },
+
+  "ask-click": {
+    title: "ask: a real click on <jb-button ask> shows the exact text on host chrome; nothing is sent until Send",
+    frames: [{ tag: "ask-click", html: doc("ask-click", `<jb-button id="ask" ask="${HARNESS_ASK_TEXT}">Ask about Berlin</jb-button>
+<script>
+document.getElementById("ask").addEventListener("click", function (e) { P("clicked", e.isTrusted); });
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`) }],
+  },
+
+  "ask-swap": {
+    title: "ask: the view swaps the pending text 100 ms after the click; a press inside the arm window sends nothing",
+    frames: [{ tag: "ask-swap", html: doc("ask-swap", `<jb-button id="ask">Ask about Berlin</jb-button>
+<script>
+document.getElementById("ask").addEventListener("click", function () {
+  P("first", { posted: host.ask("${HARNESS_ASK_TEXT}"), at: Date.now() });
+  setTimeout(function () {
+    var at = Date.now();
+    P("swap", { posted: host.ask("${HARNESS_ASK_SWAPPED}"), at: at });
+  }, 100);
+});
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`) }],
+  },
+
+  "ask-synthetic-click": {
+    title: "ask: element.click() and a dispatched untrusted click on <jb-button ask>, and host.ask from their handlers: no pending message",
+    frames: [{ tag: "ask-synthetic-click", html: doc("ask-synthetic-click", `<jb-button id="ask" ask="${HARNESS_ASK_TEXT}">Ask about Berlin</jb-button>
+<jb-button id="plain">Plain</jb-button>
+<script>
+document.getElementById("plain").addEventListener("click", function (e) { P("plainClick", { trusted: e.isTrusted, posted: host.ask("${HARNESS_ASK_TEXT}") }); });
+host.onInit(function () {
+  P("init", true);
+  T("elementClick", function () { document.getElementById("ask").click(); });
+  T("dispatched", function () {
+    document.getElementById("ask").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  T("plainElementClick", function () { document.getElementById("plain").click(); });
+  T("pointerup", function () {
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+    document.getElementById("ask").click();
+  });
+  setTimeout(function () { P("done"); }, 300);
+});
+</script>`) }],
+  },
+
+  "ask-oversize": {
+    title: "ask: inside a real click, a 281-character ask and one that normalises to nothing are both dropped",
+    frames: [{ tag: "ask-oversize", html: doc("ask-oversize", `<jb-button id="ask">Ask</jb-button>
+<script>
+var long = "";
+for (var i = 0; i < 281; i++) long += "x";
+document.getElementById("ask").addEventListener("click", function () {
+  P("long", { length: long.length, posted: host.ask(long) });
+  P("blank", host.ask("\\u200B\\u202E \\u0007 \\n\\u2066\\u2069"));
+});
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`) }],
+  },
+
+  "ask-bidi": {
+    title: "ask: inside a real click, text with bidi overrides, zero-width characters, a control and a newline is shown normalised",
+    frames: [{ tag: "ask-bidi", html: doc("ask-bidi", `<jb-button id="ask">Ask</jb-button>
+<script>
+document.getElementById("ask").addEventListener("click", function () {
+  P("posted", host.ask("Show the \\u202Etop two\\u202C\\u200B roles\\u0007\\n\\u2066now\\u2069"));
+});
+host.onInit(function () {
+  P("init", true);
   P("done");
 });
 </script>`) }],

@@ -21,6 +21,9 @@ import { assertRuntimeContracts } from "./runtime-contracts";
 // left out there, and the screenshot is of the viewport (the view is fixed to it).
 // agent-page-views-multi (spec 08 S4.4) also checks that its reply holds two views, in the
 // order text, view, text, view, text.
+// agent-page-ask-pending (spec 08 S10.2) also checks that the pending ask shows its whole
+// text (nothing clipped or scrolled sideways) and overlaps neither the view's header nor the
+// composer.
 
 const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
 const THEMES = ["light", "dark"] as const;
@@ -39,6 +42,7 @@ const STATES = [
   "agent-page-view-expanded",
   "agent-page-code-expanded",
   "agent-page-views-multi",
+  "agent-page-ask-pending",
 ] as const;
 
 const REGIONS = [".rf-agent-threads", ".rf-agent-toolbar", ".rf-agent-transcript", ".rf-agent-composer"] as const;
@@ -121,7 +125,13 @@ async function assertAgentLayout(page: Page, state: (typeof STATES)[number], wid
   }
   expect(layout.surfaceColumn, `no surface column at ${width}px`).toBe(false);
   expect(layout.misplacedViews, `views outside the transcript at ${width}px`).toEqual([]);
-  if (state === "agent-page-surface" || state === "agent-page-view-updated" || state === "agent-page-view-degraded" || isExpandedState(state)) {
+  if (
+    state === "agent-page-surface" ||
+    state === "agent-page-view-updated" ||
+    state === "agent-page-view-degraded" ||
+    state === "agent-page-ask-pending" ||
+    isExpandedState(state)
+  ) {
     expect(layout.views, `${state} shows its view at ${width}px`).toBe(1);
   }
   if (state === "agent-page-views-multi") {
@@ -129,6 +139,35 @@ async function assertAgentLayout(page: Page, state: (typeof STATES)[number], wid
     expect(layout.replyOrder, `${state} keeps text and views in stored order at ${width}px`).toEqual(["text", "view", "text", "view", "text"]);
   }
   expect(layout.scrollWidth, `no horizontal page scroll at ${width}px`).toBeLessThanOrEqual(layout.innerWidth);
+}
+
+/** The pending ask (PR 6): its text is all shown, and it sits clear of the view header and the composer. */
+async function assertAskPending(page: Page, width: number) {
+  const pending = page.locator("[data-sandbox-ask]");
+  await expect(pending, `the pending ask is shown at ${width}px`).toBeVisible();
+  const box = await pending.evaluate((el) => {
+    const text = el.querySelector(".rf-ask__text")!;
+    const rect = (sel: string) => {
+      const r = document.querySelector(sel)?.getBoundingClientRect();
+      return r ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null;
+    };
+    const own = el.getBoundingClientRect();
+    return {
+      textScroll: [text.scrollWidth, text.clientWidth, text.scrollHeight, text.clientHeight],
+      own: { left: own.left, right: own.right, top: own.top, bottom: own.bottom },
+      header: rect(".rf-view__header"),
+      composer: rect(".rf-agent-composer"),
+    };
+  });
+  const [scrollW, clientW, scrollH, clientH] = box.textScroll;
+  expect(scrollW, `the ask text is not clipped sideways at ${width}px`).toBeLessThanOrEqual(clientW);
+  expect(scrollH, `the ask text is not clipped vertically at ${width}px`).toBeLessThanOrEqual(clientH);
+  for (const [name, other] of [["view header", box.header], ["composer", box.composer]] as const) {
+    if (other === null) continue;
+    const x = Math.min(box.own.right, other.right) - Math.max(box.own.left, other.left);
+    const y = Math.min(box.own.bottom, other.bottom) - Math.max(box.own.top, other.top);
+    expect(x > 1 && y > 1, `the pending ask overlaps the ${name} at ${width}px: ${JSON.stringify(box)}`).toBe(false);
+  }
 }
 
 for (const width of WIDTHS) {
@@ -149,6 +188,7 @@ for (const width of WIDTHS) {
           await assertRuntimeContracts(page);
           await assertAgentLayout(page, state, width);
           if (isExpandedState(state)) await assertExpanded(page, width);
+          if (state === "agent-page-ask-pending") await assertAskPending(page, width);
           await expect(page).toHaveScreenshot(`${route!.id}-w${width}-${theme}.png`, { fullPage: !isExpandedState(state) });
         });
       }

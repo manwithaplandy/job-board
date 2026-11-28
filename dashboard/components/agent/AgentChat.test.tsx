@@ -44,7 +44,8 @@ import {
 } from "./AgentChat";
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { gatheredFixture } from "@/lib/agent/surfaces/v1/testFixtures";
-import { SURFACE_FAILED_TEXT } from "./SurfaceHost";
+import { sandboxChain, SURFACE_FAILED_TEXT } from "./SurfaceHost";
+import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { ViewUpdatedStub } from "./ViewPlaceholder";
 import { CONFIRMATIONS_UNAVAILABLE } from "@/lib/agent/approvalSecret";
 import type { ConfirmDescriptor } from "@/lib/agent/actions/intents";
@@ -1104,5 +1105,119 @@ describe("an expanded view", () => {
     expect(document.documentElement.classList.contains("rf-view-expanded")).toBe(true);
     expect(container.querySelector(".rf-agent-dock .rf-expanded-status")).toBeNull();
     expect(window.history.state).toEqual({ rfView: V1 });
+  });
+});
+
+// PR 6 Task 6.4 (spec 08 S10.4): a view's pending ask, sent on the user's press of Send, is
+// the user's message with a view- id and the view's source; the composer's draft is left alone.
+describe("a view's ask", () => {
+  const CODE = "aaaaaaaa-0000-4000-8000-0000000000c3";
+  const ASK_TEXT = "Compare the top two";
+  function codeChain(): HostChain {
+    const gathered = gatheredFixture();
+    return sandboxChain({
+      id: CODE,
+      threadId: THREAD,
+      payload: { variant: 3, title: "Code view", html: "<p>Hello from the view</p>" },
+      gathered,
+      fallback: fallbackSurface(gathered, "The plain view."),
+      rows: {},
+    });
+  }
+  const history = () => [ask("u1", "Show me"), reply("a1", [presentPart(CODE, "output-available", { surfaceId: CODE, variant: 3, outcome: "valid" })])];
+  const askSend = () => screen.getByRole("button", { name: `Send: ${ASK_TEXT}` }) as HTMLButtonElement;
+  const describedBy = (el: HTMLElement) => document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    actions.reportSurfaceFailure.mockReset().mockResolvedValue(null);
+    actions.describeFrameIntentAction.mockReset();
+  });
+
+  test("Send posts the ask as a view message with the view's source, and the composer keeps its half-typed draft (Review Focus 5)", async () => {
+    render(<AgentChat threadId={THREAD} initialMessages={history()} notice={null} surfaces={[codeChain()]} fixture={{ askFor: { surfaceId: CODE, text: ASK_TEXT } }} />);
+    fireEvent.change(composer(), { target: { value: "half typed" } });
+    fireEvent.click(askSend());
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = bodyOf(0);
+    expect(Object.keys(body).sort()).toEqual(["id", "kind", "source", "text", "threadId"]);
+    expect(body).toMatchObject({ threadId: THREAD, kind: "message", text: ASK_TEXT, source: { kind: "view", surfaceId: CODE } });
+    expect(String(body.id)).toMatch(/^view-[A-Za-z0-9]{16}$/);
+    await screen.findByText("Here are two roles.");
+    expect(composer().value).toBe("half typed");
+    // The pending message is gone, and the sent message has its caption.
+    expect(screen.queryByRole("button", { name: `Send: ${ASK_TEXT}` })).toBeNull();
+    const sent = screen.getByText(ASK_TEXT, { selector: ".rf-agent-message__text" }).closest("li")!;
+    expect(sent.dataset.messageId).toBe(body.id);
+    expect(sent.textContent).toContain("Sent from a view");
+  });
+
+  test("a stored user message with a view- id shows Sent from a view; one with a u- id does not", () => {
+    const messages: UIMessage[] = [
+      ask("view-abc", "From the view"),
+      reply("a1", [text("First answer")]),
+      ask("u-abc", "Typed by me"),
+      reply("a2", [text("Second answer")]),
+    ];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+    const fromView = container.querySelector<HTMLElement>('[data-message-id="view-abc"]')!;
+    const typed = container.querySelector<HTMLElement>('[data-message-id="u-abc"]')!;
+    expect(fromView.querySelector(".rf-agent-message__from-view")?.textContent).toBe("Sent from a view");
+    expect(fromView.querySelector(".rf-agent-message__bubble .rf-agent-message__text")?.textContent).toBe("From the view");
+    expect(typed.textContent).not.toContain("Sent from a view");
+    expect(screen.getAllByText("Sent from a view")).toHaveLength(1);
+  });
+
+  test("Send is disabled while a turn runs, with the reason as its description", async () => {
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    render(<AgentChat threadId={THREAD} initialMessages={history()} notice={null} surfaces={[codeChain()]} fixture={{ askFor: { surfaceId: CODE, text: ASK_TEXT } }} />);
+    expect(askSend().disabled).toBe(false);
+    fireEvent.change(composer(), { target: { value: "Another question" } });
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(askSend().disabled).toBe(true));
+    expect(describedBy(askSend())).toBe("Wait for the current reply.");
+    fireEvent.click(askSend());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a blocking notice disables Send with the notice's own sentence", () => {
+    render(<AgentChat threadId={THREAD} initialMessages={history()} notice="daily_ceiling" surfaces={[codeChain()]} fixture={{ askFor: { surfaceId: CODE, text: ASK_TEXT } }} />);
+    expect(askSend().disabled).toBe(true);
+    expect(describedBy(askSend())).toBe("Today's agent budget is used up");
+  });
+
+  test("a refused view message is taken back out and its text does not go to the composer", async () => {
+    fetchMock.mockResolvedValue(Response.json({ error: "view_source_invalid" }, { status: 400 }));
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={history()} notice={null} surfaces={[codeChain()]} fixture={{ askFor: { surfaceId: CODE, text: ASK_TEXT } }} />,
+    );
+    fireEvent.click(askSend());
+    await screen.findByText(GENERIC_PROBLEM);
+    expect(container.querySelector('[data-message-id^="view-"]')).toBeNull();
+    expect(composer().value).toBe("");
+    // PR 6 review, minor 9: it goes back to its frame as the pending ask, to retry or dismiss.
+    expect(askSend().disabled).toBe(false);
+    expect(container.querySelector("[data-sandbox-ask] .rf-ask__text")?.textContent).toBe(ASK_TEXT);
+  });
+
+  test("a network failure puts the ask back too; a failure after the server accepted it does not", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const { container, unmount } = render(
+      <AgentChat threadId={THREAD} initialMessages={history()} notice={null} surfaces={[codeChain()]} fixture={{ askFor: { surfaceId: CODE, text: ASK_TEXT } }} />,
+    );
+    fireEvent.click(askSend());
+    await waitFor(() => expect(container.querySelector("[data-sandbox-ask] .rf-ask__text")?.textContent).toBe(ASK_TEXT));
+    expect(composer().value).toBe("");
+    unmount();
+    // A 5xx may come after the server stored the message: it stays, and the ask is not shown again.
+    fetchMock.mockResolvedValueOnce(Response.json({ error: "internal" }, { status: 500 }));
+    const again = render(
+      <AgentChat threadId={THREAD} initialMessages={history()} notice={null} surfaces={[codeChain()]} fixture={{ askFor: { surfaceId: CODE, text: ASK_TEXT } }} />,
+    );
+    fireEvent.click(askSend());
+    await waitFor(() => expect(again.container.querySelector('[data-message-id^="view-"]')).not.toBeNull());
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(again.container.querySelector("[data-sandbox-ask]")).toBeNull();
   });
 });

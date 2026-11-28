@@ -38,7 +38,7 @@ const NEW = "99999999-9999-4999-8999-999999999999";
 function ctx(extra: Partial<ToolCtx> = {}): ToolCtx {
   return {
     userId: USER, email: "me@example.test", threadId: THREAD, runId: RUN, variant: 1, unattended: false,
-    gathered: gatheredFixture(), repairsLeft: { n: 1 }, views: { used: 0 }, ...extra,
+    gathered: gatheredFixture(), repairsLeft: { n: 1 }, views: { used: 0 }, fromView: false, ...extra,
   };
 }
 

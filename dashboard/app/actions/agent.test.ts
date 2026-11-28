@@ -47,7 +47,18 @@ const host = vi.hoisted(() => ({ loadHostSurface: vi.fn(), describePendingApprov
 vi.mock("@/lib/agent/surfaces/host", () => ({ loadHostSurface: host.loadHostSurface }));
 vi.mock("@/lib/agent/actions/approvalCard", () => ({ describePendingApproval: host.describePendingApproval }));
 const store = vi.hoisted(() => ({ getSurface: vi.fn(), markSurfaceFailed: vi.fn(), describeIntent: vi.fn() }));
-vi.mock("@/lib/agent/surfaces/store", () => ({ getSurface: store.getSurface, markSurfaceFailed: store.markSurfaceFailed }));
+// ownsVariant3Surface (PR 6, moved to store.ts from this module) is the store's own rule,
+// restated over the stubbed getSurface; store.test.ts tests the real one.
+vi.mock("@/lib/agent/surfaces/store", () => ({
+  getSurface: store.getSurface,
+  markSurfaceFailed: store.markSurfaceFailed,
+  ownsVariant3Surface: async (userId: string, surfaceId: string, threadId: string | null) => {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(surfaceId) || (threadId !== null && !uuid.test(threadId))) return false;
+    const surface: { variant: number; threadId: string } | null = await store.getSurface(userId, surfaceId);
+    return surface !== null && surface.variant === 3 && (threadId === null || surface.threadId === threadId);
+  },
+}));
 vi.mock("@/lib/agent/actions/describe", async (orig) => ({
   ...(await orig<typeof import("@/lib/agent/actions/describe")>()),
   describeIntent: store.describeIntent,

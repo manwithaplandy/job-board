@@ -27,7 +27,8 @@ vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
 
 import { validateSurfaceV3 } from "@/lib/agent/surfaces/v3/document";
 import { AgentPageFixture, agentPageFixtureMessages, CODE_FIXTURE_DOCUMENT } from "./AgentPageFixture";
-import { AGENT_PAGE_FIXTURE_STATES } from "./agentPageFixtureStates";
+import { normalizeAskText } from "@/lib/agent/surfaces/v3/bridge";
+import { AGENT_PAGE_FIXTURE_STATES, ASK_PENDING_TEXT } from "./agentPageFixtureStates";
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
@@ -169,4 +170,22 @@ test("agent-page-views-multi shows text, view, text, view, text in one reply, ea
   expect(views.map((v) => v.dataset.variant)).toEqual(["1", "1"]);
   expect(views.map((v) => v.getAttribute("aria-label"))).toEqual(["View: Two strong matches", "View: How your applications are going"]);
   expect(screen.queryByText("This view was updated below.")).toBeNull();
+});
+
+// PR 6 (spec 08 S10.2): a view's ask waits on host chrome in the view's request region.
+test("agent-page-ask-pending shows the code view's 280-character ask pending under the view, armed, with Send and Dismiss", () => {
+  expect(Array.from(ASK_PENDING_TEXT)).toHaveLength(280);
+  expect(ASK_PENDING_TEXT.slice(140)).not.toMatch(/\s/);
+  expect(normalizeAskText(ASK_PENDING_TEXT)).toBe(ASK_PENDING_TEXT);
+  const { container } = render(<AgentPageFixture state="agent-page-ask-pending" />);
+  const view = container.querySelector<HTMLElement>(".rf-view")!;
+  expect(view.dataset.variant).toBe("3");
+  expect(view.dataset.expanded).not.toBe("true");
+  const pending = view.querySelector<HTMLElement>("[data-sandbox-ask]")!;
+  expect(pending).not.toBeNull();
+  expect(pending.closest(".rf-view__requests")).not.toBeNull();
+  expect(pending.querySelector(".rf-ask__text")?.textContent).toBe(ASK_PENDING_TEXT);
+  const send = screen.getByRole("button", { name: `Send: ${ASK_PENDING_TEXT}` });
+  expect(send.hasAttribute("disabled")).toBe(false);
+  expect(screen.getByRole("button", { name: `Dismiss: ${ASK_PENDING_TEXT}` })).toBeTruthy();
 });

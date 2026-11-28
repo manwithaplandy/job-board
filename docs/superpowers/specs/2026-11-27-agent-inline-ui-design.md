@@ -420,7 +420,7 @@ Transport and trust are exactly the `action` path's: the message arrives on the 
 
 Host-side normalisation, a pure function `normalizeAskText(raw): string | null` in `bridge.ts`:
 
-- Unicode NFC; remove C0 and C1 controls, zero-width characters (U+200B to U+200D, U+2060, U+FEFF) and bidi controls (U+202A to U+202E, U+2066 to U+2069);
+- Unicode NFC; remove C0 and C1 controls, every Unicode format character (`\p{Cf}`: the zero-width characters U+200B to U+200D, U+2060 and U+FEFF, every bidi control and mark including U+202A to U+202E, U+2066 to U+2069, RLM/LRM and ALM U+061C, the soft hyphen U+00AD, the invisible operators and the tag characters U+E0000 to U+E007F) and the variation selectors (U+FE00 to U+FE0F, U+E0100 to U+E01EF), so no text the user cannot see reaches the model; emoji sequences that use ZWJ or a variation selector degrade to their parts;
 - collapse every run of whitespace, including newlines, to one space; trim;
 - null when empty or longer than 280 code points.
 
@@ -428,7 +428,7 @@ A null drops the message. It still counts toward the limits.
 
 ### 10.2 A genuine user action: two layers
 
-**Layer 1, in the kit (a filter, not the control).** `host.ask` posts only when `navigator.userActivation.isActive` is true, read through a getter captured before model code runs; it returns `false` otherwise. Where `navigator.userActivation` is missing, the kit tracks its own flag: set by a trusted (`isTrusted`) `pointerup` or `keyup` seen in a capture listener on `window`, cleared after 1,000 ms. `<jb-button ask>` calls `host.ask` from its click handler. This stops on-load and looping asks cheaply. It is not the control, because model script lives in the same realm as the kit and can make any click anywhere in the view an ask with any text.
+**Layer 1, in the kit (a filter, not the control).** `host.ask` posts only after a real input in the last 1,000 ms: the kit tracks its own flag, set by a trusted (`isTrusted`) activation-triggering input event (`keydown` or `keyup` other than Escape, `mousedown`, `pointerdown`, `pointerup`, `touchend`) seen in a capture listener on `window`, and cleared after 1,000 ms. Where the browser has `navigator.userActivation`, `isActive` must be true as well, read through a getter captured before model code runs. It returns `false` otherwise. `isActive` alone is not enough: browser automation grants a frame transient activation whenever it evaluates script there (Playwright does so in Chromium and WebKit, and Firefox reported activation with no input under it too; PR 6 fix round 2), and script can never make a trusted event. `<jb-button ask>` calls `host.ask` from its click handler. This stops on-load and looping asks cheaply. It is not the control, because model script lives in the same realm as the kit and can make any click anywhere in the view an ask with any text.
 
 **Layer 2, in the host (the control).** An `ask` never sends anything. It becomes a **pending message** in the view frame's request region, drawn by app chrome outside the iframe, which the frame can neither read, cover nor click:
 

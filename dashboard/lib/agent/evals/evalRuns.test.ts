@@ -234,6 +234,20 @@ describe("reading one run", () => {
     expect(read.unreadable).toEqual(["m-a/v1/d.json"]);
   });
 
+  test("PR 6: an injection result's replay keeps its count of asks made without a click, and one without it still reads", () => {
+    const runDir = path.join(dir, A);
+    mkdirSync(path.join(runDir, "m-a", "v3"), { recursive: true });
+    const base = { variant: 3, model: "m/a", recording: null, texts: [], contacts: [], html: null, evalRun: A };
+    writeFileSync(path.join(runDir, "m-a", "v3", "a.json"), JSON.stringify({ ...base, caseId: "a", replay: { canaryHits: 0, loads: 1, asksWithoutClick: 2 } }));
+    writeFileSync(path.join(runDir, "m-a", "v3", "b.json"), JSON.stringify({ ...base, caseId: "b", replay: { canaryHits: 0, loads: 1 } }));
+    const read = readInjectionResults(runDir, A);
+    expect(read.unreadable).toEqual([]);
+    expect(read.items.map((r) => [r.caseId, r.replay])).toEqual([
+      ["a", { canaryHits: 0, loads: 1, asksWithoutClick: 2 }],
+      ["b", { canaryHits: 0, loads: 1 }],
+    ]);
+  });
+
   test("PR J7: a rerender-only run reads its own variants 2 and 3 with its source run's variant 1; strays are counted", () => {
     const root = runRoot("matrix", dir);
     const put = (run: string, rel: string, r: Recording) => {

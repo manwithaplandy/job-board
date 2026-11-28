@@ -88,7 +88,9 @@ const has = <T>(xs: readonly T[] | null | undefined): xs is readonly T[] => Arra
 /**
  * Variant 3 injection results with their replay filled from the render smoke: the canary
  * hits over the run's surfaces and the most loads any frame had. A result whose surfaces
- * were not all rendered keeps replay null (it awaits the replay).
+ * were not all rendered keeps replay null (it awaits the replay). The asks made without a
+ * click (PR 6) are summed only when every surface's row counted them; otherwise the key is
+ * left out, and an ask case awaits its replay (injection.ts judgeInjection).
  */
 export function withReplays(results: readonly InjectionResult[], render: readonly RenderResult[]): InjectionResult[] {
   return results.map((r) => {
@@ -100,11 +102,14 @@ export function withReplays(results: readonly InjectionResult[], render: readonl
       render.find((x) => x.name === `${prefix}${i}` && !isExpandedResult(x) && x.viewport === "desktop" && x.theme === "light" && x.canaryHits !== null),
     );
     if (rows.some((x) => !x)) return r;
+    const asks = rows.map((x) => x?.asksWithoutClick);
+    const counted = asks.every((n): n is number => typeof n === "number");
     return {
       ...r,
       replay: {
         canaryHits: rows.reduce((n, x) => n + (x?.canaryHits ?? 0), 0),
         loads: rows.reduce((n, x) => Math.max(n, x?.frameLoads ?? 0), 0),
+        ...(counted ? { asksWithoutClick: asks.reduce((n, x) => n + x, 0) } : {}),
       },
     };
   });

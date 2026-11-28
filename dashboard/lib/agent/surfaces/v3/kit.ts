@@ -7,7 +7,7 @@
 // and <jb-field> a 44px minimum target. Fonts are the system stack: the frame's CSP has
 // font-src 'none'.
 //
-// KIT_JS: the custom elements <jb-button action='{"name":...}'> and
+// KIT_JS: the custom elements <jb-button action='{"name":...}'> (or ask="text", PR 6) and
 // <jb-field name label>, and a frozen `host` object:
 //   host.data, host.theme   the snapshot and theme from the host's init (null and "light"
 //                           until init arrives, which is after the document's own
@@ -15,6 +15,12 @@
 //   host.onInit(cb)         cb(data, theme) once init has arrived
 //   host.action(name, args) posts a request to the host and nothing else: the host turns
 //                           it into a chip the user must press (D13, SandboxFrame)
+//   host.ask(text)          PR 6: proposes a follow-up message, only within 1,000 ms of a
+//                           trusted input event (and while navigator.userActivation is active,
+//                           where it exists) (true when posted). It posts the text normalised as the
+//                           host does (bridge.ts normalizeAskText) and refuses, false, one
+//                           that is empty or over 280 code points once normalised; the host
+//                           shows it as a pending message the user must send (spec 08 S10)
 //   host.chart(el, spec)    inline SVG from { viz, points: [{ label, value }], title }
 // and it reports resize (the document's height, 0 to 20000) and error (window error and
 // unhandledrejection, at most once, 500 characters).
@@ -67,6 +73,7 @@
 // the port either: script in the frame can reach the same port through host.action
 // (bridge.ts, SandboxFrame).
 import { KIT_TOKENS, KIT_TOKEN_NAMES, type KitTokenName } from "@/lib/agent/surfaces/v3/kitTokens";
+import { ASK_INVISIBLE_SOURCE, ASK_TEXT_MAX } from "@/lib/agent/surfaces/v3/bridge";
 
 function tokenBlock(selector: string, values: Record<KitTokenName, string>): string {
   return `${selector} {\n${KIT_TOKEN_NAMES.map((n) => `  ${n}: ${values[n]};`).join("\n")}\n}\n`;
@@ -676,6 +683,96 @@ export const KIT_JS: string = `(function () {
       post({ type: "escape" });
     }, 0);
   }, true);
+
+  /* PR 6 (spec 08 S10.2, layer 1): host.ask posts only while the user has just acted. This is
+     a filter that stops asks on load and in loops, not the control: the host never sends an
+     ask without a press on its own Send.
+     Fix round 2 (CI run 46111454100): navigator.userActivation.isActive alone is not evidence
+     of input. Browser automation grants transient activation to a frame whenever it evaluates
+     script there (Playwright sends userGesture: true on Chromium and emulateUserGesture: true
+     on WebKit with every evaluation, and Firefox reported activation with no input too), so
+     isActive was true on load in all three engines. The gate is therefore the kit's own flag,
+     always: set by a trusted (isTrusted) activation-triggering input event (keydown or keyup
+     other than Escape, mousedown, pointerdown, pointerup, touchend) seen in the capture phase
+     on the window before any model listener, and cleared 1,000 ms later. Script cannot make
+     a trusted event, and evaluation by a debugger makes none. Where the browser has
+     navigator.userActivation, isActive must be true as well; its getter is taken now, from the
+     object's own prototype, before model code can replace either, and a value model code later
+     puts on the object is never read. */
+  var ACTIVATION_MS = 1000;
+  var activation = null;
+  var activeOf = null;
+  try {
+    var nav = window.navigator;
+    var found = nav ? nav.userActivation : null;
+    if (found && typeof found === "object") {
+      activeOf = getterOf(Object.getPrototypeOf(found), "isActive");
+      if (activeOf) activation = found;
+    }
+  } catch (err) { activation = null; activeOf = null; }
+  var armed = false;
+  var armCount = 0;
+  var armOnTrusted = function (e) {
+    try {
+      /* isTrusted is an unforgeable own property of each event: page script cannot redefine it. */
+      if (e.isTrusted !== true) return;
+      if ((e.type === "keydown" || e.type === "keyup") && keyOf && keyOf(e) === "Escape") return;
+    } catch (err) { return; }
+    armed = true;
+    armCount += 1;
+    var mine = armCount;
+    later(function () { if (armCount === mine) armed = false; }, ACTIVATION_MS);
+  };
+  var ARM_EVENTS = ["keydown", "keyup", "mousedown", "pointerdown", "pointerup", "touchend"];
+  for (var ae = 0; ae < ARM_EVENTS.length; ae++) window.addEventListener(ARM_EVENTS[ae], armOnTrusted, true);
+  function userActive() {
+    if (!armed) return false;
+    if (activation !== null) {
+      try { return activeOf(activation) === true; } catch (err) { return false; }
+    }
+    return true;
+  }
+  /* PR 6 review, minor 6: the same normalisation the host applies (bridge.ts
+     normalizeAskText, its character class shared as source text), so host.ask returns false,
+     and posts nothing, for a text the host would drop: empty once normalised, or over
+     ASK_TEXT_MAX code points. The text posted is the normalised one, so its length in UTF-16
+     units cannot trip the host's parser either. A filter only: the host normalises again. */
+  var ASK_TEXT_MAX = ${ASK_TEXT_MAX};
+  var askInvisible = null;
+  try { askInvisible = new RegExp(${JSON.stringify(ASK_INVISIBLE_SOURCE)}, "gu"); } catch (err) { askInvisible = null; }
+  var normalizeText = uncurry("".normalize);
+  var replaceText = uncurry("".replace);
+  var trimText = uncurry("".trim);
+  var codeUnitAt = uncurry("".charCodeAt);
+  function askText(raw) {
+    if (askInvisible === null) return null;
+    var s = normalizeText(raw, "NFC");
+    s = replaceText(s, askInvisible, "");
+    s = replaceText(s, /\\s+/g, " ");
+    s = replaceText(s, /[\\u0000-\\u001F\\u007F-\\u009F]/g, "");
+    s = replaceText(s, / {2,}/g, " ");
+    s = normalizeText(trimText(s), "NFC");
+    if (s.length === 0) return null;
+    var points = 0;
+    for (var i = 0; i < s.length; i++) {
+      var u = codeUnitAt(s, i);
+      if (u >= 0xd800 && u <= 0xdbff && i + 1 < s.length) {
+        var next = codeUnitAt(s, i + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) i += 1;
+      }
+      points += 1;
+      if (points > ASK_TEXT_MAX) return null;
+    }
+    return s;
+  }
+  function ask(text) {
+    if (!userActive()) return false;
+    var s;
+    try { s = askText(textOf(text)); } catch (err) { return false; }
+    if (s === null) return false;
+    post({ type: "ask", text: s });
+    return true;
+  }
 
   function run(cb) {
     try { cb(state.data, state.theme); } catch (err) { report(errorText(err)); }
@@ -1505,6 +1602,7 @@ export const KIT_JS: string = `(function () {
     action: function (name, args) {
       post({ type: "action", name: String(name), args: args === undefined ? {} : args });
     },
+    ask: ask,
     chart: chart,
     el: buildEl,
     format: format,
@@ -1531,8 +1629,13 @@ export const KIT_JS: string = `(function () {
         this.jbWired = true;
         this.addEventListener("click", function () {
           if (this.getAttribute("aria-disabled") === "true") return;
-          var a = parseAction(this.getAttribute("action") || "");
-          if (a) host.action(a.name, a.args);
+          /* PR 6: a button with an action runs the action only, even with an ask too. */
+          if (hasAttr(this, "action")) {
+            var a = parseAction(getAttr(this, "action") || "");
+            if (a) host.action(a.name, a.args);
+            return;
+          }
+          if (hasAttr(this, "ask")) ask(getAttr(this, "ask"));
         });
         this.addEventListener("keydown", function (e) {
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.click(); }

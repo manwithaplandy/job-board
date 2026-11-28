@@ -130,12 +130,15 @@ export function SurfaceHost({
   onIntent,
   onPrepSettled,
   onFallback,
+  initialRequest,
 }: {
   surface: HostSurface;
   onIntent: (surfaceId: string, intent: ActionIntent, source: "host" | "frame") => void;
   onPrepSettled: (surfaceId: string, jobId: string) => void;
   /** A frame fell back (the server stored the failure): show this surface as blocks from now on. */
   onFallback?: (surfaceId: string) => void;
+  /** Fixture seam (PR 6): a sandbox view's pending ask at mount (SandboxFrame's initialRequest). */
+  initialRequest?: { kind: "ask"; text: string };
 }) {
   const id = surface.id;
   const intent = useCallback((i: ActionIntent) => onIntent(id, i, "host"), [onIntent, id]);
@@ -153,6 +156,7 @@ export function SurfaceHost({
             onIntent={onIntent}
             onFallback={fellBack}
             onPrepSettled={settled}
+            initialRequest={initialRequest}
           />
         ) : (
           <BlockList

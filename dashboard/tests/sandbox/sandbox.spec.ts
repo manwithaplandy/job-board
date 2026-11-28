@@ -1342,7 +1342,10 @@ async function asksSent(page: Page): Promise<string[]> {
   return (await harnessLog(page, "asks")).map((a) => String((a as { value?: unknown }).value));
 }
 
-const BIDI_OR_INVISIBLE = /[\u0000-\u001F\u007F-\u009F​-‍⁠﻿‪-‮⁦-⁩]/;
+// C0 and C1 controls, every format character (bidi controls and marks, zero-width characters,
+// tags, the soft hyphen) and the variation selectors: what normalizeAskText removes. Written
+// as escapes, so no invisible character sits in this file.
+const BIDI_OR_INVISIBLE = /[\u0000-\u001F\u007F-\u009F\p{Cf}\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
 
 test.describe("a view's ask (PR 6)", () => {
   for (const lane of Object.keys(SANDBOX_LANES) as SandboxLane[]) {

@@ -183,6 +183,11 @@ html.rf-view-expanded { overflow: hidden; }
 /* An assistant reply has no bubble (spec 08 section 4.2): views sit inside it, and a box in a
    box reads as clutter. Parts are spaced evenly; the steps row gets a little more room
    below it (var(--space-5) in all) so it reads as chrome above the answer. */
+/* PR 6 (spec 08 S10.4): a message sent from a view. The bubble moves to an inner box so the
+   caption "Sent from a view" can sit under it, at the bubble's end. */
+.rf-agent-message--from-view { justify-items: end; gap: var(--space-1); padding: 0; border: 0; border-radius: 0; background: transparent; }
+.rf-agent-message__bubble { display: grid; gap: var(--space-2); min-width: 0; max-width: 100%; padding: var(--space-3) var(--space-4); border: 1px solid var(--accent-border); border-radius: var(--radius-card); border-bottom-right-radius: var(--space-1); background: var(--accent-bg); }
+.rf-agent-message__from-view { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
 .rf-agent-message--assistant { justify-self: start; width: 100%; gap: var(--space-4); padding: 0; border: 0; border-radius: 0; background: transparent; }
 .rf-agent-message--assistant > .rf-steps { margin-bottom: calc(var(--space-5) - var(--space-4)); }
 .rf-agent-message__role { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

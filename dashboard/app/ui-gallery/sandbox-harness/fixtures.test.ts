@@ -101,6 +101,17 @@ describe("sandbox harness fixtures", () => {
     expect(html).not.toMatch(/\bfetch\b|new Image|location/);
   });
 
+  test("kit-chart-resize draws one kit bar chart of the six stages and stays static (polish fix 1)", () => {
+    expect(isSandboxCaseName("kit-chart-resize")).toBe(true);
+    const html = sandboxCase("kit-chart-resize").frames[0].html;
+    expect(html).toMatch(/host\.chart\(document\.getElementById\("stages"\)/);
+    expect(html).toContain('viz: "bar"');
+    for (const label of ["Preparing", "Ready", "Applied", "Interviewing", "Offer", "Closed"]) expect(html, label).toContain(`label: "${label}"`);
+    expect(html).toContain('P("done")');
+    expect(html, "no action, no ask").not.toMatch(/host\.action\(|host\.ask\(|action=/);
+    expect(html).not.toMatch(/\bfetch\b|new Image|location/);
+  });
+
   test("the ask cases ask, never act or reach out, and say what the browser test checks (PR 6)", () => {
     const names = ["ask-on-load", "ask-loop", "ask-click", "ask-swap", "ask-synthetic-click", "ask-oversize", "ask-bidi"] as const;
     for (const name of names) {

@@ -91,6 +91,8 @@ const BASELINE_WAIT_MS = 9_000;
 /** SandboxFrame's CHIP_ARM_MS (components/agent/sandbox/SandboxFrame.tsx; not imported, it pulls in the server actions). */
 const CHIP_ARM_MS = 700;
 const ARMED_AFTER_MS = CHIP_ARM_MS + 200;
+/** ask-cross-view-slide: a viewport tall enough for the whole harness page, so Send is pressed with the page unscrolled (polish fix 1, m10). */
+const CROSS_VIEWPORT_H = 2_000;
 
 /**
  * Fix wave follow-up: a host scroll that no user wheel, touch, key or pointer press came just
@@ -1350,6 +1352,118 @@ test.describe("kit controls (PR 5)", () => {
   }
 });
 
+// Polish fix 1 (spec 08 S9.5, S11): a kit chart redrew inside its ResizeObserver callback, the
+// browser fired "ResizeObserver loop completed with undelivered notifications." on the frame's
+// window, and the kit reported it as a frame error, so every Code view with a chart fell back.
+// This case resizes the page across widths and expands the view, and asserts that the frame
+// stays, no failure reached the host, and the chart is drawn at its own width with its labels
+// at their CSS font size. Whether the browser fired the notice at all is recorded, not asserted.
+const CHART_STAGES = ["Preparing", "Ready", "Applied", "Interviewing", "Offer", "Closed"];
+const CHART_PAGE_WIDTHS = [390, 1000, 1440, 500] as const;
+const CHART_PAGE_HEIGHT = 900;
+
+interface ChartReading {
+  scale: number;
+  texts: Array<{ text: string; fontSize: number; height: number; widthRatio: number }>;
+}
+
+/** Reads the chart in the case's frame, once it is drawn at its own width (or after 5 s). */
+async function readChart(run: CaseRun, at: string): Promise<ChartReading> {
+  const handle = await run.page.locator("[data-sandbox-surface] iframe").first().elementHandle({ timeout: 2_000 });
+  const frame = handle ? await handle.contentFrame() : null;
+  expect(frame, `${run.at}: the chart view has a document at ${at}`).not.toBeNull();
+  const read = () =>
+    frame!.evaluate((): ChartReading | null => {
+      const svg = document.querySelector<SVGSVGElement>("#stages svg.jb-chart:not(.jb-chart-probe)");
+      if (!svg) return null;
+      const box = svg.getBoundingClientRect();
+      const drawn = svg.viewBox.baseVal.width;
+      return {
+        scale: drawn > 0 ? box.width / drawn : 0,
+        texts: [...svg.querySelectorAll<SVGTextElement>("text.jb-chart-label")].map((t) => {
+          const r = t.getBoundingClientRect();
+          const length = t.getComputedTextLength();
+          return {
+            text: t.childNodes[0]?.textContent ?? "",
+            fontSize: Number.parseFloat(getComputedStyle(t).fontSize),
+            height: r.height,
+            // The rendered width over the text's length in user units: 1 when user units are CSS px.
+            widthRatio: length > 0 ? r.width / length : 0,
+          };
+        }),
+      };
+    });
+  // The redraw for a new width runs on the kit's timer after the observer's notification.
+  await expect
+    .poll(async () => {
+      const got = await read();
+      return got === null ? null : Math.abs(got.scale - 1) <= 0.02;
+    }, { message: `${run.at}: the chart is drawn at its own width at ${at}`, timeout: 5_000 })
+    .toBe(true);
+  return (await read())!;
+}
+
+/** The frame is still there and nothing fell back or was reported. */
+async function expectChartFrameLive(run: CaseRun, at: string) {
+  await expect(run.page.locator("[data-sandbox-surface] iframe"), `${run.at}: the chart view's frame is still there at ${at}`).toHaveCount(1);
+  expect(await harnessLog(run.page, "fallbacks"), `${run.at}: the chart view did not fall back at ${at}`).toEqual([]);
+  expect(await harnessLog(run.page, "reports"), `${run.at}: no failure was reported at ${at}`).toEqual([]);
+}
+
+function expectChartText(run: CaseRun, got: ChartReading, at: string) {
+  expect(got.texts.map((t) => t.text).sort(), `${run.at}: every stage label is shown in full at ${at}`).toEqual([...CHART_STAGES].sort());
+  for (const t of got.texts) {
+    expect(Math.abs(t.widthRatio - 1), `${run.at}: "${t.text}" renders at its CSS size (within 10%) at ${at}: ${JSON.stringify(t)}`).toBeLessThanOrEqual(0.1);
+    // A label's box is about 1.2 times its font size; a scaled SVG made it about 2.5 times.
+    expect(t.height / t.fontSize, `${run.at}: "${t.text}" is not drawn smaller than its CSS size at ${at}: ${JSON.stringify(t)}`).toBeGreaterThanOrEqual(0.9);
+    expect(t.height / t.fontSize, `${run.at}: "${t.text}" is not drawn larger than its CSS size at ${at}: ${JSON.stringify(t)}`).toBeLessThanOrEqual(1.6);
+  }
+}
+
+test.describe("kit chart resize (polish fix 1)", () => {
+  for (const lane of Object.keys(SANDBOX_LANES) as SandboxLane[]) {
+    test(`[${lane}] kit-chart-resize: the page resized across widths and the view expanded: the frame stays and the chart's labels render at their CSS size`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "kit-chart-resize", lane);
+      requireControls(run, laneControls(lane, "kit-chart-resize"));
+      await page.setViewportSize({ width: CHART_PAGE_WIDTHS[0], height: CHART_PAGE_HEIGHT });
+      await openHarness(run, lane, "kit-chart-resize");
+      expect(await waitForProbe(run, "kit-chart-resize", "init", 8_000), `${run.at}: init never reached the frame over the port`).toBe(true);
+      expect(await waitForProbe(run, "kit-chart-resize", "done", 5_000), `${run.at}: the document ran its init`).toBe(true);
+      for (const width of CHART_PAGE_WIDTHS) {
+        const at = `page ${width}px`;
+        await page.setViewportSize({ width, height: CHART_PAGE_HEIGHT });
+        const got = await readChart(run, at);
+        await expectChartFrameLive(run, at);
+        expectChartText(run, got, at);
+      }
+      // Expanded, the frame takes the whole 1440px viewport; closed, it goes back.
+      await page.setViewportSize({ width: 1440, height: CHART_PAGE_HEIGHT });
+      const section = viewSection(page);
+      await page.getByRole("button", { name: /^Expand view:/ }).click();
+      await expect(section, `${run.at}: expanded`).toHaveAttribute("data-expanded", "true");
+      expectChartText(run, await readChart(run, "expanded at 1440px"), "expanded at 1440px");
+      await expectChartFrameLive(run, "expanded at 1440px");
+      await page.getByRole("button", { name: "Close expanded view" }).click();
+      await expect(section, `${run.at}: closed`).not.toHaveAttribute("data-expanded", "true");
+      expectChartText(run, await readChart(run, "closed at 1440px"), "closed at 1440px");
+
+      await finishCase(run, 1_000);
+      run.note(`ResizeObserver loop notices the document saw (recorded, not asserted): ${JSON.stringify(probeValue(run.probes, "kit-chart-resize", "roLoopNotice") ?? 0)}`);
+      expectNoHits(run);
+      expectAttempted(run, "kit-chart-resize");
+      expect(run.record.frames.map((f) => f.present), `${run.at}: the frame stayed`).toEqual([true]);
+      expect(run.record.reports, `${run.at}: no failure was stored`).toEqual([]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expect(run.record.loads, `${run.at}: the iframe loaded once`).toHaveLength(1);
+      expectContained(run);
+    });
+  }
+});
+
 // PR 6 (spec 08 S10, S14.3): the ask message. Layer 1 (the kit) posts an ask only inside a
 // real user activation; layer 2 (the host) shows the normalised text on its own chrome, keyed
 // and armed like the action chip, and sends nothing until the user presses Send there. The
@@ -2011,18 +2125,20 @@ test.describe("a view's ask (PR 6)", () => {
     // B's own frame never moved; a press once CHIP_ARM_MS has passed since works.
     //
     // A shrinks on a click of its own #shrink (a hostile view could do it on a pointer move;
-    // the click is just the reliable trigger here). The viewport is 1,000 px tall so the whole
-    // page fits with no scroll, and the press is made with page.mouse at Send's new box rather
-    // than locator.click, which could scroll it into view: a scroll re-arms Send by itself
-    // (arming.ts), so an attempt during which the host scrolled proves nothing and is retried.
-    // If the harness page has grown past the viewport, the case skips as inconclusive.
+    // the click is just the reliable trigger here). The viewport is CROSS_VIEWPORT_H tall so the
+    // whole page fits with no scroll, and the press is made with page.mouse at Send's new box
+    // rather than locator.click, which could scroll it into view: a scroll re-arms Send by
+    // itself (arming.ts), so an attempt during which the host scrolled proves nothing and is
+    // retried. Polish fix 1 (review m10): the viewport was 1,000 px, which the harness page
+    // could outgrow in a lane, so the case skipped there every run; it is now tall enough that
+    // the page fits, and the inconclusive skip stays only as a guard.
     test(`[${lane}] ask-cross-view-slide: another view's resize re-arms Send below it; a press after the re-arm delay works`, async ({
       page,
       request,
       browserName,
     }) => {
       const CASE = "ask-cross-view-slide";
-      await page.setViewportSize({ width: 1280, height: 1_000 });
+      await page.setViewportSize({ width: 1280, height: CROSS_VIEWPORT_H });
       const run = await startCase(page, request, browserName, CASE, lane);
       requireControls(run, laneControls(lane, CASE));
       await openHarness(run, lane, CASE, ["cross-a", "cross-b"]);
@@ -2068,7 +2184,7 @@ test.describe("a view's ask (PR 6)", () => {
         const start = await crossRec();
         const viewport = page.viewportSize();
         const inView = before !== null && start.scrollY === 0 && (viewport === null || before.y + before.height < viewport.height);
-        // Polish wave: the case needs the whole harness page inside the 1,000 px viewport. If
+        // Polish wave: the case needs the whole harness page inside the viewport. If
         // the page has grown past it (harness chrome, fonts or a browser's default sizes), Send
         // cannot be pressed without a scroll, and a scroll re-arms Send by itself, so the run
         // says nothing either way: inconclusive, not a failure. A page that still fits but is

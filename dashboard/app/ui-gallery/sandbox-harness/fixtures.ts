@@ -60,7 +60,7 @@ export const HARNESS_ASK_BIDI_SHOWN = "Show the top two roles now";
 export const HARNESS_SLIDE_PX = 360;
 /**
  * ask-cross-view-slide (fix wave follow-up): how far view A shrinks itself on its #shrink
- * click, in px. Smaller than HARNESS_SLIDE_PX so the whole page, Send included, fits a 1,000 px
+ * click, in px. Smaller than HARNESS_SLIDE_PX so the whole page, Send included, fits the case's
  * viewport with no scroll before and after (a scroll would re-arm Send on its own).
  */
 export const HARNESS_CROSS_SLIDE_PX = 200;
@@ -111,6 +111,9 @@ export const SANDBOX_CASE_NAMES = [
   "escape-from-frame",
   // PR 5 (spec 08 S9.4, S9.5): every new kit control, a chart with onSelect and a table.
   "kit-controls",
+  // Polish fix 1 (spec 08 S9.5, S11): a kit bar chart of the six stages while the page is
+  // resized and the view expanded; the frame must stay, with the labels at their CSS size.
+  "kit-chart-resize",
   // PR 6 (spec 08 S10, S14.3): the ask message. host.ask posts only inside a real user
   // activation (layer 1); the host shows the text on its own chrome and sends nothing until
   // the user presses Send there (layer 2).
@@ -945,6 +948,38 @@ host.onInit(function () {
     ],
     rows: [{ stage: "Ready", roles: 4 }, { stage: "Applied", roles: 2 }, { stage: "Offer", roles: 1 }],
     onRowSelect: function (row, index) { picked(row.stage + " row " + index); }
+  });
+  P("done");
+});
+</script>`) }],
+  },
+
+  "kit-chart-resize": {
+    title: "A view with a kit bar chart of the six stages, drawn again as the page is resized and the view expanded: the frame stays",
+    frames: [{ tag: "kit-chart-resize", html: doc("kit-chart-resize", `<style>#probe { display: none; }</style>
+<div class="jb-stack">
+<h2 class="jb-h2">Applications by stage</h2>
+<p>Where your applications stand this month, from the first draft to a closed role. Most are applied and waiting; seven are closed and one has an offer.</p>
+<div id="stages"></div>
+</div>
+<script>
+var notices = 0;
+window.addEventListener("error", function (e) {
+  if (String(e.message).indexOf("ResizeObserver loop") === 0) { notices += 1; P("roLoopNotice", notices); }
+});
+host.onInit(function () {
+  P("init", true);
+  host.chart(document.getElementById("stages"), {
+    viz: "bar",
+    title: "Applications by stage",
+    points: [
+      { label: "Preparing", value: 3 },
+      { label: "Ready", value: 5 },
+      { label: "Applied", value: 12 },
+      { label: "Interviewing", value: 4 },
+      { label: "Offer", value: 1 },
+      { label: "Closed", value: 7 }
+    ]
   });
   P("done");
 });

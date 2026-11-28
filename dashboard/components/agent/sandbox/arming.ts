@@ -16,6 +16,10 @@
 //     inside with scrollIntoView or focus(). The host cannot see a wheel the user turns over
 //     a frame, so such a scroll also re-arms: this fails closed (a press just after it is
 //     dropped), which is the safe side.
+//   - (c) fix wave follow-up 2: any view's request region (the chip, or a pending ask with
+//     Send and Dismiss, host chrome under the frame) changing height. A view can swap a tall
+//     pending ask for an action, which needs no user activation, and slide the controls of a
+//     view below it; each SandboxFrame observes its own region (watchRegionHeight).
 // A keyboard activation (a click with event.detail 0) skips both move clocks but never the
 // shownAt clock: a slide cannot aim a key press, and an honest view that keeps resizing would
 // otherwise leave Send dead to keyboard users.
@@ -131,4 +135,40 @@ export function watchPageScroll(win: EventTarget): () => void {
 export function nextFrameHeight(reported: number, applied: number | null, maxHeightPx: number): { height: number; changed: boolean } {
   const height = Math.min(reported, maxHeightPx);
   return { height, changed: applied !== height };
+}
+
+/**
+ * Whether a request region's newly observed height moves the page (fix wave follow-up 2):
+ * `prev` is the last observed height, null before the first observation. The first
+ * observation moves the page only when the region is not empty (an empty region appearing
+ * moves nothing); after that, any change does.
+ */
+export function regionMoved(prev: number | null, next: number): boolean {
+  return prev === null ? next !== 0 : next !== prev;
+}
+
+/**
+ * Observes a request region's height and moves the page clock whenever it changes
+ * (regionMoved). Returns the stop function; a region that still had height when it stops
+ * moves the page too, since it is leaving. Without ResizeObserver it does nothing.
+ */
+export function watchRegionHeight(el: Element): () => void {
+  if (typeof ResizeObserver !== "function") return () => {};
+  let last: number | null = null;
+  const ro = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const box = entry.borderBoxSize?.[0];
+      const height = box ? box.blockSize : entry.contentRect.height;
+      if (regionMoved(last, height)) noteFrameMoved(Date.now());
+      last = height;
+    }
+  });
+  ro.observe(el);
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    ro.disconnect();
+    if (last !== null && regionMoved(last, 0)) noteFrameMoved(Date.now());
+  };
 }

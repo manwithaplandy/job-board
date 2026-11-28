@@ -63,7 +63,7 @@
 //
 // What jsdom cannot show (the sandbox, the CSP, navigation, real message ports between
 // documents) is Task 2.7's real-browser suite.
-import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import type { GatheredData } from "@/lib/agent/gathered";
@@ -91,7 +91,7 @@ import { Button } from "@/components/ui/Button";
 import { BlockList } from "../blocks/BlockList";
 import type { BlockRows } from "../blocks/types";
 import { ViewHostContext } from "../ViewHostContext";
-import { CHIP_ARM_MS, nextFrameHeight, noteFrameMoved, pageMovedAtNow, pressCounts, watchPageScroll } from "./arming";
+import { CHIP_ARM_MS, nextFrameHeight, noteFrameMoved, pageMovedAtNow, pressCounts, watchPageScroll, watchRegionHeight } from "./arming";
 
 /** The label of a variant 3 view; ViewFrame shows it in the view's header (spec 08 S5). */
 export const GENERATED_VIEW_LABEL = "Generated view";
@@ -207,6 +207,10 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
   const fallback = fallbackState?.id === surface.id ? fallbackState.payload : null;
   const entry = requestState?.id === surface.id ? requestState : null;
   const reasonId = useId();
+  // Fix wave follow-up 2: this view's request region changing height (an ask or chip
+  // appearing, being replaced or dismissed) moves every view below it, so it moves the page
+  // clock. Stable, so the observer lives as long as the region element (inline or portaled).
+  const requestsRef = useCallback((el: HTMLDivElement | null) => (el === null ? undefined : watchRegionHeight(el)), []);
 
   useEffect(() => {
     latest.current = { surface, onIntent, onFallback, server };
@@ -496,7 +500,7 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
     });
 
   const requests = (
-    <div className="rf-sandbox__requests" role="region" aria-label={CHIP_REGION_LABEL} aria-live="polite">
+    <div ref={requestsRef} className="rf-sandbox__requests" role="region" aria-label={CHIP_REGION_LABEL} aria-live="polite">
       {entry && pending?.kind === "action" && (
         <div className="rf-sandbox__chip" key={entry.seq}>
           <p className="rf-sandbox__prompt">{CHIP_PROMPT}</p>

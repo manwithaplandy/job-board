@@ -9,9 +9,11 @@ import {
   noteScrollInput,
   pageMovedAtNow,
   pressCounts,
+  regionMoved,
   resetPageClocks,
   SCROLL_INPUT_WINDOW_MS,
   watchPageScroll,
+  watchRegionHeight,
 } from "./arming";
 
 beforeEach(() => resetPageClocks());
@@ -139,6 +141,106 @@ describe("watchPageScroll (fix wave follow-up)", () => {
     expect(remove.mock.calls).toHaveLength(added);
     vi.spyOn(Date, "now").mockReturnValue(9_000);
     win.dispatchEvent(new Event("scroll"));
+    expect(pageMovedAtNow()).toBe(Number.NEGATIVE_INFINITY);
+  });
+});
+
+describe("regionMoved (fix wave follow-up 2)", () => {
+  test("the first observation moves the page only when the region has height", () => {
+    expect(regionMoved(null, 0)).toBe(false);
+    expect(regionMoved(null, 96)).toBe(true);
+  });
+
+  test("after that, any change of height moves the page and a repeat does not", () => {
+    expect(regionMoved(0, 96)).toBe(true); // an ask or chip appears
+    expect(regionMoved(240, 96)).toBe(true); // a tall ask swapped for a shorter action
+    expect(regionMoved(96, 0)).toBe(true); // dismissed
+    expect(regionMoved(96, 96)).toBe(false);
+    expect(regionMoved(0, 0)).toBe(false);
+  });
+});
+
+describe("watchRegionHeight (fix wave follow-up 2)", () => {
+  type Cb = (entries: Array<{ borderBoxSize?: Array<{ blockSize: number }>; contentRect: { height: number } }>) => void;
+  let observers: Array<{ cb: Cb; observed: unknown[]; disconnected: boolean }>;
+
+  beforeEach(() => {
+    observers = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        rec: { cb: Cb; observed: unknown[]; disconnected: boolean };
+        constructor(cb: Cb) {
+          this.rec = { cb, observed: [], disconnected: false };
+          observers.push(this.rec);
+        }
+        observe(el: unknown) {
+          this.rec.observed.push(el);
+        }
+        unobserve() {}
+        disconnect() {
+          this.rec.disconnected = true;
+        }
+      },
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const fire = (height: number) => observers[0].cb([{ borderBoxSize: [{ blockSize: height }], contentRect: { height } }]);
+
+  test("moves the page clock when the region's height changes, not when an empty region appears", () => {
+    const now = vi.spyOn(Date, "now");
+    const el = {} as Element;
+    const stop = watchRegionHeight(el);
+    expect(observers).toHaveLength(1);
+    expect(observers[0].observed).toEqual([el]);
+
+    now.mockReturnValue(1_000);
+    fire(0);
+    expect(pageMovedAtNow()).toBe(Number.NEGATIVE_INFINITY);
+
+    now.mockReturnValue(2_000);
+    fire(240); // a tall pending ask appears
+    expect(pageMovedAtNow()).toBe(2_000);
+
+    now.mockReturnValue(3_000);
+    fire(240); // same height: nothing moved
+    expect(pageMovedAtNow()).toBe(2_000);
+
+    now.mockReturnValue(4_000);
+    fire(96); // swapped for an action: everything below slides up
+    expect(pageMovedAtNow()).toBe(4_000);
+    // A long-armed chip of another view, pressed just after, is ignored.
+    expect(pressCounts({ now: 4_000 + CHIP_ARM_MS - 1, shownAt: 0, ownMovedAt: Number.NEGATIVE_INFINITY, pageMovedAt: pageMovedAtNow(), keyboard: false })).toBe(false);
+    expect(pressCounts({ now: 4_000 + CHIP_ARM_MS, shownAt: 0, ownMovedAt: Number.NEGATIVE_INFINITY, pageMovedAt: pageMovedAtNow(), keyboard: false })).toBe(true);
+
+    now.mockReturnValue(5_000);
+    stop();
+    expect(observers[0].disconnected).toBe(true);
+    // The region still had height as it left, so it moves the page too.
+    expect(pageMovedAtNow()).toBe(5_000);
+  });
+
+  test("falls back to contentRect, and stopping an empty region moves nothing", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const stop = watchRegionHeight({} as Element);
+    observers[0].cb([{ contentRect: { height: 0 } }]);
+    now.mockReturnValue(2_000);
+    observers[0].cb([{ contentRect: { height: 50 } }]);
+    expect(pageMovedAtNow()).toBe(2_000);
+    now.mockReturnValue(3_000);
+    observers[0].cb([{ contentRect: { height: 0 } }]);
+    expect(pageMovedAtNow()).toBe(3_000);
+    now.mockReturnValue(4_000);
+    stop();
+    stop();
+    expect(pageMovedAtNow()).toBe(3_000);
+  });
+
+  test("does nothing without ResizeObserver", () => {
+    vi.stubGlobal("ResizeObserver", undefined);
+    const stop = watchRegionHeight({} as Element);
+    expect(() => stop()).not.toThrow();
     expect(pageMovedAtNow()).toBe(Number.NEGATIVE_INFINITY);
   });
 });

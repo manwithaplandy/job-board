@@ -398,23 +398,23 @@ describe("links and leaving (Task 2.7, CI run 2)", () => {
 // PR 3 Task 3.5 (spec 08 S9.2): Escape inside a frame leaves an expanded view. Only a
 // trusted Escape that nothing handled is posted, so model code can neither forge one nor
 // lose an Escape it used for itself.
-describe("escape", () => {
-  // jsdom marks only its own events trusted: this sets the flag on the event's
-  // implementation and dispatches it the way jsdom dispatches a real key press.
-  function implOf(o: object): { isTrusted: boolean; _dispatch(e: unknown): void } {
-    const key = Object.getOwnPropertySymbols(o).find((s) => s.description === "impl");
-    if (!key) throw new Error("no jsdom impl");
-    return Reflect.get(o, key);
-  }
-  function pressTrusted(target: EventTarget, init: KeyboardEventInit) {
-    const ev = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
-    const impl = implOf(ev);
-    impl.isTrusted = true;
-    implOf(target)._dispatch(impl);
-    expect(ev.isTrusted).toBe(true);
-    return ev;
-  }
+// jsdom marks only its own events trusted: this sets the flag on the event's
+// implementation and dispatches it the way jsdom dispatches a real key press.
+function implOf(o: object): { isTrusted: boolean; _dispatch(e: unknown): void } {
+  const key = Object.getOwnPropertySymbols(o).find((s) => s.description === "impl");
+  if (!key) throw new Error("no jsdom impl");
+  return Reflect.get(o, key);
+}
+function pressTrusted(target: EventTarget, init: KeyboardEventInit) {
+  const ev = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+  const impl = implOf(ev);
+  impl.isTrusted = true;
+  implOf(target)._dispatch(impl);
+  expect(ev.isTrusted).toBe(true);
+  return ev;
+}
 
+describe("escape", () => {
   test("a trusted Escape posts one escape with no payload", async () => {
     const before = ofType("escape").length;
     pressTrusted(document.body, { key: "Escape" });
@@ -476,5 +476,95 @@ describe("kit classes in a document", () => {
     expect(getComputedStyle(row).flexWrap).toBe("wrap");
     expect(getComputedStyle(hidden).display).toBe("none");
     expect(getComputedStyle(cols).gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
+  });
+});
+
+// PR 5 Task 5.3 (spec 08 S9.4): the control elements. Each has a visible label, a value
+// property, a bubbling change CustomEvent with detail { name, value }, keyboard support
+// and a 44px target in KIT_CSS. The kit builds an element once its children are parsed
+// (on DOMContentLoaded, or in a microtask when the document has loaded), so each test
+// waits a tick after writing the markup.
+function press(target: Element, key: string) {
+  const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+  target.dispatchEvent(ev);
+  return ev;
+}
+/** The change events that bubble to the body while fn runs. */
+function changes(fn: () => void): Array<{ detail: unknown; bubbles: boolean; custom: boolean }> {
+  const seen: Array<{ detail: unknown; bubbles: boolean; custom: boolean }> = [];
+  const on = (e: Event) => seen.push({ detail: e instanceof CustomEvent ? e.detail : undefined, bubbles: e.bubbles, custom: e instanceof CustomEvent });
+  document.body.addEventListener("change", on);
+  try {
+    fn();
+  } finally {
+    document.body.removeEventListener("change", on);
+  }
+  return seen;
+}
+/** The text of the element an ARIA reference names, or the label element for an input. */
+function labelText(el: Element): string {
+  const ids = el.getAttribute("aria-labelledby");
+  if (ids) return ids.split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+  const id = el.getAttribute("id");
+  return id ? (document.querySelector(`label[for="${id}"]`)?.textContent ?? "") : "";
+}
+/** The declarations KIT_CSS gives a selector, all rules joined. */
+function cssFor(selector: string): string {
+  return [...KIT_CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((m) => m[1].split(",").map((x) => x.trim()).includes(selector))
+    .map((m) => m[2])
+    .join("");
+}
+function value(el: Element): unknown {
+  return Reflect.get(el, "value");
+}
+
+describe("jb-select", () => {
+  test("a labelled select-only combobox: value, change with a string, keyboard, 44px", async () => {
+    document.body.innerHTML = `<jb-select name="stage" label="Stage" value="applied"><option value="ready">Ready</option><option value="applied">Applied</option><option value="offer">Offer</option></jb-select>`;
+    const sel = document.querySelector("jb-select")!;
+    expect(value(sel)).toBe("applied");
+    await tick();
+    const combo = sel.querySelector('[role="combobox"]')!;
+    expect(combo).not.toBeNull();
+    expect(labelText(combo)).toBe("Stage");
+    expect(sel.querySelector(".jb-control__label")?.textContent).toBe("Stage");
+    expect(combo.textContent).toContain("Applied");
+    expect(combo.getAttribute("tabindex")).toBe("0");
+    expect(combo.getAttribute("aria-expanded")).toBe("false");
+    const list = sel.querySelector('[role="listbox"]')!;
+    expect(list.querySelectorAll('[role="option"]')).toHaveLength(3);
+    // The original option elements are gone from the light DOM's flow.
+    expect(sel.querySelectorAll("option")).toHaveLength(0);
+
+    // Keyboard: ArrowDown opens on the selected option, ArrowDown moves, Enter chooses.
+    const seen = changes(() => {
+      press(combo, "ArrowDown");
+      expect(combo.getAttribute("aria-expanded")).toBe("true");
+      expect(combo.getAttribute("aria-activedescendant")).toBe(list.querySelectorAll('[role="option"]')[1].id);
+      press(combo, "ArrowDown");
+      press(combo, "Enter");
+    });
+    expect(combo.getAttribute("aria-expanded")).toBe("false");
+    expect(seen).toEqual([{ detail: { name: "stage", value: "offer" }, bubbles: true, custom: true }]);
+    expect(value(sel)).toBe("offer");
+    expect(combo.textContent).toContain("Offer");
+    expect(list.querySelectorAll('[role="option"]')[2].getAttribute("aria-selected")).toBe("true");
+
+    // Click: open, pick an option.
+    const clicked = changes(() => {
+      (combo as HTMLElement).click();
+      (list.querySelectorAll('[role="option"]')[0] as HTMLElement).click();
+    });
+    expect(clicked.map((c) => c.detail)).toEqual([{ name: "stage", value: "ready" }]);
+
+    // The value property sets without an event; an unknown value changes nothing.
+    expect(changes(() => Reflect.set(sel, "value", "applied"))).toEqual([]);
+    expect(value(sel)).toBe("applied");
+    Reflect.set(sel, "value", "nope");
+    expect(value(sel)).toBe("applied");
+
+    expect(cssFor(".jb-select__button")).toMatch(/min-height: var\(--target-size\);/);
+    expect(cssFor(".jb-select__option")).toMatch(/min-height: var\(--target-size\);/);
   });
 });

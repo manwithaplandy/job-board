@@ -193,8 +193,61 @@ const LAYOUT_CSS = `
 }
 `;
 
+// PR 5 (spec 08 S9.4): the control elements. Every target is at least 44px
+// (--target-size); focus shows the same ring as jb-button.
+const CONTROLS_CSS = `
+jb-select, jb-slider, jb-toggle, jb-segmented, jb-tabs { display: block; margin: var(--space-2) 0; }
+jb-select > option, jb-segmented > option { display: none; }
+.jb-control__label { display: block; margin-bottom: var(--space-1); font-size: var(--font-size-caption); color: var(--text-secondary); }
+.jb-select__button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  cursor: pointer;
+  user-select: none;
+}
+.jb-select__caret::before { content: "\\25BE"; color: var(--text-secondary); }
+.jb-select__list {
+  position: relative;
+  max-height: 264px;
+  overflow-y: auto;
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-popover);
+}
+.jb-select__option {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-size);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  cursor: pointer;
+}
+.jb-select__option[aria-selected="true"] { font-weight: 600; }
+.jb-select__option.jb-active, .jb-select__option:hover { background: var(--bg-muted); }
+.jb-select__button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--focus-halo);
+}
+`;
+
 export const KIT_CSS: string =
-  tokenBlock(":root", KIT_TOKENS.light) + tokenBlock(':root[data-theme="dark"]', KIT_TOKENS.dark) + BASE_CSS + LAYOUT_CSS;
+  tokenBlock(":root", KIT_TOKENS.light) + tokenBlock(':root[data-theme="dark"]', KIT_TOKENS.dark) + BASE_CSS + LAYOUT_CSS + CONTROLS_CSS;
 
 // Plain ES2017 in a string: it is never bundled, it runs inside the frame. No "//"
 // anywhere in it (the static check reads "//" as a URL), so comments are /* */.
@@ -300,6 +353,54 @@ export const KIT_JS: string = `(function () {
   var listLength = getterOf(NodeList.prototype, "length");
   var lowerCase = uncurry("".toLowerCase);
   var sliceText = uncurry("".slice);
+  /* PR 5 (spec 08 S9): the natives the controls and the host helpers use, taken now, before
+     model code can replace them. createElement and createElementNS are the locked guards
+     above. */
+  function setterOf(proto, name) {
+    var d = proto ? Object.getOwnPropertyDescriptor(proto, name) : null;
+    return d && typeof d.set === "function" ? uncurry(d.set) : null;
+  }
+  var makeEl = uncurry(Document.prototype.createElement);
+  var makeElNS = uncurry(Document.prototype.createElementNS);
+  var makeText = uncurry(Document.prototype.createTextNode);
+  var appendTo = uncurry(Node.prototype.appendChild);
+  var insertInto = uncurry(Node.prototype.insertBefore);
+  var removeFrom = uncurry(Node.prototype.removeChild);
+  var firstChildOf = getterOf(Node.prototype, "firstChild");
+  var setText = setterOf(Node.prototype, "textContent");
+  var getText = getterOf(Node.prototype, "textContent");
+  var setAttr = uncurry(Element.prototype.setAttribute);
+  var getAttr = uncurry(Element.prototype.getAttribute);
+  var hasAttr = uncurry(Element.prototype.hasAttribute);
+  var childrenOf = getterOf(Element.prototype, "children");
+  var collectionLength = getterOf(HTMLCollection.prototype, "length");
+  var localNameOf = getterOf(Element.prototype, "localName");
+  var listen = uncurry(EventTarget.prototype.addEventListener);
+  var dispatch = uncurry(EventTarget.prototype.dispatchEvent);
+  var stopEvent = uncurry(Event.prototype.stopPropagation);
+  var focusHtml = uncurry(HTMLElement.prototype.focus);
+  var focusSvg = typeof SVGElement === "function" && typeof SVGElement.prototype.focus === "function" ? uncurry(SVGElement.prototype.focus) : null;
+  var readyStateOf = getterOf(Document.prototype, "readyState");
+  var offsetTopOf = getterOf(HTMLElement.prototype, "offsetTop");
+  var offsetHeightOf = getterOf(HTMLElement.prototype, "offsetHeight");
+  var clientHeightOf = getterOf(Element.prototype, "clientHeight");
+  var scrollTopOf = getterOf(Element.prototype, "scrollTop");
+  var setScrollTop = setterOf(Element.prototype, "scrollTop");
+  var inputValueOf = getterOf(HTMLInputElement.prototype, "value");
+  var setInputValue = setterOf(HTMLInputElement.prototype, "value");
+  var trimText = uncurry("".trim);
+  var numberText = uncurry((0).toLocaleString);
+  var fixedText = uncurry((0).toFixed);
+  var sortList = uncurry([].sort);
+  var hasOwn = uncurry(Object.prototype.hasOwnProperty);
+  var ownKeys = Object.keys;
+  var freeze = Object.freeze;
+  var isList = Array.isArray;
+  var finite = isFinite;
+  var toNumber = Number;
+  var M = { max: Math.max, min: Math.min, round: Math.round, floor: Math.floor, abs: Math.abs, sin: Math.sin, cos: Math.cos, PI: Math.PI };
+  var ChangeEvent = CustomEvent;
+  var defer = typeof queueMicrotask === "function" ? queueMicrotask : function (f) { setTimeout(f, 0); };
   function isElement(node) {
     try { return nodeTypeOf(node) === 1; } catch (err) { return false; }
   }
@@ -440,6 +541,8 @@ export const KIT_JS: string = `(function () {
   var keyOf = getterOf(KeyboardEvent.prototype, "key");
   var preventedOf = getterOf(Event.prototype, "defaultPrevented");
   var later = setTimeout;
+  /* The close function of the open <jb-select> popup, if one is open (PR 5). */
+  var openPopup = null;
   window.addEventListener("keydown", function (e) {
     var trusted = false;
     var key = "";
@@ -610,6 +713,214 @@ export const KIT_JS: string = `(function () {
       set value(v) { if (this.jbInput) this.jbInput.value = String(v); else this.setAttribute("value", String(v)); }
     });
   }
+
+  /* PR 5 (spec 08 S9.4): the control elements. Each has a visible label, a 44px target
+     (KIT_CSS), keyboard support, a value property, and fires a bubbling change CustomEvent
+     with detail { name, value } when the user changes it (setting value from script fires
+     nothing). An element that reads child <option> elements (or <jb-tab> children) builds
+     once those are parsed: on DOMContentLoaded while the document is loading, else in a
+     microtask, so script that makes one and appends its options in the same task works.
+     Model code listens on the element itself; a native change event from an inner input
+     is stopped there, so every change event a control sends carries a detail. */
+  var controlCount = 0;
+  function nextId(kind) { controlCount += 1; return "jb-" + kind + "-" + controlCount; }
+  function node(tag, cls, text) {
+    var e = makeEl(document, tag);
+    if (cls) setAttr(e, "class", cls);
+    if (text !== undefined && text !== null) setText(e, String(text));
+    return e;
+  }
+  function nameOf(el) { var n = getAttr(el, "name"); return n === null ? "" : n; }
+  function labelOf(el) { var l = getAttr(el, "label"); return l === null || l === "" ? nameOf(el) : l; }
+  function keyName(e) { try { return keyOf ? keyOf(e) : ""; } catch (err) { return ""; } }
+  function focusOn(el) {
+    try { focusHtml(el); return; } catch (err) { /* not an HTML element */ }
+    try { if (focusSvg) focusSvg(el); } catch (err) { /* not focusable */ }
+  }
+  function emitChange(el, value) {
+    var ev;
+    try { ev = new ChangeEvent("change", { bubbles: true, detail: { name: nameOf(el), value: value } }); } catch (err) { return; }
+    dispatch(el, ev);
+  }
+  function whenParsed(cb) {
+    if (readyStateOf(document) === "loading") listen(document, "DOMContentLoaded", cb);
+    else defer(cb);
+  }
+  function defineOnce(name, cls) {
+    if (window.customElements && !customElements.get(name)) customElements.define(name, cls);
+  }
+  function childOptions(el) {
+    var kids = childrenOf(el);
+    var out = [];
+    for (var i = 0; i < collectionLength(kids); i++) if (localNameOf(kids[i]) === "option") out[out.length] = kids[i];
+    return out;
+  }
+  function optionValue(opt) {
+    var v = getAttr(opt, "value");
+    return v === null ? trimText(getText(opt)) : v;
+  }
+  /* The <option> children as { value, label }, taken out of the element. */
+  function takeOptions(el) {
+    var found = childOptions(el);
+    var out = [];
+    for (var i = 0; i < found.length; i++) {
+      out[out.length] = { value: optionValue(found[i]), label: trimText(getText(found[i])) };
+      removeFrom(el, found[i]);
+    }
+    return out;
+  }
+  function indexOfValue(options, v) {
+    for (var i = 0; i < options.length; i++) if (options[i].value === v) return i;
+    return -1;
+  }
+  /* Before an element is built: its value attribute, else its first option's value. */
+  function unbuiltValue(el) {
+    var v = getAttr(el, "value");
+    if (v !== null) return v;
+    var found = childOptions(el);
+    return found.length > 0 ? optionValue(found[0]) : "";
+  }
+  /* Scrolls a list so an item shows, without scrolling anything outside the list. */
+  function keepVisible(list, item) {
+    try {
+      var at = offsetTopOf(item);
+      var h = offsetHeightOf(item);
+      var shown = scrollTopOf(list);
+      var room = clientHeightOf(list);
+      if (at < shown) setScrollTop(list, at);
+      else if (at + h > shown + room) setScrollTop(list, at + h - room);
+    } catch (err) { /* layout unavailable */ }
+  }
+
+  /* <jb-select name label value> with <option value> children: a select-only combobox
+     (focus stays on it, aria-activedescendant names the active option). The popup is in
+     the flow, below the button, so the frame grows to show it instead of clipping it. */
+  function buildSelect(host, st) {
+    if (st.built) return;
+    st.built = true;
+    st.options = takeOptions(host);
+    st.index = indexOfValue(st.options, getAttr(host, "value"));
+    if (st.index < 0 && st.options.length > 0) st.index = 0;
+    var labelId = nextId("label");
+    var listId = nextId("list");
+    var label = node("span", "jb-control__label", labelOf(host));
+    setAttr(label, "id", labelId);
+    var combo = node("span", "jb-select__button");
+    setAttr(combo, "role", "combobox");
+    setAttr(combo, "tabindex", "0");
+    setAttr(combo, "aria-haspopup", "listbox");
+    setAttr(combo, "aria-expanded", "false");
+    setAttr(combo, "aria-controls", listId);
+    setAttr(combo, "aria-labelledby", labelId);
+    var shown = node("span", "jb-select__value", st.index >= 0 ? st.options[st.index].label : "");
+    var caret = node("span", "jb-select__caret");
+    setAttr(caret, "aria-hidden", "true");
+    appendTo(combo, shown);
+    appendTo(combo, caret);
+    var list = node("div", "jb-select__list jb-hidden");
+    setAttr(list, "role", "listbox");
+    setAttr(list, "id", listId);
+    setAttr(list, "aria-labelledby", labelId);
+    var items = [];
+    function onOption(i) { return function () { choose(i); }; }
+    for (var i = 0; i < st.options.length; i++) {
+      var item = node("div", "jb-select__option", st.options[i].label);
+      setAttr(item, "role", "option");
+      setAttr(item, "id", nextId("option"));
+      setAttr(item, "aria-selected", i === st.index ? "true" : "false");
+      listen(item, "click", onOption(i));
+      items[i] = item;
+      appendTo(list, item);
+    }
+    /* A press in the list keeps focus on the combobox, so it does not blur and close first. */
+    listen(list, "mousedown", function (e) { cancelEvent(e); });
+    appendTo(host, label);
+    appendTo(host, combo);
+    appendTo(host, list);
+
+    function show(i) {
+      st.index = i;
+      for (var j = 0; j < items.length; j++) setAttr(items[j], "aria-selected", j === i ? "true" : "false");
+      setText(shown, st.options[i].label);
+    }
+    function setActive(i) {
+      if (st.active >= 0 && items[st.active]) setAttr(items[st.active], "class", "jb-select__option");
+      st.active = i;
+      if (i < 0 || !items[i]) return;
+      setAttr(items[i], "class", "jb-select__option jb-active");
+      setAttr(combo, "aria-activedescendant", getAttr(items[i], "id"));
+      keepVisible(list, items[i]);
+    }
+    function closeList() {
+      if (!st.open) return;
+      st.open = false;
+      setAttr(list, "class", "jb-select__list jb-hidden");
+      setAttr(combo, "aria-expanded", "false");
+      dropAttribute(combo, "aria-activedescendant");
+      setActive(-1);
+      if (openPopup === closeList) openPopup = null;
+    }
+    function openList(at) {
+      if (st.open || items.length === 0) return;
+      if (openPopup) { var other = openPopup; openPopup = null; other(); }
+      st.open = true;
+      setAttr(list, "class", "jb-select__list");
+      setAttr(combo, "aria-expanded", "true");
+      openPopup = closeList;
+      setActive(at < 0 ? 0 : at);
+    }
+    function choose(i) {
+      if (i < 0 || i >= items.length) return;
+      var changed = i !== st.index;
+      show(i);
+      closeList();
+      focusOn(combo);
+      if (changed) emitChange(host, st.options[i].value);
+    }
+    st.show = show;
+    listen(combo, "click", function () { if (st.open) closeList(); else openList(st.index); });
+    listen(combo, "blur", closeList);
+    listen(combo, "keydown", function (e) {
+      var k = keyName(e);
+      var n = items.length;
+      if (n === 0) return;
+      if (!st.open) {
+        if (k === "ArrowDown" || k === "ArrowUp" || k === "Enter" || k === " ") { cancelEvent(e); openList(st.index); }
+        else if (k === "Home") { cancelEvent(e); openList(0); }
+        else if (k === "End") { cancelEvent(e); openList(n - 1); }
+        return;
+      }
+      if (k === "ArrowDown") { cancelEvent(e); setActive(M.min(st.active + 1, n - 1)); }
+      else if (k === "ArrowUp") { cancelEvent(e); setActive(M.max(st.active - 1, 0)); }
+      else if (k === "Home") { cancelEvent(e); setActive(0); }
+      else if (k === "End") { cancelEvent(e); setActive(n - 1); }
+      else if (k === "Enter" || k === " ") { cancelEvent(e); choose(st.active); }
+      else if (k === "Escape") { cancelEvent(e); closeList(); }
+      else if (k === "Tab") closeList();
+    });
+  }
+  defineOnce("jb-select", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbSelect) return;
+      var self = this;
+      var st = { built: false, options: [], index: -1, active: -1, open: false, show: null };
+      this.jbSelect = st;
+      whenParsed(function () { buildSelect(self, st); });
+    }
+    get value() {
+      var st = this.jbSelect;
+      if (st && st.built) return st.index >= 0 ? st.options[st.index].value : "";
+      return unbuiltValue(this);
+    }
+    set value(v) {
+      var st = this.jbSelect;
+      v = String(v);
+      if (st && st.built) {
+        var i = indexOfValue(st.options, v);
+        if (i >= 0 && st.show) st.show(i);
+      } else setAttr(this, "value", v);
+    }
+  });
 
   function measure() {
     var h = Math.ceil(document.documentElement.getBoundingClientRect().height || 0);

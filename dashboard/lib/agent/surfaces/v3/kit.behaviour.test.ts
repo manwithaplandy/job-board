@@ -568,3 +568,43 @@ describe("jb-select", () => {
     expect(cssFor(".jb-select__option")).toMatch(/min-height: var\(--target-size\);/);
   });
 });
+
+// PR 5 (spec 08 S9.2): Escape with an open <jb-select> popup closes the popup and does not
+// leave the expanded view; with no popup open it posts escape as before.
+describe("escape and an open jb-select popup", () => {
+  async function openSelect() {
+    document.body.innerHTML = `<jb-select name="s" label="S"><option value="a">A</option><option value="b">B</option></jb-select>`;
+    await tick();
+    const combo = document.querySelector('jb-select [role="combobox"]') as HTMLElement;
+    combo.focus();
+    combo.click();
+    expect(combo.getAttribute("aria-expanded")).toBe("true");
+    return combo;
+  }
+
+  test("a trusted Escape closes the open popup and posts no escape, even when a model listener stops the event first", async () => {
+    const combo = await openSelect();
+    const before = ofType("escape").length;
+    const stop = (e: Event) => e.stopImmediatePropagation();
+    window.addEventListener("keydown", stop, true);
+    try {
+      pressTrusted(combo, { key: "Escape" });
+    } finally {
+      window.removeEventListener("keydown", stop, true);
+    }
+    expect(combo.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('jb-select [role="listbox"]')!.classList.contains("jb-hidden")).toBe(true);
+    await tick();
+    expect(ofType("escape")).toHaveLength(before);
+  });
+
+  test("with the popup closed, a trusted Escape on the select posts escape", async () => {
+    const combo = await openSelect();
+    pressTrusted(combo, { key: "Escape" });
+    await tick();
+    const before = ofType("escape").length;
+    expect(combo.getAttribute("aria-expanded")).toBe("false");
+    pressTrusted(combo, { key: "Escape" });
+    await vi.waitFor(() => expect(ofType("escape")).toHaveLength(before + 1));
+  });
+});

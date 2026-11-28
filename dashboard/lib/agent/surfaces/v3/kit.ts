@@ -541,7 +541,7 @@ export const KIT_JS: string = `(function () {
   var keyOf = getterOf(KeyboardEvent.prototype, "key");
   var preventedOf = getterOf(Event.prototype, "defaultPrevented");
   var later = setTimeout;
-  /* The close function of the open <jb-select> popup, if one is open (PR 5). */
+  /* The close function of the open <jb-select> popup, if one is open (PR 5, S9.2). */
   var openPopup = null;
   window.addEventListener("keydown", function (e) {
     var trusted = false;
@@ -551,6 +551,15 @@ export const KIT_JS: string = `(function () {
       key = keyOf ? keyOf(e) : "";
     } catch (err) { return; }
     if (!trusted || key !== "Escape") return;
+    /* PR 5 (spec 08 S9.2): with a <jb-select> popup open, Escape closes the popup, here,
+       before any model listener can stop the event, and posts nothing. */
+    if (openPopup) {
+      var closePopup = openPopup;
+      openPopup = null;
+      try { closePopup(); } catch (err) { /* nothing more to do */ }
+      try { cancelEvent(e); } catch (err) { /* nothing more to do */ }
+      return;
+    }
     later(function () {
       try { if (!preventedOf || preventedOf(e)) return; } catch (err) { return; }
       post({ type: "escape" });

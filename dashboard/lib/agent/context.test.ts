@@ -229,6 +229,10 @@ describe("variantGrammar(3): code mode (PR 7, spec 08 S9.7)", () => {
     expect(g.join("\n")).not.toMatch(/plain text/i);
   });
 
+  test("fix wave M7: string 1 says the app shows the title above the view, so the document does not repeat it", () => {
+    expect(g[0]).toContain("The app already shows the view's title above it, so do not repeat the title as a heading in the document.");
+  });
+
   test("PR 7 polish: string 1 stands alone, since a re-render prompt carries it without rule 7 (no \"as above\")", () => {
     expect(g[0]).not.toMatch(/as above/i);
     expect(g[0]).toContain("In a conversation turn, your chat replies use simple Markdown; only this payload is HTML.");

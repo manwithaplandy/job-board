@@ -324,6 +324,10 @@ function MessageView({
   steps: StepsView | null;
 }) {
   const who = message.role === "user" ? "You" : "Assistant";
+  // Memoised on the parts: the page re-renders every message on each clock tick (1 s while
+  // a turn runs), and a stored message's parts never change.
+  const hasSteps = steps !== null;
+  const summary = useMemo(() => (hasSteps ? summarizeSteps(message.parts) : null), [hasSteps, message.parts]);
   // Parts render in stored order. A tool call is a step, shown only in the steps row,
   // except present (its view renders where it was made) and ask_user (its questions
   // are part of the answer).
@@ -344,7 +348,6 @@ function MessageView({
     if (name === "ask_user" && askUserInputSchema.safeParse(part.input).success) return [<AskUserQuestions key={i} part={part} />];
     return [];
   });
-  const summary = steps ? summarizeSteps(message.parts) : null;
   const row =
     steps && summary && (steps.state === "working" || steps.state === "pending" || summary.total > 0) ? (
       <StepsRow

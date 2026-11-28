@@ -8,9 +8,13 @@ import { inertOthers, isToastContainer } from "./inertOthers";
 // fixed over the view's bottom edge, and everything but the expanded frame, the dock and
 // the toast region is inert. Nothing is moved in the DOM.
 //
-// - inert: re-applied on every commit while expanded (restore, then apply), because the
-//   expanded frame can be a new element (its chain's update landed in a newer message) and
-//   new messages are appended while a turn runs. The restore runs on collapse and unmount.
+// - inert: applied when a view is expanded, and re-applied (restore, then apply) only when
+//   the page's structure around it changes: the expanded frame or the dock is a new element
+//   (a chain's update landed in a newer message), or an element on the kept paths gained or
+//   lost children (new messages are appended while a turn runs). A MutationObserver on the
+//   conversation root watches childList only, so a timer tick or a streamed word, which
+//   changes text deeper down, does not re-walk the page. The restore runs on collapse and
+//   unmount.
 // - `--rf-dock-h` on the conversation root: the dock's height, for the view's bottom
 //   padding, written by a ResizeObserver while expanded.
 // - `--rf-dock-bottom` on the conversation root: how far the on-screen keyboard pushes the
@@ -38,14 +42,43 @@ export function useExpandedDock({
 }): RefObject<HTMLDivElement | null> {
   const dockRef = useRef<HTMLDivElement | null>(null);
 
-  // No dependency list on purpose: see the header.
+  // Applied on expand and re-applied on a structural change only: see the header.
   useLayoutEffect(() => {
     if (expandedChainId === null) return;
-    const frame = frameOfChain(chatRef.current, expandedChainId);
-    const dock = dockRef.current;
-    if (!frame || !dock) return;
-    return inertOthers([frame, dock], isToastContainer);
-  });
+    let frame: HTMLElement | null = null;
+    let dock: HTMLElement | null = null;
+    let restore: (() => void) | null = null;
+    // The elements whose children inert was decided for: every ancestor of the frame and
+    // the dock up to body. A childList change on one of them may add a sibling to make inert.
+    let watched = new Set<Node>();
+    const apply = () => {
+      restore?.();
+      restore = null;
+      watched = new Set();
+      frame = frameOfChain(chatRef.current, expandedChainId);
+      dock = dockRef.current;
+      if (!frame || !dock) return;
+      for (const kept of [frame, dock]) {
+        for (let e = kept.parentElement; e && e !== document.body; e = e.parentElement) watched.add(e);
+      }
+      watched.add(document.body);
+      restore = inertOthers([frame, dock], isToastContainer);
+    };
+    apply();
+    const target = rootRef.current ?? chatRef.current;
+    const observer =
+      target && typeof MutationObserver === "function"
+        ? new MutationObserver((records) => {
+            const moved = frameOfChain(chatRef.current, expandedChainId) !== frame || dockRef.current !== dock;
+            if (moved || records.some((r) => watched.has(r.target))) apply();
+          })
+        : null;
+    if (target) observer?.observe(target, { childList: true, subtree: true });
+    return () => {
+      observer?.disconnect();
+      restore?.();
+    };
+  }, [expandedChainId, chatRef, rootRef]);
 
   const isExpanded = expandedChainId !== null;
   useEffect(() => {

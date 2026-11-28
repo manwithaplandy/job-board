@@ -1001,3 +1001,134 @@ describe("host.chart: bar, line and sparkline as before PR 5", () => {
     expect(sha256Base64(svgOf({ viz: "line", title: "Many", points: many }))).toMatchInlineSnapshot(`"hKgNm3VJI88Qa9dlK+7VlzSDK/5lIzFlL4PX313OCyY="`);
   });
 });
+
+// PR 5 Task 5.5 (spec 08 S9.5): the new chart kinds, the caps, onSelect, update and destroy.
+interface ChartHandle {
+  update(spec: unknown): void;
+  destroy(): void;
+}
+function drawChart(spec: unknown): { el: HTMLElement; handle: ChartHandle } {
+  document.body.innerHTML = `<div id="chart"></div>`;
+  const el = document.getElementById("chart")!;
+  const handle = host().chart(el, spec) as ChartHandle;
+  return { el, handle };
+}
+/** The visually hidden data table's rows, as text. */
+function tableRows(el: Element): string[][] {
+  const table = el.querySelector("table.jb-sr-only");
+  if (!table) return [];
+  return [...table.querySelectorAll("tr")].map((tr) => [...tr.children].map((c) => c.textContent ?? ""));
+}
+
+describe("host.chart: new kinds", () => {
+  const STAGES = [
+    { label: "Ready", value: 4 },
+    { label: "Applied", value: 6, tone: "good" },
+    { label: "Interviewing", value: 2, tone: "amber" },
+  ];
+  const SERIES = [
+    { name: "Remote", tone: "good", points: [{ label: "Oct", value: 3 }, { label: "Nov", value: 5 }] },
+    { name: "On site", points: [{ label: "Oct", value: 1 }, { label: "Nov", value: 2 }] },
+  ];
+
+  test.each([
+    ["hbar", { points: STAGES }, [["Label", "Value"], ["Ready", "4"], ["Applied", "6"], ["Interviewing", "2"]]],
+    ["stacked", { series: SERIES }, [["Label", "Remote", "On site"], ["Oct", "3", "1"], ["Nov", "5", "2"]]],
+    ["area", { series: SERIES }, [["Label", "Remote", "On site"], ["Oct", "3", "1"], ["Nov", "5", "2"]]],
+    ["area", { points: STAGES }, [["Label", "Value"], ["Ready", "4"], ["Applied", "6"], ["Interviewing", "2"]]],
+    ["scatter", { xy: [{ x: 1, y: 82, label: "Acme" }, { x: 9, y: 64 }], xLabel: "Days open", yLabel: "Fit" }, [["Label", "Days open", "Fit"], ["Acme", "1", "82"], ["", "9", "64"]]],
+    ["donut", { points: STAGES }, [["Label", "Value"], ["Ready", "4"], ["Applied", "6"], ["Interviewing", "2"]]],
+  ])("%s renders inline SVG named by its title, with a visually hidden data table", (viz, rest, rows) => {
+    const { el } = drawChart({ viz, title: `A ${viz} chart`, ...rest });
+    const svg = el.querySelector("svg")!;
+    expect(svg).not.toBeNull();
+    expect(svg.namespaceURI).toContain("svg");
+    expect(svg.getAttribute("role")).toBe("img");
+    expect(svg.getAttribute("aria-label")).toBe(`A ${viz} chart`);
+    expect(svg.querySelectorAll(".jb-chart-mark").length).toBeGreaterThan(0);
+    const table = el.querySelector("table.jb-sr-only")!;
+    expect(table).not.toBeNull();
+    expect(table.querySelector("caption")?.textContent).toBe(`A ${viz} chart`);
+    expect([...table.querySelectorAll("thead th")].every((th) => th.getAttribute("scope") === "col")).toBe(true);
+    expect(tableRows(el)).toEqual(rows);
+    // Data never becomes markup.
+    expect(el.querySelector("b")).toBeNull();
+  });
+
+  test("bar, line and sparkline add the hidden table too, beside their unchanged SVG", () => {
+    for (const viz of ["bar", "line", "sparkline"]) {
+      const { el } = drawChart({ viz, title: "T", points: STAGES });
+      expect(el.firstElementChild?.tagName.toLowerCase(), viz).toBe("svg");
+      expect(tableRows(el), viz).toEqual([["Label", "Value"], ["Ready", "4"], ["Applied", "6"], ["Interviewing", "2"]]);
+    }
+  });
+
+  test("format applies to the values the chart shows", () => {
+    const { el } = drawChart({ viz: "hbar", title: "Rates", format: "percent", points: [{ label: "<i>Reply</i>", value: 0.456 }] });
+    expect(tableRows(el)).toEqual([["Label", "Value"], ["<i>Reply</i>", "46%"]]);
+    expect(el.querySelector("svg")!.textContent).toContain("46%");
+  });
+
+  test("caps: 9 series draw 8, 250 points draw 200", () => {
+    const nine = Array.from({ length: 9 }, (_, i) => ({ name: `S${i}`, points: [{ label: "a", value: i + 1 }] }));
+    const stacked = drawChart({ viz: "stacked", title: "Nine", series: nine }).el;
+    expect(tableRows(stacked)[0]).toHaveLength(1 + 8);
+    expect(stacked.querySelectorAll("svg .jb-chart-mark")).toHaveLength(8);
+    const many = Array.from({ length: 250 }, (_, i) => ({ label: `p${i}`, value: i }));
+    const area = drawChart({ viz: "area", title: "Many", points: many }).el;
+    expect(tableRows(area)).toHaveLength(1 + 200);
+    const scatter = drawChart({ viz: "scatter", title: "Many", xy: many.map((p) => ({ x: p.value, y: p.value })) }).el;
+    expect(scatter.querySelectorAll("svg .jb-chart-mark")).toHaveLength(200);
+    // 200 points in all, across series.
+    const wide = Array.from({ length: 3 }, (_, s) => ({ name: `S${s}`, points: many.slice(0, 90) }));
+    expect(tableRows(drawChart({ viz: "stacked", title: "Wide", series: wide }).el).slice(1).flatMap((r) => r.slice(1)).filter((c) => c !== "")).toHaveLength(200);
+  });
+
+  test("onSelect makes the marks focusable buttons, called with { label, value, series, index } on click and on Enter", () => {
+    const picked: unknown[] = [];
+    const onSelect = (p: unknown) => picked.push(p);
+    const { el } = drawChart({ viz: "hbar", title: "Stages", points: STAGES, onSelect });
+    const svg = el.querySelector("svg")!;
+    expect(svg.getAttribute("role")).toBe("group");
+    expect(svg.getAttribute("aria-label")).toBe("Stages");
+    const marks = [...svg.querySelectorAll('[role="button"]')];
+    expect(marks).toHaveLength(3);
+    expect(marks.every((m) => m.getAttribute("tabindex") === "0")).toBe(true);
+    expect(marks[1].getAttribute("aria-label")).toBe("Applied: 6");
+    marks[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    press(marks[2], "Enter");
+    expect(picked).toEqual([
+      { label: "Applied", value: 6, series: null, index: 1 },
+      { label: "Interviewing", value: 2, series: null, index: 2 },
+    ]);
+
+    const fromSeries: unknown[] = [];
+    const stacked = drawChart({ viz: "stacked", title: "S", series: SERIES, onSelect: (p: unknown) => fromSeries.push(p) }).el;
+    const segs = [...stacked.querySelectorAll('svg [role="button"]')];
+    expect(segs).toHaveLength(4);
+    for (const s of segs) s.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(fromSeries).toContainEqual({ label: "Nov", value: 2, series: "On site", index: 1 });
+
+    // bar keeps its drawing and gains a target per bar.
+    const barPicks: unknown[] = [];
+    const bar = drawChart({ viz: "bar", title: "B", points: STAGES, onSelect: (p: unknown) => barPicks.push(p) }).el;
+    const barMarks = [...bar.querySelectorAll('svg [role="button"]')];
+    expect(barMarks).toHaveLength(3);
+    press(barMarks[0], "Enter");
+    expect(barPicks).toEqual([{ label: "Ready", value: 4, series: null, index: 0 }]);
+  });
+
+  test("update(spec) replaces the drawing; destroy() empties the element", () => {
+    const { el, handle } = drawChart({ viz: "hbar", title: "First", points: STAGES });
+    expect(Object.isFrozen(handle)).toBe(true);
+    handle.update({ viz: "donut", title: "Second", points: STAGES.slice(0, 2) });
+    expect(el.querySelectorAll("svg")).toHaveLength(1);
+    expect(el.querySelector("svg")!.getAttribute("aria-label")).toBe("Second");
+    expect(el.querySelectorAll("table")).toHaveLength(1);
+    expect(tableRows(el)).toHaveLength(3);
+    handle.destroy();
+    expect(el.childNodes).toHaveLength(0);
+    handle.update({ viz: "bar", title: "After", points: STAGES });
+    expect(el.childNodes).toHaveLength(0);
+  });
+});

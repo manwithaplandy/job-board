@@ -145,6 +145,36 @@ jb-field input {
 .jb-chart-label { fill: var(--text-secondary); font-size: var(--font-size-small); }
 `;
 
+// PR 5 (spec 08 S9.5): the new chart kinds' marks, tones, legend and selectable targets.
+const CHART_CSS = `
+.jb-chart .jb-tone-stage { fill: var(--chart-stage); }
+.jb-chart .jb-tone-good { fill: var(--chart-good); }
+.jb-chart .jb-tone-bad { fill: var(--chart-bad); }
+.jb-chart .jb-tone-amber { fill: var(--chart-amber); }
+.jb-chart .jb-tone-violet { fill: var(--chart-violet); }
+.jb-chart .jb-tone-muted { fill: var(--chart-muted); }
+.jb-chart .jb-chart-line { fill: none; stroke: var(--chart-stage); stroke-width: 2; }
+.jb-chart .jb-chart-line.jb-tone-good { stroke: var(--chart-good); }
+.jb-chart .jb-chart-line.jb-tone-bad { stroke: var(--chart-bad); }
+.jb-chart .jb-chart-line.jb-tone-amber { stroke: var(--chart-amber); }
+.jb-chart .jb-chart-line.jb-tone-violet { stroke: var(--chart-violet); }
+.jb-chart .jb-chart-line.jb-tone-muted { stroke: var(--chart-muted); }
+.jb-chart .jb-chart-area { fill-opacity: 0.2; stroke: none; }
+.jb-chart .jb-chart-ring { fill: none; stroke: var(--chart-muted); stroke-width: 28; opacity: 0.3; }
+.jb-chart .jb-chart-total { fill: var(--text-primary); font-size: var(--font-size-control); font-weight: 700; }
+.jb-chart .jb-chart-hit { fill: transparent; stroke: none; }
+.jb-chart [role="button"] { cursor: pointer; outline: none; }
+.jb-chart [role="button"]:focus-visible, .jb-chart [role="button"]:focus-visible .jb-chart-hit { stroke: var(--focus-ring); stroke-width: 2; }
+.jb-chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-2) 0 0; padding: 0; list-style: none; font-size: var(--font-size-caption); color: var(--text-secondary); }
+.jb-chart-legend li { display: inline-flex; align-items: center; gap: var(--space-2); }
+.jb-chart-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--chart-stage); }
+.jb-chart-swatch.jb-tone-good { background: var(--chart-good); }
+.jb-chart-swatch.jb-tone-bad { background: var(--chart-bad); }
+.jb-chart-swatch.jb-tone-amber { background: var(--chart-amber); }
+.jb-chart-swatch.jb-tone-violet { background: var(--chart-violet); }
+.jb-chart-swatch.jb-tone-muted { background: var(--chart-muted); }
+`;
+
 // PR 5 (spec 08 S9.3): layout and text helpers. All classes, because the CSP refuses
 // style="" attributes; script may still set a property through element.style.setProperty
 // (the CSSOM is not an inline style attribute), which jb-meter__fill's width relies on.
@@ -310,7 +340,7 @@ jb-tab[hidden] { display: none; }
 `;
 
 export const KIT_CSS: string =
-  tokenBlock(":root", KIT_TOKENS.light) + tokenBlock(':root[data-theme="dark"]', KIT_TOKENS.dark) + BASE_CSS + LAYOUT_CSS + CONTROLS_CSS;
+  tokenBlock(":root", KIT_TOKENS.light) + tokenBlock(':root[data-theme="dark"]', KIT_TOKENS.dark) + BASE_CSS + CHART_CSS + LAYOUT_CSS + CONTROLS_CSS;
 
 // Plain ES2017 in a string: it is never bundled, it runs inside the frame. No "//"
 // anywhere in it (the static check reads "//" as a URL), so comments are /* */.
@@ -674,9 +704,11 @@ export const KIT_JS: string = `(function () {
     for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, String(attrs[k]));
     return el;
   }
-  function chart(el, spec) {
-    if (!el || typeof el.appendChild !== "function") return;
-    spec = spec && typeof spec === "object" ? spec : {};
+  /* bar, line and sparkline (and the bar drawing any other unknown viz name falls back to):
+     the drawing as it was before PR 5, unchanged for the same input, so stored documents
+     render as before (kit.behaviour.test.ts holds the snapshots). PR 5 adds, beside it, the
+     hidden data table, and with onSelect a target per point. */
+  function legacyChart(spec, fmt) {
     var raw = Array.isArray(spec.points) ? spec.points.slice(0, CHART_POINTS_MAX) : [];
     var points = [];
     var max = 0;
@@ -715,8 +747,423 @@ export const KIT_JS: string = `(function () {
         svg.appendChild(text);
       }
     }
-    while (el.firstChild) el.removeChild(el.firstChild);
-    el.appendChild(svg);
+    var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
+    var rows = [];
+    for (var r = 0; r < points.length; r++) {
+      rows[rows.length] = [points[r].label, fmt(points[r].value)];
+      if (!onSelect) continue;
+      var info = { label: points[r].label, value: points[r].value, series: null, index: r };
+      if (spec.viz === "line" || spec.viz === "sparkline") {
+        var mark = pointTarget(step * r + step / 2, BASE - (points[r].value / max) * PLOT, "stage");
+        selectable(mark, info, onSelect, fmt);
+        appendTo(svg, mark);
+      } else {
+        var hit = svgNode("rect", { x: fx(step * r), y: 0, width: fx(step), height: BASE, "class": "jb-chart-hit" });
+        selectable(hit, info, onSelect, fmt);
+        appendTo(svg, hit);
+      }
+    }
+    if (onSelect) setAttr(svg, "role", "group");
+    return { svg: svg, legend: null, head: ["Label", "Value"], rows: rows };
+  }
+
+  /* PR 5 (spec 08 S9.5): hbar, stacked, area, scatter and donut. Inline SVG named by the
+     title (role img, or group when onSelect makes the marks buttons), a visually hidden
+     data table for screen readers, and a legend for more than one series. Caps: 8 series
+     and 200 points in all; more is clipped. tone is one of the --chart-* colours. */
+  var SERIES_MAX = 8;
+  var CHART_TOTAL_MAX = 200;
+  var CHART_TONES = { stage: 1, good: 1, bad: 1, amber: 1, violet: 1, muted: 1 };
+  var TONE_CYCLE = ["stage", "good", "amber", "violet", "bad", "muted"];
+  function toneOf(tone, i) {
+    return typeof tone === "string" && hasOwn(CHART_TONES, tone) ? tone : TONE_CYCLE[i % TONE_CYCLE.length];
+  }
+  function fx(n) { return fixedText(n, 1); }
+  function svgNode(tag, attrs) {
+    if (svgNamespace === null) svgEl("g", {});
+    var e = makeElNS(document, svgNamespace, tag);
+    var keys = ownKeys(attrs);
+    for (var i = 0; i < keys.length; i++) setAttr(e, keys[i], String(attrs[keys[i]]));
+    return e;
+  }
+  function svgText(x, y, text, anchor, cls) {
+    var t = svgNode("text", { x: fx(x), y: fx(y), "text-anchor": anchor, "class": cls || "jb-chart-label" });
+    setText(t, text);
+    return t;
+  }
+  function tip(el, text) {
+    var t = svgNode("title", {});
+    setText(t, text);
+    appendTo(el, t);
+  }
+  function describePoint(info, fmt) {
+    return (info.series ? info.series + ", " : "") + info.label + ": " + fmt(info.value);
+  }
+  /* With onSelect, a mark is a focusable button: click, Enter or Space calls onSelect with a
+     fresh { label, value, series, index }. */
+  function selectable(mark, info, onSelect, fmt) {
+    setAttr(mark, "role", "button");
+    setAttr(mark, "tabindex", "0");
+    setAttr(mark, "aria-label", describePoint(info, fmt));
+    function fire() { onSelect({ label: info.label, value: info.value, series: info.series, index: info.index }); }
+    listen(mark, "click", fire);
+    listen(mark, "keydown", function (e) {
+      var k = keyName(e);
+      if (k !== "Enter" && k !== " ") return;
+      cancelEvent(e);
+      fire();
+    });
+  }
+  /* A point's target: a 44-unit transparent circle with a small visible dot. */
+  function pointTarget(x, y, tone) {
+    var g = svgNode("g", { "class": "jb-chart-point" });
+    appendTo(g, svgNode("circle", { cx: fx(x), cy: fx(y), r: 22, "class": "jb-chart-hit" }));
+    appendTo(g, svgNode("circle", { cx: fx(x), cy: fx(y), r: 3, "class": "jb-chart-dot jb-tone-" + tone }));
+    return g;
+  }
+  /* The series to draw: spec.series, or spec.points as one unnamed series; 8 series and 200
+     points in all at most. A value that is not a finite number counts as 0. */
+  function chartSeries(spec) {
+    var many = isList(spec.series) && spec.series.length > 0;
+    var src = many ? spec.series : [{ points: spec.points }];
+    var budget = CHART_TOTAL_MAX;
+    var out = [];
+    for (var i = 0; i < src.length && out.length < SERIES_MAX; i++) {
+      var s = src[i] && typeof src[i] === "object" ? src[i] : {};
+      var pts = isList(s.points) ? s.points : [];
+      var list = [];
+      for (var j = 0; j < pts.length && budget > 0; j++) {
+        var p = pts[j] && typeof pts[j] === "object" ? pts[j] : {};
+        list[list.length] = { label: clip(p.label, LABEL_MAX), value: isNum(p.value) ? p.value : 0, tone: p.tone };
+        budget -= 1;
+      }
+      var name = many ? clip(s.name == null || s.name === "" ? "Series " + (i + 1) : s.name, LABEL_MAX) : null;
+      out[out.length] = { name: name, tone: toneOf(s.tone, i), points: list };
+    }
+    return out;
+  }
+  /* The labels of all series in order of first appearance, and where each series has each. */
+  function chartCategories(series) {
+    var labels = [];
+    var at = {};
+    for (var i = 0; i < series.length; i++) {
+      var pts = series[i].points;
+      for (var j = 0; j < pts.length; j++) {
+        var key = "k" + pts[j].label;
+        if (!hasOwn(at, key)) { at[key] = labels.length; labels[labels.length] = pts[j].label; }
+      }
+    }
+    var cells = [];
+    for (var s = 0; s < series.length; s++) {
+      var row = [];
+      for (var c = 0; c < labels.length; c++) row[c] = null;
+      for (var q = 0; q < series[s].points.length; q++) {
+        var ci = at["k" + series[s].points[q].label];
+        if (row[ci] === null) row[ci] = { value: series[s].points[q].value, index: q };
+      }
+      cells[s] = row;
+    }
+    return { labels: labels, cells: cells };
+  }
+  /* The hidden table's head and rows: one row per point for one series, else one row per
+     label with a column per series. */
+  function seriesTable(series, cats, fmt) {
+    var head = ["Label"];
+    var rows = [];
+    if (series.length === 1 && series[0].name === null) {
+      head[1] = "Value";
+      for (var i = 0; i < series[0].points.length; i++) rows[rows.length] = [series[0].points[i].label, fmt(series[0].points[i].value)];
+      return { head: head, rows: rows };
+    }
+    for (var s = 0; s < series.length; s++) head[head.length] = series[s].name;
+    for (var c = 0; c < cats.labels.length; c++) {
+      var row = [cats.labels[c]];
+      for (var t = 0; t < series.length; t++) row[row.length] = cats.cells[t][c] ? fmt(cats.cells[t][c].value) : "";
+      rows[rows.length] = row;
+    }
+    return { head: head, rows: rows };
+  }
+  function legendOf(series) {
+    if (series.length < 2) return null;
+    var out = [];
+    for (var i = 0; i < series.length; i++) out[out.length] = { name: series[i].name, tone: series[i].tone };
+    return out;
+  }
+  /* Category labels along the base, at most 12 shown. */
+  function baseLabels(svg, labels, step, y) {
+    var every = M.max(1, M.floor((labels.length + 11) / 12));
+    for (var i = 0; i < labels.length; i += every) appendTo(svg, svgText(step * i + step / 2, y, labels[i], "middle"));
+  }
+  function chartSvg(w, h, title, onSelect) {
+    return svgNode("svg", { viewBox: "0 0 " + w + " " + h, role: onSelect ? "group" : "img", "class": "jb-chart", "aria-label": clip(title || "Chart", 80) });
+  }
+
+  function drawHbar(spec, fmt, onSelect) {
+    var series = chartSeries(spec).slice(0, 1);
+    var pts = series[0].points;
+    var W = 320, LABEL_W = 112, VALUE_W = 52, BAR_H = 16;
+    var rowH = onSelect ? 48 : 28;
+    var H = M.max(pts.length, 1) * rowH + 8;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    var max = 0;
+    for (var i = 0; i < pts.length; i++) if (pts[i].value > max) max = pts[i].value;
+    if (max <= 0) max = 1;
+    for (var r = 0; r < pts.length; r++) {
+      var v = M.max(pts[r].value, 0);
+      var y = 4 + r * rowH;
+      var by = y + (rowH - BAR_H) / 2;
+      var w = (v / max) * (W - LABEL_W - VALUE_W);
+      var info = { label: pts[r].label, value: pts[r].value, series: null, index: r };
+      appendTo(svg, svgText(0, by + 12, clip(pts[r].label, 18), "start"));
+      var bar = svgNode("rect", { x: LABEL_W, y: fx(by), width: fx(w), height: BAR_H, "class": "jb-chart-mark jb-tone-" + toneOf(pts[r].tone, 0) });
+      tip(bar, describePoint(info, fmt));
+      appendTo(svg, bar);
+      appendTo(svg, svgText(LABEL_W + w + 4, by + 12, fmt(pts[r].value), "start"));
+      if (onSelect) {
+        var hit = svgNode("rect", { x: 0, y: fx(y), width: W, height: rowH, "class": "jb-chart-hit" });
+        selectable(hit, info, onSelect, fmt);
+        appendTo(svg, hit);
+      }
+    }
+    var table = seriesTable(series, null, fmt);
+    return { svg: svg, legend: null, head: table.head, rows: table.rows };
+  }
+
+  function drawStacked(spec, fmt, onSelect) {
+    var series = chartSeries(spec);
+    var cats = chartCategories(series);
+    var n = cats.labels.length;
+    var W = 320, H = 160, BASE = 136, PLOT = 124;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
+    var max = 0;
+    for (var c = 0; c < n; c++) {
+      var total = 0;
+      for (var s = 0; s < series.length; s++) if (cats.cells[s][c] && cats.cells[s][c].value > 0) total += cats.cells[s][c].value;
+      if (total > max) max = total;
+    }
+    if (max <= 0) max = 1;
+    var step = W / M.max(n, 1);
+    for (var k = 0; k < n; k++) {
+      var y = BASE;
+      for (var t = 0; t < series.length; t++) {
+        var cell = cats.cells[t][k];
+        if (!cell || !(cell.value > 0)) continue;
+        var h = (cell.value / max) * PLOT;
+        y -= h;
+        var tone = series.length === 1 ? toneOf(series[t].points[cell.index].tone, 0) : series[t].tone;
+        var seg = svgNode("rect", { x: fx(step * k + step * 0.15), y: fx(y), width: fx(step * 0.7), height: fx(h), "class": "jb-chart-mark jb-tone-" + tone });
+        var info = { label: cats.labels[k], value: cell.value, series: series[t].name, index: cell.index };
+        tip(seg, describePoint(info, fmt));
+        if (onSelect) selectable(seg, info, onSelect, fmt);
+        appendTo(svg, seg);
+      }
+    }
+    baseLabels(svg, cats.labels, step, H - 6);
+    var table = seriesTable(series, cats, fmt);
+    return { svg: svg, legend: legendOf(series), head: table.head, rows: table.rows };
+  }
+
+  function drawArea(spec, fmt, onSelect) {
+    var series = chartSeries(spec);
+    var cats = chartCategories(series);
+    var W = 320, H = 160, BASE = 136, PLOT = 124;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
+    var longest = 0;
+    var max = 0;
+    for (var s = 0; s < series.length; s++) {
+      if (series[s].points.length > series[longest].points.length) longest = s;
+      for (var i = 0; i < series[s].points.length; i++) if (series[s].points[i].value > max) max = series[s].points[i].value;
+    }
+    if (max <= 0) max = 1;
+    var step = W / M.max(series[longest].points.length, 1);
+    for (var t = 0; t < series.length; t++) {
+      var pts = series[t].points;
+      if (pts.length === 0) continue;
+      var coords = [];
+      for (var j = 0; j < pts.length; j++) coords[j] = fx(step * j + step / 2) + "," + fx(BASE - (M.max(pts[j].value, 0) / max) * PLOT);
+      var first = fx(step / 2) + "," + BASE;
+      var last = fx(step * (pts.length - 1) + step / 2) + "," + BASE;
+      var area = svgNode("polygon", { points: first + " " + coords.join(" ") + " " + last, "class": "jb-chart-area jb-chart-mark jb-tone-" + series[t].tone });
+      tip(area, series[t].name === null ? clip(spec.title || "Chart", 80) : series[t].name);
+      appendTo(svg, area);
+      appendTo(svg, svgNode("polyline", { points: coords.join(" "), "class": "jb-chart-line jb-tone-" + series[t].tone }));
+      if (!onSelect) continue;
+      for (var q = 0; q < pts.length; q++) {
+        var mark = pointTarget(step * q + step / 2, BASE - (M.max(pts[q].value, 0) / max) * PLOT, series[t].tone);
+        selectable(mark, { label: pts[q].label, value: pts[q].value, series: series[t].name, index: q }, onSelect, fmt);
+        appendTo(svg, mark);
+      }
+    }
+    var labels = [];
+    for (var b = 0; b < series[longest].points.length; b++) labels[b] = series[longest].points[b].label;
+    baseLabels(svg, labels, step, H - 6);
+    var table = seriesTable(series, cats, fmt);
+    return { svg: svg, legend: legendOf(series), head: table.head, rows: table.rows };
+  }
+
+  function drawScatter(spec, fmt, onSelect) {
+    var raw = isList(spec.xy) ? spec.xy : [];
+    var pts = [];
+    for (var i = 0; i < raw.length && i < CHART_TOTAL_MAX; i++) {
+      var p = raw[i] && typeof raw[i] === "object" ? raw[i] : {};
+      if (!isNum(p.x) || !isNum(p.y)) continue;
+      pts[pts.length] = { x: p.x, y: p.y, label: p.label == null ? "" : clip(p.label, LABEL_MAX), tone: toneOf(p.tone, 0) };
+    }
+    var W = 320, H = 160, L = 44, R = W - 8, T = 8, B = 124;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    var x0 = 0, x1 = 1, y0 = 0, y1 = 1;
+    if (pts.length > 0) {
+      x0 = x1 = pts[0].x;
+      y0 = y1 = pts[0].y;
+      for (var j = 1; j < pts.length; j++) {
+        x0 = M.min(x0, pts[j].x); x1 = M.max(x1, pts[j].x);
+        y0 = M.min(y0, pts[j].y); y1 = M.max(y1, pts[j].y);
+      }
+      if (x0 === x1) { x0 -= 1; x1 += 1; }
+      if (y0 === y1) { y0 -= 1; y1 += 1; }
+    }
+    function sx(v) { return L + ((v - x0) / (x1 - x0)) * (R - L); }
+    function sy(v) { return B - ((v - y0) / (y1 - y0)) * (B - T); }
+    appendTo(svg, svgNode("line", { x1: L, y1: B, x2: R, y2: B, "class": "jb-chart-axis" }));
+    appendTo(svg, svgNode("line", { x1: L, y1: T, x2: L, y2: B, "class": "jb-chart-axis" }));
+    appendTo(svg, svgText(L, B + 14, fmtNumber(x0), "start"));
+    appendTo(svg, svgText(R, B + 14, fmtNumber(x1), "end"));
+    appendTo(svg, svgText(L - 4, B, fmt(y0), "end"));
+    appendTo(svg, svgText(L - 4, T + 8, fmt(y1), "end"));
+    var xLabel = spec.xLabel == null || spec.xLabel === "" ? "x" : clip(spec.xLabel, LABEL_MAX);
+    var yLabel = spec.yLabel == null || spec.yLabel === "" ? "y" : clip(spec.yLabel, LABEL_MAX);
+    if (spec.xLabel) appendTo(svg, svgText((L + R) / 2, H - 4, xLabel, "middle"));
+    if (spec.yLabel) {
+      var yl = svgText(0, 0, yLabel, "middle");
+      setAttr(yl, "transform", "translate(10 " + fx((T + B) / 2) + ") rotate(-90)");
+      appendTo(svg, yl);
+    }
+    var rows = [];
+    for (var k = 0; k < pts.length; k++) {
+      var info = { label: pts[k].label === "" ? fmtNumber(pts[k].x) : pts[k].label, value: pts[k].y, series: null, index: k };
+      var dot = svgNode("circle", { cx: fx(sx(pts[k].x)), cy: fx(sy(pts[k].y)), r: 4, "class": "jb-chart-dot jb-chart-mark jb-tone-" + pts[k].tone });
+      tip(dot, (pts[k].label ? pts[k].label + ": " : "") + fmtNumber(pts[k].x) + ", " + fmt(pts[k].y));
+      appendTo(svg, dot);
+      if (onSelect) {
+        var hit = svgNode("circle", { cx: fx(sx(pts[k].x)), cy: fx(sy(pts[k].y)), r: 22, "class": "jb-chart-hit" });
+        selectable(hit, info, onSelect, fmt);
+        appendTo(svg, hit);
+      }
+      rows[rows.length] = [pts[k].label, fmtNumber(pts[k].x), fmt(pts[k].y)];
+    }
+    return { svg: svg, legend: null, head: ["Label", xLabel, yLabel], rows: rows };
+  }
+
+  function arcPath(cx, cy, R, r, a0, a1) {
+    if (a1 - a0 >= 2 * M.PI - 0.0001) return arcPath(cx, cy, R, r, a0, a0 + M.PI) + " " + arcPath(cx, cy, R, r, a0 + M.PI, a1);
+    var large = a1 - a0 > M.PI ? 1 : 0;
+    function at(rad, a) { return fx(cx + rad * M.cos(a)) + " " + fx(cy + rad * M.sin(a)); }
+    return "M " + at(R, a0) + " A " + R + " " + R + " 0 " + large + " 1 " + at(R, a1) +
+      " L " + at(r, a1) + " A " + r + " " + r + " 0 " + large + " 0 " + at(r, a0) + " Z";
+  }
+  function drawDonut(spec, fmt, onSelect) {
+    var series = chartSeries(spec).slice(0, 1);
+    var pts = series[0].points;
+    var W = 320, H = 160, CX = 80, CY = 80, R = 72, RI = 44;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    var total = 0;
+    for (var i = 0; i < pts.length; i++) if (pts[i].value > 0) total += pts[i].value;
+    var a = -M.PI / 2;
+    var keys = 0;
+    for (var k = 0; k < pts.length; k++) {
+      var v = pts[k].value;
+      if (!(v > 0) || total <= 0) continue;
+      var tone = toneOf(pts[k].tone, k);
+      var b = a + (v / total) * 2 * M.PI;
+      var slice = svgNode("path", { d: arcPath(CX, CY, R, RI, a, b), "class": "jb-chart-mark jb-tone-" + tone });
+      var info = { label: pts[k].label, value: v, series: null, index: k };
+      tip(slice, describePoint(info, fmt));
+      if (onSelect) selectable(slice, info, onSelect, fmt);
+      appendTo(svg, slice);
+      a = b;
+      if (keys < 8) {
+        var ky = 20 + keys * 18;
+        appendTo(svg, svgNode("rect", { x: 176, y: ky - 9, width: 10, height: 10, rx: 2, "class": "jb-chart-key jb-tone-" + tone }));
+        appendTo(svg, svgText(192, ky, clip(pts[k].label, 16) + " " + fmtPercent(v / total), "start"));
+        keys += 1;
+      }
+    }
+    if (total <= 0) appendTo(svg, svgNode("circle", { cx: CX, cy: CY, r: (R + RI) / 2, "class": "jb-chart-ring" }));
+    appendTo(svg, svgText(CX, CY + 5, fmt(total), "middle", "jb-chart-total"));
+    var table = seriesTable(series, null, fmt);
+    return { svg: svg, legend: null, head: table.head, rows: table.rows };
+  }
+
+  function chartTable(title, head, rows) {
+    var table = node("table", "jb-sr-only");
+    appendTo(table, node("caption", null, title));
+    var thead = node("thead");
+    var tr = node("tr");
+    for (var i = 0; i < head.length; i++) {
+      var th = node("th", null, head[i]);
+      setAttr(th, "scope", "col");
+      appendTo(tr, th);
+    }
+    appendTo(thead, tr);
+    appendTo(table, thead);
+    var tbody = node("tbody");
+    for (var r = 0; r < rows.length; r++) {
+      var row = node("tr");
+      for (var c = 0; c < rows[r].length; c++) {
+        var cell = node(c === 0 ? "th" : "td", null, rows[r][c]);
+        if (c === 0) setAttr(cell, "scope", "row");
+        appendTo(row, cell);
+      }
+      appendTo(tbody, row);
+    }
+    appendTo(table, tbody);
+    return table;
+  }
+  function chartLegend(items) {
+    var ul = node("ul", "jb-chart-legend");
+    for (var i = 0; i < items.length; i++) {
+      var li = node("li");
+      var swatch = node("span", "jb-chart-swatch jb-tone-" + items[i].tone);
+      setAttr(swatch, "aria-hidden", "true");
+      appendTo(li, swatch);
+      appendTo(li, makeText(document, items[i].name));
+      appendTo(ul, li);
+    }
+    return ul;
+  }
+  function clearNode(el) {
+    var c;
+    while ((c = firstChildOf(el))) removeFrom(el, c);
+  }
+  function drawChart(el, spec) {
+    spec = spec && typeof spec === "object" ? spec : {};
+    var fmt = formatterOf(spec.format);
+    var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
+    var out;
+    if (spec.viz === "hbar") out = drawHbar(spec, fmt, onSelect);
+    else if (spec.viz === "stacked") out = drawStacked(spec, fmt, onSelect);
+    else if (spec.viz === "area") out = drawArea(spec, fmt, onSelect);
+    else if (spec.viz === "scatter") out = drawScatter(spec, fmt, onSelect);
+    else if (spec.viz === "donut") out = drawDonut(spec, fmt, onSelect);
+    else out = legacyChart(spec, fmt);
+    clearNode(el);
+    appendTo(el, out.svg);
+    if (out.legend) appendTo(el, chartLegend(out.legend));
+    appendTo(el, chartTable(clip(spec.title || "Chart", 80), out.head, out.rows));
+  }
+  /* host.chart(el, spec) -> { update(spec), destroy() }: update redraws into the same
+     element; destroy empties it, and nothing draws there afterwards. */
+  var NO_CHART = freeze({ update: function () {}, destroy: function () {} });
+  function chart(el, spec) {
+    if (!el || typeof el.appendChild !== "function" || !isElement(el)) return NO_CHART;
+    var live = true;
+    drawChart(el, spec);
+    return freeze({
+      update: function (next) { if (live) drawChart(el, next); },
+      destroy: function () { live = false; clearNode(el); }
+    });
   }
 
   /* PR 5 (spec 08 S9.5): host.el builds an element from a closed set of attributes; text

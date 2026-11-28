@@ -211,8 +211,11 @@ async function assertChartText(page: Page, width: number) {
     const got = await frame!.evaluate(async (fw) => {
       const host = document.getElementById("stages")!;
       if (fw !== null) host.style.setProperty("width", `${fw - 32}px`);
-      // The kit redraws from its ResizeObserver, which runs before the next paint.
+      // The kit's ResizeObserver runs before the next paint and schedules the redraw on a timer
+      // (polish fix 1: never inside the callback), so wait two frames and then a timer queued
+      // after the kit's.
       await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
       const svg = host.querySelector<SVGSVGElement>("svg.jb-chart")!;
       const box = svg.getBoundingClientRect();
       const texts = [...svg.querySelectorAll<SVGTextElement>("text")].map((t) => {

@@ -464,6 +464,22 @@ function pressTrusted(target: EventTarget, init: KeyboardEventInit) {
   return ev;
 }
 
+/**
+ * Fix round 2: a trusted input event of `type`, as a real user action delivers it (a key
+ * event as a KeyboardEvent, so the kit can read its key). Dispatched on the body, so it
+ * reaches the window's capture listeners as real input does.
+ */
+function inputTrusted(type: string, key = "Enter") {
+  const ev = type.startsWith("key") ? new KeyboardEvent(type, { bubbles: true, cancelable: true, key }) : new Event(type, { bubbles: true, cancelable: true });
+  const impl = implOf(ev);
+  impl.isTrusted = true;
+  implOf(document.body)._dispatch(impl);
+  expect(ev.isTrusted).toBe(true);
+}
+/** Real time for the first kit's 1,000 ms flag to clear (it took the real setTimeout when it started). */
+const ACTIVATION_CLEARS_MS = 1_050;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 describe("escape", () => {
   test("a trusted Escape posts one escape with no payload", async () => {
     const before = ofType("escape").length;
@@ -1374,10 +1390,24 @@ describe("host.table", () => {
 
 // PR 6 Task 6.2 (spec 08 S10.2, layer 1): host.ask posts only while the user has just acted,
 // read through navigator.userActivation's isActive getter as the kit found it.
+// Fix round 2 (CI run 46111454100): isActive alone is not enough. Automation grants a frame
+// transient activation whenever it evaluates script there, so the kit also needs its own flag,
+// set only by a trusted input event in the last 1,000 ms.
 describe("host.ask with navigator.userActivation", () => {
-  afterEach(() => {
+  let armedAt: number | null = null;
+  const arm = (type = "pointerup") => {
+    inputTrusted(type);
+    armedAt = Date.now();
+  };
+  beforeAll(async () => {
+    // Earlier blocks press trusted keys (the controls); let any flag they set clear.
+    await sleep(ACTIVATION_CLEARS_MS);
+  });
+  afterEach(async () => {
     activation.active = false;
     document.body.innerHTML = "";
+    if (armedAt !== null) await sleep(Math.max(0, ACTIVATION_CLEARS_MS - (Date.now() - armedAt)));
+    armedAt = null;
   });
 
   test("without activation it returns false and posts nothing", async () => {
@@ -1387,8 +1417,41 @@ describe("host.ask with navigator.userActivation", () => {
     expect(ofType("ask")).toHaveLength(before);
   });
 
-  test("with isActive true it posts one ask with the text as a string and returns true", async () => {
+  test("isActive true with no trusted input (what automation's evaluation gives a frame) returns false and posts nothing", async () => {
     const before = ofType("ask").length;
+    activation.active = true;
+    expect(host().ask("on load")).toBe(false);
+    await Promise.resolve();
+    expect(host().ask("in a microtask")).toBe(false);
+    await sleep(50);
+    expect(host().ask("on a timer")).toBe(false);
+    // Nor do untrusted events, a synthetic click on a button or element.click().
+    document.body.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    document.body.innerHTML = '<jb-button id="plain">Plain</jb-button><jb-button id="ask" ask="From a click">Ask</jb-button>';
+    let fromHandler: boolean | null = null;
+    document.getElementById("plain")!.addEventListener("click", () => {
+      fromHandler = host().ask("From a handler");
+    });
+    (document.getElementById("plain") as HTMLElement).click();
+    (document.getElementById("ask") as HTMLElement).click();
+    document.getElementById("ask")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(fromHandler).toBe(false);
+    await tick();
+    expect(ofType("ask")).toHaveLength(before);
+  });
+
+  test("a trusted input with isActive false returns false and posts nothing", async () => {
+    const before = ofType("ask").length;
+    arm();
+    expect(host().ask("x")).toBe(false);
+    await tick();
+    expect(ofType("ask")).toHaveLength(before);
+  });
+
+  test("with a trusted input and isActive true it posts one ask with the text as a string and returns true", async () => {
+    const before = ofType("ask").length;
+    arm();
     activation.active = true;
     expect(host().ask("Compare the top two")).toBe(true);
     expect(host().ask(42)).toBe(true);
@@ -1404,6 +1467,7 @@ describe("host.ask with navigator.userActivation", () => {
   // so its answer is honest about what the host will show.
   test("it posts the text as the host normalises it, and refuses one the host would drop", async () => {
     const before = ofType("ask").length;
+    arm();
     activation.active = true;
     const tags = (t: string) => Array.from(t, (ch) => String.fromCodePoint(0xe0000 + ch.codePointAt(0)!)).join("");
     const cases: Array<[unknown, string | null]> = [
@@ -1433,6 +1497,8 @@ describe("host.ask with navigator.userActivation", () => {
     const before = ofType("ask").length;
     const proto = FakeUserActivation.prototype;
     const original = Object.getOwnPropertyDescriptor(proto, "isActive")!;
+    // With the kit's own flag armed by a real input, so only the replaced getter could say yes.
+    arm();
     Object.defineProperty(fakeActivation, "isActive", { value: true, configurable: true });
     Object.defineProperty(proto, "isActive", { get: () => true, configurable: true });
     try {
@@ -1449,10 +1515,13 @@ describe("host.ask with navigator.userActivation", () => {
     document.body.innerHTML = '<jb-button ask="Compare the top two">Compare</jb-button>';
     const button = document.querySelector("jb-button")!;
     const before = ofType("ask").length;
+    activation.active = true;
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await tick();
     expect(ofType("ask")).toHaveLength(before);
-    activation.active = true;
+    // The click a real press delivers comes after its trusted pointerdown and pointerup.
+    arm("pointerdown");
+    arm("pointerup");
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await vi.waitFor(() => expect(ofType("ask")).toHaveLength(before + 1));
     expect(ofType("ask").at(-1)).toEqual({ type: "ask", text: "Compare the top two" });
@@ -1460,6 +1529,7 @@ describe("host.ask with navigator.userActivation", () => {
 
   test("a button with both ask and action runs the action only", async () => {
     document.body.innerHTML = `<jb-button ask="Tell me more" action='{"name":"open","target":"shortlist"}'>Go</jb-button>`;
+    arm();
     activation.active = true;
     const asks = ofType("ask").length;
     const acts = ofType("action").length;
@@ -1472,6 +1542,7 @@ describe("host.ask with navigator.userActivation", () => {
 
   test("an aria-disabled ask button posts nothing", async () => {
     document.body.innerHTML = '<jb-button ask="x" aria-disabled="true">x</jb-button>';
+    arm();
     activation.active = true;
     const before = ofType("ask").length;
     document.querySelector("jb-button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1494,13 +1565,7 @@ describe("host.ask without navigator.userActivation", () => {
   async function flush(rounds = 5) {
     for (let i = 0; i < rounds; i++) await new Promise<void>((r) => setImmediate(r));
   }
-  function fireTrusted(type: string) {
-    const ev = new Event(type, { bubbles: true, cancelable: true });
-    const impl = implOf(ev);
-    impl.isTrusted = true;
-    implOf(document.body)._dispatch(impl);
-    expect(ev.isTrusted).toBe(true);
-  }
+  const fireTrusted = (type: string, key?: string) => inputTrusted(type, key);
 
   beforeAll(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -1570,5 +1635,23 @@ describe("host.ask without navigator.userActivation", () => {
     expect(ownHost!.ask("cleared")).toBe(false);
     await flush();
     expect(asks()).toEqual([{ type: "ask", text: "still armed" }]);
+  });
+
+  // Fix round 2: every activation-triggering input arms it, so Enter on a button (whose click
+  // fires on keydown, before keyup) asks at once; Escape does not.
+  test("a trusted keydown, mousedown, pointerdown or touchend arms it; a trusted Escape does not", async () => {
+    received.length = 0;
+    vi.advanceTimersByTime(1_000);
+    for (const type of ["keydown", "mousedown", "pointerdown", "touchend"]) {
+      expect({ type, ok: ownHost!.ask("before") }).toEqual({ type, ok: false });
+      fireTrusted(type);
+      expect({ type, ok: ownHost!.ask(type) }).toEqual({ type, ok: true });
+      vi.advanceTimersByTime(1_000);
+    }
+    fireTrusted("keydown", "Escape");
+    fireTrusted("keyup", "Escape");
+    expect(ownHost!.ask("escape")).toBe(false);
+    await flush();
+    expect(asks()).toEqual(["keydown", "mousedown", "pointerdown", "touchend"].map((text) => ({ type: "ask", text })));
   });
 });

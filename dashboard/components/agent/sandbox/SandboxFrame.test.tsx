@@ -24,7 +24,7 @@ import {
   type SandboxFrameServer,
   type SandboxSurface,
 } from "./SandboxFrame";
-import { resetPageClocks } from "./arming";
+import { pageMovedAtNow, resetPageClocks } from "./arming";
 
 const ID = "44444444-4444-4444-8444-444444444444";
 const THREAD = "11111111-1111-4111-8111-111111111111";
@@ -443,6 +443,84 @@ describe("SandboxFrame", () => {
     act(() => vi.advanceTimersByTime(1));
     pointerClick(chip);
     expect(onIntent).toHaveBeenCalledTimes(1);
+  });
+
+  test("the request region's ResizeObserver moves the page clock when the region's height changes (fix wave follow-up 2, residual c)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    // A stub ResizeObserver that records each observer's callback and targets, so the test
+    // can report a height for the region the way a browser would.
+    const observers: { callback: ResizeObserverCallback; targets: Element[]; disconnected: boolean }[] = [];
+    class RecordingResizeObserver {
+      private readonly record: (typeof observers)[number];
+      constructor(callback: ResizeObserverCallback) {
+        this.record = { callback, targets: [], disconnected: false };
+        observers.push(this.record);
+      }
+      observe(el: Element) {
+        this.record.targets.push(el);
+      }
+      unobserve() {}
+      disconnect() {
+        this.record.disconnected = true;
+      }
+    }
+    vi.stubGlobal("ResizeObserver", RecordingResizeObserver);
+    const report = (el: Element, height: number) => {
+      const watching = observers.filter((o) => !o.disconnected && o.targets.includes(el));
+      expect(watching).toHaveLength(1);
+      const entry = { target: el, borderBoxSize: [{ blockSize: height, inlineSize: 300 }], contentRect: { height } } as unknown as ResizeObserverEntry;
+      act(() => watching[0]!.callback([entry], watching[0] as unknown as ResizeObserver));
+    };
+
+    // View A above, view B below with a chip. A's region is what changes height.
+    const a = mount({ ...surface(), id: "55555555-5555-4555-8555-555555555555" });
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const b = mount();
+    ready(a.iframe);
+    const portB = ready(b.iframe).port;
+    await flush();
+    // Each frame's request region is observed; A's comes first in the document.
+    const regions = [...document.querySelectorAll(".rf-sandbox__requests")];
+    expect(regions).toHaveLength(2);
+    const regionA = regions[0];
+    expect(a.container.contains(regionA!)).toBe(true);
+    expect(observers.some((o) => o.targets.includes(regions[1]!))).toBe(true);
+    portB.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await flush();
+    const chip = screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    act(() => vi.advanceTimersByTime(2000));
+    const before = pageMovedAtNow();
+
+    // The first observation of an empty region moves nothing.
+    report(regionA!, 0);
+    expect(pageMovedAtNow()).toBe(before);
+    // The region grows (a pending ask appears): the page clock moves to now.
+    act(() => vi.advanceTimersByTime(100));
+    report(regionA!, 96);
+    expect(pageMovedAtNow()).toBe(Date.now());
+    // The same height reported again moves nothing.
+    const grownAt = pageMovedAtNow();
+    act(() => vi.advanceTimersByTime(100));
+    report(regionA!, 96);
+    expect(pageMovedAtNow()).toBe(grownAt);
+    // It shrinks (the ask swapped for a chip): the clock moves, and B's chip, which slid,
+    // ignores a pointer press for CHIP_ARM_MS.
+    report(regionA!, 44);
+    expect(pageMovedAtNow()).toBe(Date.now());
+    pointerClick(chip);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    pointerClick(chip);
+    expect(b.onIntent).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    pointerClick(chip);
+    expect(b.onIntent).toHaveBeenCalledTimes(1);
+
+    // Unmounting A disconnects its region's observer (the frame and its region leaving
+    // move the page once more).
+    act(() => vi.advanceTimersByTime(1000));
+    a.unmount();
+    expect(observers.filter((o) => o.targets.includes(regionA!)).every((o) => o.disconnected)).toBe(true);
+    expect(pageMovedAtNow()).toBe(Date.now());
   });
 
   test("a keyboard press on the chip skips the move clocks but not the arm delay (fix wave follow-up)", async () => {

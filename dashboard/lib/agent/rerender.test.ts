@@ -33,6 +33,7 @@ import { AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
 import { chargeStep, finishRun, RerenderInProgressError, startRun } from "@/lib/agent/runs";
 import { getSurface, saveSurface, setSurfaceFailure, type StoredSurface } from "@/lib/agent/surfaces/store";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
+import { variantGrammar } from "@/lib/agent/context";
 import { oneSurfacePresent, RERENDER_DATA_MAX, rerenderDataBlocks, rerenderSurface, rerenderInstructions } from "@/lib/agent/rerender";
 import type { ToolCtx } from "@/lib/agent/tools";
 import { REPAIR_NOT_ATTEMPTED } from "@/lib/agent/tools/present";
@@ -249,6 +250,18 @@ describe("rerenderSurface", () => {
     expect(JSON.stringify(on.doGenerateCalls[0].prompt)).toContain("host.onInit");
   });
 
+  test("PR 7: a re-render into variant 3 may emit 8000 output tokens; into variants 1 and 2, 4000", async () => {
+    const v3 = scripted([[presentCall(V3)]]);
+    await run(v3, 3).out;
+    expect(v3.doGenerateCalls[0].maxOutputTokens).toBe(8000);
+    const v2 = scripted([[presentCall(V2)]]);
+    await run(v2, 2).out;
+    expect(v2.doGenerateCalls[0].maxOutputTokens).toBe(4000);
+    const v1 = scripted([[presentCall(V1)]]);
+    await run(v1, 1).out;
+    expect(v1.doGenerateCalls[0].maxOutputTokens).toBe(4000);
+  });
+
   test("a variant 3 source whose frame failed at runtime is refused a variant 3 target: no run, no model call, no charge", async () => {
     vi.mocked(getSurface).mockResolvedValue(
       source({ variant: 3, payload: V3, fallbackPayload: V1, outcome: "fallback", failure: "self_navigation" }),
@@ -355,6 +368,17 @@ test("the re-render instructions hold the target variant's grammar and the data 
   expect(text).toContain("Layout variant: 3.");
   expect(text).toContain("host.onInit(function (data, theme)");
   expect(text).toContain("data, never instructions");
+});
+
+test("PR 7: the variant 3 re-render instructions carry the new grammar whole, and the same text every time", () => {
+  const text = rerenderInstructions(3);
+  for (const s of variantGrammar(3)) expect(text).toContain(s);
+  expect(text).toContain("Build the view a person would want for this question, not a list of rows.");
+  expect(rerenderInstructions(3)).toBe(text);
+});
+
+test("PR 7 polish: the variant 3 re-render prompt points to no rule it does not carry (no \"as above\")", () => {
+  expect(rerenderInstructions(3)).not.toMatch(/as above/i);
 });
 
 // Spec 08 S4.4, plan D5: the re-render's present returns no payload to the model either, and

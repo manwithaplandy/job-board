@@ -95,6 +95,8 @@ import { TurnInProgressError, chargeStep, finishRun, saveMessages, startRun } fr
 import type { AgentThread } from "@/lib/agent/threads";
 import {
   APPROVAL_DENIED_REASON,
+  EARLIER_STYLE_NOTE,
+  markEarlierStyleViews,
   markViewMessages,
   streamAgentTurn,
   TurnInputError,
@@ -893,6 +895,27 @@ describe("streamAgentTurn: the thread's variant (plan Task 2.8)", () => {
     return { system: JSON.stringify(call.prompt[0].content), present: JSON.stringify(present?.inputSchema ?? null) };
   }
 
+  test("PR 7: a variant 3 turn may emit 8000 output tokens a step; a variant 1 turn 4000", async () => {
+    const outputFor = async (variant: 1 | 3) => {
+      const model = scripted([textStep(["ok"], 0.0001)]);
+      const res = await streamAgentTurn({ userId: USER, email: null, thread: { ...thread, variant }, input: message("hi"), model, variant3Enabled: true });
+      await drain(res);
+      await Promise.all(h.afterTasks);
+      return model.doStreamCalls[0].maxOutputTokens;
+    };
+    expect(await outputFor(3)).toBe(8000);
+    expect(await outputFor(1)).toBe(4000);
+  });
+
+  test("PR 7 polish: a variant 3 thread with variant 3 switched off sends 4000 output tokens (it presents as variant 1)", async () => {
+    const model = scripted([textStep(["ok"], 0.0001)]);
+    const res = await streamAgentTurn({ userId: USER, email: null, thread: { ...thread, variant: 3 }, input: message("hi"), model, variant3Enabled: false });
+    await drain(res);
+    await Promise.all(h.afterTasks);
+    expect(model.doStreamCalls[0].maxOutputTokens).toBe(4000);
+    expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 1 });
+  });
+
   test("with variant 3 switched off, a variant 3 thread presents as variant 1", async () => {
     const off = await variantTurn(3, false);
     expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 1 });
@@ -1530,5 +1553,66 @@ describe("markViewMessages", () => {
     const out = markViewMessages([plain, assistant]);
     expect(out[0]).toBe(plain);
     expect(out[1]).toBe(assistant);
+  });
+});
+
+// PR 7, the 2026-11-28 live check (ruling 3): after "Show answers as" switched, the model said
+// its earlier views "used the wrong layout version". The cause was in the history: the
+// instructions say "Present payloads in this thread are { variant: 2, ... }" while the
+// earlier present calls in the history carry variant 1 payloads and results, with nothing to
+// say that was right at the time. The loop now notes, on the model's copy only, that such a
+// view was made in the style in use then and still displays.
+describe("markEarlierStyleViews (PR 7)", () => {
+  const presentPart = (variant: 1 | 2 | 3, output: Record<string, unknown> | null = { surfaceId: "s-1", variant, outcome: "valid" }) =>
+    ({
+      type: "tool-present",
+      toolCallId: `call-${variant}`,
+      state: output ? "output-available" : "input-available",
+      input: { payload: { variant, title: "Top jobs" } },
+      ...(output ? { output } : {}),
+    }) as unknown as UIMessage["parts"][number];
+  const assistant = (parts: UIMessage["parts"]): UIMessage => ({ id: "msg-a", role: "assistant", parts });
+
+  test("a stored view of another variant gets the note on the copy; the stored message is untouched", () => {
+    const original = assistant([{ type: "text", text: "Here:" }, presentPart(1)]);
+    const [marked] = markEarlierStyleViews([original], 2);
+    const part = marked.parts[1] as unknown as { output: Record<string, unknown>; input: unknown };
+    expect(part.output).toEqual({ surfaceId: "s-1", variant: 1, outcome: "valid", note: EARLIER_STYLE_NOTE(1) });
+    expect(part.input).toEqual({ payload: { variant: 1, title: "Top jobs" } });
+    expect((original.parts[1] as unknown as { output: Record<string, unknown> }).output).not.toHaveProperty("note");
+    expect(EARLIER_STYLE_NOTE(1)).toBe("Made in answer style 1, the style in use then; it still displays correctly in that style.");
+  });
+
+  test("a view of this turn's variant, a call that stored nothing, and other parts are returned as they are", () => {
+    const same = assistant([presentPart(2)]);
+    const invalid = assistant([presentPart(1, { variant: 1, outcome: "invalid", errors: ["bad"] })]);
+    const pending = assistant([presentPart(1, null)]);
+    const odd = assistant([presentPart(1, { surfaceId: 7, variant: "1" })]);
+    const user: UIMessage = { id: "u-1", role: "user", parts: [{ type: "text", text: "hi" }] };
+    const out = markEarlierStyleViews([same, invalid, pending, odd, user], 2);
+    expect(out[0]).toBe(same);
+    expect(out[1]).toBe(invalid);
+    expect(out[2]).toBe(pending);
+    expect(out[3]).toBe(odd);
+    expect(out[4]).toBe(user);
+  });
+
+  test("the same history and variant give byte-identical messages, so the cached prefix holds turn to turn", () => {
+    const history = [assistant([presentPart(1), presentPart(3)])];
+    expect(JSON.stringify(markEarlierStyleViews(history, 2))).toBe(JSON.stringify(markEarlierStyleViews(history, 2)));
+  });
+
+  test("a turn in variant 2 after a variant 1 view sends the note in the tool result", async () => {
+    vi.mocked(loadMessages).mockResolvedValue([
+      { id: "u-1", role: "user", parts: [{ type: "text", text: "top jobs?" }] },
+      assistant([{ type: "text", text: "Here are two." }, presentPart(1)]),
+    ]);
+    const model = scripted([textStep(["ok"], 0.0001)]);
+    const res = await streamAgentTurn({ userId: USER, email: null, thread: { ...thread, variant: 2 }, input: message("and now?", "u-2"), model });
+    await drain(res);
+    await Promise.all(h.afterTasks);
+    const prompt = JSON.stringify(model.doStreamCalls[0].prompt);
+    expect(prompt).toContain(EARLIER_STYLE_NOTE(1));
+    expect(prompt).toContain("Layout variant: 2.");
   });
 });

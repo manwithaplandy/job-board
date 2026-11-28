@@ -33,7 +33,7 @@ import {
   totalCapsFromEnv,
   totalCapsToEnv,
 } from "@/lib/agent/evals/budget";
-import { estimateInjection, estimateJudge, estimateMatrix, matrixPlan, spotCheckPlan } from "@/lib/agent/evals/matrixPlan";
+import { estimateInjection, estimateJudge, estimateMatrix, matrixPlan, spotCheckPlan, spotCheckRefusal } from "@/lib/agent/evals/matrixPlan";
 import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 
 // A reported cost by default: the paid modes require one on every call (PROFILE_REQUIRES_COST).
@@ -57,6 +57,28 @@ describe("cap profiles", () => {
     }
     expect(profileCeilings("spot-check").maxUsd).toBeLessThan(3);
     expect(profileDefaults("spot-check").maxCases).toBe(spotCheckPlan(AGENT_SPOT_CHECK_MODEL).length);
+  });
+
+  test("PR 7: no dollar ceiling anywhere in budget.ts is above $3", () => {
+    const usdSpecs = [
+      CAP_SPECS.maxUsd,
+      ...CAP_PROFILES.map((p) => PROFILE_CAP_SPECS[p].maxUsd),
+      ...CAP_PROFILES.flatMap((p) => (TOTAL_CAP_SPECS[p] ? [TOTAL_CAP_SPECS[p]!.maxTotalUsd] : [])),
+    ];
+    expect(usdSpecs.length).toBeGreaterThanOrEqual(9);
+    for (const s of usdSpecs) {
+      expect(s.ceiling, s.label).toBeLessThanOrEqual(3);
+      expect(s.default, s.label).toBeLessThanOrEqual(s.ceiling);
+    }
+    expect(PASS_USD_CEILING).toBeLessThanOrEqual(3);
+    expect(PASS_USD_DEFAULT).toBeLessThanOrEqual(PASS_USD_CEILING);
+  });
+
+  test("PR 7 (D11): the matrix's dollar defaults are $3.00, at the ceiling", () => {
+    expect(profileDefaults("matrix").maxUsd).toBe(3);
+    expect(TOTAL_CAP_SPECS.matrix!.maxTotalUsd.default).toBe(3);
+    expect(profileCeilings("matrix").maxUsd).toBe(3);
+    expect(TOTAL_CAP_SPECS.matrix!.maxTotalUsd.ceiling).toBe(3);
   });
 
   test("the pass budget: $3 by default, lowered by a flag and never raised; what is left goes down to the cent", () => {
@@ -114,10 +136,15 @@ describe("cap profiles", () => {
     expect(judge.inputTokens + judge.outputTokens).toBeLessThanOrEqual(j.maxTokens / 1.2);
     expect(judge.costMicros).toBeLessThanOrEqual((j.maxUsd * 1_000_000) / 1.2);
 
-    // The spot check's cap holds its uncached Sonnet estimate, under $3.
+    // PR 7 polish: the spot check keeps its $2.90 cap and fits it cached; a default run whose uncached
+    // estimate would not fit is refused before any call (matrixPlan.ts spotCheckRefusal), not left to stop part way.
     const s = profileDefaults("spot-check");
     const spot = estimateMatrix(spotCheckPlan(AGENT_SPOT_CHECK_MODEL), AGENT_SPOT_CHECK_MODEL).total;
-    expect(spot.costMicros).toBeLessThanOrEqual(s.maxUsd * 1_000_000);
+    expect(s.maxUsd).toBe(2.9);
+    expect(spot.cachedCostMicros).toBeLessThanOrEqual(s.maxUsd * 1_000_000);
+    expect(spotCheckRefusal({ model: AGENT_SPOT_CHECK_MODEL, caps: s, totals: parseTotalCaps({}, "spot-check") })).toMatch(
+      /^--matrix --spot-check is refused before any call/,
+    );
     expect(spot.inputTokens + spot.outputTokens).toBeLessThanOrEqual(s.maxTokens / 1.2);
 
     // A full Sonnet matrix no longer fits any cap: it would stop at $3.

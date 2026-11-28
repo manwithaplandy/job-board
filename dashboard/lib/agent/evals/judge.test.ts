@@ -24,7 +24,7 @@ import {
   type RenderedText,
 } from "@/lib/agent/evals/judge";
 import { parseRecording, type Recording } from "@/lib/agent/evals/recording";
-import { matrixPairRunKey, readMatrixRun } from "@/lib/agent/evals/evalFiles";
+import { JudgeResultSchema, matrixPairRunKey, readMatrixRun } from "@/lib/agent/evals/evalFiles";
 import { finishRun, runRoot, selectRun, startRun } from "@/lib/agent/evals/evalRuns";
 import { matrixRecordingPath } from "@/lib/agent/evals/matrix";
 
@@ -128,6 +128,43 @@ describe("the judge prompt", () => {
     const r = cell(2);
     r.surfaces[0] = { ...r.surfaces[0], outcome: "fallback", payload: { variant: 2, title: "never shown", root: { type: "Text", text: "never shown" } } };
     expect(surfaceText(r.surfaces[0])).not.toMatch(/never shown/);
+  });
+});
+
+describe("the judge question (PR 7, inline-UI spec S15.2)", () => {
+  // The repo records no judge run (no recordings/judge/), so "existing" is the shape every
+  // judge reply and stored result has had before this change: the question adds a
+  // criterion, not a field.
+  const BEFORE_REPLIES = [
+    '{"winner":"first","reason":"Clearer next step."}',
+    'Here: {"winner":"second","reason":"Easier to scan, and the pay figures agree."}',
+    '{"winner":"tie","reason":"Same jobs and figures; neither is easier to act on."}',
+  ];
+  const BEFORE_RESULT = {
+    model: "anthropic/claude-haiku-5.5",
+    scenario: "b_compare",
+    persona: "senior-backend",
+    seed: 1,
+    variantA: 1,
+    variantB: 3,
+    shownFirst: "b",
+    winner: "a",
+    reason: "Clearer next step.",
+    parsed: true,
+    evalRun: "20261126T020000Z",
+    matrixRun: "20261126T010000Z",
+  };
+
+  test("JUDGE_SYSTEM asks whether the view lets the person work with the data, or only read it", () => {
+    expect(JUDGE_SYSTEM).toContain("Does the view let the person work with the data, or only read it?");
+    // The reply format is unchanged.
+    expect(JUDGE_SYSTEM).toContain('Reply with JSON only, no other text: {"winner": "first" | "second" | "tie", "reason": "one or two sentences"}.');
+  });
+
+  test("the judge's reply and result schemas still parse what the judge wrote before", () => {
+    expect(BEFORE_REPLIES.map((t) => parseJudgeReply(t)?.winner)).toEqual(["first", "second", "tie"]);
+    expect(JudgeResultSchema.safeParse(BEFORE_RESULT).success).toBe(true);
+    expect(JudgeResultSchema.safeParse({ ...BEFORE_RESULT, winner: "tie", parsed: false }).success).toBe(true);
   });
 });
 

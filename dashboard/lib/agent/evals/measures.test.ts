@@ -6,14 +6,19 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { assertRecording } from "@/lib/agent/evals/asserts";
 import {
+  interactiveRate,
+  isInteractiveDocument,
+  isRowListDocument,
   isSurfaceFailure,
   measure,
   normalizedDistance,
   quantile,
   recordingSignature,
+  rowListRate,
   structuralSignature,
   SURFACE_SEPARATOR,
   structuralVariance,
+  viewsPerTurn,
 } from "@/lib/agent/evals/measures";
 import { parseRecording, type Recording } from "@/lib/agent/evals/recording";
 
@@ -165,5 +170,93 @@ describe("measure", () => {
     expect(quantile([], 0.5)).toBeNull();
     expect(quantile([5], 0.9)).toBe(5);
     expect(quantile([4, 1, 3, 2], 0.5)).toBe(2);
+  });
+});
+
+// PR 7 (inline-UI spec S15.2): views per turn, and how many variant 3 documents let the
+// person work with the data (interactive) or only list rows (row list). Summary only.
+const INTERACTIVE_DOC = [
+  "<!doctype html><html><head><title>Pay</title></head><body>",
+  '<h1>Roles by pay</h1><jb-slider id="pay" min="0" max="250000" step="10000"></jb-slider>',
+  '<div id="out"></div>',
+  "</body></html>",
+].join("");
+const ROW_LIST_DOC = [
+  "<!doctype html><html><head><title>Saved roles</title></head><body><h1>Saved roles</h1>",
+  ...["Acme", "Globex", "Initech", "Umbrella", "Hooli", "Stark"].map((c) => `<div class="jb-card"><h3>${c}</h3><p class="jb-muted">Remote</p></div>`),
+  "</body></html>",
+].join("");
+const CHART_DOC = [
+  "<!doctype html><html><head><title>Fit</title></head><body>",
+  '<h1>Fit by company</h1><div id="chart" class="jb-card"></div>',
+  '<script>host.chart(document.getElementById("chart"), { viz: "bar", series: [{ name: "Fit", points: [{ x: "Acme", y: 82 }] }] });</script>',
+  "</body></html>",
+].join("");
+
+function withDocuments(variant: 1 | 2 | 3, htmls: string[]): Recording {
+  const r = committed("b_compare");
+  const base = r.surfaces[0];
+  r.variant = variant;
+  r.surfaces = htmls.map((html, i) => ({ ...structuredClone(base), id: `doc-${i}`, variant: 3, payload: { variant: 3, title: `View ${i}`, html } }) as Recording["surfaces"][number]);
+  return r;
+}
+
+describe("interactive and row-list documents (PR 7)", () => {
+  test("a document with a slider is interactive; six jb-card rows are a row list; a single chart is neither", () => {
+    expect(isInteractiveDocument(INTERACTIVE_DOC)).toBe(true);
+    expect(isRowListDocument(INTERACTIVE_DOC)).toBe(false);
+    expect(isInteractiveDocument(ROW_LIST_DOC)).toBe(false);
+    expect(isRowListDocument(ROW_LIST_DOC)).toBe(true);
+    expect(isInteractiveDocument(CHART_DOC)).toBe(false);
+    expect(isRowListDocument(CHART_DOC)).toBe(false);
+  });
+
+  test("each marker alone makes a document interactive", () => {
+    for (const marker of ['<jb-select id="a"></jb-select>', "<jb-slider></jb-slider>", "<jb-toggle></jb-toggle>", "<jb-segmented></jb-segmented>", "<jb-tabs></jb-tabs>", "<jb-field></jb-field>"]) {
+      expect(isInteractiveDocument(`<body><h1>x</h1>${marker}</body>`)).toBe(true);
+    }
+    for (const script of ["host.table(el, rows, cols)", "host.chart(el, { viz: 'bar', onSelect: (p) => p })", 'el.addEventListener("click", f)']) {
+      expect(isInteractiveDocument(`<body><div id="el"></div><script>${script}</script></body>`)).toBe(true);
+    }
+  });
+
+  test("a row list needs one class value on four or more elements, and no interactive marker", () => {
+    const rows = (n: number, cls = "jb-card") => `<body>${Array.from({ length: n }, (_, i) => `<div class="${cls}">${i}</div>`).join("")}</body>`;
+    expect(isRowListDocument(rows(3))).toBe(false);
+    expect(isRowListDocument(rows(4))).toBe(true);
+    // The class value is compared after trimming and collapsing whitespace.
+    expect(isRowListDocument('<body><p class=" jb-row  jb-muted">a</p><p class="jb-row jb-muted">b</p><p class="jb-row jb-muted ">c</p><p class="jb-row\tjb-muted">d</p></body>')).toBe(true);
+    // Four elements with four different classes are not a list of rows.
+    expect(isRowListDocument('<body><p class="a">1</p><p class="b">2</p><p class="c">3</p><p class="d">4</p></body>')).toBe(false);
+    // Rows with a filter are a working view, not a row list.
+    expect(isRowListDocument(rows(6).replace("<body>", "<body><jb-field></jb-field>"))).toBe(false);
+  });
+
+  test("over three variant 3 recordings, one interactive, one row list, one chart: each rate is 1/3", () => {
+    const rs = [withDocuments(3, [INTERACTIVE_DOC]), withDocuments(3, [ROW_LIST_DOC]), withDocuments(3, [CHART_DOC])];
+    expect(interactiveRate(rs)).toBeCloseTo(1 / 3);
+    expect(rowListRate(rs)).toBeCloseTo(1 / 3);
+    // Only variant 3 recordings count, and a fallback surface (variant 1 blocks) is not a document.
+    const fallback = withDocuments(3, [INTERACTIVE_DOC]);
+    fallback.surfaces[0].payload = { variant: 1, title: "x", blocks: [{ type: "Callout", tone: "info", text: "x" }] } as never;
+    expect(interactiveRate([...rs, withDocuments(2, [INTERACTIVE_DOC]), fallback])).toBeCloseTo(1 / 3);
+    expect(interactiveRate([])).toBeNull();
+    expect(rowListRate([withDocuments(1, [ROW_LIST_DOC])])).toBeNull();
+  });
+
+  test("viewsPerTurn is the mean surfaces per run, per variant: 2 for a run with two surfaces", () => {
+    expect(viewsPerTurn([withDocuments(3, [CHART_DOC, ROW_LIST_DOC])])[3]).toBe(2);
+    expect(viewsPerTurn([withDocuments(3, [CHART_DOC, ROW_LIST_DOC]), withDocuments(3, [CHART_DOC]), withDocuments(1, [CHART_DOC])])).toEqual({ 1: 1, 2: 0, 3: 1.5 });
+  });
+
+  test("measure() carries them: views per turn for every variant, the two rates for variant 3 only", () => {
+    const rs = [withDocuments(3, [INTERACTIVE_DOC, CHART_DOC]), withDocuments(3, [ROW_LIST_DOC]), withDocuments(2, [CHART_DOC])];
+    const out = measure(rs);
+    const v3 = out.find((m) => m.variant === 3)!;
+    const v2 = out.find((m) => m.variant === 2)!;
+    expect(v3).toMatchObject({ viewsPerTurn: 1.5 });
+    expect(v3.interactiveRate).toBeCloseTo(1 / 3);
+    expect(v3.rowListRate).toBeCloseTo(1 / 3);
+    expect(v2).toMatchObject({ viewsPerTurn: 1, interactiveRate: null, rowListRate: null });
   });
 });

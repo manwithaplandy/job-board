@@ -99,22 +99,27 @@ function mapCaps(f: (s: CapSpec) => number, specs: Record<CapKey, CapSpec> = CAP
 // estimate:
 // - matrix, per model: one full run is 180 cells (60 live variant 1 scenario runs plus
 //   their 120 re-render cells, 420 re-render calls). On Haiku 5.5, the default model,
-//   about 14.3M tokens and $2.05 uncached; $2.50 by default, $3 at most, per model and
-//   for the whole command. A full Sonnet 5.5 matrix (about $41) no longer fits any cap:
+//   about 15.1M tokens and $2.47 uncached since PR 7 (a variant 3 re-render call may emit
+//   8,000 tokens, matrixPlan.ts RERENDER_CALL_TOKENS; it was $2.05 at 4,000); $3 by default
+//   and at most, per model and for the whole command (plan D11: $2.50 no longer held 1.2x
+//   the estimate, and the ceiling does not rise). A full Sonnet 5.5 matrix (about $49) no longer fits any cap:
 //   Sonnet runs as the spot check below, or with --allow-non-haiku and a run the cap
 //   stops. Tokens and minutes keep their earlier sizes (a token is a token on either
 //   model; Haiku is not slower).
 // - injection, per model: 19 model-driven cases by 3 variants (57 runs; PR 6 added the
-//   four ask cases), about 7.1M tokens and $0.82 uncached on Haiku; $1 by default, $1.50
-//   at most.
+//   four ask cases), about 7.1M tokens and $0.82 uncached on Haiku, up to $0.96 if two
+//   variant 3 calls in each of its 19 variant 3 runs emit 8,000 tokens (matrixPlan.ts
+//   estimateInjectionUpper); $1 by default, $1.50 at most.
 // - judge: Haiku 5.5 (judgeModel.ts), 144 pairs by default, about 1.8M tokens and $0.20;
 //   $0.50 by default, $1 at most (360 pairs would be about $0.50).
 // - spot-check (--matrix --spot-check): Sonnet 5.5, one persona and one repeat, all 4
 //   scenarios in all 3 variants (12 cells, 34 live calls and 28 re-render calls), about
-//   0.95M tokens and $2.74 uncached ($1.75 with the prompt cache): $2.90 by default and
-//   at most. Since fix round 1's look-ahead reserves a Sonnet step's worst case (about
-//   $0.20 at the plan's call size) before each call, an uncached spot check may stop about
-//   one cell short of the end; with the prompt cache working it completes.
+//   1.0M tokens and $3.30 uncached since PR 7 ($2.54 with the prompt cache): $2.90 by
+//   default and at most, and the cap does not rise. Uncached, with the look-ahead's reserve
+//   for a variant 3 re-render on Sonnet ($0.2051), 12 cells do not fit, so a real spot check
+//   is refused before any call (matrixPlan.ts spotCheckRefusal, exit 4); --max-cells 8 fits.
+//   Nothing starts a run on the cached figure: prompt caching is always requested, but its
+//   hits are not guaranteed.
 //
 // The look-ahead (PR J7 fix round 1, RunBudget.beforeStep): every capped mode, and each
 // stage of a pass, starts a call only when the spend so far plus that call's worst case at
@@ -213,7 +218,7 @@ export const PROFILE_CAP_SPECS: Record<CapProfile, Record<CapKey, CapSpec>> = {
     maxCases: spec(CAP_SPECS.maxCases, { flag: "--max-cells", label: "matrix cells per model", default: MATRIX_CELLS, ceiling: MATRIX_CELLS }),
     maxSteps: CAP_SPECS.maxSteps,
     maxTokens: spec(CAP_SPECS.maxTokens, { label: "tokens per model (input + output)", default: 22_000_000, ceiling: 44_000_000 }),
-    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 2.5, ceiling: 3 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 3, ceiling: 3 }),
     maxMinutes: spec(CAP_SPECS.maxMinutes, { label: "minutes per model", default: 360, ceiling: 600 }),
   },
   injection: {
@@ -245,7 +250,7 @@ const TOTAL_BASE = { integer: true, env: "", flag: "", label: "", name: "max_tok
 export const TOTAL_CAP_SPECS: Partial<Record<CapProfile, Record<TotalCapKey, CapSpec>>> = {
   matrix: {
     maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over every model", default: 44_000_000, ceiling: 88_000_000 },
-    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 2.5, ceiling: 3 },
+    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 3, ceiling: 3 },
   },
   injection: {
     maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over every model", default: 18_000_000, ceiling: 36_000_000 },

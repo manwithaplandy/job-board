@@ -24,6 +24,10 @@ export const AGENT_SPOT_CHECK_MODEL = "anthropic/claude-sonnet-5.5";
 export const AGENT_LIMITS = {
   maxSteps: 8,
   maxOutputTokens: 4000,
+  // PR 7 (inline-UI spec S9.6): a variant 3 step may emit twice as much. A view built from
+  // the kit is typically 5 to 12 KB, and 4,000 tokens cut anything past about 12 to 16 KB
+  // (a cut tool call is an invalid call). Variants 1 and 2 keep maxOutputTokens.
+  maxOutputTokensV3: 8000,
   wallClockMs: 240_000,
   backgroundMaxSteps: 6,
   staleTurnMs: 300_000,
@@ -44,6 +48,11 @@ export const AGENT_LIMITS = {
   // (spec 08 S4.4). Checked in runPresent before any await, so parallel calls see it.
   maxViewsPerTurn: 3,
 } as const;
+
+/** The output limit of one model step in `variant` (spec 08 S9.6): 8000 for variant 3, else 4000. */
+export function outputTokensFor(variant: Variant): number {
+  return variant === 3 ? AGENT_LIMITS.maxOutputTokensV3 : AGENT_LIMITS.maxOutputTokens;
+}
 
 // usage_counters.kind for agent spend; n is in micro-dollars.
 export const USAGE_KIND_AGENT = "agent_micros";

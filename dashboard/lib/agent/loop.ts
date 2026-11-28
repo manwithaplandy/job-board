@@ -51,7 +51,7 @@ import {
 import { catalogNow } from "@/lib/catalogClock";
 import { flushLangfuseTraces } from "@/lib/observability";
 import { loadAppSettings } from "@/lib/appSettings";
-import { AGENT_LIMITS, AGENT_MODEL_DEFAULT, type Variant } from "@/lib/agent/config";
+import { AGENT_LIMITS, AGENT_MODEL_DEFAULT, outputTokensFor, type Variant } from "@/lib/agent/config";
 import { presentVariant } from "@/lib/agent/variants";
 import { AGENT_DOCUMENTS_MAX, AGENT_TEXT_MAX, isViewMessageId } from "@/lib/agent/request";
 import { stepCostMicros } from "@/lib/agent/budget";
@@ -257,6 +257,43 @@ export function markViewMessages<M extends UIMessage>(messages: M[]): M[] {
     if (at < 0) return m;
     const parts = m.parts.map((p, i) => (i === at && p.type === "text" ? { ...p, text: VIEW_MESSAGE_MARKER + p.text } : p));
     return { ...m, parts };
+  });
+}
+
+/**
+ * PR 7 (the 2026-11-28 live check, ruling 3): the note on an earlier view of another variant.
+ * After the user switches "Show answers as", the instructions say "Present payloads in this
+ * thread are { variant: N, ... }" while the history's present calls carry the earlier
+ * variant's payloads and results; with nothing to say those were right at the time, the
+ * model took them for "the wrong layout version". A fact, not an instruction: the shared
+ * rule in context.ts scenarioRules says what to do about it.
+ */
+export const EARLIER_STYLE_NOTE = (variant: Variant): string =>
+  `Made in answer style ${variant}, the style in use then; it still displays correctly in that style.`;
+
+// A present result that stored a view: its surface id and variant (other fields pass through).
+const StoredViewOutputSchema = z
+  .object({ surfaceId: z.string(), variant: z.union([z.literal(1), z.literal(2), z.literal(3)]) })
+  .passthrough();
+
+/**
+ * Copies of the messages in which every present result that stored a view of a variant other
+ * than `variant` carries EARLIER_STYLE_NOTE; every other message and part is returned as it is.
+ * Nothing stored changes: the loop applies this to what it sends the model. It depends only on
+ * the history and the turn's variant, so two turns of one variant send the same bytes.
+ */
+export function markEarlierStyleViews<M extends UIMessage>(messages: M[], variant: Variant): M[] {
+  return messages.map((m) => {
+    if (m.role !== "assistant") return m;
+    let changed = false;
+    const parts = m.parts.map((p) => {
+      if (p.type !== "tool-present" || !("state" in p) || p.state !== "output-available") return p;
+      const out = StoredViewOutputSchema.safeParse(p.output);
+      if (!out.success || out.data.variant === variant) return p;
+      changed = true;
+      return { ...p, output: { ...out.data, note: EARLIER_STYLE_NOTE(out.data.variant) } };
+    });
+    return changed ? { ...m, parts } : m;
   });
 }
 
@@ -541,7 +578,8 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
     // (MissingToolResultsError) and the thread could never answer again. Such calls are
     // dropped; the text around them is kept (PR C batch 3 review I1).
     // PR 6: a message sent from a view carries its fixed marker for the model (not stored).
-    modelMessages = await convertToModelMessages(markViewMessages(sent), { ignoreIncompleteToolCalls: true });
+    // PR 7: an earlier view of another variant carries a note that it was right at the time.
+    modelMessages = await convertToModelMessages(markViewMessages(markEarlierStyleViews(sent, variant)), { ignoreIncompleteToolCalls: true });
   } catch (e) {
     // Nothing reached the model: close the run and the placeholder, then let the route
     // answer 500.
@@ -585,7 +623,8 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
       // charge, the wall clock), so no further step starts even before the abort lands.
       // The third: the turn ends at an ask_user call, whose answers come next turn.
       stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null, hasToolCall("ask_user")],
-      maxOutputTokens: AGENT_LIMITS.maxOutputTokens,
+      // PR 7 (spec 08 S9.6): 8000 for a variant 3 turn, 4000 otherwise.
+      maxOutputTokens: outputTokensFor(ctx.variant),
       abortSignal: controller.signal,
       telemetry: { functionId: "agent-turn" },
       onEnd: async () => {

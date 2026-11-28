@@ -2,7 +2,7 @@
 // spec 10 "Variant 3 sandbox" item 2). Host to frame: init { data, theme }, ping { n },
 // theme { theme } (Task 2.8: the page's theme changed after init).
 // Frame to host: ready, inited (the ack of init), pong { n }, resize { height },
-// action { name, args }, error { message }, navigating. ping, pong and inited are fix round 1 (I2)
+// action { name, args }, error { message }, navigating, escape (PR 3), ask { text } (PR 6). ping, pong and inited are fix round 1 (I2)
 // additions: the host's handshake timer ends only on inited, and a ping without its pong
 // means the document stopped answering (it navigated, hung, or was replaced). navigating
 // is Task 2.7's CI run 2 addition: the document started to leave, which the host treats
@@ -30,6 +30,8 @@ export const RESIZE_HEIGHT_MAX = 20_000;
 export const ACTION_NAME_MAX = 64;
 export const ACTION_ARGS_MAX = 4_000;
 export const FRAME_ERROR_MAX = 500;
+/** PR 6 (spec 08 S10.1): the longest text an ask may carry, on the wire and after normalisation. */
+export const ASK_TEXT_MAX = 280;
 
 const pingNumber = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
@@ -75,11 +77,16 @@ export const FrameToHostSchema = z.discriminatedUnion("type", [
   // user inside an expanded view can leave it. No payload; the host acts on it only for the
   // expanded view.
   z.object({ type: z.literal("escape") }).strict(),
+  // PR 6 (spec 08 S10.1): a follow-up message the view proposes. It never sends anything:
+  // SandboxFrame shows it as a pending message on host chrome, normalised (normalizeAskText),
+  // and only the user's press of Send there sends it.
+  z.object({ type: z.literal("ask"), text: z.string().min(1).max(ASK_TEXT_MAX) }).strict(),
 ]);
 export type FrameToHost = z.infer<typeof FrameToHostSchema>;
 export type FrameAction = Extract<FrameToHost, { type: "action" }>;
+export type FrameAsk = Extract<FrameToHost, { type: "ask" }>;
 
-/** A message from the frame, or null when it is not exactly one of the eight kinds. */
+/** A message from the frame, or null when it is not exactly one of the ten kinds. */
 export function parseFrameMessage(raw: unknown): FrameToHost | null {
   const r = FrameToHostSchema.safeParse(raw);
   return r.success ? r.data : null;
@@ -92,6 +99,40 @@ export function parseFrameMessage(raw: unknown): FrameToHost | null {
  * already stored its fallback, which canMountSandbox then refuses to mount again.
  */
 export const FRAME_ACTION_LIMITS = { perMinute: 10, windowMs: 60_000, total: 30 } as const;
+
+/**
+ * Spec 08 S10.3: the same limits for ask messages, per mount, counted beside the action
+ * counters. Every ask counts, one whose text normalises to nothing included. Past either the
+ * frame is torn down and falls back (ask_rate_limit, ask_total_limit).
+ */
+export const FRAME_ASK_LIMITS = { perMinute: 6, windowMs: 60_000, total: 20 } as const;
+
+// Zero-width characters (U+200B to U+200D, U+2060, U+FEFF) and bidi controls (U+202A to
+// U+202E, U+2066 to U+2069): removed outright, before whitespace is collapsed, because
+// U+FEFF counts as whitespace to \s and must not become a space.
+const ASK_INVISIBLE_RE = /[\u200B-\u200D\u2060\uFEFF\u202A-\u202E\u2066-\u2069]/g;
+// C0 and C1 controls. The ones that are whitespace (tab, newline, carriage return...) have
+// already become spaces by the time this runs.
+const ASK_CONTROL_RE = /[\u0000-\u001F\u007F-\u009F]/g;
+
+/**
+ * The text of an ask as the host shows and sends it (spec 08 S10.1): Unicode NFC; no
+ * C0 or C1 controls, zero-width characters or bidi controls; every run of whitespace,
+ * newlines included, one space; trimmed. Null when that leaves nothing, or more than
+ * ASK_TEXT_MAX code points (not UTF-16 units). A null drops the message.
+ */
+export function normalizeAskText(raw: string): string | null {
+  const text = raw
+    .normalize("NFC")
+    .replace(ASK_INVISIBLE_RE, "")
+    .replace(/\s+/g, " ")
+    .replace(ASK_CONTROL_RE, "")
+    .replace(/ {2,}/g, " ")
+    .trim()
+    .normalize("NFC");
+  if (text === "") return null;
+  return Array.from(text).length > ASK_TEXT_MAX ? null : text;
+}
 
 /**
  * Handshake and liveness timing (fix round 1, I2). The host waits handshakeMs (in
@@ -111,6 +152,8 @@ export const FRAME_FAILURES = [
   "self_navigation",
   "action_rate_limit",
   "action_total_limit",
+  "ask_rate_limit",
+  "ask_total_limit",
 ] as const;
 export type FrameFailure = (typeof FRAME_FAILURES)[number];
 

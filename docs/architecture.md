@@ -394,7 +394,7 @@ uncached and cached, and the caps, and spends nothing):
 | `eval:agent -- --pass [--max-usd <n>]` | One full pass on Haiku 5.5 under one budget, $3 by default and at most: the matrix, then the injection set, then the judge over that matrix run. Each stage's dollar caps are what is left after the reported cost of the stages before it; a stage that stops, reports no cost, or a budget with less than a cent left stops the pass. Every `run.json` of the pass carries the pass id and the pass's `--max-usd`, and the end prints the pass's reported spend against it ("at least" when a stage stopped on a call whose cost or usage it could not read). |
 | `npm run test:render-smoke` (free) | The render smoke over the latest complete matrix and injection runs, before the judge reads variant 3 (below). In a pass, the judge runs without it and judges the variant 1 and 2 pairs only (60 for a one-model matrix). |
 | `npm run eval:summary` (free) | The per-variant summary; for a matrix run from a pass it adds the pass's spend against that pass's `--max-usd` ("at least" as above; a pass recorded before fix round 1 shows the $3 ceiling, labelled as such). |
-| `eval:agent -- --matrix --spot-check [--persona <id>]` | The opt-in Sonnet 5.5 spot check, never part of a pass: one persona (`senior-backend` unless named), one repeat, all 4 scenarios in all 3 variants (12 cells), $2.90 at most. Its run (`run.json` kind `spot-check`) is read only when named with `--run`. Uncached, its estimate plus the look-ahead's reserve ($2.74 + $0.20) is over $2.90, so it may stop about one cell short; with the cache working it fits ($1.98). |
+| `eval:agent -- --matrix --spot-check [--persona <id>]` | The opt-in Sonnet 5.5 spot check, never part of a pass: one persona (`senior-backend` unless named), one repeat, all 4 scenarios in all 3 variants (12 cells), $2.90 at most. Its run (`run.json` kind `spot-check`) is read only when named with `--run`. Since PR 7 its 12 cells are $3.30 uncached ($2.54 cached), over $2.90 before the look-ahead's $0.2051 reserve, so a real spot check is refused before any call (exit 4, `matrixPlan.ts spotCheckRefusal`); nothing starts it on the cached figure, and the cap does not rise. `--max-cells 8` fits uncached. |
 | `eval:agent -- --matrix --rerender-only --run <matrix run id>` | Variants 2 and 3 again without replaying variant 1: every recorded variant 1 surface of that complete full matrix run is written into the throwaway database and re-rendered from its stored gathered data, on that run's models, into a new matrix run (`run.json` kind `rerender-only`, `sourceRun` the run re-rendered). Only re-render calls are spent; readers pair its variants 2 and 3 with the source's variant 1. A non-Haiku source needs `--allow-non-haiku`. |
 | `eval:agent -- --variant <1\|2\|3> [--model <id>] [--allow-non-haiku]` | The golden scenarios alone (12 cases), Haiku 5.5 unless `--model` names another. `--model` must name a priced model, and any model but Haiku 5.5 also needs `--allow-non-haiku` (exit 2 otherwise, dry run included). A Sonnet 5.5 golden run is estimated at $3.67 uncached, so it fits its $2 default (or the $3 ceiling) only with the cache working ($1.80). |
 | `eval:agent -- --matrix`, `--injection`, `--judge [--run <id>]` | Each stage of the pass on its own, under its own caps. A matrix or injection run on any model but Haiku 5.5 needs `--allow-non-haiku` (exit 2 otherwise, dry run included); a full Sonnet matrix does not fit the $3 ceiling. |
@@ -547,8 +547,8 @@ Estimated cost (the dry runs, list price; uncached, and with the prompt cache at
 | Matrix, 180 cells | Sonnet 5.5 | 930 | 12.69M / 2.41M | $49.44 | $38.05 |
 | Spot check, 12 cells | Sonnet 5.5 | 62 | 0.85M / 0.16M | $3.30 | $2.54 |
 | Re-render only, of a full one-model run (120 cells) | Haiku 5.5 | 420 | 5.04M / 2.10M | $1.55 | $1.45 |
-| Injection, 57 runs | Haiku 5.5 | 456 | 6.84M / 0.27M | $0.82 | $0.40 |
-| Injection, 57 runs | Sonnet 5.5 | 456 | 6.84M / 0.27M | $16.42 | $8.04 |
+| Injection, 57 runs | Haiku 5.5 | 456 | 6.84M / 0.27M (up to 0.55M) | $0.82 (up to $0.96) | $0.40 (up to $0.54) |
+| Injection, 57 runs | Sonnet 5.5 | 456 | 6.84M / 0.27M (up to 0.55M) | $16.42 (up to $19.23) | $8.04 (up to $10.85) |
 | Judge, 144 pairs | Haiku 5.5 | 144 | 1.73M / 0.06M | $0.20 | $0.20 |
 | Golden, 12 cases | Haiku 5.5 | 102 | 1.53M / 0.06M | $0.18 | $0.09 |
 | Golden, 12 cases | Sonnet 5.5 (`--allow-non-haiku`) | 102 | 1.53M / 0.06M | $3.67 | $1.80 |
@@ -556,11 +556,14 @@ Estimated cost (the dry runs, list price; uncached, and with the prompt cache at
 - Sizing: since PR 7 a variant 3 step or re-render may emit 8,000 output tokens
   (`outputTokensFor(3)`, `AGENT_LIMITS.maxOutputTokensV3`), so the matrix is $2.47
   uncached and its dollar defaults are $3 (plan D11; the ceiling stays $3). The pass is
-  the matrix ($2.47), the injection set ($0.82) and the judge ($0.20 for 144 pairs; about
-  $0.08 for the 60 pairs a pass judges without the render smoke), $3.49 uncached: over
-  its $3 budget, so a real `--pass` is refused before any call (exit 3,
-  `matrixPlan.ts passRefusal`) and the modes run on their own instead: `--matrix`, then
-  `--injection`, then `--judge --run <that matrix run id>`. Each mode's default leaves
+  the matrix ($2.47), the injection set ($0.82, up to $0.96 if two variant 3 calls in each
+  of its 19 variant 3 runs emit 8,000 output tokens: `matrixPlan.ts
+  estimateInjectionUpper`) and the judge ($0.20 for 144 pairs; about $0.08 for the 60
+  pairs a pass judges without the render smoke), $3.49 uncached: over its $3 budget, so a
+  real `--pass` is refused before any call (exit 4, `matrixPlan.ts passRefusal`; a cap
+  stop is 3) and the modes run on their own instead: `--matrix`, then `--injection`, then
+  `--judge --run <that matrix run id>`. No full matrix run is recorded yet, so the cheaper
+  `--matrix --rerender-only --run <id>` ($1.55) cannot stand in for `--matrix`. Each mode's default leaves
   room under its ceiling for the Haiku estimate; the ceilings are what a single mode may
   spend. The judge takes pairs repeat
   by repeat, 36 a repeat for one model (4 scenarios × 3 personas × 3 pairings), so its
@@ -570,9 +573,10 @@ Estimated cost (the dry runs, list price; uncached, and with the prompt cache at
   against what is left when it starts: matrix $2.4823 against $3.00 fits, injection
   $0.8326 against $0.52 and judge $0.2089 against $0.00 do not uncached; cached, all
   three fit. The injection set and a golden `--variant 3` run reserve a variant 3 step
-  ($0.0118 on Haiku; $0.1213 if its history filled the window). The Sonnet spot check
-  does not fit uncached ($3.30 against $2.90): it would stop at its cap unless the cache
-  works ($2.54 cached). Its cap stays at $2.90, under Andrew's limit.
+  ($0.0118 on Haiku; $0.1213 if its history filled the window). A refused pass's dry run
+  ends with its refusal. The Sonnet spot check does not fit uncached ($3.30 against
+  $2.90; $2.54 cached), so a real one is refused before any call (exit 4) and its refusal
+  names `--max-cells 8`, which fits. Its cap stays at $2.90, under Andrew's limit.
 - The production signals (fallback rate, re-render use, undo within 60 seconds, a
   question asked again, a surface left for a workspace) are read-only queries in
   [agent-variant-signals.sql](runbooks/agent-variant-signals.sql), run by hand.

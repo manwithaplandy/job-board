@@ -33,7 +33,7 @@ import {
   totalCapsFromEnv,
   totalCapsToEnv,
 } from "@/lib/agent/evals/budget";
-import { estimateInjection, estimateJudge, estimateMatrix, matrixPlan, spotCheckPlan } from "@/lib/agent/evals/matrixPlan";
+import { estimateInjection, estimateJudge, estimateMatrix, matrixPlan, spotCheckPlan, spotCheckRefusal } from "@/lib/agent/evals/matrixPlan";
 import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
 
 // A reported cost by default: the paid modes require one on every call (PROFILE_REQUIRES_COST).
@@ -136,13 +136,15 @@ describe("cap profiles", () => {
     expect(judge.inputTokens + judge.outputTokens).toBeLessThanOrEqual(j.maxTokens / 1.2);
     expect(judge.costMicros).toBeLessThanOrEqual((j.maxUsd * 1_000_000) / 1.2);
 
-    // PR 7: the spot check's uncached Sonnet estimate ($3.30, variant 3 at 8,000 output tokens) is over its
-    // $2.90 cap, which does not rise; the cap still stops it. Cached ($2.54) it fits.
+    // PR 7 polish: the spot check keeps its $2.90 cap and fits it cached; a default run whose uncached
+    // estimate would not fit is refused before any call (matrixPlan.ts spotCheckRefusal), not left to stop part way.
     const s = profileDefaults("spot-check");
     const spot = estimateMatrix(spotCheckPlan(AGENT_SPOT_CHECK_MODEL), AGENT_SPOT_CHECK_MODEL).total;
-    expect(spot.costMicros).toBeGreaterThan(s.maxUsd * 1_000_000);
-    expect(spot.cachedCostMicros).toBeLessThanOrEqual(s.maxUsd * 1_000_000);
     expect(s.maxUsd).toBe(2.9);
+    expect(spot.cachedCostMicros).toBeLessThanOrEqual(s.maxUsd * 1_000_000);
+    expect(spotCheckRefusal({ model: AGENT_SPOT_CHECK_MODEL, caps: s, totals: parseTotalCaps({}, "spot-check") })).toMatch(
+      /^--matrix --spot-check is refused before any call/,
+    );
     expect(spot.inputTokens + spot.outputTokens).toBeLessThanOrEqual(s.maxTokens / 1.2);
 
     // A full Sonnet matrix no longer fits any cap: it would stop at $3.

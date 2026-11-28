@@ -99,8 +99,8 @@ export function variantGrammar(variant: Variant): string[] {
     // adds dynamic styles from script. String 1 agrees with rule 7 (PR 4 review, ruling 4).
     return [
       "Present payloads in this thread are { variant: 3, title, html }: one self-contained HTML document of at most " +
-        "60,000 bytes, shown in a sandboxed frame with no network. The app injects a kit before your markup. Your " +
-        "chat replies stay prose with simple Markdown, as above; only this payload is HTML.",
+        "60,000 bytes, shown in a sandboxed frame with no network. The app injects a kit before your markup. In a " +
+        "conversation turn, your chat replies use simple Markdown; only this payload is HTML.",
       "Read the data only inside host.onInit(function (data, theme) { ... }), never at top level: it arrives after " +
         "your scripts start. data holds profile, jobs (keyed by job id: jobId, title, company, place, remote, " +
         "ageDays, closed), reviews (keyed by job id), memo, shortlist, applications, documents and metrics. It has no " +

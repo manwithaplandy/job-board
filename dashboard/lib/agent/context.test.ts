@@ -229,6 +229,11 @@ describe("variantGrammar(3): code mode (PR 7, spec 08 S9.7)", () => {
     expect(g.join("\n")).not.toMatch(/plain text/i);
   });
 
+  test("PR 7 polish: string 1 stands alone, since a re-render prompt carries it without rule 7 (no \"as above\")", () => {
+    expect(g[0]).not.toMatch(/as above/i);
+    expect(g[0]).toContain("In a conversation turn, your chat replies use simple Markdown; only this payload is HTML.");
+  });
+
   test("string 2 keeps the data facts and adds host.job", () => {
     expect(g[1]).toContain("host.onInit(function (data, theme) { ... }), never at top level");
     for (const key of ["profile", "jobs", "reviews", "memo", "shortlist", "applications", "documents", "metrics", "no posting links", "host.job("]) {

@@ -907,6 +907,15 @@ describe("streamAgentTurn: the thread's variant (plan Task 2.8)", () => {
     expect(await outputFor(1)).toBe(4000);
   });
 
+  test("PR 7 polish: a variant 3 thread with variant 3 switched off sends 4000 output tokens (it presents as variant 1)", async () => {
+    const model = scripted([textStep(["ok"], 0.0001)]);
+    const res = await streamAgentTurn({ userId: USER, email: null, thread: { ...thread, variant: 3 }, input: message("hi"), model, variant3Enabled: false });
+    await drain(res);
+    await Promise.all(h.afterTasks);
+    expect(model.doStreamCalls[0].maxOutputTokens).toBe(4000);
+    expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 1 });
+  });
+
   test("with variant 3 switched off, a variant 3 thread presents as variant 1", async () => {
     const off = await variantTurn(3, false);
     expect(vi.mocked(startRun).mock.calls.at(-1)?.[1]).toMatchObject({ variant: 1 });

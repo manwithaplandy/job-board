@@ -31,6 +31,9 @@ import {
   spotCheckPlan,
   cellKey,
   estimateInjection,
+  estimateInjectionUpper,
+  dollars,
+  spotCheckRefusal,
   estimateMatrix,
   unpricedModels,
   formatMatrixDryRun,
@@ -259,13 +262,15 @@ describe("the dry run", () => {
     expect(out).toContain("| judge | $0.0073 | $0.2089 vs $0.00: NO | $0.2089 vs $0.69: fits |");
     expect(out).toContain("Every stage completes within the budget: uncached NO, cached yes.");
     expect(out).toContain("a reserve of $0.1213), every stage would complete uncached: NO.");
-    expect(out).toMatch(/Uncached, a stage would reach its cap\. The cap still holds/);
-    // A lowered budget the uncached pass does not fit: it says so, and how the cap still holds.
+    // PR 7 polish: a pass that would not complete uncached is refused, and its dry run says that in place of how a stage stops.
+    expect(out).not.toMatch(/The cap still holds/);
+    expect(out).toContain("A real run: --pass is refused before any call");
+    // A lowered budget the uncached pass does not fit: it says so, and that a real one is refused.
     const low = formatPassDryRun({ budgetUsd: 2.5 });
     // PR 7: at $2.50 even the cached pass ($2.51) is over.
     expect(low).toContain("$3.49 uncached (within $2.50: NO), $2.51 cached (within: NO)");
     expect(low).toContain("Every stage completes within the budget: uncached NO, cached NO.");
-    expect(low).toMatch(/The cap still holds: the stage stops \(cap_exceeded\) before a call that could/);
+    expect(low).toContain("A real run: --pass is refused before any call: its uncached estimate $3.49 is over the $2.50 budget");
   });
 
   test("PR J7: the re-render-only dry run prices only re-render cells, at the source run's recorded surface counts", () => {
@@ -404,5 +409,77 @@ describe("PR 7: the budget for 8000-token variant 3 calls", () => {
 
   test("a pass whose stages all fit is not refused (a cheaper judge-only model plan, for the logic)", () => {
     expect(passRefusal({ budgetUsd: 3, stages: [{ ...estimatePass()[2] }] })).toBeNull();
+  });
+});
+
+describe("PR 7 polish: the spot-check refusal, the refused pass's dry run, the injection upper bound", () => {
+  const SONNET = "anthropic/claude-sonnet-5.5";
+  const spot = (maxCases?: number) => ({
+    model: SONNET,
+    caps: maxCases === undefined ? profileDefaults("spot-check") : { ...profileDefaults("spot-check"), maxCases },
+    totals: parseTotalCaps({}, "spot-check"),
+  });
+  const fittingCells = () => Number(/--max-cells (\d+)/.exec(spotCheckRefusal(spot()) ?? "")?.[1]);
+
+  test("the default spot check is refused before any call: $3.30 uncached is over its $2.90 cap; it names the $2.54 cached figure and no override", () => {
+    const refusal = spotCheckRefusal(spot());
+    expect(refusal).toMatch(/^--matrix --spot-check is refused before any call: its uncached estimate \$3\.30 \(12 cells on anthropic\/claude-sonnet-5\.5\)/);
+    expect(refusal).toContain("is over its $2.90 cap");
+    expect(refusal).toContain("$2.54 cached");
+    // Prompt caching is always requested (lib/agent/cache.ts); nothing starts a run on the cached figure.
+    expect(refusal).toContain("lib/agent/cache.ts");
+    expect(refusal).toContain("no flag starts a run on the cached estimate");
+    expect(refusal).toContain("The $2.90 cap does not rise");
+    expect(profileDefaults("spot-check").maxUsd).toBe(2.9);
+  });
+
+  test("the refusal names the largest --max-cells that fits uncached, and that many cells start", () => {
+    const n = fittingCells();
+    expect(n).toBeGreaterThan(0);
+    expect(n).toBeLessThan(12);
+    // Eight cells: $2.90 holds the first two scenarios' cells and some of the third, uncached, with the reserve.
+    expect(n).toBe(8);
+    expect(spotCheckRefusal(spot(n))).toBeNull();
+    expect(spotCheckRefusal(spot(n + 1))).not.toBeNull();
+  });
+
+  test("the spot check's dry run ends with the refusal, and a fitting one says it may start", () => {
+    const dry = (maxCases?: number) =>
+      formatMatrixDryRun({ models: [SONNET], ...spot(maxCases), plan: spotCheckPlan(SONNET), profile: "spot-check", title: "Spot check dry run" });
+    expect(dry()).toContain(`A real run: ${spotCheckRefusal(spot())}`);
+    expect(dry(fittingCells())).toContain(`A real spot check with these caps (the first ${fittingCells()} cells) may start.`);
+    // The full matrix's dry run carries no spot-check line.
+    expect(formatMatrixDryRun({ models: [AGENT_EVAL_DEFAULT_MODEL], caps: profileDefaults("matrix"), totals: null })).not.toMatch(/spot check/i);
+  });
+
+  test("a refused pass's dry run shows the refusal in place of the stops-at-a-cap paragraph and the --max-cells advice", () => {
+    const out = formatPassDryRun({ budgetUsd: 3 });
+    const refusal = passRefusal({ budgetUsd: 3 })!;
+    expect(out).not.toContain("The cap still holds");
+    expect(out).not.toContain("To fit uncached, lower");
+    expect(out).not.toContain("A real --pass at this budget may start.");
+    expect(out.split(refusal)).toHaveLength(2);
+    const lines = out.split("\n");
+    const at = lines.findIndex((l) => l.startsWith("Even if an agent step's prompt filled the history window"));
+    expect(lines[at + 1]).toBe(`A real run: ${refusal}`);
+  });
+
+  test("the injection estimate shows its upper bound: $0.82, up to $0.96 when two variant 3 calls per run emit 8,000 output tokens", () => {
+    const haiku = AGENT_EVAL_DEFAULT_MODEL;
+    const base = estimateInjection(haiku, 57);
+    const upper = estimateInjectionUpper(haiku, 57);
+    // 19 of the 57 runs play variant 3 (case by case, variants 1 to 3); two calls each emit 8,000 instead of 600.
+    expect(upper.outputTokens - base.outputTokens).toBe(19 * 2 * (outputTokensFor(3) - 600));
+    expect(upper.calls).toBe(base.calls);
+    expect(dollars(base.costMicros)).toBe("$0.82");
+    expect(dollars(upper.costMicros)).toBe("$0.96");
+    // A prefix of 4 runs holds one variant 3 run.
+    expect(estimateInjectionUpper(haiku, 4).outputTokens - estimateInjection(haiku, 4).outputTokens).toBe(2 * (outputTokensFor(3) - 600));
+    const inj = formatSimpleDryRun({ profile: "injection", models: [haiku], runs: 57, caps: profileDefaults("injection"), totals: parseTotalCaps({}, "injection") });
+    expect(inj).toContain(`Upper bound: if two variant 3 calls in each of its 19 variant 3 runs emit 8,000 output tokens, ${haiku} is $0.96 uncached`);
+    expect(formatPassDryRun({ budgetUsd: 3 })).toContain("The injection stage is $0.82 uncached, up to $0.96 if two variant 3 calls in each of its 19 variant 3 runs emit 8,000 output tokens.");
+    expect(passRefusal({ budgetUsd: 3 })).toContain("injection $0.82 (up to $0.96)");
+    // The judge's dry run has no such line.
+    expect(formatSimpleDryRun({ profile: "judge", models: [haiku], runs: 144, caps: profileDefaults("judge"), totals: null })).not.toContain("Upper bound");
   });
 });

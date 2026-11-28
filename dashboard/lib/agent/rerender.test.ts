@@ -377,6 +377,10 @@ test("PR 7: the variant 3 re-render instructions carry the new grammar whole, an
   expect(rerenderInstructions(3)).toBe(text);
 });
 
+test("PR 7 polish: the variant 3 re-render prompt points to no rule it does not carry (no \"as above\")", () => {
+  expect(rerenderInstructions(3)).not.toMatch(/as above/i);
+});
+
 // Spec 08 S4.4, plan D5: the re-render's present returns no payload to the model either, and
 // the run still finds the stored row through its own closure, not the tool output.
 describe("the re-render's present", () => {

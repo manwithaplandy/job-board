@@ -78,7 +78,14 @@ describe("eval-agent.mjs", () => {
     expect(run("--matrix", "--spot-check", "--dry-run", "--model", "anthropic/claude-haiku-5.5").err).toMatch(/unknown argument --model for --matrix --spot-check/);
     expect(run("--matrix", "--dry-run", "--persona", "new-grad").err).toMatch(/unknown argument --persona for --matrix/);
     expect(run("--injection", "--spot-check", "--dry-run").err).toMatch(/unknown argument --spot-check for --injection/);
-    const noKey = run("--matrix", "--spot-check");
+    // PR 7 polish: the default spot check ($3.30 uncached over its $2.90 cap) is refused before the key check
+    // (exit 4, nothing spent); with the --max-cells its refusal names, it reaches the key check.
+    const refused = run("--matrix", "--spot-check");
+    expect(refused.status).toBe(4);
+    expect(refused.err).toMatch(/--matrix --spot-check is refused before any call: its uncached estimate \$3\.30/);
+    expect(refused.err).not.toMatch(/OPENROUTER_API_KEY/);
+    const cells = /--max-cells (\d+)/.exec(refused.err)?.[1] ?? "";
+    const noKey = run("--matrix", "--spot-check", "--max-cells", cells);
     expect(noKey.status).toBe(2);
     expect(noKey.err).toMatch(/eval:agent -- --matrix --spot-check/);
   });
@@ -97,9 +104,9 @@ describe("eval-agent.mjs", () => {
     expect(run("--pass", "--dry-run", "--max-cells", "3").err).toMatch(/unknown argument --max-cells for --pass/);
     expect(run("--pass", "--dry-run", "--model", "anthropic/claude-sonnet-5.5").err).toMatch(/unknown argument --model for --pass/);
     expect(run("--pass", "--matrix", "--dry-run").err).toMatch(/give one of --matrix, --injection, --judge, --pass, once/);
-    // PR 7: a real pass over its budget is refused before the key is even checked (exit 3).
+    // PR 7: a real pass over its budget is refused before the key is even checked (exit 4, distinct from a cap stop's 3).
     const noKey = run("--pass");
-    expect(noKey.status).toBe(3);
+    expect(noKey.status).toBe(4);
     expect(noKey.err).toMatch(/--pass is refused before any call/);
     expect(noKey.err).not.toMatch(/OPENROUTER_API_KEY/);
   });
@@ -275,14 +282,15 @@ describe("eval-agent.mjs", () => {
     }
   });
 
-  test("PR 7: a real --pass whose uncached estimate is over its budget is refused before the key check and before vitest (exit 3)", () => {
+  test("PR 7: a real --pass whose uncached estimate is over its budget is refused before the key check and before vitest (exit 4)", () => {
     const r = run("--pass");
-    expect(r.status).toBe(3);
+    // PR 7 polish: a refusal spends nothing, so it has its own exit code, not cap_exceeded's 3.
+    expect(r.status).toBe(4);
     expect(r.err).toMatch(/--pass is refused before any call: its uncached estimate \$3\.\d\d is over the \$3\.00 budget/);
     expect(r.err).not.toMatch(/OPENROUTER_API_KEY/);
     expect(r.out).not.toMatch(/eval:agent: pass /);
     const low = run("--pass", "--max-usd", "2");
-    expect(low.status).toBe(3);
+    expect(low.status).toBe(4);
     expect(low.err).toMatch(/over the \$2\.00 budget/);
   });
 

@@ -374,6 +374,33 @@ export function estimateInjection(model: string, runs: number): TokenCost {
 }
 
 /**
+ * PR 7 polish: the variant 3 runs among the first `runs` of a model's injection plan, which
+ * goes case by case and, within a case, variant 1, 2, 3 (injection.ts injectionPlan; not
+ * imported, as this file loads under Node type stripping).
+ */
+export function injectionV3Runs(runs: number): number {
+  return Math.floor(Math.max(0, runs) / 3);
+}
+
+/** The calls of a variant 3 injection run the upper bound lets emit a variant 3 step's whole limit. */
+export const INJECTION_V3_LONG_CALLS = 2;
+
+/**
+ * PR 7 polish: the injection estimate's upper bound. estimateInjection gives every call
+ * V1_CALL_TOKENS.output; here INJECTION_V3_LONG_CALLS calls of each variant 3 run emit
+ * outputTokensFor(3) instead (a document written whole, then once more). Same calls and input.
+ */
+export function estimateInjectionUpper(model: string, runs: number): TokenCost {
+  const extra = cost(model, injectionV3Runs(runs) * INJECTION_V3_LONG_CALLS, 0, outputTokensFor(3) - V1_CALL_TOKENS.output, CACHE_SHARES.agent);
+  return add(estimateInjection(model, runs), { ...extra, calls: 0 });
+}
+
+/** The sentence that names the injection upper bound's assumption. */
+function injectionUpperAssumption(runs: number): string {
+  return `if ${INJECTION_V3_LONG_CALLS === 2 ? "two" : INJECTION_V3_LONG_CALLS} variant 3 calls in each of its ${injectionV3Runs(runs)} variant 3 runs emit ${outputTokensFor(3).toLocaleString("en-US")} output tokens`;
+}
+
+/**
  * The golden cases a `--variant` run plays (live.eval.ts): scenario by persona, scenario
  * first, the first `maxCases` (budget.ts ALL_CASES at most).
  */
@@ -499,7 +526,49 @@ export function formatMatrixDryRun(a: {
     "",
     ...capLines(a.profile ?? "matrix", a.caps, a.totals),
   );
+  if (a.profile === "spot-check") {
+    // PR 7 polish: whether a real spot check with these caps would start (spotCheckRefusal).
+    const refusal = spotCheckRefusal({ model: a.models[0]!, caps: a.caps, totals: a.totals, plan });
+    lines.push("", refusal === null ? `A real spot check with these caps (the first ${spotCheckCells(plan, a.caps)} cells) may start.` : `A real run: ${refusal}`);
+  }
   return lines.join("\n");
+}
+
+/** The cells a spot check with `caps` plays: the first --max-cells of its plan. */
+function spotCheckCells(plan: readonly MatrixCell[], caps: EvalCaps): number {
+  return Math.min(plan.length, Math.max(0, caps.maxCases));
+}
+
+/**
+ * PR 7 polish: why a real spot check is refused before any call, or null when it may
+ * start. Like passRefusal, it is refused when the cells it would play (the first
+ * --max-cells of its plan), uncached and with the look-ahead's reserve, do not fit its
+ * dollar cap (or tokens its token cap): it would stop at the cap part way, losing its last
+ * cells (they interleave per scenario). Prompt caching is always requested
+ * (lib/agent/cache.ts) but its hits are not guaranteed, and nothing starts a run against the
+ * cached estimate, so there is no override; the cap never rises. The refusal names the
+ * largest --max-cells that fits. eval-agent.mjs checks this before the key (exit 4).
+ */
+export function spotCheckRefusal(a: { model: string; caps: EvalCaps; totals: TotalCaps | null; plan?: readonly MatrixCell[] }): string | null {
+  const plan = a.plan ?? spotCheckPlan(a.model);
+  const capUsd = bindingUsd(a.caps, a.totals);
+  const maxTokens = Math.min(a.caps.maxTokens, a.totals?.maxTotalTokens ?? Number.POSITIVE_INFINITY);
+  const reserve = runReserveMicros(a.model, MATRIX_KINDS);
+  const estimate = (n: number) => estimateMatrix(plan.slice(0, n), a.model).total;
+  const fits = (n: number) => within(estimate(n), maxTokens, capUsd, reserve);
+  const cells = spotCheckCells(plan, a.caps);
+  if (fits(cells)) return null;
+  let fitting = 0;
+  for (let n = cells - 1; n > 0 && fitting === 0; n--) if (fits(n)) fitting = n;
+  const e = estimate(cells);
+  const cap = `$${capUsd.toFixed(2)}`;
+  return (
+    `--matrix --spot-check is refused before any call: its uncached estimate ${dollars(e.costMicros)} (${cells} cells on ${a.model}), ` +
+    `with the look-ahead's ${dollars4(reserve)} reserve, is over its ${cap} cap, so it would stop at the cap part way and lose its last cells. ` +
+    `It is ${dollars(e.cachedCostMicros)} cached, which fits, but prompt caching is always requested and its hits are not guaranteed ` +
+    `(lib/agent/cache.ts), and no flag starts a run on the cached estimate, so it cannot be started that way. The ${cap} cap does not rise; ` +
+    (fitting > 0 ? `--max-cells ${fitting} fits uncached.` : "no shorter run of its cells fits uncached either.")
+  );
 }
 
 /** One variant 1 recording a rerender-only run would re-render (evalRuns.ts recordedV1Cells). */
@@ -615,6 +684,17 @@ export function formatSimpleDryRun(a: {
         `${dollars(all.cachedCostMicros)} | ${totalWithin ? "yes" : "NO: the run would stop at the total cap"} |`,
     );
   }
+  if (a.profile === "injection" && injectionV3Runs(a.runs) > 0) {
+    // PR 7 polish: the estimate gives every call 600 output tokens; a variant 3 run may write its document at 8,000.
+    lines.push("");
+    for (const model of a.models) {
+      const u = estimateInjectionUpper(model, a.runs);
+      lines.push(
+        `Upper bound: ${injectionUpperAssumption(a.runs)}, ${model} is ${dollars(u.costMicros)} uncached, ${dollars(u.cachedCostMicros)} cached ` +
+          `(${millions(u.outputTokens)} output tokens; the estimate above gives every call ${V1_CALL_TOKENS.output}).`,
+      );
+    }
+  }
   if (a.profile === "judge") {
     lines.push(
       "",
@@ -657,6 +737,8 @@ export interface PassStageEstimate {
   model: string;
   what: string;
   cost: TokenCost;
+  /** PR 7 polish, the injection stage: its upper bound (estimateInjectionUpper) and its run count. */
+  upper?: { cost: TokenCost; runs: number };
 }
 
 /** The estimate of one `--pass` (matrix, injection, judge on the eval default model). */
@@ -664,7 +746,13 @@ export function estimatePass(model: string = AGENT_EVAL_DEFAULT_MODEL, judgePair
   const injectionRuns = PROFILE_CAP_SPECS.injection.maxCases.default;
   return [
     { stage: "matrix", model, what: `${matrixPlan([model]).length} cells`, cost: estimateMatrix(matrixPlan([model]), model).total },
-    { stage: "injection", model, what: `${injectionRuns} runs`, cost: estimateInjection(model, injectionRuns) },
+    {
+      stage: "injection",
+      model,
+      what: `${injectionRuns} runs`,
+      cost: estimateInjection(model, injectionRuns),
+      upper: { cost: estimateInjectionUpper(model, injectionRuns), runs: injectionRuns },
+    },
     { stage: "judge", model, what: `up to ${judgePairs} pairs`, cost: estimateJudge(model, judgePairs) },
   ];
 }
@@ -715,7 +803,7 @@ export function passRefusal(a: { budgetUsd: number; model?: string; judgePairs?:
   const totalMicros = stages.reduce((sum, s) => sum + s.cost.costMicros, 0);
   const fits = passStageFits(stages, a.budgetUsd, (c) => c.costMicros);
   if (totalMicros <= a.budgetUsd * 1_000_000 && fits.every((f) => f.fits)) return null;
-  const parts = stages.map((s) => `${s.stage} ${dollars(s.cost.costMicros)}`).join(", ");
+  const parts = stages.map((s) => `${s.stage} ${dollars(s.cost.costMicros)}${s.upper ? ` (up to ${dollars(s.upper.cost.costMicros)})` : ""}`).join(", ");
   const budget = `$${a.budgetUsd.toFixed(2)}`;
   const short = stages.filter((_, i) => !fits[i]!.fits).map((s) => s.stage).join(" and ");
   const why =
@@ -748,7 +836,11 @@ export function formatPassDryRun(a: { budgetUsd: number; model?: string; judgePa
     "",
     `Pass total against the budget: ${dollars(total.costMicros)} uncached (within $${a.budgetUsd.toFixed(2)}: ${fits(total.costMicros)}), ` +
       `${dollars(total.cachedCostMicros)} cached (within: ${fits(total.cachedCostMicros)}).`,
+    ...stages
+      .filter((s) => s.upper)
+      .map((s) => `The ${s.stage} stage is ${dollars(s.cost.costMicros)} uncached, up to ${dollars(s.upper!.cost.costMicros)} ${injectionUpperAssumption(s.upper!.runs)}.`),
   ];
+  const refusal = passRefusal({ budgetUsd: a.budgetUsd, stages });
   const uncached = passStageFits(stages, a.budgetUsd, (c) => c.costMicros);
   const cached = passStageFits(stages, a.budgetUsd, (c) => c.cachedCostMicros);
   lines.push(
@@ -773,13 +865,9 @@ export function formatPassDryRun(a: { budgetUsd: number; model?: string; judgePa
     `Even if an agent step's prompt filled the history window (about ${FULL_WINDOW_PROMPT_BYTES / 1_000}K bytes: Haiku's long tier, a reserve of ` +
       `${dollars4(Math.max(...stages.map(fullWindow)))}), every stage would complete uncached: ${worst.every((f) => f.fits) ? "yes" : "NO"}.`,
   );
-  if (!uncached.every((f) => f.fits)) {
-    lines.push(
-      "Uncached, a stage would reach its cap. The cap still holds: the stage stops (cap_exceeded) before a call that could",
-      "pass it, records nothing from the cell or case in progress, and no later stage starts. To fit uncached, lower",
-      "--max-cells or --max-cases on the single modes, or judge fewer pairs.",
-    );
-  }
+  // PR 7 polish: a pass that would not complete uncached is refused before any call
+  // (passRefusal is null only when every stage fits uncached), so its refusal stands here.
+  if (refusal !== null) lines.push(`A real run: ${refusal}`);
   lines.push(
     "",
     "How the budget is shared: each stage's --max-usd (and the matrix's and injection's --max-total-usd) is the pass budget",
@@ -791,7 +879,6 @@ export function formatPassDryRun(a: { budgetUsd: number; model?: string; judgePa
     "matrix it just ran; judge the variant 3 pairs afterwards with the render smoke and --judge --run <matrix run>.",
     ...CACHE_NOTE,
   );
-  const refusal = passRefusal({ budgetUsd: a.budgetUsd, stages });
-  lines.push("", refusal === null ? "A real --pass at this budget may start." : `A real run: ${refusal}`);
+  if (refusal === null) lines.push("", "A real --pass at this budget may start.");
   return lines.join("\n");
 }

@@ -208,8 +208,8 @@ function variant3Documents(recordings: readonly Recording[]): string[] {
   for (const r of recordings) {
     if (r.variant !== 3) continue;
     for (const s of r.surfaces) {
-      const p = s.payload as Record<string, unknown>;
-      if (p.variant === 3 && typeof p.html === "string") out.push(p.html);
+      const p: unknown = s.payload;
+      if (isObject(p) && p.variant === 3 && typeof p.html === "string") out.push(p.html);
     }
   }
   return out;

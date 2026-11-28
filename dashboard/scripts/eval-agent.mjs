@@ -13,7 +13,7 @@
 //       pass's --max-usd, and the end prints the pass's reported spend against it ("at
 //       least" when a stage stopped on a call whose cost or usage it could not read).
 //       PR 7: a pass whose uncached estimate is over its budget, or whose stages would not
-//       each fit what is left, is refused before any call (exit 3); since variant 3 calls
+//       each fit what is left, is refused before any call (exit 4); since variant 3 calls
 //       may emit 8,000 tokens it is ($3.49 at $3), so run the modes on their own instead.
 //   npm run eval:agent -- --variant <1|2|3> [--model <id>] [--allow-non-haiku] [--seed <n>] [golden caps] [--dry-run]
 //       The golden scenarios (lib/agent/evals/live.eval.ts: 4 scenarios by 3 personas).
@@ -31,7 +31,10 @@
 //       (senior-backend unless --persona names another), one repeat, all 4 scenarios in
 //       all 3 variants (12 cells), its own caps ($2.90 at most) and its own run folder
 //       under recordings/matrix/ (run.json kind "spot-check"; readers take it only by
-//       --run, never as "the latest complete" matrix run).
+//       --run, never as "the latest complete" matrix run). PR 7: a spot check whose cells,
+//       uncached and with the look-ahead's reserve, would not fit its cap is refused before
+//       any call (exit 4): 12 cells are $3.30 uncached against $2.90 ($2.54 cached), and no
+//       flag starts it on the cached figure. Its refusal names a --max-cells that fits (8).
 //   npm run eval:agent -- --matrix --rerender-only --run <matrix run id> [--allow-non-haiku] [matrix caps] [--dry-run]
 //       Variants 2 and 3 again, without replaying variant 1: every recorded variant 1
 //       surface of that complete full matrix run is written into the throwaway database
@@ -43,8 +46,8 @@
 //       model than Haiku 5.5 needs --allow-non-haiku. The dry run counts the source's
 //       recorded surfaces.
 //   npm run eval:agent -- --injection [--models a,b | --model <id>] [--allow-non-haiku] [injection caps] [--dry-run]
-//       The prompt-injection set (lib/agent/evals/injection.eval.ts): per model, 15
-//       model-driven cases in variants 1, 2 and 3 (45 runs). Haiku 5.5 by default, as the
+//       The prompt-injection set (lib/agent/evals/injection.eval.ts): per model, 19
+//       model-driven cases in variants 1, 2 and 3 (57 runs). Haiku 5.5 by default, as the
 //       matrix. Results go under lib/agent/evals/recordings/injection/<run id>/<model>/v<variant>/<case>.json.
 //   npm run eval:agent -- --judge [--run <matrix run id>] [judge caps] [--dry-run]
 //       The judge (lib/agent/evals/judge.eval.ts): Haiku 5.5 (judgeModel.ts) compares pairs
@@ -82,7 +85,12 @@
 // Spend caps (lib/agent/evals/budget.ts). Each flag may lower its cap, never raise it past
 // the ceiling (a usage error, exit 2). Any cap trips the whole run: the case or cell in
 // progress writes no recording, later ones are skipped, the run is marked cap_exceeded
-// and the script exits non-zero. A model call whose usage cannot be read trips it too.
+// and the script exits non-zero (3 when vitest itself exits 0). A model call whose usage
+// cannot be read trips it too.
+// Exit codes: 0 done (or a dry run); 1 a run failed or wrote no report; 2 a usage error or
+// no OPENROUTER_API_KEY; 3 a cap stopped the run (money spent, recordings partial); 4 a
+// run refused before any call because its estimate would not fit its caps (PR 7: --pass,
+// the spot check; nothing spent). A stage's vitest exit code takes the place of 1 or 3.
 // No mode can spend more than $3 on its own (PR J7):
 // Pass:
 //   --max-usd <n>       reported dollars over all three stages     default 3,   ceiling 3
@@ -109,7 +117,7 @@
 //   --max-total-tokens <n>  as --max-tokens                           default 2,000,000, ceiling 4,000,000
 //   --max-total-usd <n>     as --max-usd                              default 2.9, ceiling 2.9
 // Injection (each model's run has these caps; the whole command also has the two totals):
-//   --max-cases <n>         runs per model (the first n of its plan)  default 45,  ceiling 45
+//   --max-cases <n>         runs per model (the first n of its plan)  default 57,  ceiling 57
 //   --max-steps <n>         model calls in one turn                   default 8,   ceiling 8
 //   --max-tokens <n>        tokens per model                          default 9,000,000, ceiling 18,000,000
 //   --max-usd <n>           reported dollars per model                default 1,   ceiling 1.5
@@ -382,12 +390,23 @@ if (args.dryRun) {
 // PR 7: a pass whose uncached estimate is over its budget, or one a stage would not fit, is
 // refused here, before the key check and before any vitest stage or model call: it would
 // otherwise spend on its first stages and stop at a cap part way (matrixPlan.ts passRefusal).
-if (args.mode === "pass") {
-  const refusal = plan.passRefusal({ budgetUsd: args.passUsd });
-  if (refusal !== null) {
-    console.error(`eval:agent: ${refusal}`);
-    process.exit(3);
-  }
+// The spot check likewise, when its cells would not fit its cap uncached (spotCheckRefusal).
+// A refusal exits 4: nothing was spent, unlike a cap stop (3).
+const REFUSED_EXIT = 4;
+const refusal =
+  args.mode === "pass"
+    ? plan.passRefusal({ budgetUsd: args.passUsd })
+    : args.mode === "matrix" && args.spotCheck
+      ? plan.spotCheckRefusal({
+          model: models[0],
+          caps: args.caps,
+          totals: args.totals,
+          plan: plan.spotCheckPlan(models[0], args.persona ?? plan.SPOT_CHECK_PERSONA),
+        })
+      : null;
+if (refusal !== null) {
+  console.error(`eval:agent: ${refusal}`);
+  process.exit(REFUSED_EXIT);
 }
 
 if (!process.env.OPENROUTER_API_KEY?.trim()) {

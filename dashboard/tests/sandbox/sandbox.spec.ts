@@ -1368,6 +1368,24 @@ interface ChartReading {
 }
 
 /** Reads the chart in the case's frame, once it is drawn at its own width (or after 5 s). */
+/** The frame's document fits the frame: nothing (such as the hidden data table) adds scrollable
+ *  overflow, so the view never scrolls into blank space below the chart. */
+async function expectFrameFits(run: CaseRun, at: string): Promise<void> {
+  const handle = await run.page.locator("[data-sandbox-surface] iframe").first().elementHandle({ timeout: 2_000 });
+  const frame = handle ? await handle.contentFrame() : null;
+  expect(frame, `${run.at}: the chart view has a document at ${at}`).not.toBeNull();
+  await expect
+    .poll(
+      () =>
+        frame!.evaluate(() => {
+          const root = document.scrollingElement ?? document.documentElement;
+          return root.scrollHeight - root.clientHeight;
+        }),
+      { message: `${run.at}: the view does not scroll past its content at ${at}`, timeout: 5_000 },
+    )
+    .toBeLessThanOrEqual(1);
+}
+
 async function readChart(run: CaseRun, at: string): Promise<ChartReading> {
   const handle = await run.page.locator("[data-sandbox-surface] iframe").first().elementHandle({ timeout: 2_000 });
   const frame = handle ? await handle.contentFrame() : null;
@@ -1439,6 +1457,7 @@ test.describe("kit chart resize (polish fix 1)", () => {
         const got = await readChart(run, at);
         await expectChartFrameLive(run, at);
         expectChartText(run, got, at);
+        await expectFrameFits(run, at);
       }
       // Expanded, the frame takes the whole 1440px viewport; closed, it goes back.
       await page.setViewportSize({ width: 1440, height: CHART_PAGE_HEIGHT });
@@ -1450,6 +1469,7 @@ test.describe("kit chart resize (polish fix 1)", () => {
       await page.getByRole("button", { name: "Close expanded view" }).click();
       await expect(section, `${run.at}: closed`).not.toHaveAttribute("data-expanded", "true");
       expectChartText(run, await readChart(run, "closed at 1440px"), "closed at 1440px");
+      await expectFrameFits(run, "closed at 1440px");
 
       await finishCase(run, 1_000);
       run.note(`ResizeObserver loop notices the document saw (recorded, not asserted): ${JSON.stringify(probeValue(run.probes, "kit-chart-resize", "roLoopNotice") ?? 0)}`);

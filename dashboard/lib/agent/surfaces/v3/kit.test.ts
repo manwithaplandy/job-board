@@ -23,6 +23,22 @@ describe("variant 3 kit tokens", () => {
     }
   });
 
+  // PR 5 Task 5.1 (spec 08 S9.1): the tokens a rich view needs, checked by the parity test above.
+  test("the kit carries the S9.1 tokens, light and dark, equal to app/globals.css", () => {
+    const app = parseThemeTokens(GLOBALS_CSS)!;
+    const added = [
+      "--accent-border", "--success-border", "--warning-border", "--danger-border", "--font-size-heading",
+      "--elevation-card", "--shadow-popover", "--motion-fast", "--ease-standard", "--control-height-compact",
+    ];
+    const names: readonly string[] = KIT_TOKEN_NAMES;
+    const kit = parseThemeTokens(KIT_CSS)!;
+    for (const n of added) {
+      expect({ token: n, listed: names.includes(n) }).toEqual({ token: n, listed: true });
+      expect({ token: n, light: kit.light[n] }).toEqual({ token: n, light: app.light[n] });
+      expect({ token: n, dark: kit.dark[n] }).toEqual({ token: n, dark: app.dark[n] ?? app.light[n] });
+    }
+  });
+
   test("KIT_CSS defines every token the kit uses for light and dark", () => {
     const kit = parseThemeTokens(KIT_CSS);
     expect(kit).not.toBeNull();

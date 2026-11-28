@@ -17,6 +17,10 @@ export const KIT_TOKEN_NAMES = [
   "--success", "--success-bg", "--warning", "--warning-bg", "--danger", "--danger-bg",
   "--focus-ring", "--focus-halo",
   "--chart-stage", "--chart-good", "--chart-bad", "--chart-amber", "--chart-muted", "--chart-violet",
+  // PR 5 (spec 08 S9.1): what a rich view needs beyond the first set.
+  "--accent-border", "--success-border", "--warning-border", "--danger-border",
+  "--font-size-heading", "--elevation-card", "--shadow-popover", "--motion-fast", "--ease-standard",
+  "--control-height-compact",
 ] as const;
 
 export type KitTokenName = (typeof KIT_TOKEN_NAMES)[number];
@@ -39,6 +43,10 @@ const SHARED = {
   "--radius-card": "16px",
   "--target-size": "44px",
   "--control-height": "44px",
+  "--font-size-heading": "32px",
+  "--motion-fast": "140ms",
+  "--ease-standard": "cubic-bezier(.2,.8,.2,1)",
+  "--control-height-compact": "36px",
 } as const;
 
 export const KIT_TOKENS: { light: Record<KitTokenName, string>; dark: Record<KitTokenName, string> } = {
@@ -72,6 +80,12 @@ export const KIT_TOKENS: { light: Record<KitTokenName, string>; dark: Record<Kit
     "--chart-amber": "#f59e0b",
     "--chart-muted": "#9aa3b0",
     "--chart-violet": "#7c6cd4",
+    "--accent-border": "#d8e2f6",
+    "--success-border": "#cfe6d8",
+    "--warning-border": "#f3d9ad",
+    "--danger-border": "#ecd6d6",
+    "--elevation-card": "0 1px 2px rgba(20,28,40,.04)",
+    "--shadow-popover": "0 8px 24px rgba(15,22,35,.1)",
   },
   dark: {
     ...SHARED,
@@ -103,5 +117,11 @@ export const KIT_TOKENS: { light: Record<KitTokenName, string>; dark: Record<Kit
     "--chart-amber": "#e6a53c",
     "--chart-muted": "#808b9d",
     "--chart-violet": "#9a8bec",
+    "--accent-border": "rgba(91,141,239,.32)",
+    "--success-border": "rgba(70,177,126,.32)",
+    "--warning-border": "rgba(215,162,76,.32)",
+    "--danger-border": "rgba(223,111,111,.30)",
+    "--elevation-card": "0 1px 2px rgba(0,0,0,.18)",
+    "--shadow-popover": "0 8px 24px rgba(0,0,0,.42)",
   },
 };

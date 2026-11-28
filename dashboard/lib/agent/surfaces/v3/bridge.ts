@@ -107,17 +107,25 @@ export const FRAME_ACTION_LIMITS = { perMinute: 10, windowMs: 60_000, total: 30 
  */
 export const FRAME_ASK_LIMITS = { perMinute: 6, windowMs: 60_000, total: 20 } as const;
 
-// Zero-width characters (U+200B to U+200D, U+2060, U+FEFF) and bidi controls (U+202A to
-// U+202E, U+2066 to U+2069): removed outright, before whitespace is collapsed, because
-// U+FEFF counts as whitespace to \s and must not become a space.
-const ASK_INVISIBLE_RE = /[\u200B-\u200D\u2060\uFEFF\u202A-\u202E\u2066-\u2069]/g;
+// Every Unicode format character (\p{Cf}: the zero-width characters U+200B to U+200D,
+// U+2060 and U+FEFF, every bidi control and mark (U+202A to U+202E, U+2066 to U+2069,
+// U+200E, U+200F, U+061C), the soft hyphen U+00AD, the invisible operators U+2061 to
+// U+2064 and the tag characters U+E0000 to U+E007F) and the variation selectors (U+FE00 to
+// U+FE0F, U+E0100 to U+E01EF): none shows as text, so a view could hide words from the user
+// in them that the model would still read (PR 6 review, Important 2). Emoji sequences that
+// use ZWJ or a variation selector degrade to their parts, which is accepted. Removed
+// outright, before whitespace is collapsed, because U+FEFF counts as whitespace to \s and
+// must not become a space. Exported as source text for the kit (v3/kit.ts), which applies
+// the same normalisation before it posts.
+export const ASK_INVISIBLE_SOURCE = "[\\p{Cf}\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}]";
+const ASK_INVISIBLE_RE = new RegExp(ASK_INVISIBLE_SOURCE, "gu");
 // C0 and C1 controls. The ones that are whitespace (tab, newline, carriage return...) have
 // already become spaces by the time this runs.
 const ASK_CONTROL_RE = /[\u0000-\u001F\u007F-\u009F]/g;
 
 /**
  * The text of an ask as the host shows and sends it (spec 08 S10.1): Unicode NFC; no
- * C0 or C1 controls, zero-width characters or bidi controls; every run of whitespace,
+ * C0 or C1 controls, format characters (\p{Cf}) or variation selectors; every run of whitespace,
  * newlines included, one space; trimmed. Null when that leaves nothing, or more than
  * ASK_TEXT_MAX code points (not UTF-16 units). A null drops the message.
  */

@@ -420,7 +420,7 @@ Transport and trust are exactly the `action` path's: the message arrives on the 
 
 Host-side normalisation, a pure function `normalizeAskText(raw): string | null` in `bridge.ts`:
 
-- Unicode NFC; remove C0 and C1 controls, zero-width characters (U+200B to U+200D, U+2060, U+FEFF) and bidi controls (U+202A to U+202E, U+2066 to U+2069);
+- Unicode NFC; remove C0 and C1 controls, every Unicode format character (`\p{Cf}`: the zero-width characters U+200B to U+200D, U+2060 and U+FEFF, every bidi control and mark including U+202A to U+202E, U+2066 to U+2069, RLM/LRM and ALM U+061C, the soft hyphen U+00AD, the invisible operators and the tag characters U+E0000 to U+E007F) and the variation selectors (U+FE00 to U+FE0F, U+E0100 to U+E01EF), so no text the user cannot see reaches the model; emoji sequences that use ZWJ or a variation selector degrade to their parts;
 - collapse every run of whitespace, including newlines, to one space; trim;
 - null when empty or longer than 280 code points.
 

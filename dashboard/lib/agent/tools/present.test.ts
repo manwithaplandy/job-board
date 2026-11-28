@@ -24,7 +24,7 @@ vi.mock("@/lib/db", () => ({
 import type { ToolCtx } from "@/lib/agent/tools";
 import { buildTools } from "@/lib/agent/tools";
 import { assertNoUserIdInput } from "@/lib/agent/tools/assertNoUserIdInput";
-import { finishPendingRepair, presentTool, REPAIR_NOT_ATTEMPTED, runPresent, VIEW_LIMIT_ERROR } from "@/lib/agent/tools/present";
+import { finishPendingRepair, presentTool, presentToolOutput, REPAIR_NOT_ATTEMPTED, runPresent, VIEW_LIMIT_ERROR } from "@/lib/agent/tools/present";
 import { AGENT_LIMITS } from "@/lib/agent/config";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
@@ -498,5 +498,38 @@ describe("present, at most 3 views per turn", () => {
     m.saveSurface.mockRejectedValueOnce(new Error("db down"));
     await expect(runPresent(c, { payload: blocks() })).rejects.toThrow(/db down/);
     expect(c.views.used).toBe(0);
+  });
+});
+
+// The tool output (spec 08 S4.4, plan D5): the model gets { surfaceId, variant, outcome,
+// errors? } and never the payload it just sent; runPresent's callers still get it.
+describe("present's tool output", () => {
+  const payload = { variant: 1, title: "Top match", blocks: [{ type: "JobCard", jobId: JOB_A }] };
+
+  test("presentToolOutput of a stored result has surfaceId, variant and outcome and no payload", async () => {
+    const stored = await runPresent(ctx(), { payload });
+    expect(stored).toMatchObject({ payload });
+    const out = presentToolOutput(stored);
+    expect(out).toEqual({ surfaceId: NEW, variant: 1, outcome: "valid" });
+    expect("payload" in out).toBe(false);
+    // A fallback keeps its errors.
+    const fellBack = presentToolOutput(await runPresent(ctx(), { payload: "just text" }));
+    expect(fellBack).toEqual({ surfaceId: NEW, variant: 1, outcome: "fallback", errors: expect.any(Array) });
+    expect("payload" in fellBack).toBe(false);
+  });
+
+  test("an invalid or limit result is passed on as it is", () => {
+    expect(presentToolOutput({ variant: 2, outcome: "invalid", errors: ["x"] })).toEqual({ variant: 2, outcome: "invalid", errors: ["x"] });
+    expect(presentToolOutput({ variant: 3, outcome: "limit", errors: [VIEW_LIMIT_ERROR] })).toEqual({ variant: 3, outcome: "limit", errors: [VIEW_LIMIT_ERROR] });
+  });
+
+  test("the tool built by presentTool(ctx) resolves execute without payload", async () => {
+    const c = ctx();
+    const t = presentTool(c);
+    const out: unknown = await t.execute!({ payload }, { toolCallId: "p1", messages: [] } as never);
+    expect(out).toEqual({ surfaceId: NEW, variant: 1, outcome: "valid" });
+    expect(m.saveSurface).toHaveBeenCalledTimes(1);
+    expect(saved()).toMatchObject({ payload });
+    expect(c.views.used).toBe(1);
   });
 });

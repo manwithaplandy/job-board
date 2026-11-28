@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import type { Variant } from "@/lib/agent/config";
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import type { SurfacePayloadV3 } from "@/lib/agent/surfaces/v3/document";
+import type { PresentToolOutput } from "@/lib/agent/tools/present";
 import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { AgentChat, StartConversation, type AgentChatFixture } from "./AgentChat";
@@ -54,14 +55,11 @@ function assistant(id: string, parts: UIMessage["parts"], status: "complete" | "
 const lookup = (callId: string, tool: string) =>
   ({ type: `tool-${tool}`, toolCallId: callId, state: "output-available", input: {}, output: {} }) as UIMessage["parts"][number];
 
-const present = (callId: string, surfaceId: string = SURFACE, variant: Variant = 1) =>
-  ({
-    type: "tool-present",
-    toolCallId: callId,
-    state: "output-available",
-    input: {},
-    output: { surfaceId, variant, outcome: "valid", payload: { variant: 1, blocks: [] } },
-  }) as UIMessage["parts"][number];
+// A stored present call, its output as the tool returns it: no payload (spec 08 S4.4).
+const present = (callId: string, surfaceId: string = SURFACE, variant: Variant = 1) => {
+  const output: PresentToolOutput = { surfaceId, variant, outcome: "valid" };
+  return { type: "tool-present", toolCallId: callId, state: "output-available", input: {}, output } as UIMessage["parts"][number];
+};
 
 /** A present call whose input is still arriving: its view is being built. */
 const building = (callId: string) =>
@@ -256,9 +254,14 @@ const CHAT_FIXTURE_OF: Partial<Record<AgentPageFixtureState, AgentChatFixture>> 
   "agent-page-code-expanded": { expandedChainId: SURFACE_CODE },
 };
 
+/** The messages a state's chat starts with (exported for its test). */
+export function agentPageFixtureMessages(state: AgentPageFixtureState): UIMessage[] {
+  return MESSAGES_OF[state] ?? CONVERSATION;
+}
+
 export function AgentPageFixture({ state }: { state: AgentPageFixtureState }) {
   const open = state !== "agent-page-empty";
-  const messages = MESSAGES_OF[state] ?? CONVERSATION;
+  const messages = agentPageFixtureMessages(state);
   return (
     <AppShell header={<AppHeader current="agent" email="sam@example.com" isAdmin />}>
       <AgentPageView

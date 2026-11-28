@@ -93,6 +93,27 @@ export type PresentResult =
       errors: [typeof VIEW_LIMIT_ERROR];
     };
 
+/** Drops `K` from each member of a union, keeping each member's own fields. */
+type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/**
+ * What the model gets back from present (spec 08 S4.4, plan D5): the result without the
+ * payload it just sent, so a turn with several views does not pay for each payload twice.
+ * The page reads only surfaceId; the surface itself is read from its stored row.
+ */
+export type PresentToolOutput = OmitEach<PresentResult, "payload">;
+
+/** `result` without its payload: every field is copied by name, so nothing else leaks through. */
+export function presentToolOutput(result: PresentResult): PresentToolOutput {
+  if (!("surfaceId" in result)) return result;
+  return {
+    surfaceId: result.surfaceId,
+    variant: result.variant,
+    outcome: result.outcome,
+    ...(result.errors !== undefined ? { errors: result.errors } : {}),
+  };
+}
+
 /** The payload schema of one variant (plan Task 2.8): the grammar the model is shown. */
 export function presentSchemaFor(variant: Variant): z.ZodType {
   if (variant === 2) return SurfacePayloadV2Schema;
@@ -406,6 +427,6 @@ export function presentTool(ctx: ToolCtx) {
   return tool({
     description: presentDescription(variant),
     inputSchema: jsonSchema<PresentInput>(() => presentJsonSchema(variant), { validate: permissive }),
-    execute: (input, options) => runPresent(ctx, input, options),
+    execute: async (input, options): Promise<PresentToolOutput> => presentToolOutput(await runPresent(ctx, input, options)),
   });
 }

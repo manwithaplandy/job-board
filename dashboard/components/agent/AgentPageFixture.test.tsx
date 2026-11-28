@@ -26,7 +26,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
 
 import { validateSurfaceV3 } from "@/lib/agent/surfaces/v3/document";
-import { AgentPageFixture, CODE_FIXTURE_DOCUMENT } from "./AgentPageFixture";
+import { AgentPageFixture, agentPageFixtureMessages, CODE_FIXTURE_DOCUMENT } from "./AgentPageFixture";
 import { AGENT_PAGE_FIXTURE_STATES } from "./agentPageFixtureStates";
 
 beforeEach(() => {
@@ -145,4 +145,14 @@ describe("the expanded states", () => {
     expect(validateSurfaceV3(CODE_FIXTURE_DOCUMENT).ok).toBe(true);
     expect(CODE_FIXTURE_DOCUMENT.html).not.toMatch(/<script|host\.|action=|fetch|https?:/i);
   });
+});
+
+// PR 4 (spec 08 S4.4): present's tool output carries no payload, so neither do the fixtures'.
+test.each(AGENT_PAGE_FIXTURE_STATES)("%s: every present output is payload-free, as the tool returns it", (state) => {
+  for (const message of agentPageFixtureMessages(state)) {
+    for (const part of message.parts) {
+      if (part.type !== "tool-present" || !("output" in part)) continue;
+      expect(part.output).toEqual({ surfaceId: expect.any(String), variant: expect.any(Number), outcome: "valid" });
+    }
+  }
 });

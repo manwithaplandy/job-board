@@ -39,7 +39,7 @@ import { SurfacePayloadV1Schema } from "@/lib/agent/surfaces/v1/blocks";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { withAgentTrace } from "@/lib/agent/telemetry";
 import type { ToolCtx } from "@/lib/agent/tools";
-import { finishPendingRepair, presentTool, runPresent, type PresentInput, type PresentResult } from "@/lib/agent/tools/present";
+import { finishPendingRepair, presentTool, presentToolOutput, runPresent, type PresentInput, type PresentToolOutput } from "@/lib/agent/tools/present";
 import { neutralizeClosingTag } from "@/lib/agent/untrusted";
 
 /** Present's one repair needs a second step; there is never a third. */
@@ -135,20 +135,23 @@ export function rerenderInstructions(variant: Variant): string {
 /**
  * The present tool for one re-render: calls run one at a time, and once a surface is
  * stored every later call is refused, so a re-render stores at most one row (parallel
- * calls in one step could otherwise store two).
+ * calls in one step could otherwise store two). The stored id is taken from runPresent's
+ * own result into `stored`; the model gets the payload-free tool output (spec 08 S4.4,
+ * plan D5), and the run reads the new row back by that id, never from the model response.
+ * Exported for its test.
  */
-function oneSurfacePresent(ctx: ToolCtx, stored: { id: string | null }) {
+export function oneSurfacePresent(ctx: ToolCtx, stored: { id: string | null }) {
   const base = presentTool(ctx);
   let queue: Promise<unknown> = Promise.resolve();
   return tool({
     description: base.description,
     inputSchema: base.inputSchema,
-    execute: (input: PresentInput, options): Promise<PresentResult> => {
-      const run = queue.then(async (): Promise<PresentResult> => {
+    execute: (input: PresentInput, options): Promise<PresentToolOutput> => {
+      const run = queue.then(async (): Promise<PresentToolOutput> => {
         if (stored.id !== null) return { variant: ctx.variant, outcome: "invalid", errors: ["This re-render already stored its surface."] };
         const result = await runPresent(ctx, input, options);
         if ("surfaceId" in result && typeof result.surfaceId === "string") stored.id = result.surfaceId;
-        return result;
+        return presentToolOutput(result);
       });
       queue = run.catch(() => {});
       return run;

@@ -2,7 +2,7 @@
 // how they group, and the row's words. No React.
 import { describe, expect, test } from "vitest";
 import type { UIMessage } from "ai";
-import { currentStepLabel, formatElapsed, stepsHeadline, summarizeSteps, type StepSummary } from "./steps";
+import { currentStepLabel, formatElapsed, STEPS_PENDING_LABEL, stepsHeadline, summarizeSteps, type StepSummary } from "./steps";
 import { toolActivityLabel, toolFailureLabel, toolProgressLabel } from "./toolLabel";
 
 type Part = UIMessage["parts"][number];
@@ -96,6 +96,9 @@ describe("stepsHeadline", () => {
     expect(stepsHeadline({ ...empty, total: 8, failed: 2 }, "done")).toBe("Worked through 8 steps, 2 did not work");
     expect(stepsHeadline({ ...empty, total: 3 }, "stopped")).toBe("Stopped after 3 steps");
     expect(stepsHeadline({ ...empty, total: 1 }, "stopped")).toBe("Stopped after 1 step");
+    // A reload mid-turn: not done, not stopped, whatever the count (polish M8).
+    expect(stepsHeadline({ ...empty, total: 3 }, "pending")).toBe(STEPS_PENDING_LABEL);
+    expect(stepsHeadline(empty, "pending")).toBe("Still working. Reload to see the reply.");
   });
 });
 

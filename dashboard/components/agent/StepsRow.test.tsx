@@ -122,3 +122,14 @@ test("a group left running in a row that is not working shows no spinner", () =>
   const done = row({ state: "done", summary: stuck, open: true });
   expect(done.container.querySelector(".rf-steps__spinner")).toBeNull();
 });
+
+test("pending (a reload mid-turn): a neutral row, even with no steps, with no spinner, timer or spinning step (polish M8)", () => {
+  const { container } = row({ state: "pending", summary: { ...eight, groups: [{ ...eight.groups[0]!, running: true }] }, open: true });
+  expect(toggle().textContent).toContain("Still working. Reload to see the reply.");
+  expect(container.querySelector(".rf-steps--pending")).not.toBeNull();
+  expect(container.querySelector(".rf-steps__spinner")).toBeNull();
+  expect(container.querySelector(".rf-steps__timer")).toBeNull();
+  cleanup();
+  const empty = row({ state: "pending", summary: none });
+  expect(empty.container.querySelector(".rf-steps--pending")).not.toBeNull();
+});

@@ -249,6 +249,7 @@ The row is the first child of an assistant message, before every text and view. 
 | Had failures | any step is `output-error` | "Worked through N steps, M did not work" | failed steps on their own lines in the danger colour, labelled from a third map, `toolFailureLabel(name)`: "Could not search your reviewed jobs" |
 | Denied | an approval tool ended `output-denied` | counted as a step | "You declined: {activity label, lower-cased}" |
 | Stopped | the stored message is `failed`, or `pending` past `AGENT_LIMITS.staleTurnMs` (`isInterrupted`) | "Stopped after N steps" | the groups |
+| Still pending | the stored message is `pending` inside `AGENT_LIMITS.staleTurnMs` and this page is not streaming it (a reload mid-turn) | neutral refresh icon (no check, no warning, no spinner or timer), "Still working. Reload to see the reply.". Shown even with no steps yet | the groups so far, none spinning |
 
 - Default open state: collapsed, both while working and when done. The user's choice is kept per message for the session.
 - Timer: `m:ss`, from the moment the page sent the turn (kept in a ref in `AgentChat`; an approval response restarts it). It ticks once a second, is `aria-hidden`, and disappears when the turn ends. The done state shows no duration: persisted messages store none, and a row that shows a time only until you reload would be inconsistent. (Default. Adding durations later means reading `agent_runs`, still no schema change.)

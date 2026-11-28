@@ -99,6 +99,14 @@ function isUnfinished(m: UIMessage, now: number): boolean {
   return Number.isFinite(at) && now - at > AGENT_LIMITS.staleTurnMs;
 }
 
+/**
+ * A stored reply still pending inside the stale-turn window: its run may still be going on
+ * the server, but this page did not start it and cannot follow it.
+ */
+function isStillPending(m: UIMessage, now: number): boolean {
+  return m.role === "assistant" && metaOf(m)?.status === "pending" && !isUnfinished(m, now);
+}
+
 /** The last reply never finished. */
 function isInterrupted(messages: UIMessage[], now: number): boolean {
   const last = messages.at(-1);
@@ -338,7 +346,7 @@ function MessageView({
   });
   const summary = steps ? summarizeSteps(message.parts) : null;
   const row =
-    steps && summary && (steps.state === "working" || summary.total > 0) ? (
+    steps && summary && (steps.state === "working" || steps.state === "pending" || summary.total > 0) ? (
       <StepsRow
         id={`steps-${message.id}`}
         summary={summary}
@@ -578,8 +586,16 @@ export function AgentChat({
   const elapsedMs = fixture?.working?.elapsedMs ?? now - (turnStartedAt ?? mountedAt);
   const stepsFor = (m: UIMessage, isLast: boolean): StepsView => {
     // "Stopped": the stored status says so (a reload after a failure), or the turn failed
-    // while the page was open.
-    const state: StepsState = isLast && working ? "working" : isUnfinished(m, now) || failedReplies.has(m.id) ? "stopped" : "done";
+    // while the page was open. "Pending": a stored reply still pending and not yet stale
+    // (a reload mid-turn) is neither done nor stopped.
+    const state: StepsState =
+      isLast && working
+        ? "working"
+        : isUnfinished(m, now) || failedReplies.has(m.id)
+          ? "stopped"
+          : isStillPending(m, now)
+            ? "pending"
+            : "done";
     return {
       state,
       elapsedMs,

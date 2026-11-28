@@ -36,5 +36,12 @@ describe("a message request from a view", () => {
     // Code points, not UTF-16 units: 280 emoji are 560 units and still fit.
     expect(viewSourceError({ id: "view-abc", text: "\u{1F600}".repeat(280), source })).toBeNull();
     expect(viewSourceError({ id: "view-abc", text: "\u{1F600}".repeat(281), source })).toBe("view_text_too_long");
+    // Polish wave, M4: a view message's text must be exactly what normalizeAskText makes of it.
+    for (const text of [" Compare", "Compare ", "Compare  the two", "Compare\nthe two", "Com\u200Bpare", "Compare\u202E", "Cafe\u0301", "Compare\u0007", "\u00AD"]) {
+      expect({ text, error: viewSourceError({ id: "view-abc", text, source }) }).toEqual({ text, error: "view_text_not_normalized" });
+    }
+    expect(viewSourceError({ id: "view-abc", text: "Caf\u00E9 near me", source })).toBeNull();
+    // A typed message keeps its text as typed: the check is for view messages only.
+    expect(viewSourceError({ id: "u-abc", text: "Compare\n\nthe two " })).toBeNull();
   });
 });

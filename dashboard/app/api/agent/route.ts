@@ -20,7 +20,8 @@ export const maxDuration = 300;
 //   401 no session (or an erased account's stale JWT)
 //   400 { error: "bad_request" }            not application/json, or the body fails the strict schema
 //   400 { error: <view source code> }       a message whose id and source disagree, or a view's
-//                                           text over 280 code points (viewSourceError)
+//                                           text over 280 code points or not as normalizeAskText
+//                                           leaves it (viewSourceError)
 //   400 { error: "view_source_invalid" }    a source naming no variant 3 view of this user's thread
 //   402 { error: "subscription_required" }  no plan
 //   503 { error: "agent_disabled" }         the kill switch (fails closed on a failed read)

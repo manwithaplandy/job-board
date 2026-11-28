@@ -35,6 +35,10 @@ describe("render smoke results", () => {
     expect(spec).toContain("checked.asksWithoutClick = asksWithoutClick;");
     expect(spec).toMatch(/if \(frame && mode === "inline"\)/);
     expect(spec).toContain("expect(asksWithoutClick, ");
+    // Follow-up round: a replaced or torn-down pending ask cannot read as zero.
+    expect(spec).toContain('page.locator("[data-sandbox-asks-received]")');
+    expect(spec).toContain('checked.fallbacks.filter((f) => f === "ask_rate_limit" || f === "ask_total_limit").length');
+    expect(spec).toContain("asksWithoutClick = Math.max(pendingAsks, received) + askTeardowns;");
     // The row the spec writes carries it at the top level, where ResultSchema reads it.
     expect(spec).toContain("JSON.stringify({ ...entry, viewport, theme, mode, failures, ...checked }, null, 2)");
     const dir = mkdtempSync(path.join(os.tmpdir(), "render-results-asks-"));

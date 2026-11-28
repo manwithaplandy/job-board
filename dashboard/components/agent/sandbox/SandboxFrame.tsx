@@ -333,6 +333,9 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
     function onAsk(msg: FrameAsk) {
       const now = Date.now();
       live.askTotal += 1;
+      // Fix wave follow-up: every ask message the host took, on the holder, so the render smoke
+      // can count asks a newer request replaced (the pending message alone would read 0).
+      if (holder) holder.dataset.sandboxAsksReceived = String(live.askTotal);
       live.askTimes = live.askTimes.filter((t) => now - t < FRAME_ASK_LIMITS.windowMs);
       live.askTimes.push(now);
       if (live.askTotal > FRAME_ASK_LIMITS.total) return fail("ask_total_limit");

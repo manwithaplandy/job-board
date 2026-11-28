@@ -1003,6 +1003,26 @@ describe("a view's ask", () => {
   const sendButton = () => screen.queryByRole("button", { name: /^Send: / });
   const askText = () => document.querySelector(".rf-ask__text")?.textContent ?? null;
 
+  test("the holder counts every ask message the host took, so one replaced by a newer request still counts (fix wave follow-up)", async () => {
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const { iframe, container } = mountAsk();
+    const { port } = ready(iframe);
+    await settle();
+    const holder = container.querySelector<HTMLElement>(".rf-sandbox__holder")!;
+    expect(holder.dataset.sandboxAsksReceived).toBeUndefined();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await screen.findByText(ASK_CAPTION);
+    expect(holder.dataset.sandboxAsksReceived).toBe("1");
+    // An empty ask (normalised away) is still an ask the view made.
+    port.postMessage({ type: "ask", text: "\u200B " });
+    await waitFor(() => expect(holder.dataset.sandboxAsksReceived).toBe("2"));
+    // A newer action replaces the pending message; the count stays.
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await screen.findByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    expect(document.querySelector("[data-sandbox-ask]")).toBeNull();
+    expect(holder.dataset.sandboxAsksReceived).toBe("2");
+  });
+
   test("an ask after inited shows the pending message with the normalised text and sends nothing", async () => {
     const { iframe, send, container } = mountAsk();
     const { port } = ready(iframe);

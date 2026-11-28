@@ -1595,111 +1595,6 @@ describe("host.ask with navigator.userActivation", () => {
   });
 });
 
-// PR 6 Task 6.2: where navigator.userActivation is missing, the kit's own flag. A second kit
-// runs here against its own window stand-in (no userActivation, no Trusted Types, its own
-// port) with fake timers in place when it starts, so the setTimeout it takes is the fake one
-// and the 1,000 ms can be stepped. It is the last block of the file: its listeners on the
-// real window (link guard, Escape, the flag) stay for the rest of the run.
-describe("host.ask without navigator.userActivation", () => {
-  const received: unknown[] = [];
-  let ownPort: MessagePort | null = null;
-  let ownHost: KitHost | null = null;
-  const asks = () => received.filter((m) => m && typeof m === "object" && "type" in m && m.type === "ask");
-  /** Lets port messages through without stepping the fake clock (setImmediate is not faked). */
-  async function flush(rounds = 5) {
-    for (let i = 0; i < rounds; i++) await new Promise<void>((r) => setImmediate(r));
-  }
-  const fireTrusted = (type: string, key?: string) => inputTrusted(type, key);
-
-  beforeAll(() => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const ownShadow: Record<string | symbol, unknown> = { navigator: {}, trustedTypes: undefined };
-    const ownWindow = new Proxy(ownShadow, {
-      get(target, key) {
-        return Object.prototype.hasOwnProperty.call(target, key) ? target[key] : Reflect.get(globalThis, key);
-      },
-      getPrototypeOf() {
-        return Object.getPrototypeOf(globalThis);
-      },
-    });
-    const ownParent = {
-      postMessage(_data: unknown, _origin: string, transfer?: MessagePort[]) {
-        if (ownPort === null && transfer?.length === 1) {
-          ownPort = transfer[0];
-          ownPort.onmessage = (m) => received.push(m.data);
-        }
-      },
-    };
-    new Function("parent", "window", KIT_JS)(ownParent, ownWindow);
-    const h: unknown = Reflect.get(ownWindow, "host");
-    if (!h || typeof h !== "object") throw new Error("no host");
-    ownHost = h as KitHost; // test-only view of the kit's global
-  });
-  afterAll(() => {
-    vi.useRealTimers();
-    ownPort?.close();
-  });
-
-  test("with no user action it returns false and posts nothing", async () => {
-    expect(ownHost!.ask("x")).toBe(false);
-    await flush();
-    expect(asks()).toEqual([]);
-  });
-
-  test("an untrusted pointerup or keyup (dispatched by model code) does not arm it", async () => {
-    document.body.dispatchEvent(new Event("pointerup", { bubbles: true }));
-    document.body.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
-    expect(ownHost!.ask("x")).toBe(false);
-    await flush();
-    expect(asks()).toEqual([]);
-  });
-
-  test("a trusted pointerup arms it for 1,000 ms, then it clears", async () => {
-    fireTrusted("pointerup");
-    expect(ownHost!.ask("first")).toBe(true);
-    vi.advanceTimersByTime(999);
-    expect(ownHost!.ask("second")).toBe(true);
-    vi.advanceTimersByTime(1);
-    expect(ownHost!.ask("third")).toBe(false);
-    await flush();
-    expect(asks()).toEqual([
-      { type: "ask", text: "first" },
-      { type: "ask", text: "second" },
-    ]);
-  });
-
-  test("a trusted keyup arms it too, and a later action restarts the 1,000 ms", async () => {
-    received.length = 0;
-    fireTrusted("keyup");
-    vi.advanceTimersByTime(600);
-    fireTrusted("pointerup");
-    vi.advanceTimersByTime(600);
-    expect(ownHost!.ask("still armed")).toBe(true);
-    vi.advanceTimersByTime(400);
-    expect(ownHost!.ask("cleared")).toBe(false);
-    await flush();
-    expect(asks()).toEqual([{ type: "ask", text: "still armed" }]);
-  });
-
-  // Fix round 2: every activation-triggering input arms it, so Enter on a button (whose click
-  // fires on keydown, before keyup) asks at once; Escape does not.
-  test("a trusted keydown, mousedown, pointerdown or touchend arms it; a trusted Escape does not", async () => {
-    received.length = 0;
-    vi.advanceTimersByTime(1_000);
-    for (const type of ["keydown", "mousedown", "pointerdown", "touchend"]) {
-      expect({ type, ok: ownHost!.ask("before") }).toEqual({ type, ok: false });
-      fireTrusted(type);
-      expect({ type, ok: ownHost!.ask(type) }).toEqual({ type, ok: true });
-      vi.advanceTimersByTime(1_000);
-    }
-    fireTrusted("keydown", "Escape");
-    fireTrusted("keyup", "Escape");
-    expect(ownHost!.ask("escape")).toBe(false);
-    await flush();
-    expect(asks()).toEqual(["keydown", "mousedown", "pointerdown", "touchend"].map((text) => ({ type: "ask", text })));
-  });
-});
-
 // Polish wave, item A (spec 08 S9.5): a chart is drawn at the width its element gives it, in
 // user units that are CSS px, so its text renders at its CSS size at any frame width (the
 // SVG used to keep a 320-unit viewBox and scale up: at 1000px its labels were three times
@@ -1874,5 +1769,131 @@ describe("host.chart: drawn at the width it is given", () => {
     const { el } = drawAt(500, { viz: "donut", title: "Stages", points: SIX });
     expect(el.querySelector(".jb-chart-probe")).toBeNull();
     expect(cssFor(".jb-chart.jb-chart-probe")).toMatch(/visibility: hidden;/);
+  });
+});
+
+// PR 6 Task 6.2: where navigator.userActivation is missing, the kit's own flag. A second kit
+// runs here against its own window stand-in (no userActivation, no Trusted Types, its own
+// port) with fake timers in place when it starts, so the setTimeout it takes is the fake one
+// and the 1,000 ms can be stepped. It is the last block of the file: its listeners on the
+// real window (link guard, Escape, the flag) stay for the rest of the run.
+describe("host.ask without navigator.userActivation", () => {
+  const received: unknown[] = [];
+  let ownPort: MessagePort | null = null;
+  let ownHost: KitHost | null = null;
+  const asks = () => received.filter((m) => m && typeof m === "object" && "type" in m && m.type === "ask");
+  /** Lets port messages through without stepping the fake clock (setImmediate is not faked). */
+  async function flush(rounds = 5) {
+    for (let i = 0; i < rounds; i++) await new Promise<void>((r) => setImmediate(r));
+  }
+  const fireTrusted = (type: string, key?: string) => inputTrusted(type, key);
+
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const ownShadow: Record<string | symbol, unknown> = { navigator: {}, trustedTypes: undefined };
+    const ownWindow = new Proxy(ownShadow, {
+      get(target, key) {
+        return Object.prototype.hasOwnProperty.call(target, key) ? target[key] : Reflect.get(globalThis, key);
+      },
+      getPrototypeOf() {
+        return Object.getPrototypeOf(globalThis);
+      },
+    });
+    const ownParent = {
+      postMessage(_data: unknown, _origin: string, transfer?: MessagePort[]) {
+        if (ownPort === null && transfer?.length === 1) {
+          ownPort = transfer[0];
+          ownPort.onmessage = (m) => received.push(m.data);
+        }
+      },
+    };
+    new Function("parent", "window", KIT_JS)(ownParent, ownWindow);
+    const h: unknown = Reflect.get(ownWindow, "host");
+    if (!h || typeof h !== "object") throw new Error("no host");
+    ownHost = h as KitHost; // test-only view of the kit's global
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+    ownPort?.close();
+  });
+
+  test("with no user action it returns false and posts nothing", async () => {
+    expect(ownHost!.ask("x")).toBe(false);
+    await flush();
+    expect(asks()).toEqual([]);
+  });
+
+  test("an untrusted pointerup or keyup (dispatched by model code) does not arm it", async () => {
+    document.body.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+    expect(ownHost!.ask("x")).toBe(false);
+    await flush();
+    expect(asks()).toEqual([]);
+  });
+
+  test("a trusted pointerup arms it for 1,000 ms, then it clears", async () => {
+    fireTrusted("pointerup");
+    expect(ownHost!.ask("first")).toBe(true);
+    vi.advanceTimersByTime(999);
+    expect(ownHost!.ask("second")).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(ownHost!.ask("third")).toBe(false);
+    await flush();
+    expect(asks()).toEqual([
+      { type: "ask", text: "first" },
+      { type: "ask", text: "second" },
+    ]);
+  });
+
+  test("a trusted keyup arms it too, and a later action restarts the 1,000 ms", async () => {
+    received.length = 0;
+    fireTrusted("keyup");
+    vi.advanceTimersByTime(600);
+    fireTrusted("pointerup");
+    vi.advanceTimersByTime(600);
+    expect(ownHost!.ask("still armed")).toBe(true);
+    vi.advanceTimersByTime(400);
+    expect(ownHost!.ask("cleared")).toBe(false);
+    await flush();
+    expect(asks()).toEqual([{ type: "ask", text: "still armed" }]);
+  });
+
+  // Polish wave, M2 (spec 08 S10.2): only the keys that activate a control arm it, Enter and
+  // Space, on keydown or keyup. Typing in a <jb-field>, Tab, the arrows or Escape do not.
+  test("a trusted key other than Enter or Space does not arm it; Enter and Space do, on keydown and on keyup", async () => {
+    received.length = 0;
+    vi.advanceTimersByTime(1_000);
+    for (const key of ["a", "Tab", "ArrowDown", "Shift", "Escape", "Backspace", "1"]) {
+      fireTrusted("keydown", key);
+      fireTrusted("keyup", key);
+      expect({ key, ok: ownHost!.ask("typed") }).toEqual({ key, ok: false });
+    }
+    for (const [type, key] of [["keydown", "Enter"], ["keyup", "Enter"], ["keydown", " "], ["keyup", " "]] as const) {
+      vi.advanceTimersByTime(1_000);
+      expect({ type, key, ok: ownHost!.ask("before") }).toEqual({ type, key, ok: false });
+      fireTrusted(type, key);
+      expect({ type, key, ok: ownHost!.ask(`${type} ${key === " " ? "Space" : key}`) }).toEqual({ type, key, ok: true });
+    }
+    vi.advanceTimersByTime(1_000);
+    await flush();
+    expect(asks().map((m) => (m as { text: string }).text)).toEqual(["keydown Enter", "keyup Enter", "keydown Space", "keyup Space"]);
+  });
+
+  // Fix round 2: every activation-triggering input arms it, so Enter on a button (whose click
+  // fires on keydown, before keyup) asks at once; Escape does not.
+  test("a trusted keydown, mousedown, pointerdown or touchend arms it; a trusted Escape does not", async () => {
+    received.length = 0;
+    vi.advanceTimersByTime(1_000);
+    for (const type of ["keydown", "mousedown", "pointerdown", "touchend"]) {
+      expect({ type, ok: ownHost!.ask("before") }).toEqual({ type, ok: false });
+      fireTrusted(type);
+      expect({ type, ok: ownHost!.ask(type) }).toEqual({ type, ok: true });
+      vi.advanceTimersByTime(1_000);
+    }
+    fireTrusted("keydown", "Escape");
+    fireTrusted("keyup", "Escape");
+    expect(ownHost!.ask("escape")).toBe(false);
+    await flush();
+    expect(asks()).toEqual(["keydown", "mousedown", "pointerdown", "touchend"].map((text) => ({ type: "ask", text })));
   });
 });

@@ -698,8 +698,10 @@ export const KIT_JS: string = `(function () {
      on WebKit with every evaluation, and Firefox reported activation with no input too), so
      isActive was true on load in all three engines. The gate is therefore the kit's own flag,
      always: set by a trusted (isTrusted) activation-triggering input event (keydown or keyup
-     other than Escape, mousedown, pointerdown, pointerup, touchend) seen in the capture phase
-     on the window before any model listener, and cleared 1,000 ms later. Script cannot make
+     of Enter or Space, mousedown, pointerdown, pointerup, touchend) seen in the capture phase
+     on the window before any model listener, and cleared 1,000 ms later. Polish wave, M2: only
+     the two keys that activate a control count, so typing in a <jb-field>, Tab, the arrows and
+     Escape do not arm it. Script cannot make
      a trusted event, and evaluation by a debugger makes none. Where the browser has
      navigator.userActivation, isActive must be true as well; its getter is taken now, from the
      object's own prototype, before model code can replace either, and a value model code later
@@ -721,7 +723,10 @@ export const KIT_JS: string = `(function () {
     try {
       /* isTrusted is an unforgeable own property of each event: page script cannot redefine it. */
       if (e.isTrusted !== true) return;
-      if ((e.type === "keydown" || e.type === "keyup") && keyOf && keyOf(e) === "Escape") return;
+      if (e.type === "keydown" || e.type === "keyup") {
+        var pressed = keyOf ? keyOf(e) : "";
+        if (pressed !== "Enter" && pressed !== " " && pressed !== "Spacebar") return;
+      }
     } catch (err) { return; }
     armed = true;
     armCount += 1;

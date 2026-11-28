@@ -46,7 +46,7 @@ import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { gatheredFixture } from "@/lib/agent/surfaces/v1/testFixtures";
 import { sandboxChain, SURFACE_FAILED_TEXT } from "./SurfaceHost";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
-import { ViewUpdatedStub } from "./ViewPlaceholder";
+import { VIEW_LOAD_FAILED_TEXT, ViewUpdatedStub } from "./ViewPlaceholder";
 import { CONFIRMATIONS_UNAVAILABLE } from "@/lib/agent/approvalSecret";
 import type { ConfirmDescriptor } from "@/lib/agent/actions/intents";
 
@@ -826,7 +826,10 @@ describe("inline views", () => {
     const messages = [ask("u1", "Show me"), reply("a1", [text("Here."), presentPart(V3)])];
     const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
     expect(container.querySelector(".rf-view-placeholder")).not.toBeNull();
-    await screen.findByText(SURFACE_FAILED_TEXT);
+    await screen.findByText(VIEW_LOAD_FAILED_TEXT);
+    // Fix wave M5: its own line, not the render failure's "Ask again to see it." beside Try again.
+    expect(VIEW_LOAD_FAILED_TEXT).toBe("This view could not be loaded.");
+    expect(screen.queryByText(SURFACE_FAILED_TEXT)).toBeNull();
     expect(container.querySelector(".rf-view-placeholder")).toBeNull();
     expect(actions.loadSurfaceAction).toHaveBeenCalledTimes(1);
     actions.loadSurfaceAction.mockResolvedValueOnce(hostSurface(V3, "Loaded at last"));
@@ -834,14 +837,14 @@ describe("inline views", () => {
     await screen.findByRole("heading", { level: 3, name: "Loaded at last" });
     expect(actions.loadSurfaceAction).toHaveBeenCalledTimes(2);
     expect(actions.loadSurfaceAction).toHaveBeenLastCalledWith(THREAD, V3);
-    expect(screen.queryByText(SURFACE_FAILED_TEXT)).toBeNull();
+    expect(screen.queryByText(VIEW_LOAD_FAILED_TEXT)).toBeNull();
     expect(container.querySelector(`.rf-agent-transcript .rf-view[data-chain-id="${V3}"]`)).not.toBeNull();
   });
 
   test("a load that returns nothing shows the same line", async () => {
     const messages = [ask("u1", "Show me"), reply("a1", [presentPart(V3)])];
     render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
-    await screen.findByText(SURFACE_FAILED_TEXT);
+    await screen.findByText(VIEW_LOAD_FAILED_TEXT);
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 

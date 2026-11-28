@@ -123,6 +123,30 @@ html.rf-view-expanded { overflow: hidden; }
   .rf-view__rerender-toggle { display: none; }
 }
 
+/* The dock (spec 08 S6.2): the bottom of the chat, in the flow inline. While a view is
+   expanded it is fixed along the bottom edge, one above the view, never moved in the DOM;
+   useExpandedDock writes its height (--rf-dock-h) and, on phones, how far the on-screen
+   keyboard covers the layout viewport (--rf-dock-bottom), both on the conversation root. */
+.rf-agent-dock { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
+.rf-agent-dock[data-expanded="true"] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--rf-dock-bottom, 0px);
+  z-index: 51;
+  max-height: 60dvh;
+  overflow: auto;
+  padding: var(--space-3) calc(var(--space-4) + env(safe-area-inset-right, 0px)) calc(var(--space-3) + env(safe-area-inset-bottom, 0px)) calc(var(--space-4) + env(safe-area-inset-left, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.rf-agent-dock[data-expanded="true"] > * { width: 100%; max-width: var(--content-workspace); margin-inline: auto; }
+/* The turn status line, only while a view is expanded. */
+.rf-expanded-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 600; }
+.rf-expanded-status__text { min-width: 0; }
+.rf-expanded-status__timer { color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 400; }
+.rf-expanded-status--error { color: var(--danger); }
+
 /* What stands at a present part while its view is not there (spec 08 S7.3, S11): the sized
    placeholder (the frame's border, a quiet shimmer, none under reduced motion), the one
    line where an updated view used to be, and the load failure with Try again. */

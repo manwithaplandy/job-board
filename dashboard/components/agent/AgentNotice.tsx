@@ -34,6 +34,11 @@ const COPY: Record<AgentNoticeKind, { tone: "info" | "warning"; title: string; b
   },
 };
 
+/** A notice's title, for the expanded view's status line (spec 08 S6.2), where the notice itself is out of sight. */
+export function agentNoticeTitle(kind: AgentNoticeKind): string {
+  return COPY[kind].title;
+}
+
 // Every notice links to the workspaces, which work with the agent off (spec: the agent
 // is never the only way to do a thing).
 const WORKSPACES = [

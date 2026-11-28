@@ -12,6 +12,7 @@ import {
   quantile,
   recordingSignature,
   structuralSignature,
+  SURFACE_SEPARATOR,
   structuralVariance,
 } from "@/lib/agent/evals/measures";
 import { parseRecording, type Recording } from "@/lib/agent/evals/recording";
@@ -73,6 +74,16 @@ describe("structuralSignature", () => {
 
   test("a run's signature joins its surfaces in order", () => {
     expect(recordingSignature(committed("b_compare"))).toBe("JobComparison | MemoDiff Callout");
+  });
+
+  // Spec 08 S15.2: a turn's views are joined in stored order, which is the order the
+  // recording lists them (listThreadSurfaces: created_at, then id), never re-sorted.
+  test("two views of one turn are joined in stored order with SURFACE_SEPARATOR", () => {
+    const r = committed("b_compare");
+    r.surfaces[1].runId = r.surfaces[0].runId;
+    expect(recordingSignature(r)).toBe(["JobComparison", SURFACE_SEPARATOR, "MemoDiff Callout"].join(" "));
+    r.surfaces.reverse();
+    expect(recordingSignature(r)).toBe(["MemoDiff Callout", SURFACE_SEPARATOR, "JobComparison"].join(" "));
   });
 });
 

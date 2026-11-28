@@ -19,6 +19,8 @@ import { assertRuntimeContracts } from "./runtime-contracts";
 // at its centre belongs to the dock, so the dock is on top of the view and nothing covers
 // it. The regions behind the expanded view overlap it by design, so the overlap check is
 // left out there, and the screenshot is of the viewport (the view is fixed to it).
+// agent-page-views-multi (spec 08 S4.4) also checks that its reply holds two views, in the
+// order text, view, text, view, text.
 
 const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
 const THEMES = ["light", "dark"] as const;
@@ -36,6 +38,7 @@ const STATES = [
   "agent-page-steps-open",
   "agent-page-view-expanded",
   "agent-page-code-expanded",
+  "agent-page-views-multi",
 ] as const;
 
 const REGIONS = [".rf-agent-threads", ".rf-agent-toolbar", ".rf-agent-transcript", ".rf-agent-composer"] as const;
@@ -92,6 +95,10 @@ async function assertAgentLayout(page: Page, state: (typeof STATES)[number], wid
     // Every view frame is in the transcript, or after it as an orphan (a chain no loaded
     // message names), never anywhere else.
     const transcript = document.querySelector(".rf-agent-transcript");
+    const lastReply = [...document.querySelectorAll(".rf-agent-transcript > li")].at(-1);
+    const replyOrder = lastReply
+      ? [...lastReply.querySelectorAll(".rf-md, .rf-view")].map((el) => (el.classList.contains("rf-view") ? "view" : "text"))
+      : [];
     const misplacedViews = [...document.querySelectorAll(".rf-view")]
       .filter((view) => !(transcript && (transcript.contains(view) || transcript.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING)))
       .map((view) => view.getAttribute("aria-label") ?? "view");
@@ -101,6 +108,7 @@ async function assertAgentLayout(page: Page, state: (typeof STATES)[number], wid
       escapedTitles,
       surfaceColumn: document.querySelector(".rf-agent-surface-column") !== null,
       views: document.querySelectorAll(".rf-view").length,
+      replyOrder,
       misplacedViews,
       scrollWidth: document.documentElement.scrollWidth,
       innerWidth: window.innerWidth,
@@ -115,6 +123,10 @@ async function assertAgentLayout(page: Page, state: (typeof STATES)[number], wid
   expect(layout.misplacedViews, `views outside the transcript at ${width}px`).toEqual([]);
   if (state === "agent-page-surface" || state === "agent-page-view-updated" || state === "agent-page-view-degraded" || isExpandedState(state)) {
     expect(layout.views, `${state} shows its view at ${width}px`).toBe(1);
+  }
+  if (state === "agent-page-views-multi") {
+    expect(layout.views, `${state} shows two views at ${width}px`).toBe(2);
+    expect(layout.replyOrder, `${state} keeps text and views in stored order at ${width}px`).toEqual(["text", "view", "text", "view", "text"]);
   }
   expect(layout.scrollWidth, `no horizontal page scroll at ${width}px`).toBeLessThanOrEqual(layout.innerWidth);
 }

@@ -156,3 +156,17 @@ test.each(AGENT_PAGE_FIXTURE_STATES)("%s: every present output is payload-free, 
     }
   }
 });
+
+// PR 4 (spec 08 S4.1, S4.4): one reply with two views, each where it belongs in the text.
+test("agent-page-views-multi shows text, view, text, view, text in one reply, each view its own chain", () => {
+  const { container } = render(<AgentPageFixture state="agent-page-views-multi" />);
+  const reply = [...container.querySelectorAll(".rf-agent-transcript > li")].at(-1)!;
+  const order = [...reply.querySelectorAll(".rf-md, .rf-view")].map((el) => (el.classList.contains("rf-view") ? "view" : "text"));
+  expect(order).toEqual(["text", "view", "text", "view", "text"]);
+  const views = [...container.querySelectorAll<HTMLElement>(".rf-view")];
+  expect(views).toHaveLength(2);
+  expect(views.every((v) => reply.contains(v))).toBe(true);
+  expect(views.map((v) => v.dataset.variant)).toEqual(["1", "1"]);
+  expect(views.map((v) => v.getAttribute("aria-label"))).toEqual(["View: Two strong matches", "View: How your applications are going"]);
+  expect(screen.queryByText("This view was updated below.")).toBeNull();
+});

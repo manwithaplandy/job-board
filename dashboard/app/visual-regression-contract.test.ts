@@ -31,7 +31,7 @@ describe("visual regression route inventory", () => {
     expect(statesFor("companies").has("empty")).toBe(true);
     expect(statesFor("analytics").has("data-viz")).toBe(true);
     for (const state of ["default", "empty", "budget", "disabled", "blocks-jobs", "blocks-prep", "tree-sample"]) expect(statesFor("agent").has(state)).toBe(true);
-    for (const state of ["page-empty", "page-conversation", "page-surface", "page-failed", "page-blocks", "page-layout", "page-code", "page-view-building", "page-view-updated", "page-view-degraded"]) expect(statesFor("agent").has(state)).toBe(true);
+    for (const state of ["page-empty", "page-conversation", "page-surface", "page-failed", "page-blocks", "page-layout", "page-code", "page-view-building", "page-view-updated", "page-view-degraded", "page-views-multi"]) expect(statesFor("agent").has(state)).toBe(true);
     for (const state of ["default", "applications", "looking-for", "documents", "empty", "agent-marker", "memo-diff"]) expect(statesFor("workspaces").has(state)).toBe(true);
   });
 
@@ -167,6 +167,8 @@ describe("visual regression route inventory", () => {
       // PR 3 (spec 08 S6, S14.2): an expanded blocks view and an expanded code view.
       "agent-page-view-expanded",
       "agent-page-code-expanded",
+      // PR 4 (spec 08 S4.4): one reply with two views between its paragraphs.
+      "agent-page-views-multi",
     ]) expect(spec).toContain(`"${state}"`);
     // The surface column is gone (spec 08 S4.1): the spec asserts it is absent, never shown.
     expect(spec).not.toContain("SPLIT_FROM");

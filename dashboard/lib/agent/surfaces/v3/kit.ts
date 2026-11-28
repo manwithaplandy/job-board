@@ -249,10 +249,29 @@ jb-select > option, jb-segmented > option { display: none; }
   cursor: pointer;
 }
 .jb-slider__value { min-width: 5ch; text-align: end; font-size: var(--font-size-control); font-variant-numeric: tabular-nums; color: var(--text-primary); }
-.jb-select__button:focus-visible, .jb-slider__input:focus-visible {
+.jb-toggle__switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  user-select: none;
+}
+.jb-toggle__track { position: relative; flex: none; width: 40px; height: 24px; border-radius: var(--radius-badge); background: var(--border-strong); transition: background var(--motion-fast) var(--ease-standard); }
+.jb-toggle__thumb { position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-surface); transition: transform var(--motion-fast) var(--ease-standard); }
+.jb-toggle__switch[aria-checked="true"] .jb-toggle__track { background: var(--accent-solid); }
+.jb-toggle__switch[aria-checked="true"] .jb-toggle__thumb { transform: translateX(16px); }
+.jb-toggle__label { display: inline; margin: 0; font-size: var(--font-size-control); color: var(--text-primary); }
+.jb-select__button:focus-visible, .jb-slider__input:focus-visible, .jb-toggle__switch:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--focus-halo);
+}
+@media (prefers-reduced-motion: reduce) {
+  .jb-toggle__track, .jb-toggle__thumb { transition: none; }
 }
 `;
 
@@ -1061,6 +1080,61 @@ export const KIT_JS: string = `(function () {
       var st = this.jbSlider;
       if (st && st.built && st.set) st.set(toNumber(v)); else setAttr(this, "value", String(v));
     }
+  });
+
+  /* <jb-toggle name label checked>: a switch whose label is its own visible text, so the
+     whole row is the target. value (and checked) is a boolean. */
+  function buildToggle(host, st) {
+    if (st.built) return;
+    st.built = true;
+    var sw = node("span", "jb-toggle__switch");
+    setAttr(sw, "role", "switch");
+    setAttr(sw, "tabindex", "0");
+    var track = node("span", "jb-toggle__track");
+    setAttr(track, "aria-hidden", "true");
+    appendTo(track, node("span", "jb-toggle__thumb"));
+    appendTo(sw, track);
+    appendTo(sw, node("span", "jb-control__label jb-toggle__label", labelOf(host)));
+    appendTo(host, sw);
+    function set(v) {
+      st.value = v === true;
+      setAttr(sw, "aria-checked", st.value ? "true" : "false");
+    }
+    function flip() {
+      set(!st.value);
+      emitChange(host, st.value);
+    }
+    st.set = set;
+    set(hasAttr(host, "checked") && getAttr(host, "checked") !== "false");
+    listen(sw, "click", flip);
+    listen(sw, "keydown", function (e) {
+      var k = keyName(e);
+      if (k !== " " && k !== "Enter") return;
+      cancelEvent(e);
+      flip();
+    });
+  }
+  function toggleValue(el) {
+    var st = el.jbToggle;
+    return st && st.built ? st.value : hasAttr(el, "checked") && getAttr(el, "checked") !== "false";
+  }
+  function setToggle(el, v) {
+    var st = el.jbToggle;
+    v = v === true || v === "true";
+    if (st && st.built && st.set) st.set(v);
+    else if (v) setAttr(el, "checked", ""); else dropAttribute(el, "checked");
+  }
+  defineOnce("jb-toggle", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbToggle) return;
+      var st = { built: false, value: false, set: null };
+      this.jbToggle = st;
+      buildToggle(this, st);
+    }
+    get value() { return toggleValue(this); }
+    set value(v) { setToggle(this, v); }
+    get checked() { return toggleValue(this); }
+    set checked(v) { setToggle(this, v); }
   });
 
   function measure() {

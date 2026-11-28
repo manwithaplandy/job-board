@@ -667,3 +667,41 @@ describe("jb-slider", () => {
     expect(document.querySelector(".jb-slider__value")?.textContent).toBe("1 day");
   });
 });
+
+describe("jb-toggle", () => {
+  test("a labelled switch: value and checked, change with a boolean, Space and Enter, 44px", async () => {
+    document.body.innerHTML = `<jb-toggle name="remote" label="Remote only" checked></jb-toggle><jb-toggle name="off" label="Off"></jb-toggle>`;
+    const [on, off] = [...document.querySelectorAll("jb-toggle")];
+    await tick();
+    const sw = on.querySelector('[role="switch"]') as HTMLElement;
+    expect(sw).not.toBeNull();
+    expect(sw.getAttribute("tabindex")).toBe("0");
+    expect(sw.textContent).toContain("Remote only");
+    expect(on.querySelector(".jb-control__label")?.textContent).toBe("Remote only");
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    expect(value(on)).toBe(true);
+    expect(Reflect.get(on, "checked")).toBe(true);
+    expect(value(off)).toBe(false);
+
+    const seen = changes(() => {
+      press(sw, " ");
+      press(sw, "Enter");
+      sw.click();
+    });
+    expect(seen.map((c) => c.detail)).toEqual([
+      { name: "remote", value: false },
+      { name: "remote", value: true },
+      { name: "remote", value: false },
+    ]);
+    expect(seen.every((c) => c.bubbles && c.custom)).toBe(true);
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(press(sw, " ").defaultPrevented).toBe(true);
+
+    expect(changes(() => Reflect.set(off, "value", true))).toEqual([]);
+    expect(off.querySelector('[role="switch"]')!.getAttribute("aria-checked")).toBe("true");
+    Reflect.set(off, "checked", false);
+    expect(value(off)).toBe(false);
+
+    expect(cssFor(".jb-toggle__switch")).toMatch(/min-height: var\(--target-size\);/);
+  });
+});

@@ -67,6 +67,15 @@ describe("sandbox harness fixtures", () => {
     expect(sandboxCase("chip_spoof").frames[0].html).toContain('id="fake-confirm"');
   });
 
+  test("the expand cases are static: no action, no request, a button to click (PR 3)", () => {
+    for (const name of ["expand-no-reload", "escape-from-frame"] as const) {
+      const html = sandboxCase(name).frames[0].html;
+      expect(html, name).not.toMatch(/host\.action\(/);
+      expect(html, name).not.toMatch(/\bfetch\b|new Image|location/);
+      expect(html, name).toMatch(/<button id="(more|focus-me)"/);
+    }
+  });
+
   test("the canary server listens on the port the fixtures name", () => {
     const server = readFileSync(path.join(process.cwd(), "tests/sandbox/canary-server.mjs"), "utf8");
     expect(server).toContain(`process.env.SANDBOX_CANARY_PORT ?? ${SANDBOX_CANARY_PORT}`);

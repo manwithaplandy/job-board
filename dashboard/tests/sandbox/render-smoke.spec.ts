@@ -4,6 +4,12 @@
 // 390 and 1440 px wide, light and dark; recorded ones (matrix, injection: hundreds of
 // surfaces from one run each) at 1440 px light only, which keeps the job short.
 //
+// PR 3 (spec 08 S15.2 layer 4): every combination runs twice, inline and expanded (the
+// view frame's Expand pressed, the same frame restyled to fill the viewport). An expanded
+// result is written with "-expanded" after the viewport id, so readers that pick the
+// inline desktop words (renderedTextIndex) are unchanged. The checks are the same in both
+// modes, and a variant 3 frame must still have loaded once after expanding.
+//
 // Per surface, viewport and theme: no horizontal overflow (inside the frame too, for
 // variant 3); every interactive element at least 44 by 44 px (inside the frame too); axe
 // reports no serious or critical violation, each named with its nodes. A screenshot is
@@ -40,6 +46,7 @@ const VIEWPORTS = [
 /** What a recorded surface is rendered at: the one combination the per-surface checks use. */
 const RECORDED_COMBOS = [{ viewport: VIEWPORTS[1], theme: "light" as const }];
 const HANDWRITTEN_COMBOS = VIEWPORTS.flatMap((viewport) => THEMES.map((theme) => ({ viewport, theme })));
+const MODES = ["inline", "expanded"] as const;
 // Playwright loads specs as CommonJS (no import.meta); resolve from the dashboard folder.
 const AXE_SOURCE = readFileSync(createRequire(path.join(process.cwd(), "package.json")).resolve("axe-core/axe.min.js"), "utf8");
 /** The selector ui-cohesion.spec.ts checks for 44 px targets, plus the kit's own elements. */
@@ -211,9 +218,10 @@ function writeResult(entry: ReplayEntry, viewport: string, theme: string, checke
 
 for (const entry of ENTRIES) {
   test.describe(entry.name, () => {
-    for (const { viewport, theme } of entry.handwritten ? HANDWRITTEN_COMBOS : RECORDED_COMBOS) {
-      test(`${viewport.id} ${theme}`, async ({ page, request }, testInfo) => {
+    for (const { viewport, theme } of entry.handwritten ? HANDWRITTEN_COMBOS : RECORDED_COMBOS) for (const mode of MODES) {
+      test(`${viewport.id} ${theme}${mode === "expanded" ? " expanded" : ""}`, async ({ page, request }, testInfo) => {
         const once = viewport.id === "desktop" && theme === "light";
+        const resultViewport = mode === "expanded" ? `${viewport.id}-expanded` : viewport.id;
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
         await page.emulateMedia({ colorScheme: theme });
         await page.addInitScript((t) => {
@@ -243,6 +251,16 @@ for (const entry of ENTRIES) {
           }
           await page.waitForTimeout(1_000);
         }
+        if (mode === "expanded") {
+          const section = page.locator("[data-replay-surface] .rf-view").first();
+          await page.getByRole("button", { name: /^Expand view:/ }).click();
+          await expect(section, `${entry.name}: expanded`).toHaveAttribute("data-expanded", "true");
+          const box = await section.boundingBox();
+          expect(Math.abs((box?.width ?? 0) - viewport.width), `${entry.name}: the expanded view is as wide as the viewport`).toBeLessThanOrEqual(1);
+          expect(Math.abs((box?.height ?? 0) - viewport.height), `${entry.name}: the expanded view is as tall as the viewport`).toBeLessThanOrEqual(1);
+          // The open fade (120 ms) has finished before anything is measured.
+          await page.waitForTimeout(300);
+        }
 
         const outer = await layout(page);
         const inner = frame ? await layout(frame).catch(() => null) : null;
@@ -270,23 +288,23 @@ for (const entry of ENTRIES) {
           const gathered = parseGathered(entry.gathered);
           const text = frame ? await frame.locator("body").innerText().catch(() => "") : "";
           checked.misstatements = gathered ? findMisstatements(text, gathered).map((f) => f.message) : ["the stored gathered data does not parse"];
-          checked.frameText = frame ? (await judgeText(frame).catch(() => text)).slice(0, FRAME_TEXT_MAX) : null;
+          if (mode === "inline") checked.frameText = frame ? (await judgeText(frame).catch(() => text)).slice(0, FRAME_TEXT_MAX) : null;
           await page.waitForTimeout(500);
           const hits = (await (await request.get(`${CONTROL}/hits`)).json()) as CanaryHits;
           checked.canaryHits = hits.total;
           checked.frameLoads = frameLoads;
         }
 
-        const failures = writeResult(entry, viewport.id, theme, checked);
+        const failures = writeResult(entry, resultViewport, theme, checked);
 
         // Containment holds for every document, recorded or not.
         if (checked.canaryHits !== null) expect(checked.canaryHits, `${entry.name}: the canary saw requests`).toBe(0);
         if (checked.frameLoads !== null) expect(checked.frameLoads, `${entry.name}: the frame loaded more than once`).toBeLessThanOrEqual(1);
         if (entry.handwritten) {
           expect(await main.getAttribute("data-replay-degraded"), `${entry.name}: rendered its fallback`).toBe("no");
-          expect(failures, `${entry.name} at ${viewport.id} ${theme}`).toEqual([]);
+          expect(failures, `${entry.name} at ${resultViewport} ${theme}`).toEqual([]);
         } else if (failures.length > 0) {
-          testInfo.annotations.push({ type: "render-smoke-data", description: `${entry.name} at ${viewport.id} ${theme}: ${failures.join("; ").slice(0, 600)}` });
+          testInfo.annotations.push({ type: "render-smoke-data", description: `${entry.name} at ${resultViewport} ${theme}: ${failures.join("; ").slice(0, 600)}` });
         }
       });
     }

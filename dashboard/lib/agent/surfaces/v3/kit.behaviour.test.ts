@@ -394,3 +394,67 @@ describe("links and leaving (Task 2.7, CI run 2)", () => {
     await vi.waitFor(() => expect(ofType("pong")).toHaveLength(pongsBefore + 1));
   });
 });
+
+// PR 3 Task 3.5 (spec 08 S9.2): Escape inside a frame leaves an expanded view. Only a
+// trusted Escape that nothing handled is posted, so model code can neither forge one nor
+// lose an Escape it used for itself.
+describe("escape", () => {
+  // jsdom marks only its own events trusted: this sets the flag on the event's
+  // implementation and dispatches it the way jsdom dispatches a real key press.
+  function implOf(o: object): { isTrusted: boolean; _dispatch(e: unknown): void } {
+    const key = Object.getOwnPropertySymbols(o).find((s) => s.description === "impl");
+    if (!key) throw new Error("no jsdom impl");
+    return Reflect.get(o, key);
+  }
+  function pressTrusted(target: EventTarget, init: KeyboardEventInit) {
+    const ev = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+    const impl = implOf(ev);
+    impl.isTrusted = true;
+    implOf(target)._dispatch(impl);
+    expect(ev.isTrusted).toBe(true);
+    return ev;
+  }
+
+  test("a trusted Escape posts one escape with no payload", async () => {
+    const before = ofType("escape").length;
+    pressTrusted(document.body, { key: "Escape" });
+    await vi.waitFor(() => expect(ofType("escape")).toHaveLength(before + 1));
+    expect(ofType("escape").at(-1)).toEqual({ type: "escape" });
+    await tick();
+    expect(ofType("escape")).toHaveLength(before + 1);
+  });
+
+  test("an untrusted Escape (dispatched by model code) and other keys post nothing", async () => {
+    const before = ofType("escape").length;
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    pressTrusted(document.body, { key: "Enter" });
+    pressTrusted(document.body, { key: "Esc" });
+    await tick();
+    expect(ofType("escape")).toHaveLength(before);
+  });
+
+  test("an Escape the document handled (preventDefault, in any phase) posts nothing", async () => {
+    const before = ofType("escape").length;
+    const handle = (e: Event) => e.preventDefault();
+    document.addEventListener("keydown", handle);
+    try {
+      pressTrusted(document.body, { key: "Escape" });
+      await tick();
+    } finally {
+      document.removeEventListener("keydown", handle);
+    }
+    expect(ofType("escape")).toHaveLength(before);
+  });
+
+  test("a model listener that stops the event cannot swallow the kit's escape", async () => {
+    const before = ofType("escape").length;
+    const stop = (e: Event) => e.stopImmediatePropagation();
+    window.addEventListener("keydown", stop, true);
+    try {
+      pressTrusted(document.body, { key: "Escape" });
+      await vi.waitFor(() => expect(ofType("escape")).toHaveLength(before + 1));
+    } finally {
+      window.removeEventListener("keydown", stop, true);
+    }
+  });
+});

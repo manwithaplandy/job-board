@@ -283,9 +283,9 @@ async function closeRun(userId: string, runId: string, final: Parameters<typeof 
 }
 
 /** The profile for the instructions; null when the read failed (getProfileSummary itself never returns null). */
-async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft">): Promise<ProfileSummary | null> {
+async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft" | "views">): Promise<ProfileSummary | null> {
   try {
-    return await getProfileSummary({ ...base, gathered: emptyGathered(), repairsLeft: { n: 0 } });
+    return await getProfileSummary({ ...base, gathered: emptyGathered(), repairsLeft: { n: 0 }, views: { used: 0 } });
   } catch (e) {
     // A profile is context, not a requirement: the turn goes on, and the instructions
     // say the profile could not be read (not that there is none).
@@ -440,9 +440,10 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
     variant,
     unattended: false,
   };
-  // The turn's tool context: one gathered store and one repair state per turn. Built
-  // before the setup so the end of the turn can settle a pending variant 2 or 3 repair.
-  const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 }, modelId };
+  // The turn's tool context: one gathered store, one repair state and one view counter
+  // per turn (spec 08 S4.4). Built before the setup so the end of the turn can settle a
+  // pending variant 2 or 3 repair.
+  const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 }, modelId };
   let instructions: string;
   let tools: ReturnType<typeof buildTools>;
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;

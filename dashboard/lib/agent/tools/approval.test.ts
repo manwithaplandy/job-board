@@ -53,7 +53,7 @@ function ctx(extra: Partial<ToolCtx> = {}): ToolCtx {
     variant: 1,
     unattended: false,
     gathered: emptyGathered(),
-    repairsLeft: { n: 1 },
+    repairsLeft: { n: 1 }, views: { used: 0 },
     ...extra,
   };
 }

@@ -40,6 +40,9 @@ export const AGENT_LIMITS = {
   // The summary call's own limit, well inside wallClockMs (which it also counts against).
   // On timeout the turn goes on with the unsummarised window.
   summaryTimeoutMs: 25_000,
+  // The most views (present calls that store a row or open a repair) one turn may place
+  // (spec 08 S4.4). Checked in runPresent before any await, so parallel calls see it.
+  maxViewsPerTurn: 3,
 } as const;
 
 // usage_counters.kind for agent spend; n is in micro-dollars.

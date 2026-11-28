@@ -20,6 +20,11 @@ export interface ToolCtx {
   gathered: GatheredData;
   /** The turn's variant 2 or 3 repair state: one object per turn (lib/agent/tools/present.ts). */
   repairsLeft: RepairState;
+  /**
+   * The turn's view counter (spec 08 S4.4): one object per turn, so parallel present calls
+   * share it. `used` is the slots taken, at most AGENT_LIMITS.maxViewsPerTurn.
+   */
+  views: { used: number };
   /** The model the run calls, recorded on every surface it presents (Task 2.9 re-renders with it). */
   modelId?: string;
   /**

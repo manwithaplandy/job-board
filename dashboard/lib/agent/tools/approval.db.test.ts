@@ -26,7 +26,7 @@ afterAll(async () => {
 
 const ctx = (extra: Partial<ToolCtx> = {}): ToolCtx => ({
   userId: USER_A, email: null, threadId: THREAD, runId: RUN, variant: 1, unattended: false,
-  gathered: emptyGathered(), repairsLeft: { n: 1 }, ...extra,
+  gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 }, ...extra,
 });
 
 async function seedDoc(id: string, extraction: "ok" | "failed", text: string | null) {

@@ -184,7 +184,14 @@ describe("frameIntent", () => {
 
 describe("client safety", () => {
   test("bridge, document, kit and mount import nothing a browser bundle cannot hold", () => {
-    const allowed = ["zod", "@/lib/agent/surfaces/v3/sha256", "@/lib/agent/surfaces/v3/kitTokens", "@/lib/agent/surfaces/v3/document"];
+    // bridge is one of the files checked here (PR 6: the kit shares its ask normalisation).
+    const allowed = [
+      "zod",
+      "@/lib/agent/surfaces/v3/sha256",
+      "@/lib/agent/surfaces/v3/kitTokens",
+      "@/lib/agent/surfaces/v3/document",
+      "@/lib/agent/surfaces/v3/bridge",
+    ];
     for (const file of ["bridge.ts", "document.ts", "kit.ts", "kitTokens.ts", "sha256.ts", "mount.ts"]) {
       const source = readFileSync(join(__dirname, file), "utf8");
       const imports = [...source.matchAll(/^import (type )?[^;]*from "([^"]+)";/gm)].filter((m) => !m[1]).map((m) => m[2]);

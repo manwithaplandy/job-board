@@ -1507,7 +1507,9 @@ test.describe("a view's ask (PR 6)", () => {
       await finishCase(run, 1_000);
       expectNoHits(run);
       expectAttempted(run, "ask-oversize");
-      expect(probeValue(run.probes, "ask-oversize", "long"), `${run.at}: the long ask was 281 characters`).toMatchObject({ length: 281 });
+      // The kit refuses both itself (host.ask returns false); the host would drop them too.
+      expect(probeValue(run.probes, "ask-oversize", "long"), `${run.at}: the 281-character ask was refused`).toEqual({ length: 281, posted: false });
+      expect(probeValue(run.probes, "ask-oversize", "blank"), `${run.at}: the blank ask was refused`).toBe(false);
       await expect(page.locator("[data-sandbox-ask]"), `${run.at}: no pending message`).toHaveCount(0);
       expect(run.record.asks, `${run.at}: nothing was sent`).toEqual([]);
       expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);

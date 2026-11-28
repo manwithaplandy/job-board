@@ -5,6 +5,7 @@ import { KIT_CSS, KIT_JS } from "@/lib/agent/surfaces/v3/kit";
 import { KIT_TOKENS, KIT_TOKEN_NAMES } from "@/lib/agent/surfaces/v3/kitTokens";
 import { parseThemeTokens } from "@/lib/agent/surfaces/v3/themeTokens";
 import { buildSandboxDocument, checkV3Static } from "@/lib/agent/surfaces/v3/document";
+import { ASK_INVISIBLE_SOURCE, ASK_TEXT_MAX } from "@/lib/agent/surfaces/v3/bridge";
 
 /** The kit's own cap: it is not counted against the model's 60,000 bytes (spec 08 S9). */
 const KIT_BYTES_BUDGET = 120_000;
@@ -231,6 +232,11 @@ describe("variant 3 kit script", () => {
     expect(code).not.toMatch(/\.isActive\b/);
     expect(code).toMatch(/function ask\(text\) \{\s*if \(!userActive\(\)\) return false;/);
     expect(code).toContain('post({ type: "ask", text: s });');
+    // PR 6 review, minor 6: the host's own character class, a refusal that posts nothing, and
+    // the code-point cap.
+    expect(code).toContain(`askInvisible = new RegExp(${JSON.stringify(ASK_INVISIBLE_SOURCE)}, "gu");`);
+    expect(code).toMatch(/try \{ s = askText\(textOf\(text\)\); \} catch \(err\) \{ return false; \}\s*if \(s === null\) return false;/);
+    expect(code).toContain(`var ASK_TEXT_MAX = ${ASK_TEXT_MAX};`);
     // The fallback flag: trusted pointerup and keyup, in the capture phase on the window.
     expect(code).toContain('window.addEventListener("pointerup", armOnTrusted, true);');
     expect(code).toContain('window.addEventListener("keyup", armOnTrusted, true);');

@@ -16,8 +16,10 @@
 //   host.action(name, args) posts a request to the host and nothing else: the host turns
 //                           it into a chip the user must press (D13, SandboxFrame)
 //   host.ask(text)          PR 6: proposes a follow-up message, only while the user has just
-//                           acted (true when posted); the host shows it as a pending
-//                           message the user must send (spec 08 S10)
+//                           acted (true when posted). It posts the text normalised as the
+//                           host does (bridge.ts normalizeAskText) and refuses, false, one
+//                           that is empty or over 280 code points once normalised; the host
+//                           shows it as a pending message the user must send (spec 08 S10)
 //   host.chart(el, spec)    inline SVG from { viz, points: [{ label, value }], title }
 // and it reports resize (the document's height, 0 to 20000) and error (window error and
 // unhandledrejection, at most once, 500 characters).
@@ -70,6 +72,7 @@
 // the port either: script in the frame can reach the same port through host.action
 // (bridge.ts, SandboxFrame).
 import { KIT_TOKENS, KIT_TOKEN_NAMES, type KitTokenName } from "@/lib/agent/surfaces/v3/kitTokens";
+import { ASK_INVISIBLE_SOURCE, ASK_TEXT_MAX } from "@/lib/agent/surfaces/v3/bridge";
 
 function tokenBlock(selector: string, values: Record<KitTokenName, string>): string {
   return `${selector} {\n${KIT_TOKEN_NAMES.map((n) => `  ${n}: ${values[n]};`).join("\n")}\n}\n`;
@@ -719,10 +722,44 @@ export const KIT_JS: string = `(function () {
     }
     return armed;
   }
+  /* PR 6 review, minor 6: the same normalisation the host applies (bridge.ts
+     normalizeAskText, its character class shared as source text), so host.ask returns false,
+     and posts nothing, for a text the host would drop: empty once normalised, or over
+     ASK_TEXT_MAX code points. The text posted is the normalised one, so its length in UTF-16
+     units cannot trip the host's parser either. A filter only: the host normalises again. */
+  var ASK_TEXT_MAX = ${ASK_TEXT_MAX};
+  var askInvisible = null;
+  try { askInvisible = new RegExp(${JSON.stringify(ASK_INVISIBLE_SOURCE)}, "gu"); } catch (err) { askInvisible = null; }
+  var normalizeText = uncurry("".normalize);
+  var replaceText = uncurry("".replace);
+  var trimText = uncurry("".trim);
+  var codeUnitAt = uncurry("".charCodeAt);
+  function askText(raw) {
+    if (askInvisible === null) return null;
+    var s = normalizeText(raw, "NFC");
+    s = replaceText(s, askInvisible, "");
+    s = replaceText(s, /\\s+/g, " ");
+    s = replaceText(s, /[\\u0000-\\u001F\\u007F-\\u009F]/g, "");
+    s = replaceText(s, / {2,}/g, " ");
+    s = normalizeText(trimText(s), "NFC");
+    if (s.length === 0) return null;
+    var points = 0;
+    for (var i = 0; i < s.length; i++) {
+      var u = codeUnitAt(s, i);
+      if (u >= 0xd800 && u <= 0xdbff && i + 1 < s.length) {
+        var next = codeUnitAt(s, i + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) i += 1;
+      }
+      points += 1;
+      if (points > ASK_TEXT_MAX) return null;
+    }
+    return s;
+  }
   function ask(text) {
     if (!userActive()) return false;
     var s;
-    try { s = textOf(text); } catch (err) { return false; }
+    try { s = askText(textOf(text)); } catch (err) { return false; }
+    if (s === null) return false;
     post({ type: "ask", text: s });
     return true;
   }

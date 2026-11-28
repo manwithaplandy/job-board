@@ -2,7 +2,7 @@
 // Runs KIT_JS once in jsdom. jsdom has no sandbox and parent === window here, so this
 // checks the kit's own behaviour only (what it posts, what it renders); the sandbox and
 // the CSP are Task 2.7's real-browser tests.
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { KIT_CSS, KIT_JS } from "@/lib/agent/surfaces/v3/kit";
 import { payLabel } from "@/components/agent/blocks/shared";
 import type { ReviewFacts } from "@/lib/workspaces/types";
@@ -13,6 +13,7 @@ interface KitHost {
   readonly theme: string;
   onInit(cb: (data: unknown, theme: string) => void): void;
   action(name: string, args?: unknown): void;
+  ask(text: unknown): boolean;
   chart(el: Element, spec: unknown): unknown;
   el(tag: string, attrs?: Record<string, unknown>, children?: unknown[]): Element;
   format: {
@@ -121,8 +122,23 @@ beforeAll(() => {
   });
   // jsdom has no WebRTC: a stand-in, so the kit's lock on the real prototype can be checked.
   shadow.RTCPeerConnection = FakePeerConnection;
+  // PR 6: navigator.userActivation, as browsers have it (an object whose isActive is a getter
+  // on its prototype), with the activation state set by the test.
+  shadow.navigator = { userActivation: fakeActivation };
   new Function("parent", "window", KIT_JS)(fakeParent, kitWindow);
 });
+
+// PR 6: a stand-in for the browser's UserActivation; isActive reads `activation.active`.
+const activation = { active: false };
+class FakeUserActivation {
+  get isActive() {
+    return activation.active;
+  }
+  get hasBeenActive() {
+    return activation.active;
+  }
+}
+const fakeActivation = new FakeUserActivation();
 
 class FakePeerConnection {
   createOffer() {
@@ -956,7 +972,7 @@ describe("host.job", () => {
   test("host is still frozen and its helpers cannot be replaced", () => {
     const h = host();
     expect(Object.isFrozen(h)).toBe(true);
-    for (const name of ["el", "format", "job", "table", "chart", "action", "onInit"]) {
+    for (const name of ["el", "format", "job", "table", "chart", "action", "ask", "onInit"]) {
       expect({ name, set: Reflect.set(h, name, () => "x") }).toEqual({ name, set: false });
     }
     expect(Reflect.set(h.format, "pay", () => "x")).toBe(false);
@@ -1352,5 +1368,177 @@ describe("host.table", () => {
     expect(el.querySelectorAll("thead th")[0].getAttribute("aria-sort")).toBe("descending");
     expect(cssFor(".jb-table__sort")).toMatch(/min-height: var\(--target-size\);/);
     expect(cssFor(".jb-table__more")).toMatch(/min-height: var\(--target-size\);/);
+  });
+});
+
+// PR 6 Task 6.2 (spec 08 S10.2, layer 1): host.ask posts only while the user has just acted,
+// read through navigator.userActivation's isActive getter as the kit found it.
+describe("host.ask with navigator.userActivation", () => {
+  afterEach(() => {
+    activation.active = false;
+    document.body.innerHTML = "";
+  });
+
+  test("without activation it returns false and posts nothing", async () => {
+    const before = ofType("ask").length;
+    expect(host().ask("x")).toBe(false);
+    await tick();
+    expect(ofType("ask")).toHaveLength(before);
+  });
+
+  test("with isActive true it posts one ask with the text as a string and returns true", async () => {
+    const before = ofType("ask").length;
+    activation.active = true;
+    expect(host().ask("Compare the top two")).toBe(true);
+    expect(host().ask(42)).toBe(true);
+    await vi.waitFor(() => expect(ofType("ask")).toHaveLength(before + 2));
+    expect(ofType("ask").slice(before)).toEqual([
+      { type: "ask", text: "Compare the top two" },
+      { type: "ask", text: "42" },
+    ]);
+    expect(onWindow).toEqual([{ type: "ready" }]); // the port only, never the window
+  });
+
+  test("model code cannot fake activation by replacing isActive after the kit ran", async () => {
+    const before = ofType("ask").length;
+    const proto = FakeUserActivation.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, "isActive")!;
+    Object.defineProperty(fakeActivation, "isActive", { value: true, configurable: true });
+    Object.defineProperty(proto, "isActive", { get: () => true, configurable: true });
+    try {
+      expect(host().ask("x")).toBe(false);
+    } finally {
+      Reflect.deleteProperty(fakeActivation, "isActive");
+      Object.defineProperty(proto, "isActive", original);
+    }
+    await tick();
+    expect(ofType("ask")).toHaveLength(before);
+  });
+
+  test('a click on <jb-button ask="..."> under activation posts that text; without it, nothing', async () => {
+    document.body.innerHTML = '<jb-button ask="Compare the top two">Compare</jb-button>';
+    const button = document.querySelector("jb-button")!;
+    const before = ofType("ask").length;
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    expect(ofType("ask")).toHaveLength(before);
+    activation.active = true;
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.waitFor(() => expect(ofType("ask")).toHaveLength(before + 1));
+    expect(ofType("ask").at(-1)).toEqual({ type: "ask", text: "Compare the top two" });
+  });
+
+  test("a button with both ask and action runs the action only", async () => {
+    document.body.innerHTML = `<jb-button ask="Tell me more" action='{"name":"open","target":"shortlist"}'>Go</jb-button>`;
+    activation.active = true;
+    const asks = ofType("ask").length;
+    const acts = ofType("action").length;
+    document.querySelector("jb-button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.waitFor(() => expect(ofType("action")).toHaveLength(acts + 1));
+    await tick();
+    expect(ofType("ask")).toHaveLength(asks);
+    expect(ofType("action").at(-1)).toEqual({ type: "action", name: "open", args: { target: "shortlist" } });
+  });
+
+  test("an aria-disabled ask button posts nothing", async () => {
+    document.body.innerHTML = '<jb-button ask="x" aria-disabled="true">x</jb-button>';
+    activation.active = true;
+    const before = ofType("ask").length;
+    document.querySelector("jb-button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await tick();
+    expect(ofType("ask")).toHaveLength(before);
+  });
+});
+
+// PR 6 Task 6.2: where navigator.userActivation is missing, the kit's own flag. A second kit
+// runs here against its own window stand-in (no userActivation, no Trusted Types, its own
+// port) with fake timers in place when it starts, so the setTimeout it takes is the fake one
+// and the 1,000 ms can be stepped. It is the last block of the file: its listeners on the
+// real window (link guard, Escape, the flag) stay for the rest of the run.
+describe("host.ask without navigator.userActivation", () => {
+  const received: unknown[] = [];
+  let ownPort: MessagePort | null = null;
+  let ownHost: KitHost | null = null;
+  const asks = () => received.filter((m) => m && typeof m === "object" && "type" in m && m.type === "ask");
+  /** Lets port messages through without stepping the fake clock (setImmediate is not faked). */
+  async function flush(rounds = 5) {
+    for (let i = 0; i < rounds; i++) await new Promise<void>((r) => setImmediate(r));
+  }
+  function fireTrusted(type: string) {
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    const impl = implOf(ev);
+    impl.isTrusted = true;
+    implOf(document.body)._dispatch(impl);
+    expect(ev.isTrusted).toBe(true);
+  }
+
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const ownShadow: Record<string | symbol, unknown> = { navigator: {}, trustedTypes: undefined };
+    const ownWindow = new Proxy(ownShadow, {
+      get(target, key) {
+        return Object.prototype.hasOwnProperty.call(target, key) ? target[key] : Reflect.get(globalThis, key);
+      },
+      getPrototypeOf() {
+        return Object.getPrototypeOf(globalThis);
+      },
+    });
+    const ownParent = {
+      postMessage(_data: unknown, _origin: string, transfer?: MessagePort[]) {
+        if (ownPort === null && transfer?.length === 1) {
+          ownPort = transfer[0];
+          ownPort.onmessage = (m) => received.push(m.data);
+        }
+      },
+    };
+    new Function("parent", "window", KIT_JS)(ownParent, ownWindow);
+    const h: unknown = Reflect.get(ownWindow, "host");
+    if (!h || typeof h !== "object") throw new Error("no host");
+    ownHost = h as KitHost; // test-only view of the kit's global
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+    ownPort?.close();
+  });
+
+  test("with no user action it returns false and posts nothing", async () => {
+    expect(ownHost!.ask("x")).toBe(false);
+    await flush();
+    expect(asks()).toEqual([]);
+  });
+
+  test("an untrusted pointerup or keyup (dispatched by model code) does not arm it", async () => {
+    document.body.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+    expect(ownHost!.ask("x")).toBe(false);
+    await flush();
+    expect(asks()).toEqual([]);
+  });
+
+  test("a trusted pointerup arms it for 1,000 ms, then it clears", async () => {
+    fireTrusted("pointerup");
+    expect(ownHost!.ask("first")).toBe(true);
+    vi.advanceTimersByTime(999);
+    expect(ownHost!.ask("second")).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(ownHost!.ask("third")).toBe(false);
+    await flush();
+    expect(asks()).toEqual([
+      { type: "ask", text: "first" },
+      { type: "ask", text: "second" },
+    ]);
+  });
+
+  test("a trusted keyup arms it too, and a later action restarts the 1,000 ms", async () => {
+    received.length = 0;
+    fireTrusted("keyup");
+    vi.advanceTimersByTime(600);
+    fireTrusted("pointerup");
+    vi.advanceTimersByTime(600);
+    expect(ownHost!.ask("still armed")).toBe(true);
+    vi.advanceTimersByTime(400);
+    expect(ownHost!.ask("cleared")).toBe(false);
+    await flush();
+    expect(asks()).toEqual([{ type: "ask", text: "still armed" }]);
   });
 });

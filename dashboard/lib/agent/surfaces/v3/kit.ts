@@ -7,7 +7,7 @@
 // and <jb-field> a 44px minimum target. Fonts are the system stack: the frame's CSP has
 // font-src 'none'.
 //
-// KIT_JS: the custom elements <jb-button action='{"name":...}'> and
+// KIT_JS: the custom elements <jb-button action='{"name":...}'> (or ask="text", PR 6) and
 // <jb-field name label>, and a frozen `host` object:
 //   host.data, host.theme   the snapshot and theme from the host's init (null and "light"
 //                           until init arrives, which is after the document's own
@@ -15,6 +15,9 @@
 //   host.onInit(cb)         cb(data, theme) once init has arrived
 //   host.action(name, args) posts a request to the host and nothing else: the host turns
 //                           it into a chip the user must press (D13, SandboxFrame)
+//   host.ask(text)          PR 6: proposes a follow-up message, only while the user has just
+//                           acted (true when posted); the host shows it as a pending
+//                           message the user must send (spec 08 S10)
 //   host.chart(el, spec)    inline SVG from { viz, points: [{ label, value }], title }
 // and it reports resize (the document's height, 0 to 20000) and error (window error and
 // unhandledrejection, at most once, 500 characters).
@@ -676,6 +679,53 @@ export const KIT_JS: string = `(function () {
       post({ type: "escape" });
     }, 0);
   }, true);
+
+  /* PR 6 (spec 08 S10.2, layer 1): host.ask posts only while the user has just acted. This is
+     a filter that stops asks on load and in loops, not the control: the host never sends an
+     ask without a press on its own Send. Where the browser has navigator.userActivation, its
+     isActive getter is taken now, from the object's own prototype, before model code can
+     replace either; a value model code later puts on the object is never read. Where it is
+     missing, the kit keeps its own flag: set by a trusted pointerup or keyup, seen in the
+     capture phase on the window before any model listener, and cleared 1,000 ms later. */
+  var ACTIVATION_MS = 1000;
+  var activation = null;
+  var activeOf = null;
+  try {
+    var nav = window.navigator;
+    var found = nav ? nav.userActivation : null;
+    if (found && typeof found === "object") {
+      activeOf = getterOf(Object.getPrototypeOf(found), "isActive");
+      if (activeOf) activation = found;
+    }
+  } catch (err) { activation = null; activeOf = null; }
+  var armed = false;
+  var armCount = 0;
+  if (activation === null) {
+    var armOnTrusted = function (e) {
+      var trusted = false;
+      try { trusted = e.isTrusted === true; } catch (err) { return; }
+      if (!trusted) return;
+      armed = true;
+      armCount += 1;
+      var mine = armCount;
+      later(function () { if (armCount === mine) armed = false; }, ACTIVATION_MS);
+    };
+    window.addEventListener("pointerup", armOnTrusted, true);
+    window.addEventListener("keyup", armOnTrusted, true);
+  }
+  function userActive() {
+    if (activation !== null) {
+      try { return activeOf(activation) === true; } catch (err) { return false; }
+    }
+    return armed;
+  }
+  function ask(text) {
+    if (!userActive()) return false;
+    var s;
+    try { s = textOf(text); } catch (err) { return false; }
+    post({ type: "ask", text: s });
+    return true;
+  }
 
   function run(cb) {
     try { cb(state.data, state.theme); } catch (err) { report(errorText(err)); }
@@ -1505,6 +1555,7 @@ export const KIT_JS: string = `(function () {
     action: function (name, args) {
       post({ type: "action", name: String(name), args: args === undefined ? {} : args });
     },
+    ask: ask,
     chart: chart,
     el: buildEl,
     format: format,
@@ -1531,8 +1582,13 @@ export const KIT_JS: string = `(function () {
         this.jbWired = true;
         this.addEventListener("click", function () {
           if (this.getAttribute("aria-disabled") === "true") return;
-          var a = parseAction(this.getAttribute("action") || "");
-          if (a) host.action(a.name, a.args);
+          /* PR 6: a button with an action runs the action only, even with an ask too. */
+          if (hasAttr(this, "action")) {
+            var a = parseAction(getAttr(this, "action") || "");
+            if (a) host.action(a.name, a.args);
+            return;
+          }
+          if (hasAttr(this, "ask")) ask(getAttr(this, "ask"));
         });
         this.addEventListener("keydown", function (e) {
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.click(); }

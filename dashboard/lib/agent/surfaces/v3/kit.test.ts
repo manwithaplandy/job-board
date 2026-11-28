@@ -222,4 +222,23 @@ describe("variant 3 kit script", () => {
     expect(KIT_JS).toContain('window.addEventListener("error"');
     expect(KIT_JS).toContain('window.addEventListener("unhandledrejection"');
   });
+  test("host.ask posts only an ask, behind activation read through natives taken before model code (PR 6, S10.2)", () => {
+    const code = KIT_JS.replace(/\/\*[\s\S]*?\*\//g, "");
+    // navigator.userActivation is read once, when the kit starts, and its isActive getter is
+    // taken from the object's own prototype then; a value put on the object is never read.
+    expect([...code.matchAll(/userActivation/g)]).toHaveLength(1);
+    expect(code).toContain('activeOf = getterOf(Object.getPrototypeOf(found), "isActive");');
+    expect(code).not.toMatch(/\.isActive\b/);
+    expect(code).toMatch(/function ask\(text\) \{\s*if \(!userActive\(\)\) return false;/);
+    expect(code).toContain('post({ type: "ask", text: s });');
+    // The fallback flag: trusted pointerup and keyup, in the capture phase on the window.
+    expect(code).toContain('window.addEventListener("pointerup", armOnTrusted, true);');
+    expect(code).toContain('window.addEventListener("keyup", armOnTrusted, true);');
+    // All of it is set up before the host object exists, and so before any model code.
+    const hostAt = code.indexOf("var host = {");
+    for (const setup of ["var activeOf = null;", "function userActive()", "function ask(text)"]) {
+      expect({ setup, before: code.indexOf(setup) > 0 && code.indexOf(setup) < hostAt }).toEqual({ setup, before: true });
+    }
+    expect(code).toMatch(/var host = \{[\s\S]*?ask: ask,/);
+  });
 });

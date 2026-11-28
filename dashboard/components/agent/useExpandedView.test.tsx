@@ -117,6 +117,55 @@ test("Escape does nothing while blocked (a confirm card shows) or when something
   expect(result.current.expandedChainId).toBe(A);
 });
 
+test("Escape during an IME composition does not collapse (the key ends the composition)", () => {
+  const { result } = mount();
+  act(() => result.current.expand(A));
+  escape({ isComposing: true });
+  expect(result.current.expandedChainId).toBe(A);
+  expect(back).not.toHaveBeenCalled();
+  escape();
+  expect(result.current.expandedChainId).toBeNull();
+});
+
+test("requestEscape (the in-frame Escape) goes through the same gate as Escape on the page", () => {
+  const { result, rerender } = mount({ chainIds: [A, B], blocked: true });
+  act(() => result.current.expand(A));
+  act(() => result.current.requestEscape());
+  expect(result.current.expandedChainId).toBe(A);
+  expect(back).not.toHaveBeenCalled();
+  rerender({ chainIds: [A, B], blocked: false });
+  act(() => result.current.requestEscape());
+  expect(result.current.expandedChainId).toBeNull();
+  expect(back).toHaveBeenCalledTimes(1);
+  // Nothing expanded: nothing to do.
+  act(() => result.current.requestEscape());
+  expect(back).toHaveBeenCalledTimes(1);
+});
+
+test("collapse's own late back() does not collapse a view expanded again before it landed", () => {
+  const { result } = mount();
+  act(() => result.current.expand(A));
+  act(() => result.current.collapse());
+  expect(back).toHaveBeenCalledTimes(1);
+  // Expanded again before the back's popstate arrives.
+  act(() => result.current.expand(B));
+  expect(result.current.expandedChainId).toBe(B);
+  // The back lands: swallowed.
+  popstate(null);
+  expect(result.current.expandedChainId).toBe(B);
+  // A later Back is the user's own and collapses as usual.
+  popstate(null);
+  expect(result.current.expandedChainId).toBeNull();
+});
+
+test("a collapse that did not go back swallows no popstate", () => {
+  const { result } = mount({ chainIds: [A, B], initial: A });
+  act(() => result.current.collapse());
+  expect(back).not.toHaveBeenCalled();
+  popstate({ rfView: B });
+  expect(result.current.expandedChainId).toBe(B);
+});
+
 test("the html class is set while expanded and removed on collapse", () => {
   const { result } = mount();
   expect(htmlClass()).toBe(false);

@@ -43,7 +43,14 @@ import {
   V1_SURFACES,
   matrixPlan,
   runModels,
+  DRY_RUN_PROMPT_BYTES_PER_TOKEN,
+  GOLDEN_V3_LONG_CALLS_PER_SURFACE,
+  V1_CALLS,
+  V3_PROMPT_EXTRA_TOKENS,
+  estimateGolden,
+  estimateGoldenV3Upper,
 } from "@/lib/agent/evals/matrixPlan";
+import { variantGrammar } from "@/lib/agent/context";
 
 describe("matrixPlan", () => {
   test("the plan's scenarios and personas are the eval's own", () => {
@@ -392,6 +399,51 @@ describe("PR 7: the budget for 8000-token variant 3 calls", () => {
     expect(golden(3)).toContain("reserves $0.1213 (4.0% of $3)");
     expect(golden(1)).toContain("the dearest call reserves $0.0098");
     expect(golden(2)).toContain("the dearest call reserves $0.0098");
+  });
+
+  test("fix wave M6: a golden --variant 3 dry run shows an upper bound with the variant 3 prompt and output cap; variants 1 and 2 show none", () => {
+    const caps = profileDefaults("golden");
+    const golden = (variant: 1 | 2 | 3) => formatGoldenDryRun({ variant, model: AGENT_EVAL_DEFAULT_MODEL, seed: 1, caps });
+    const model = AGENT_EVAL_DEFAULT_MODEL;
+    const base = estimateGolden(model, caps.maxCases);
+    const upper = estimateGoldenV3Upper(model, caps.maxCases);
+    const top = estimateGoldenV3Upper(model, caps.maxCases, true);
+    // Same calls; every call carries the extra prompt; the long calls emit the variant 3 cap.
+    expect(upper.calls).toBe(base.calls);
+    expect(upper.inputTokens - base.inputTokens).toBe(base.calls * V3_PROMPT_EXTRA_TOKENS);
+    const long = MATRIX_SCENARIOS.flatMap((sc) => MATRIX_PERSONAS.map(() => Math.min(V1_CALLS[sc], V1_SURFACES[sc] * GOLDEN_V3_LONG_CALLS_PER_SURFACE)))
+      .slice(0, caps.maxCases)
+      .reduce((n, x) => n + x, 0);
+    expect(long).toBe(42);
+    expect(upper.outputTokens - base.outputTokens).toBe(long * (outputTokensFor(3) - 600));
+    expect(top.outputTokens).toBe(base.calls * outputTokensFor(3));
+    expect(upper.costMicros).toBeGreaterThan(base.costMicros);
+    expect(top.costMicros).toBeGreaterThan(upper.costMicros);
+    const out = golden(3);
+    expect(out).toContain(
+      `Upper bound (variant 3): if every call carries the variant 3 prompt's extra 1,600 input tokens and 42 of the 102 calls (two per view the cases present) emit 8,000 output tokens, ${model} is ${dollars(upper.costMicros)} uncached, ${dollars(upper.cachedCostMicros)} cached`,
+    );
+    // At the default golden caps even this bound passes the 2M-token cap (1.69M input plus
+    // 0.37M output), so the line says the run would stop first rather than claim it fits.
+    expect(upper.inputTokens + upper.outputTokens).toBeGreaterThan(caps.maxTokens);
+    expect(upper.costMicros + callReserveMicros(model, "agent-v3")).toBeLessThan(caps.maxUsd * 1_000_000);
+    expect(out).toContain(`the estimate above gives every call 600): past a cap, so the run would stop first.`);
+    // With a token cap that holds it, the line says it fits.
+    expect(formatGoldenDryRun({ variant: 3, model, seed: 1, caps: { ...caps, maxTokens: 4_000_000 } })).toContain("the estimate above gives every call 600): within the caps.");
+    // Every call at the cap passes the 2M-token golden cap: the caps stop the run first, and the line says so.
+    expect(top.inputTokens + top.outputTokens).toBeGreaterThan(caps.maxTokens);
+    expect(out).toContain(`With every call at its 8,000-token limit: ${dollars(top.costMicros)} uncached, ${dollars(top.cachedCostMicros)} cached (${(top.outputTokens / 1_000_000).toFixed(2)}M output tokens): past a cap, so the run would stop first.`);
+    expect(golden(1)).not.toContain("Upper bound");
+    expect(golden(2)).not.toContain("Upper bound");
+  });
+
+  test("fix wave M6: V3_PROMPT_EXTRA_TOKENS covers what the variant 3 grammar adds over variant 1's", () => {
+    const chars = (v: 1 | 3) => variantGrammar(v).join("\n").length;
+    const extra = chars(3) - chars(1);
+    expect(extra).toBeGreaterThan(0);
+    expect(V3_PROMPT_EXTRA_TOKENS * DRY_RUN_PROMPT_BYTES_PER_TOKEN).toBeGreaterThanOrEqual(extra);
+    // And not wildly over it: within 25%.
+    expect(V3_PROMPT_EXTRA_TOKENS * DRY_RUN_PROMPT_BYTES_PER_TOKEN).toBeLessThanOrEqual(extra * 1.25);
   });
 
   test("the refusal names the single modes to run instead, a full matrix first", () => {

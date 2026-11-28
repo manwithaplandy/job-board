@@ -180,6 +180,41 @@ describe("assertRecording", () => {
     expect(codes(missing)).toContain("metric_not_gathered");
   });
 
+  // Spec 08 S15.2: a turn stores at most 3 surfaces, counted per run (the surfaces' runId).
+  test("flags a run that stored more than 3 surfaces, and names the run", () => {
+    const r = committed("b_compare");
+    const run = r.surfaces[0].runId!;
+    const view = (i: number) => ({ ...structuredClone(r.surfaces[0]), id: `5f000000-0000-4000-8000-0000000000c${i}`, runId: run });
+    r.surfaces = [view(1), view(2), view(3)];
+    expect(codes(r)).toEqual([]);
+    r.surfaces.push(view(4));
+    const failures = assertRecording(r);
+    expect(failures.map((f) => f.code)).toEqual(["too_many_views"]);
+    expect(failures[0].message).toBe(`run ${run} stored 4 views; a turn may store at most 3`);
+    expect(failures[0].path).toBe("surfaces");
+  });
+
+  test("counts views per run: four surfaces over two runs pass, and a surface with no run is not counted", () => {
+    const r = committed("b_compare");
+    const view = (i: number, runId: string | null) => ({ ...structuredClone(r.surfaces[0]), id: `5f000000-0000-4000-8000-0000000000d${i}`, runId });
+    const [a, b] = [r.surfaces[0].runId, r.surfaces[1].runId];
+    r.surfaces = [view(1, a), view(2, a), view(3, b), view(4, b), view(5, null), view(6, null), view(7, null), view(8, null)];
+    expect(codes(r)).toEqual([]);
+  });
+
+  test("checks every view of a turn against the database, not only the last", () => {
+    const r = committed("b_compare");
+    // One turn with two views of the same jobs.
+    r.surfaces = [r.surfaces[0], { ...structuredClone(r.surfaces[0]), id: "5f000000-0000-4000-8000-0000000000e1" }];
+    gathered(r, 0).reviews["greenhouse:eval-sb-0:1000"].fitScore = 99;
+    gathered(r, 1).jobs["greenhouse:eval-sb-1:1001"].title = "Principal Engineer";
+    const failures = assertRecording(r);
+    expect(failures.map((f) => [f.code, f.path])).toEqual([
+      ["fit_mismatch", "surfaces[0].gathered.reviews[greenhouse:eval-sb-0:1000]"],
+      ["title_mismatch", expect.stringMatching(/^surfaces\[1\]\.gathered\.jobs/)],
+    ]);
+  });
+
   test("passes the committed variant 1 recordings", () => {
     const files = recordingFiles();
     // Never vacuous: every scenario has at least one committed recording.

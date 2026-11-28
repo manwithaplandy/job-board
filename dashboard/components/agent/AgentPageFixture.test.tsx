@@ -26,7 +26,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
 
 import { validateSurfaceV3 } from "@/lib/agent/surfaces/v3/document";
-import { AgentPageFixture, CODE_FIXTURE_DOCUMENT } from "./AgentPageFixture";
+import { AgentPageFixture, agentPageFixtureMessages, CODE_FIXTURE_DOCUMENT } from "./AgentPageFixture";
 import { AGENT_PAGE_FIXTURE_STATES } from "./agentPageFixtureStates";
 
 beforeEach(() => {
@@ -145,4 +145,28 @@ describe("the expanded states", () => {
     expect(validateSurfaceV3(CODE_FIXTURE_DOCUMENT).ok).toBe(true);
     expect(CODE_FIXTURE_DOCUMENT.html).not.toMatch(/<script|host\.|action=|fetch|https?:/i);
   });
+});
+
+// PR 4 (spec 08 S4.4): present's tool output carries no payload, so neither do the fixtures'.
+test.each(AGENT_PAGE_FIXTURE_STATES)("%s: every present output is payload-free, as the tool returns it", (state) => {
+  for (const message of agentPageFixtureMessages(state)) {
+    for (const part of message.parts) {
+      if (part.type !== "tool-present" || !("output" in part)) continue;
+      expect(part.output).toEqual({ surfaceId: expect.any(String), variant: expect.any(Number), outcome: "valid" });
+    }
+  }
+});
+
+// PR 4 (spec 08 S4.1, S4.4): one reply with two views, each where it belongs in the text.
+test("agent-page-views-multi shows text, view, text, view, text in one reply, each view its own chain", () => {
+  const { container } = render(<AgentPageFixture state="agent-page-views-multi" />);
+  const reply = [...container.querySelectorAll(".rf-agent-transcript > li")].at(-1)!;
+  const order = [...reply.querySelectorAll(".rf-md, .rf-view")].map((el) => (el.classList.contains("rf-view") ? "view" : "text"));
+  expect(order).toEqual(["text", "view", "text", "view", "text"]);
+  const views = [...container.querySelectorAll<HTMLElement>(".rf-view")];
+  expect(views).toHaveLength(2);
+  expect(views.every((v) => reply.contains(v))).toBe(true);
+  expect(views.map((v) => v.dataset.variant)).toEqual(["1", "1"]);
+  expect(views.map((v) => v.getAttribute("aria-label"))).toEqual(["View: Two strong matches", "View: How your applications are going"]);
+  expect(screen.queryByText("This view was updated below.")).toBeNull();
 });

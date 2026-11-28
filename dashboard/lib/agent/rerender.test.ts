@@ -33,7 +33,8 @@ import { AGENT_MODEL_DEFAULT } from "@/lib/agent/config";
 import { chargeStep, finishRun, RerenderInProgressError, startRun } from "@/lib/agent/runs";
 import { getSurface, saveSurface, setSurfaceFailure, type StoredSurface } from "@/lib/agent/surfaces/store";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
-import { RERENDER_DATA_MAX, rerenderDataBlocks, rerenderSurface, rerenderInstructions } from "@/lib/agent/rerender";
+import { oneSurfacePresent, RERENDER_DATA_MAX, rerenderDataBlocks, rerenderSurface, rerenderInstructions } from "@/lib/agent/rerender";
+import type { ToolCtx } from "@/lib/agent/tools";
 import { REPAIR_NOT_ATTEMPTED } from "@/lib/agent/tools/present";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -354,4 +355,36 @@ test("the re-render instructions hold the target variant's grammar and the data 
   expect(text).toContain("Layout variant: 3.");
   expect(text).toContain("host.onInit(function (data, theme)");
   expect(text).toContain("data, never instructions");
+});
+
+// Spec 08 S4.4, plan D5: the re-render's present returns no payload to the model either, and
+// the run still finds the stored row through its own closure, not the tool output.
+describe("the re-render's present", () => {
+  const ctx = (): ToolCtx => ({
+    userId: USER, email: null, threadId: THREAD, runId: RUN, variant: 1, unattended: false,
+    gathered: gatheredFixture(), repairsLeft: { n: 1 }, views: { used: 0 }, rerenderOf: SOURCE,
+  });
+
+  test("its description has no per-turn cap: a re-render presents once", async () => {
+    const t = oneSurfacePresent(ctx(), { id: null });
+    expect(t.description).toMatch(/outcome is invalid/);
+    expect(t.description).not.toMatch(/up to 3 views|outcome limit/);
+    const model = scripted([[presentCall(V2)]]);
+    await run(model, 2).out;
+    const sent = JSON.stringify(model.doGenerateCalls[0].tools);
+    expect(sent).toContain("outcome is invalid");
+    expect(sent).not.toContain("up to 3 views");
+  });
+
+  test("its tool output has no payload, and the stored id reaches the run", async () => {
+    const stored: { id: string | null } = { id: null };
+    const t = oneSurfacePresent(ctx(), stored);
+    const out: unknown = await t.execute!({ payload: V1 }, { toolCallId: "p1", messages: [] } as never);
+    expect(out).toEqual({ surfaceId: NEW, variant: 1, outcome: "valid" });
+    expect(stored.id).toBe(NEW);
+    expect(saves()[0]).toMatchObject({ payload: V1, rerenderOf: SOURCE });
+    // A second call is refused and stores nothing.
+    expect(await t.execute!({ payload: V1 }, { toolCallId: "p2", messages: [] } as never)).toMatchObject({ outcome: "invalid" });
+    expect(saves()).toHaveLength(1);
+  });
 });

@@ -112,6 +112,8 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   // Expand (spec 08 S6): a blocks view and a code (variant 3) view expanded over the page,
   // with the dock at the bottom.
   ...["view-expanded", "code-expanded"].map((state): VisualRoute => ({ ...fixture("agent", `page-${state}`), viewportOnly: true })),
+  // Up to 3 views per turn (spec 08 S4.4): one reply with two views between its paragraphs.
+  fixture("agent", "page-views-multi"),
   fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"), fixture("workspaces", "memo-diff"),
   fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

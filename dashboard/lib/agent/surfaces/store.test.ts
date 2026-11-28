@@ -18,6 +18,7 @@ import { emptyGathered } from "@/lib/agent/gathered";
 import {
   failureCode,
   getSurface,
+  listThreadSurfaces,
   markSurfaceFailed,
   saveSurface,
   setSurfaceFailure,
@@ -175,5 +176,18 @@ describe("setSurfaceFailure", () => {
     expect(db.calls[0].values).toEqual([SURFACE, "unknown_failure"]);
     await expect(setSurfaceFailure(tx as never, "nope", "x")).rejects.toThrow(/uuid/);
     expect(db.calls).toHaveLength(1);
+  });
+});
+
+// Spec 08 S15.2: a thread's surfaces come back oldest first (created_at, then id), so a
+// recording lists a turn's views in the order they were stored.
+describe("listThreadSurfaces", () => {
+  test("reads newest first under the cap and returns them oldest first", async () => {
+    const first = "33333333-3333-4333-8333-333333333331";
+    const second = "33333333-3333-4333-8333-333333333332";
+    db.queue.push([row({ id: second, created_at: new Date("2026-11-25T10:00:02Z") }), row({ id: first, created_at: new Date("2026-11-25T10:00:01Z") })]);
+    const out = await listThreadSurfaces(USER, THREAD);
+    expect(out.map((s) => s.id)).toEqual([first, second]);
+    expect(db.calls.at(-1)?.text).toContain("ORDER BY created_at DESC, id DESC");
   });
 });

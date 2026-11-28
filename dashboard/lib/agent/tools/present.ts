@@ -1,5 +1,7 @@
 // The present tool (plan Tasks 1.17 and 2.3, spec 7.1): renders or updates a surface in
-// the thread's variant. A turn gathers with the read and write tools, then presents once.
+// the thread's variant. A turn gathers with the read and write tools, then places up to
+// AGENT_LIMITS.maxViewsPerTurn (3) views in its answer (spec 08 S4.4): a call over the cap
+// stores nothing and gets outcome `limit` (runPresent has the slot accounting).
 //
 // The model sees the variant's full JSON schema, but the tool's own validation is
 // permissive on purpose: an invalid payload must reach execute, where validateSurface
@@ -25,9 +27,10 @@
 //   - parallel calls (PR J1 review M2): every present call in the step that spent the
 //     repair is part of that one attempt. Another invalid payload from the same step
 //     gets `invalid` with its errors and stores nothing; a valid one from the same step
-//     is stored with outcome `valid` (it was not a repair) and settles the attempt. A step
-//     is told apart by the count of messages the model was sent for it, which every
-//     call in one step shares and which grows from step to step;
+//     is stored with outcome `valid` (it was not a repair) and, since a turn may place
+//     several views (spec 08 S4.4), leaves the attempt open: only a later-step call settles
+//     it. A step is told apart by the count of messages the model was sent for it, which
+//     every call in one step shares and which grows from step to step;
 //   - a surface that falls back is stored as a row of the thread's variant (2 or 3) with
 //     the variant 1 fallback in both payload and fallback_payload (plan R13). A valid
 //     variant 3 surface stores its HTML document as the payload and the fallback beside
@@ -44,8 +47,8 @@
 import { jsonSchema, tool } from "ai";
 import { z } from "zod";
 import type { JSONSchema7 } from "@ai-sdk/provider";
-import type { Variant } from "@/lib/agent/config";
-import type { ToolCtx } from "@/lib/agent/tools";
+import { AGENT_LIMITS, type Variant } from "@/lib/agent/config";
+import type { RepairAttempt, ToolCtx } from "@/lib/agent/tools";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
 import { saveSurface, setSurfaceFailure, type SurfaceOutcome } from "@/lib/agent/surfaces/store";
@@ -61,6 +64,8 @@ const ERRORS_TO_MODEL_MAX = 10;
 export const REPAIR_FAILED = "invalid_after_repair";
 /** The failure code of a variant 2 surface whose turn ended before the repair came. */
 export const REPAIR_NOT_ATTEMPTED = "repair_not_attempted";
+/** What a present call over the turn's cap gets back (spec 08 S4.4). */
+export const VIEW_LIMIT_ERROR = "This turn already has 3 views. Finish the answer in text.";
 
 export interface PresentInput {
   surfaceId?: string;
@@ -81,7 +86,34 @@ export type PresentResult =
       variant: Variant;
       outcome: "invalid";
       errors: string[];
+    }
+  | {
+      /** The turn already placed AGENT_LIMITS.maxViewsPerTurn views: nothing was stored. */
+      variant: Variant;
+      outcome: "limit";
+      errors: [typeof VIEW_LIMIT_ERROR];
     };
+
+/** Drops `K` from each member of a union, keeping each member's own fields. */
+type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/**
+ * What the model gets back from present (spec 08 S4.4, plan D5): the result without the
+ * payload it just sent, so a turn with several views does not pay for each payload twice.
+ * The page reads only surfaceId; the surface itself is read from its stored row.
+ */
+export type PresentToolOutput = OmitEach<PresentResult, "payload">;
+
+/** `result` without its payload: every field is copied by name, so nothing else leaks through. */
+export function presentToolOutput(result: PresentResult): PresentToolOutput {
+  if (!("surfaceId" in result)) return result;
+  return {
+    surfaceId: result.surfaceId,
+    variant: result.variant,
+    outcome: result.outcome,
+    ...(result.errors !== undefined ? { errors: result.errors } : {}),
+  };
+}
 
 /** The payload schema of one variant (plan Task 2.8): the grammar the model is shown. */
 export function presentSchemaFor(variant: Variant): z.ZodType {
@@ -155,12 +187,25 @@ const PRESENT_GRAMMAR: Record<Variant, string> = {
     "sandboxed frame with no network. The data read this turn reaches it through host.onInit.",
 };
 
-/** The tool description for one variant. */
-export function presentDescription(variant: Variant): string {
+/**
+ * The tool description for a single present call in one variant, with no per-turn cap:
+ * what a re-render (lib/agent/rerender.ts) shows, since it presents exactly once.
+ */
+export function singlePresentDescription(variant: Variant): string {
   return (
     `${PRESENT_GRAMMAR[variant]} Text is plain (no links). Pass surfaceId to replace a surface shown earlier in ` +
     "this thread. An invalid payload is shown as a default summary instead. If the result's outcome is invalid, " +
     "nothing was shown: fix the listed errors and call present once more."
+  );
+}
+
+/** The tool description for one variant in a turn: the single-call text plus the per-turn cap. */
+export function presentDescription(variant: Variant): string {
+  return (
+    `${singlePresentDescription(variant)} ` +
+    // Spec 08 S4.4, verbatim: the per-turn cap (runPresent) and its outcome.
+    "You may show up to 3 views in one turn, each where it belongs in your answer. A result with " +
+    "outcome limit means the turn has its 3 views: do not call present again."
   );
 }
 
@@ -229,6 +274,12 @@ async function storeSurface(ctx: ToolCtx, a: StoreArgs): Promise<string> {
 /** The variants with one repair attempt per turn. */
 type RepairVariant = 2 | 3;
 
+/** One call's result, and whether that call opened the turn's repair attempt (it then holds a view slot). */
+interface Presented {
+  result: PresentResult;
+  opened: boolean;
+}
+
 /**
  * Variants 2 and 3: validate, spend the one repair on the first invalid payload, then fall
  * back. The repair state is read and settled before any await that stores, so parallel
@@ -241,14 +292,14 @@ async function presentWithRepair(
   input: PresentInput,
   started: number,
   step: number | null,
-): Promise<PresentResult> {
+): Promise<Presented> {
   const state = ctx.repairsLeft;
   const checked = await validateSurface(input.payload, variant, ctx);
   const attempt = state.attempt;
   if (!checked.ok) {
     const errors = checked.errors.slice(0, ERRORS_TO_MODEL_MAX);
     // Part of the attempt that spent the repair (M2): the same answer, nothing stored.
-    if (attempt !== undefined && sameStep(attempt.step, step)) return { variant, outcome: "invalid", errors };
+    if (attempt !== undefined && sameStep(attempt.step, step)) return { result: { variant, outcome: "invalid", errors }, opened: false };
     if (state.n > 0) {
       state.n -= 1;
       const title = fallbackText(input.payload);
@@ -259,22 +310,26 @@ async function presentWithRepair(
         ...(title !== undefined ? { title } : {}),
         ...(input.surfaceId !== undefined ? { surfaceId: input.surfaceId } : {}),
       };
-      return { variant, outcome: "invalid", errors };
+      return { result: { variant, outcome: "invalid", errors }, opened: true };
     }
+    // Only a later-step call reaches here with an attempt (a same-step one returned above).
     if (attempt !== undefined) attempt.open = false;
     const fallback = fallbackSurface(ctx.gathered, fallbackText(input.payload));
     const surfaceId = await storeSurface(ctx, {
       threadId, surfaceId: input.surfaceId, variant, payload: fallback, fallback, outcome: "fallback", failure: REPAIR_FAILED, started,
     });
-    return { surfaceId, variant, outcome: "fallback", payload: fallback, errors };
+    return { result: { surfaceId, variant, outcome: "fallback", payload: fallback, errors }, opened: false };
   }
   const outcome: SurfaceOutcome = attempt?.open === true && !sameStep(attempt.step, step) ? "repaired" : "valid";
-  if (attempt !== undefined) attempt.open = false;
+  // A valid view in the step that opened the attempt is another view of the turn, not the
+  // repair: the attempt stays open, so its repair keeps the slot it took and the turn's end
+  // still stores its fallback if no repair comes (spec 08 S4.4, PR 4 review I1).
+  if (attempt !== undefined && !sameStep(attempt.step, step)) attempt.open = false;
   const fallback = fallbackSurface(ctx.gathered, fallbackText(checked.payload));
   const surfaceId = await storeSurface(ctx, {
     threadId, surfaceId: input.surfaceId, variant, payload: checked.payload, fallback, outcome, failure: null, started,
   });
-  return { surfaceId, variant, outcome, payload: checked.payload };
+  return { result: { surfaceId, variant, outcome, payload: checked.payload }, opened: false };
 }
 
 /**
@@ -321,13 +376,64 @@ export interface PresentCallOptions {
   messages?: readonly unknown[];
 }
 
+/**
+ * The repair attempts whose repair call has arrived (spec 08 S4.4, plan D4): only the first
+ * later-step call while an attempt is open fills the slot that attempt took; another call in
+ * that step takes a slot of its own. Kept here, beside the slot accounting, not on ToolCtx.
+ */
+const claimedRepairs = new WeakSet<RepairAttempt>();
+
+/**
+ * One present call, under the turn's cap of AGENT_LIMITS.maxViewsPerTurn views (spec 08
+ * S4.4, plan D4). Everything before the first await runs synchronously when the call is
+ * made, so parallel calls in one step see each other's slots:
+ *   - the repair of an open attempt (a later-step call while ctx.repairsLeft.attempt is
+ *     open, the first such call) takes no slot: it fills the one its attempt took;
+ *   - any other call over the cap stores nothing and gets outcome `limit`;
+ *   - any other call takes a slot at once, and gives it back when it stored no row and
+ *     opened no repair attempt (an invalid call in the step that spent the repair, or a
+ *     call that threw);
+ *   - a repair that stored no row gives the attempt's slot back once the attempt is settled
+ *     (its store threw after closing it): no fallback is owed for it any more. One that
+ *     threw while the attempt is still open releases its claim instead, so the next
+ *     later-step call can repair, and the attempt keeps its slot for that repair or the
+ *     turn-end fallback.
+ */
 export async function runPresent(ctx: ToolCtx, input: PresentInput, options?: PresentCallOptions): Promise<PresentResult> {
   const threadId = ctx.threadId;
   if (threadId === null) throw new Error("present: a surface needs a thread");
   const started = Date.now();
-  if (ctx.variant === 2 || ctx.variant === 3) return presentWithRepair(ctx, ctx.variant, threadId, input, started, stepOf(options));
+  const step = stepOf(options);
+  const attempt = ctx.repairsLeft.attempt;
+  const isRepair = attempt !== undefined && attempt.open && !sameStep(attempt.step, step) && !claimedRepairs.has(attempt);
+  if (isRepair) {
+    claimedRepairs.add(attempt);
+  } else {
+    if (ctx.views.used >= AGENT_LIMITS.maxViewsPerTurn) return { variant: ctx.variant, outcome: "limit", errors: [VIEW_LIMIT_ERROR] };
+    ctx.views.used += 1;
+  }
+  let holdsSlot = false;
+  try {
+    const presented =
+      ctx.variant === 2 || ctx.variant === 3
+        ? await presentWithRepair(ctx, ctx.variant, threadId, input, started, step)
+        : { result: await presentVariant1(ctx, threadId, input, started), opened: false };
+    holdsSlot = "surfaceId" in presented.result || presented.opened;
+    return presented.result;
+  } finally {
+    if (isRepair) {
+      // A repair that threw before settling its attempt leaves it to the next later-step call.
+      if (attempt.open) claimedRepairs.delete(attempt);
+      // Settled with nothing stored for it (the store threw): the attempt's slot is free.
+      else if (!holdsSlot) ctx.views.used -= 1;
+    } else if (!holdsSlot) {
+      ctx.views.used -= 1;
+    }
+  }
+}
 
-  // Variant 1: an invalid payload falls back at once.
+/** Variant 1: an invalid payload falls back at once. */
+async function presentVariant1(ctx: ToolCtx, threadId: string, input: PresentInput, started: number): Promise<PresentResult> {
   const fallback = fallbackSurface(ctx.gathered, fallbackText(input.payload));
   const checked = await validateSurface(input.payload, ctx.variant, ctx);
   const payload = checked.ok ? checked.payload : fallback;
@@ -346,6 +452,6 @@ export function presentTool(ctx: ToolCtx) {
   return tool({
     description: presentDescription(variant),
     inputSchema: jsonSchema<PresentInput>(() => presentJsonSchema(variant), { validate: permissive }),
-    execute: (input, options) => runPresent(ctx, input, options),
+    execute: async (input, options): Promise<PresentToolOutput> => presentToolOutput(await runPresent(ctx, input, options)),
   });
 }

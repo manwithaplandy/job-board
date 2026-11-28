@@ -17,6 +17,7 @@ export const AGENT_PAGE_FIXTURE_STATES = [
   "agent-page-view-degraded",
   "agent-page-view-expanded",
   "agent-page-code-expanded",
+  "agent-page-views-multi",
 ] as const;
 
 export type AgentPageFixtureState = (typeof AGENT_PAGE_FIXTURE_STATES)[number];

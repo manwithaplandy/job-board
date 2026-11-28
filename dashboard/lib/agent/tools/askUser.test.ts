@@ -8,7 +8,7 @@ import { assertNoUserIdInput } from "@/lib/agent/tools/assertNoUserIdInput";
 
 const ctx = {
   userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "me@example.test", threadId: null, runId: "r", variant: 1 as const,
-  unattended: false, gathered: emptyGathered(), repairsLeft: { n: 1 },
+  unattended: false, gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 },
 };
 
 describe("ask_user", () => {

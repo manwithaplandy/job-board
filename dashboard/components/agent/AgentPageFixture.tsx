@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import type { Variant } from "@/lib/agent/config";
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import type { SurfacePayloadV3 } from "@/lib/agent/surfaces/v3/document";
+import type { PresentToolOutput } from "@/lib/agent/tools/present";
 import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { AgentChat, StartConversation, type AgentChatFixture } from "./AgentChat";
@@ -11,7 +12,7 @@ import { AgentPageView } from "./AgentPageView";
 import type { AgentPageFixtureState } from "./agentPageFixtureStates";
 import { TestDataBadge } from "./TestDataBadge";
 import type { ThreadSummary } from "./ThreadList";
-import { FIXTURE_GATHERED, JOBS_FIXTURE_PAYLOAD, JOBS_FIXTURE_ROWS } from "./blocks/AgentBlocksFixture";
+import { FIXTURE_GATHERED, JOBS_FIXTURE_PAYLOAD, JOBS_FIXTURE_ROWS, PREP_FIXTURE_GATHERED, PREP_FIXTURE_ROWS } from "./blocks/AgentBlocksFixture";
 import { sandboxChain } from "./SurfaceHost";
 
 // The gallery's agent page fixtures (ui-gallery/states/agent-page-*): the production agent
@@ -29,6 +30,8 @@ const SURFACE = "00000000-0000-4000-8000-0000000000b1";
 const SURFACE_UPDATED = "00000000-0000-4000-8000-0000000000b2";
 // The variant 3 (code) view of agent-page-code-expanded.
 const SURFACE_CODE = "00000000-0000-4000-8000-0000000000b3";
+// The second view of agent-page-views-multi.
+const SURFACE_SECOND = "00000000-0000-4000-8000-0000000000b4";
 const CLOCK = { now: new Date("2026-10-12T00:00:00.000Z"), frozen: true };
 
 const LONG_TITLE = "What are some jobs that would be interesting as a slight career pivot for me, given my platform background?";
@@ -54,14 +57,11 @@ function assistant(id: string, parts: UIMessage["parts"], status: "complete" | "
 const lookup = (callId: string, tool: string) =>
   ({ type: `tool-${tool}`, toolCallId: callId, state: "output-available", input: {}, output: {} }) as UIMessage["parts"][number];
 
-const present = (callId: string, surfaceId: string = SURFACE, variant: Variant = 1) =>
-  ({
-    type: "tool-present",
-    toolCallId: callId,
-    state: "output-available",
-    input: {},
-    output: { surfaceId, variant, outcome: "valid", payload: { variant: 1, blocks: [] } },
-  }) as UIMessage["parts"][number];
+// A stored present call, its output as the tool returns it: no payload (spec 08 S4.4).
+const present = (callId: string, surfaceId: string = SURFACE, variant: Variant = 1) => {
+  const output: PresentToolOutput = { surfaceId, variant, outcome: "valid" };
+  return { type: "tool-present", toolCallId: callId, state: "output-available", input: {}, output } as UIMessage["parts"][number];
+};
 
 /** A present call whose input is still arriving: its view is being built. */
 const building = (callId: string) =>
@@ -166,6 +166,22 @@ const CODE_REPLY: UIMessage[] = [
   ]),
 ];
 
+// Two views in one reply (spec 08 S4.1, S4.4): text, view, text, view, text, in stored
+// order. The first is the jobs view; the second shows something different, the user's
+// application numbers.
+const VIEWS_MULTI: UIMessage[] = [
+  ...CONVERSATION.slice(0, 3),
+  assistant("a2", [
+    lookup("c2", "search_jobs"),
+    lookup("c3", "query_metrics"),
+    { type: "text", text: "Two of your reviewed jobs fit developer tooling. Here they are side by side:" },
+    present("c4"),
+    { type: "text", text: "Acme pays more and is remote, so it comes first. For context, here is how your applications are going:" },
+    present("c5", SURFACE_SECOND),
+    { type: "text", text: "Most of your applications are still at **applied**, so I would start the Acme prep this week." },
+  ]),
+];
+
 export const CODE_FIXTURE_DOCUMENT: SurfacePayloadV3 = {
   variant: 3,
   title: "Two developer tooling matches",
@@ -213,6 +229,29 @@ const UPDATED_CHAINS: HostChain[] = [
   },
 ];
 
+const MULTI_CHAINS: HostChain[] = [
+  ...CHAINS,
+  {
+    chainId: SURFACE_SECOND,
+    memberIds: [SURFACE_SECOND],
+    surface: {
+      ...FIXTURE_SURFACE,
+      id: SURFACE_SECOND,
+      createdAt: "2026-11-25T12:00:01.000Z",
+      payload: {
+        variant: 1,
+        title: "How your applications are going",
+        blocks: [
+          { type: "StatRow", metricRefs: [0, 2] },
+          { type: "MetricChart", metricRef: 3, viz: "bar", title: "Where your applications are" },
+        ],
+      },
+      gathered: PREP_FIXTURE_GATHERED,
+      rows: PREP_FIXTURE_ROWS,
+    },
+  },
+];
+
 const DEGRADED_CHAINS: HostChain[] = [{ chainId: SURFACE, memberIds: [SURFACE], surface: { ...FIXTURE_SURFACE, variant: 2, outcome: "fallback" } }];
 
 const VARIANT_OF: Partial<Record<AgentPageFixtureState, Variant>> = {
@@ -234,6 +273,7 @@ const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
   "agent-page-view-degraded": VIEW_DEGRADED,
   "agent-page-view-expanded": WITH_SURFACE,
   "agent-page-code-expanded": CODE_REPLY,
+  "agent-page-views-multi": VIEWS_MULTI,
 };
 
 const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
@@ -244,6 +284,7 @@ const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
   "agent-page-view-degraded": DEGRADED_CHAINS,
   "agent-page-view-expanded": CHAINS,
   "agent-page-code-expanded": CODE_CHAINS,
+  "agent-page-views-multi": MULTI_CHAINS,
 };
 
 // The chat's gallery seam: a frozen working timer, one message's steps open, or a view
@@ -256,9 +297,14 @@ const CHAT_FIXTURE_OF: Partial<Record<AgentPageFixtureState, AgentChatFixture>> 
   "agent-page-code-expanded": { expandedChainId: SURFACE_CODE },
 };
 
+/** The messages a state's chat starts with (exported for its test). */
+export function agentPageFixtureMessages(state: AgentPageFixtureState): UIMessage[] {
+  return MESSAGES_OF[state] ?? CONVERSATION;
+}
+
 export function AgentPageFixture({ state }: { state: AgentPageFixtureState }) {
   const open = state !== "agent-page-empty";
-  const messages = MESSAGES_OF[state] ?? CONVERSATION;
+  const messages = agentPageFixtureMessages(state);
   return (
     <AppShell header={<AppHeader current="agent" email="sam@example.com" isAdmin />}>
       <AgentPageView

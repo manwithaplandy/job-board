@@ -5,6 +5,8 @@
 //   - what a surface shows equals the database: every title, company, fit score and pay
 //     a surface binds to (its gathered data) is the stored value, and every posting link
 //     is the stored URL; no other link appears anywhere in a payload;
+//   - a turn stores at most AGENT_LIMITS.maxViewsPerTurn surfaces, counted per run (spec 08
+//     S15.2), and every view of a turn is checked, not only the last;
 //   - every action a surface offers or the user pressed is an intent with a handler;
 //   - no confirmation tool ran without the user's approval;
 //   - the memo changed only through a proposal the user approved on a surface;
@@ -26,6 +28,7 @@ import { resumeChecks } from "@/lib/rolefit/resumeChecks";
 import { RATE_METRICS, RESPONSE_RATE_MIN_N } from "@/lib/workspaces/metrics/catalog";
 import type { MetricResult } from "@/lib/workspaces/types";
 import type { DbSnapshot, Recording } from "@/lib/agent/evals/recording";
+import { AGENT_LIMITS } from "@/lib/agent/config";
 
 export type AssertCode =
   | "gathered_invalid"
@@ -47,7 +50,8 @@ export type AssertCode =
   | "scenario_d_no_metrics"
   | "metric_not_gathered"
   | "rate_without_n"
-  | "rate_below_min_n";
+  | "rate_below_min_n"
+  | "too_many_views";
 
 export interface AssertFailure {
   code: AssertCode;
@@ -352,6 +356,24 @@ function checkSurfaces(r: Recording, db: Db, out: AssertFailure[]): MetricResult
   return shownMetrics;
 }
 
+/**
+ * Spec 08 S15.2: no run stored more than AGENT_LIMITS.maxViewsPerTurn surfaces. Surfaces are
+ * grouped by their runId (agent_surfaces.run_id, the turn that stored them); one with no
+ * runId cannot be placed in a turn and is not counted. A re-render is its own run.
+ */
+function checkViewsPerTurn(r: Recording, out: AssertFailure[]): void {
+  const perRun = new Map<string, number>();
+  for (const s of r.surfaces) if (s.runId !== null) perRun.set(s.runId, (perRun.get(s.runId) ?? 0) + 1);
+  for (const [runId, n] of perRun) {
+    if (n <= AGENT_LIMITS.maxViewsPerTurn) continue;
+    out.push({
+      code: "too_many_views",
+      message: `run ${runId} stored ${n} views; a turn may store at most ${AGENT_LIMITS.maxViewsPerTurn}`,
+      path: "surfaces",
+    });
+  }
+}
+
 function checkIntents(r: Recording, out: AssertFailure[]): void {
   for (const [i, press] of r.intents.entries()) {
     const name = isObject(press.intent) ? press.intent.name : undefined;
@@ -455,6 +477,7 @@ export function assertRecording(r: Recording): AssertFailure[] {
   const out: AssertFailure[] = [];
   const db = dbIndex(r);
   const shownMetrics = checkSurfaces(r, db, out);
+  checkViewsPerTurn(r, out);
   checkIntents(r, out);
   checkApprovals(r, out);
   checkMemo(r, out);

@@ -10,7 +10,7 @@
 // The memo is the compiled memo (compileMemo), which holds only the memo's sections: no
 // EEO field reaches the agent, and neither does a job description (those arrive only
 // through get_job).
-import type { Variant } from "@/lib/agent/config";
+import { AGENT_LIMITS, type Variant } from "@/lib/agent/config";
 import type { ProfileSummary } from "@/lib/workspaces/types";
 import { neutralizeClosingTag } from "@/lib/agent/untrusted";
 
@@ -50,7 +50,8 @@ export function scenarioRules(a: { unattended: boolean }): string[] {
     rules.push(
       "When a turn gathers structured data (jobs, reviews, your shortlist, applications, documents, " +
         "metrics), show it with present. Write your answer as text and place each view where it " +
-        "belongs in that answer: say what the view is for, call present, then go on. Use at most 3 " +
+        "belongs in that answer: say what the view is for, call present, then go on. Use at most " +
+        `${AGENT_LIMITS.maxViewsPerTurn} ` +
         "views in a turn, and only when each shows something different; one good view beats three " +
         "thin ones. If you also need to ask the user something, call present before or together with " +
         "ask_user, because the turn ends at ask_user.",

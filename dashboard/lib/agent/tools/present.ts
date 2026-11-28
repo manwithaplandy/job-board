@@ -1,6 +1,6 @@
 // The present tool (plan Tasks 1.17 and 2.3, spec 7.1): renders or updates a surface in
 // the thread's variant. A turn gathers with the read and write tools, then places up to
-// AGENT_LIMITS.maxViewsPerTurn (3) views in its answer (spec 08 S4.4): a call over the cap
+// AGENT_LIMITS.maxViewsPerTurn views in its answer (spec 08 S4.4): a call over the cap
 // stores nothing and gets outcome `limit` (runPresent has the slot accounting).
 //
 // The model sees the variant's full JSON schema, but the tool's own validation is
@@ -65,7 +65,7 @@ export const REPAIR_FAILED = "invalid_after_repair";
 /** The failure code of a variant 2 surface whose turn ended before the repair came. */
 export const REPAIR_NOT_ATTEMPTED = "repair_not_attempted";
 /** What a present call over the turn's cap gets back (spec 08 S4.4). */
-export const VIEW_LIMIT_ERROR = "This turn already has 3 views. Finish the answer in text.";
+export const VIEW_LIMIT_ERROR = `This turn already has ${AGENT_LIMITS.maxViewsPerTurn} views. Finish the answer in text.`;
 
 export interface PresentInput {
   surfaceId?: string;
@@ -205,9 +205,10 @@ export function singlePresentDescription(variant: Variant): string {
 export function presentDescription(variant: Variant): string {
   return (
     `${singlePresentDescription(variant)} ` +
-    // Spec 08 S4.4, verbatim: the per-turn cap (runPresent) and its outcome.
-    "You may show up to 3 views in one turn, each where it belongs in your answer. A result with " +
-    "outcome limit means the turn has its 3 views: do not call present again."
+    // Spec 08 S4.4, verbatim: the per-turn cap (runPresent) and its outcome. The number follows
+    // AGENT_LIMITS.maxViewsPerTurn (fix wave M11), so the prompt and the cap cannot drift.
+    `You may show up to ${AGENT_LIMITS.maxViewsPerTurn} views in one turn, each where it belongs in your answer. A result with ` +
+    `outcome limit means the turn has its ${AGENT_LIMITS.maxViewsPerTurn} views: do not call present again.`
   );
 }
 

@@ -24,7 +24,8 @@ vi.mock("@/lib/db", () => ({
 import type { ToolCtx } from "@/lib/agent/tools";
 import { buildTools } from "@/lib/agent/tools";
 import { assertNoUserIdInput } from "@/lib/agent/tools/assertNoUserIdInput";
-import { finishPendingRepair, presentTool, REPAIR_NOT_ATTEMPTED, runPresent } from "@/lib/agent/tools/present";
+import { finishPendingRepair, presentTool, REPAIR_NOT_ATTEMPTED, runPresent, VIEW_LIMIT_ERROR } from "@/lib/agent/tools/present";
+import { AGENT_LIMITS } from "@/lib/agent/config";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
 
@@ -387,5 +388,115 @@ describe("present, variant 3", () => {
   test("a variant 2 tree or a variant 1 payload in a variant 3 thread is invalid", async () => {
     const out = await runPresent(ctx({ variant: 3 }), { payload: { variant: 1, blocks: [{ type: "JobCard", jobId: JOB_A }] } });
     expect(out).toMatchObject({ variant: 3, outcome: "invalid" });
+  });
+});
+
+// The per-turn cap (spec 08 S4.4, plan D4): a call takes a slot at entry, before any await,
+// so parallel calls in one step see each other; a call that stores nothing and opens no
+// repair gives its slot back; the repair of an open attempt fills the slot its attempt took.
+describe("present, at most 3 views per turn", () => {
+  const blocks = (title = "Top match") => ({ variant: 1, title, blocks: [{ type: "JobCard", jobId: JOB_A }] });
+  const doc = (title = "Top picks") => ({ variant: 3, title, html: "<h1>Picks</h1><script>host.onInit(function () {});</script>" });
+  const hostile = { variant: 3, title: "Picks", html: '<form></form><script>fetch("x")</script>' };
+  const step1 = { messages: [{}, {}] };
+  const step2 = { messages: [{}, {}, {}, {}] };
+  const step3 = { messages: [{}, {}, {}, {}, {}, {}] };
+
+  test("the cap is 3 and the limit error is the spec's sentence", () => {
+    expect(AGENT_LIMITS.maxViewsPerTurn).toBe(3);
+    expect(VIEW_LIMIT_ERROR).toBe("This turn already has 3 views. Finish the answer in text.");
+  });
+
+  test("three stores take three slots; the fourth returns limit and stores nothing", async () => {
+    const c = ctx();
+    for (const title of ["One", "Two", "Three"]) {
+      expect(await runPresent(c, { payload: blocks(title) })).toMatchObject({ outcome: "valid" });
+    }
+    expect(c.views.used).toBe(3);
+    const fourth = await runPresent(c, { payload: blocks("Four") });
+    expect(fourth).toEqual({ variant: 1, outcome: "limit", errors: [VIEW_LIMIT_ERROR] });
+    expect(c.views.used).toBe(3);
+    expect(m.saveSurface).toHaveBeenCalledTimes(3);
+  });
+
+  test("three parallel calls plus a fourth in one step: exactly three store", async () => {
+    const c = ctx({ variant: 3 });
+    const results = await Promise.all(["A", "B", "C", "D"].map((t) => runPresent(c, { payload: doc(t) }, step1)));
+    expect(results.map((r) => r.outcome)).toEqual(["valid", "valid", "valid", "limit"]);
+    expect(results.filter((r) => r.outcome === "limit")).toHaveLength(1);
+    expect(m.saveSurface).toHaveBeenCalledTimes(3);
+    expect(c.views.used).toBe(3);
+  });
+
+  test("an open repair attempt holds one slot and its repair does not take a second", async () => {
+    const c = ctx({ variant: 3 });
+    expect(await runPresent(c, { payload: hostile }, step1)).toMatchObject({ outcome: "invalid" });
+    expect(c.views.used).toBe(1);
+    expect(await runPresent(c, { payload: doc("Fixed") }, step2)).toMatchObject({ outcome: "repaired" });
+    expect(c.views.used).toBe(1);
+    expect(m.saveSurface).toHaveBeenCalledTimes(1);
+    // At the cap, the repair still goes through: it fills the slot its attempt took.
+    const full = ctx({ variant: 3 });
+    await runPresent(full, { payload: doc("One") }, step1);
+    await runPresent(full, { payload: doc("Two") }, step1);
+    await runPresent(full, { payload: hostile }, step1);
+    expect(full.views.used).toBe(3);
+    expect(await runPresent(full, { payload: doc("Fixed") }, step2)).toMatchObject({ outcome: "repaired" });
+    expect(full.views.used).toBe(3);
+    // Once settled, nothing is held open: the next call is over the cap.
+    expect(await runPresent(full, { payload: doc("Four") }, step3)).toMatchObject({ outcome: "limit" });
+    expect(m.saveSurface).toHaveBeenCalledTimes(4);
+  });
+
+  test("two later-step calls while a repair is open: only the first is the repair", async () => {
+    const c = ctx({ variant: 3 });
+    await runPresent(c, { payload: doc("One") }, step1);
+    await runPresent(c, { payload: doc("Two") }, step1);
+    await runPresent(c, { payload: hostile }, step1);
+    vi.clearAllMocks();
+    const [a, b] = await Promise.all([runPresent(c, { payload: doc("A") }, step2), runPresent(c, { payload: doc("B") }, step2)]);
+    expect(a).toMatchObject({ outcome: "repaired" });
+    expect(b).toEqual({ variant: 3, outcome: "limit", errors: [VIEW_LIMIT_ERROR] });
+    expect(m.saveSurface).toHaveBeenCalledTimes(1);
+    expect(c.views.used).toBe(3);
+  });
+
+  test("an update takes a slot", async () => {
+    m.ownSurfaces.add(OLD);
+    const c = ctx();
+    expect(await runPresent(c, { surfaceId: OLD, payload: blocks() })).toMatchObject({ outcome: "valid" });
+    expect(saved()).toMatchObject({ supersedes: OLD });
+    expect(c.views.used).toBe(1);
+  });
+
+  test("an invalid same-step call that stores nothing and opens no attempt releases its slot", async () => {
+    const c = ctx({ variant: 3 });
+    expect(await runPresent(c, { payload: hostile }, step1)).toMatchObject({ outcome: "invalid" });
+    expect(c.views.used).toBe(1);
+    expect(await runPresent(c, { payload: hostile }, step1)).toMatchObject({ outcome: "invalid" });
+    expect(c.views.used).toBe(1);
+    // In parallel too: the call that opened the attempt keeps its slot, the other gives it back.
+    const p = ctx({ variant: 3 });
+    await Promise.all([runPresent(p, { payload: hostile }, step1), runPresent(p, { payload: hostile }, step1)]);
+    expect(p.views.used).toBe(1);
+    expect(m.saveSurface).not.toHaveBeenCalled();
+  });
+
+  test("after the repair is spent, an invalid v3 payload stores the v1 fallback at once and takes a slot", async () => {
+    const c = ctx({ variant: 3 });
+    await runPresent(c, { payload: hostile }, step1);
+    await runPresent(c, { payload: doc("Fixed") }, step2);
+    expect(c.views.used).toBe(1);
+    const out = await runPresent(c, { payload: hostile }, step3);
+    expect(out).toMatchObject({ surfaceId: NEW, variant: 3, outcome: "fallback", payload: fallbackSurface(c.gathered, "Picks") });
+    expect(c.views.used).toBe(2);
+    expect(m.saveSurface).toHaveBeenCalledTimes(2);
+  });
+
+  test("a call whose store throws gives its slot back", async () => {
+    const c = ctx();
+    m.saveSurface.mockRejectedValueOnce(new Error("db down"));
+    await expect(runPresent(c, { payload: blocks() })).rejects.toThrow(/db down/);
+    expect(c.views.used).toBe(0);
   });
 });

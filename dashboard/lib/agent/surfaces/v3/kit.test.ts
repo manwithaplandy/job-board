@@ -6,6 +6,9 @@ import { KIT_TOKENS, KIT_TOKEN_NAMES } from "@/lib/agent/surfaces/v3/kitTokens";
 import { parseThemeTokens } from "@/lib/agent/surfaces/v3/themeTokens";
 import { buildSandboxDocument, checkV3Static } from "@/lib/agent/surfaces/v3/document";
 
+/** The kit's own cap: it is not counted against the model's 60,000 bytes (spec 08 S9). */
+const KIT_BYTES_BUDGET = 120_000;
+
 const GLOBALS_CSS = readFileSync(join(__dirname, "../../../../app/globals.css"), "utf8");
 
 function varsUsed(text: string): string[] {
@@ -132,8 +135,17 @@ describe("variant 3 kit script", () => {
   });
 
   test("the kit itself passes the variant 3 static checks and the document builder", () => {
-    expect(checkV3Static(`<style>${KIT_CSS}</style><script>${KIT_JS}</script>`)).toEqual([]);
+    // Spec 08 S9: the kit is injected by the host and does not count toward
+    // V3_LIMITS.maxBytes, so the model's byte cap is the one rule not applied to it (PR 5;
+    // the kit's own budget is the next test). Every other rule is.
+    const errors = checkV3Static(`<style>${KIT_CSS}</style><script>${KIT_JS}</script>`);
+    expect(errors.filter((e) => !/^html: \d+ bytes is over the \d+ byte cap$/.test(e))).toEqual([]);
     expect(() => buildSandboxDocument({ html: "<p>x</p>", nonce: "AAAAAAAAAAAAAAAAAAAAAAAA", kitJs: KIT_JS, kitCss: KIT_CSS })).not.toThrow();
+  });
+
+  test("the kit stays within its own size budget (PR 5)", () => {
+    const bytes = new TextEncoder().encode(KIT_CSS + KIT_JS).length;
+    expect(bytes).toBeLessThan(KIT_BYTES_BUDGET);
   });
 
   test("the ready message is posted before any script of the document can run", () => {

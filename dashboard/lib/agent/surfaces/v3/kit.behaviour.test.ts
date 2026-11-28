@@ -4,14 +4,45 @@
 // the CSP are Task 2.7's real-browser tests.
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { KIT_CSS, KIT_JS } from "@/lib/agent/surfaces/v3/kit";
+import { payLabel } from "@/components/agent/blocks/shared";
+import type { ReviewFacts } from "@/lib/workspaces/types";
 
 interface KitHost {
   readonly data: unknown;
   readonly theme: string;
   onInit(cb: (data: unknown, theme: string) => void): void;
   action(name: string, args?: unknown): void;
-  chart(el: Element, spec: unknown): void;
+  chart(el: Element, spec: unknown): unknown;
+  el(tag: string, attrs?: Record<string, unknown>, children?: unknown[]): Element;
+  format: {
+    number(n: unknown): string;
+    percent(n: unknown): string;
+    days(n: unknown): string;
+    date(iso: unknown): string;
+    pay(review: unknown): string | null;
+  };
+  job(id: unknown): { job: unknown; review: unknown; shortlist: unknown; application: unknown } | null;
 }
+
+// The snapshot the first init carries (the shape of sandboxSnapshot, trimmed): host.job
+// joins over it. JOB_C is only in the applications list, with its job inside.
+const JOB_A = "greenhouse:acme:101";
+const JOB_B = "lever:globex:202";
+const JOB_C = "ashby:initech:303";
+const INIT_DATA = {
+  jobs: {
+    [JOB_A]: { jobId: JOB_A, title: "Platform Engineer", company: "Acme" },
+    [JOB_B]: { jobId: JOB_B, title: "Backend Engineer", company: "Globex" },
+  },
+  reviews: {
+    [JOB_A]: { jobId: JOB_A, fitScore: 82, payMin: 150000, payMax: 180000, payCurrency: "USD", payPeriod: "year" },
+  },
+  shortlist: [{ jobId: JOB_A, state: "shortlisted", job: { jobId: JOB_A, title: "Platform Engineer", company: "Acme" } }],
+  applications: [
+    { jobId: JOB_B, stage: "applied", job: { jobId: JOB_B, title: "Backend Engineer", company: "Globex" } },
+    { jobId: JOB_C, stage: "interviewing", job: { jobId: JOB_C, title: "Data Engineer", company: "Initech" } },
+  ],
+};
 
 const onWindow: unknown[] = [];
 const onPort: unknown[] = [];
@@ -194,16 +225,16 @@ describe("the kit in a document", () => {
 
     const seen: unknown[] = [];
     host().onInit((data, theme) => seen.push([data, theme]));
-    init({ jobs: {} }, "dark");
+    init(INIT_DATA, "dark");
     init({ other: 1 }, "light");
-    await vi.waitFor(() => expect(seen).toEqual([[{ jobs: {} }, "dark"]]));
+    await vi.waitFor(() => expect(seen).toEqual([[INIT_DATA, "dark"]]));
     await tick();
     expect(seen).toHaveLength(1);
-    expect(host().data).toEqual({ jobs: {} });
+    expect(host().data).toEqual(INIT_DATA);
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     const late: unknown[] = [];
     host().onInit((data) => late.push(data));
-    expect(late).toEqual([{ jobs: {} }]);
+    expect(late).toEqual([INIT_DATA]);
     // Fix round 1, I2: exactly one inited ack, for the first init only.
     expect(ofType("inited")).toEqual([{ type: "inited" }]);
   });
@@ -236,7 +267,7 @@ describe("the kit in a document", () => {
     port!.postMessage({ type: "theme", theme: "dark" });
     await vi.waitFor(() => expect(host().theme).toBe("dark"));
     // The data stays as init set it, and no second ack goes out.
-    expect(host().data).toEqual({ jobs: {} });
+    expect(host().data).toEqual(INIT_DATA);
     expect(ofType("inited")).toHaveLength(1);
   });
 
@@ -814,5 +845,118 @@ describe('jb-button variant="secondary"', () => {
     press(secondary, " ");
     await vi.waitFor(() => expect(ofType("action")).toHaveLength(before + 3));
     expect(ofType("action").at(-1)).toEqual({ type: "action", name: "open", args: { target: "tracker" } });
+  });
+});
+
+// PR 5 Task 5.4 (spec 08 S9.5): host.el, host.format and host.job.
+describe("host.el", () => {
+  test("builds an element from the allowed attributes only; text and string children are text", () => {
+    const p = host().el("p", { class: "x", text: "<b>", onclick: "y", "aria-label": "a", "data-k": "v" }, ["t"]);
+    expect(p.tagName).toBe("P");
+    expect(p.getAttribute("class")).toBe("x");
+    expect(p.textContent).toBe("<b>t");
+    expect(p.querySelector("b")).toBeNull();
+    expect(p.hasAttribute("onclick")).toBe(false);
+    expect(p.getAttribute("aria-label")).toBe("a");
+    expect(p.getAttribute("data-k")).toBe("v");
+    expect(p.getAttributeNames().sort()).toEqual(["aria-label", "class", "data-k"]);
+  });
+
+  test("role, title, colspan, rowspan and hidden pass; anything else is ignored; element children are appended", () => {
+    const cell = host().el("td", { role: "cell", title: "T", colspan: 2, rowspan: "3", hidden: true, id: "i", style: "color: red", src: "x", href: "y" });
+    expect(cell.getAttributeNames().sort()).toEqual(["colspan", "hidden", "role", "rowspan", "title"]);
+    expect(cell.getAttribute("colspan")).toBe("2");
+    expect(host().el("td", { hidden: false }).hasAttribute("hidden")).toBe(false);
+    const li = host().el("li", undefined, ["a ", host().el("strong", { text: "b" }), null, 3]);
+    expect(li.innerHTML).toBe("a <strong>b</strong>3");
+    expect(() => host().el("iframe")).toThrow();
+  });
+});
+
+describe("host.format", () => {
+  test("number, percent, days and date on a small table; anything that is not a value formats as empty", () => {
+    const f = host().format;
+    const rows: Array<[keyof typeof f, unknown, string]> = [
+      ["number", 1234, "1,234"],
+      ["number", 1234.5, "1,234.5"],
+      ["number", 0, "0"],
+      ["number", -5, "-5"],
+      ["number", Number.NaN, ""],
+      ["number", null, ""],
+      ["number", "12", ""],
+      ["percent", 0.456, "46%"],
+      ["percent", 1, "100%"],
+      ["percent", 0, "0%"],
+      ["percent", undefined, ""],
+      ["days", 0, "0 days"],
+      ["days", 1, "1 day"],
+      ["days", 2.6, "3 days"],
+      ["days", 1200, "1,200 days"],
+      ["days", null, ""],
+      ["date", "2026-11-28", "Nov 28, 2026"],
+      ["date", "2026-01-05T23:30:00Z", "Jan 5, 2026"],
+      ["date", "2026-13-01", ""],
+      ["date", "soon", ""],
+      ["date", null, ""],
+    ];
+    for (const [fn, input, want] of rows) expect({ fn, input, got: f[fn](input) }).toEqual({ fn, input, got: want });
+    expect(Object.isFrozen(f)).toBe(true);
+  });
+
+  test("pay parity: host.format.pay equals the app's payLabel on every row", () => {
+    const base: ReviewFacts = {
+      jobId: "j", verdict: null, fitScore: null, skillsScore: null, experienceScore: null, compScore: null,
+      payMin: null, payMax: null, payCurrency: null, payPeriod: null, workArrangement: null, seniority: null,
+      redFlags: [], skillGaps: [], requirements: [], reasoning: null, stale: false,
+    };
+    const pay = (payMin: number | null, payMax: number | null, payCurrency: string | null, payPeriod: string | null): ReviewFacts => ({
+      ...base, payMin, payMax, payCurrency, payPeriod,
+    });
+    const table: Array<ReviewFacts | null> = [
+      pay(150000, 180000, "USD", "year"), // both
+      pay(150000, null, "USD", "year"), // min only
+      pay(null, 180000, "USD", "year"), // max only
+      pay(120000, 120000, "USD", "year"), // equal
+      pay(150000, 180000, null, "year"), // missing currency
+      pay(150000, 180000, "EUR", "year"),
+      pay(45, 60, "USD", "hour"),
+      pay(45, null, "USD", "hour"),
+      pay(null, 60, null, "hour"),
+      pay(8000, 9500, "USD", "month"),
+      pay(150000, 180000, "USD", null), // no period
+      pay(0, 0, "USD", "year"), // zero
+      pay(0, null, "USD", "hour"),
+      pay(149500, 180499, "GBP", "month"), // rounding to the nearest thousand
+      pay(null, null, "USD", "year"), // nothing listed
+      pay(null, null, null, null),
+      null,
+    ];
+    expect(table.length).toBeGreaterThanOrEqual(12);
+    for (const review of table) {
+      expect({ review, kit: host().format.pay(review) }).toEqual({ review, kit: payLabel(review) });
+    }
+    // The snapshot's JSON may leave a field out entirely: treated as not listed.
+    expect(host().format.pay({ payMin: 90000 })).toBe(payLabel(pay(90000, null, null, null)));
+  });
+});
+
+describe("host.job", () => {
+  test("joins job, review, shortlist row and application for one id from host.data; null for an unknown id", () => {
+    expect(host().job(JOB_A)).toEqual({
+      job: INIT_DATA.jobs[JOB_A], review: INIT_DATA.reviews[JOB_A], shortlist: INIT_DATA.shortlist[0], application: null,
+    });
+    expect(host().job(JOB_B)).toEqual({ job: INIT_DATA.jobs[JOB_B], review: null, shortlist: null, application: INIT_DATA.applications[0] });
+    // A job only in the applications list: its job is the application's own.
+    expect(host().job(JOB_C)).toEqual({ job: INIT_DATA.applications[1].job, review: null, shortlist: null, application: INIT_DATA.applications[1] });
+    for (const unknown of ["nope", "__proto__", "constructor", "", 3, null, undefined]) expect(host().job(unknown), String(unknown)).toBeNull();
+  });
+
+  test("host is still frozen and its helpers cannot be replaced", () => {
+    const h = host();
+    expect(Object.isFrozen(h)).toBe(true);
+    for (const name of ["el", "format", "job", "chart", "action", "onInit"]) {
+      expect({ name, set: Reflect.set(h, name, () => "x") }).toEqual({ name, set: false });
+    }
+    expect(Reflect.set(h.format, "pay", () => "x")).toBe(false);
   });
 });

@@ -719,6 +719,101 @@ export const KIT_JS: string = `(function () {
     el.appendChild(svg);
   }
 
+  /* PR 5 (spec 08 S9.5): host.el builds an element from a closed set of attributes; text
+     and string children become text nodes, so data never travels as markup. */
+  var testRe = uncurry(RegExp.prototype.test);
+  var execRe = uncurry(RegExp.prototype.exec);
+  var EL_ATTRS = { role: 1, title: 1, colspan: 1, rowspan: 1 };
+  var EL_ATTR_RE = /^(?:aria|data)-[A-Za-z0-9_.:-]+$/;
+  function buildEl(tag, attrs, children) {
+    var e = makeEl(document, String(tag));
+    if (attrs && typeof attrs === "object") {
+      var keys = ownKeys(attrs);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var v = attrs[k];
+        if (v === undefined || v === null) continue;
+        if (k === "class") setAttr(e, "class", String(v));
+        else if (k === "text") setText(e, String(v));
+        else if (k === "hidden") { if (v) setAttr(e, "hidden", ""); }
+        else if (hasOwn(EL_ATTRS, k) || testRe(EL_ATTR_RE, k)) setAttr(e, k, String(v));
+      }
+    }
+    if (isList(children)) {
+      for (var j = 0; j < children.length; j++) {
+        var c = children[j];
+        if (typeof c === "string" || typeof c === "number") appendTo(e, makeText(document, String(c)));
+        else if (isElement(c)) appendTo(e, c);
+      }
+    }
+    return e;
+  }
+
+  /* host.format.date: the calendar date an ISO string starts with, as "Nov 28, 2026" (the
+     date as written, no time zone shift); "" for anything else. */
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var DATE_RE = /^(\\d{4})-(\\d{2})-(\\d{2})(?:$|T)/;
+  function fmtDate(iso) {
+    if (typeof iso !== "string") return "";
+    var m = execRe(DATE_RE, iso);
+    if (!m) return "";
+    var y = toNumber(m[1]);
+    var mo = toNumber(m[2]);
+    var d = toNumber(m[3]);
+    var leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    var days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (mo < 1 || mo > 12 || d < 1 || d > days[mo - 1]) return "";
+    return MONTHS[mo - 1] + " " + d + ", " + y;
+  }
+  /* host.format.pay: the review's pay exactly as the app shows it (fmtPay in
+     lib/rolefit/fit.ts, through payLabel; kit.behaviour.test.ts runs both over one table),
+     or null when none is listed. */
+  function fmtPay(r) {
+    if (!r || typeof r !== "object") return null;
+    var min = r.payMin;
+    var max = r.payMax;
+    var cur = r.payCurrency;
+    if (min == null && max == null) return null;
+    var c = !cur || cur === "USD" ? "$" : cur + " ";
+    if (r.payPeriod === "hour") {
+      if (min != null && max == null) return "From " + c + min + "/hr";
+      if (max != null && min == null) return "Up to " + c + max + "/hr";
+      return c + (min == null ? "?" : min) + "\\u2013" + (max == null ? "?" : max) + "/hr";
+    }
+    function k(n) { return M.round(n / 1000) + "k"; }
+    if (min != null && max == null) return "From " + c + k(min);
+    if (max != null && min == null) return "Up to " + c + k(max);
+    return c + (min != null ? k(min) : "?") + "\\u2013" + (max != null ? k(max) : "?");
+  }
+  var format = freeze({ number: fmtNumber, percent: fmtPercent, days: fmtDays, date: fmtDate, pay: fmtPay });
+
+  /* host.job: a read-only join over host.data for one job id, or null when the id is in
+     none of jobs, reviews, shortlist and applications. A job that is only on the shortlist
+     or in the applications list is that row's own job. */
+  function ownValue(record, id) {
+    return record && typeof record === "object" && hasOwn(record, id) ? record[id] : null;
+  }
+  function rowFor(list, id) {
+    if (!isList(list)) return null;
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i];
+      if (row && typeof row === "object" && row.jobId === id) return row;
+    }
+    return null;
+  }
+  function jobOf(id) {
+    if (typeof id !== "string" || id === "") return null;
+    var d = state.data;
+    if (!d || typeof d !== "object") return null;
+    var j = ownValue(d.jobs, id);
+    var r = ownValue(d.reviews, id);
+    var s = rowFor(d.shortlist, id);
+    var a = rowFor(d.applications, id);
+    if (j === null) j = s && s.job ? s.job : a && a.job ? a.job : null;
+    if (j === null && r === null && s === null && a === null) return null;
+    return { job: j, review: r, shortlist: s, application: a };
+  }
+
   var host = {
     get data() { return state.data; },
     get theme() { return state.theme; },
@@ -729,7 +824,10 @@ export const KIT_JS: string = `(function () {
     action: function (name, args) {
       post({ type: "action", name: String(name), args: args === undefined ? {} : args });
     },
-    chart: chart
+    chart: chart,
+    el: buildEl,
+    format: format,
+    job: jobOf
   };
   Object.defineProperty(window, "host", { value: Object.freeze(host), writable: false, configurable: false });
 

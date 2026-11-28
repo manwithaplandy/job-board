@@ -104,8 +104,9 @@ function mapCaps(f: (s: CapSpec) => number, specs: Record<CapKey, CapSpec> = CAP
 //   Sonnet runs as the spot check below, or with --allow-non-haiku and a run the cap
 //   stops. Tokens and minutes keep their earlier sizes (a token is a token on either
 //   model; Haiku is not slower).
-// - injection, per model: 15 model-driven cases by 3 variants (45 runs), about 5.6M
-//   tokens and $0.65 uncached on Haiku; $1 by default, $1.50 at most.
+// - injection, per model: 19 model-driven cases by 3 variants (57 runs; PR 6 added the
+//   four ask cases), about 7.1M tokens and $0.82 uncached on Haiku; $1 by default, $1.50
+//   at most.
 // - judge: Haiku 5.5 (judgeModel.ts), 144 pairs by default, about 1.8M tokens and $0.20;
 //   $0.50 by default, $1 at most (360 pairs would be about $0.50).
 // - spot-check (--matrix --spot-check): Sonnet 5.5, one persona and one repeat, all 4
@@ -199,7 +200,7 @@ const spec = (
 ): CapSpec => ({ ...base, ...over });
 
 export const MATRIX_CELLS = 180;
-export const INJECTION_RUNS_PER_MODEL = 45;
+export const INJECTION_RUNS_PER_MODEL = 57;
 export const JUDGE_PAIRS_DEFAULT = 144;
 export const JUDGE_PAIRS_CEILING = 360;
 /** The spot check: 4 scenarios, one persona, one repeat, 3 variants. */

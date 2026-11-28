@@ -43,6 +43,12 @@ const ToolCallSchema = z
     approval: z.object({ id: z.string(), approved: z.boolean().nullable() }).strict().nullable(),
     /** sha256 of the stored output (JSON) in hex, or null when there is none. */
     outputDigest: z.string().nullable(),
+    /**
+     * PR 6 (spec 08 S15.2): the id of the user message whose turn made the call (the last user
+     * message before its assistant message), so asserts.ts can tell a turn a view started
+     * ("view-" ids). Optional, so RECORDING_FORMAT stays 1 and older recordings still parse.
+     */
+    userMessageId: z.string().optional(),
   })
   .strict();
 export type RecordedToolCall = z.infer<typeof ToolCallSchema>;

@@ -46,6 +46,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
 import {
+  HARNESS_ASK_BIDI_SHOWN,
+  HARNESS_ASK_SWAPPED,
+  HARNESS_ASK_TEXT,
   HARNESS_DESCRIBE_DELAY_MS,
   HARNESS_ENABLE_ENV,
   HARNESS_JOB_A,
@@ -165,6 +168,8 @@ interface CaseRecord {
   reports: unknown[];
   /** Every load event of every iframe on the harness page (PR 3). */
   loads: unknown[];
+  /** Every "ask-sent:<text>" line of the harness's fake send (PR 6). */
+  asks: unknown[];
   popups: string[];
   pageUrlAfter: string | null;
   outcome: string | null;
@@ -189,7 +194,7 @@ class CaseRun {
       browser, case: name, lane, path: lane === "controls" ? "" : SANDBOX_LANES[lane], parentCsp: null, parentFrameSrcNone: null,
       gates: {}, staticCheck: [], probes: [], hits: null, hitsAsserted: lane === "frame-src-none",
       recordedReason: lane === "baseline-csp" ? "baseline-csp lane: the canary record is gate A18's input" : null,
-      frames: [], intents: [], fallbacks: [], reports: [], loads: [],
+      frames: [], intents: [], fallbacks: [], reports: [], loads: [], asks: [],
       popups: [], pageUrlAfter: null, outcome: null, notes: [],
     };
   }
@@ -379,7 +384,7 @@ async function frameStates(page: Page): Promise<FrameState[]> {
  * the canary read with "Target page, context or browser has been closed". So: count first,
  * and never wait.
  */
-async function harnessLog(page: Page, kind: "intents" | "fallbacks" | "reports" | "loads"): Promise<unknown[]> {
+async function harnessLog(page: Page, kind: "intents" | "fallbacks" | "reports" | "loads" | "asks"): Promise<unknown[]> {
   const output = page.locator(`output[data-sandbox-log="${kind}"]`);
   if ((await output.count()) === 0) return [];
   const text = await output.textContent({ timeout: 1_000 }).catch(() => null);
@@ -404,6 +409,7 @@ async function finishCase(run: CaseRun, settleMs: number) {
   run.record.fallbacks = await harnessLog(run.page, "fallbacks");
   run.record.reports = await harnessLog(run.page, "reports");
   run.record.loads = await harnessLog(run.page, "loads");
+  run.record.asks = await harnessLog(run.page, "asks");
   run.record.pageUrlAfter = run.page.url();
   run.record.hits = await readHits(run.request);
   run.record.probes = run.probes;
@@ -1322,6 +1328,213 @@ test.describe("kit controls (PR 5)", () => {
       expectAttempted(run, "kit-controls");
       expect(run.record.reports, `${run.at}: no failure was stored`).toEqual([]);
       expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+  }
+});
+
+// PR 6 (spec 08 S10, S14.3): the ask message. Layer 1 (the kit) posts an ask only inside a
+// real user activation; layer 2 (the host) shows the normalised text on its own chrome, keyed
+// and armed like the action chip, and sends nothing until the user presses Send there. The
+// harness's send is a fake that logs "ask-sent:<text>".
+/** The text of every "ask-sent" line the harness's fake send logged. */
+async function asksSent(page: Page): Promise<string[]> {
+  return (await harnessLog(page, "asks")).map((a) => String((a as { value?: unknown }).value));
+}
+
+const BIDI_OR_INVISIBLE = /[\u0000-\u001F\u007F-\u009F​-‍⁠﻿‪-‮⁦-⁩]/;
+
+test.describe("a view's ask (PR 6)", () => {
+  for (const lane of Object.keys(SANDBOX_LANES) as SandboxLane[]) {
+    test(`[${lane}] ask-on-load: asks on init, in a microtask and on a timer post nothing and show nothing`, async ({ page, request, browserName }) => {
+      const run = await startCase(page, request, browserName, "ask-on-load", lane);
+      requireControls(run, laneControls(lane, "ask-on-load"));
+      await openHarness(run, lane, "ask-on-load");
+      expect(await waitForProbe(run, "ask-on-load", "done", 8_000), `${run.at}: the document ran its init`).toBe(true);
+      await finishCase(run, 1_000);
+      expectNoHits(run);
+      expectAttempted(run, "ask-on-load");
+      for (const key of ["onInit", "microtask", "timer"]) {
+        expect(probeValue(run.probes, "ask-on-load", key), `${run.at}: host.ask (${key}) with no click returned false`).toBe(false);
+      }
+      await expect(page.locator("[data-sandbox-ask]"), `${run.at}: no pending message`).toHaveCount(0);
+      expect(run.record.asks, `${run.at}: nothing was sent`).toEqual([]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+
+    test(`[${lane}] ask-loop: a loop on init posts nothing; the same loop in a real click trips ask_rate_limit and the frame is removed`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "ask-loop", lane);
+      requireControls(run, laneControls(lane, "ask-loop"));
+      await openHarness(run, lane, "ask-loop");
+      expect(await waitForProbe(run, "ask-loop", "done", 8_000), `${run.at}: the document ran its init`).toBe(true);
+      expect(probeValue(run.probes, "ask-loop", "onLoad"), `${run.at}: the loop on init posted nothing`).toBe(0);
+      await page.waitForTimeout(500);
+      await expect(page.locator("[data-sandbox-ask]"), `${run.at}: no pending message without a click`).toHaveCount(0);
+      expect(await harnessLog(page, "fallbacks"), `${run.at}: the loop on init tripped nothing`).toEqual([]);
+
+      expect(await clickInFrame(run, "#loop"), `${run.at}: the loop button was clicked`).toBe(true);
+      await expect(page.locator("[data-sandbox-surface] iframe"), `${run.at}: the frame was removed`).toHaveCount(0, { timeout: 5_000 });
+      await finishCase(run, 1_000);
+      expectNoHits(run);
+      expectAttempted(run, "ask-loop");
+      expect(fallbackReasons(run), `${run.at}: the host fell back for the ask limit`).toEqual(["ask_rate_limit"]);
+      expect(run.record.reports.map((r) => (r as { value?: unknown }).value), `${run.at}: the failure was reported`).toEqual(["ask_rate_limit"]);
+      await expect(page.locator("[data-sandbox-ask]"), `${run.at}: no pending message is left`).toHaveCount(0);
+      expect(run.record.asks, `${run.at}: nothing was sent`).toEqual([]);
+    });
+
+    test(`[${lane}] ask-click: a real click on <jb-button ask> shows the exact text; nothing is sent until Send, then once`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "ask-click", lane);
+      requireControls(run, laneControls(lane, "ask-click"));
+      await openHarness(run, lane, "ask-click");
+      expect(await waitForProbe(run, "ask-click", "done", 8_000), `${run.at}: the document ran its init`).toBe(true);
+      await expect(page.locator("[data-sandbox-ask]"), `${run.at}: no pending message before the click`).toHaveCount(0);
+
+      expect(await clickInFrame(run, "#ask"), `${run.at}: the ask button was clicked`).toBe(true);
+      const pending = page.locator("[data-sandbox-ask]");
+      await expect(pending.locator(".rf-ask__text"), `${run.at}: the pending message shows the exact text`).toHaveText(HARNESS_ASK_TEXT, { timeout: 3_000 });
+      await expect(pending, `${run.at}: one pending message`).toHaveCount(1);
+      await page.waitForTimeout(ARMED_AFTER_MS + 300);
+      expect(await asksSent(page), `${run.at}: nothing is sent before Send`).toEqual([]);
+
+      await page.getByRole("button", { name: `Send: ${HARNESS_ASK_TEXT}` }).click();
+      await expect(pending, `${run.at}: Send cleared the pending message`).toHaveCount(0);
+      await finishCase(run, 1_000);
+      expectNoHits(run);
+      expectAttempted(run, "ask-click");
+      expect(probeValue(run.probes, "ask-click", "clicked"), `${run.at}: the click inside the frame was trusted`).toBe(true);
+      expect(run.record.asks, `${run.at}: the fake send received the text once`).toEqual([
+        { surface: expect.any(String), value: `ask-sent:${HARNESS_ASK_TEXT}` },
+      ]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+
+    test(`[${lane}] ask-swap: the text swapped 100 ms after the click ignores a press inside the arm window, then Send sends the text on screen`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "ask-swap", lane);
+      requireControls(run, laneControls(lane, "ask-swap"));
+      await openHarness(run, lane, "ask-swap");
+      expect(await waitForProbe(run, "ask-swap", "done", 8_000), `${run.at}: the document ran its init`).toBe(true);
+      const pending = page.locator("[data-sandbox-ask]");
+      const text = pending.locator(".rf-ask__text");
+      const send = pending.locator("[data-sandbox-ask-send]");
+
+      const clickedAt = Date.now();
+      expect(await clickInFrame(run, "#ask"), `${run.at}: the ask button was clicked`).toBe(true);
+      await expect(text, `${run.at}: the swapped text replaced the first`).toHaveText(HARNESS_ASK_SWAPPED, { timeout: 3_000 });
+
+      // A press 300 ms after the click lands 200 ms after the swap, inside CHIP_ARM_MS: nothing is sent.
+      const wait = 300 - (Date.now() - clickedAt);
+      if (wait > 0) await page.waitForTimeout(wait);
+      const box = await send.boundingBox();
+      expect(box, `${run.at}: Send has a box`).not.toBeNull();
+      await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await waitForProbe(run, "ask-swap", "swap", 1_000);
+      const swap = probeValue(run.probes, "ask-swap", "swap") as { posted?: boolean; at?: number } | undefined;
+      expect(swap?.posted, `${run.at}: the swap posted inside the click's activation`).toBe(true);
+      const sinceSwap = Date.now() - Number(swap?.at);
+      if (Number.isFinite(sinceSwap) && sinceSwap < CHIP_ARM_MS - 100) {
+        expect(await asksSent(page), `${run.at}: a press ${sinceSwap} ms after the swap sent something`).toEqual([]);
+        await expect(pending, `${run.at}: the early press left the pending message`).toHaveCount(1);
+        run.note(`The early press landed about ${sinceSwap} ms after the frame's swap and sent nothing.`);
+      } else {
+        run.note(`Early press inconclusive: it landed ${sinceSwap} ms after the frame's swap, too late to test the arm window.`);
+      }
+
+      // 800 ms after the swap the new text is armed: Send sends exactly what is on screen.
+      const until = Number(swap?.at) + CHIP_ARM_MS + 100 - Date.now();
+      if (until > 0) await page.waitForTimeout(until);
+      if ((await asksSent(page)).length === 0) {
+        await expect(text, `${run.at}: the text on screen`).toHaveText(HARNESS_ASK_SWAPPED);
+        await expect(send, `${run.at}: Send names the text on screen`).toHaveAttribute("aria-label", `Send: ${HARNESS_ASK_SWAPPED}`);
+        await send.click();
+      }
+      await expect(pending, `${run.at}: Send cleared the pending message`).toHaveCount(0);
+      await finishCase(run, 500);
+      expectNoHits(run);
+      expectAttempted(run, "ask-swap");
+      expect(run.record.asks, `${run.at}: one send, of the swapped text`).toEqual([
+        { surface: expect.any(String), value: `ask-sent:${HARNESS_ASK_SWAPPED}` },
+      ]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+
+    test(`[${lane}] ask-synthetic-click: element.click() and dispatched untrusted events produce no pending message`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "ask-synthetic-click", lane);
+      requireControls(run, laneControls(lane, "ask-synthetic-click"));
+      await openHarness(run, lane, "ask-synthetic-click");
+      expect(await waitForProbe(run, "ask-synthetic-click", "done", 8_000), `${run.at}: the document ran its init`).toBe(true);
+      await finishCase(run, 1_000);
+      expectNoHits(run);
+      expectAttempted(run, "ask-synthetic-click");
+      noteThrows(run, "ask-synthetic-click", ["elementClick", "dispatched", "plainElementClick", "pointerup"]);
+      const plain = probeValue(run.probes, "ask-synthetic-click", "plainClick") as { trusted?: boolean; posted?: boolean } | undefined;
+      expect(plain, `${run.at}: the plain button's handler saw an untrusted click and host.ask returned false`).toEqual({ trusted: false, posted: false });
+      await expect(page.locator("[data-sandbox-ask]"), `${run.at}: no pending message`).toHaveCount(0);
+      expect(run.record.asks, `${run.at}: nothing was sent`).toEqual([]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+
+    test(`[${lane}] ask-oversize: a 281-character ask and one that normalises to nothing are dropped`, async ({ page, request, browserName }) => {
+      const run = await startCase(page, request, browserName, "ask-oversize", lane);
+      requireControls(run, laneControls(lane, "ask-oversize"));
+      await openHarness(run, lane, "ask-oversize");
+      expect(await waitForProbe(run, "ask-oversize", "done", 8_000), `${run.at}: the document ran its init`).toBe(true);
+      expect(await clickInFrame(run, "#ask"), `${run.at}: the ask button was clicked`).toBe(true);
+      expect(await waitForProbe(run, "ask-oversize", "blank", 2_000), `${run.at}: the click ran both asks`).toBe(true);
+      await finishCase(run, 1_000);
+      expectNoHits(run);
+      expectAttempted(run, "ask-oversize");
+      expect(probeValue(run.probes, "ask-oversize", "long"), `${run.at}: the long ask was 281 characters`).toMatchObject({ length: 281 });
+      await expect(page.locator("[data-sandbox-ask]"), `${run.at}: no pending message`).toHaveCount(0);
+      expect(run.record.asks, `${run.at}: nothing was sent`).toEqual([]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+
+    test(`[${lane}] ask-bidi: bidi controls, zero-width characters, a control and a newline are gone from the shown text`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "ask-bidi", lane);
+      requireControls(run, laneControls(lane, "ask-bidi"));
+      await openHarness(run, lane, "ask-bidi");
+      expect(await waitForProbe(run, "ask-bidi", "done", 8_000), `${run.at}: the document ran its init`).toBe(true);
+      expect(await clickInFrame(run, "#ask"), `${run.at}: the ask button was clicked`).toBe(true);
+      const pending = page.locator("[data-sandbox-ask]");
+      const text = pending.locator(".rf-ask__text");
+      await expect(text, `${run.at}: the shown text is normalised`).toHaveText(HARNESS_ASK_BIDI_SHOWN, { timeout: 3_000 });
+      const raw = (await text.textContent()) ?? "";
+      expect(raw, `${run.at}: the shown text is exactly the normalised text`).toBe(HARNESS_ASK_BIDI_SHOWN);
+      expect(BIDI_OR_INVISIBLE.test((await pending.textContent()) ?? ""), `${run.at}: no bidi, zero-width or control character is shown`).toBe(false);
+      await page.waitForTimeout(ARMED_AFTER_MS);
+      await page.getByRole("button", { name: `Send: ${HARNESS_ASK_BIDI_SHOWN}` }).click();
+      await finishCase(run, 500);
+      expectNoHits(run);
+      expectAttempted(run, "ask-bidi");
+      expect(run.record.asks, `${run.at}: the normalised text was sent once`).toEqual([
+        { surface: expect.any(String), value: `ask-sent:${HARNESS_ASK_BIDI_SHOWN}` },
+      ]);
       expectContained(run);
     });
   }

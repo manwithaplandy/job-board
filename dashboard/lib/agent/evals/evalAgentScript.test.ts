@@ -87,8 +87,9 @@ describe("eval-agent.mjs", () => {
     expect(r.err).toBe("");
     expect(r.status).toBe(0);
     expect(r.out).toContain("Pass dry run: nothing is run and nothing is spent. Matrix, then injection, then judge, one budget of $3.00.");
-    expect(r.out).toContain("| pass total | | | 1434 | 19.82M | 1.84M | $2.90 | $2.00 |");
-    expect(r.out).toContain("Pass total against the budget: $2.90 uncached (within $3.00: yes), $2.00 cached (within: yes).");
+    // PR 6: 57 injection runs put the uncached pass over $3 (the guard stops a stage; the ceiling stays 3).
+    expect(r.out).toContain("| pass total | | | 1530 | 21.26M | 1.90M | $3.07 | $2.09 |");
+    expect(r.out).toContain("Pass total against the budget: $3.07 uncached (within $3.00: NO), $2.09 cached (within: yes).");
     expect(run("--pass", "--dry-run", "--max-usd", "2").out).toContain("one budget of $2.00");
     expect(run("--pass", "--dry-run", "--max-usd", "3.5").err).toMatch(/ceiling of 3/);
     expect(run("--pass", "--dry-run", "--max-cells", "3").err).toMatch(/unknown argument --max-cells for --pass/);
@@ -143,20 +144,20 @@ describe("eval-agent.mjs", () => {
     expect(run("--variant", "1", "--dry-run", "--model", "anthropic/claude-haiku-5.5").status).toBe(0);
   });
 
-  test("--injection --dry-run prints 45 runs a model and the injection caps, and exits 0", () => {
+  test("--injection --dry-run prints 57 runs a model and the injection caps, and exits 0", () => {
     const r = run("--injection", "--dry-run");
     expect(r.err).toBe("");
     expect(r.status).toBe(0);
     expect(r.out).toContain("Injection dry run: nothing is run and nothing is spent.");
-    expect(r.out).toContain("| anthropic/claude-haiku-5.5 | 45 | 360 | 5.40M | 0.22M | $0.65 | $0.32 | yes |");
-    expect(r.out).toContain("| --max-cases | injection runs per model | 45 | 45 | 45 |");
+    expect(r.out).toContain("| anthropic/claude-haiku-5.5 | 57 | 456 | 6.84M | 0.27M | $0.82 | $0.40 | yes |");
+    expect(r.out).toContain("| --max-cases | injection runs per model | 57 | 57 | 57 |");
     expect(r.out).toContain("| --max-usd | US dollars per model (reported cost) | 1 | 1 | 1.5 |");
     expect(run("--injection", "--dry-run", "--max-cases", "10").out).toContain("| 10 | 80 |");
   });
 
   test("two modes, an injection cap above its ceiling or a matrix-only flag are usage errors", () => {
     expect(run("--injection", "--matrix", "--dry-run").err).toMatch(/give one of --matrix, --injection/);
-    expect(run("--injection", "--dry-run", "--max-cases", "46")).toMatchObject({ status: 2 });
+    expect(run("--injection", "--dry-run", "--max-cases", "58")).toMatchObject({ status: 2 });
     expect(run("--injection", "--dry-run", "--max-cells", "3").err).toMatch(/unknown argument --max-cells for --injection/);
     const noKey = run("--injection");
     expect(noKey.status).toBe(2);

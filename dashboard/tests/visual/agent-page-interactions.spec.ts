@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { ASK_PENDING_TEXT } from "../../components/agent/agentPageFixtureStates";
 import { VISUAL_ROUTES } from "./routes";
 
 // Behaviour on the agent page fixtures that a screenshot cannot prove (spec 08 section
@@ -9,8 +10,11 @@ import { VISUAL_ROUTES } from "./routes";
 // the latest view's title and brings it into view. PR 3 (spec 08 S6): Expand fills the
 // viewport, Tab stays in the view and the dock (everything else is inert), the composer
 // takes text while a view is expanded, Escape and Back close it with focus back on Expand,
-// and an Expand/Close cycle leaves no more than one history entry. Later PRs add the
-// pending ask here.
+// and an Expand/Close cycle leaves no more than one history entry. PR 6 (spec 08 S10.2):
+// the pending ask shows its whole text, Dismiss clears it, and Send posts it to
+// /api/agent as a view message (its id starts "view-") and leaves a draft in the composer
+// alone. The gallery has no route to answer, so the request is read with waitForRequest
+// and nothing is routed or stubbed.
 
 const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
 const VIEWPORTS = [
@@ -195,6 +199,45 @@ for (const viewport of VIEWPORTS) {
         const now = await page.evaluate(() => history.length);
         expect(now - start, `history grew by ${now - start} after ${i + 1} cycle(s)`).toBeLessThanOrEqual(1);
       }
+    });
+
+    test(`the pending ask shows its whole text and Dismiss clears it w${viewport.width}`, async ({ page }) => {
+      await page.goto(routePath("agent-page-ask-pending"), { waitUntil: "networkidle" });
+      const pending = page.locator("[data-sandbox-ask]");
+      await expect(pending).toHaveCount(1);
+      const text = pending.locator(".rf-ask__text");
+      await expect(text).toHaveText(ASK_PENDING_TEXT);
+      await expect(text).toBeVisible();
+      const fit = await text.evaluate((el) => {
+        const own = el.getBoundingClientRect();
+        const holder = el.closest(".rf-view")!.getBoundingClientRect();
+        return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, right: own.right, holderRight: holder.right, pageScroll: document.documentElement.scrollWidth, inner: window.innerWidth };
+      });
+      expect(fit.scrollWidth, `the ask text is not clipped: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.clientWidth);
+      expect(fit.right, `the ask text stays inside its view: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.holderRight + 1);
+      expect(fit.pageScroll, "no horizontal page scroll").toBeLessThanOrEqual(fit.inner);
+      await page.getByRole("button", { name: `Dismiss: ${ASK_PENDING_TEXT}` }).click();
+      await expect(pending).toHaveCount(0);
+    });
+
+    test(`Send posts the ask as a view message and keeps the composer's draft w${viewport.width}`, async ({ page }) => {
+      await page.goto(routePath("agent-page-ask-pending"), { waitUntil: "networkidle" });
+      await page.reload({ waitUntil: "networkidle" });
+      const pending = page.locator("[data-sandbox-ask]");
+      await expect(pending).toHaveCount(1);
+      const composer = page.getByLabel(/^Message/);
+      await composer.click();
+      await composer.pressSequentially("A draft I am still writing");
+      await expect(composer).toHaveValue("A draft I am still writing");
+
+      const sent = page.waitForRequest((req) => req.method() === "POST" && new URL(req.url()).pathname === "/api/agent");
+      await page.getByRole("button", { name: `Send: ${ASK_PENDING_TEXT}` }).click();
+      const body: unknown = (await sent).postDataJSON();
+      expect(body, "the request is a message").toMatchObject({ kind: "message", text: ASK_PENDING_TEXT, source: { kind: "view" } });
+      const id = (body as { id?: unknown }).id;
+      expect(typeof id === "string" && id.startsWith("view-"), `the message id starts "view-": ${String(id)}`).toBe(true);
+      await expect(pending, "Send cleared the pending ask").toHaveCount(0);
+      await expect(composer, "the draft is still in the composer").toHaveValue("A draft I am still writing");
     });
 
     test(`nothing is inert when no view is expanded w${viewport.width}`, async ({ page }) => {

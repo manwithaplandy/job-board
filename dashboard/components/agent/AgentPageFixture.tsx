@@ -9,7 +9,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { AgentChat, StartConversation, type AgentChatFixture } from "./AgentChat";
 import { AgentPageView } from "./AgentPageView";
-import type { AgentPageFixtureState } from "./agentPageFixtureStates";
+import { ASK_PENDING_TEXT, type AgentPageFixtureState } from "./agentPageFixtureStates";
 import { TestDataBadge } from "./TestDataBadge";
 import type { ThreadSummary } from "./ThreadList";
 import { FIXTURE_GATHERED, JOBS_FIXTURE_PAYLOAD, JOBS_FIXTURE_ROWS, PREP_FIXTURE_GATHERED, PREP_FIXTURE_ROWS } from "./blocks/AgentBlocksFixture";
@@ -260,6 +260,7 @@ const VARIANT_OF: Partial<Record<AgentPageFixtureState, Variant>> = {
   "agent-page-code": 3,
   "agent-page-view-degraded": 2,
   "agent-page-code-expanded": 3,
+  "agent-page-ask-pending": 3,
 };
 
 const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
@@ -274,6 +275,7 @@ const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
   "agent-page-view-expanded": WITH_SURFACE,
   "agent-page-code-expanded": CODE_REPLY,
   "agent-page-views-multi": VIEWS_MULTI,
+  "agent-page-ask-pending": CODE_REPLY,
 };
 
 const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
@@ -285,16 +287,19 @@ const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
   "agent-page-view-expanded": CHAINS,
   "agent-page-code-expanded": CODE_CHAINS,
   "agent-page-views-multi": MULTI_CHAINS,
+  "agent-page-ask-pending": CODE_CHAINS,
 };
 
-// The chat's gallery seam: a frozen working timer, one message's steps open, or a view
-// expanded with the dock (no history entry is pushed for it).
+// The chat's gallery seam: a frozen working timer, one message's steps open, a view
+// expanded with the dock (no history entry is pushed for it), or a view's ask pending.
 const CHAT_FIXTURE_OF: Partial<Record<AgentPageFixtureState, AgentChatFixture>> = {
   "agent-page-steps-working": { working: { elapsedMs: 65_000 } },
   "agent-page-steps-open": { openStepsFor: "a2" },
   "agent-page-view-building": { working: { elapsedMs: 12_000 } },
   "agent-page-view-expanded": { expandedChainId: SURFACE },
   "agent-page-code-expanded": { expandedChainId: SURFACE_CODE },
+  // PR 6: the code view's ask, pending on host chrome (armed at once: a fixture has no arm wait).
+  "agent-page-ask-pending": { askFor: { surfaceId: SURFACE_CODE, text: ASK_PENDING_TEXT } },
 };
 
 /** The messages a state's chat starts with (exported for its test). */

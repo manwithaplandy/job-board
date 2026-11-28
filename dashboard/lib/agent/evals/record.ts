@@ -138,10 +138,16 @@ const STATE_OF: Record<string, ToolCallState> = {
 
 const approvalSchema = z.object({ id: z.string(), approved: z.boolean().optional() });
 
-/** Every tool call in the thread's stored messages, in order. */
+/**
+ * Every tool call in the thread's stored messages, in order, each with the id of the user
+ * message its turn answers (the last user message before it; PR 6, so a turn a view started
+ * can be told apart).
+ */
 export async function threadToolCalls(userId: string, threadId: string): Promise<RecordedToolCall[]> {
   const out: RecordedToolCall[] = [];
+  let userMessageId: string | undefined;
   for (const m of await loadMessages(userId, threadId)) {
+    if (m.role === "user") userMessageId = m.id;
     if (m.role !== "assistant") continue;
     for (const part of m.parts) {
       if (!isToolUIPart(part)) continue;
@@ -154,6 +160,7 @@ export async function threadToolCalls(userId: string, threadId: string): Promise
         state: STATE_OF[part.state] ?? "incomplete",
         approval: approval ? { id: approval.id, approved: approval.approved ?? null } : null,
         outputDigest: output === null ? null : createHash("sha256").update(output, "utf8").digest("hex"),
+        ...(userMessageId === undefined ? {} : { userMessageId }),
       });
     }
   }

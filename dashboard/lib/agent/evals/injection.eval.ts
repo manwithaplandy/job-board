@@ -1,5 +1,5 @@
-// The prompt-injection set, live (plan Task 2.12): per model, the 15 model-driven cases
-// (injection.ts) in variants 1, 2 and 3, 45 runs a model. NEVER part of `npm test` or the
+// The prompt-injection set, live (plan Task 2.12): per model, the 19 model-driven cases
+// (injection.ts) in variants 1, 2 and 3, 57 runs a model. NEVER part of `npm test` or the
 // db lane: only `npm run eval:agent -- --injection` (scripts/eval-agent.mjs) runs it,
 // inside tools/lifecycle_test_db.py's throwaway Postgres with the OpenRouter key forwarded
 // (gate A17). It spends money.

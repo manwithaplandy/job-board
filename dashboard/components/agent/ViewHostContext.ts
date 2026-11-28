@@ -7,7 +7,8 @@
 // with no provider (rendered alone, as in its unit tests and the gallery fixtures) keeps
 // its own title and its chip region inline. It also says whether the frame is expanded
 // (spec 08 S6), and `onEscape` is how a sandbox frame's in-frame Escape (the kit's `escape`
-// message, spec 08 S9.2) closes it: the frame's collapse while expanded, a no-op otherwise.
+// message, spec 08 S9.2) closes it: while expanded, the page's gated Escape (the same path
+// as Escape on the page, so a confirm card blocks it too); a no-op otherwise.
 import { createContext } from "react";
 
 export type ViewHost = {
@@ -15,7 +16,7 @@ export type ViewHost = {
   requestsEl: HTMLElement | null;
   /** The frame is expanded to the full viewport. */
   expanded: boolean;
-  /** Collapses the frame when it is expanded; does nothing otherwise. */
+  /** Escape from inside the frame: collapses it when expanded, unless a confirm card shows; does nothing otherwise. */
   onEscape: () => void;
 };
 

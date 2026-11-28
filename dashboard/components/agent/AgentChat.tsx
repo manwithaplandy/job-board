@@ -42,7 +42,7 @@ import { AgentMarkdown } from "./AgentMarkdown";
 import { StepsRow } from "./StepsRow";
 import { ExpandedStatus, turnOutcome, type ExpandedOutcome } from "./ExpandedStatus";
 import { frameOfChain, useExpandedDock } from "./useExpandedDock";
-import { ViewFrame } from "./ViewFrame";
+import { focusInPage, ViewFrame } from "./ViewFrame";
 import { ViewLoadFailed, ViewPlaceholder, ViewUpdatedStub } from "./ViewPlaceholder";
 import { useExpandedView } from "./useExpandedView";
 
@@ -828,7 +828,7 @@ export function AgentChat({
 
   // The one expanded view (spec 08 S6), held here above the message list and keyed by chain,
   // so a chain whose update lands in a newer message (a new frame there) stays expanded.
-  const { expandedChainId, expand, collapse } = useExpandedView({
+  const { expandedChainId, expand, collapse, requestEscape } = useExpandedView({
     chainIds: chains.map((c) => c.chainId),
     blocked: () => shownConfirm !== null,
     initial: fixture?.expandedChainId,
@@ -871,7 +871,8 @@ export function AgentChat({
       const message = [...(chatRef.current?.querySelectorAll<HTMLElement>(".rf-agent-message") ?? [])].find((el) => el.dataset.messageId === target);
       if (message && typeof message.scrollIntoView === "function") message.scrollIntoView({ block: "start" });
     }
-    if (!frameOfChain(chatRef.current, was)) dockRef.current?.querySelector<HTMLElement>("textarea")?.focus({ preventScroll: true });
+    const textarea = dockRef.current?.querySelector<HTMLElement>("textarea");
+    if (textarea && !frameOfChain(chatRef.current, was)) focusInPage(textarea);
   }, [expandedChainId, dockRef]);
   // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
   const chainView = (chain: HostChain) => (
@@ -887,6 +888,7 @@ export function AgentChat({
       expanded={expandedChainId === chain.chainId}
       onExpand={() => expand(chain.chainId)}
       onCollapse={collapse}
+      onEscape={requestEscape}
     />
   );
 

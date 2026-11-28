@@ -15,7 +15,7 @@ import { everyNodePayload } from "@/lib/agent/surfaces/v2/testFixtures";
 import { RERENDER_ERRORS, VERSIONS_LABEL } from "./RerenderTabs";
 import { SandboxFrame, type SandboxFrameServer } from "./sandbox/SandboxFrame";
 import { DEGRADED_CAPTION, mergeSurface, sandboxChain, withBlocksView } from "./SurfaceHost";
-import { ViewFrame, type ViewFrameProps } from "./ViewFrame";
+import { CLOSE_FADE_MS, ViewFrame, type ViewFrameProps } from "./ViewFrame";
 import { ViewHostContext, type ViewHost } from "./ViewHostContext";
 
 const THREAD = "22222222-2222-4222-8222-222222222222";
@@ -339,6 +339,33 @@ describe("expand", () => {
     expect(document.activeElement).toBe(button);
   });
 
+  test("a collapse with focus in the view's iframe (Escape pressed in the frame) blurs the iframe and focuses the window first", () => {
+    const chain = original();
+    const view = (expanded: boolean) => frame(chain, true, vi.fn(), { expanded, children: <iframe title="frame" /> });
+    const { container, rerender } = render(view(true));
+    const iframe = container.querySelector("iframe")!;
+    iframe.focus();
+    expect(document.activeElement).toBe(iframe);
+    const blur = vi.spyOn(iframe, "blur");
+    const focusWindow = vi.spyOn(window, "focus").mockImplementation(() => {});
+    rerender(view(false));
+    expect(blur).toHaveBeenCalledTimes(1);
+    expect(focusWindow).toHaveBeenCalledTimes(1);
+    expect(blur.mock.invocationCallOrder[0]).toBeLessThan(focusWindow.mock.invocationCallOrder[0]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Expand view/ }));
+    focusWindow.mockRestore();
+  });
+
+  test("with focus already in the page, a collapse neither blurs nor focuses the window", () => {
+    const chain = original();
+    const { rerender } = render(frame(chain, true, vi.fn(), { expanded: true }));
+    const focusWindow = vi.spyOn(window, "focus").mockImplementation(() => {});
+    rerender(frame(chain, true, vi.fn(), { expanded: false }));
+    expect(focusWindow).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Expand view/ }));
+    focusWindow.mockRestore();
+  });
+
   test("a frame mounted expanded (its chain moved to a newer message) takes focus only when nothing else has it", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);
@@ -396,6 +423,92 @@ describe("expand", () => {
     expect(seen.at(-1)?.expanded).toBe(true);
     seen.at(-1)?.onEscape();
     expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  test("with onEscape (the page's gated Escape), the host's Escape calls it, not onCollapse", () => {
+    const onCollapse = vi.fn();
+    const onEscape = vi.fn();
+    const seen: ViewHost[] = [];
+    function Probe() {
+      const host = useContext(ViewHostContext);
+      if (host) seen.push(host);
+      return null;
+    }
+    const chain = original();
+    const { rerender } = render(frame(chain, true, vi.fn(), { onCollapse, onEscape, children: <Probe /> }));
+    seen.at(-1)?.onEscape();
+    expect(onEscape).not.toHaveBeenCalled();
+    rerender(frame(chain, true, vi.fn(), { expanded: true, onCollapse, onEscape, children: <Probe /> }));
+    seen.at(-1)?.onEscape();
+    expect(onEscape).toHaveBeenCalledTimes(1);
+    expect(onCollapse).not.toHaveBeenCalled();
+  });
+
+  test("the disclosure is closed again after a collapse", () => {
+    const chain = original();
+    const { container, rerender } = render(frame(chain, true, vi.fn(), { expanded: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Re-render as" }));
+    expect(container.querySelector(".rf-view__footer")?.getAttribute("data-rerender-open")).toBe("true");
+    rerender(frame(chain, true, vi.fn(), { expanded: false }));
+    rerender(frame(chain, true, vi.fn(), { expanded: true }));
+    expect(screen.getByRole("button", { name: "Re-render as" }).getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".rf-view__footer")?.getAttribute("data-rerender-open")).toBe("false");
+  });
+
+  describe("the fade", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    test("fades in on expand and out on collapse, keeping the closing layout only for the fade; focus moves at once", () => {
+      vi.useFakeTimers();
+      const chain = original();
+      const { container, rerender } = render(frame(chain));
+      const s = section(container)!;
+      expect(s.hasAttribute("data-fade")).toBe(false);
+      rerender(frame(chain, true, vi.fn(), { expanded: true }));
+      expect(s.getAttribute("data-fade")).toBe("open");
+      rerender(frame(chain, true, vi.fn(), { expanded: false }));
+      expect(s.getAttribute("data-fade")).toBe("close");
+      // The dialog is gone and focus is back on Expand at once, not after the fade.
+      expect(s.hasAttribute("data-expanded")).toBe(false);
+      expect(s.getAttribute("role")).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: /Expand view/ }));
+      act(() => void vi.advanceTimersByTime(CLOSE_FADE_MS));
+      expect(s.hasAttribute("data-fade")).toBe(false);
+      expect(section(container)).toBe(s);
+    });
+
+    test("expanding again during the close fade fades in, and the old timer does not clear it", () => {
+      vi.useFakeTimers();
+      const chain = original();
+      const { container, rerender } = render(frame(chain, true, vi.fn(), { expanded: true }));
+      const s = section(container)!;
+      rerender(frame(chain, true, vi.fn(), { expanded: false }));
+      expect(s.getAttribute("data-fade")).toBe("close");
+      rerender(frame(chain, true, vi.fn(), { expanded: true }));
+      expect(s.getAttribute("data-fade")).toBe("open");
+      act(() => void vi.advanceTimersByTime(CLOSE_FADE_MS * 2));
+      expect(s.getAttribute("data-fade")).toBe("open");
+      expect(s.getAttribute("data-expanded")).toBe("true");
+    });
+
+    test("a frame mounted already expanded does not replay the open fade", () => {
+      const { container } = render(frame(original(), true, vi.fn(), { expanded: true }));
+      expect(section(container)!.getAttribute("data-expanded")).toBe("true");
+      expect(section(container)!.hasAttribute("data-fade")).toBe(false);
+    });
+
+    test("under prefers-reduced-motion a collapse has no close fade (CSS also drops the open one)", () => {
+      vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)", media: query, addEventListener() {}, removeEventListener() {} }));
+      const chain = original();
+      const { container, rerender } = render(frame(chain, true, vi.fn(), { expanded: true }));
+      const s = section(container)!;
+      rerender(frame(chain, true, vi.fn(), { expanded: false }));
+      expect(s.hasAttribute("data-fade")).toBe(false);
+      expect(s.hasAttribute("data-expanded")).toBe(false);
+    });
   });
 
   test("expanded, the re-render buttons sit behind one Re-render as disclosure", () => {

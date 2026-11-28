@@ -12,9 +12,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 // - collapse() goes back when the view's own entry is on top, so no dead entry is left;
 //   otherwise (the fixture seam, or something pushed since) it only clears the id.
 // - popstate: an `rfView` naming a chain on the page expands it; an unknown chain is
-//   ignored; any other state collapses. Popstate never writes history.
-// - Escape on the page collapses, unless `blocked()` (a confirm card shows; it has its own
-//   Cancel) or something already handled the key.
+//   ignored; any other state collapses. Popstate never writes history. The first popstate
+//   after collapse()'s own back() is that back arriving, and is swallowed: back() is
+//   asynchronous, so a view expanded again before it lands is not collapsed by it.
+// - requestEscape() is the one Escape path, for Escape on the page and the sandbox frame's
+//   in-frame Escape alike: it collapses unless `blocked()` (a confirm card shows; it has its
+//   own Cancel). Escape on the page is also ignored when something already handled the key
+//   or an IME composition is under way (the key ends the composition).
 // - A chain that leaves the page collapses the view without touching history.
 // - While expanded, <html> carries EXPANDED_HTML_CLASS (overflow: hidden). Unmount removes
 //   it and the listeners and leaves history alone.
@@ -31,6 +35,8 @@ export interface ExpandedView {
   expandedChainId: string | null;
   expand(chainId: string): void;
   collapse(): void;
+  /** Escape, from the page or from inside a view: collapses unless blocked(). */
+  requestEscape(): void;
 }
 
 export function useExpandedView(opts: {
@@ -61,16 +67,30 @@ export function useExpandedView(opts: {
     setStored(chainId);
   }, []);
 
+  // Set while collapse()'s back() has not yet arrived as a popstate.
+  const pendingBack = useRef(false);
   const collapse = useCallback(() => {
     const current = latest.current.expandedChainId;
     if (current === null) return;
     latest.current = { ...latest.current, expandedChainId: null };
     setStored(null);
-    if (rfViewOf(window.history.state) === current) window.history.back();
+    if (rfViewOf(window.history.state) === current) {
+      pendingBack.current = true;
+      window.history.back();
+    }
   }, []);
+
+  const requestEscape = useCallback(() => {
+    if (latest.current.expandedChainId === null || latest.current.blocked()) return;
+    collapse();
+  }, [collapse]);
 
   useEffect(() => {
     const onPopState = (e: PopStateEvent) => {
+      if (pendingBack.current) {
+        pendingBack.current = false;
+        return;
+      }
       const named = rfViewOf(e.state);
       if (named === null) {
         latest.current = { ...latest.current, expandedChainId: null };
@@ -81,8 +101,8 @@ export function useExpandedView(opts: {
       }
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || latest.current.expandedChainId === null || latest.current.blocked()) return;
-      collapse();
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      requestEscape();
     };
     window.addEventListener("popstate", onPopState);
     document.addEventListener("keydown", onKeyDown);
@@ -90,7 +110,7 @@ export function useExpandedView(opts: {
       window.removeEventListener("popstate", onPopState);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [collapse]);
+  }, [requestEscape]);
 
   const isExpanded = expandedChainId !== null;
   useEffect(() => {
@@ -100,5 +120,5 @@ export function useExpandedView(opts: {
     return () => html.classList.remove(EXPANDED_HTML_CLASS);
   }, [isExpanded]);
 
-  return { expandedChainId, expand, collapse };
+  return { expandedChainId, expand, collapse, requestEscape };
 }

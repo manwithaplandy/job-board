@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { forRuns, readRenderResults, renderCounts, renderedTextIndex, v3MisstatementsByModel, type RenderResult } from "@/lib/agent/evals/renderResults";
+import { forRuns, isExpandedResult, readRenderResults, renderCounts, renderedTextIndex, v3MisstatementsByModel, type RenderResult } from "@/lib/agent/evals/renderResults";
 
 const RUN = "20261126T010000Z";
 const OLD = "20261120T010000Z";
@@ -109,5 +109,48 @@ describe("render smoke results", () => {
     const stale = [...rs, result(`matrix/${OLD}/anthropic-claude-sonnet-5.5/v3/b.json#0`, { misstatements: ["a", "b"], evalRun: OLD })];
     expect(v3MisstatementsByModel(stale, ["anthropic/claude-sonnet-5.5"], RUN)).toEqual({ "anthropic/claude-sonnet-5.5": 1 });
     expect(v3MisstatementsByModel(stale, ["anthropic/claude-sonnet-5.5"], OLD)).toEqual({ "anthropic/claude-sonnet-5.5": 2 });
+  });
+
+  // PR 3 review fix round 1: every surface also renders expanded. An expanded row must not
+  // count a surface a second time, even one written with the measures filled in (an older
+  // spec did that), and a finding seen in both modes is one combination.
+  test("an expanded row does not count its surface twice", () => {
+    const name = `matrix/${RUN}/anthropic-claude-sonnet-5.5/v3/b.json#0`;
+    const inline = result(name, { mode: "inline", misstatements: ["fit 90 is 94"], failures: ["misstatement: fit"], canaryHits: 1, frameLoads: 2, frameText: "Fit 90" });
+    const expanded = result(name, { viewport: "desktop-expanded", mode: "expanded", misstatements: ["fit 90 is 94"], failures: ["misstatement: fit"], canaryHits: 1, frameLoads: 2, frameText: "Fit 91" });
+    // A file written before results had a mode is told apart by its viewport id.
+    const legacyExpanded = result(name, { viewport: "mobile-expanded", theme: "dark", misstatements: ["x"], failures: ["axe: y"], canaryHits: 3 });
+    const rs = [inline, expanded, legacyExpanded];
+    expect(rs.map(isExpandedResult)).toEqual([false, true, true]);
+    expect(renderCounts(rs)).toEqual([{ source: "matrix", variant: 3, surfaces: 1, failing: 2, misstatements: 1, canaryHits: 1, reloads: 1 }]);
+    expect(renderCounts([inline])).toEqual([{ source: "matrix", variant: 3, surfaces: 1, failing: 1, misstatements: 1, canaryHits: 1, reloads: 1 }]);
+    expect(v3MisstatementsByModel(rs, ["anthropic/claude-sonnet-5.5"], RUN)).toEqual({ "anthropic/claude-sonnet-5.5": 1 });
+    expect([...renderedTextIndex(rs, RUN).entries()]).toEqual([[name, "Fit 90"]]);
+  });
+
+  test("the full matrix of eight rows per surface counts it once", () => {
+    const name = `matrix/${RUN}/anthropic-claude-sonnet-5.5/v3/c.json#0`;
+    const rows: RenderResult[] = [];
+    for (const viewport of ["mobile", "desktop"]) {
+      for (const theme of ["light", "dark"]) {
+        for (const mode of ["inline", "expanded"] as const) {
+          const once = viewport === "desktop" && theme === "light" && mode === "inline";
+          rows.push(
+            result(name, {
+              viewport: mode === "expanded" ? `${viewport}-expanded` : viewport,
+              theme,
+              mode,
+              misstatements: once ? ["pay 180k is 175k"] : null,
+              canaryHits: once ? 0 : null,
+              frameLoads: once ? 1 : null,
+              frameText: once ? "Pay 180k" : null,
+            }),
+          );
+        }
+      }
+    }
+    expect(renderCounts(rows)).toEqual([{ source: "matrix", variant: 3, surfaces: 1, failing: 0, misstatements: 1, canaryHits: 0, reloads: 0 }]);
+    expect(v3MisstatementsByModel(rows, ["anthropic/claude-sonnet-5.5"], RUN)).toEqual({ "anthropic/claude-sonnet-5.5": 1 });
+    expect(renderedTextIndex(rows, RUN).size).toBe(1);
   });
 });
